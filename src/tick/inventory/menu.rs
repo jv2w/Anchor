@@ -1,5 +1,5 @@
-//! Menu windows (`InvMenu`'s way): a chest, double chest or hopper screen whose items are the
-//! server's, opened on fake container blocks behind the player.
+//! Menu windows: a chest, double chest or hopper screen whose items are the server's, opened on
+//! fake container blocks behind the player.
 //!
 //! Opening shows the container blocks to the player alone (`view`'s menu blocks, over its other
 //! fake blocks) with their client data (the title as `CustomName`, a double chest's pair), and
@@ -46,17 +46,16 @@ use crate::tick::entity::Raise;
 use crate::tick::{Context, Phase, Player, SessionId, State, survival, view};
 use crate::world::{self, BlockPos};
 
-/// `InvMenu`'s place behind the player (`getBehindPositionOffset`): the look direction times
-/// -(1 + width) horizontally and -(1 + height) vertically, from the feet (PMMP player size
-/// 0.6 × 1.8).
+/// A menu's place behind the player: the look direction times -(1 + width) horizontally and
+/// -(1 + height) vertically, from the feet (player size 0.6 × 1.8).
 const BEHIND_HORIZONTAL: f64 = 1.6;
 /// The vertical offset factor of the same place (see [`BEHIND_HORIZONTAL`]).
 const BEHIND_VERTICAL: f64 = 2.8;
 /// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
-/// blocks and their data when the window opens (`InvMenu` waits for the client the same way).
-/// The delay the official client needs is not verified.
+/// blocks and their data when the window opens. The delay the official client needs is not
+/// verified.
 const OPEN_DELAY_TICKS: u64 = 2;
 
 /// What runs when the player clicks a menu slot or changes its editable slots, and when the menu
@@ -191,8 +190,8 @@ impl Context<'_> {
     /// or refuses the change. A window the player had open closes first, as
     /// [`close_window`](Self::close_window) closes it.
     ///
-    /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
-    /// places them), and opens a few ticks later, once the client has them. It closes as any
+    /// The screen stands on container blocks shown to this player alone, behind it, and opens a
+    /// few ticks later, once the client has them. It closes as any
     /// window does ([`close_window`](Self::close_window) closes it from the server) and when the
     /// player gets more than 8 blocks away; the blocks it stood on show again then, and the
     /// handler hears of the close ([`Input::Close`]) unless a direct call closed it. Neither
@@ -298,9 +297,9 @@ fn viewing_player_mut(state: &mut State, id: player::Id) -> Option<&mut Player> 
         .filter(|p| p.phase != Phase::Loading && p.view.is_open())
 }
 
-/// Where a menu's container blocks stand for `player` and what they are: behind the player
-/// (`InvMenu`), inside the world height; a double chest's second half beside the first, along
-/// the side its facing leaves free.
+/// Where a menu's container blocks stand for `player` and what they are: behind the player,
+/// inside the world height; a double chest's second half beside the first, along the side its
+/// facing leaves free.
 fn place(
     player: &Player,
     kind: Kind,
@@ -338,7 +337,7 @@ fn place(
 }
 
 /// The client data of a menu's container blocks: their kind, the title as `CustomName` and a
-/// double chest's pair (PMMP `Chest` and `Nameable` spawn data).
+/// double chest's pair.
 fn block_data(kind: Kind, title: &str, first: BlockPos, second: Option<BlockPos>) -> Vec<Packet> {
     let id = match kind {
         Kind::Hopper => "Hopper",

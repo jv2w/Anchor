@@ -271,22 +271,17 @@ fn take_ground(state: &mut State) -> Option<Vec<Stack>> {
 }
 
 /// The item moves of one tick, by the tick: player → chest, chest → ground, player → ground,
-/// ground → chest or player, chest → player, then main slots → the cursor and the 2x2 grid, held
-/// there for five ticks (several commits), and back.
+/// ground → chest or player, chest → player, then main slots → the cursor, held there for five
+/// ticks (several commits), and back.
 fn step(state: &mut State, tick: u64) {
     match tick % 12 {
         6 => {
             let sticks = take_player(state, 1, 3);
-            let diamonds = take_player(state, 0, 1);
             let player = state.players.get_mut(&SESSION).expect("the player is in");
-            assert!(inventory::hold_outside(
-                player,
-                Stack::new(item(1), sticks),
-                Stack::new(item(0), diamonds)
-            ));
+            inventory::set_cursor(player, Stack::new(item(1), sticks));
         }
         7..=10 => {}
-        // Closing (no window is open) gives the cursor and the grid back.
+        // Closing (no window is open) gives the cursor back.
         11 => inventory::close_window(state, SESSION),
         k => moves(state, k, tick),
     }

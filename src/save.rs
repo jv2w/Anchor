@@ -13,8 +13,7 @@
 //! to the main file's last save ([`storage::settle`]), and a deleted world's file goes only once a
 //! main file's commit holds the deletion ([`remove_world_files`]).
 //!
-//! A chunk is its terrain and its extras: block entities, entities and scheduled
-//! block updates. Every value is under [`MAX_RECORD`] however
+//! A chunk is its terrain and its extras: block entities and entities. Every value is under [`MAX_RECORD`] however
 //! much a chunk holds: the terrain is one value per sub-chunk (none for an empty
 //! sub-chunk of plains, [`seal_terrain`]) and each extras list is
 //! split into pages, all under keys that share the chunk's prefix. One load reads them all in
@@ -126,26 +125,24 @@ pub(crate) enum Loaded {
 /// The extras of one chunk: one raw NBT list per kind of [`ChunkKind::EXTRAS`].
 /// An empty list is no value in the file.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct ChunkExtras([Vec<Compound>; 3]);
+pub(crate) struct ChunkExtras([Vec<Compound>; 2]);
 
 impl ChunkExtras {
     /// The list of `kind`.
     pub(crate) fn get(&self, kind: ChunkKind) -> &[Compound] {
-        let [block_entities, entities, updates] = &self.0;
+        let [block_entities, entities] = &self.0;
         match kind {
             ChunkKind::BlockEntities => block_entities,
             ChunkKind::Entities => entities,
-            ChunkKind::ScheduledUpdates => updates,
         }
     }
 
     /// The list of `kind` to change.
     pub(crate) fn get_mut(&mut self, kind: ChunkKind) -> &mut Vec<Compound> {
-        let [block_entities, entities, updates] = &mut self.0;
+        let [block_entities, entities] = &mut self.0;
         match kind {
             ChunkKind::BlockEntities => block_entities,
             ChunkKind::Entities => entities,
-            ChunkKind::ScheduledUpdates => updates,
         }
     }
 }
@@ -1575,7 +1572,7 @@ pub(crate) fn read_values(
     let mut checksum = Crc32c::new();
     let mut sub_chunks: Terrain = Default::default();
     // The page each extras list expects next.
-    let mut next_pages = [0_u16; 3];
+    let mut next_pages = [0_u16; 2];
     for (part, sealed) in values {
         let key = ChunkKey { chunk, part: *part }.to_bytes();
         let read = match *part {
@@ -1604,17 +1601,16 @@ pub(crate) fn read_values(
 /// Adds page `page` of a chunk's `kind` list, the next one `next_pages` expects, to `extras`.
 fn add_page(
     extras: &mut ChunkExtras,
-    next_pages: &mut [u16; 3],
+    next_pages: &mut [u16; 2],
     kind: ChunkKind,
     page: u16,
     key: &[u8],
     sealed: &[u8],
 ) -> Result<(), storage::Error> {
-    let [block_entities, entities, updates] = next_pages;
+    let [block_entities, entities] = next_pages;
     let next = match kind {
         ChunkKind::BlockEntities => block_entities,
         ChunkKind::Entities => entities,
-        ChunkKind::ScheduledUpdates => updates,
     };
     if page != *next {
         return Err(storage::Error::Malformed(
@@ -3090,8 +3086,8 @@ pub(crate) mod tests {
             let storage = opened.thread.file_mut("world");
             // One flipped bit in the middle of this kind's value.
             let mut before = storage.read_chunks(&[id]).unwrap().remove(0).unwrap();
-            // The one sub-chunk with blocks (the empty ones have no value) and three extras.
-            assert_eq!(before.len(), 1 + 3);
+            // The one sub-chunk with blocks (the empty ones have no value) and two extras.
+            assert_eq!(before.len(), 1 + 2);
             let (_, damaged) = before
                 .iter_mut()
                 .find(|(part, _)| *part == ChunkPart::Extras(kind, 0))

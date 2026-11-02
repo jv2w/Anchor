@@ -1,15 +1,13 @@
 //! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
-//! and drops, a villager's offers read, changed and checked as typed values, custom furnace recipes
-//! cooked, custom items kept through a save and a restart, and a custom item that breaks nothing
-//! in creative mode.
+//! and drops, a villager's offers read, changed and checked as typed values, custom items kept
+//! through a save and a restart, and a custom item that breaks nothing in creative mode.
 
 use std::sync::Arc;
 
 use super::*;
 use crate::Context as Ctx;
-use crate::crafting::FurnaceType;
 use crate::custom::tests::{ORE, RUBY, SWORD};
-use crate::custom::{Behaviour, Block, Ingredient, ItemRef, Offer, Property, Recipe, Registry};
+use crate::custom::{Behaviour, Block, ItemRef, Offer, Property, Registry};
 use crate::item::Extra;
 use crate::save::{Request, Response};
 use crate::world;
@@ -77,18 +75,13 @@ impl Behaviour for Switch {
     }
 }
 
-/// The test server's custom content: `RUBY`, `ORE`, `SWITCH`, `SWORD`, and a ruby smelting into
-/// a diamond in a furnace and on a campfire.
+/// The test server's custom content: `RUBY`, `ORE`, `SWITCH` and `SWORD`.
 fn registry() -> Registry {
     let mut r = Registry::default();
     r.add_item(&RUBY);
     r.add_block(&ORE);
     r.add_block(&SWITCH);
     r.add_item(&SWORD);
-    let ruby = Ingredient::Item(ItemRef::Custom(&RUBY));
-    let diamond = (ItemRef::Item(crate::item::Kind::Diamond.default_type()), 1);
-    r.add_recipe(Recipe::furnace(FurnaceType::Furnace, ruby, diamond));
-    r.add_recipe(Recipe::furnace(FurnaceType::Campfire, ruby, diamond));
     r.finish().unwrap();
     r
 }
@@ -221,8 +214,8 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     );
 }
 
-/// The drops of the custom ore at the target with `tool`: (stacks, xp).
-fn ore_drops(h: &mut Harness, tool: Stack) -> (Vec<Stack>, u32) {
+/// The drops of the custom ore at the target with `tool`.
+fn ore_drops(h: &mut Harness, tool: Stack) -> Vec<Stack> {
     let ore = h.state.custom.block_state(&ORE).unwrap();
     h.set(TARGET, ore);
     let cause = Destroy::Player {
@@ -230,7 +223,7 @@ fn ore_drops(h: &mut Harness, tool: Stack) -> (Vec<Stack>, u32) {
         tool,
     };
     let plan = plan_destruction(&h.state, 0, TARGET, &cause).unwrap();
-    (plan.items, plan.xp)
+    plan.items
 }
 
 #[test]
@@ -239,14 +232,13 @@ fn a_custom_ore_drops_its_items_with_a_compatible_tool() {
     let ruby = r.item_type(&RUBY).unwrap();
     let pick = |kind: crate::item::Kind| Stack::new(kind.default_type(), 1);
     // Harvest level 2: a stone pickaxe and better.
-    assert_eq!(ore_drops(&mut h, Stack::EMPTY), (Vec::new(), 0));
+    assert_eq!(ore_drops(&mut h, Stack::EMPTY), Vec::new());
     assert_eq!(
         ore_drops(&mut h, pick(crate::item::Kind::WoodenPickaxe)),
-        (Vec::new(), 0)
+        Vec::new()
     );
-    let (items, xp) = ore_drops(&mut h, pick(crate::item::Kind::IronPickaxe));
+    let items = ore_drops(&mut h, pick(crate::item::Kind::IronPickaxe));
     assert_eq!(items, [Stack::new(ruby, 2)]);
-    assert!((1..=3).contains(&xp), "{xp}");
     let silk = pick(crate::item::Kind::StonePickaxe)
         .with_extra(Some(Extra {
             enchantments: vec![(crate::item::Enchantment::SilkTouch, 1)],
@@ -256,8 +248,8 @@ fn a_custom_ore_drops_its_items_with_a_compatible_tool() {
     let own = r
         .resolve(crate::custom::ItemRef::CustomBlock(&ORE))
         .unwrap();
-    assert_eq!(ore_drops(&mut h, silk), (vec![Stack::new(own, 1)], 0));
-    // The break time is PMMP's: 3 × 1.5 / 6 with an iron pickaxe.
+    assert_eq!(ore_drops(&mut h, silk), vec![Stack::new(own, 1)]);
+    // The break time is 3 × 1.5 / 6 with an iron pickaxe.
     let ore = r.block_state(&ORE).unwrap();
     assert_eq!(
         ore.break_time_secs(&pick(crate::item::Kind::IronPickaxe)),
@@ -384,81 +376,6 @@ fn an_offer_list_check_refuses_what_spawning_a_villager_refuses() {
 /// `count` of the custom ruby.
 fn rubies(r: &Registry, count: u8) -> Stack {
     Stack::new(r.item_type(&RUBY).unwrap(), count)
-}
-
-fn diamond() -> Stack {
-    Stack::new(crate::item::Kind::Diamond.default_type(), 1)
-}
-
-/// Diamonds on the ground and in the player's inventory.
-fn diamonds(h: &mut Harness) -> u32 {
-    let count = |s: &Stack| {
-        if s.item() == diamond().item() {
-            u32::from(s.count())
-        } else {
-            0
-        }
-    };
-    let main = h.player().inventory(crate::inventory::Kind::Main);
-    let held: u32 = main.iter().map(count).sum();
-    let cx = Ctx {
-        state: &mut h.state,
-    };
-    let ground: u32 = cx
-        .entities(world::Id::DEFAULT)
-        .filter_map(|(_, e)| e.item())
-        .map(count)
-        .sum();
-    ground + held
-}
-
-/// Puts `input` and one coal into the furnace-like block at [`TARGET`].
-fn load_furnace(h: &mut Harness, input: Stack) {
-    let mut cx = Ctx {
-        state: &mut h.state,
-    };
-    let mut slots = cx.block_inventory_mut(world::Id::DEFAULT, TARGET).unwrap();
-    slots.set(0, input).unwrap();
-    let coal = Stack::new(crate::item::Kind::Coal.default_type(), 1);
-    slots.set(1, coal).unwrap();
-}
-
-#[test]
-fn custom_furnace_and_campfire_recipes_cook() {
-    let (mut h, r) = harness();
-    // A furnace smelts a ruby into a diamond in PMMP's 200 ticks.
-    set_with_entity(&mut h, Kind::Furnace.default_state(), &Stack::EMPTY);
-    load_furnace(&mut h, rubies(&r, 2));
-    for _ in 0..201 {
-        h.run(Vec::new());
-    }
-    let items = &h.state.rules.block_entities.get(0, TARGET).unwrap().items;
-    assert_eq!(items[0], rubies(&r, 1));
-    assert_eq!(items[2], diamond());
-    // A smoker has no ruby recipe: nothing burns.
-    let smoker = block::State::all()
-        .find(|b| b.name() == "minecraft:smoker")
-        .unwrap();
-    set_with_entity(&mut h, smoker, &Stack::EMPTY);
-    load_furnace(&mut h, rubies(&r, 1));
-    for _ in 0..201 {
-        h.run(Vec::new());
-    }
-    let items = &h.state.rules.block_entities.get(0, TARGET).unwrap().items;
-    assert_eq!((items[0].count(), items[1].count()), (1, 1));
-    assert!(items[2].is_empty());
-    // A lit campfire takes a ruby and drops a diamond.
-    let lit = props::with_flag(Kind::Campfire.default_state(), "extinguished", false).unwrap();
-    set_with_entity(&mut h, lit, &Stack::EMPTY);
-    // The furnace and the smoker dropped what they held when replaced.
-    let before = diamonds(&mut h);
-    h.hold(rubies(&r, 2));
-    use_on_target(&mut h);
-    assert_eq!(h.held(), rubies(&r, 1), "the campfire took one");
-    for _ in 0..620 {
-        h.run(Vec::new());
-    }
-    assert_eq!(diamonds(&mut h) - before, 1);
 }
 
 /// A server file in a temporary folder, served by the real save thread.
@@ -605,26 +522,14 @@ fn place_with_entity(h: &mut Harness, pos: BlockPos, block: block::State) {
 
 #[test]
 fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
-    use crate::tick::block_entity::Kind as Entity;
     let (mut h, r) = harness();
     h.state.saving.players = true;
     let ruby = rubies(&r, 5);
     let emerald = Stack::new(crate::item::Kind::Emerald.default_type(), 1);
     let offer = Offer::new(ruby.clone(), emerald.clone(), 4).with_second_payment(emerald);
-    let frame_at = BlockPos::new(2, -60, 2);
-    let campfire_at = BlockPos::new(2, -60, 4);
     let player = crate::player::Id::new(SessionId::new(1));
-    // In the player's inventory, a chest, a frame, an unlit campfire, on the ground and in a
-    // villager's offers.
+    // In the player's inventory, a chest, on the ground and in a villager's offers.
     place_with_entity(&mut h, TARGET, Kind::Chest.default_state());
-    h.set(BlockPos::new(3, -60, 2), Kind::Stone.default_state());
-    let frame = block::State::all()
-        .find(|b| b.name() == "minecraft:frame")
-        .and_then(|f| props::with_facing(f, Face::West))
-        .unwrap();
-    place_with_entity(&mut h, frame_at, frame);
-    let unlit = props::with_flag(Kind::Campfire.default_state(), "extinguished", true).unwrap();
-    place_with_entity(&mut h, campfire_at, unlit);
     let mut cx = Ctx {
         state: &mut h.state,
     };
@@ -653,12 +558,6 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
         )
         .unwrap();
     assert_eq!(cx.trade_offers(villager), Some(vec![offer.clone()]));
-    let entities = &mut h.state.rules.block_entities;
-    match &mut entities.get_mut(0, frame_at).unwrap().kind {
-        Entity::ItemFrame(f) => f.item = rubies(&r, 1),
-        other => panic!("{other:?}"),
-    }
-    entities.get_mut(0, campfire_at).unwrap().items[0] = rubies(&r, 1);
     for _ in 0..3 {
         h.run(Vec::new());
     }
@@ -673,12 +572,6 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
     assert_eq!(main.item(4), Some(&ruby), "the inventory");
     let entities = &h.state.rules.block_entities;
     assert_eq!(entities.get(0, TARGET).unwrap().items[3], ruby, "the chest");
-    match &entities.get(0, frame_at).unwrap().kind {
-        Entity::ItemFrame(f) => assert_eq!(f.item, rubies(&r, 1), "the frame"),
-        other => panic!("{other:?}"),
-    }
-    let campfire = &entities.get(0, campfire_at).unwrap().items[0];
-    assert_eq!(*campfire, rubies(&r, 1), "the campfire");
     let cx = Ctx {
         state: &mut h.state,
     };

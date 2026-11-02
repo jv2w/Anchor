@@ -140,86 +140,6 @@ fn on_ground(h: &Harness, item: item::Kind) -> u64 {
         .sum()
 }
 
-#[test]
-fn a_painting_hangs_the_largest_motive_that_fits_and_falls_with_its_wall() {
-    let mut h = harness();
-    h.look(1, 270.0, 0.0);
-    wall(&mut h);
-    hold(&mut h, stack("minecraft:painting", 2));
-    h.take(1);
-    // On the floor nothing hangs and nothing is used.
-    use_on(&mut h, BlockPos::new(2, -61, 0), Face::Up, [0.5, 1.0, 0.5]);
-    assert!(of_type(&h, crate::entity::Type::Painting).is_empty());
-    assert_eq!(held(&h).count(), 2);
-    // On the wall: a 4 × 4 motive (the wall is 5 wide and 4 high), from the clicked block's west
-    // side, one item used.
-    use_on(
-        &mut h,
-        BlockPos::new(3, -59, 0),
-        Face::West,
-        [0.0, 0.5, 0.5],
-    );
-    let [id] = of_type(&h, crate::entity::Type::Painting)[..] else {
-        panic!("one painting");
-    };
-    assert_eq!(held(&h).count(), 1);
-    let e = entity(&h, id);
-    let Kind::Painting(p) = e.kind else {
-        panic!("a painting");
-    };
-    assert_eq!(
-        (p.motive.width(), p.motive.height(), p.facing),
-        (4, 4, Face::West)
-    );
-    assert_eq!(e.body.position, at(2.0, -59.0, 0.0));
-    assert_eq!(e.health, 1.0);
-    let runtime_id = e.runtime_id;
-    // Viewers get PMMP's `AddPainting`: the middle of the picture, west (1), the motive.
-    let sent = h.take(1);
-    let shown = sent
-        .iter()
-        .find_map(|p| match p {
-            Packet::AddPainting(a) => Some(a.clone()),
-            _ => None,
-        })
-        .expect("shown");
-    assert_eq!(shown.entity_runtime_id, runtime_id);
-    assert_eq!(shown.position, [2.968_75, -58.0, 1.0]);
-    assert_eq!(
-        (shown.direction, shown.title.as_str()),
-        (1, p.motive.name())
-    );
-    assert!(sent.iter().all(|p| !matches!(p, Packet::AddActor(_))));
-    // Another painting does not overlap it: the next one fits only beside it.
-    use_on(
-        &mut h,
-        BlockPos::new(3, -59, -2),
-        Face::West,
-        [0.0, 0.5, 0.5],
-    );
-    let both = of_type(&h, crate::entity::Type::Painting);
-    assert_eq!(both.len(), 2);
-    let other = both.into_iter().find(|&o| o != id).unwrap();
-    let Kind::Painting(q) = entity(&h, other).kind else {
-        panic!("a painting");
-    };
-    // Only one block wide fits beside it (touching boxes do not overlap), 1 × 2 the largest.
-    assert_eq!((q.motive.width(), q.motive.height()), (1, 2));
-    // A block of its wall goes: it falls and drops its item where it hung.
-    set(&mut h, BlockPos::new(3, -58, 1), block::AIR);
-    h.step(Vec::new());
-    h.step(Vec::new());
-    assert!(h.state.rules.entities.get(id).is_none(), "fell");
-    assert!(
-        h.state.rules.entities.get(other).is_some(),
-        "the other still hangs"
-    );
-    assert_eq!(on_ground(&h, item::Kind::Painting), 1);
-    let sent = h.take(1);
-    assert!(sent.iter().any(|p| matches!(p, Packet::LevelEvent(e)
-        if e.event_type == i32::from(LevelEvent::ParticlesDestroyBlock))));
-}
-
 fn context(h: &mut Harness) -> Context<'_> {
     Context {
         state: &mut h.state,
@@ -337,27 +257,14 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
     let mut h = harness();
     let obsidian = BlockKind::Obsidian.default_state();
     let base = BlockPos::new(3, -61, 0);
-    hold(&mut h, stack("minecraft:end_crystal", 2));
-    // Not on grass.
-    use_on(&mut h, base, Face::Up, [0.5, 1.0, 0.5]);
-    assert!(of_type(&h, crate::entity::Type::EndCrystal).is_empty());
     set(&mut h, base, obsidian);
-    // Past the repeated-click filter.
-    h.step(Vec::new());
     h.step(Vec::new());
     h.take(1);
-    use_on(&mut h, base, Face::Up, [0.5, 1.0, 0.5]);
-    let [id] = of_type(&h, crate::entity::Type::EndCrystal)[..] else {
-        panic!("one crystal");
-    };
-    assert_eq!(held(&h).count(), 1);
+    let id = context(&mut h)
+        .spawn_end_crystal(WORLD, at(3.5, -60.0, 0.5))
+        .unwrap();
     assert_eq!(entity(&h, id).body.position, at(3.5, -60.0, 0.5));
-    // A second one has no room there.
     h.step(Vec::new());
-    h.step(Vec::new());
-    use_on(&mut h, base, Face::Up, [0.5, 1.0, 0.5]);
-    assert_eq!(of_type(&h, crate::entity::Type::EndCrystal).len(), 1);
-    assert_eq!(held(&h).count(), 1);
     // Shown as `minecraft:ender_crystal` without its base, the beam at (0, 0, 0).
     let sent = h.take(1);
     let runtime_id = entity(&h, id).runtime_id;
@@ -922,11 +829,9 @@ fn an_ice_bomb_freezes_the_water_around_where_it_lands_and_hurts_no_one() {
 }
 
 #[test]
-fn at_the_entity_cap_paintings_crystals_rockets_and_tridents_are_refused_and_items_stay() {
+fn at_the_entity_cap_rockets_and_tridents_are_refused_and_items_stay() {
     let mut h = harness();
     wall(&mut h);
-    let obsidian = BlockKind::Obsidian.default_state();
-    set(&mut h, BlockPos::new(-3, -61, 0), obsidian);
     h.step(Vec::new());
     let have = h.state.rules.entities.count(0);
     for i in 0..u32::try_from(MAX_ENTITIES_PER_WORLD - have).unwrap() {
@@ -940,20 +845,6 @@ fn at_the_entity_cap_paintings_crystals_rockets_and_tridents_are_refused_and_ite
         ));
     }
     let mut random = Random::new(0, 0, 0);
-    assert_eq!(
-        place_painting(
-            &mut h.state,
-            0,
-            BlockPos::new(3, -59, 0),
-            Face::West,
-            &mut random
-        ),
-        Placed::Full
-    );
-    assert_eq!(
-        place_end_crystal(&mut h.state, 0, BlockPos::new(-3, -61, 0)),
-        Placed::Full
-    );
     let rocket = stack("minecraft:firework_rocket", 1);
     assert!(!launch_firework(
         &mut h.state,
@@ -973,16 +864,6 @@ fn at_the_entity_cap_paintings_crystals_rockets_and_tridents_are_refused_and_ite
         Err(trident)
     );
     assert!(cx.spawn_end_crystal(WORLD, at(0.5, -59.0, 0.5)).is_none());
-    // From the hand: refused, the items stay.
-    hold(&mut h, stack("minecraft:painting", 1));
-    use_on(
-        &mut h,
-        BlockPos::new(3, -59, 0),
-        Face::West,
-        [0.0, 0.5, 0.5],
-    );
-    assert_eq!(held(&h).count(), 1);
-    assert!(of_type(&h, crate::entity::Type::Painting).is_empty());
     h.state.rules.entities = Entities::default();
 }
 

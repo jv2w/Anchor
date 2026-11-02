@@ -23,7 +23,6 @@ pub struct BlockBreak {
     pub(crate) item: Stack,
     pub(crate) insta_break: bool,
     pub(crate) drops: Vec<Stack>,
-    pub(crate) xp_drop_amount: u32,
     pub(crate) cancelled: bool,
 }
 
@@ -50,9 +49,6 @@ getters!(BlockBreak {
     /// What the block drops. Starts as its drops for the item.
     #[doc(alias = "BlockBreakEvent::getDrops")]
     drops: &[Stack],
-    /// The XP the block drops.
-    #[doc(alias = "BlockBreakEvent::getXpDropAmount")]
-    xp_drop_amount: u32,
 });
 
 setters!(BlockBreak {
@@ -60,9 +56,6 @@ setters!(BlockBreak {
     #[doc(alias = "BlockBreakEvent::setDrops")]
     #[doc(alias = "BlockBreakEvent::setDropsVariadic")]
     set_drops => drops: Vec<Stack>,
-    /// Replaces the XP the block drops.
-    #[doc(alias = "BlockBreakEvent::setXpDropAmount")]
-    set_xp_drop_amount => xp_drop_amount: u32,
 });
 
 cancellable! {
@@ -836,8 +829,7 @@ mod tests {
 
     // api: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock,
     // api: BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops,
-    // api: BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops,
-    // api: BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount,
+    // api: BlockBreakEvent::setDrops, BlockBreakEvent::setDropsVariadic,
     // api: BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
     #[test]
     fn block_break_reads_and_changes_its_fields() {
@@ -849,7 +841,6 @@ mod tests {
             item: sticks(1),
             insta_break: false,
             drops: vec![sticks(2)],
-            xp_drop_amount: 3,
             cancelled: false,
         };
         assert_eq!(
@@ -859,11 +850,8 @@ mod tests {
         assert_eq!(e.item(), &sticks(1));
         assert!(!e.insta_break());
         assert_eq!(e.drops(), &[sticks(2)]);
-        assert_eq!(e.xp_drop_amount(), 3);
         e.set_drops(Vec::new());
-        e.set_xp_drop_amount(0);
         assert!(e.drops().is_empty());
-        assert_eq!(e.xp_drop_amount(), 0);
         assert!(!e.is_cancelled());
         e.cancel();
         assert!(e.is_cancelled());

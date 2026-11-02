@@ -31,7 +31,6 @@ use crate::nbt::{Compound, List, Value};
 use crate::random::Random;
 use crate::save::WorldIndex;
 use crate::tick::emit;
-use crate::tick::interact::block_vec;
 use crate::tick::interact::props::rotate_clockwise;
 use crate::world::{BlockPos, Particle, Sound, World};
 
@@ -44,8 +43,6 @@ const BURST_DAMAGE_PER_EXPLOSION: f64 = 2.0;
 const BURST_REACH: f64 = 5.0;
 /// The number of dye colours (dye IDs 0 to 15): a colour list holds at most one entry per dye.
 const COLOURS: u8 = 16;
-/// How far above the block it is placed on an end crystal stands.
-const CRYSTAL_LIFT: f64 = 1.0;
 /// The flight multiplier of a firework item without one (PMMP
 /// `FireworkRocket::$flightTimeMultiplier`).
 pub(super) const DEFAULT_FLIGHT_MULTIPLIER: u8 = 1;
@@ -105,58 +102,6 @@ pub(in crate::tick) enum Placed {
     Made,
     /// Refused: the world is at its entity limit (the player keeps the item).
     Full,
-}
-
-/// Hangs a painting on the `face` side of the block `clicked` (PMMP
-/// `PaintingItem::onInteractBlock`): on a side, one of the largest motives that fit (picked with
-/// `random`), with the place sound. The caller uses up the item when it is made.
-pub(super) fn place_painting(
-    state: &mut State,
-    world: WorldIndex,
-    clicked: BlockPos,
-    face: Face,
-    random: &mut Random,
-) -> Placed {
-    let Some(pos) = clicked.step(face).filter(|_| is_horizontal(face)) else {
-        return Placed::Nothing;
-    };
-    let mut best = 0;
-    let mut picks = Vec::new();
-    for &motive in PaintingMotive::all() {
-        let size = motive.width() + motive.height();
-        if size < best || !can_hang(state, world, pos, face, motive) {
-            continue;
-        }
-        if size > best {
-            best = size;
-            picks.clear();
-        }
-        picks.push(motive);
-    }
-    if picks.is_empty() {
-        return Placed::Nothing;
-    }
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a painting has fewer than 2^32 motives to pick from"
-    )]
-    let count = u32::try_from(picks.len()).expect("the picks fit a u32");
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: `below(count)` is below the number of picks"
-    )]
-    let motive = *picks
-        .get(random.below(count) as usize)
-        .expect("the index is below the number of picks");
-    let made = create(state, world, block_vec(pos), painting(face, motive), |_| {
-        (Vec3::ZERO, 0.0, 0.0)
-    });
-    if made.is_none() {
-        return Placed::Full;
-    }
-    let centre = block_vec(pos) + Vec3::new(0.5, 0.5, 0.5);
-    super::play(state, world, centre, Sound::PaintingPlace);
-    Placed::Made
 }
 
 /// Dooms the painting `id` when it no longer fits, after a neighbour update reached it (PMMP
@@ -336,30 +281,6 @@ pub(super) fn data_facing(data: u8) -> Face {
         1 => Face::West,
         3 => Face::East,
         _ => Face::North,
-    }
-}
-
-/// Places an end crystal on the block `clicked` (PMMP `item\EndCrystal::onInteractBlock`): on
-/// obsidian or bedrock with air in the two blocks above and no entity or player in them and the
-/// block itself. The caller uses up the item when it is made.
-pub(super) fn place_end_crystal(state: &mut State, world: WorldIndex, clicked: BlockPos) -> Placed {
-    let Some(w) = state.worlds.get(world) else {
-        return Placed::Nothing;
-    };
-    let base = w.block(clicked).map(block::State::kind);
-    let air = |dy: i32| clicked.offset(0, dy, 0).and_then(|p| w.block(p)) == Some(block::AIR);
-    if !matches!(base, Some(block::Kind::Obsidian | block::Kind::Bedrock)) || !air(1) || !air(2) {
-        return Placed::Nothing;
-    }
-    let low = block_vec(clicked);
-    let area = Aabb::new(low, low + Vec3::new(1.0, 2.0, 1.0));
-    if super::anything_in(state, world, area) {
-        return Placed::Nothing;
-    }
-    let at = low + Vec3::new(0.5, CRYSTAL_LIFT, 0.5);
-    match create(state, world, at, crystal(), |_| (Vec3::ZERO, 0.0, 0.0)) {
-        Some(_) => Placed::Made,
-        None => Placed::Full,
     }
 }
 

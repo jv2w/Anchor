@@ -257,12 +257,6 @@ impl State {
         self.awake.get(world) != Some(&Pace::Asleep)
     }
 
-    /// Whether world `world` runs this tick as a world `slow-empty-worlds` holds back: on its one
-    /// tick in [`SLOW_WORLD_PERIOD_TICKS`] ([`wake`]).
-    pub(crate) fn is_slowed(&self, world: WorldIndex) -> bool {
-        self.awake.get(world) == Some(&Pace::Slowed)
-    }
-
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
     /// order of the map in memory (FNV-1a 64 over fields in a fixed order and width).
     ///
@@ -360,8 +354,6 @@ impl State {
             hook_movement_packets: _,
             hook_player_input: _,
             force_game_mode: _,
-            random_tick_speed,
-            no_random_ticks: _,
         } = settings;
         h.bytes(motd.as_bytes());
         h.u64(u64::from(
@@ -376,7 +368,6 @@ impl State {
             h.u64(u64::from(v.tick_radius));
         }
         h.u64(u64::from(*max_players));
-        h.u64(u64::from(*random_tick_speed));
         h.u64(*tick);
         h.u64(u64::from(*started));
         h.u64(*next_runtime_id);
@@ -764,10 +755,6 @@ pub(crate) struct Settings {
     hook_player_input: bool,
     /// Whether players always get the default game mode (`force-gamemode`).
     force_game_mode: bool,
-    /// Random block ticks per sub-chunk per tick (`random-tick-speed`).
-    random_tick_speed: u32,
-    /// The block kinds that never take random ticks (`disable-block-ticking`), sorted.
-    no_random_ticks: Vec<crate::block::Kind>,
 }
 
 impl Settings {
@@ -819,8 +806,6 @@ impl Settings {
             hook_movement_packets: developer.hook_movement_packets,
             hook_player_input: developer.hook_player_input,
             force_game_mode: general.force_gamemode,
-            random_tick_speed: developer.random_tick_speed,
-            no_random_ticks: update::untickable(&developer.disable_block_ticking),
         }
     }
 
@@ -1409,7 +1394,6 @@ fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
         Packet::BlockPickRequest(p) => inventory::on_block_pick_request(state, session, p),
         Packet::ActorPickRequest(p) => entity::on_actor_pick_request(state, session, p),
         Packet::BlockActorData(p) => interact::on_block_actor_data(state, session, p),
-        Packet::LecternUpdate(p) => interact::on_lectern_update(state, session, p),
         Packet::BookEdit(p) => interact::on_book_edit(state, session, p),
         Packet::PlayerAction(p) => survival::on_player_action(state, session, p),
         Packet::Animate(p) => survival::on_animate(state, session, p),
@@ -1629,7 +1613,6 @@ mod tests {
     mod leak;
     mod replaced;
     mod replay;
-    mod scenario;
 
     use super::*;
 
@@ -1883,8 +1866,8 @@ mod tests {
     }
 
     /// Runs 101 ticks of a server with `slow-empty-worlds` set to `slow` and, with `joined`, one
-    /// player joined: the world's time, its scheduled updates and its light hash after each.
-    fn world_rules_over_ticks(slow: SlowEmptyWorlds, joined: Joined) -> Vec<(i64, usize, u64)> {
+    /// player joined: the world's time and its light hash after each.
+    fn world_rules_over_ticks(slow: SlowEmptyWorlds, joined: Joined) -> Vec<(i64, u64)> {
         let mut state = new_state(
             settings(|c| c.developer.slow_empty_worlds = matches!(slow, SlowEmptyWorlds::On)),
             Listeners::default(),
@@ -1895,37 +1878,29 @@ mod tests {
             Joined::Player => vec![j],
             Joined::Nobody => Vec::new(),
         };
-        let spawn = state.worlds[0].spawn();
-        update::schedule(&mut state, 0, spawn, 1);
         let mut seen = Vec::new();
         for _ in 0..=100 {
             tick(&mut state, &mut batch, &mut output);
             let w = &state.worlds[0];
-            seen.push((w.time_ticks(), state.rules.updates.len().0, w.light_hash()));
+            seen.push((w.time_ticks(), w.light_hash()));
         }
         seen
     }
 
-    /// `slow-empty-worlds`: a world without players runs its time, block updates and light only
-    /// on ticks that are multiples of 100; with a player, or with the setting off, every tick.
+    /// `slow-empty-worlds`: a world without players runs its time and light only on ticks that
+    /// are multiples of 100; with a player, or with the setting off, every tick.
     #[test]
     fn slow_empty_worlds_run_one_tick_in_a_hundred_without_players() {
         let slow = world_rules_over_ticks(SlowEmptyWorlds::On, Joined::Nobody);
         assert!(slow[1..100].iter().all(|s| *s == slow[0]), "asleep");
         assert_eq!(slow[100].0, slow[0].0 + 1, "time on tick 100");
-        assert_eq!(
-            slow[100].1,
-            slow[0].1 - 1,
-            "the scheduled update on tick 100"
-        );
         for (slow, joined) in [
             (SlowEmptyWorlds::Off, Joined::Nobody),
             (SlowEmptyWorlds::On, Joined::Player),
         ] {
             let every = world_rules_over_ticks(slow, joined);
             assert_eq!(every[1].0, every[0].0 + 1, "time every tick");
-            assert_eq!(every[1].1, every[0].1 - 1, "the update when due");
-            assert_ne!(every[1].2, every[0].2, "light work every tick");
+            assert_ne!(every[1].1, every[0].1, "light work every tick");
         }
     }
 

@@ -1,10 +1,9 @@
 //! The rule modules' state that lives with chunks, and where it meets the chunk extras holder
 //! ([`super::extra`]).
 //!
-//! Three modules own a chunk extras kind each: block entities ([`super::block_entity`]),
-//! entities ([`super::entity`]) and scheduled block updates ([`super::update`]). Each keeps its
-//! typed state for the loaded chunks and offers the same three operations, which the chunk
-//! holder calls here:
+//! Two modules own a chunk extras kind each: block entities ([`super::block_entity`]) and
+//! entities ([`super::entity`]). Each keeps its typed state for the loaded chunks and offers the
+//! same three operations, which the chunk holder calls here:
 //!
 //! - `load(key, read)`: the chunk's saved list arrived (or came back from memory), already read
 //!   into the module's typed form ([`ChunkRules`]); put it in the store. The read needs nothing
@@ -29,7 +28,6 @@ pub(super) mod reads {
             Cell::new(Reads {
                 block_entities: 0,
                 entities: 0,
-                updates: 0,
                 stacks: 0,
                 clones: 0,
             })
@@ -43,8 +41,6 @@ pub(super) mod reads {
         pub(in crate::tick) block_entities: usize,
         /// Saved entity compounds read (`saved::load`).
         pub(in crate::tick) entities: usize,
-        /// Saved scheduled update entries read (`update::parse`).
-        pub(in crate::tick) updates: usize,
         /// Saved stacks read by containers, spills and item entities (`Stack::from_nbt_with`).
         pub(in crate::tick) stacks: usize,
         /// Saved compounds of the extras lists cloned.
@@ -82,18 +78,17 @@ pub(super) struct Rules {
     pub(super) block_entities: block_entity::BlockEntities,
     /// Every non-player entity of every world.
     pub(super) entities: entity::Entities,
-    /// Scheduled, neighbour and random block updates.
+    /// The block updates' random streams and reused lists.
     pub(super) updates: update::Updates,
 }
 
 impl Rules {
     /// Reads a chunk's extras on the tick, as the save thread reads a loaded chunk's: for an
     /// unsaved chunk that comes back from memory (and the tests' stand-ins of the save thread).
-    /// Saved items are read with `world`'s custom content (a world without it, in tests, reads
-    /// vanilla items only).
+    /// Saved items are read with `world`'s custom content.
     #[expect(
         clippy::expect_used,
-        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
+        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged; every world of the tick state has its custom content"
     )]
     pub(super) fn read(
         &self,
@@ -102,15 +97,9 @@ impl Rules {
         blocks: &Chunk,
         world: &World,
     ) -> ChunkRules {
-        // Built only for such a world: a registry builds the vanilla creative inventory, which
-        // on every chunk load made a walking player's chunk loads cost milliseconds.
-        let vanilla;
-        let custom = if let Some(custom) = world.custom() {
-            custom
-        } else {
-            vanilla = Registry::default();
-            &vanilla
-        };
+        let custom = world
+            .custom()
+            .expect("the tick state gives every world its custom content");
         ChunkRules::read(key, extras, blocks, custom, self.entities.types())
             .expect("a list in memory is not damaged")
     }
@@ -121,16 +110,14 @@ impl Rules {
         let Self {
             block_entities,
             entities,
-            updates,
+            updates: _,
         } = self;
         let ChunkRules {
             block_entities: read_block_entities,
             entities: read_entities,
-            updates: read_updates,
         } = read;
         block_entities.load(key, read_block_entities);
         entities.load(key, read_entities, extras.get(ChunkKind::Entities));
-        updates.load(key, read_updates);
     }
 
     /// Drops the typed state of a chunk that unloads: changed state goes back to the holder
@@ -139,12 +126,11 @@ impl Rules {
         let Self {
             block_entities,
             entities,
-            updates,
+            updates: _,
         } = self;
         let lists = [
             (ChunkKind::BlockEntities, block_entities.unload(key)),
             (ChunkKind::Entities, entities.unload(key)),
-            (ChunkKind::ScheduledUpdates, updates.unload(key)),
         ];
         for (kind, list) in lists {
             if let Some(list) = list
@@ -160,12 +146,11 @@ impl Rules {
         let Self {
             block_entities,
             entities,
-            updates,
+            updates: _,
         } = self;
         let changed = [
             (ChunkKind::BlockEntities, block_entities.take_changed()),
             (ChunkKind::Entities, entities.take_changed()),
-            (ChunkKind::ScheduledUpdates, updates.take_changed()),
         ];
         for (kind, lists) in changed {
             for (key, list) in lists {
@@ -219,7 +204,6 @@ impl Rules {
 pub(crate) struct ChunkRules {
     block_entities: block_entity::Parsed,
     entities: Vec<entity::Saved>,
-    updates: update::Parsed,
 }
 
 impl ChunkRules {
@@ -262,7 +246,6 @@ impl ChunkRules {
                 Part::BlockEntities(block_entity::Parsed::read(key, list, block_of, custom)?)
             }
             ChunkKind::Entities => Part::Entities(entity::read(key.1, list, types, custom)),
-            ChunkKind::ScheduledUpdates => Part::Updates(update::Parsed::read(key, list)),
         }))
     }
 
@@ -271,7 +254,6 @@ impl ChunkRules {
         match part.0 {
             Part::BlockEntities(read) => self.block_entities = read,
             Part::Entities(read) => self.entities = read,
-            Part::Updates(read) => self.updates = read,
         }
     }
 }
@@ -284,7 +266,6 @@ pub(crate) struct ChunkRulesPart(Part);
 enum Part {
     BlockEntities(block_entity::Parsed),
     Entities(Vec<entity::Saved>),
-    Updates(update::Parsed),
 }
 
 #[cfg(test)]

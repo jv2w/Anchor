@@ -1,16 +1,19 @@
 //! Inventories: the slots of a player and of container blocks, read through [`Inventory`] and
-//! changed through [`Editor`] (PMMP `pocketmine\inventory`).
+//! changed through [`Editor`].
 //!
-//! A player has six inventories ([`Kind`]); [`Player::inventory`](crate::player::Player) and
+//! A player has five inventories ([`Kind`]); [`Player::inventory`](crate::player::Player) and
 //! `inventory_mut` lend them, and [`Offline`](crate::player::Offline) those of a player who is
 //! not online. A container block's slots (a chest, a double chest as one inventory of 54, a
-//! barrel, a shulker box, a hopper, a furnace, a brewing stand, a campfire) come from
-//! [`Context::block_inventory`](crate::Context) and `block_inventory_mut`.
+//! barrel, a shulker box) come from [`Context::block_inventory`](crate::Context) and
+//! `block_inventory_mut`.
 //!
 //! Every write tells the clients that show the slot: the player's own client, or every player
 //! with the container's window open. A written slot gets a new stack network ID, so a request a
 //! client built on the old contents is refused instead of applied to the new ones.
 //! Direct writes raise no events.
+//!
+//! Slot numbers are `u8` where the protocol numbers them (the hotbar, the held slot, events) and
+//! `usize` where they index an [`Inventory`], as std indexes slices.
 
 use std::fmt;
 
@@ -24,7 +27,7 @@ pub(crate) const HOPPER_SLOTS: usize = 5;
 /// The hotbar slots: the main slots from 0 to `HOTBAR_SIZE - 1`.
 #[doc(alias = "PlayerInventory::getHotbarSize")]
 pub const HOTBAR_SIZE: u8 = 9;
-/// The most items of one slot of most inventories (PMMP `Inventory::MAX_STACK`).
+/// The most items of one slot of most inventories.
 pub(crate) const MAX_STACK: u8 = 64;
 
 /// One of a player's inventories.
@@ -42,9 +45,6 @@ pub enum Kind {
     /// The item on the cursor while a window is open.
     #[doc(alias = "PlayerCursorInventory")]
     Cursor,
-    /// The 2x2 crafting grid.
-    #[doc(alias = "PlayerCraftingInventory")]
-    Crafting,
     /// The player's ender chest contents.
     #[doc(alias = "PlayerEnderInventory")]
     EnderChest,
@@ -55,7 +55,7 @@ impl Kind {
     pub const fn size(self) -> usize {
         match self {
             Self::Main => 36,
-            Self::Armor | Self::Crafting => 4,
+            Self::Armor => 4,
             Self::Offhand | Self::Cursor => 1,
             Self::EnderChest => CHEST_SLOTS,
         }
@@ -67,11 +67,11 @@ impl Kind {
 pub enum Error {
     /// The inventory has no such slot.
     NoSlot,
-    /// The stack holds more than the slot takes (a campfire takes one item per slot).
+    /// The stack holds more than the slot takes.
     TooMany,
-    /// The player holds as many stacks outside its slots (cursor, crafting grid, window, a
-    /// closing menu's while its handler hears the close) as can be given back when its window
-    /// closes, so the cursor or grid takes no new stack.
+    /// The player holds as many stacks outside its slots (cursor, window, a closing menu's while
+    /// its handler hears the close) as can be given back when its window closes, so the cursor
+    /// takes no new stack.
     Full,
     /// The contents are longer than the inventory.
     TooLong,
@@ -122,8 +122,7 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`]
-    /// (PMMP `ShulkerBoxInventory::canAddItem`).
+    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
     pub(crate) fn of_shulker_box(self) -> Self {
         Self {
             shulker_box: true,
@@ -173,7 +172,7 @@ impl<'a> Inventory<'a> {
     }
 
     /// Whether the inventory holds at least `stack.count()` of `stack`'s item (its damage, and
-    /// its extra data when it has some), over all slots (PMMP `contains`).
+    /// its extra data when it has some), over all slots.
     #[doc(alias = "Inventory::contains")]
     #[doc(alias = "BaseInventory::contains")]
     pub fn contains(&self, stack: &Stack) -> bool {
@@ -241,14 +240,13 @@ impl<'a> Inventory<'a> {
     /// The most items one slot holds (a stack holds no more than its item's own maximum).
     #[doc(alias = "Inventory::getMaxStackSize")]
     #[doc(alias = "BaseInventory::getMaxStackSize")]
-    #[doc(alias = "CampfireInventory::getMaxStackSize")]
     pub fn max_stack_size(&self) -> u8 {
         self.max
     }
 
-    /// Where `stack` goes (PMMP `addItem`): onto the stacks it stacks with that have room, in
-    /// slot order, then into empty slots. The slots to write, each with the stack it then holds,
-    /// and what does not fit: what [`Editor::add`] writes and returns.
+    /// Where `stack` goes: onto the stacks it stacks with that have room, in slot order, then
+    /// into empty slots. The slots to write, each with the stack it then holds, and what does not
+    /// fit: what [`Editor::add`] writes and returns.
     pub fn plan_add(&self, stack: &Stack) -> (Vec<(usize, Stack)>, Stack) {
         if self.refuses(stack) {
             return (Vec::new(), stack.clone());
@@ -279,8 +277,8 @@ impl<'a> Inventory<'a> {
         (writes, stack.with_count(left))
     }
 
-    /// What taking `stack.count()` of `stack`'s item writes (PMMP `removeItem`): from the
-    /// matching slots in order. The slots to write and what could not be taken.
+    /// What taking `stack.count()` of `stack`'s item writes: from the matching slots in order.
+    /// The slots to write and what could not be taken.
     pub(crate) fn plan_remove(&self, stack: &Stack) -> (Vec<(usize, Stack)>, Stack) {
         let mut left = stack.count();
         let mut writes = Vec::new();
@@ -361,12 +359,10 @@ pub(crate) struct BlockSlots<'a> {
     pub(crate) world: crate::save::WorldIndex,
     pub(crate) pos: crate::world::BlockPos,
     pub(crate) pair: Option<crate::world::BlockPos>,
-    /// The most items one slot holds.
-    pub(crate) max: u8,
 }
 
 /// Whether `have` is `want`'s item for finding and taking: the same type and damage, and the
-/// same extra data when `want` has some (PMMP `Item::equals` with `checkTags` for a named tag).
+/// same extra data when `want` has some.
 pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
     have.item().is_some()
         && have.item() == want.item()
@@ -390,8 +386,7 @@ mod tests {
     // api: Inventory::isSlotEmpty, BaseInventory::isSlotEmpty, SimpleInventory::isSlotEmpty,
     // api: DoubleChestInventory::isSlotEmpty, Inventory::getContents,
     // api: SimpleInventory::getContents, DoubleChestInventory::getContents,
-    // api: Inventory::getMaxStackSize, BaseInventory::getMaxStackSize,
-    // api: CampfireInventory::getMaxStackSize, Inventory
+    // api: Inventory::getMaxStackSize, BaseInventory::getMaxStackSize, Inventory
     #[test]
     fn a_view_reads_both_halves_in_order() {
         let left = [stack(ItemKind::Stick, 3), Stack::EMPTY];
@@ -412,7 +407,7 @@ mod tests {
     // api: BaseInventory::getAddableItemQuantity, Inventory::canAddItem,
     // api: BaseInventory::canAddItem
     #[test]
-    fn finding_and_room_follow_pmmp() {
+    fn finding_and_room_count_stacks_with_equal_data() {
         let named = stack(ItemKind::Stick, 1)
             .with_extra(Some(Extra {
                 custom_name: Some("a".to_owned()),

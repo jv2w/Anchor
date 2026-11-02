@@ -785,41 +785,19 @@ fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() 
     assert_eq!(set, [1, 3]);
 }
 
-#[test]
-fn a_player_waiting_for_its_spawn_chunks_hears_of_a_random_tick_speed_change() {
-    let (mut state, mut output, mut rx) = in_spawn_window();
-    assert!(context(&mut state).set_random_tick_speed(100));
-    tick(&mut state, &mut Vec::new(), &mut output);
-    assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Joined);
-    let speeds: Vec<_> = received(&mut rx)
-        .0
-        .into_iter()
-        .filter_map(|p| match p {
-            P::GameRulesChanged(c) => c
-                .game_rules
-                .into_iter()
-                .find(|r| r.name == "randomTickSpeed")
-                .map(|r| r.value),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(speeds, [crate::protocol::GameRuleValue::Uint32(100)]);
-}
-
 /// Every table that world, chunk and rule state live in, by size.
 fn tables(state: &State) -> Vec<usize> {
     let mut sizes = vec![
         state.chunks.held(),
         usize::from(state.chunks.is_idle()),
         state.chunks.extras.len(),
-        state.rules.updates.len().0,
         state.catalog.pending.len(),
         state.catalog.announced.len(),
         state.catalog.unloads.len(),
         state.worlds.len(),
     ];
-    let (a, b, c, d) = state.rules.block_entities.sizes();
-    sizes.extend([a, b, c, d]);
+    let (a, b, c) = state.rules.block_entities.sizes();
+    sizes.extend([a, b, c]);
     for w in &state.worlds {
         sizes.extend([
             w.loaded_chunks().len(),

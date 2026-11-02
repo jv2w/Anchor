@@ -1842,7 +1842,7 @@ fn encode(
     let (world, pos, index) = key;
     let chunk = worlds.get(world)?.chunk(pos)?;
     let payload = chunk.sub_chunk_payload(index).map(|mut payload| {
-        payload.extend_from_slice(&blocks.client_bytes(world, pos, index));
+        blocks.write_client_bytes(world, pos, index, &mut payload);
         payload
     });
     Some(EncodedSubChunk {
@@ -3321,7 +3321,7 @@ mod tests {
                 .and_then(|c| c.sub_chunk_payload(index))
                 .map(|mut payload| {
                     let blocks = &state.rules.block_entities;
-                    payload.extend_from_slice(&blocks.client_bytes(player.world, pos, index));
+                    blocks.write_client_bytes(player.world, pos, index, &mut payload);
                     payload
                 });
             entries.push(SubChunkEntry {
@@ -3372,13 +3372,12 @@ mod tests {
     fn a_lone_players_sub_chunk_answers_work_out_no_height_map_on_the_tick_thread() {
         let (mut state, mut output, mut receivers) = sent_views(&[1]);
         let origin = ChunkPos::new(0, 0);
-        assert!(
-            !state
-                .rules
-                .block_entities
-                .client_bytes(0, origin, 0)
-                .is_empty()
-        );
+        let mut client = Vec::new();
+        state
+            .rules
+            .block_entities
+            .write_client_bytes(0, origin, 0, &mut client);
+        assert!(!client.is_empty());
         let request = column_request();
         let input = crate::tick::tests::input(
             1,

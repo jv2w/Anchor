@@ -1,6 +1,4 @@
-//! How long blocks take to break and what breaking costs a tool (PMMP
-//! `BlockBreakInfo::getBreakTime`, `Tool::getMiningEfficiency`, `Sword::getMiningEfficiency`,
-//! `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`, `Durable::applyDamage`).
+//! How long blocks take to break and what breaking costs a tool.
 
 use super::drops::level;
 use crate::block::{Inert, State};
@@ -11,7 +9,7 @@ use crate::tick::{Context, Settings};
 /// How many times longer breaking takes in the air (off the ground and not flying).
 const AIRBORNE_BREAK_SLOWDOWN: f64 = 5.0;
 /// The roll out of 100 that Unbreaking on armour must beat to spare a point of wear, so it spares
-/// at most 40% of the points (PMMP `Armor::getUnbreakingDamageReduction`).
+/// at most 40% of the points.
 const ARMOR_UNBREAKING_ROLL: i32 = 60;
 /// What each level of Mining Fatigue multiplies the break speed by.
 const FATIGUE_BREAK_FACTOR: f64 = 0.21;
@@ -22,8 +20,8 @@ const HASTE_BREAK_STEP: f64 = 0.2;
 /// How many times longer breaking takes underwater without Aqua Affinity.
 const UNDERWATER_BREAK_SLOWDOWN: f64 = 5.0;
 
-/// What changes how fast a player breaks blocks besides the tool (PMMP reads these from the
-/// player each tick).
+/// What changes how fast a player breaks blocks besides the tool; read from the player each
+/// tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Conditions {
     /// Whether the player stands on a block.
@@ -53,9 +51,8 @@ impl Conditions {
     };
 }
 
-/// The share of the block one tick of breaking takes (PMMP
-/// `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`): 1 or more breaks it at once, 0 for
-/// a block that cannot be broken.
+/// The share of the block one tick of breaking takes: 1 or more breaks it at once, 0 for a block
+/// that cannot be broken.
 pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditions) -> f64 {
     progress(state.break_time_secs(tool), conditions)
 }
@@ -97,7 +94,7 @@ fn power(base: f64, n: u8) -> f64 {
     (0..n).fold(1.0, |acc, _| acc * base)
 }
 
-/// Wears a copy of `tool` by `amount` points (PMMP `Durable::applyDamage`).
+/// Wears a copy of `tool` by `amount` points.
 ///
 /// Under Unbreaking each point is spared with chance `1 - 1 / (level + 1)`, on armour only on 40%
 /// of the points at best. A tool worn to its durability breaks (the stack loses one item). The
@@ -148,7 +145,7 @@ pub(in crate::tick) fn damage(
     let total = u32::from(tool.damage()).saturating_add(taken);
     let damage = u16::try_from(total.min(u32::from(max))).unwrap_or(max);
     if damage >= max {
-        // PMMP `Durable::onBroken`: one item less, the rest undamaged.
+        // A worn out tool is one item less, the rest undamaged.
         return tool
             .with_count(tool.count() - 1)
             .with_damage(0)
@@ -185,10 +182,9 @@ mod tests {
         (a - b).abs() < 1e-9
     }
 
-    /// Break times per tool and tier are PMMP's (`BlockBreakInfo::getBreakTime` run on the
-    /// pinned checkout).
+    /// Break times per tool and tier are the dump's.
     #[test]
-    fn break_times_per_tool_and_tier_are_pmmp_values() {
+    fn break_times_per_tool_and_tier_are_the_dump_values() {
         let cases: [(Kind, Stack, f64); 16] = [
             (Kind::Stone, Stack::EMPTY, 7.5),
             (Kind::Stone, tool(I::WoodenPickaxe), 1.125),
@@ -226,10 +222,10 @@ mod tests {
         assert_eq!(seconds(Kind::Wheat, &Stack::EMPTY), 0.0);
     }
 
-    /// Breaking uses the block's own break time: PMMP's exceptions for leaves with shears,
-    /// bamboo with a sword and wool with shears count.
+    /// Breaking uses the block's own break time: the exceptions for leaves with shears, bamboo
+    /// with a sword and wool with shears count.
     #[test]
-    fn breaking_follows_pmmp_break_time_exceptions() {
+    fn breaking_follows_the_break_time_exceptions() {
         let leaves = Kind::OakLeaves.default_state();
         let shears = tool(I::Shears);
         assert_eq!(seconds(Kind::OakLeaves, &shears), 0.0);

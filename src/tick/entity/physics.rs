@@ -155,10 +155,8 @@ pub(super) enum Inside {
     Harm(Harm, BlockPos),
     /// Water: puts the fire out.
     Water,
-    /// A water cauldron at this position: puts the fire out for a level of its water.
+    /// A water cauldron at this position: puts the fire out.
     WaterCauldron(BlockPos),
-    /// An unlit campfire at this position: a burning entity lights it.
-    Campfire(BlockPos),
 }
 
 /// What a block does to what is inside it (PMMP `onEntityInside`), besides the player-only
@@ -167,11 +165,9 @@ pub(super) enum Inside {
 pub(in crate::tick) enum Touch {
     /// It hurts ([`Harm`]).
     Harm(Harm),
-    /// An unlit campfire: something burning lights it.
-    Campfire,
     /// Water: puts fire out and ends the fall.
     Water,
-    /// A water cauldron: puts fire out for a level of its water.
+    /// A water cauldron: puts fire out.
     WaterCauldron,
     /// A cobweb or a vine: ends the fall.
     EndsFall,
@@ -182,9 +178,6 @@ impl Touch {
     pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
         if let Some(harm) = Harm::of(block) {
             Some(Self::Harm(harm))
-        } else if block.is(Class::Campfire) {
-            // An unlit one: a lit one is a `Harm`.
-            Some(Self::Campfire)
         } else if block.is(Class::Water) {
             Some(Self::Water)
         } else if block.is(Class::WaterCauldron) {
@@ -620,7 +613,6 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
                             body.fall_distance = 0.0;
                         }
                     }
-                    Some(Touch::Campfire) => inside.push(Inside::Campfire(pos)),
                     Some(Touch::Water) => {
                         inside.push(Inside::Water);
                         body.fall_distance = 0.0;

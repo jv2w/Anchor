@@ -23,9 +23,8 @@
 //! Primed TNT and end crystals raise `EntityPreExplode` before they explode (PMMP
 //! `ExplosionPrimeEvent` is this event here): its listeners may cancel it, or change the radius,
 //! the fire chance and whether blocks break. The explosion of an entity then raises
-//! `EntityExplode` once its blocks are known, the explosion of a block (a respawn anchor, whose
-//! `BlockPreExplode` the interaction rules raise) `BlockExplode`. The exploding entity stays until
-//! its explosion is over, so these listeners can look it up; it goes either way.
+//! `EntityExplode` once its blocks are known. The exploding entity stays until its explosion is
+//! over, so these listeners can look it up; it goes either way.
 
 use tracing::debug;
 
@@ -37,8 +36,7 @@ use super::{
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
 use crate::event::{
-    Actor, BlockExplode, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode,
-    MAX_EXPLOSION_RADIUS,
+    Actor, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode, MAX_EXPLOSION_RADIUS,
 };
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
@@ -100,13 +98,6 @@ pub(super) enum Source {
     None,
     /// An entity: excluded from the hurt, and the point living things are knocked back from.
     Entity(Id),
-    /// The block that was at `pos`, already gone.
-    Block {
-        /// Where it was.
-        pos: BlockPos,
-        /// What it was.
-        block: block::State,
-    },
 }
 
 impl Source {
@@ -114,16 +105,15 @@ impl Source {
     fn entity(self) -> Option<Id> {
         match self {
             Self::Entity(id) => Some(id),
-            Self::None | Self::Block { .. } => None,
+            Self::None => None,
         }
     }
 
-    /// What deals the hurt (PMMP `EntityDamageByEntityEvent`, `EntityDamageByBlockEvent`).
+    /// What deals the hurt (PMMP `EntityDamageByEntityEvent`).
     fn damage_source(self) -> DamageSource {
         match self {
             Self::None => DamageSource::None,
             Self::Entity(id) => DamageSource::Entity(Actor::Entity(id)),
-            Self::Block { pos, .. } => DamageSource::Block(pos),
         }
     }
 }
@@ -140,14 +130,12 @@ enum Outcome {
     },
     /// The listeners of [`EntityExplode`] saw it; kept for its monitors.
     Entity(EntityExplode),
-    /// The listeners of [`BlockExplode`] saw it; kept for its monitors.
-    Block(BlockExplode),
 }
 
 impl Outcome {
-    /// Raises [`EntityExplode`] for an entity's explosion or [`BlockExplode`] for a block's, if
-    /// heard, with the `blocks` and `ignitions` found and the default `yield_percent`; `None` when
-    /// the listeners cancel it or the world is gone.
+    /// Raises [`EntityExplode`] for an entity's explosion, if heard, with the `blocks` and
+    /// `ignitions` found and the default `yield_percent`; `None` when the listeners cancel it or
+    /// the world is gone.
     fn ask(
         state: &mut State,
         world: WorldIndex,
@@ -171,26 +159,11 @@ impl Outcome {
                 dispatch::call(state, &mut e);
                 Self::Entity(e)
             }
-            Source::Block { pos, block } if dispatch::heard::<BlockExplode>(state) => {
-                let mut e = BlockExplode {
-                    world: world::Id::of(world),
-                    pos,
-                    block,
-                    position: center,
-                    blocks,
-                    yield_percent,
-                    ignitions,
-                    cancelled: false,
-                };
-                dispatch::call(state, &mut e);
-                Self::Block(e)
-            }
             _ => return Some(Self::Found { blocks, ignitions }),
         };
         let cancelled = match &outcome {
             Self::Found { .. } => false,
             Self::Entity(e) => e.cancelled,
-            Self::Block(e) => e.cancelled,
         };
         (!cancelled && state.worlds.get(world).is_some()).then_some(outcome)
     }
@@ -200,7 +173,6 @@ impl Outcome {
         match self {
             Self::Found { .. } => None,
             Self::Entity(e) => Some(e.yield_percent),
-            Self::Block(e) => Some(e.yield_percent),
         }
     }
 
@@ -209,7 +181,6 @@ impl Outcome {
         match self {
             Self::Found { blocks, .. } => capped(blocks),
             Self::Entity(e) => capped(&e.blocks),
-            Self::Block(e) => capped(&e.blocks),
         }
     }
 
@@ -218,7 +189,6 @@ impl Outcome {
         match self {
             Self::Found { ignitions, .. } => capped(ignitions),
             Self::Entity(e) => capped(&e.ignitions),
-            Self::Block(e) => capped(&e.ignitions),
         }
     }
 
@@ -227,7 +197,6 @@ impl Outcome {
         match self {
             Self::Found { .. } => {}
             Self::Entity(e) => dispatch::watch(state, &e),
-            Self::Block(e) => dispatch::watch(state, &e),
         }
     }
 }
@@ -368,8 +337,8 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
 /// entity's, called by the entity tick, makes the entities near it move again from their new
 /// state.
 ///
-/// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] and one by a block
-/// [`BlockExplode`] once the blocks are known (PMMP `explodeB`): cancelling stops it there (no
+/// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] once the blocks are
+/// known (PMMP `explodeB`): cancelling stops it there (no
 /// block breaks, nothing is hurt), and the listeners' block list (at most
 /// [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone), ignitions and yield are used; the hits
 /// and pushes raise their own events.
@@ -623,9 +592,7 @@ fn hit_entities(
     // PMMP: `CAUSE_ENTITY_EXPLOSION` for an entity's, `CAUSE_BLOCK_EXPLOSION` otherwise.
     let (entity_cause, player_cause) = match source {
         Source::Entity(_) => (Cause::EntityExplosion, survival::Damage::Explosion),
-        Source::None | Source::Block { .. } => {
-            (Cause::BlockExplosion, survival::Damage::BlockExplosion)
-        }
+        Source::None => (Cause::BlockExplosion, survival::Damage::BlockExplosion),
     };
     for (id, impact, direction) in hits {
         let damage = damage_of(impact, reach);

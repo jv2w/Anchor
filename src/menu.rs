@@ -286,8 +286,8 @@ impl Click {
 /// Once the handler returns, the request is checked again and made only if it still does what
 /// the handler heard. The handler's own calls can fail that check when they change what the
 /// request reads: a slot it names, changed or not ([`is_slot_named`](Self::is_slot_named)), through
-/// [`Context::set_menu_item`] or the player's inventory; the player's cursor, crafting grid or the
-/// stacks it waits with for room; the menu itself, closed or replaced by another window, a
+/// [`Context::set_menu_item`] or the player's inventory; the player's cursor or the stacks it
+/// waits with for room; the menu itself, closed or replaced by another window, a
 /// teleport or another world; or the world's room for the item a drop throws (new entities). The
 /// change is then refused although the handler kept it, a warning is logged, and the handler is
 /// not told. So a handler that changes none of these while it answers never has a kept change

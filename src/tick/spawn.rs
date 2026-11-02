@@ -26,14 +26,13 @@ use super::view::{self, Changes, Encoded};
 use super::{Output, Phase, Player, PlayerKey, Settings, State, inside_border};
 use super::{dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
-use crate::crafting;
 use crate::custom;
 use crate::entity::MAX_SKIN_BYTES;
 use crate::event::{
     DuplicateOutcome, KickFlag, PlayerDuplicateLogin, PlayerInfo, PlayerJoin, PlayerLogin,
     PlayerViewDistanceChange,
 };
-use crate::item::SHIELD_RUNTIME_ID;
+use crate::item::{self, SHIELD_RUNTIME_ID};
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 use crate::math::Vec3;
 use crate::player::{self, MAX_TEXT, Message as Text};
@@ -135,9 +134,9 @@ impl Shared {
     /// or its batch is larger than `max-batch-bytes`.
     ///
     /// With the server's custom content: the custom items after the vanilla ones in the item
-    /// registry and the creative inventory, the custom recipes after PMMP's, the custom block
-    /// definitions for `StartGame` and the custom entity identifiers. Without custom content the
-    /// batches are byte for byte the vanilla ones.
+    /// registry and the creative inventory, the custom block definitions for `StartGame` and the
+    /// custom entity identifiers. The recipe list is always empty. Without custom content the
+    /// other batches are byte for byte the vanilla ones.
     pub(crate) fn new(
         settings: batch::Settings,
         custom: &custom::Registry,
@@ -165,7 +164,10 @@ impl Shared {
                 .collect::<Result<_, _>>()?,
             crafting_data: encode(
                 &mut encoder,
-                &[Packet::CraftingData(Box::new(custom.crafting_data()))],
+                &[Packet::CraftingData(Box::new(packet::CraftingData {
+                    clear_recipes: true,
+                    ..packet::CraftingData::default()
+                }))],
             )?,
             voxel_shapes: encode(&mut encoder, &[Packet::VoxelShapes(voxel_shapes())])?,
             actor_identifiers: encode(
@@ -468,18 +470,18 @@ fn voxel_shapes() -> VoxelShapes {
     }
 }
 
-/// Builds the armour trim patterns and materials BDS 1.26.52 sends (P6), from the tables the
-/// smithing table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIAL_TABLE`]).
+/// Builds the armour trim patterns and materials the official server sends, from
+/// [`item::TRIM_PATTERNS`] and [`item::TRIM_MATERIAL_TABLE`].
 fn trim_data() -> TrimData {
     TrimData {
-        patterns: crafting::TRIM_PATTERNS
+        patterns: item::TRIM_PATTERNS
             .iter()
             .map(|p| TrimPattern {
                 item_name: format!("minecraft:{p}_armor_trim_smithing_template"),
                 pattern_id: (*p).to_owned(),
             })
             .collect(),
-        materials: crafting::TRIM_MATERIAL_TABLE
+        materials: item::TRIM_MATERIAL_TABLE
             .iter()
             .map(|&(id, colour, item)| TrimMaterial {
                 material_id: id.to_owned(),
@@ -1033,7 +1035,12 @@ fn enter(
 fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
     let saved = data.and_then(|d| {
         player.extra = extra::player_loaded(d.extra);
-        inventory::load(&mut player.inventory, player.extra.raw(), &state.custom);
+        inventory::load(
+            &mut player.inventory,
+            player.extra.raw(),
+            &state.custom,
+            &player.identity.name,
+        );
         inventory::restore(&mut player.inventory);
         survival::load(&mut player.survival, player.extra.raw(), &state.custom);
         let world = state.catalog.named(&d.world)?;

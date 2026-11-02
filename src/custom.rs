@@ -1,13 +1,13 @@
 //! Custom content: items and blocks a server adds beyond vanilla, its
-//! own recipes, its creative inventories, and villager trade offers as typed values.
+//! creative inventories, and villager trade offers as typed values.
 //!
 //! Items and blocks are `static` definitions ([`Item`], [`Block`]) given to the builder
-//! ([`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`]); recipes are values
-//! ([`ServerBuilder::recipe`]). [`ServerBuilder::build`](crate::ServerBuilder::build) checks
+//! ([`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`]).
+//! [`ServerBuilder::build`](crate::ServerBuilder::build) checks
 //! them all and numbers them in registration order: runtime IDs after the vanilla items, network
-//! hashes for every block state, recipe IDs after PMMP's. The engine then sends them in the
-//! start-game packets (`StartGame` block definitions, `ItemRegistry`, `CreativeContent`,
-//! `CraftingData`); textures and models come from a resource pack.
+//! hashes for every block state. The engine then sends them in the
+//! start-game packets (`StartGame` block definitions, `ItemRegistry`, `CreativeContent`);
+//! textures and models come from a resource pack.
 //!
 //! A custom item or block state is an [`item::Type`](crate::item::Type) or
 //! [`block::State`](crate::block::State) like a vanilla one: the server makes them
@@ -20,10 +20,8 @@ mod block;
 mod creative;
 mod item;
 mod offer;
-mod recipe;
 mod registry;
 
-pub use crate::crafting::{FurnaceType, ShapelessType};
 pub use crate::tick::check_offers;
 pub use block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
 pub use creative::{CreativeGroup, CreativeInventory, CreativeItem};
@@ -33,7 +31,6 @@ pub use offer::{
     MAX_OFFERS, MAX_TRADE_COUNTER, MAX_TRADE_TIER, Offer, TRADE_TIERS, is_price_multiplier,
     is_tier_xp,
 };
-pub use recipe::{Ingredient, Recipe};
 pub(crate) use registry::{Registry, is_identifier};
 
 use std::fmt;
@@ -93,7 +90,7 @@ impl Creative {
     }
 }
 
-/// An item a definition or a recipe names before the server has numbered the custom items: a
+/// An item a definition names before the server has numbered the custom items: a
 /// vanilla item type, a vanilla block's item, a custom item or a custom block's item.
 #[derive(Debug, Clone, Copy)]
 pub enum ItemRef {
@@ -146,13 +143,6 @@ pub enum Error {
         /// The block.
         identifier: &'static str,
     },
-    /// A recipe breaks a rule.
-    Recipe {
-        /// Its place in registration order (from 0).
-        index: usize,
-        /// What is wrong.
-        reason: &'static str,
-    },
     /// More registrations than the limit.
     TooMany {
         /// What there are too many of.
@@ -193,7 +183,6 @@ impl fmt::Display for Error {
             Self::Unregistered { identifier } => {
                 write!(f, "`{identifier}` drops an unknown or unregistered item")
             }
-            Self::Recipe { index, reason } => write!(f, "recipe {index}: {reason}"),
             Self::TooMany { what, limit } => write!(f, "more than {limit} {what}"),
             Self::NotVillager => f.write_str("the entity is not a villager"),
             Self::NotSpawned => f.write_str("the villager cannot be spawned there"),
@@ -221,21 +210,6 @@ impl ServerBuilder {
     #[must_use]
     pub fn custom_block(mut self, block: &'static Block) -> Self {
         self.setup.custom.add_block(block);
-        self
-    }
-
-    /// Adds `recipe` after PMMP's recipes (checked by [`build`](Self::build): its size, counts
-    /// and items, which must be vanilla or registered custom ones). PMMP takes its recipes the
-    /// same way: shaped and shapeless crafting recipes, stonecutter recipes, furnace recipes and
-    /// brewing recipes; smithing recipes are dragonfly's.
-    #[doc(alias = "CraftingManager::registerShapedRecipe")]
-    #[doc(alias = "CraftingManager::registerShapelessRecipe")]
-    #[doc(alias = "FurnaceRecipeManager::register")]
-    #[doc(alias = "CraftingManager::registerPotionTypeRecipe")]
-    #[doc(alias = "CraftingManager::registerPotionContainerChangeRecipe")]
-    #[must_use]
-    pub fn recipe(mut self, recipe: Recipe) -> Self {
-        self.setup.custom.add_recipe(recipe);
         self
     }
 

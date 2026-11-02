@@ -1,6 +1,8 @@
-//! Placing blocks: which states an item puts where (PMMP `World::useItemOn`'s placement
-//! transactions, `Item::getPlacementTransaction`, `Block::canBePlacedAt` and `Block::place` of
-//! every class and trait, the `canBeSupportedAt` rules of `StaticSupportTrait`).
+//! Placing blocks: which states an item puts where.
+//!
+//! A placement does not check the place: the client's position is taken wherever it is. What the
+//! rules decide is the state of the placed block (facing, half, axis, stacking, the form an item
+//! takes) and the blocks that go together (doors, beds, tall plants).
 //!
 //! [`placement`] only reads the world: it returns the blocks to set, which the caller checks
 //! (entities in the way, adventure mode, events) and then applies.
@@ -9,52 +11,37 @@ use super::props::{self, Axis};
 use crate::block::{self, Class, Face, Kind, State, SupportType, Trait, TypeTag};
 use crate::item;
 use crate::math::Vec3;
-use crate::random::Random;
-use crate::tick::update;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
 /// The distance in blocks that decides whether a barrel faces up or down: the player's feet closer
-/// than this sideways, the eyes higher than this above it (PMMP `Barrel::place`).
+/// than this sideways, the eyes higher than this above it.
 const BARREL_NEAR: f64 = 2.0;
 /// The `candles` of a full set of four candles.
 const CANDLES_FULL: i32 = 3;
 /// The `cluster_count` of four sea pickles.
 const CLUSTER_FULL: i32 = 3;
-/// The brightest light. A red mushroom counts a chunk that is not lit yet as this, so the
-/// placement is refused until the light is there.
-const FULL_LIGHT: u8 = 15;
 /// The most blocks one placement sets: two for doors, beds and tall plants.
 const MAX_BLOCKS: usize = 2;
-/// The brightest light a red mushroom may be placed in on ground that is not mycelium, podzol or
-/// nylium (PMMP `RedMushroom::canBeSupportedAt`).
-const MAX_RED_MUSHROOM_LIGHT: u8 = 12;
 /// The `growth` of four pink petals.
 const PETALS_FULL: i32 = 3;
 /// The `height` of a full block of eight snow layers.
 const SNOW_FULL: i32 = 7;
 
-/// One placement attempt (PMMP `Item::getPlacementTransaction`).
+/// One placement attempt.
 struct Attempt<'a> {
     world: &'a World,
     item: item::Type,
     /// Where the block goes, and what is there.
     replace: BlockPos,
     replace_state: State,
-    clicked: BlockPos,
     clicked_state: State,
-    /// The face PMMP passes: up for the first attempt.
+    /// The face the rules see: up for the attempt on the clicked block itself.
     face: Face,
     click: Vec3,
     placer: Option<&'a Placer>,
 }
 
 impl Attempt<'_> {
-    /// Whether the attached block `state` holds on the `face` side of the replaced position
-    /// ([`update::attached_support`]); `None` for a class without that rule.
-    fn attached(&self, state: State, face: Face) -> Option<bool> {
-        update::attached_support(state, face, self.support(face))
-    }
-
     /// The placer's horizontal facing; `None` without a placer.
     fn facing(&self) -> Option<Face> {
         self.placer.map(Placer::facing)
@@ -65,13 +52,39 @@ impl Attempt<'_> {
         block_at(self.world, self.replace.step(face))
     }
 
+    /// Whether `state` stacks onto the replaced block, which the click is on: the block is of the
+    /// same kind and has room, a slab half is free at the clicked height (a candle, sea pickle,
+    /// pink petals or slab).
+    fn stacks(&self, state: State) -> bool {
+        let existing = self.replace_state;
+        if existing.kind() != state.kind() {
+            return false;
+        }
+        if state.is(Class::Candle) {
+            props::int(existing, "candles").is_some_and(|c| c < CANDLES_FULL)
+        } else if state.is(Class::PinkPetals) {
+            props::int(existing, "growth").is_some_and(|c| c < PETALS_FULL)
+        } else if state.is(Class::SeaPickle) {
+            props::int(existing, "cluster_count").is_some_and(|c| c < CLUSTER_FULL)
+        } else if state.is(Class::Slab) {
+            !props::is_double_slab(existing)
+                && if is_top_slab(existing) {
+                    self.click.y <= 0.5
+                } else {
+                    self.click.y >= 0.5
+                }
+        } else {
+            false
+        }
+    }
+
     /// The support the block toward `face` of the replaced position gives back.
     fn support(&self, face: Face) -> SupportType {
         adjacent_support(self.world, self.replace, face)
     }
 
     /// Whether the block goes in the upper half: against the bottom of the block above, or high
-    /// up on a side (PMMP `Slab::place`, `Stair::place`, `Trapdoor::place`).
+    /// up on a side.
     fn upper_half(&self) -> bool {
         (self.face != Face::Up && self.click.y > 0.5) || self.face == Face::Down
     }
@@ -118,7 +131,7 @@ impl<'a> IntoIterator for &'a Blocks {
     }
 }
 
-/// What the placing player shows the placement rules (PMMP reads these from the `Player`).
+/// What the placing player shows the placement rules.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Placer {
     /// The feet position.
@@ -132,7 +145,7 @@ pub(super) struct Placer {
 }
 
 impl Placer {
-    /// The horizontal facing (PMMP `Entity::getHorizontalFacing`).
+    /// The horizontal facing.
     fn facing(&self) -> Face {
         props::horizontal_facing(self.yaw)
     }
@@ -141,8 +154,9 @@ impl Placer {
 /// The placement of `item` clicked on `face` of the block at `clicked`, at `click` inside it
 /// (each component 0 to 1): the blocks to set, or `None` if the item places nothing there.
 ///
-/// As PMMP `World::useItemOn`, the clicked block itself is tried first, as if its top was
-/// clicked (to replace grass, merge slabs), then the block next to the clicked face.
+/// The clicked block itself is tried first, as if its top was clicked, when it is replaceable or
+/// the item stacks onto it (grass, a slab half); otherwise the block goes next to the clicked
+/// face.
 pub(super) fn placement(
     world: &World,
     item: item::Type,
@@ -150,7 +164,6 @@ pub(super) fn placement(
     face: Face,
     click: Vec3,
     placer: Option<&Placer>,
-    rng: &mut Random,
 ) -> Option<Blocks> {
     let clicked_state = placed_on(world, clicked)?;
     if clicked_state == block::AIR {
@@ -161,32 +174,52 @@ pub(super) fn placement(
         item,
         replace,
         replace_state: block_at(world, Some(replace)),
-        clicked,
         clicked_state,
         face,
         click,
         placer,
     };
-    if let Some(blocks) = transaction(&attempt(clicked, Face::Up), rng) {
+    let onto = attempt(clicked, Face::Up);
+    if takes(&onto)
+        && let Some(blocks) = transaction(&onto)
+    {
         return Some(blocks);
     }
     let replace = clicked.step(face)?;
     placed_on(world, replace)?;
-    transaction(&attempt(replace, face), rng)
+    let next = attempt(replace, face);
+    if !takes(&next) {
+        return None;
+    }
+    transaction(&next)
 }
 
-/// The transaction of one attempt: the item's block for the face, checked and placed.
-fn transaction(attempt: &Attempt<'_>, rng: &mut Random) -> Option<Blocks> {
+/// Whether the item's block goes into the replaced position as it is: the block there is
+/// replaceable or the item stacks onto it.
+fn takes(attempt: &Attempt<'_>) -> bool {
+    attempt.replace_state.can_be_replaced()
+        || candidates(attempt)
+            .into_iter()
+            .flatten()
+            .any(|state| attempt.stacks(state))
+}
+
+/// The transaction of one attempt: the first form of the item whose rules give a state, placed.
+fn transaction(attempt: &Attempt<'_>) -> Option<Blocks> {
     for state in candidates(attempt).into_iter().flatten() {
-        if !can_be_placed_at(attempt, state) {
-            continue;
-        }
-        // A form whose rules refuse leaves the next to try (PMMP
-        // `HangingSign::getPlacementTransaction`).
-        let Some(blocks) = place(attempt, state, rng) else {
+        // A form whose rules refuse leaves the next to try (a hanging sign's edges, then its
+        // centre).
+        let Some(blocks) = place(attempt, state) else {
             continue;
         };
         if blocks.iter().any(|(p, _)| !(MIN_Y..=MAX_Y).contains(&p.y)) {
+            return None;
+        }
+        // The other cell of a two-block block goes into a replaceable block only.
+        let blocked = blocks.iter().any(|(p, _)| {
+            *p != attempt.replace && !block_at(attempt.world, Some(*p)).can_be_replaced()
+        });
+        if blocked {
             return None;
         }
         return Some(blocks);
@@ -195,7 +228,7 @@ fn transaction(attempt: &Attempt<'_>, rng: &mut Random) -> Option<Blocks> {
 }
 
 /// The blocks the item tries for the face, in order: one for most items; a hanging sign tries
-/// its ceiling forms (PMMP `HangingSign::getPlacementTransaction`).
+/// its ceiling forms.
 fn candidates(attempt: &Attempt<'_>) -> [Option<State>; 2] {
     let Some(state) = attempt.item.placed_block(Some(attempt.face)) else {
         return [None, None];
@@ -218,87 +251,13 @@ fn candidates(attempt: &Attempt<'_>) -> [Option<State>; 2] {
     [edges, hanging(true, true)]
 }
 
-/// Whether the state can be placed at the replaced position (PMMP `Block::canBePlacedAt` of its
-/// class).
-fn can_be_placed_at(attempt: &Attempt<'_>, state: State) -> bool {
-    let replace = attempt.replace_state;
-    let is_clicked = attempt.replace == attempt.clicked;
-    let static_support = state.has_trait(Trait::StaticSupport);
-    for class in state.kind().classes() {
-        match class {
-            Class::Candle => {
-                return if replace.kind() == state.kind() {
-                    props::int(replace, "candles").is_some_and(|c| c < CANDLES_FULL)
-                } else {
-                    replace.can_be_replaced()
-                };
-            }
-            Class::Flowable if !static_support => return flowable_placeable(state, replace),
-            Class::Light => {
-                return replace.can_be_replaced() && replace.kind() != state.kind();
-            }
-            Class::PinkPetals => {
-                return (replace.kind() == state.kind()
-                    && props::int(replace, "growth").is_some_and(|c| c < PETALS_FULL))
-                    || (supported_at(attempt, state) && flowable_placeable(state, replace));
-            }
-            Class::SeaPickle => {
-                return (replace.kind() == state.kind()
-                    && props::int(replace, "cluster_count").is_some_and(|c| c < CLUSTER_FULL))
-                    || replace.can_be_replaced();
-            }
-            Class::Slab => {
-                if replace.can_be_replaced() {
-                    return true;
-                }
-                if replace.kind() == state.kind() && !props::is_double_slab(replace) {
-                    return if is_top_slab(replace) {
-                        attempt.click.y <= 0.5 || (!is_clicked && attempt.face == Face::Up)
-                    } else {
-                        attempt.click.y >= 0.5 || (!is_clicked && attempt.face == Face::Down)
-                    };
-                }
-                return false;
-            }
-            Class::WaterLily => {
-                return !replace.is(Class::Water)
-                    && supported_at(attempt, state)
-                    && flowable_placeable(state, replace);
-            }
-            _ if static_support => {
-                return supported_at(attempt, state) && flowable_placeable(state, replace);
-            }
-            _ => {}
-        }
-    }
-    replace.can_be_replaced()
-}
-
-/// Whether the state can go into `replace` (PMMP `Flowable::canBePlacedAt`: a block liquids
-/// destroy does not go into a liquid; `Block::canBePlacedAt` for blocks that are not flowable).
-fn flowable_placeable(state: State, replace: State) -> bool {
-    if state.is(Class::Flowable) && state.can_be_flowed_into() && replace.is(Class::Liquid) {
-        return false;
-    }
-    replace.can_be_replaced()
-}
-
-/// Whether the state stands at the replaced position (PMMP `canBeSupportedAt` of its class,
-/// [`update::static_support`] with the placement reads; a class without a rule stands).
-fn supported_at(attempt: &Attempt<'_>, state: State) -> bool {
-    update::static_support(state, attempt.replace, |p| {
-        Some(block_at(attempt.world, Some(p)))
-    })
-    .unwrap_or(true)
-}
-
-/// The blocks to set to place the state (PMMP `Block::place` of its class, with the traits that
-/// place).
+/// The blocks to set to place the state: its state rules and the blocks that go with it. `None`
+/// for a form the click cannot give (a wall form on the top face).
 #[expect(
     clippy::too_many_lines,
-    reason = "consistency: one arm per PMMP class keeps the port side by side with PMMP"
+    reason = "consistency: one arm per block class keeps the rules side by side"
 )]
-fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
+fn place(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
     let mut s = state;
     let mut second: Option<(BlockPos, State)> = None;
     let face = attempt.face;
@@ -307,9 +266,6 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
     for class in state.kind().classes() {
         match class {
             Class::AmethystCluster | Class::Button | Class::ItemFrame => {
-                if !attempt.attached(state, face.opposite())? {
-                    return None;
-                }
                 s = set_facing(s, face);
             }
             Class::Anvil => {
@@ -322,32 +278,14 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     s = set_facing(s, barrel_facing(attempt.replace, p));
                 }
             }
-            Class::BaseBanner | Class::BaseOminousBanner => {
-                // The supporting face: down for a floor banner, behind a wall banner.
-                let behind = props::facing(s).map_or(Face::Down, Face::opposite);
-                let support = if s.is(Class::FloorBanner) || s.is(Class::OminousFloorBanner) {
-                    Face::Down
-                } else {
-                    behind
-                };
-                if !attempt.side(support).is_solid() {
-                    return None;
-                }
-            }
             Class::BaseBigDripleaf => {
                 let below_pos = attempt.replace.step(Face::Down)?;
                 let below = block_at(attempt.world, Some(below_pos));
-                let head = below.is(Class::BaseBigDripleaf)
-                    && props::flag(below, "big_dripleaf_head") == Some(true);
-                if !(head
-                    || below.kind() == Kind::Clay
-                    || below.has_type_tag(TypeTag::Dirt)
-                    || below.has_type_tag(TypeTag::Mud))
-                {
-                    return None;
-                }
                 s = opposite_player(s);
-                if below.is(Class::BaseBigDripleaf) {
+                // On a head the plant grows: the head below becomes its stem.
+                if below.is(Class::BaseBigDripleaf)
+                    && props::flag(below, "big_dripleaf_head") == Some(true)
+                {
                     let f = props::facing(below)?;
                     s = set_facing(s, f);
                     second = Some((
@@ -356,16 +294,8 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     ));
                 }
             }
-            Class::BaseRail => {
-                if !attempt.support(Face::Down).has_edge_support() {
-                    return None;
-                }
-            }
             Class::Bed => return bed(attempt, s),
             Class::Bell => {
-                if attempt.support(face.opposite()) == SupportType::None {
-                    return None;
-                }
                 let attachment = match face {
                     Face::Down => "hanging",
                     Face::Up => {
@@ -393,31 +323,20 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 return Some(Blocks::new((attempt.replace, s), second));
             }
             Class::Campfire => {
-                if attempt.side(Face::Down).is(Class::Campfire) {
-                    return None;
-                }
                 if let Some(f) = attempt.facing() {
                     s = set_facing(s, f);
                 }
                 s = props::with_flag(s, "extinguished", false)?;
             }
             Class::Candle => {
-                if !attempt.support(Face::Down).has_center_support() {
-                    return None;
-                }
                 let existing = attempt.replace_state;
-                if existing.kind() == s.kind() {
-                    let count = props::int(existing, "candles")?;
-                    if count >= CANDLES_FULL {
-                        return None;
-                    }
+                if existing.kind() == s.kind()
+                    && let Some(count) =
+                        props::int(existing, "candles").filter(|c| *c < CANDLES_FULL)
+                {
                     s = props::with_int(s, "candles", count + 1)?;
                     s = props::with_flag(s, "lit", props::flag(existing, "lit")?)?;
                 }
-            }
-            Class::CaveVines => {
-                // PMMP draws the age that limits how far the vine grows.
-                s = props::with_int(s, "growing_plant_age", rng.range(0, update::MAX_VINE_AGE))?;
             }
             Class::CeilingCenterHangingSign => {
                 if face != Face::Down {
@@ -433,6 +352,8 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     return None;
                 }
                 s = opposite_player(s);
+                // A sign hangs by its edges from a full block or along another hanging sign; a
+                // thinner block above gives the form that hangs from its centre.
                 let up = attempt.side(Face::Up);
                 let along = |other: State| {
                     (other.is(Class::WallHangingSign) || other.is(Class::CeilingEdgesHangingSign))
@@ -442,13 +363,13 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     return None;
                 }
             }
-            Class::CocoaBlock => {
-                let jungle = attempt.clicked_state.is(Class::Wood)
-                    && matches!(
-                        attempt.clicked_state.kind(),
-                        Kind::JungleLog | Kind::JungleWood
-                    );
-                if Axis::of(face) == Axis::Y || !jungle {
+            Class::CocoaBlock
+            | Class::Ladder
+            | Class::OminousWallBanner
+            | Class::TripwireHook
+            | Class::WallBanner
+            | Class::WallSign => {
+                if Axis::of(face) == Axis::Y {
                     return None;
                 }
                 s = set_facing(s, face);
@@ -456,11 +377,6 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
             Class::Door => return door(attempt, s),
             Class::DoublePlant => {
                 let up = attempt.replace.step(Face::Up)?;
-                if !attempt.side(Face::Down).has_type_tag(TypeTag::Dirt)
-                    || !block_at(attempt.world, Some(up)).can_be_replaced()
-                {
-                    return None;
-                }
                 let top = props::with_flag(s, "upper_block_bit", true)?;
                 return Some(Blocks::new((attempt.replace, s), Some((up, top))));
             }
@@ -507,24 +423,14 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 };
                 s = set_facing(s, f);
             }
-            Class::Ladder => {
-                if !attempt.attached(state, face.opposite())? || Axis::of(face) == Axis::Y {
-                    return None;
-                }
-                s = set_facing(s, face);
-            }
             Class::Lantern => {
-                let down = attempt.attached(state, Face::Down)?;
-                if !down && !attempt.attached(state, Face::Up)? {
-                    return None;
-                }
-                s = props::with_flag(s, "hanging", face == Face::Down || !down)?;
+                // Hangs from above when clicked from below, or when the block below holds
+                // nothing to stand on.
+                let hangs = face == Face::Down || !attempt.support(Face::Down).has_center_support();
+                s = props::with_flag(s, "hanging", hangs)?;
             }
             Class::Leaves => s = props::with_flag(s, "persistent_bit", true)?,
             Class::Lever => {
-                if !attempt.attached(state, face.opposite())? {
-                    return None;
-                }
                 let east_west = attempt.facing().is_none_or(|f| Axis::of(f) == Axis::X);
                 let direction = match face {
                     Face::Down if east_west => "down_east_west",
@@ -543,19 +449,6 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 // The rotation on the floor is the block entity's.
                 s = set_facing(s, face);
             }
-            Class::NetherVines => {
-                let age = rng.range(0, update::MAX_VINE_AGE - 1);
-                s = props::with_int(s, update::nether_vines_age(s), age)?;
-            }
-            Class::OminousWallBanner
-            | Class::TripwireHook
-            | Class::WallBanner
-            | Class::WallSign => {
-                if Axis::of(face) == Axis::Y {
-                    return None;
-                }
-                s = set_facing(s, face);
-            }
             Class::PinkPetals => {
                 let existing = attempt.replace_state;
                 if existing.kind() == s.kind()
@@ -567,22 +460,9 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     s = opposite_player(s);
                 }
             }
-            Class::RedMushroom => {
-                let below = attempt.side(Face::Down);
-                let light = attempt
-                    .world
-                    .full_light(attempt.replace)
-                    .unwrap_or(FULL_LIGHT);
-                if !((light <= MAX_RED_MUSHROOM_LIGHT && !below.is_transparent())
-                    || matches!(below.kind(), Kind::Mycelium | Kind::Podzol)
-                    || below.has_type_tag(TypeTag::Nylium))
-                {
-                    return None;
-                }
-            }
             Class::RedstoneComparator | Class::RedstoneRepeater => s = opposite_player(s),
             Class::SeaPickle => {
-                // PMMP places sea pickles out of water (dead) until it has water logic.
+                // Sea pickles are placed out of water, so dead.
                 s = props::with_flag(s, "dead_bit", true)?;
                 let existing = attempt.replace_state;
                 if existing.kind() == s.kind()
@@ -595,26 +475,16 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
             Class::Slab => s = slab(attempt, s)?,
             Class::SmallDripleaf => {
                 let up = attempt.replace.step(Face::Up)?;
-                if block_at(attempt.world, Some(up)) != block::AIR
-                    || attempt.side(Face::Down).kind() != Kind::Clay
-                {
-                    return None;
-                }
                 s = opposite_player(s);
                 let top = props::with_flag(s, "upper_block_bit", true)?;
                 second = Some((up, top));
             }
             Class::SnowLayer => {
                 let existing = attempt.replace_state;
-                if existing.kind() == s.kind() {
-                    let height = props::int(existing, "height")?;
-                    if height >= SNOW_FULL {
-                        return None;
-                    }
+                if existing.kind() == s.kind()
+                    && let Some(height) = props::int(existing, "height").filter(|h| *h < SNOW_FULL)
+                {
                     s = props::with_int(s, "height", height + 1)?;
-                }
-                if attempt.support(Face::Down) != SupportType::Full {
-                    return None;
                 }
             }
             Class::Stair => {
@@ -622,19 +492,6 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                     s = set_facing(s, f);
                 }
                 s = props::with_flag(s, "upside_down_bit", attempt.upper_half())?;
-            }
-            Class::Sugarcane => {
-                let below_pos = attempt.replace.step(Face::Down)?;
-                let below = block_at(attempt.world, Some(below_pos));
-                if below.kind() != s.kind() {
-                    let water = Face::HORIZONTAL
-                        .into_iter()
-                        .map(|f| block_at(attempt.world, below_pos.step(f)))
-                        .any(|b| b.is(Class::Water) || b.is(Class::FrostedIce));
-                    if !water {
-                        return None;
-                    }
-                }
             }
             Class::Torch => s = torch(attempt, s)?,
             Class::Trapdoor => {
@@ -644,8 +501,7 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 }
             }
             Class::Vine => {
-                let behind = block_at(attempt.world, attempt.replace.step(face.opposite()));
-                if !is_full_cube(behind) || Axis::of(face) == Axis::Y {
+                if Axis::of(face) == Axis::Y {
                     return None;
                 }
                 let existing = attempt.replace_state;
@@ -658,7 +514,7 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 s = props::with_int(s, "vine_direction_bits", bits | bit)?;
             }
             Class::WallCoralFan => {
-                if Axis::of(face) == Axis::Y || !attempt.attached(state, face.opposite())? {
+                if Axis::of(face) == Axis::Y {
                     return None;
                 }
                 s = set_facing(s, face);
@@ -671,8 +527,8 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
     Some(Blocks::new((attempt.replace, s), second))
 }
 
-/// The facing of a barrel placed at `pos` by the placer `p` (PMMP `Barrel::place`): up or down
-/// when the player is close and above or below, else toward the player.
+/// The facing of a barrel placed at `pos` by the placer `p`: up or down when the player is close
+/// and above or below, else toward the player.
 fn barrel_facing(pos: BlockPos, p: &Placer) -> Face {
     let near = (p.feet.x - f64::from(pos.x)).abs() < BARREL_NEAR
         && (p.feet.z - f64::from(pos.z)).abs() < BARREL_NEAR;
@@ -688,39 +544,21 @@ fn barrel_facing(pos: BlockPos, p: &Placer) -> Face {
     p.facing().opposite()
 }
 
-/// The blocks of a bed (PMMP `Bed::place`): the foot here and the head one block toward the
-/// player's facing, both supported from below.
+/// The blocks of a bed: the foot here and the head one block toward the player's facing.
 fn bed(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
-    let supported =
-        |pos: BlockPos| adjacent_support(attempt.world, pos, Face::Down) != SupportType::None;
-    if !supported(attempt.replace) {
-        return None;
-    }
     let facing = attempt.facing().unwrap_or(Face::North);
     let foot = props::with_facing(state, facing)?;
     let next = attempt.replace.step(facing)?;
-    if !block_at(attempt.world, Some(next)).can_be_replaced() || !supported(next) {
-        return None;
-    }
     let head = props::with_flag(foot, "head_piece_bit", true)?;
     Some(Blocks::new((attempt.replace, foot), Some((next, head))))
 }
 
-/// The blocks of a door (PMMP `Door::place`): on top of a block only, the top half above, hinged
-/// right next to another door or against a wall.
+/// The blocks of a door: the top half above, hinged right next to another door or against a
+/// wall.
 fn door(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
-    if attempt.face != Face::Up {
-        return None;
-    }
     let up = attempt.replace.step(Face::Up)?;
-    if !block_at(attempt.world, Some(up)).can_be_replaced()
-        || !attempt.support(Face::Down).has_edge_support()
-    {
-        return None;
-    }
-    let mut bottom = state;
     let facing = attempt.facing().or_else(|| props::facing(state))?;
-    bottom = props::with_facing(bottom, facing)?;
+    let mut bottom = props::with_facing(state, facing)?;
     let next = attempt.side(props::rotate_counterclockwise(facing));
     let next2 = attempt.side(props::rotate_clockwise(facing));
     if next.kind() == state.kind() || (!next2.is_transparent() && next.is_transparent()) {
@@ -730,9 +568,9 @@ fn door(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
     Some(Blocks::new((attempt.replace, bottom), Some((up, top))))
 }
 
-/// The axis of a coral fan placed at `pos` by the placer `p` (PMMP `FloorCoralFan::place`;
-/// Bedrock `coral_fan_direction`, X 0 and Z 1): X when the fan is more south of the player's
-/// block than east or west, else Z (PMMP's `atan2` test, with its 45° edges on Z).
+/// The axis of a coral fan placed at `pos` by the placer `p` (Bedrock `coral_fan_direction`, X 0
+/// and Z 1): X when the fan is more south of the player's block than east or west, else Z (the
+/// 45° edges are Z).
 fn coral_fan_axis(pos: BlockPos, p: &Placer) -> i32 {
     let feet = p.feet.floor();
     let dx = f64::from(pos.x) - feet.x;
@@ -740,8 +578,7 @@ fn coral_fan_axis(pos: BlockPos, p: &Placer) -> i32 {
     i32::from(dz <= dx.abs())
 }
 
-/// The coral state: dead unless water is next to the replaced position (PMMP
-/// `BaseCoral::isCoveredWithWater`).
+/// The coral state: dead unless water is next to the replaced position.
 fn coral_dead(attempt: &Attempt<'_>, state: State) -> State {
     let water = Face::ALL
         .into_iter()
@@ -752,8 +589,8 @@ fn coral_dead(attempt: &Attempt<'_>, state: State) -> State {
     props::dead_coral(state).unwrap_or(state)
 }
 
-/// The state with the existing faces plus the clicked side if it gives full support, else the
-/// first face that does (PMMP `MultiAnySupportTrait::place`).
+/// The state with the existing faces plus the face opposite the clicked one, or the first face
+/// that gives full support when that one is taken.
 fn multi_support(attempt: &Attempt<'_>, state: State) -> Option<State> {
     let existing = attempt.replace_state;
     let mut bits = if existing.kind() == state.kind() {
@@ -768,14 +605,17 @@ fn multi_support(attempt: &Attempt<'_>, state: State) -> Option<State> {
     let placed = if free(opposite) {
         opposite
     } else {
-        Face::ALL.into_iter().find(|face| free(*face))?
+        Face::ALL
+            .into_iter()
+            .find(|face| free(*face))
+            .unwrap_or(opposite)
     };
     bits |= props::multi_face_bit(placed);
     props::with_int(state, "multi_face_direction_bits", bits)
 }
 
-/// The slab state (PMMP `Slab::place`): the double slab when it merges into the existing slab's
-/// empty half, else the top or bottom half.
+/// The slab state: the double slab when it merges into the existing slab's empty half, else the
+/// top or bottom half.
 fn slab(attempt: &Attempt<'_>, state: State) -> Option<State> {
     let existing = attempt.replace_state;
     let face = attempt.face;
@@ -795,34 +635,18 @@ fn slab(attempt: &Attempt<'_>, state: State) -> Option<State> {
     props::with_string(state, "minecraft:vertical_half", half)
 }
 
-/// The torch state (PMMP `Torch::place`): against the clicked side if it gives full support, else
-/// the first of south, west, north, east and below that supports it.
+/// The torch state: on the clicked side, standing when clicked from below.
 fn torch(attempt: &Attempt<'_>, state: State) -> Option<State> {
-    let face = attempt.face;
-    let facing = if face != Face::Down && attempt.attached(state, face.opposite())? {
-        face
+    let facing = if attempt.face == Face::Down {
+        Face::Up
     } else {
-        [Face::South, Face::West, Face::North, Face::East, Face::Down]
-            .into_iter()
-            .find(|f| attempt.attached(state, *f) == Some(true))?
-            .opposite()
+        attempt.face
     };
     props::with_facing(state, facing)
 }
 
-/// Whether the state is one collision box filling the cell (PMMP `Block::isFullCube`).
-fn is_full_cube(state: State) -> bool {
-    match state.collision_boxes() {
-        [b] => {
-            let (dx, dy, dz) = (b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
-            dx == dy && dy == dz && dx >= 1.0
-        }
-        _ => false,
-    }
-}
-
-/// The wall hanging sign state (PMMP `WallHangingSign::place`): hung from the block beside it
-/// (or the one opposite), facing the player where it can.
+/// The wall hanging sign state: hung from the block beside it (or the one opposite when only
+/// that holds it), facing the player where it can.
 fn wall_hanging_sign(attempt: &Attempt<'_>, state: State) -> Option<State> {
     let player = attempt.facing()?;
     let attach = if Axis::of(attempt.face) == Axis::Y {
@@ -837,12 +661,10 @@ fn wall_hanging_sign(attempt: &Attempt<'_>, state: State) -> Option<State> {
                 == Some(Axis::of(f)))
             || b.support(f.opposite()) == SupportType::Full
     };
-    let direction = if supported(attach) {
+    let direction = if supported(attach) || !supported(attach.opposite()) {
         attach
-    } else if supported(attach.opposite()) {
-        attach.opposite()
     } else {
-        return None;
+        attach.opposite()
     };
     let mut facing = props::rotate_clockwise(direction.opposite());
     if facing == player {
@@ -856,16 +678,14 @@ fn is_top_slab(state: State) -> bool {
     props::string(state, "minecraft:vertical_half") == Some("top")
 }
 
-/// The support the block next to `pos` toward `face` gives back (PMMP
-/// `Block::getAdjacentSupportType`).
+/// The support the block next to `pos` toward `face` gives back.
 fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
     block_at(world, pos.step(face)).support(face.opposite())
 }
 
 /// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
-/// neighbour rules never load a chunk. An inert block reads as its stand-in
-/// ([`block::Inert::stand_in`]) and an unknown state as bedrock (solid, full and unchanged, as
-/// the neighbour updates read it), neither of which a placement replaces.
+/// rules never load a chunk. An inert block reads as its stand-in ([`block::Inert::stand_in`])
+/// and an unknown state as bedrock (solid and full), neither of which a placement replaces.
 pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
     match pos.and_then(|p| world.entry(p)) {
         Some(Entry::Known(s)) => s,
@@ -885,319 +705,147 @@ pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
 mod tests {
     use super::*;
 
-    use serde_json::Value;
-
-    use crate::block::PropertyValue;
     use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
 
-    /// The PMMP placement golden table (`xtask/php/place.php`).
-    const GOLDEN: &str = include_str!("../../../xtask/data/dump/place.json");
-
-    /// A property value of the golden table.
-    fn value(v: &Value) -> PropertyValue<'_> {
-        let (tag, v) = v.as_object().unwrap().iter().next().unwrap();
-        match tag.as_str() {
-            "byte" => PropertyValue::Byte(u8::try_from(v.as_u64().unwrap()).unwrap()),
-            "int" => PropertyValue::Int(i32::try_from(v.as_i64().unwrap()).unwrap()),
-            _ => PropertyValue::String(v.as_str().unwrap()),
-        }
-    }
-
-    /// The golden Bedrock state's name and properties.
-    fn golden_state(v: &Value) -> (&str, Vec<(&str, PropertyValue<'_>)>) {
-        let name = v["name"].as_str().unwrap();
-        let props = v["states"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(k, v)| (k.as_str(), value(v)))
-            .collect();
-        (name, props)
-    }
-
-    /// An Anchor state with the golden name and properties; properties the client version
-    /// added (connections) take the state's first value.
-    fn state_of(v: &Value) -> State {
-        let (name, props) = golden_state(v);
-        State::find(name, &props)
-            .or_else(|| {
-                State::all()
-                    .find(|s| s.name() == name && props.iter().all(|(k, v)| s.value(k) == Some(*v)))
-            })
-            .unwrap_or_else(|| panic!("no state {name} {props:?}"))
-    }
-
-    /// Whether `state` has the golden name and every golden property; the random ages PMMP
-    /// draws when placing vines are not compared.
-    fn matches(state: State, v: &Value) -> bool {
-        let (name, props) = golden_state(v);
-        state.name() == name
-            && props.iter().all(|(k, v)| {
-                matches!(
-                    *k,
-                    "growing_plant_age" | "twisting_vines_age" | "weeping_vines_age"
-                ) || state.value(k) == Some(*v)
-            })
-    }
-
-    /// An empty world with the chunks around the origin loaded, without light (full light 15
-    /// as PMMP's fake world).
+    /// An empty world with the chunks around the origin loaded and stone at the origin.
     fn world() -> World {
         let mut world = World::new("place", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
-        world.set_lighting(crate::world::LightMode::Fixed(15));
         for x in -1..=1 {
             for z in -1..=1 {
                 world.insert_chunk(ChunkPos::new(x, z), Chunk::new());
             }
         }
         world
+            .set_block(BlockPos::new(0, 0, 0), Kind::Stone.default_state())
+            .unwrap();
+        world
     }
 
-    fn set(world: &mut World, x: i32, y: i32, z: i32, state: State) {
-        world.set_block(BlockPos::new(x, y, z), state).unwrap();
+    /// A player south of the origin looking north.
+    fn placer() -> Placer {
+        let feet = Vec3::new(0.5, 1.0, 3.5);
+        Placer {
+            feet,
+            eye: feet + Vec3::new(0.0, 1.62, 0.0),
+            yaw: 180.0,
+            sneaking: false,
+        }
     }
 
-    fn layer(world: &mut World, y: i32, state: State) {
-        for x in -2..=2 {
-            for z in -2..=2 {
-                set(world, x, y, z, state);
+    /// The item of the block `state`; a block whose item the block entity decides (a bed) has
+    /// the item of its name.
+    fn item_of(state: State) -> item::Type {
+        match state.item() {
+            block::ItemForm::Item(item) => item,
+            block::ItemForm::BlockEntity => {
+                item::Type::from_name(state.name(), 0, None, &crate::nbt::Compound::new())
+                    .unwrap_or_else(|| panic!("{state:?} has an item"))
             }
+            block::ItemForm::None => panic!("{state:?} has an item"),
         }
     }
 
-    /// The item type of a golden item entry.
-    fn item_of(v: &Value) -> item::Type {
-        let name = v["name"].as_str().unwrap();
-        let meta = u16::try_from(v["meta"].as_u64().unwrap()).unwrap();
-        let nbt = crate::nbt::Compound::new();
-        let Some(block) = v.get("block") else {
-            return item::Type::from_name(name, meta, None, &nbt)
-                .unwrap_or_else(|| panic!("no item {v}"));
+    /// The blocks the item of `state` sets when its block at the origin is clicked on `face`
+    /// at the height `click_y`.
+    fn placed(world: &World, state: State, face: Face, click_y: f64) -> Option<Blocks> {
+        placement(
+            world,
+            item_of(state),
+            BlockPos::new(0, 0, 0),
+            face,
+            Vec3::new(0.5, click_y, 0.5),
+            Some(&placer()),
+        )
+    }
+
+    /// A placement checks nothing about the place: blocks that need a floor, a wall or light go
+    /// down in the air, beside the clicked face.
+    #[test]
+    fn a_block_is_placed_where_nothing_holds_it() {
+        let w = world();
+        for state in [
+            Kind::Rail.default_state(),
+            Kind::RedMushroom.default_state(),
+            Kind::Stone.default_state(),
+        ] {
+            let blocks = placed(&w, state, Face::East, 0.5).unwrap();
+            assert_eq!(blocks.first().map(|b| b.0), Some(BlockPos::new(1, 0, 0)));
+        }
+    }
+
+    /// A door sets its top half above, hinged by the rules, and both halves are in the list.
+    #[test]
+    fn a_door_is_placed_as_two_blocks() {
+        let w = world();
+        let door = State::all().find(|s| s.is(Class::Door)).unwrap();
+        let list = placed(&w, door, Face::East, 0.5).unwrap().to_vec();
+        let [(bottom_pos, bottom), (top_pos, top)] = list.as_slice() else {
+            panic!("two blocks: {list:?}");
         };
-        // The item's block is one of the states with the golden properties (the client version
-        // added connection properties PMMP does not write).
-        let (block_name, props) = golden_state(block);
-        State::all()
-            .filter(|s| s.name() == block_name && props.iter().all(|(k, v)| s.value(k) == Some(*v)))
-            .find_map(|s| item::Type::from_name(name, meta, Some(s), &nbt))
-            .unwrap_or_else(|| panic!("no item {v}"))
+        assert_eq!(*bottom_pos, BlockPos::new(1, 0, 0));
+        assert_eq!(*top_pos, BlockPos::new(1, 1, 0));
+        assert_eq!(bottom.kind(), top.kind());
+        assert_eq!(props::flag(*top, "upper_block_bit"), Some(true));
     }
 
-    fn click(face: Face, y: f64) -> Vec3 {
-        match face {
-            Face::North => Vec3::new(0.5, y, 0.0),
-            Face::South => Vec3::new(0.5, y, 1.0),
-            Face::West => Vec3::new(0.0, y, 0.5),
-            Face::East => Vec3::new(1.0, y, 0.5),
-            _ => Vec3::new(0.5, y, 0.5),
-        }
+    /// A bed sets its head one block toward the player's facing.
+    #[test]
+    fn a_bed_is_placed_as_foot_and_head() {
+        let w = world();
+        let bed = State::all().find(|s| s.is(Class::Bed)).unwrap();
+        let list = placed(&w, bed, Face::East, 0.5).unwrap().to_vec();
+        let heads: Vec<_> = list
+            .iter()
+            .map(|(_, s)| props::flag(*s, "head_piece_bit"))
+            .collect();
+        assert_eq!(list.len(), 2);
+        assert!(heads.contains(&Some(true)) && heads.contains(&Some(false)));
     }
 
-    /// A hanging sign clicked under a block too thin for the edge form hangs from its centre
-    /// (PMMP `HangingSign::getPlacementTransaction` tries the next form when one refuses).
+    /// A slab placed on a slab's free half makes a double slab in the clicked block; on its other
+    /// half it goes next to it.
+    #[test]
+    fn slabs_stack_into_a_double_slab() {
+        let mut w = world();
+        let bottom = State::all()
+            .find(|s| {
+                s.is(Class::Slab)
+                    && !props::is_double_slab(*s)
+                    && props::string(*s, "minecraft:vertical_half") == Some("bottom")
+            })
+            .unwrap();
+        w.set_block(BlockPos::new(0, 0, 0), bottom).unwrap();
+        let merged = placed(&w, bottom, Face::Up, 0.75).unwrap().to_vec();
+        let [(pos, state)] = merged.as_slice() else {
+            panic!("one block: {merged:?}");
+        };
+        assert_eq!(*pos, BlockPos::new(0, 0, 0));
+        assert!(props::is_double_slab(*state));
+        let beside = placed(&w, bottom, Face::Up, 0.25).unwrap();
+        assert_eq!(beside.first().map(|b| b.0), Some(BlockPos::new(0, 1, 0)));
+    }
+
+    /// A hanging sign clicked under a block too thin for the edge form hangs from its centre.
     #[test]
     fn a_hanging_sign_under_a_fence_hangs_from_its_centre() {
         let mut w = world();
-        set(&mut w, 0, 1, 0, block::Kind::OakFence.default_state());
-        let feet = Vec3::new(0.5, 0.0, 2.5);
-        let placer = Placer {
-            feet,
-            eye: feet + Vec3::new(0.0, 1.62, 0.0),
-            yaw: 0.0,
-            sneaking: false,
-        };
+        w.set_block(BlockPos::new(0, 2, 0), Kind::OakFence.default_state())
+            .unwrap();
         let blocks = placement(
             &w,
             item::Kind::OakHangingSign.default_type(),
-            BlockPos::new(0, 1, 0),
+            BlockPos::new(0, 2, 0),
             Face::Down,
             Vec3::new(0.5, 0.0, 0.5),
-            Some(&placer),
-            &mut Random::new(0, 0, 0),
+            Some(&placer()),
         )
         .expect("the centre form places");
         let list = blocks.to_vec();
         let [(pos, state)] = list.as_slice() else {
             panic!("one block: {blocks:?}");
         };
-        assert_eq!(*pos, BlockPos::new(0, 0, 0));
+        assert_eq!(*pos, BlockPos::new(0, 1, 0));
         assert_eq!(props::flag(*state, "hanging"), Some(true));
         assert_eq!(props::flag(*state, "attached_bit"), Some(true));
-    }
-
-    /// A red mushroom goes down where the world's light at its time of day is dim: the open sky at
-    /// night, not at noon (PMMP `RedMushroom::canBeSupportedAt` reads `getFullLightAt`).
-    #[test]
-    fn a_red_mushroom_is_placed_under_the_night_sky_only() {
-        let block::ItemForm::Item(mushroom) = Kind::RedMushroom.default_state().item() else {
-            panic!("a red mushroom has an item");
-        };
-        let placed_at = |time_ticks: i64| {
-            let mut w = world();
-            w.set_time(time_ticks);
-            set(&mut w, 0, 0, 0, Kind::Stone.default_state());
-            placement(
-                &w,
-                mushroom,
-                BlockPos::new(0, 0, 0),
-                Face::Up,
-                click(Face::Up, 1.0),
-                None,
-                &mut Random::new(0, 0, 0),
-            )
-        };
-        assert!(placed_at(18_000).is_some());
-        assert!(placed_at(0).is_none());
-    }
-
-    /// Every item PMMP places, in every scenario of the golden table (floor, wall, ceiling and
-    /// merging, five yaws, two click heights, nine grounds), places what PMMP places.
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "consistency: the scenario worlds are built next to the comparison they feed"
-    )]
-    fn placement_equals_pmmp_for_every_item_and_scenario() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let grounds: Vec<(String, State)> = golden["grounds"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(k, v)| (k.clone(), state_of(v)))
-            .collect();
-        let ground = |name: &str| grounds.iter().find(|(k, _)| k == name).unwrap().1;
-        let stone = ground("stone");
-        let states = golden["states"].as_array().unwrap();
-        let results = golden["results"].as_array().unwrap();
-        let scenarios = golden["scenarios"].as_array().unwrap();
-        let mut wrong = Vec::new();
-        let mut compared = 0;
-        for entry in golden["items"].as_array().unwrap() {
-            let item = item_of(&entry["item"]);
-            let mut first: Option<Blocks> = None;
-            for (i, (scenario, result)) in scenarios
-                .iter()
-                .zip(entry["results"].as_array().unwrap())
-                .enumerate()
-            {
-                let layout = scenario["layout"].as_str().unwrap();
-                let face =
-                    Face::from_index(i32::try_from(scenario["face"].as_i64().unwrap()).unwrap())
-                        .unwrap();
-                let yaw = scenario["yaw"].as_f64().unwrap();
-                let click_y = scenario["click_y"].as_f64().unwrap();
-                let feet: Vec<f64> = scenario["feet"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| v.as_f64().unwrap())
-                    .collect();
-                let g = ground(scenario["ground"].as_str().unwrap());
-                if layout == "merge" && first.is_none() {
-                    continue;
-                }
-                let mut w = world();
-                let clicked = match layout {
-                    "floor" => {
-                        layer(&mut w, 0, g);
-                        BlockPos::new(0, 0, 0)
-                    }
-                    "wall" => {
-                        layer(&mut w, -1, stone);
-                        set(&mut w, 0, 0, 0, g);
-                        BlockPos::new(0, 0, 0)
-                    }
-                    "ceiling" => {
-                        layer(&mut w, -3, stone);
-                        set(&mut w, 0, 0, 0, g);
-                        BlockPos::new(0, 0, 0)
-                    }
-                    _ => {
-                        layer(&mut w, 0, g);
-                        for (p, s) in first.as_ref().unwrap() {
-                            w.set_block(*p, *s).unwrap();
-                        }
-                        BlockPos::new(0, 1, 0)
-                    }
-                };
-                let feet = Vec3::new(feet[0], feet[1], feet[2]);
-                let placer = Placer {
-                    feet,
-                    eye: feet + Vec3::new(0.0, 1.62, 0.0),
-                    yaw,
-                    sneaking: false,
-                };
-                let mut rng = Random::new(0, 0, 0);
-                let got = placement(
-                    &w,
-                    item,
-                    clicked,
-                    face,
-                    click(face, click_y),
-                    Some(&placer),
-                    &mut rng,
-                );
-                if i == 0 {
-                    first.clone_from(&got);
-                }
-                let want = &results[usize::try_from(result.as_u64().unwrap()).unwrap()];
-                compared += 1;
-                let same = match (&got, want.as_array()) {
-                    (None, None) => true,
-                    (Some(got), Some(want)) => {
-                        got.iter().count() == want.len()
-                            && got.iter().zip(want).all(|((p, s), w)| {
-                                let w = w.as_array().unwrap();
-                                let at = |k: usize| i32::try_from(w[k].as_i64().unwrap()).unwrap();
-                                *p == BlockPos::new(
-                                    clicked.x + at(0),
-                                    clicked.y + at(1),
-                                    clicked.z + at(2),
-                                ) && matches(
-                                    *s,
-                                    &states[usize::try_from(w[3].as_u64().unwrap()).unwrap()],
-                                )
-                            })
-                    }
-                    _ => false,
-                };
-                if !same {
-                    let want: Option<Vec<String>> = want.as_array().map(|list| {
-                        list.iter()
-                            .map(|w| {
-                                let s = &states[usize::try_from(w[3].as_u64().unwrap()).unwrap()];
-                                format!("{} {} {} {}", w[0], w[1], w[2], s)
-                            })
-                            .collect()
-                    });
-                    let got: Option<Vec<String>> = got.as_ref().map(|list| {
-                        list.iter()
-                            .map(|(p, s)| format!("{} {} {} {s:?}", p.x, p.y, p.z))
-                            .collect()
-                    });
-                    wrong.push(format!(
-                        "{} #{i} {layout} {:?} {face:?} yaw {yaw} y {click_y}:\n   got  {got:?}\n   want {want:?}",
-                        item.name(),
-                        scenario["ground"]
-                    ));
-                }
-            }
-        }
-        assert!(compared > 150_000, "{compared}");
-        // One failure per item, so a broken rule shows every item it breaks.
-        let mut shown: Vec<&str> = Vec::new();
-        let mut items = std::collections::BTreeSet::new();
-        for w in &wrong {
-            if items.insert(w.split(' ').next().unwrap_or_default()) {
-                shown.push(w);
-            }
-        }
-        assert!(
-            wrong.is_empty(),
-            "{} wrong of {compared} ({} items):\n{}",
-            wrong.len(),
-            shown.len(),
-            shown[..shown.len().min(80)].join("\n")
-        );
     }
 }

@@ -25,9 +25,8 @@ use crate::world::BlockPos;
 /// can take a block entity at every block and the spills and still be written.
 pub(crate) const MAX_BLOCK_ENTITY_ENTRIES: usize =
     MAX_EXTRA_ENTRIES + MAX_SPILLS + MAX_RAW_BLOCK_ENTITIES;
-/// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import
-/// writes: one per block of a chunk column. Scheduled updates have at most one per block;
-/// entities are bounded by the world's entity cap long before.
+/// Most compounds in a chunk's list of entities, and in a list an import writes: one per block of
+/// a chunk column. Entities are bounded by the world's entity cap long before.
 pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
 /// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
 pub(crate) const MAX_LAYERS: usize = 2;
@@ -243,7 +242,7 @@ impl Record for PlayerRecord {
     }
 }
 
-/// A page of the block entities, entities or scheduled block updates of a chunk: the `chunks`
+/// A page of the block entities or entities of a chunk: the `chunks`
 /// value of an extras page. A u32 count, then that
 /// many little-endian NBT root compounds, each as the module that owns the kind wrote it. A list
 /// is stored in [`pages`](Self::pages), its entries in order.
@@ -479,7 +478,7 @@ impl Record for BanRecord {
 pub(crate) fn max_entries(kind: ChunkKind) -> usize {
     match kind {
         ChunkKind::BlockEntities => MAX_BLOCK_ENTITY_ENTRIES,
-        ChunkKind::Entities | ChunkKind::ScheduledUpdates => MAX_EXTRA_ENTRIES,
+        ChunkKind::Entities => MAX_EXTRA_ENTRIES,
     }
 }
 

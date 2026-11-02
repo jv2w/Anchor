@@ -7,7 +7,6 @@ use crate::block;
 use crate::custom::{self, Drops};
 use crate::item::{self, Enchantment, Stack};
 use crate::nbt::Compound;
-use crate::random::Random;
 use crate::save::WorldIndex;
 use crate::tick::{Context, SessionId, State};
 use crate::world::BlockPos;
@@ -41,42 +40,37 @@ impl Context<'_> {
     }
 }
 
-/// Works out what a broken custom block drops (PMMP `Block::getDrops` with the definition's
-/// drops): with a compatible tool its drops, or itself with Silk Touch where its drops are not
-/// itself; nothing with an incompatible tool. The xp is the definition's range, with a
-/// compatible tool and without Silk Touch.
-pub(super) fn drops_of(
-    state: &State,
-    block: block::State,
-    tool: &Stack,
-    rng: &mut Random,
-) -> (Vec<Stack>, u32) {
+/// Works out what a broken custom block drops: with a compatible tool its drops, or itself with
+/// Silk Touch where its drops are not itself; nothing with an incompatible tool.
+pub(super) fn drops_of(state: &State, block: block::State, tool: &Stack) -> Vec<Stack> {
     let Some(def) = block.custom_block() else {
-        return (Vec::new(), 0);
+        return Vec::new();
     };
-    if !drops::is_compatible(block, tool) {
-        return (Vec::new(), 0);
+    if !is_compatible(block, tool) {
+        return Vec::new();
     }
     let own = || match block.item() {
         block::ItemForm::Item(t) => vec![Stack::new(t, 1)],
         block::ItemForm::None | block::ItemForm::BlockEntity => Vec::new(),
     };
     let silk = drops::level(tool, Enchantment::SilkTouch) > 0;
-    let items = match def.dropped() {
+    match def.dropped() {
         Drops::Nothing if !silk => Vec::new(),
         Drops::Items(list) if !silk => list
             .iter()
             .filter_map(|&(r, count)| Some(Stack::new(state.custom.resolve(r)?, count)))
             .collect(),
         Drops::Itself | Drops::Nothing | Drops::Items(_) => own(),
-    };
-    let (min, max) = def.xp_range();
-    let xp = if silk || max == 0 {
-        0
-    } else {
-        u32::from(min) + rng.below(u32::from(max - min) + 1)
-    };
-    (items, xp)
+    }
+}
+
+/// Whether `tool` is a compatible tool for `block` (its break information's tool type and
+/// harvest level).
+fn is_compatible(block: block::State, tool: &Stack) -> bool {
+    let (tool_type, level) = tool.item().map_or((block::ToolType::NONE, 0), |t| {
+        (t.block_tool_type(), t.block_tool_harvest_level())
+    });
+    block.break_info().is_tool_compatible(tool_type, level)
 }
 
 /// Runs `on_use` of the custom block `block` at `pos`, used by `session`: whether it did
@@ -127,8 +121,8 @@ pub(super) fn placed(
     }
 }
 
-/// Runs `on_random_tick` of the custom block `block` at `pos`, which a random tick reached (the
-/// block update rules call it only for a definition that takes random ticks).
+/// Runs `on_random_tick` of the custom block `block` at `pos`, which a random tick reached (only
+/// a definition that takes random ticks gets one).
 pub(in crate::tick) fn random_tick(
     state: &mut State,
     world: WorldIndex,

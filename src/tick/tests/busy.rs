@@ -140,7 +140,6 @@ fn busy() -> Listeners {
         if every(n, 5) {
             e.cancel();
         } else if every(n, 3) {
-            e.set_xp_drop_amount(n % 4);
             e.set_drops(vec![dirt()]);
         }
         if every(n, 7) {
@@ -418,7 +417,9 @@ fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and
         jobs += n;
     }
     assert!(jobs > 0, "no job result was logged");
-    for what in REACHED.iter().chain(&BUSY_REACHED) {
+    // Without the vanilla block rules, only the base run's longer scripts make another entity.
+    let wanted = REACHED.iter().filter(|what| **what != "entity");
+    for what in wanted.chain(&BUSY_REACHED) {
         assert!(
             reached.get(what).is_some_and(|n| *n > 0),
             "the scripts never reached {what}: {reached:?}"

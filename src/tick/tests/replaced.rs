@@ -1,6 +1,6 @@
-//! Block entities of blocks that change without being broken: fire burning, liquids flowing,
-//! explosions and a task's `World::set_block` leave no block entity behind, and everything the
-//! block entity held drops once.
+//! Block entities of blocks that change without being broken: explosions and a task's
+//! `World::set_block` leave no block entity behind, and everything the block entity held drops
+//! once.
 
 use tokio::sync::mpsc;
 
@@ -8,7 +8,7 @@ use super::crash::ground;
 use super::*;
 use crate::block::{self, Face, Kind as BlockKind};
 use crate::item::{Kind as ItemKind, Stack, Type};
-use crate::nbt::Compound;
+use crate::math::Vec3;
 use crate::world::BlockPos;
 
 /// Where the blocks stand: on the flat world's grass, away from the player at the spawn.
@@ -41,70 +41,6 @@ fn on_ground(state: &mut State, item: Type) -> u64 {
         .sum()
 }
 
-/// Runs ticks until the block at `pos` is no longer of `kind`, at most `limit` ticks.
-fn until_replaced(
-    state: &mut State,
-    output: &mut Output,
-    pos: BlockPos,
-    kind: BlockKind,
-    limit: u32,
-) {
-    for _ in 0..limit {
-        tick(state, &mut Vec::new(), output);
-        if state.worlds[0].block(pos).is_some_and(|b| b.kind() != kind) {
-            return;
-        }
-    }
-    panic!("{kind:?} at {pos:?} was not replaced in {limit} ticks");
-}
-
-#[test]
-fn a_burnt_lectern_leaves_no_block_entity_and_drops_its_book() {
-    let (mut state, mut output, _rx) = server();
-    let lectern = BlockKind::Lectern.default_state();
-    assert!(lectern.flammability() > 0, "lecterns burn");
-    place(&mut state, AT, lectern);
-    let book = ItemKind::WritableBook.default_type();
-    match &mut state.rules.block_entities.get_mut(0, AT).unwrap().kind {
-        block_entity::Kind::Lectern { book: b, .. } => *b = Stack::new(book, 1),
-        other => panic!("{other:?}"),
-    }
-    // Fire on the grass on every side.
-    let fire = BlockKind::Fire.default_state();
-    for face in [Face::North, Face::South, Face::East, Face::West] {
-        let at = AT.step(face).unwrap();
-        state.worlds[0].set_block(at, fire).unwrap();
-    }
-    until_replaced(&mut state, &mut output, AT, BlockKind::Lectern, 4000);
-    assert!(state.rules.block_entities.get(0, AT).is_none());
-    assert_eq!(on_ground(&mut state, book), 1, "the book dropped once");
-}
-
-#[test]
-fn water_flowing_into_a_flower_pot_drops_the_pot_and_its_plant_once() {
-    let (mut state, mut output, _rx) = server();
-    place(&mut state, AT, BlockKind::FlowerPot.default_state());
-    let dandelion = BlockKind::Dandelion.default_state();
-    match &mut state.rules.block_entities.get_mut(0, AT).unwrap().kind {
-        block_entity::Kind::FlowerPot { plant } => {
-            *plant = Some(block_entity::Plant::Known(dandelion));
-        }
-        other => panic!("{other:?}"),
-    }
-    let source = AT.step(Face::West).unwrap();
-    state.worlds[0]
-        .set_block(source, BlockKind::Water.default_state())
-        .unwrap();
-    until_replaced(&mut state, &mut output, AT, BlockKind::FlowerPot, 100);
-    // The drops and the change feed's check both ran.
-    tick(&mut state, &mut Vec::new(), &mut output);
-    assert!(state.rules.block_entities.get(0, AT).is_none());
-    let pot_item = block_item(BlockKind::FlowerPot, 1).item().unwrap();
-    let dandelion_item = block_item(BlockKind::Dandelion, 1).item().unwrap();
-    assert_eq!(on_ground(&mut state, pot_item), 1);
-    assert_eq!(on_ground(&mut state, dandelion_item), 1);
-}
-
 #[test]
 fn an_exploded_chest_drops_its_contents_once() {
     let (mut state, mut output, _rx) = server();
@@ -116,78 +52,65 @@ fn an_exploded_chest_drops_its_contents_once() {
     let items = &mut state.rules.block_entities.get_mut(0, AT).unwrap().items;
     items[0] = Stack::new(stick, 10);
     items[5] = Stack::new(diamond, 3);
-    let tnt = AT.step(Face::East).unwrap();
-    state.worlds[0]
-        .set_block(tnt, BlockKind::Tnt.default_state())
-        .unwrap();
-    assert!(entity::ignite(&mut state, 0, tnt, 2));
-    until_replaced(&mut state, &mut output, AT, BlockKind::Chest, 20);
+    let center = Vec3::new(
+        f64::from(AT.x) + 1.5,
+        f64::from(AT.y) + 0.5,
+        f64::from(AT.z) + 0.5,
+    );
+    assert!(crate::tick::Context { state: &mut state }.explode(
+        crate::world::Id::DEFAULT,
+        center,
+        4.0
+    ));
     tick(&mut state, &mut Vec::new(), &mut output);
+    assert!(
+        state.worlds[0]
+            .block(AT)
+            .is_some_and(|b| b.kind() != BlockKind::Chest)
+    );
     assert!(state.rules.block_entities.get(0, AT).is_none());
     assert_eq!(on_ground(&mut state, stick), 10);
     assert_eq!(on_ground(&mut state, diamond), 3);
 }
 
 #[test]
-fn a_task_replacing_containers_and_decorations_drops_what_they_held_once() {
+fn a_task_replacing_containers_drops_what_they_held_once() {
     let (mut state, mut output, _rx) = server();
     let stick = ItemKind::Stick.default_type();
-    // A chest replaced by stone, a shulker box by air, a jukebox by water, a furnace (its lit
-    // form keeps the block entity) by a chest, which takes a new one.
+    // A chest replaced by stone, a shulker box by air, a barrel by a chest, which takes a new
+    // block entity.
     let chest = AT;
     let shulker = BlockPos::new(10, -60, 8);
-    let jukebox = BlockPos::new(12, -60, 8);
-    let furnace = BlockPos::new(14, -60, 8);
+    let barrel = BlockPos::new(14, -60, 8);
     place(&mut state, chest, BlockKind::Chest.default_state());
     place(&mut state, shulker, BlockKind::ShulkerBox.default_state());
-    place(&mut state, jukebox, BlockKind::Jukebox.default_state());
-    place(&mut state, furnace, BlockKind::Furnace.default_state());
-    for pos in [chest, shulker, furnace] {
+    place(&mut state, barrel, BlockKind::Barrel.default_state());
+    for pos in [chest, shulker, barrel] {
         state.rules.block_entities.get_mut(0, pos).unwrap().items[0] = Stack::new(stick, 4);
     }
-    let disc = Type::from_name("minecraft:music_disc_13", 0, None, &Compound::new()).unwrap();
-    match &mut state.rules.block_entities.get_mut(0, jukebox).unwrap().kind {
-        block_entity::Kind::Jukebox { record } => *record = Stack::new(disc, 1),
-        other => panic!("{other:?}"),
-    }
-    let lit = block::State::all()
-        .find(|s| s.name() == "minecraft:lit_furnace")
-        .unwrap();
-    let world = &mut state.worlds[0];
-    world.set_block(furnace, lit).unwrap();
-    tick(&mut state, &mut Vec::new(), &mut output);
-    assert!(
-        state.rules.block_entities.get(0, furnace).is_some(),
-        "a lit furnace keeps its block entity"
-    );
     let world = &mut state.worlds[0];
     world
         .set_block(chest, BlockKind::Stone.default_state())
         .unwrap();
     world.set_block(shulker, block::AIR).unwrap();
     world
-        .set_block(jukebox, BlockKind::Water.default_state())
-        .unwrap();
-    world
-        .set_block(furnace, BlockKind::Chest.default_state())
+        .set_block(barrel, BlockKind::Chest.default_state())
         .unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
-    for pos in [chest, shulker, jukebox] {
+    for pos in [chest, shulker] {
         assert!(
             state.rules.block_entities.get(0, pos).is_none(),
             "{pos:?} keeps a block entity"
         );
     }
-    // The chest in the furnace's place gets an empty block entity of its own.
-    let new = state.rules.block_entities.get(0, furnace).unwrap();
+    // The chest in the barrel's place gets an empty block entity of its own.
+    let new = state.rules.block_entities.get(0, barrel).unwrap();
     assert!(matches!(new.kind, block_entity::Kind::Chest { .. }));
     assert!(new.items.iter().all(Stack::is_empty));
     assert_eq!(on_ground(&mut state, stick), 3 * 4);
-    assert_eq!(on_ground(&mut state, disc), 1);
     // Nothing more drops later.
     for _ in 0..5 {
         tick(&mut state, &mut Vec::new(), &mut output);
     }
     assert_eq!(on_ground(&mut state, stick), 3 * 4);
-    assert_eq!(on_ground(&mut state, disc), 1);
 }

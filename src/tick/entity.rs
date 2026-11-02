@@ -81,13 +81,14 @@ mod track;
 
 pub use api::Mut;
 pub(crate) use custom::{Customs, EntityTypes};
+#[cfg(test)]
 pub(super) use explosion::Blast;
 pub use kind::MAX_NAME_TAG_BYTES;
 pub(super) use object::Placed;
 pub(crate) use physics::bounded as bounded_motion;
 pub(super) use physics::{
-    Harm, INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid,
-    is_solid, liquid_depth,
+    INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid, is_solid,
+    liquid_depth,
 };
 pub(super) use pick::on_actor_pick_request;
 pub(super) use track::{locator_hidden, locator_visible};
@@ -2036,6 +2037,7 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
 /// becomes air and the entity starts at the bottom centre of its cell (PMMP `FallableTrait`).
 /// False, with the block left as it is, when [`can_create`] refuses or `pos` is outside the
 /// world height.
+#[cfg(test)]
 pub(super) fn fall(
     state: &mut State,
     world: WorldIndex,
@@ -2057,11 +2059,6 @@ pub(super) fn fall(
         return false;
     }
     let kind = Kind::FallingBlock(Falling { block });
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: `can_create` allowed it and setting a block changes neither the \
-                  entities nor the runtime IDs"
-    )]
     create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).expect("the entity is made");
     true
 }
@@ -2395,20 +2392,9 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
             }
             // The block as it is now: an entity before this one may have changed it.
             Inside::WaterCauldron(pos) => {
-                if let Some((world, block)) = block_at(state, id, pos)
-                    && block.is(Class::WaterCauldron)
-                    && put_out(state, id, ExtinguishCause::WaterCauldron)
+                if block_at(state, id, pos).is_some_and(|(_, block)| block.is(Class::WaterCauldron))
                 {
-                    super::interact::lower_water_cauldron(state, world, pos, block);
-                }
-            }
-            Inside::Campfire(pos) => {
-                if with(state, id, |e| e.fire_ticks > 0) == Some(true)
-                    && let Some((world, block)) = block_at(state, id, pos)
-                    && block.is(Class::Campfire)
-                    && Harm::of(block).is_none()
-                {
-                    super::interact::light_campfire(state, world, pos, block);
+                    put_out(state, id, ExtinguishCause::WaterCauldron);
                 }
             }
         }
@@ -4290,24 +4276,6 @@ pub(super) fn release_trident(state: &mut State, session: SessionId, used_ticks:
     projectile::release_trident_with(state, session, used_ticks, HOOKS)
 }
 
-/// Hangs a painting on the `face` side of the block `clicked` (PMMP
-/// `PaintingItem::onInteractBlock`; see [`object::place_painting`]).
-pub(super) fn place_painting(
-    state: &mut State,
-    world: WorldIndex,
-    clicked: BlockPos,
-    face: block::Face,
-    random: &mut Random,
-) -> Placed {
-    object::place_painting(state, world, clicked, face, random)
-}
-
-/// Places an end crystal on the block `clicked` (PMMP `item\EndCrystal::onInteractBlock`; see
-/// [`object::place_end_crystal`]).
-pub(super) fn place_end_crystal(state: &mut State, world: WorldIndex, clicked: BlockPos) -> Placed {
-    object::place_end_crystal(state, world, clicked)
-}
-
 /// Launches the firework `item` that `session` used at `at` (PMMP `item\FireworkRocket::
 /// onInteractBlock`; see [`object::launch_firework`]). False at the entity limit.
 pub(super) fn launch_firework(
@@ -4355,26 +4323,6 @@ pub(super) fn strike_lightning(
     lightning::strike(state, world, at, lightning)
 }
 
-/// The block `block` that was at `pos` explodes with `blast` from the centre of its place (PMMP
-/// `Explosion` of a block: `RespawnAnchor::explode`), raising
-/// [`BlockExplode`](crate::event::BlockExplode) and the events of the hits and pushes. The caller
-/// has removed the block.
-pub(super) fn explode_block(
-    state: &mut State,
-    world: WorldIndex,
-    pos: BlockPos,
-    block: block::State,
-    blast: Blast,
-) {
-    let center = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y) + 0.5,
-        f64::from(pos.z) + 0.5,
-    );
-    let source = explosion::Source::Block { pos, block };
-    explosion::explode_with(state, world, center, blast, source, HOOKS, Raise::Events);
-}
-
 /// `session` hits the entity `target` in melee (PMMP `Player::attackEntity`); see [`npc`].
 #[doc(alias = "Player::attackEntity")]
 pub(super) fn attack(state: &mut State, session: SessionId, target: Id) {
@@ -4410,26 +4358,6 @@ pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Np
         return None;
     }
     npc::spawn(state, world, pos, npc)
-}
-
-/// Whether any entity or player whose box blocks placing intersects `area` in `world` (PMMP
-/// `World::getCollidingEntities` for `canBePlaced`: alive entities that can be collided with,
-/// players that are not spectators).
-pub(super) fn occupied(state: &State, world: WorldIndex, area: Aabb) -> bool {
-    let entities = &state.rules.entities;
-    let mut entity = false;
-    entities.each_nearby(world, area, |id| {
-        entity = entity
-            || entities
-                .get(id)
-                .is_some_and(|e| e.is_obstacle() && e.bounding_box().intersects(area));
-    });
-    entity
-        || state.players.values().any(|p| {
-            p.world == world
-                && can_collect(state, p, HOOKS)
-                && survival::bounding_box(p).intersects(area)
-        })
 }
 
 /// A spawn egg used on a block (PMMP `SpawnEgg::onInteractBlock`): a zombie or a villager (with
@@ -4485,11 +4413,6 @@ pub(super) fn boxes_in(state: &State, world: WorldIndex, area: Aabb) -> Vec<Aabb
             .filter(|b| b.overlaps(area, EPSILON)),
     );
     boxes
-}
-
-/// Whether an entity or a spawned player is in `area` of `world` ([`boxes_in`]).
-pub(super) fn anything_in(state: &State, world: WorldIndex, area: Aabb) -> bool {
-    !boxes_in(state, world, area).is_empty()
 }
 
 /// Whether `world` can take `count` more entities now (below its entity limit), so a caller can
@@ -5591,10 +5514,9 @@ mod tests {
         );
     }
 
-    /// A burning item in a water cauldron is put out and the cauldron loses a level (PMMP
-    /// `WaterCauldron::onEntityInside`).
+    /// A burning item in a water cauldron is put out and the cauldron stays as it is.
     #[test]
-    fn a_water_cauldron_puts_out_a_burning_item_and_drops_a_level() {
+    fn a_water_cauldron_puts_out_a_burning_item_and_keeps_its_level() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(8.0, 8.0));
         let level = |n| {
@@ -5620,36 +5542,7 @@ mod tests {
         with(&mut h.state, id, |e| e.fire_ticks = 100);
         h.entities();
         assert_eq!(h.state.rules.entities.get(id).unwrap().fire_ticks, 0);
-        assert_eq!(h.state.worlds[0].block(pos), Some(level(2)));
-    }
-
-    /// A burning item lights an unlit campfire it is in (PMMP `Campfire::onEntityInside`).
-    #[test]
-    fn a_burning_item_lights_an_unlit_campfire() {
-        let mut h = Harness::new(1);
-        h.spawn(1, standing(8.0, 8.0));
-        let lit = |on: bool| {
-            named("minecraft:campfire")
-                .with("extinguished", block::PropertyValue::Byte(u8::from(!on)))
-                .unwrap()
-        };
-        let pos = BlockPos::new(0, -60, 0);
-        h.state.worlds[0].set_block(pos, lit(false)).unwrap();
-        let stick = stack("minecraft:stick", 1);
-        let spot = at(0.5, -59.9, 0.5);
-        assert!(drop_item_with(
-            &mut h.state,
-            0,
-            spot,
-            stick,
-            Some(Vec3::ZERO),
-            10,
-            String::new()
-        ));
-        let id = h.state.rules.entities.ids().next().unwrap();
-        with(&mut h.state, id, |e| e.fire_ticks = 100);
-        h.entities();
-        assert_eq!(h.state.worlds[0].block(pos), Some(lit(true)));
+        assert_eq!(h.state.worlds[0].block(pos), Some(level(3)));
     }
 
     // api: FallingBlock
@@ -5862,7 +5755,7 @@ mod tests {
                 assert!(left.is_empty());
             }
             let held = stack("minecraft:stick", 3);
-            assert!(inventory::hold_outside(player, held.clone(), Stack::EMPTY));
+            inventory::set_cursor(player, held.clone());
             if dies {
                 // Dying closes the window first.
                 assert!(player.kill());
@@ -6442,22 +6335,9 @@ mod tests {
     }
 
     #[test]
-    fn placing_is_refused_where_a_solid_entity_or_a_player_stands_and_room_is_counted() {
+    fn room_is_counted() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
-        let cell = |x: f64, y: f64, z: f64| Aabb::new(at(x, y, z), at(x + 1.0, y + 1.0, z + 1.0));
-        assert!(occupied(&h.state, 0, cell(0.0, -60.0, 0.0)), "the player");
-        assert!(!occupied(&h.state, 0, cell(4.0, -60.0, 0.0)));
-        assert!(drop_item(
-            &mut h.state,
-            0,
-            at(4.5, -60.0, 0.5),
-            stack("minecraft:stick", 1)
-        ));
-        assert!(
-            !occupied(&h.state, 0, cell(4.0, -60.0, 0.0)),
-            "items do not block"
-        );
         let tnt = Kind::Tnt(Tnt {
             fuse: 80,
             underwater: false,
@@ -6470,21 +6350,13 @@ mod tests {
             ))
             .is_some()
         );
-        assert!(
-            occupied(&h.state, 0, cell(6.0, -60.0, 0.0)),
-            "primed TNT blocks"
-        );
         let npc = Npc::Human {
             name: "Guide".to_owned(),
             skin: None,
         };
         assert!(spawn_npc(&mut h.state, 0, at(8.5, -60.0, 0.5), npc).is_some());
-        assert!(
-            occupied(&h.state, 0, cell(8.0, -59.0, 0.0)),
-            "an NPC blocks"
-        );
-        assert!(has_room(&h.state, 0, MAX_ENTITIES_PER_WORLD - 3));
-        assert!(!has_room(&h.state, 0, MAX_ENTITIES_PER_WORLD - 2));
+        assert!(has_room(&h.state, 0, MAX_ENTITIES_PER_WORLD - 2));
+        assert!(!has_room(&h.state, 0, MAX_ENTITIES_PER_WORLD - 1));
         assert!(!has_room(&h.state, 0, usize::MAX));
     }
 

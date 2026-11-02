@@ -22,9 +22,8 @@ const NAME: &str = "w";
 /// The seed of the world the tests export.
 const SEED: i64 = 5;
 
-/// A chunk to store: its terrain (`None` for none) and its block entities, entities and
-/// scheduled updates.
-type StoredChunk = (ChunkPos, Option<ChunkRecord>, [Vec<Compound>; 3]);
+/// A chunk to store: its terrain (`None` for none) and its block entities and entities.
+type StoredChunk = (ChunkPos, Option<ChunkRecord>, [Vec<Compound>; 2]);
 
 /// Returns the world record the tests store.
 fn record() -> WorldRecord {
@@ -66,25 +65,24 @@ fn chest(x: i32, y: i32, z: i32) -> Compound {
 }
 
 /// Returns three chunks: one with terrain and a chest, one with a chest but no terrain
-/// (generated), one with empty terrain, an entity and two scheduled updates.
+/// (generated), one with empty terrain and an entity.
 fn chunks() -> Vec<StoredChunk> {
     let entity = compound(&[("identifier", Value::String("minecraft:item".to_owned()))]);
-    let update = compound(&[("x", Value::Int(48))]);
     vec![
         (
             ChunkPos::new(0, 0),
             Some(terrain_chunk(&mut Rng(0xe790_0001))),
-            [vec![chest(3, 70, 5)], Vec::new(), Vec::new()],
+            [vec![chest(3, 70, 5)], Vec::new()],
         ),
         (
             ChunkPos::new(-1, 5),
             None,
-            [vec![chest(-14, -60, 81)], Vec::new(), Vec::new()],
+            [vec![chest(-14, -60, 81)], Vec::new()],
         ),
         (
             ChunkPos::new(3, -2),
             Some(empty_chunk()),
-            [Vec::new(), vec![entity], vec![update.clone(), update]],
+            [Vec::new(), vec![entity]],
         ),
     ]
 }
@@ -144,7 +142,6 @@ fn exported_chunks_read_back_as_stored() {
             chunks: 3,
             block_entities: 2,
             entities: 1,
-            scheduled_updates: 2,
             spills: 0,
         }
     );
@@ -159,7 +156,7 @@ fn exported_chunks_read_back_as_stored() {
     );
     let catalog = source.catalog().unwrap();
     assert_eq!(catalog.chunks, [(-1, 5), (0, 0), (3, -2)]);
-    for (pos, terrain, [block_entities, _, _]) in &chunks {
+    for (pos, terrain, [block_entities, _]) in &chunks {
         let raw = decode(&source.read(pos.x, pos.z).unwrap()).unwrap();
         assert_eq!(raw.version, 42);
         // A chunk stored without terrain has its generator's.
@@ -204,7 +201,7 @@ fn spills_are_left_out_and_counted() {
     let stored = (
         pos,
         Some(empty_chunk()),
-        [vec![chest(1, -60, 1), spill], Vec::new(), Vec::new()],
+        [vec![chest(1, -60, 1), spill], Vec::new()],
     );
     write_world(&data.0, record(), &[stored]);
     let out = data.0.join("out");
@@ -215,7 +212,6 @@ fn spills_are_left_out_and_counted() {
             chunks: 1,
             block_entities: 1,
             entities: 0,
-            scheduled_updates: 0,
             spills: 1,
         }
     );

@@ -209,7 +209,7 @@ fn imported(
 }
 
 /// The stored world record and every value of `chunk`, unsealed.
-fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Vec<Compound>; 3]) {
+fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Vec<Compound>; 2]) {
     let id = ChunkId {
         world: number,
         x,
@@ -218,7 +218,7 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
     let values = storage.read_chunks(&[id]).unwrap().pop().unwrap().unwrap();
     // A sub-chunk without a value is empty (format 9).
     let mut sub_chunks: [Option<SubChunkRecord>; SUB_CHUNKS] = Default::default();
-    let mut extras: [Vec<Compound>; 3] = Default::default();
+    let mut extras: [Vec<Compound>; 2] = Default::default();
     for (part, sealed) in values {
         let key = ChunkKey { chunk: id, part }.to_bytes();
         match part {
@@ -234,7 +234,6 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
                 let slot = match kind {
                     ChunkKind::BlockEntities => 0,
                     ChunkKind::Entities => 1,
-                    ChunkKind::ScheduledUpdates => 2,
                 };
                 extras[slot].extend(list);
             }
@@ -350,7 +349,7 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
             spawn: report.spawn(),
         }
     );
-    let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 0, 7, -2);
+    let (chunk, [block_entities, entities]) = read_chunk(&mut storage, 0, 7, -2);
     let stone = known(&state("minecraft:stone", &[]));
     assert_eq!(
         chunk.block(0, -64, 0),
@@ -392,7 +391,7 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
             "minecraft:photo_item"
         )])))
     );
-    assert!(entities.is_empty() && updates.is_empty());
+    assert!(entities.is_empty());
 
     let expected = Report {
         chunks: 1,
@@ -1085,15 +1084,14 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
     for &(x, z) in &catalog.chunks {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
-        let (chunk, [block_entities, entities, updates]) =
-            read_chunk(&mut storage, record.number, x, z);
+        let (chunk, [block_entities, entities]) = read_chunk(&mut storage, record.number, x, z);
         assert!(
             chunk.unknown().is_empty(),
             "({x}, {z}): {:?}",
             chunk.unknown()
         );
         assert_eq!(block_entities, raw.block_entities);
-        assert!(entities.is_empty() && updates.is_empty());
+        assert!(entities.is_empty());
         for section in &raw.sections {
             let sub = chunk
                 .sub_chunk(usize::try_from(i32::from(section.y) + 4).unwrap())
@@ -1156,15 +1154,14 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
     let record = world_record(&mut storage).unwrap();
     for (x, z) in [(-198, 8), (-5, -44)] {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
-        let (chunk, [block_entities, entities, updates]) =
-            read_chunk(&mut storage, record.number, x, z);
+        let (chunk, [block_entities, entities]) = read_chunk(&mut storage, record.number, x, z);
         // Every compound whole (the signs' text, the pot's plant, the furnace's state), upgraded.
         let mut expected = raw.block_entities.clone();
         for c in &mut expected {
             upgrade::nbt(c);
         }
         assert_eq!(block_entities, expected);
-        assert!(entities.is_empty() && updates.is_empty());
+        assert!(entities.is_empty());
         assert_eq!(chunk.biome(2, 50, 3), Some(21));
         for section in &raw.sections {
             let sub = chunk

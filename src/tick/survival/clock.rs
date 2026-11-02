@@ -13,7 +13,7 @@ use tracing::debug;
 
 use super::{Point, feet, first_session, next_session};
 use crate::block::{self, Class, PropertyValue};
-use crate::event::{PlayerBedEnter, PlayerBedLeave};
+use crate::event::PlayerBedLeave;
 use crate::math::Vec3;
 use crate::nbt::{self, Encoding};
 use crate::player::Id;
@@ -166,37 +166,6 @@ pub(super) fn tick(state: &mut State) {
     if any_corrected {
         correct_clients(state);
     }
-}
-
-/// Lies the player of `session` down in the bed at `pos` (PMMP `Bed::onInteract` then
-/// `Player::sleepOn`): only at night, within 2 blocks of either half of a whole bed nobody sleeps
-/// in, and unless a [`PlayerBedEnter`] listener keeps it up. The bed shows occupied, becomes the
-/// player's respawn point, and the night may be skipped in 60 ticks.
-pub(super) fn sleep(
-    state: &mut State,
-    session: SessionId,
-    world: WorldIndex,
-    pos: BlockPos,
-) -> bool {
-    let Some((head, other)) = bed_at(state, session, world, pos, Reach::Nearby) else {
-        return false;
-    };
-    let Ok(event) = super::ask(
-        state,
-        || PlayerBedEnter {
-            player: Id::new(session),
-            world: world::Id::of(world),
-            bed: head,
-            cancelled: false,
-        },
-        PlayerBedEnter::is_cancelled,
-        |state, _| bed_at(state, session, world, pos, Reach::Nearby) == Some((head, other)),
-    ) else {
-        return false;
-    };
-    lie_down(state, session, world, pos, (head, other));
-    super::watch(state, event.as_ref());
-    true
 }
 
 /// Lies the player of `session` down in the bed at `pos` in its world, night or day and however

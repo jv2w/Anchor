@@ -1056,12 +1056,7 @@ fn anchor_steps(
     let mut action = 0_usize;
     let task = move |cx: &mut anchor::Context<'_>| {
         if base.is_none() {
-            // Random ticks go off before the first step, as on BDS (`blocks`). Speed 0 is within
-            // the limit; were it refused, no step would run and the bot would fail.
-            base = bases
-                .try_recv()
-                .ok()
-                .filter(|_| cx.set_random_tick_speed(0));
+            base = bases.try_recv().ok();
         }
         let Some([bx, by, bz]) = base else {
             return;

@@ -1,5 +1,4 @@
-//! Sign text edits from clients (PMMP `InGamePacketHandler::handleBlockActorData` and
-//! `updateSignText`, `SignText::fromBlob`, `BaseSign::updateFaceText`, `TextFormat::clean`).
+//! Sign text edits from clients.
 //!
 //! A client sends the sign's whole block entity data; the text of each side is one string of
 //! lines joined by newlines. This module checks and cleans it; the block entity keeps it. The
@@ -12,16 +11,16 @@ use crate::tick::Context;
 use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
-/// The NBT key of a sign's back side (PMMP `Sign::TAG_BACK_TEXT`).
+/// The NBT key of a sign's back side.
 pub(in crate::tick) const BACK: &str = "BackText";
-/// The NBT key of a sign's front side (PMMP `Sign::TAG_FRONT_TEXT`).
+/// The NBT key of a sign's front side.
 pub(in crate::tick) const FRONT: &str = "FrontText";
-/// The NBT key of a side's text (PMMP `Sign::TAG_TEXT_BLOB`).
+/// The NBT key of a side's text.
 pub(in crate::tick) const TEXT: &str = "Text";
 
 impl Context<'_> {
-    /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`
-    /// (PMMP `Player::openSignEditor`): the player may then write that sign once, as after
+    /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`:
+    /// the player may then write that sign once, as after
     /// placing it (a waxed sign still refuses the text), and its edit raises
     /// [`SignChange`](crate::event::SignChange). A sign set by code gets its empty block entity
     /// now. False, sending nothing, if the player is not spawned or is dead (it could send no
@@ -54,7 +53,7 @@ pub(super) struct Edit {
     pub(super) back: [String; SIGN_LINES],
 }
 
-/// Why an edit is refused (PMMP disconnects for these; Anchor drops the packet).
+/// Why an edit is refused (the packet is dropped).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Refused {
     /// A side or its text has the wrong tag type or is missing.
@@ -71,8 +70,8 @@ pub(super) fn parse(nbt: &Compound) -> Result<Edit, Refused> {
     })
 }
 
-/// Reads one side's lines (PMMP `SignText::fromBlob`: split at newlines into at most four lines,
-/// the rest dropped), each cleaned (PMMP `TextFormat::clean($line, false)`).
+/// Reads one side's lines (split at newlines into at most four lines, the rest dropped), each
+/// cleaned.
 fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     let Some(Value::Compound(side)) = nbt.get(tag) else {
         return Err(Refused::Malformed);
@@ -91,8 +90,7 @@ fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     Ok(lines)
 }
 
-/// Drops private-use characters and terminal escape sequences, keeping colour codes (PMMP
-/// `TextFormat::clean($text, false)`).
+/// Drops private-use characters and terminal escape sequences, keeping colour codes.
 pub(in crate::tick) fn clean(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     // The private-use characters go first, so a sequence they split still goes.
@@ -165,10 +163,10 @@ mod tests {
         assert_eq!(clean("a\u{1b}b"), "ab");
     }
 
-    /// PMMP's escape pattern `\x1b[\(\][[0-9;\[\(]+[Bm]` is one character class, and the
-    /// private-use characters go before it is matched.
+    /// The escape pattern `\x1b[\(\][[0-9;\[\(]+[Bm]` is one character class, and the private-use
+    /// characters go before it is matched.
     #[test]
-    fn cleaning_reads_the_escape_pattern_as_pmmp() {
+    fn cleaning_reads_the_escape_pattern_as_one_character_class() {
         assert_eq!(clean("a\u{1b}[mb"), "ab");
         assert_eq!(clean("a\u{1b}1mb"), "ab");
         assert_eq!(clean("a\u{1b}]]mb"), "ab");

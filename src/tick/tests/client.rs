@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::block;
-use crate::crafting::{self, Recipe};
 use crate::item::Stack;
 use crate::protocol::consts::{
     ContainerId as C, InputFlag, PlayerAction as Action, UseItemAction, UseItemOnEntityAction,
@@ -37,8 +36,10 @@ pub(super) const GRID_2X2: u8 = 28;
 /// The upper bound of the creative item network IDs the generator draws; the creative inventory
 /// has fewer items, so some draws are refused.
 const MAX_CREATIVE_ID: usize = 1700;
-/// The lowest recipe network ID making planks from an oak log alone, and how many it makes.
-static PLANKS_RECIPE: std::sync::OnceLock<(u32, u8)> = std::sync::OnceLock::new();
+/// How many items the refused craft claims to make.
+const REFUSED_CRAFT_COUNT: u8 = 4;
+/// The recipe network ID of the craft the server must refuse: the recipe list is empty.
+const REFUSED_RECIPE: u32 = 1;
 
 /// What the clients of a run received, by kind, over every session: the run must reach each.
 pub(super) type Seen = BTreeMap<&'static str, usize>;
@@ -56,11 +57,6 @@ pub(super) struct Client {
 }
 
 impl Client {
-    /// The open window's ID, as the last `ContainerOpen` gave it.
-    pub(super) fn window(&self) -> Option<u8> {
-        self.window
-    }
-
     /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
     pub(super) fn net(&self, container: u8, slot: u8) -> i32 {
         self.slots
@@ -164,7 +160,7 @@ impl Client {
                 flags.insert(InputFlag::PerformItemStackRequest);
                 vec![auth_packet(player, &flags, None, None, Some(request))]
             }
-            4 => self.craft_planks(rng, player),
+            4 => self.craft_refused(rng, player),
             5 | 6 => {
                 // Breaking: start, some client ticks, then the predicted destroy.
                 let Some(target) = solid_near(rng, state, at) else {
@@ -593,10 +589,10 @@ impl Client {
         }
     }
 
-    /// Draws planks by hand: a log from the inventory into the 2x2 grid, then the craft naming the
-    /// grid cell by the first request's ID, as a client does before the answer arrives.
-    fn craft_planks(&mut self, rng: &mut Rng, player: &Player) -> Vec<Packet> {
-        let (recipe, made) = planks_recipe();
+    /// Draws a craft the server refuses: a log from the inventory into the 2x2 grid, then the craft
+    /// naming the grid cell by the first request's ID, as a client does before the answer arrives.
+    fn craft_refused(&mut self, rng: &mut Rng, player: &Player) -> Vec<Packet> {
+        let (recipe, made) = (REFUSED_RECIPE, REFUSED_CRAFT_COUNT);
         let log = block::Kind::OakLog.default_state().item();
         let block::ItemForm::Item(log) = log else {
             return Vec::new();
@@ -669,30 +665,6 @@ impl Default for Client {
             next_request: -1,
         }
     }
-}
-
-/// The lowest recipe network ID making planks from an oak log alone, and how many it makes.
-fn planks_recipe() -> (u32, u8) {
-    *PLANKS_RECIPE.get_or_init(|| {
-        let block::ItemForm::Item(log) = block::Kind::OakLog.default_state().item() else {
-            panic!("oak logs have an item");
-        };
-        let log = Stack::new(log, 1);
-        (1..)
-            .map_while(|id| crafting::recipe(id).map(|r| (id, r)))
-            .find_map(|(id, r)| {
-                let (ingredients, results): (Vec<_>, _) = match r {
-                    Recipe::Shaped(s) => (s.grid.iter().flatten().collect(), s.results),
-                    Recipe::Shapeless(s) => (s.ingredients.iter().collect(), s.results),
-                    _ => return None,
-                };
-                let result = results.first()?.to_item()?;
-                let planks = result.item()?.name().ends_with("_planks");
-                (planks && ingredients.len() == 1 && ingredients[0].can_accept(&log))
-                    .then_some((id, result.count()))
-            })
-            .expect("a planks recipe")
-    })
 }
 
 /// A random face, sometimes one that does not exist.

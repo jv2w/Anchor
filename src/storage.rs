@@ -314,14 +314,11 @@ pub(crate) enum ChunkKind {
     BlockEntities = 1,
     /// Entities.
     Entities = 2,
-    /// Scheduled block updates.
-    ScheduledUpdates = 3,
 }
 
 impl ChunkKind {
     /// Every kind, in key order: a chunk's extras.
-    pub(crate) const EXTRAS: [Self; 3] =
-        [Self::BlockEntities, Self::Entities, Self::ScheduledUpdates];
+    pub(crate) const EXTRAS: [Self; 2] = [Self::BlockEntities, Self::Entities];
 }
 
 /// A chunk column of a persistent world: the start its `chunks` keys share.
@@ -370,7 +367,7 @@ impl ChunkId {
 /// is split into pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChunkPart {
-    /// A page of an extras list ([`ExtraRecord`](codec::ExtraRecord)), kind 1 to 3: page 0
+    /// A page of an extras list ([`ExtraRecord`](codec::ExtraRecord)), kind 1 or 2: page 0
     /// has no more bytes, a later page two more, big-endian.
     Extras(ChunkKind, u16),
     /// The terrain of one sub-chunk ([`SubChunkRecord`](codec::SubChunkRecord)), index 0
@@ -384,7 +381,6 @@ impl ChunkPart {
         let kind = |k: u8| match k {
             1 => Some(ChunkKind::BlockEntities),
             2 => Some(ChunkKind::Entities),
-            3 => Some(ChunkKind::ScheduledUpdates),
             _ => None,
         };
         let sub_chunk =
@@ -2202,7 +2198,6 @@ pub(crate) mod tests {
         match rng.below(6) {
             0 => ChunkPart::Extras(ChunkKind::BlockEntities, 0),
             1 => ChunkPart::Extras(ChunkKind::Entities, u16::try_from(rng.below(2)).unwrap()),
-            2 => ChunkPart::Extras(ChunkKind::ScheduledUpdates, 1),
             _ => ChunkPart::SubChunk(u8::try_from(rng.below(3)).unwrap()),
         }
     }
@@ -2366,8 +2361,8 @@ pub(crate) mod tests {
             ),
             (ChunkPart::Extras(ChunkKind::Entities, 0), vec![2]),
             (
-                ChunkPart::Extras(ChunkKind::ScheduledUpdates, u16::MAX),
-                vec![3, 0xff, 0xff],
+                ChunkPart::Extras(ChunkKind::Entities, u16::MAX),
+                vec![2, 0xff, 0xff],
             ),
             (ChunkPart::SubChunk(0), vec![0x20]),
             (ChunkPart::SubChunk(23), vec![0x37]),
@@ -2384,6 +2379,7 @@ pub(crate) mod tests {
         for bad in [
             &[][..],
             &[0],
+            &[3],
             &[4],
             &[0x1f],
             &[0x38],

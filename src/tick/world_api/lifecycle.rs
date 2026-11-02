@@ -289,6 +289,7 @@ impl State {
     pub(in crate::tick) fn add_world(&mut self, mut world: World) {
         let index = self.worlds.len();
         world.set_id(world::Id::of(index));
+        world.set_custom(std::sync::Arc::clone(&self.custom));
         self.catalog
             .names
             .insert(world_name_key(world.name()), index);

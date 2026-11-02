@@ -45,10 +45,10 @@ fn slots(packets: &[Packet]) -> Vec<(u32, u32, u16, i32)> {
 }
 
 // api: Human::getInventory, Living::getArmorInventory, Human::getOffHandInventory
-// api: Player::getCursorInventory, Player::getCraftingGrid, Human::getEnderInventory
+// api: Player::getCursorInventory, Human::getEnderInventory
 // api: PlayerInventory, ArmorInventory, PlayerOffHandInventory, PlayerCursorInventory
-// api: PlayerCraftingInventory, PlayerEnderInventory, Inventory::setItem
-// api: BaseInventory::setItem, CraftingGrid::setItem, Inventory::clear, BaseInventory::clear
+// api: PlayerEnderInventory, Inventory::setItem
+// api: BaseInventory::setItem, Inventory::clear, BaseInventory::clear
 // api: ArmorInventory::setHelmet, ArmorInventory::setChestplate, ArmorInventory::setLeggings
 // api: ArmorInventory::setBoots, ArmorInventory::getHelmet, ArmorInventory::getChestplate
 // api: ArmorInventory::getLeggings, ArmorInventory::getBoots, PlayerInventory::getHotbarSlotItem
@@ -67,7 +67,6 @@ fn player_writes_reach_the_client_with_new_stack_ids() {
         (Kind::Armor, 4),
         (Kind::Offhand, 1),
         (Kind::Cursor, 1),
-        (Kind::Crafting, 4),
         (Kind::EnderChest, 27),
     ] {
         assert_eq!(p.inventory(kind).size(), size);
@@ -125,14 +124,11 @@ fn player_writes_reach_the_client_with_new_stack_ids() {
     assert_eq!(ender.view().first_empty(), Some(0));
     assert!(ender.view().iter().all(Stack::is_empty));
     assert!(format!("{ender:?}").contains("EnderChest"));
-    let mut grid = p.inventory_mut(Kind::Crafting);
-    grid.set(3, sticks(2)).unwrap();
-    assert_eq!(w.inv(s).grid.stack(3), &sticks(2));
     check_slots(&w.state);
 }
 
 #[test]
-fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
+fn the_cursor_takes_no_stack_beyond_what_a_close_can_give_back() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING];
@@ -141,36 +137,16 @@ fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
         p.inventory_mut(Kind::Cursor).set(0, sticks(1)),
         Err(Error::Full)
     );
-    assert_eq!(p.inventory_mut(Kind::Crafting).add(&coal(3)), coal(3));
     assert!(p.inventory_mut(Kind::Main).add(&coal(3)).is_empty());
     check_slots(&w.state);
-    // At the bound a swap still moves a held stack: it holds no stack more.
+    // At the bound a write over the held stack still goes: it holds no stack more.
     w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
-    let mut grid = w.player_mut(s).inventory_mut(Kind::Crafting);
-    grid.set(1, coal(2)).unwrap();
-    assert_eq!(grid.swap(0, 1), Ok(()));
-    assert_eq!(grid.view().item(0), Some(&coal(2)));
-    assert!(grid.view().is_slot_empty(1));
-    assert_eq!(grid.swap(1, 0), Ok(()), "the other way round");
-    assert_eq!(grid.view().item(1), Some(&coal(2)));
-}
-
-#[test]
-fn set_contents_on_the_grid_checks_the_held_stacks_it_ends_with() {
-    let mut w = World::new(GameMode::Survival);
-    let s = w.join(1);
-    w.player_mut(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
-    let mut grid = w.player_mut(s).inventory_mut(Kind::Crafting);
-    assert_eq!(grid.set_contents(&[coal(1), coal(1)]), Err(Error::Full));
-    assert!(
-        grid.view().is_slot_empty(0),
-        "a refused set_contents changes nothing"
-    );
-    // At the bound, moving the held stack to another slot holds no stack more.
-    grid.set(1, coal(2)).unwrap();
-    assert_eq!(grid.set_contents(&[sticks(1)]), Ok(()));
-    assert_eq!(grid.view().item(0), Some(&sticks(1)));
-    assert!(grid.view().is_slot_empty(1));
+    let mut cursor = w.player_mut(s).inventory_mut(Kind::Cursor);
+    cursor.set(0, coal(2)).unwrap();
+    assert_eq!(cursor.set(0, sticks(1)), Ok(()));
+    assert_eq!(cursor.view().item(0), Some(&sticks(1)));
+    assert_eq!(cursor.set(0, Stack::EMPTY), Ok(()));
+    assert!(cursor.view().is_slot_empty(0));
 }
 
 // api: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex
@@ -335,8 +311,8 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
 }
 
 /// A player holding the largest stack everywhere commits and reads back.
-/// It holds the largest stack in each of its 146 places (main, armour, offhand, ender chest,
-/// cursor, grid and the stacks waiting for room) and 16 user data values of the largest size.
+/// It holds the largest stack in every slot (main, armour, offhand, ender chest, cursor) and in
+/// the stacks waiting for room, and 16 user data values of the largest size.
 /// Its extra compound is over one NBT root (4 MiB) but within its record.
 #[test]
 fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
@@ -362,7 +338,6 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
         Kind::Offhand,
         Kind::EnderChest,
         Kind::Cursor,
-        Kind::Crafting,
     ] {
         let mut inv = p.inventory_mut(kind);
         for i in 0..kind.size() {
@@ -388,8 +363,8 @@ fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
 }
 
 /// A shulker box takes through the API only what its item can carry.
-/// It takes no shulker box and no stack over 3 KiB (PMMP's `setItem` does not check), so the box
-/// with its items is always one stack.
+/// It takes no shulker box and no stack over 3 KiB, so the box with its items is always one
+/// stack.
 #[test]
 fn a_shulker_box_takes_through_the_api_only_what_its_item_can_carry() {
     let mut w = World::new(GameMode::Survival);
@@ -531,8 +506,8 @@ fn block_inventory_viewers_are_the_players_with_its_window_open() {
     let (a, b) = (w.join(1), w.join(2));
     let chest = AT;
     let other = w.double_chest(chest);
-    let anvil = BlockPos::new(6, -60, 3);
-    w.place_block(anvil, blk::Kind::Anvil.default_state());
+    let barrel = BlockPos::new(6, -60, 3);
+    w.place_block(barrel, blk::Kind::Barrel.default_state());
     let here = world::Id::DEFAULT;
     let viewers = |w: &mut World, pos| {
         let cx = Context {
@@ -553,10 +528,10 @@ fn block_inventory_viewers_are_the_players_with_its_window_open() {
     assert_eq!(cx.block_inventory_viewers(here, chest).len(), 2);
     assert!(cx.close_window(id(b)));
     assert_eq!(viewers(&mut w, other), [id(a)]);
-    // A station's window counts too; opening it closes the chest.
-    w.open_block(a, anvil);
+    // Another container's window counts too; opening it closes the chest.
+    w.open_block(a, barrel);
     assert!(viewers(&mut w, chest).is_empty());
-    assert_eq!(viewers(&mut w, anvil), [id(a)]);
+    assert_eq!(viewers(&mut w, barrel), [id(a)]);
     assert!(
         viewers(&mut w, BlockPos::new(0, -61, 0)).is_empty(),
         "no block entity"
@@ -613,7 +588,7 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     assert_eq!(cx.creative_items(Some("other")), None);
     assert_eq!(sent(&mut w), [1], "the client gets the kits");
     assert!(sent(&mut w).is_empty(), "once");
-    // Creative item 1 is the kit's stick now, not PMMP's first entry.
+    // Creative item 1 is the kit's stick now, not the default list's first entry.
     let id = w.next_id(s);
     let r = w.request_as(
         s,

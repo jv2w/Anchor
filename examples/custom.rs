@@ -3,8 +3,6 @@
 //! - A custom item, the ruby, and `/ruby [count]`, which gives some.
 //! - A custom block, the ruby block: a `glowing` property that using the block toggles, a
 //!   hardness, and four rubies as its drops.
-//! - Recipes: four rubies make a ruby block (shaped), a ruby block makes four rubies
-//!   (shapeless), and a furnace smelts redstone ore into a ruby.
 //! - A custom entity, the wisp, whose behaviour hops and counts the pokes it gets (in its saved
 //!   custom data) when a player interacts with it.
 //! - A villager shop with typed offers: a ruby for an emerald, two emeralds for a ruby.
@@ -13,7 +11,7 @@
 //!   zipped in memory and offered to every joining player.
 //!
 //! What it uses: [`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`],
-//! [`ServerBuilder::recipe`], [`ServerBuilder::custom_entity`] with an [`entity::Behaviour`],
+//! [`ServerBuilder::custom_entity`] with an [`entity::Behaviour`],
 //! [`ServerBuilder::resource_pack`] with [`Pack::from_bytes`], [`Context::spawn_custom_entity`],
 //! [`Context::spawn_villager`] and [`Context::set_trade_offers`].
 //!
@@ -22,7 +20,6 @@
 //!
 //! [`ServerBuilder::custom_item`]: anchor::ServerBuilder::custom_item
 //! [`ServerBuilder::custom_block`]: anchor::ServerBuilder::custom_block
-//! [`ServerBuilder::recipe`]: anchor::ServerBuilder::recipe
 //! [`ServerBuilder::custom_entity`]: anchor::ServerBuilder::custom_entity
 //! [`ServerBuilder::resource_pack`]: anchor::ServerBuilder::resource_pack
 
@@ -31,10 +28,7 @@ use std::num::NonZeroU32;
 
 use anchor::block::{self, PropertyValue};
 use anchor::command::{self, Command, Output, Param, Sender};
-use anchor::custom::{
-    self, Block, Category, Creative, Drops, FurnaceType, Ingredient, Item, ItemRef, Offer,
-    Property, Recipe,
-};
+use anchor::custom::{self, Block, Category, Creative, Drops, Item, ItemRef, Offer, Property};
 use anchor::entity::{self, Custom};
 use anchor::event::{PlayerJoin, Priority};
 use anchor::inventory::Kind;
@@ -77,28 +71,12 @@ const MAX_RUBIES: u8 = 64;
 const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ruby = || ItemRef::Custom(&RUBY);
-    let ruby_block = || ItemRef::CustomBlock(&RUBY_BLOCK);
     // Whether the wisp and the shop are in the world.
     let mut placed = false;
     Server::builder()
         .config(Config::default().load("anchor.toml")?)
         .custom_item(&RUBY)
         .custom_block(&RUBY_BLOCK)
-        .recipe(Recipe::shaped(
-            &["RR", "RR"],
-            &[('R', Ingredient::Item(ruby()))],
-            &[(ruby_block(), 1)],
-        ))
-        .recipe(Recipe::shapeless(
-            &[Ingredient::Item(ruby_block())],
-            &[(ruby(), 4)],
-        ))
-        .recipe(Recipe::furnace(
-            FurnaceType::Furnace,
-            Ingredient::Item(ItemRef::Block(block::Kind::RedstoneOre)),
-            (ruby(), 1),
-        ))
         .custom_entity(
             Custom::new(WISP)
                 .with_size(0.5, 0.5)

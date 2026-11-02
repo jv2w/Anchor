@@ -281,15 +281,13 @@ fn the_trade_screen_is_the_one_bds_sends() {
     assert_eq!(u.display_name, "entity.villager.farmer");
     assert!(u.new_trade_ui);
     assert!(u.demand_based_prices);
-    // The offers: BDS's root keys, every offer, IDs after the last recipe.
+    // The offers: BDS's root keys, every offer, IDs from the first one.
     let offers = from_network_bytes(&u.serialised_offers);
     assert_eq!(
         offers.keys().collect::<Vec<_>>(),
         ["Recipes", "TierExpRequirements"]
     );
-    let first = first_net_id(&server.state);
-    assert!(crate::crafting::recipe(first - 1).is_some());
-    assert!(crate::crafting::recipe(first).is_none());
+    let first = FIRST_NET_ID;
     assert_eq!(net_ids(u), [first, first + 1, first + 2]);
     let mut keys = Vec::new();
     shape(&recipes(&offers)[0], "", &mut keys);
@@ -683,8 +681,7 @@ fn opening_and_closing_a_hundred_times_leaves_nothing_behind() {
     assert!(server.state.trades.sessions.is_empty());
     assert!(server.state.trades.by_villager.is_empty());
     // Reopening unchanged lists allocates nothing new.
-    let first = first_net_id(&server.state);
-    assert_eq!(server.state.trades.next_net_id, first + 6);
+    assert_eq!(server.state.trades.next_net_id, FIRST_NET_ID + 6);
 }
 
 #[test]

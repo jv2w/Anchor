@@ -14,7 +14,7 @@ mod paletted;
 mod particle;
 mod sound;
 mod sub_chunk;
-mod tree;
+pub(crate) mod tree;
 
 pub use crate::tick::{MAX_TICKET_CHUNKS, MAX_TICKET_RADIUS, MAX_TICKETS};
 pub use chunk::Chunk;
@@ -1012,7 +1012,7 @@ impl World {
     /// Neighbours in chunks that are not loaded read as air and are not changed.
     ///
     /// The block entity follows in the tick's next block update phase, as PMMP's tiles follow
-    /// their block: a block that has one (a chest, a sign, a furnace) gets an empty one there,
+    /// their block: a block that has one (a chest, a sign) gets an empty one there,
     /// which [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a
     /// block entity the new block does not take goes, dropping what it held as items.
     #[doc(alias = "World::setBlockAt")]
@@ -1040,15 +1040,6 @@ impl World {
             }
         };
         self.set_entry(pos, entry)
-    }
-
-    /// Sets the block at `pos` without notifying the block update rules and without working out
-    /// connections (PMMP `setBlock` with `update` false): for a state that differs only in
-    /// properties no neighbour reads, such as a crop's age or a leaf's decay check. False if the
-    /// chunk is not loaded or `pos` is outside the world height.
-    pub(crate) fn set_block_quietly(&mut self, pos: BlockPos, state: State) -> bool {
-        self.write_with(pos, Entry::Known(state), Notify::Quiet)
-            .is_some()
     }
 
     /// Takes the oldest block changed since the block update rules last took it: every change
@@ -1243,18 +1234,13 @@ impl World {
     /// block in the change list. Returns the old entry, or `None` if nothing was written (the
     /// chunk is not loaded or `pos` is outside the world height).
     fn write(&mut self, pos: BlockPos, entry: Entry) -> Option<Entry> {
-        self.write_with(pos, entry, Notify::Neighbours)
-    }
-
-    /// [`Self::write`] that notifies the block update rules or not.
-    fn write_with(&mut self, pos: BlockPos, entry: Entry, notify: Notify) -> Option<Entry> {
         let (x, z) = pos.local();
         let chunk = self.chunks.get_mut(pos.chunk())?;
         let old = chunk.put(x, pos.y, z, entry)?;
         if old != entry {
             chunk.mark_dirty(pos.y);
             self.changes.insert(pos, entry);
-            if notify == Notify::Neighbours && self.fed.insert(pos) {
+            if self.fed.insert(pos) {
                 self.feed.push_back(pos);
             }
             self.light.changed(chunk, pos, old, entry);
@@ -1291,15 +1277,6 @@ impl fmt::Debug for World {
             .field("light", &self.light)
             .finish_non_exhaustive()
     }
-}
-
-/// Whether a block change notifies the block update rules ([`World::next_changed`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Notify {
-    /// The block and its neighbours get a neighbour update (PMMP `setBlock` with `update`).
-    Neighbours,
-    /// Nothing is notified (PMMP `setBlock` with `update` false).
-    Quiet,
 }
 
 /// What a checkpoint keeps of a world besides its plain fields: the

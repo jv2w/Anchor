@@ -1,35 +1,34 @@
-//! Player inventories and windows: the player's own slots, the cursor, the crafting grids,
-//! open containers, and the server-authoritative item stack requests that move items between
-//! them, with BDS's window and stack network ID rules (P6, `xtask/data/p6/facts.md`).
+//! Player inventories and windows: the player's own slots, the cursor, open containers, and the
+//! server-authoritative item stack requests that move items between them, with the official
+//! server's window and stack network ID rules (P6, `xtask/data/p6/facts.md`).
 //!
-//! A player holds 36 main slots (the hotbar is 0–8), 4 armour slots, the off hand, the cursor,
-//! the 2x2 crafting grid and its ender chest contents. Every slot carries the stack network ID
-//! the client knows its stack by and the request that last changed it (PMMP `ItemStackInfo`).
-//! IDs come from one counter per player (PMMP `InventoryManager`; BDS uses one per server, which
-//! the client cannot tell apart: it checks IDs per slot) and follow BDS within a request
-//! ([`request`]). A change outside a request gives the slot a new ID and is sent to the client.
+//! A player holds 36 main slots (the hotbar is 0–8), 4 armour slots, the off hand, the cursor and
+//! its ender chest contents. Every slot carries the stack network ID the client knows its stack
+//! by and the request that last changed it. IDs come from one counter per player (the official
+//! server uses one per server, which the client cannot tell apart: it checks IDs per slot) and
+//! follow the official server within a request ([`request`]). A change outside a request gives
+//! the slot a new ID and is sent to the client.
 //!
-//! One window is open at a time (PMMP): the player's own inventory, a container block (chest,
-//! double chest, barrel, shulker box, hopper), the ender chest or the crafting table. Window IDs
-//! count per player from 2 (PMMP `getNewWindowId`, as BDS). Opening while another window is
-//! open closes it from the server side and sends the new one once the client acknowledges the
-//! close (PMMP `openWindowDeferred`). Closing gives the cursor, the grids and the window's own
-//! slots back to the inventory; what does not fit the player throws, and what cannot be thrown
-//! (the world's entity limit) waits in a bounded list given back as slots free up: no item is
-//! ever lost.
+//! One window is open at a time: the player's own inventory, a container block (chest, double
+//! chest, barrel, shulker box), the ender chest or a villager's trade window. Window IDs count
+//! per player from 2, as on the official server. Opening while another window is open closes it
+//! from the server side and sends the new one once the client acknowledges the close. Closing
+//! gives the cursor and the window's own slots back to the inventory; what does not fit the
+//! player throws, and what cannot be thrown (the world's entity limit) waits in a bounded list
+//! given back as slots free up: no item is ever lost.
 //!
 //! A menu ([`menu`]) is a window of server-owned items on fake container blocks; requests move
 //! items into and out of its editable slots only.
 //!
-//! Furnaces and brewing stands are block containers whose block entity ticks ([`block_changed`]
-//! tells their viewers). Station windows (enchanting, anvil, smithing, stonecutter, loom,
-//! beacon, trading) keep their input slots in the window and craft through [`station`].
+//! The trade window keeps its payment slots in the window and trades through [`station`]. There
+//! is no crafting: no window has a crafting grid, and a craft request is refused.
 //!
 //! Events: opening a window raises `InventoryOpen` and closing it `InventoryClose`; selecting a
 //! hotbar slot `PlayerItemHeld`; picking a block `PlayerBlockPick`; the legacy drop
 //! `PlayerDropItem`; a request its own ([`request`]). After a listener the rule checks again and
 //! does nothing if the check fails, which includes a listener that changed the player's window
-//! (it opened a menu); the public API ([`api`]) raises none.
+//! (it opened a menu); the public API ([`api`]) raises none. A direct call that closes a window
+//! uses [`close_window_without_event`], a rule of the game [`close_window`].
 
 mod api;
 mod menu;
@@ -48,13 +47,12 @@ use super::entity::Raise;
 use super::interact::place;
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, survival, trade};
 use crate::block::{self, Class, ItemForm};
-use crate::crafting::FurnaceType;
 use crate::data::{MAX_PLAYER_TYPES, MAX_PLAYER_VALUE_BYTES};
 use crate::event::{
     InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
     Window as PublicWindow,
 };
-use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
+use crate::inventory::CHEST_SLOTS;
 use crate::item::{MAX_NBT_BYTES, Stack};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -63,77 +61,38 @@ use crate::protocol::consts::{
     WINDOW_ID_INVENTORY, WINDOW_ID_OFF_HAND, WINDOW_ID_UI,
 };
 use crate::protocol::packet::{
-    BlockPickRequest, ContainerClose, ContainerOpen, ContainerSetData, Interact, InventoryContent,
-    InventorySlot, MobEquipment, Packet, PlayerHotBar,
+    BlockPickRequest, ContainerClose, ContainerOpen, Interact, InventoryContent, InventorySlot,
+    MobEquipment, Packet, PlayerHotBar,
 };
 use crate::protocol::{FullContainerName, InventoryAction, ItemInstance};
 use crate::save::WorldIndex;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::world::BlockPos;
 
-/// An anvil: the input and the material.
-const ANVIL: [Part; 2] = [
-    part(ContainerId::AnvilInput, UI_ANVIL, 1, Store::Ui(0)),
-    part(ContainerId::AnvilMaterial, UI_ANVIL + 1, 1, Store::Ui(1)),
-];
 /// Armour slots: helmet, chestplate, leggings, boots.
-const ARMOR: usize = 4;
+const ARMOR: usize = crate::inventory::Kind::Armor.size();
 /// Slots of the armour window the client takes (the fifth is a mount's body slot).
 const ARMOR_WINDOW: usize = 5;
 /// A barrel.
 const BARREL: [Part; 1] = [block_part(ContainerId::Barrel, 0, CHEST_SLOTS)];
-/// A beacon: the payment.
-const BEACON: [Part; 1] = [part(ContainerId::BeaconPayment, UI_BEACON, 1, Store::Ui(0))];
-/// A blast furnace: the ingredient, the fuel and the result.
-const BLAST_FURNACE: [Part; 3] = furnace_parts(ContainerId::BlastFurnaceIngredient);
-/// A brewing stand: the ingredient, the three bottles, the fuel (PMMP `BrewingStandInventory`).
-const BREWING_STAND: [Part; 3] = [
-    block_part(
-        ContainerId::BrewingStandInput,
-        block_entity::BREWING_INGREDIENT,
-        1,
-    ),
-    block_part(
-        ContainerId::BrewingStandResult,
-        block_entity::BREWING_BOTTLES[0],
-        block_entity::BREWING_BOTTLES.len(),
-    ),
-    block_part(ContainerId::BrewingStandFuel, block_entity::BREWING_FUEL, 1),
-];
 /// The slots a player carries items in: the main slots, armour and the off hand.
 pub(super) const CARRIED: usize = MAIN + ARMOR + 1;
 /// A single chest.
 const CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, CHEST_SLOTS)];
-/// The type a server answers a window close with (PMMP `WindowTypes::NONE`, -9; P6).
+/// The type a server answers a window close with (-9 as a byte; P6).
 const CONTAINER_TYPE_NONE: u8 = 247;
 /// A double chest: both halves as one run.
 const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
 /// Where a player drops items, below its eyes: the tick keeps the eye position, so the drop
 /// point is [`DROP_HEIGHT`] above the feet, 0.32 below the eyes.
 const DROP_BELOW_EYE: f64 = 0.32;
-/// How high above the feet PMMP `Player::dropItem` drops an item.
+/// How high above the feet a player drops an item.
 const DROP_HEIGHT: f64 = 1.3;
 const _: () = assert!((survival::EYE_HEIGHT - DROP_HEIGHT - DROP_BELOW_EYE).abs() < 1e-9);
-/// An enchanting table: the input and the lapis.
-const ENCHANTING: [Part; 2] = [
-    part(ContainerId::EnchantingInput, UI_ENCHANTING, 1, Store::Ui(0)),
-    part(
-        ContainerId::EnchantingMaterial,
-        UI_ENCHANTING + 1,
-        1,
-        Store::Ui(1),
-    ),
-];
 /// Ender chest slots.
 const ENDER: usize = crate::inventory::Kind::EnderChest.size();
 /// An ender chest.
 const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, byte(ENDER), Store::Ender)];
-/// A furnace: the ingredient, the fuel and the result.
-const FURNACE: [Part; 3] = furnace_parts(ContainerId::FurnaceIngredient);
-/// Slots of the 2x2 crafting grid.
-const GRID: usize = 4;
-/// A hopper.
-const HOPPER: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, HOPPER_SLOTS)];
 /// Hotbar slots.
 const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
 /// The inventory window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
@@ -155,23 +114,16 @@ pub(super) const KEY_PENDING: &str = "PendingItems";
 const KEY_SELECTED_SLOT: &str = "SelectedInventorySlot";
 /// The key of a saved stack's slot in a list by `Slot`.
 const KEY_SLOT: &str = "Slot";
-/// A loom: banner 9, dye 10, pattern 11.
-const LOOM: [Part; 3] = [
-    part(ContainerId::LoomInput, UI_LOOM, 1, Store::Ui(0)),
-    part(ContainerId::LoomDye, UI_LOOM + 1, 1, Store::Ui(1)),
-    part(ContainerId::LoomMaterial, UI_LOOM + 2, 1, Store::Ui(2)),
-];
 /// Main inventory slots: the hotbar (0–8) and the 27 above it.
-const MAIN: usize = 36;
-/// The most stacks closing a window gives back: the cursor, the 2x2 grid and the crafting
-/// table's 3x3 grid.
-const MAX_GIVE_BACK: usize = 1 + GRID + 9;
+const MAIN: usize = crate::inventory::Kind::Main.size();
+/// The most stacks closing a window gives back: the cursor and the trade window's payments.
+const MAX_GIVE_BACK: usize = 1 + TRADE_PAYMENTS;
 /// Windows do not open while more than this many stacks wait for room less [`MAX_GIVE_BACK`]
 /// (the waiting list leaves room for what a window may hold).
 const MAX_PENDING: usize = 64;
-/// Block picks a player may make in one tick; more do nothing (PMMP has no limit). A pick is a
-/// key press, far below one a tick, but one costs up to a shulker box's NBT built, checked and
-/// compared, whatever the few bytes of its packet.
+/// Block picks a player may make in one tick; more do nothing. A pick is a key press, far below
+/// one a tick, but one costs up to a shulker box's NBT built, checked and compared, whatever the
+/// few bytes of its packet.
 const MAX_PICKS_PER_TICK: u8 = 4;
 /// The most request IDs remembered per player to refuse a repeat; clients number requests -1, -3,
 /// -5…, so a repeat within this many is a replay, not a new request.
@@ -180,8 +132,8 @@ const MAX_RECENT_REQUESTS: usize = 256;
 /// `PendingItems` list (the waiting stacks and everything held outside the slots, [`save`]).
 ///
 /// Invariant: the waiting stacks plus the non-empty stacks held outside the slots (the cursor,
-/// the 2x2 grid, the open window's own slots, and those a close took out while its menu's
-/// handler hears it, `Inventory::closing`) are at most this many. It holds after a load (the
+/// the open window's own slots, and those a close took out while its menu's handler hears it,
+/// `Inventory::closing`) are at most this many. It holds after a load (the
 /// saved list is cut to this and nothing is held), a request or API write that would break it is
 /// refused (`request::Error::Unreturnable`, `Error::Full`), and only a close turns a held stack
 /// into at most one waiting stack (what [`give`] leaves of it). So the waiting list never passes
@@ -199,42 +151,12 @@ const _: () = assert!(
 pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
 /// A shulker box.
 const SHULKER_BOX: [Part; 1] = [block_part(ContainerId::ShulkerBox, 0, CHEST_SLOTS)];
-/// A smithing table: input 51, material 52, template 53.
-const SMITHING: [Part; 3] = [
-    part(
-        ContainerId::SmithingTableInput,
-        UI_SMITHING,
-        1,
-        Store::Ui(0),
-    ),
-    part(
-        ContainerId::SmithingTableMaterial,
-        UI_SMITHING + 1,
-        1,
-        Store::Ui(1),
-    ),
-    part(
-        ContainerId::SmithingTableTemplate,
-        UI_SMITHING + 2,
-        1,
-        Store::Ui(2),
-    ),
-];
-/// A smoker: the ingredient, the fuel and the result.
-const SMOKER: [Part; 3] = furnace_parts(ContainerId::SmokerIngredient);
-/// A stonecutter: the input.
-const STONECUTTER: [Part; 1] = [part(
-    ContainerId::StonecutterInput,
-    UI_STONECUTTER,
-    1,
-    Store::Ui(0),
-)];
-/// Ticks before anyone picks up a thrown item (PMMP `Player::dropItem`).
+/// Ticks before anyone picks up a thrown item.
 const THROW_PICKUP_DELAY_TICKS: i16 = 40;
-/// The speed of a thrown item along the look (PMMP `Player::dropItem`: direction × 0.4).
+/// The speed of a thrown item along the look (direction × 0.4).
 const THROW_SPEED: f64 = 0.4;
-/// A trade: payments 4 and 5 (containers 47 and 48; BDS, P6).
-const TRADE: [Part; 2] = [
+/// A trade: payments 4 and 5 (containers 47 and 48; P6).
+const TRADE: [Part; TRADE_PAYMENTS] = [
     part(
         ContainerId::TradeTwoIngredientOne,
         UI_TRADE,
@@ -248,37 +170,21 @@ const TRADE: [Part; 2] = [
         Store::Ui(1),
     ),
 ];
-/// The UI slot of the anvil window (PMMP `UIInventorySlotOffset`).
-const UI_ANVIL: u8 = 1;
-/// The UI slot of the beacon window (PMMP `UIInventorySlotOffset`).
-const UI_BEACON: u8 = 27;
+/// The payment slots of a trade window.
+const TRADE_PAYMENTS: usize = 2;
 /// The UI slot of the created output (container 60).
 const UI_CREATED_OUTPUT: u8 = 50;
-/// The UI slot of the enchanting window (PMMP `UIInventorySlotOffset`).
-const UI_ENCHANTING: u8 = 14;
-/// The first UI slot of the 2x2 crafting grid.
-const UI_GRID: u8 = 28;
-/// The UI slot of the loom window (PMMP `UIInventorySlotOffset`).
-const UI_LOOM: u8 = 9;
-/// Slots of the UI window (124): the cursor at 0, the 2x2 grid at 28–31, the 3x3 grid at 32–40,
-/// the created output at 50.
+/// Slots of the UI window (124): the cursor at 0, the trade payments at 4 and 5, the created
+/// output at 50.
 const UI_SLOTS: usize = 54;
-/// The UI slot of the smithing window (PMMP `UIInventorySlotOffset`).
-const UI_SMITHING: u8 = 51;
-/// The UI slot of the stonecutter window (PMMP `UIInventorySlotOffset`).
-const UI_STONECUTTER: u8 = 3;
-/// The first UI slot of the 3x3 crafting grid.
-const UI_TABLE: u8 = 32;
-/// The UI slot of the trade window (PMMP `UIInventorySlotOffset`).
+/// The first UI slot of the trade window.
 const UI_TRADE: u8 = 4;
-/// PMMP `ContainerIds::FIRST`: window IDs run from 2 to 99, then 1.
+/// The first window ID; window IDs run from 2 to 99, then 1.
 const WINDOW_FIRST: u8 = 1;
-/// PMMP `ContainerIds::LAST`: window IDs run from 2 to 99, then 1.
+/// The window ID past the last one; window IDs run from 2 to 99, then 1.
 const WINDOW_LAST: u8 = 100;
 /// The window ID a client closes "the last window" with (-1).
 const WINDOW_NONE: u8 = 255;
-/// A crafting table: the 3x3 grid.
-const WORKBENCH: [Part; 1] = [part(ContainerId::CraftingInput, UI_TABLE, 9, Store::Ui(0))];
 
 /// What one player carries and has open.
 #[derive(Debug)]
@@ -287,7 +193,6 @@ pub(super) struct Inventory {
     armor: Slots<ARMOR>,
     offhand: Slots<1>,
     cursor: Slots<1>,
-    grid: Slots<GRID>,
     ender: Slots<ENDER>,
     /// The selected hotbar slot, 0 to 8.
     held: u8,
@@ -297,7 +202,7 @@ pub(super) struct Inventory {
     last_window: u8,
     window: Option<Window>,
     /// A window the server closed whose close the client has not acknowledged yet; a new window
-    /// waits for it (PMMP `pendingCloseWindowId`).
+    /// waits for it.
     pending_close: Option<u8>,
     /// The latest request IDs, oldest first, at most [`MAX_RECENT_REQUESTS`].
     recent: VecDeque<i32>,
@@ -316,9 +221,6 @@ pub(super) struct Inventory {
     /// Stacks waiting for room in the inventory, at most [`MAX_SAVED_PENDING`] with what is held
     /// outside the slots (its invariant).
     pending: Vec<Stack>,
-    /// The next recipe network ID of an enchanting option, counting from after the last recipe
-    /// (`Registry::first_special_id`, P6), so a request for options no longer shown finds none.
-    next_option_id: u32,
     /// The open menu, exactly while the window is a [`WindowKind::Menu`].
     menu: Option<menu::Open>,
     /// The number of the next menu ([`crate::menu::Id`]); numbers at or past 2^32 are refused.
@@ -351,7 +253,7 @@ impl Inventory {
     }
 
     /// Helmet, chestplate, leggings, boots.
-    pub(super) fn armor(&self) -> &[Stack; 4] {
+    pub(super) fn armor(&self) -> &[Stack; ARMOR] {
         &self.armor.stacks
     }
 
@@ -365,12 +267,6 @@ impl Inventory {
         self.cursor.stack(0)
     }
 
-    /// Whether a window is open (tests).
-    #[cfg(test)]
-    pub(super) fn has_window(&self) -> bool {
-        self.window.is_some()
-    }
-
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -378,7 +274,6 @@ impl Inventory {
             armor,
             offhand,
             cursor,
-            grid,
             ender,
             held,
             next_id,
@@ -397,7 +292,6 @@ impl Inventory {
             // Cleared by the end of every tick.
             held_unanswered: _,
             pending,
-            next_option_id,
             menu,
             next_menu,
             creative,
@@ -415,22 +309,14 @@ impl Inventory {
         slots(&armor.stacks, &armor.ids);
         slots(&offhand.stacks, &offhand.ids);
         slots(&cursor.stacks, &cursor.ids);
-        slots(&grid.stacks, &grid.ids);
         slots(&ender.stacks, &ender.ids);
         h.u64(u64::from(*held));
         h.u64(u64::from(next_id.cast_unsigned()));
         h.u64(u64::from(*last_window));
         match window {
-            Some(Window {
-                id,
-                kind,
-                ui,
-                ids,
-                station,
-            }) => {
+            Some(Window { id, kind, ui, ids }) => {
                 h.u64(1 + u64::from(*id));
                 h.bytes(format!("{kind:?}").as_bytes());
-                station.hash_into(h);
                 h.usize(ui.len());
                 for s in ui {
                     hash_stack(h, &s.stack);
@@ -452,7 +338,6 @@ impl Inventory {
         for s in pending {
             hash_stack(h, s);
         }
-        h.u64(u64::from(*next_option_id));
         match menu {
             Some(m) => m.hash_into(h),
             None => h.u64(0),
@@ -475,7 +360,6 @@ impl Inventory {
             SlotRef::Armor(i) => self.armor.get(i),
             SlotRef::Offhand => self.offhand.get(0),
             SlotRef::Cursor => self.cursor.get(0),
-            SlotRef::Grid(i) => self.grid.get(i),
             SlotRef::Ender(i) => self.ender.get(i),
             SlotRef::Block(_) => None,
             SlotRef::Ui(i) => self.window.as_ref()?.ui.get(usize::from(i)).cloned(),
@@ -487,8 +371,7 @@ impl Inventory {
     }
 
     /// The slot a request's container and slot name, if it exists now: the player's own
-    /// containers always, the window's while it is open (PMMP
-    /// `ItemStackContainerIdTranslator` and `InventoryManager::locateWindowAndSlot`).
+    /// containers always, the window's while it is open.
     fn locate(&self, container: u8, slot: u8) -> Option<SlotRef> {
         let main = |s: u8| (usize::from(s) < MAIN).then_some(SlotRef::Main(s));
         match container {
@@ -501,14 +384,9 @@ impl Inventory {
             c if c == ContainerId::Armor as u8 => {
                 (usize::from(slot) < ARMOR).then_some(SlotRef::Armor(slot))
             }
-            // PMMP: the client sends a wrong slot for the off hand; it has one slot anyway.
+            // The client sends a wrong slot for the off hand; it has one slot anyway.
             c if c == ContainerId::Offhand as u8 => Some(SlotRef::Offhand),
             c if c == ContainerId::Cursor as u8 => (slot == 0).then_some(SlotRef::Cursor),
-            c if c == ContainerId::CraftingInput as u8
-                && (UI_GRID..UI_GRID + 4).contains(&slot) =>
-            {
-                Some(SlotRef::Grid(slot - UI_GRID))
-            }
             _ => {
                 let window = self.window.as_ref().filter(|w| w.id != 0)?;
                 if let WindowKind::Menu { .. } = window.kind {
@@ -565,7 +443,6 @@ impl Inventory {
             SlotRef::Armor(i) => self.armor.put(i, slot),
             SlotRef::Offhand => self.offhand.put(0, slot),
             SlotRef::Cursor => self.cursor.put(0, slot),
-            SlotRef::Grid(i) => self.grid.put(i, slot),
             SlotRef::Ender(i) => self.ender.put(i, slot),
             SlotRef::Block(_) => false,
             SlotRef::Ui(i) => match self
@@ -596,9 +473,9 @@ impl Inventory {
         }
     }
 
-    /// Puts `stack` where it fits (PMMP `BaseInventory::addItem`): first onto stacks of the same
-    /// item with room, in slot order, then into empty slots; changed slots get new IDs. Returns
-    /// what did not fit and the main slots changed.
+    /// Puts `stack` where it fits: first onto stacks of the same item with room, in slot order,
+    /// then into empty slots; changed slots get new IDs. Returns what did not fit and the main
+    /// slots changed.
     fn add(&mut self, stack: Stack) -> (Stack, Vec<u8>) {
         let (writes, left) = self.main_view().plan_add(&stack);
         if writes.is_empty() {
@@ -642,7 +519,6 @@ impl Default for Inventory {
             armor: Slots::default(),
             offhand: Slots::default(),
             cursor: Slots::default(),
-            grid: Slots::default(),
             ender: Slots::default(),
             held: 0,
             next_id: 1,
@@ -657,7 +533,6 @@ impl Default for Inventory {
             picks: (0, 0),
             client_opened: None,
             pending: Vec::new(),
-            next_option_id: 0,
             menu: None,
             next_menu: 0,
             creative: 0,
@@ -677,7 +552,6 @@ impl Codec for Inventory {
             armor,
             offhand,
             cursor,
-            grid,
             ender,
             held,
             next_id,
@@ -692,7 +566,6 @@ impl Codec for Inventory {
             picks: _,
             client_opened: _,
             pending,
-            next_option_id,
             menu,
             next_menu,
             creative,
@@ -703,7 +576,6 @@ impl Codec for Inventory {
         armor.encode(w);
         offhand.encode(w);
         cursor.encode(w);
-        grid.encode(w);
         ender.encode(w);
         held.encode(w);
         next_id.encode(w);
@@ -714,7 +586,6 @@ impl Codec for Inventory {
         budget.encode(w);
         resent.encode(w);
         pending.encode(w);
-        next_option_id.encode(w);
         menu.encode(w);
         next_menu.encode(w);
         creative.encode(w);
@@ -726,7 +597,6 @@ impl Codec for Inventory {
         let armor = Codec::decode(r)?;
         let offhand = Codec::decode(r)?;
         let cursor = Codec::decode(r)?;
-        let grid = Codec::decode(r)?;
         let ender = Codec::decode(r)?;
         let held = Codec::decode(r)?;
         let next_id = Codec::decode(r)?;
@@ -740,7 +610,6 @@ impl Codec for Inventory {
             armor,
             offhand,
             cursor,
-            grid,
             ender,
             held,
             next_id,
@@ -755,7 +624,6 @@ impl Codec for Inventory {
             picks: (0, 0),
             client_opened: None,
             pending: Codec::decode(r)?,
-            next_option_id: Codec::decode(r)?,
             menu: Codec::decode(r)?,
             next_menu: Codec::decode(r)?,
             creative: Codec::decode(r)?,
@@ -850,7 +718,7 @@ pub(super) struct Slot {
 checkpoint::fields!(Slot { stack, id });
 
 /// The stack network ID of a slot as one player's client knows it, and the request that last
-/// changed the slot (PMMP `ItemStackInfo`).
+/// changed the slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) struct StackId {
     /// 0 for an empty slot.
@@ -867,13 +735,11 @@ enum SlotRef {
     Armor(u8),
     Offhand,
     Cursor,
-    /// The 2x2 crafting grid.
-    Grid(u8),
     /// The player's ender chest contents (through an ender chest window).
     Ender(u8),
     /// A slot of the open block container (a double chest's right half from 27).
     Block(u8),
-    /// A slot the open window keeps itself (the crafting table grid, station inputs).
+    /// A slot the open window keeps itself (the trade payments).
     Ui(u8),
     /// An editable slot of the open menu.
     Menu(u8),
@@ -885,12 +751,10 @@ struct Window {
     /// The window ID; 0 while it waits for the close of the previous window to be acknowledged.
     id: u8,
     kind: WindowKind,
-    /// The window's own slots (the crafting table grid, station inputs), given back on close.
+    /// The window's own slots (the trade payments), given back on close.
     ui: Vec<Slot>,
     /// The client's stack IDs of the block container slots, by window slot.
     ids: Vec<StackId>,
-    /// What a station window shows besides its slots (enchanting options).
-    station: station::Shown,
 }
 
 impl Window {
@@ -901,18 +765,11 @@ impl Window {
             kind,
             ui: vec![Slot::default(); kind.ui_slots()],
             ids: Vec::new(),
-            station: station::Shown::default(),
         }
     }
 }
 
-checkpoint::fields!(Window {
-    id,
-    kind,
-    ui,
-    ids,
-    station
-});
+checkpoint::fields!(Window { id, kind, ui, ids });
 
 /// What a window shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -928,15 +785,7 @@ enum WindowKind {
     },
     /// An ender chest: the player's own ender contents.
     Ender { world: WorldIndex, pos: BlockPos },
-    /// A crafting table: a 3x3 grid kept by the window.
-    Workbench { world: WorldIndex, pos: BlockPos },
-    /// A station block: its input slots kept by the window.
-    Station {
-        world: WorldIndex,
-        pos: BlockPos,
-        kind: Station,
-    },
-    /// Trading with a villager NPC: two payment slots kept by the window (BDS, P6).
+    /// Trading with a villager NPC: two payment slots kept by the window (P6).
     Trade { villager: crate::entity::Id },
     /// A menu on fake container blocks from `pos` (a double chest's other half beside it); its
     /// items are [`Inventory::menu`]'s, its slots' IDs the window's `ids`.
@@ -954,9 +803,7 @@ impl WindowKind {
             Self::Container {
                 world, pos, pair, ..
             } => [Some((world, pos)), pair.map(|p| (world, p))],
-            Self::Ender { world, pos }
-            | Self::Workbench { world, pos }
-            | Self::Station { world, pos, .. } => [Some((world, pos)), None],
+            Self::Ender { world, pos } => [Some((world, pos)), None],
         }
     }
 
@@ -970,22 +817,8 @@ impl WindowKind {
                 Container::Chest => &CHEST,
                 Container::Barrel => &BARREL,
                 Container::ShulkerBox => &SHULKER_BOX,
-                Container::Hopper => &HOPPER,
-                Container::Furnace(FurnaceType::BlastFurnace) => &BLAST_FURNACE,
-                Container::Furnace(FurnaceType::Smoker) => &SMOKER,
-                Container::Furnace(_) => &FURNACE,
-                Container::BrewingStand => &BREWING_STAND,
             },
             Self::Ender { .. } => &ENDER_CHEST,
-            Self::Workbench { .. } => &WORKBENCH,
-            Self::Station { kind, .. } => match kind {
-                Station::Enchant => &ENCHANTING,
-                Station::Anvil => &ANVIL,
-                Station::Smithing => &SMITHING,
-                Station::Stonecutter => &STONECUTTER,
-                Station::Loom => &LOOM,
-                Station::Beacon => &BEACON,
-            },
             Self::Trade { .. } => &TRADE,
         }
     }
@@ -1016,11 +849,6 @@ impl WindowKind {
             .sum()
     }
 
-    /// Whether the window is a crafting table (its 3x3 grid crafts).
-    fn is_workbench(self) -> bool {
-        matches!(self, Self::Workbench { .. })
-    }
-
     /// Whether the block shows viewers (a lid, a barrel's `open_bit`).
     fn is_animated(self) -> bool {
         matches!(self, Self::Container { .. } | Self::Ender { .. })
@@ -1030,24 +858,7 @@ impl WindowKind {
     fn container_type(self) -> u8 {
         let t = match self {
             Self::Own => ContainerType::Inventory,
-            Self::Container { kind, .. } => match kind {
-                Container::Hopper => ContainerType::Hopper,
-                Container::Furnace(FurnaceType::BlastFurnace) => ContainerType::BlastFurnace,
-                Container::Furnace(FurnaceType::Smoker) => ContainerType::Smoker,
-                Container::Furnace(_) => ContainerType::Furnace,
-                Container::BrewingStand => ContainerType::BrewingStand,
-                _ => ContainerType::Container,
-            },
-            Self::Ender { .. } => ContainerType::Container,
-            Self::Workbench { .. } => ContainerType::Workbench,
-            Self::Station { kind, .. } => match kind {
-                Station::Enchant => ContainerType::Enchantment,
-                Station::Anvil => ContainerType::Anvil,
-                Station::Smithing => ContainerType::SmithingTable,
-                Station::Stonecutter => ContainerType::Stonecutter,
-                Station::Loom => ContainerType::Loom,
-                Station::Beacon => ContainerType::Beacon,
-            },
+            Self::Container { .. } | Self::Ender { .. } => ContainerType::Container,
             Self::Trade { .. } => ContainerType::Trade,
             Self::Menu { kind, .. } => match kind {
                 crate::menu::Kind::Hopper => ContainerType::Hopper,
@@ -1064,10 +875,8 @@ checkpoint::variants!(WindowKind {
     0 => Own,
     1 => Container { world, pos, pair, kind },
     2 => Ender { world, pos },
-    3 => Workbench { world, pos },
-    4 => Station { world, pos, kind },
-    5 => Trade { villager },
-    6 => Menu { pos, kind },
+    3 => Trade { villager },
+    4 => Menu { pos, kind },
 });
 
 /// A container block kind.
@@ -1076,39 +885,12 @@ enum Container {
     Chest,
     Barrel,
     ShulkerBox,
-    Hopper,
-    /// A furnace, blast furnace or smoker.
-    Furnace(FurnaceType),
-    BrewingStand,
 }
 
 checkpoint::variants!(Container {
     0 => Chest,
     1 => Barrel,
     2 => ShulkerBox,
-    3 => Hopper,
-    4 => Furnace(kind),
-    5 => BrewingStand,
-});
-
-/// A station block kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Station {
-    Enchant,
-    Anvil,
-    Smithing,
-    Stonecutter,
-    Loom,
-    Beacon,
-}
-
-checkpoint::variants!(Station {
-    0 => Enchant,
-    1 => Anvil,
-    2 => Smithing,
-    3 => Stonecutter,
-    4 => Loom,
-    5 => Beacon,
 });
 
 /// What tells the window a player has open apart from a window opened in its place: its ID, its
@@ -1167,16 +949,6 @@ const fn window_byte(id: u32) -> u8 {
     byte
 }
 
-/// A furnace's input, fuel and output with the ingredient container of its kind (P6: ingredient
-/// 25:0, fuel 24:1, result 26:2).
-const fn furnace_parts(ingredient: ContainerId) -> [Part; 3] {
-    [
-        block_part(ingredient, block_entity::FURNACE_INPUT, 1),
-        block_part(ContainerId::FurnaceFuel, block_entity::FURNACE_FUEL, 1),
-        block_part(ContainerId::FurnaceResult, block_entity::FURNACE_OUTPUT, 1),
-    ]
-}
-
 /// A part of a block container whose request slots `first..first + len` are the block slots of
 /// the same numbers.
 const fn block_part(container: ContainerId, first: usize, len: usize) -> Part {
@@ -1210,10 +982,15 @@ const fn byte(n: usize) -> u8 {
 /// items), [`KEY_OFFHAND`] (1 item), [`KEY_ENDER_CHEST`] (by `Slot` 0–26),
 /// `SelectedInventorySlot`; and Anchor's [`KEY_PENDING`] (stacks waiting for room, and what was
 /// held outside the slots: see [`save`]), at most [`MAX_SAVED_PENDING`]. Unknown items are left
-/// out with a warning that names the key, the slot and the item (PMMP `Item::safeNbtDeserialize`);
-/// the next save does not write them back. Custom items are read through `custom`, the server's
-/// custom content.
-pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::custom::Registry) {
+/// out with a warning that names the player `player`, the key, the slot and the item; the next
+/// save does not write them back, so an item whose custom definition was renamed or removed is
+/// lost for good. Custom items are read through `custom`, the server's custom content.
+pub(super) fn load(
+    inventory: &mut Inventory,
+    extra: &Compound,
+    custom: &crate::custom::Registry,
+    player: &str,
+) {
     let list = |key: &str| match extra.get(key) {
         Some(Value::List(List::Compound(list))) => list.as_slice(),
         _ => &[],
@@ -1225,10 +1002,11 @@ pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::
                 _ => "",
             };
             warn!(
+                player,
                 key,
                 slot,
                 item,
-                "a saved inventory item is unknown; the next save drops it (register it if it is a custom item)"
+                "a saved inventory item is unknown; the next save drops it for good (register it if it is a custom item)"
             );
             Stack::EMPTY
         })
@@ -1289,12 +1067,12 @@ pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::
 /// Writes the player's inventory keys into the extra to save (the keys of [`load`]).
 ///
 /// `PendingItems` holds the stacks waiting for room and then everything the player holds outside
-/// its slots: the cursor, the 2x2 grid and the open window's own slots (the crafting table grid,
-/// station inputs, trade payments). A commit thus holds every item the player carries exactly once,
-/// and a crash before the window closes loses none (PMMP saves none of them). A block container's
-/// slots are its block entity's, saved with its chunk, so they are not here, nor are the cursor's
-/// lent items, which the menu's handler keeps ([`crate::menu::Menu::lend`]). A loaded player has
-/// no window open: the list comes back as waiting stacks ([`restore`]).
+/// its slots: the cursor and the open window's own slots (the trade payments). A commit thus
+/// holds every item the player carries exactly once, and a crash before the window closes loses
+/// none. A block container's slots are its block entity's, saved with its chunk, so they are not
+/// here, nor are the cursor's lent items, which the menu's handler keeps
+/// ([`crate::menu::Menu::lend`]). A loaded player has no window open: the list comes back as
+/// waiting stacks ([`restore`]).
 pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
     let by_slot = |stacks: &[Stack]| {
         let list = (0_u8..)
@@ -1327,7 +1105,6 @@ pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
         .pending
         .iter()
         .chain([&cursor])
-        .chain(&inventory.grid.stacks)
         .chain(window.iter().map(|s| &s.stack))
         .filter(|s| !s.is_empty())
         .map(Stack::to_nbt)
@@ -1336,8 +1113,8 @@ pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
 }
 
 /// Puts the waiting stacks of a player just loaded where they fit, without packets (the
-/// start-game window sends the whole inventory): what a commit held on the cursor, in a grid or in
-/// a window is back in the slots at once.
+/// start-game window sends the whole inventory): what a commit held on the cursor or in a window
+/// is back in the slots at once.
 pub(super) fn restore(inventory: &mut Inventory) {
     let pending = std::mem::take(&mut inventory.pending);
     for stack in pending {
@@ -1355,9 +1132,9 @@ pub(super) fn spawn_packets(player: &Player, out: &mut Vec<Packet>) {
     out.push(hotbar_packet(player.inventory.held));
 }
 
-/// The client selected a hotbar slot (`MobEquipment`, PMMP `handleMobEquipment`): the off hand
-/// window is ignored; a slot outside the hotbar is answered with the selected one at the end of
-/// the tick ([`answer_held`]).
+/// The client selected a hotbar slot (`MobEquipment`): the off hand window is ignored; a slot
+/// outside the hotbar is answered with the selected one at the end of the tick
+/// ([`answer_held`]).
 pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &MobEquipment) {
     let heard = dispatch::heard::<PlayerItemHeld>(state);
     let Some(player) = state.players.get_mut(&session) else {
@@ -1424,9 +1201,9 @@ pub(super) fn has_unanswered_hold(player: &Player) -> bool {
     player.inventory.held_unanswered
 }
 
-/// The client closed a window (PMMP `onClientRemoveWindow`): the window's items go back and the
-/// close is acknowledged with type 247 (P6). Window -1 means the latest window. If it acknowledges
-/// a close the server started, the window waiting for it opens now.
+/// The client closed a window: the window's items go back and the close is acknowledged with
+/// type 247 (P6). Window -1 means the latest window. If it acknowledges a close the server
+/// started, the window waiting for it opens now.
 pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: &ContainerClose) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -1458,8 +1235,8 @@ pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: 
     }
 }
 
-/// `Interact`: the client opened its own inventory (`OpenInventory` on itself, PMMP
-/// `onClientOpenMainInventory`). Other actions belong to other modules or are ignored.
+/// `Interact`: the client opened its own inventory (`OpenInventory` on itself). Other actions
+/// belong to other modules or are ignored.
 pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Interact) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -1474,9 +1251,9 @@ pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Intera
     });
 }
 
-/// Creative pick block (PMMP `Player::pickBlock`): puts the block's item (with its block entity
-/// data when asked) in the player's hand ([`equip_or_add`]). Players with finite resources only
-/// select or swap items they have. At most [`MAX_PICKS_PER_TICK`] picks a tick are handled.
+/// Creative pick block: puts the block's item (with its block entity data when asked) in the
+/// player's hand ([`equip_or_add`]). Players with finite resources only select or swap items they
+/// have. At most [`MAX_PICKS_PER_TICK`] picks a tick are handled.
 pub(super) fn on_block_pick_request(
     state: &mut State,
     session: SessionId,
@@ -1531,10 +1308,9 @@ pub(super) fn on_block_pick_request(
     }
 }
 
-/// Puts a picked block's or entity's item in the player's hand (PMMP
-/// `Player::equipOrAddPickedItem`): selected if the inventory has it in the hotbar, swapped with
-/// the held slot if elsewhere, else put into the first empty slot (selected in the hotbar, else
-/// swapped with the held slot), else into the held slot.
+/// Puts a picked block's or entity's item in the player's hand: selected if the inventory has it
+/// in the hotbar, swapped with the held slot if elsewhere, else put into the first empty slot
+/// (selected in the hotbar, else swapped with the held slot), else into the held slot.
 pub(super) fn equip_or_add(player: &mut Player, picked: Stack) {
     let held = player.inventory.held;
     match player.inventory.first(&picked) {
@@ -1556,7 +1332,7 @@ pub(super) fn equip_or_add(player: &mut Player, picked: Stack) {
 
 /// What picking the block at `pos` gives `session` now: its world, the block and the item;
 /// `None` if nothing would happen (no block item, or a player with finite resources who does not
-/// carry it: PMMP raises its event cancelled then; Anchor raises none).
+/// carry it; no event is raised then).
 fn pick(
     state: &State,
     session: SessionId,
@@ -1575,7 +1351,7 @@ fn pick(
             block_entity::with_block_data(state, world, pos, Stack::new(item, 1))
         }
         ItemForm::Item(item) => Stack::new(item, 1),
-        // A bed's or banner's item is its block entity's (PMMP `getPickedItem` = `asItem`).
+        // A bed's or banner's item is its block entity's.
         ItemForm::BlockEntity => block_entity::own_item(state, world, pos)?,
         ItemForm::None => return None,
     };
@@ -1585,7 +1361,7 @@ fn pick(
     Some((world, block, picked))
 }
 
-/// Whether the player's main inventory holds `stack` (PMMP `Inventory::first` finds it).
+/// Whether the player's main inventory holds `stack` ([`Inventory::first`] finds it).
 pub(super) fn has(player: &Player, stack: &Stack) -> bool {
     player.inventory.first(stack).is_some()
 }
@@ -1603,8 +1379,8 @@ fn hold(player: &mut Player, slot: u8) {
     hand_changed(player);
 }
 
-/// Notes that what the player holds in its hand changed (the selection or the stack, PMMP: the
-/// held slot listener): the player's data is to be saved and the item in use stops.
+/// Notes that what the player holds in its hand changed (the selection or the stack): the
+/// player's data is to be saved and the item in use stops.
 fn hand_changed(player: &mut Player) {
     player.data_dirty = true;
     survival::stop_using_item(player);
@@ -1652,8 +1428,7 @@ pub(super) fn set_cursor(player: &mut Player, stack: Stack) {
     set_own(player, SlotRef::Cursor, stack);
 }
 
-/// Takes one arrow from the player, off hand first (PMMP `Bow::onReleaseUsing` →
-/// `Inventory::removeItem`), and tells the client; false if it has none.
+/// Takes one arrow from the player, off hand first, and tells the client; false if it has none.
 pub(super) fn take_arrow(player: &mut Player) -> bool {
     let Some(slot) = arrow_slot(player) else {
         return false;
@@ -1669,14 +1444,13 @@ pub(super) fn take_arrow(player: &mut Player) -> bool {
     true
 }
 
-/// Whether the player carries an arrow, in the off hand or the inventory (PMMP
-/// `Bow::canStartUsingItem`).
+/// Whether the player carries an arrow, in the off hand or the inventory.
 pub(super) fn has_arrow(player: &Player) -> bool {
     arrow_slot(player).is_some()
 }
 
-/// The slot a bow takes its arrow from (PMMP `Bow::onReleaseUsing`): the off hand if it holds
-/// arrows, else the first main slot that does.
+/// The slot a bow takes its arrow from: the off hand if it holds arrows, else the first main slot
+/// that does.
 fn arrow_slot(player: &Player) -> Option<SlotRef> {
     let inv = &player.inventory;
     if is_arrow(inv.offhand()) {
@@ -1688,15 +1462,15 @@ fn arrow_slot(player: &Player) -> Option<SlotRef> {
         .map(SlotRef::Main)
 }
 
-/// Whether a stack is arrows (PMMP `VanillaItems::ARROW`).
+/// Whether a stack is arrows.
 fn is_arrow(stack: &Stack) -> bool {
     stack.item().and_then(crate::item::Type::kind) == Some(crate::item::Kind::Arrow)
 }
 
-/// Drops `count` items of main slot `slot` in front of the player (PMMP `Player::dropItem`, the
-/// legacy `InventoryTransaction` drop of the Q key): false, and nothing changes, if the slot
-/// holds fewer or the world has no room for the item entity. A refused drop sends the slot back,
-/// as the client took the items away as it sent the drop.
+/// Drops `count` items of main slot `slot` in front of the player (the legacy
+/// `InventoryTransaction` drop of the Q key): false, and nothing changes, if the slot holds fewer
+/// or the world has no room for the item entity. A refused drop sends the slot back, as the
+/// client took the items away as it sent the drop.
 pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, count: u8) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
@@ -1759,8 +1533,8 @@ fn give_pending(player: &mut Player) {
     }
 }
 
-/// Puts `stack` into the player's inventory where it fits (PMMP `Inventory::addItem`) and tells
-/// the client; returns what did not fit.
+/// Puts `stack` into the player's inventory where it fits and tells the client; returns what did
+/// not fit.
 pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
     let (left, changed) = player.inventory.add(stack);
     if !changed.is_empty() {
@@ -1776,9 +1550,9 @@ pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
 }
 
 /// Empties everything the player carries (death without `keepInventory`) and returns it: the
-/// main slots, armour, off hand, cursor, grids, the open window's own slots and the stacks
-/// waiting for room. None of the cursor's items is lent: a death closes the window first, and
-/// only a request lends.
+/// main slots, armour, off hand, cursor, the open window's own slots and the stacks waiting for
+/// room. None of the cursor's items is lent: a death closes the window first, and only a request
+/// lends.
 pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     let inv = &mut player.inventory;
     let mut out = Vec::new();
@@ -1786,7 +1560,6 @@ pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     inv.armor.take_all(&mut out);
     inv.offhand.take_all(&mut out);
     inv.cursor.take_all(&mut out);
-    inv.grid.take_all(&mut out);
     if let Some(window) = inv.window.as_mut() {
         for s in &mut window.ui {
             if !s.stack.is_empty() {
@@ -1804,26 +1577,13 @@ pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     out
 }
 
-/// Puts `cursor` on the cursor and `grid` into the 2x2 grid's first cell, as a client's requests
-/// would leave them (tests without a client); false, changing nothing, unless both are empty.
-#[cfg(test)]
-pub(super) fn hold_outside(player: &mut Player, cursor: Stack, grid: Stack) -> bool {
-    let inv = &player.inventory;
-    if !inv.cursor.stack(0).is_empty() || !inv.grid.stack(0).is_empty() {
-        return false;
-    }
-    set_own(player, SlotRef::Cursor, cursor);
-    set_own(player, SlotRef::Grid(0), grid);
-    true
-}
-
-/// Opens the window of the block at `pos` (chest, crafting table, furnace…) for `session`:
-/// false when the block has no window.
+/// Opens the window of the block at `pos` (chest, barrel, shulker box, ender chest) for
+/// `session`: false when the block has no window.
 ///
-/// True without opening when the container cannot open now (PMMP `onInteract`): a chest or ender
-/// chest under a block that is not transparent, a shulker box whose lid is blocked, a lock the
-/// held item's name does not open, or a player who waits with more than `MAX_PENDING` less
-/// `MAX_GIVE_BACK` stacks for room. A container without its block entity gets an empty one.
+/// True without opening when the container cannot open now: a chest or ender chest under a block
+/// that is not transparent, a shulker box whose lid is blocked, a lock the held item's name does
+/// not open, or a player who waits with more than `MAX_PENDING` less `MAX_GIVE_BACK` stacks for
+/// room. A container without its block entity gets an empty one.
 pub(super) fn open_block(
     state: &mut State,
     session: SessionId,
@@ -1839,7 +1599,7 @@ pub(super) fn open_block(
     if !can_open(state, session) {
         return true;
     }
-    if !kind.is_workbench() && state.rules.block_entities.get(world, pos).is_none() {
+    if state.rules.block_entities.get(world, pos).is_none() {
         block_entity::missing(state, world, pos);
     }
     // The interaction that opens the window goes on with the held item: a listener that
@@ -1860,7 +1620,7 @@ pub(super) fn open_block(
     true
 }
 
-/// The window `kind` of `block` after PMMP's `onInteract` checks, with a chest's pair; `None` if
+/// The window `kind` of a block after the checks of opening it, with a chest's pair; `None` if
 /// it cannot open now.
 fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKind> {
     let [Some((world, pos)), _] = kind.blocks() else {
@@ -1928,8 +1688,8 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
     }
 }
 
-/// The halves of the chest at `pos`: the left one (PMMP `Chest::checkPairing`: the half with the
-/// larger `x + (z << 15)`) and the right one, if the chest pairs with a chest that pairs back.
+/// The halves of the chest at `pos`: the left one (the half with the larger `x + (z << 15)`) and
+/// the right one, if the chest pairs with a chest that pairs back.
 fn block_entity_halves(
     blocks: &block_entity::BlockEntities,
     world: WorldIndex,
@@ -1959,11 +1719,8 @@ fn window_of(block: block::State, world: WorldIndex, pos: BlockPos) -> Option<Wi
         pair: None,
         kind,
     };
-    let station = |kind| WindowKind::Station { world, pos, kind };
     let is = |c| block.is(c);
-    Some(if is(Class::CraftingTable) {
-        WindowKind::Workbench { world, pos }
-    } else if is(Class::EnderChest) {
+    Some(if is(Class::EnderChest) {
         WindowKind::Ender { world, pos }
     } else if is(Class::Chest) {
         container(Container::Chest)
@@ -1971,24 +1728,6 @@ fn window_of(block: block::State, world: WorldIndex, pos: BlockPos) -> Option<Wi
         container(Container::Barrel)
     } else if is(Class::ShulkerBox) {
         container(Container::ShulkerBox)
-    } else if is(Class::Hopper) {
-        container(Container::Hopper)
-    } else if is(Class::Furnace) {
-        container(Container::Furnace(block_entity::furnace_type(block)))
-    } else if is(Class::BrewingStand) {
-        container(Container::BrewingStand)
-    } else if is(Class::EnchantingTable) {
-        station(Station::Enchant)
-    } else if is(Class::Anvil) {
-        station(Station::Anvil)
-    } else if is(Class::SmithingTable) {
-        station(Station::Smithing)
-    } else if is(Class::Stonecutter) {
-        station(Station::Stonecutter)
-    } else if is(Class::Loom) {
-        station(Station::Loom)
-    } else if is(Class::Beacon) {
-        station(Station::Beacon)
     } else {
         return None;
     })
@@ -2017,10 +1756,11 @@ pub(super) fn first_client_open_this_tick(state: &mut State, session: SessionId)
 
 /// Opens the trade window with the villager NPC `villager` for `session` (window type 15; input
 /// slots 4 and 5, output 50; request containers 47 and 48, the sale taken from the created output
-/// 60:50; BDS, P6) and returns its window ID; `None` if a window cannot open now (another window
-/// is open or closing, or [`can_open`] refuses). BDS sends no `ContainerOpen` for it: the
-/// caller's `UpdateTrade` opens it on the client. An open trade window is closed first (its
-/// payments go back and the trade module hears of it); the new screen replaces it on the client.
+/// 60:50; P6) and returns its window ID; `None` if a window cannot open now (another window
+/// is open or closing, or [`can_open`] refuses). The official server sends no `ContainerOpen`
+/// for it: the caller's `UpdateTrade` opens it on the client. An open trade window is closed
+/// first (its payments go back and the trade module hears of it); the new screen replaces it on
+/// the client.
 pub(super) fn open_trade(
     state: &mut State,
     session: SessionId,
@@ -2140,8 +1880,7 @@ fn open(
             opened.get_or_insert((world, pos));
         }
     }
-    // A double chest sounds once, at its left half (PMMP plays the sound at the inventory's
-    // holder).
+    // A double chest sounds once, at its left half.
     if let Some((world, pos)) = opened {
         block_entity::lid_sound(state, world, pos, 1, Raise::Events);
     }
@@ -2155,11 +1894,10 @@ fn open(
     true
 }
 
-/// Sends a window that waits to be opened: `ContainerOpen` with a new window ID, then its content
-/// and what the window shows besides (a furnace's timers, BDS sends keys 0 to 3 on open; an
-/// enchanting table's empty options, P6). No `BlockActorData`: BDS sends none on open, clients have
-/// a block entity's data from its chunk and its changes. The own inventory opens at the eye block
-/// with entity -1 (P6).
+/// Sends a window that waits to be opened: `ContainerOpen` with a new window ID, then its
+/// content. No `BlockActorData`: the official server sends none on open, clients have a block
+/// entity's data from its chunk and its changes. The own inventory opens at the eye block with
+/// entity -1 (P6).
 fn announce(state: &mut State, session: SessionId) {
     let blocks = &state.rules.block_entities;
     let Some(player) = state.players.get_mut(&session) else {
@@ -2208,30 +1946,14 @@ fn announce(state: &mut State, session: SessionId) {
     {
         packets.push(content_packet(u32::from(id), content));
     }
-    if let [Some((world, pos)), _] = kind.blocks() {
-        for (key, value) in blocks.window_data(world, pos) {
-            packets.push(Packet::ContainerSetData(ContainerSetData {
-                window_id: id,
-                key,
-                value,
-            }));
-        }
-    }
-    if let WindowKind::Station {
-        kind: Station::Enchant,
-        ..
-    } = kind
-    {
-        packets.push(station::options_packet(0, &[]));
-    }
     for p in packets {
         player.send_packet(p);
     }
 }
 
-/// Closes whatever window `session` has open and returns the cursor, crafting grid and input
-/// slots to its inventory (the player throws what does not fit), as on leaving, dying or a server
-/// close.
+/// Closes whatever window `session` has open, with [`InventoryClose`], for a rule of the game:
+/// the cursor and the window's own slots go back to its inventory (the player throws what does
+/// not fit). A direct API call uses [`close_window_without_event`].
 pub(super) fn close_window(state: &mut State, session: SessionId) {
     close(state, session, Notice::Send);
 }
@@ -2239,35 +1961,6 @@ pub(super) fn close_window(state: &mut State, session: SessionId) {
 /// [`close_window`] for a direct API call, which raises no `InventoryClose`.
 pub(super) fn close_window_without_event(state: &mut State, session: SessionId) {
     close_now(state, session, Notice::Send, Raise::Quiet);
-}
-
-/// Closes the windows open on the block at `pos` (a station block that broke).
-pub(super) fn close_viewers(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let viewers = state.rules.block_entities.viewers(world, pos).to_vec();
-    for session in viewers {
-        close_window(state, session);
-    }
-}
-
-/// Closes the crafting table and station windows open on the block at `pos` when the block there
-/// is no longer the one they show (an anvil that fell, a block a task set over it), raising no
-/// `InventoryClose`. A container window ends with its block entity ([`block_changed`]).
-pub(super) fn close_replaced(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let block = state.worlds.get(world).and_then(|w| w.block(pos));
-    let viewers = state.rules.block_entities.viewers(world, pos).to_vec();
-    for session in viewers {
-        let shown = state
-            .players
-            .get(&session)
-            .and_then(|p| p.inventory.window.as_ref())
-            .map(|w| w.kind);
-        let Some(kind @ (WindowKind::Workbench { .. } | WindowKind::Station { .. })) = shown else {
-            continue;
-        };
-        if block.and_then(|b| window_of(b, world, pos)) != Some(kind) {
-            close_window_without_event(state, session);
-        }
-    }
 }
 
 /// Closes the window of `session` as [`close_now`] does, with [`InventoryClose`] when a window
@@ -2308,10 +2001,10 @@ fn window_key(state: &State, session: SessionId) -> Option<WindowKey> {
     inv.window.as_ref().map(|w| (w.id, w.kind, menu))
 }
 
-/// Closes the window of `session` (telling the client as `notice` says) and gives the cursor,
-/// the grid and the window's own slots back (PMMP `doCloseInventory`), raising no inventory
-/// event; if `raise` says so, a chest-like block's close sound raises `WorldSound` and a menu's
-/// handler hears of the close ([`menu::closed`]).
+/// Closes the window of `session` (telling the client as `notice` says) and gives the cursor and
+/// the window's own slots back, raising no inventory event; if `raise` says so, a chest-like
+/// block's close sound raises `WorldSound` and a menu's handler hears of the close
+/// ([`menu::closed`]).
 fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -2321,7 +2014,6 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
     let [cursor] = std::mem::take(&mut player.inventory.cursor).stacks;
     let menu_lent = std::mem::take(&mut player.inventory.lent);
     let mut back: Vec<Stack> = Vec::with_capacity(MAX_GIVE_BACK);
-    player.inventory.grid.take_all(&mut back);
     if let Some(w) = &window {
         back.extend(
             w.ui.iter()
@@ -2390,7 +2082,7 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
         _ => cursor,
     };
     if !cursor.is_empty() {
-        // First, so that the cursor's stack takes the first room, then the grid's and the window's.
+        // First, so that the cursor's stack takes the first room, then the window's.
         back.insert(0, cursor);
     }
     give_back(state, session, back);
@@ -2433,10 +2125,10 @@ fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
     }
 }
 
-/// The player of `session` throws `stack` (PMMP `Player::dropItem`: the Q key, a request's drop,
-/// an item returned to a full inventory): it leaves [`DROP_HEIGHT`] above the feet along the look
-/// × 0.4, can be picked up after 40 ticks and has the player as its thrower, and the viewers see
-/// the arm swing. False if the world has no room. Tests stand in for the entity module.
+/// The player of `session` throws `stack` (the Q key, a request's drop, an item returned to a
+/// full inventory): it leaves [`DROP_HEIGHT`] above the feet along the look × 0.4, can be picked
+/// up after 40 ticks and has the player as its thrower, and the viewers see the arm swing. False
+/// if the world has no room. Tests stand in for the entity module.
 pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
@@ -2489,60 +2181,6 @@ pub(super) fn drop_stack(state: &mut State, world: WorldIndex, at: Vec3, stack: 
     super::entity::drop_item(state, world, at, stack)
 }
 
-/// Tells every viewer of the block entity at `pos` that it changed slots (bit `i` for slot `i`)
-/// or window data in its own tick (a furnace smelting): they get the changed slots and the
-/// `ContainerSetData` values (PMMP `syncData`). A slot in `kept` changed only its count and keeps
-/// its stack network ID, the others get new IDs (BDS, P6).
-pub(super) fn block_changed(
-    state: &mut State,
-    world: WorldIndex,
-    pos: BlockPos,
-    slots: u8,
-    kept: u8,
-    data: &[(i32, i32)],
-) {
-    if slots == 0 && data.is_empty() {
-        return;
-    }
-    let State { players, rules, .. } = state;
-    for session in rules.block_entities.viewers(world, pos) {
-        let Some(player) = players.get_mut(session) else {
-            continue;
-        };
-        for i in (0..8_u8).filter(|i| slots & (1 << i) != 0) {
-            let renumber = if kept & (1 << i) == 0 {
-                request::Renumber::New
-            } else {
-                request::Renumber::Keep
-            };
-            request::notify(
-                player,
-                &rules.block_entities,
-                world,
-                pos,
-                usize::from(i),
-                renumber,
-            );
-        }
-        let Some(id) = player
-            .inventory
-            .window
-            .as_ref()
-            .filter(|w| w.id != 0)
-            .map(|w| w.id)
-        else {
-            continue;
-        };
-        for &(key, value) in data {
-            player.send_packet(Packet::ContainerSetData(ContainerSetData {
-                window_id: id,
-                key,
-                value,
-            }));
-        }
-    }
-}
-
 /// Sends main slot `slot` as it is, undoing what the client predicted.
 pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
     if let Some(player) = state.players.get_mut(&session)
@@ -2554,10 +2192,10 @@ pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
 }
 
 /// After a client's item click: if any of the player's own slots (main, armour, off hand) the
-/// client predicted holds another stack than the prediction, [`resend_all`] (PMMP
-/// `syncMismatchedPredictedSlotChanges`). The client changed those slots as it sent the click
-/// and keeps them until told otherwise, so a refused click would leave it a count that fails the
-/// held item check of every later click. A right prediction sends nothing.
+/// client predicted holds another stack than the prediction, [`resend_all`]. The client changed
+/// those slots as it sent the click and keeps them until told otherwise, so a refused click would
+/// leave it a count that fails the held item check of every later click. A right prediction sends
+/// nothing.
 pub(super) fn resend_mispredicted(
     state: &mut State,
     session: SessionId,
@@ -2580,9 +2218,9 @@ pub(super) fn resend_mispredicted(
 }
 
 /// Whether `action` predicts one of the player's own slots as other than it is: another item,
-/// meta, count or tag. The block runtime ID is not compared: BDS matches a client's stacks
-/// without it (stack requests and the held item, P6), so a form differing only there is no
-/// misprediction.
+/// meta, count or tag. The block runtime ID is not compared: the official server matches a
+/// client's stacks without it (stack requests and the held item, P6), so a form differing only
+/// there is no misprediction.
 fn is_mispredicted(inv: &Inventory, action: &InventoryAction) -> bool {
     if action.source_type != u32::from(InventoryActionSource::Container) {
         return false;
@@ -2608,9 +2246,9 @@ fn is_mispredicted(inv: &Inventory, action: &InventoryAction) -> bool {
         || server.nbt_data != client.nbt_data
 }
 
-/// Sends every slot of the player's own windows and of the open window (PMMP `syncAll`), at
-/// most once a tick: after a refused request or a mispredicted item click
-/// ([`resend_mispredicted`]) the client's predictions are undone this way.
+/// Sends every slot of the player's own windows and of the open window, at most once a tick:
+/// after a refused request or a mispredicted item click ([`resend_mispredicted`]) the client's
+/// predictions are undone this way.
 fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntities) {
     if player.inventory.resent == Some(tick) {
         return;
@@ -2629,8 +2267,8 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
     }
 }
 
-/// Appends `InventoryContent` of the four windows a player always has, in BDS order: inventory,
-/// armour, UI and off hand (P6).
+/// Appends `InventoryContent` of the four windows a player always has, in the official server's
+/// order: inventory, armour, UI and off hand (P6).
 fn own_windows(inv: &Inventory, out: &mut Vec<Packet>) {
     out.push(content_packet(
         WINDOW_ID_INVENTORY,
@@ -2646,7 +2284,7 @@ fn own_windows(inv: &Inventory, out: &mut Vec<Packet>) {
     ));
 }
 
-/// The UI window's slots: the cursor, the 2x2 grid and the open window's own slots.
+/// The UI window's slots: the cursor and the open window's own slots.
 fn ui_content(inv: &Inventory) -> Vec<ItemInstance> {
     let mut ui = vec![ItemInstance::default(); UI_SLOTS];
     let mut put = |at: usize, item: ItemInstance| {
@@ -2655,9 +2293,6 @@ fn ui_content(inv: &Inventory) -> Vec<ItemInstance> {
         }
     };
     for (item, at) in inv.cursor.instances().zip(0..) {
-        put(at, item);
-    }
-    for (item, at) in inv.grid.instances().zip(usize::from(UI_GRID)..) {
         put(at, item);
     }
     if let Some(window) = &inv.window {
@@ -2702,10 +2337,7 @@ fn window_content(
                 .map(|(s, id)| s.to_instance(id.net))
                 .collect(),
         ),
-        WindowKind::Own
-        | WindowKind::Workbench { .. }
-        | WindowKind::Station { .. }
-        | WindowKind::Trade { .. } => None,
+        WindowKind::Own | WindowKind::Trade { .. } => None,
     }
 }
 
@@ -2754,7 +2386,7 @@ fn set_own(player: &mut Player, r: SlotRef, stack: Stack) {
 /// Sends a player slot as it is now.
 fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
     match r {
-        // PMMP and BDS: the client may ignore `InventorySlot` for the off hand.
+        // The client may ignore `InventorySlot` for the off hand.
         SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
         SlotRef::Ender(i) => {
             if let Some(window) = &player.inventory.window
@@ -2781,7 +2413,6 @@ fn client_slot(inv: &Inventory, r: SlotRef) -> Option<(u32, u32)> {
         SlotRef::Armor(i) => (WINDOW_ID_ARMOUR, u32::from(i)),
         SlotRef::Offhand => (WINDOW_ID_OFF_HAND, 0),
         SlotRef::Cursor => (WINDOW_ID_UI, 0),
-        SlotRef::Grid(i) => (WINDOW_ID_UI, u32::from(UI_GRID + i)),
         SlotRef::Ui(i) => (
             WINDOW_ID_UI,
             u32::from(inv.window.as_ref()?.kind.ui_slot(i)?),
@@ -2811,7 +2442,7 @@ fn content_packet(window: u32, content: Vec<ItemInstance>) -> Packet {
     }))
 }
 
-/// The container `FullContainerName` of the inventory packets (PMMP sends container 0).
+/// The container `FullContainerName` of the inventory packets (container 0).
 fn no_container() -> FullContainerName {
     FullContainerName {
         container_id: 0,
@@ -2832,13 +2463,12 @@ fn hotbar_packet(slot: u8) -> Packet {
 fn public_window(kind: WindowKind) -> Option<PublicWindow> {
     Some(match kind {
         WindowKind::Own => PublicWindow::Own,
-        WindowKind::Container { world, pos, .. }
-        | WindowKind::Ender { world, pos }
-        | WindowKind::Workbench { world, pos }
-        | WindowKind::Station { world, pos, .. } => PublicWindow::Block {
-            world: crate::world::Id::of(world),
-            pos,
-        },
+        WindowKind::Container { world, pos, .. } | WindowKind::Ender { world, pos } => {
+            PublicWindow::Block {
+                world: crate::world::Id::of(world),
+                pos,
+            }
+        }
         WindowKind::Trade { villager } => PublicWindow::Trade(villager),
         WindowKind::Menu { .. } => return None,
     })
@@ -2908,13 +2538,12 @@ fn held_count(inv: &Inventory, holds: impl Fn(SlotRef) -> bool) -> usize {
     held_outside(inv).filter(|r| holds(*r)).count() + inv.closing
 }
 
-/// The slots a player holds stacks in outside its own: the cursor, the 2x2 grid and the open
-/// window's own slots. A close gives them back, so they bound the waiting stacks
-/// ([`MAX_SAVED_PENDING`]); [`save`], [`close_now`] and [`take_all`] list the same slots.
+/// The slots a player holds stacks in outside its own: the cursor and the open window's own
+/// slots. A close gives them back, so they bound the waiting stacks ([`MAX_SAVED_PENDING`]);
+/// [`save`], [`close_now`] and [`take_all`] list the same slots.
 fn held_outside(inv: &Inventory) -> impl Iterator<Item = SlotRef> {
     let ui = inv.window.as_ref().map_or(0, |w| w.ui.len());
     std::iter::once(SlotRef::Cursor)
-        .chain((0..GRID).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Grid)))
         .chain((0..ui).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Ui)))
 }
 

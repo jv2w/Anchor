@@ -87,7 +87,6 @@ mod clock;
 pub mod command;
 pub mod config;
 mod console;
-mod crafting;
 mod crypto;
 pub mod custom;
 pub mod data;

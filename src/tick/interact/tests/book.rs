@@ -1,5 +1,5 @@
-//! Tick tests of book editing (PMMP `InGamePacketHandler::handleBookEdit`) and
-//! [`PlayerEditBook`](crate::event::PlayerEditBook): packets in, the book in the slot out.
+//! Tick tests of book editing and [`PlayerEditBook`](crate::event::PlayerEditBook): packets in,
+//! the book in the slot out.
 
 use super::*;
 use crate::event::{BookAction as Edit, Listeners, PlayerEditBook, Priority};
@@ -52,7 +52,7 @@ fn pages(h: &Harness) -> Vec<String> {
 }
 
 #[test]
-fn book_edits_replace_insert_delete_and_swap_pages_as_pmmp() {
+fn book_edits_replace_insert_delete_and_swap_pages() {
     let mut h = Harness::new(|_| {});
     let slot = quill(&mut h);
     edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
@@ -88,7 +88,7 @@ fn book_edits_replace_insert_delete_and_swap_pages_as_pmmp() {
 }
 
 #[test]
-fn book_edits_keep_pmmps_page_and_text_limits() {
+fn book_edits_keep_the_page_and_text_limits() {
     let mut h = Harness::new(|_| {});
     let slot = quill(&mut h);
     // 512 characters fit on a page (768 bytes, the wire limit), 513 do not.
@@ -145,81 +145,6 @@ fn a_book_with_pages_of_another_type_counts_none() {
     ));
     edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
     assert_eq!(pages(&h), ["a"]);
-}
-
-/// A lectern counts a book's pages as the book edits do (PMMP `Lectern::onPageTurn`): pages in a
-/// list of another type are none, so no page turn is taken.
-#[test]
-fn a_lectern_turns_no_page_of_a_book_with_pages_of_another_type() {
-    let mut h = Harness::new(|_| {});
-    let extra = crate::item::Extra {
-        nbt: crate::nbt::Compound::from([("pages".to_owned(), Value::List(List::Int(vec![1, 2])))]),
-        ..crate::item::Extra::default()
-    };
-    let book = stack(ItemKind::WritableBook)
-        .with_extra(Some(extra))
-        .unwrap();
-    set_with_entity(&mut h, Kind::Lectern.default_state(), &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(book);
-    use_on_target(&mut h);
-    let turn = h.input(Packet::LecternUpdate(
-        crate::protocol::packet::LecternUpdate {
-            page: 1,
-            page_count: 2,
-            position: [TARGET.x, TARGET.y, TARGET.z],
-        },
-    ));
-    h.run(vec![turn]);
-    assert!(matches!(entity_at(&h),
-        crate::tick::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
-}
-
-/// Page turns of one tick reach the players that see the lectern once, with the last page: the
-/// client keeps only the last of them anyway.
-#[test]
-fn a_ticks_page_turns_send_the_lectern_once_with_the_last_page() {
-    let mut h = Harness::new(|_| {});
-    let page = |text: &str| {
-        crate::nbt::Compound::from([("text".to_owned(), Value::String(text.to_owned()))])
-    };
-    let extra = crate::item::Extra {
-        nbt: crate::nbt::Compound::from([(
-            "pages".to_owned(),
-            Value::List(List::Compound(vec![page("a"), page("b")])),
-        )]),
-        ..crate::item::Extra::default()
-    };
-    let book = stack(ItemKind::WritableBook)
-        .with_extra(Some(extra))
-        .unwrap();
-    set_with_entity(&mut h, Kind::Lectern.default_state(), &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(book);
-    use_on_target(&mut h);
-    h.packets();
-    let turns: Vec<_> = (1..=1001_u16)
-        .map(|i| {
-            h.input(Packet::LecternUpdate(
-                crate::protocol::packet::LecternUpdate {
-                    page: u8::try_from(i % 2).unwrap(),
-                    page_count: 2,
-                    position: [TARGET.x, TARGET.y, TARGET.z],
-                },
-            ))
-        })
-        .collect();
-    h.run(turns);
-    let sent: Vec<_> = h
-        .packets()
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::BlockActorData(d) => Some(d.nbt_data),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].get("page"), Some(&Value::Int(1)));
 }
 
 #[test]

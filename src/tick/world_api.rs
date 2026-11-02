@@ -2,7 +2,7 @@
 //! by [`world::Id`], the players in a world or who see a chunk, the world clock, the weather and
 //! lightning ([`weather`]), sounds, particles and packets for those who see a place, explosions,
 //! and the [`World`] queries that are rule code (the respawn rule's safe spawn, the entity rules'
-//! collision boxes). The recipe lookups are in `recipes` (PMMP `CraftingManager`).
+//! collision boxes).
 //!
 //! Sounds, particles and packets go out at once from the call (no queue): each is one packet per
 //! player who was sent the chunk of the position, queued in the player's outbox for the end of the
@@ -11,7 +11,6 @@
 //! [`EFFECT_RESERVE`] packets for the player's own.
 
 mod lifecycle;
-mod recipes;
 
 pub(crate) use lifecycle::WorldSlot;
 pub(super) use lifecycle::{

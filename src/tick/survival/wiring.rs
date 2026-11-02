@@ -12,11 +12,11 @@ use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, EntityTeleport,
-    ExtinguishCause, Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin,
-    PlayerChat, PlayerDeath, PlayerEmote, PlayerExhaust, PlayerGameModeChange, PlayerItemConsume,
-    PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn,
-    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
-    PlayerTransfer, PlayerXpChange, Priority, TeleportCause,
+    ExtinguishCause, Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerChangeSkin, PlayerChat,
+    PlayerDeath, PlayerEmote, PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJump,
+    PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight,
+    PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
+    PlayerXpChange, Priority, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -665,10 +665,10 @@ fn replaced_death_drops_lose_nothing_the_event_did_not_show() {
     );
 }
 
-/// The death closes the window first, so what the player holds on the cursor and in the crafting
-/// grid is back in its inventory when the event shows the drops: reordered drops lose none of it.
+/// The death closes the window first, so what the player holds on the cursor is back in its
+/// inventory when the event shows the drops: reordered drops lose none of it.
 #[test]
-fn reordered_death_drops_keep_the_cursor_and_the_grid_dropping() {
+fn reordered_death_drops_keep_the_cursor_dropping() {
     let listeners = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
         let mut drops = e.drops().to_vec();
         drops.reverse();
@@ -676,11 +676,11 @@ fn reordered_death_drops_keep_the_cursor_and_the_grid_dropping() {
     });
     let mut game = Game::new(1, listeners);
     inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5));
-    let (cursor, grid) = (stack(ItemKind::Apple, 3), stack(ItemKind::Bowl, 2));
-    assert!(inventory::hold_outside(game.player_mut(1), cursor, grid));
+    let cursor = stack(ItemKind::Apple, 3);
+    inventory::set_cursor(game.player_mut(1), cursor);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(1);
-    assert_eq!(dropped(&game.take(1)), 5 + 3 + 2);
+    assert_eq!(dropped(&game.take(1)), 5 + 3);
 }
 
 // api: PlayerRespawnEvent, PlayerGameModeChangeEvent
@@ -1253,49 +1253,6 @@ fn bed(head: bool) -> block::State {
         ],
     )
     .unwrap()
-}
-
-// api: PlayerBedEnterEvent, PlayerBedLeaveEvent
-#[test]
-fn bed_listeners_keep_a_player_up_and_hear_it_leave() {
-    let (tx, mut seen) = record();
-    let mut listeners = Listeners::default();
-    let t = tx.clone();
-    listeners.push(
-        Priority::Normal,
-        move |e: &mut PlayerBedEnter, cx: &mut Context<'_>| {
-            t.try_send(("enter", e.bed())).unwrap();
-            if cx.tick().is_multiple_of(2) {
-                e.cancel();
-            }
-        },
-    );
-    listeners.push(
-        Priority::Normal,
-        move |e: &mut PlayerBedLeave, _: &mut Context<'_>| {
-            tx.try_send(("leave", e.bed())).unwrap();
-        },
-    );
-    let mut game = Game::new(1, listeners);
-    let spawn = game.state.worlds[0].spawn();
-    let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-    let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-    game.state.worlds[0].set_block(foot, bed(false)).unwrap();
-    game.state.worlds[0].set_block(head, bed(true)).unwrap();
-    game.state.worlds[0].set_time(13_000);
-    if game.state.tick % 2 == 1 {
-        game.idle(1);
-    }
-    assert!(!sleep(&mut game.state, sid(1), 0, foot), "cancelled");
-    assert_eq!(game.survival_mut(1).sleeping, None);
-    assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
-    game.idle(1);
-    assert!(sleep(&mut game.state, sid(1), 0, foot));
-    clock::wake(&mut game.state, sid(1));
-    assert_eq!(
-        drain(&mut seen),
-        [("enter", head), ("enter", head), ("leave", head)]
-    );
 }
 
 // api: EntityEffectAddEvent, EntityEffectRemoveEvent

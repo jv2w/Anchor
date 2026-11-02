@@ -77,8 +77,6 @@ pub(crate) enum Command {
     },
     /// `kill @e[type=!player]`: the villagers this console summoned.
     KillNonPlayers,
-    /// `gamerule randomtickspeed <n>`.
-    RandomTickSpeed(u32),
     /// A command Anchor has no counterpart for; the text says why it is fine.
     Accepted(&'static str),
     /// `op <player>`: [`Context::op`].
@@ -384,8 +382,12 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
         ["kill", target] if *target == NON_PLAYERS => Ok(Command::KillNonPlayers),
         ["gamerule", rule, value] => match (rule.to_ascii_lowercase().as_str(), *value) {
             ("randomtickspeed", speed) => speed
-                .parse()
-                .map(Command::RandomTickSpeed)
+                .parse::<u32>()
+                .map(|_| {
+                    Command::Accepted(
+                        "Anchor gives only custom blocks random ticks, at a fixed rate",
+                    )
+                })
                 .map_err(|_| format!("bad random tick speed {speed:?}")),
             ("domobspawning", "false") => Ok(Command::Accepted("Anchor spawns no mobs")),
             ("doweathercycle", "false") => Ok(Command::Accepted("Anchor's weather has no cycle")),
@@ -684,13 +686,6 @@ fn execute(
                 "removed {removed} villagers (the harness removes only the villagers it summoned)"
             )))
         }
-        Command::RandomTickSpeed(speed) => {
-            if cx.set_random_tick_speed(*speed) {
-                Outcome::Done(None)
-            } else {
-                Outcome::Failed(format!("random tick speed {speed} is above the limit"))
-            }
-        }
         Command::Accepted(note) => Outcome::Done(Some((*note).to_owned())),
         Command::Op(_)
         | Command::Kick { .. }
@@ -921,10 +916,10 @@ mod tests {
         };
         assert_eq!((from, to), (BlockPos::new(-10, -60, -4), from));
         assert_eq!(state.name(), "minecraft:furnace");
-        assert_eq!(
+        assert!(matches!(
             parse("gamerule randomtickspeed 0"),
-            Ok(Command::RandomTickSpeed(0))
-        );
+            Ok(Command::Accepted(_))
+        ));
         assert_eq!(parse("kill @e[type=!player]"), Ok(Command::KillNonPlayers));
         let Ok(Command::Effect { effect, .. }) = parse("effect P6Trade slowness 600 255 true")
         else {

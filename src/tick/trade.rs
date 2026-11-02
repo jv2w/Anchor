@@ -9,7 +9,7 @@
 //!   sends `UpdateTrade` (BDS: no `ContainerOpen`; window type 15, size 0, the villager's tier and
 //!   unique ID, entity -1, the profession's display name, new trade UI, demand-based prices, the
 //!   offers in network NBT), after `TradeOpen` (cancelled, nothing opens). Offers get network IDs
-//!   from a server counter that starts after the last `CraftingData` recipe; reopening an unchanged
+//!   from a server counter that starts at 1, as the recipe list is empty; reopening an unchanged
 //!   list shows the same IDs (BDS), and every change of the list gives it new ones, so a stale
 //!   screen's IDs fail.
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
@@ -67,6 +67,8 @@ const DISPLAY_NAMES: [&str; 14] = [
     "entity.villager.leather",
     "entity.villager.mason",
 ];
+/// The first network ID of a trade offer: the recipe list is empty, so no recipe takes one.
+const FIRST_NET_ID: u32 = 1;
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
     villager: entity_villager,
@@ -563,17 +565,10 @@ pub(super) fn closed(state: &mut State, session: SessionId) {
 /// Gives the villager's offers network IDs from the server counter unless they have them.
 fn allocate_net_ids(state: &mut State, villager: Id, hooks: Hooks) {
     let mut next = state.trades.next_net_id;
-    let first = first_net_id(state);
     if let Some(offers) = (hooks.offers_mut)(state, villager) {
-        offers.allocate_net_ids(&mut next, first);
+        offers.allocate_net_ids(&mut next, FIRST_NET_ID);
     }
     state.trades.next_net_id = next;
-}
-
-/// Reads the first network ID after the last `CraftingData` recipe, the server's own recipes
-/// included (BDS numbers trade offers after it).
-fn first_net_id(state: &State) -> u32 {
-    state.custom.first_special_id()
 }
 
 /// Looks up the trade screen title of a profession.

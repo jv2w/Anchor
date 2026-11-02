@@ -27,37 +27,35 @@ const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// ages.
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
-        0x4608_9c15_44be_1146,
-        0x14e7_922d_7c94_0dc9,
+        0x11fd_89d6_955c_0395,
+        0x2c54_6c43_0665_5ffd,
         0xc4d0_b7b4_ec98_80fa,
-        0xd918_290c_b7b6_6526,
+        0xb713_398d_58c8_d5e5,
     ],
     [
-        0xea64_4c8f_5bd4_b6b0,
-        0x81b0_a3fb_45b5_5c0f,
+        0x1a4e_ba01_9a02_cc21,
+        0xd62e_0010_7731_d6f9,
         0xc4d0_b7b4_ec98_80fa,
-        0x4d77_8f37_abd2_cb55,
+        0x4778_78da_6d4b_a174,
     ],
 ];
 /// What reading the fixture's extras counts in each of the [`RUNS`]: 13 block entities (8 chests,
-/// the shulker box, 1 + 3 strays), 8 entity compounds, 19 update entries, 225 stacks (216 in the
-/// chests, 2 in the shulker box, 4 in strays, 3 dropped items) and 18 or 16 saved compounds
-/// cloned (every block entity, the 2 entries kept raw, and the compounds that are no entity: the
-/// pig, and the custom entities on a server without their type).
+/// the shulker box, 1 + 3 strays), 8 entity compounds, 225 stacks (216 in the chests, 2 in the
+/// shulker box, 4 in strays, 3 dropped items) and 17 or 15 saved compounds cloned (every block
+/// entity, the 1 entry kept raw, and the compounds that are no entity: the pig, and the custom
+/// entities on a server without their type).
 const EXPECTED_READS: [Reads; 2] = [
     Reads {
         block_entities: 13,
         entities: 8,
-        updates: 19,
         stacks: 225,
-        clones: 18,
+        clones: 17,
     },
     Reads {
         block_entities: 13,
         entities: 8,
-        updates: 19,
         stacks: 225,
-        clones: 16,
+        clones: 15,
     },
 ];
 /// The chunk the file holds only extras for: it is generated.
@@ -169,15 +167,6 @@ fn entity(identifier: &str, pos: [f64; 3], rest: Vec<(&str, Value)>) -> Compound
     c
 }
 
-fn update(pos: BlockPos, time: i64) -> Compound {
-    Compound::from([
-        ("x".to_owned(), Value::Int(pos.x)),
-        ("y".to_owned(), Value::Int(pos.y)),
-        ("z".to_owned(), Value::Int(pos.z)),
-        ("time".to_owned(), Value::Long(time)),
-    ])
-}
-
 fn item_entity(pos: ChunkPos, x: f64, stack: &Stack) -> Compound {
     let base = |c: i32| f64::from(c * 16);
     entity(
@@ -195,8 +184,7 @@ fn item_entity(pos: ChunkPos, x: f64, stack: &Stack) -> Compound {
 /// The snapshot that puts the fixture in the file: the disk chunk with 8 chests full of items
 /// (one with a custom item when `custom` has one), a chest in the air (a stray), a shulker box
 /// holding a shulker box (unfit), a repeated and an outside entry; items, an orb, a compound that
-/// is no entity and a custom entity; scheduled updates with repeats and entries out of range.
-/// The generated chunk holds strays, entities and updates only.
+/// is no entity and a custom entity. The generated chunk holds strays and entities only.
 fn fixture(custom: Option<&Registry>) -> Snapshot {
     let (terrain, block_entities) = disk_block_entities(custom);
     let ghost = |pos: ChunkPos| {
@@ -233,14 +221,6 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
         ),
         ghost(DISK),
     ];
-    let mut updates = Vec::new();
-    for i in 0..12 {
-        updates.push(update(at(DISK, i, Y, 2), 20 + i64::from(i)));
-    }
-    updates.push(update(at(DISK, 3, Y, 2), 5));
-    updates.push(update(at(DISK, 7, Y, 2), 99));
-    updates.push(update(at(DISK, 1, 400, 2), 30));
-    updates.push(update(at(GENERATED, 1, Y, 2), 30));
     let generated_block_entities = vec![
         block_entity("Chest", at(GENERATED, 2, Y, 3), vec![slotted(2, &stick(2))]),
         block_entity("Chest", at(GENERATED, 4, Y, 3), vec![slotted(0, &stick(1))]),
@@ -259,18 +239,12 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
         ),
         ghost(GENERATED),
     ];
-    let generated_updates = vec![
-        update(at(GENERATED, 0, Y, 0), 40),
-        update(at(GENERATED, 0, Y, 0), 41),
-        update(at(GENERATED, 15, Y, 15), 42),
-    ];
     Snapshot {
         start: 1,
         chunks: vec![(0, DISK, terrain)],
         extras: vec![
             (0, DISK, ChunkKind::BlockEntities, block_entities),
             (0, DISK, ChunkKind::Entities, entities),
-            (0, DISK, ChunkKind::ScheduledUpdates, updates),
             (
                 0,
                 GENERATED,
@@ -278,7 +252,6 @@ fn fixture(custom: Option<&Registry>) -> Snapshot {
                 generated_block_entities,
             ),
             (0, GENERATED, ChunkKind::Entities, generated_entities),
-            (0, GENERATED, ChunkKind::ScheduledUpdates, generated_updates),
         ],
         ..Snapshot::default()
     }
@@ -320,14 +293,18 @@ fn outcome(state: &mut State) -> [u64; 4] {
     let mut client = Fnv::new();
     for pos in [DISK, GENERATED] {
         for index in 0..SUB_CHUNKS {
-            client.bytes(&state.rules.block_entities.client_bytes(0, pos, index));
+            let mut bytes = Vec::new();
+            state
+                .rules
+                .block_entities
+                .write_client_bytes(0, pos, index, &mut bytes);
+            client.bytes(&bytes);
         }
     }
     let mut changed = Fnv::new();
     let lists = [
         state.rules.block_entities.take_changed(),
         state.rules.entities.take_changed(),
-        state.rules.updates.take_changed(),
     ];
     for list in lists {
         changed.usize(list.len());

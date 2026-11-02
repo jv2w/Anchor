@@ -1,4 +1,4 @@
-//! Tests of the inventory, crafting, station, furnace, brewing, campfire, chest and trade events.
+//! Tests of the inventory, chest and trade events.
 //!
 //! The listener sees the right fields, cancelling keeps the game and resyncs the client, changed
 //! fields change the outcome, monitors see the applied state, and a listener that changes the
@@ -7,12 +7,9 @@
 use std::cell::Cell;
 
 use super::*;
-use crate::block::PropertyValue;
 use crate::event::{
-    BrewItem, BrewingFuelUse, CampfireCook, ChestPair, CraftItem, EnchantOption, Event,
-    FurnaceBurn, FurnaceSmelt, Inventory as Where, InventoryClose, InventoryOpen,
-    InventoryTransaction, PlayerBlockPick, PlayerDropItem, PlayerEnchantingOptionsRequest,
-    PlayerItemEnchant, PlayerItemHeld, Priority, Trade, TradeOpen, Window as Shown,
+    ChestPair, Event, Inventory as Where, InventoryClose, InventoryOpen, InventoryTransaction,
+    PlayerBlockPick, PlayerDropItem, PlayerItemHeld, Priority, Trade, TradeOpen, Window as Shown,
 };
 use crate::inventory::Kind;
 use crate::math::Vec3;
@@ -104,10 +101,7 @@ fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applie
     let (mut w, s) = world_with(l, &[sticks(10)]);
     w.open_inventory(s);
     let id = w.id(s, COMBINED, 0);
-    let r = w.request(
-        s,
-        vec![place(3, at(COMBINED, 0, id), at(C::CraftingInput, 28, 0))],
-    );
+    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 2, 0))]);
     assert!(ok(&r));
     assert_eq!(
         logged(),
@@ -116,7 +110,7 @@ fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applie
                 "{:?}",
                 [
                     (Where::Player(Kind::Main), 0, 10, 7),
-                    (Where::Player(Kind::Crafting), 0, 0, 3)
+                    (Where::Player(Kind::Main), 2, 0, 3)
                 ]
             ),
             "applied 7".to_owned()
@@ -159,7 +153,7 @@ fn a_cancelled_transaction_changes_nothing_and_resends_the_inventory() {
         &mut w,
         s,
         -1,
-        vec![place(3, at(COMBINED, 0, id), at(C::CraftingInput, 28, 0))],
+        vec![place(3, at(COMBINED, 0, id), at(COMBINED, 2, 0))],
     );
     assert!(!accepted(&packets));
     assert!(
@@ -184,10 +178,7 @@ fn a_listener_that_moves_a_slot_the_request_reads_refuses_it() {
     w.open_inventory(s);
     let before = totals(&w.state);
     let id = w.id(s, COMBINED, 0);
-    let r = w.request(
-        s,
-        vec![place(3, at(COMBINED, 0, id), at(C::CraftingInput, 28, 0))],
-    );
+    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 3, 0))]);
     assert!(!ok(&r), "slot 0 holds coal now");
     assert_eq!(totals(&w.state), before);
     assert_eq!(w.inv(s).main.stack(0), &Stack::new(item(it::Kind::Coal), 5));
@@ -201,73 +192,9 @@ fn a_listener_that_moves_a_slot_the_request_reads_refuses_it() {
     );
     w.open_inventory(s);
     let id = w.id(s, COMBINED, 0);
-    let r = w.request(
-        s,
-        vec![place(3, at(COMBINED, 0, id), at(C::CraftingInput, 28, 0))],
-    );
+    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 3, 0))]);
     assert!(ok(&r));
-    assert_eq!(w.inv(s).grid.stack(0), &sticks(3));
-}
-
-/// Puts one log into the 2x2 grid; the planks recipe and the log's ID there.
-fn log_in_grid(w: &mut World, s: SessionId) -> (u32, i32) {
-    let (log_item, plank) = (
-        block_item(blk::Kind::OakLog),
-        block_item(blk::Kind::OakPlanks),
-    );
-    let (planks, _) = recipe_for(plank, &[log_item]);
-    w.open_inventory(s);
-    put(w, s, 0, 1, (C::CraftingInput, 28));
-    (planks, w.id(s, C::CraftingInput, 28))
-}
-
-// api: CraftItemEvent
-#[test]
-fn crafting_raises_craft_item_and_cancelling_keeps_the_grid() {
-    let l = on(|e: &mut CraftItem, _: &mut Context<'_>| {
-        log(format!(
-            "{:?} {:?} {}",
-            e.inputs(),
-            e.outputs(),
-            e.repetitions()
-        ));
-    });
-    let (mut w, s) = world_with(l, &[Stack::new(block_item(blk::Kind::OakLog), 4)]);
-    let (planks, l_id) = log_in_grid(&mut w, s);
-    let id = w.next_id(s);
-    let actions = vec![
-        craft(planks, 1),
-        consume(1, at(C::CraftingInput, 28, l_id)),
-        place(4, created(id), at(COMBINED, 1, 0)),
-    ];
-    assert!(ok(&w.request_as(s, id, actions)));
-    let log_one = Stack::new(block_item(blk::Kind::OakLog), 1);
-    let made_planks = Stack::new(block_item(blk::Kind::OakPlanks), 4);
-    assert_eq!(
-        logged(),
-        [format!(
-            "{:?} {:?} 1",
-            [log_one],
-            std::slice::from_ref(&made_planks)
-        )]
-    );
-    assert_eq!(w.inv(s).main.stack(1), &made_planks);
-
-    let (mut w, s) = world_with(
-        on(|e: &mut CraftItem, _: &mut Context<'_>| e.cancel()),
-        &[Stack::new(block_item(blk::Kind::OakLog), 4)],
-    );
-    let (planks, l_id) = log_in_grid(&mut w, s);
-    let before = totals(&w.state);
-    let id = w.next_id(s);
-    let actions = vec![
-        craft(planks, 1),
-        consume(1, at(C::CraftingInput, 28, l_id)),
-        place(4, created(id), at(COMBINED, 1, 0)),
-    ];
-    assert!(!ok(&w.request_as(s, id, actions)));
-    assert_eq!(totals(&w.state), before);
-    assert_eq!(w.inv(s).grid.stack(0).count(), 1);
+    assert_eq!(w.inv(s).main.stack(3), &sticks(3));
 }
 
 // api: PlayerDropItemEvent
@@ -314,159 +241,6 @@ fn drops_raise_player_drop_item_and_cancelling_keeps_the_item() {
     assert!(!drop_from_main(&mut w.state, s, 0, 1));
     assert_eq!(w.inv(s).main.stack(5), &sticks(10));
     assert!(dropped().is_empty());
-}
-
-/// An enchanting table with a pickaxe and three lapis in it.
-fn enchanting(listeners: Listeners) -> (World, SessionId) {
-    let (mut w, s) = world_with(
-        listeners,
-        &[
-            Stack::new(item(it::Kind::IronPickaxe), 1),
-            Stack::new(item(it::Kind::LapisLazuli), 3),
-        ],
-    );
-    w.place_block(AT, blk::Kind::EnchantingTable.default_state());
-    w.open_block(s, AT);
-    put(&mut w, s, 0, 1, (C::EnchantingInput, 14));
-    put(&mut w, s, 1, 3, (C::EnchantingMaterial, 15));
-    (w, s)
-}
-
-/// The enchant request of the shown option `index`.
-fn enchant_with(w: &mut World, s: SessionId, index: usize) -> ItemStackResponse {
-    let option = w.inv(s).window.as_ref().unwrap().station.options()[index].0;
-    let input = w.id(s, C::EnchantingInput, 14);
-    let lapis = w.id(s, C::EnchantingMaterial, 15);
-    let id = w.next_id(s);
-    let cost = u8::try_from(index + 1).unwrap();
-    let actions = vec![
-        craft(option, 1),
-        consume(1, at(C::EnchantingInput, 14, input)),
-        consume(cost, at(C::EnchantingMaterial, 15, lapis)),
-        place(1, created(id), at(C::EnchantingInput, 14, id)),
-    ];
-    w.request_as(s, id, actions)
-}
-
-// api: PlayerEnchantingOptionsRequestEvent, PlayerItemEnchantEvent
-#[test]
-fn enchanting_options_can_be_replaced_and_the_enchant_event_shows_the_result() {
-    let mut l = on(
-        |e: &mut PlayerEnchantingOptionsRequest, _: &mut Context<'_>| {
-            log(format!("options {}", e.options().len()));
-            e.set_options(vec![EnchantOption::new(
-                1,
-                "x".repeat(100),
-                vec![(Enchantment::Efficiency, 5), (Enchantment::Unbreaking, 0)],
-            )]);
-        },
-    );
-    l.push(
-        Priority::Normal,
-        |e: &mut PlayerItemEnchant, _: &mut Context<'_>| {
-            log(format!(
-                "cost {} {:?}",
-                e.cost(),
-                e.output_item().extra().unwrap().enchantments
-            ));
-        },
-    );
-    l.push_monitor(|e: &PlayerEnchantingOptionsRequest, _: &Context<'_>| {
-        let option = &e.options()[0];
-        log(format!(
-            "shown {} {}",
-            option.name().len(),
-            option.enchantments().len()
-        ));
-    });
-    let (mut w, s) = enchanting(l);
-    let options = w.inv(s).window.as_ref().unwrap().station.options().to_vec();
-    assert_eq!(options.len(), 1);
-    assert_eq!(options[0].1.name.len(), 64, "a listener's name is cut");
-    assert_eq!(options[0].1.enchantments, [(Enchantment::Efficiency, 5)]);
-    assert!(ok(&enchant_with(&mut w, s, 0)));
-    let pick = w.inv(s).get(SlotRef::Ui(0)).unwrap().stack;
-    assert_eq!(
-        pick.extra().unwrap().enchantments,
-        [(Enchantment::Efficiency, 5)]
-    );
-    // The monitor sees the option as it is applied: the name cut, the level 0 enchantment gone.
-    // The enchanted pickaxe has no options of its own, and the listener hears that too.
-    assert_eq!(
-        logged(),
-        [
-            "options 3".to_owned(),
-            "shown 64 1".to_owned(),
-            format!("cost 1 {:?}", [(Enchantment::Efficiency, 5)]),
-            "options 0".to_owned(),
-            "shown 64 1".to_owned(),
-        ]
-    );
-
-    let mut l = on(|e: &mut PlayerItemEnchant, _: &mut Context<'_>| e.cancel());
-    l.push(
-        Priority::Normal,
-        |e: &mut PlayerEnchantingOptionsRequest, _: &mut Context<'_>| {
-            log(format!(
-                "{}",
-                e.player() == crate::player::Id::new(SessionId::new(1))
-            ));
-        },
-    );
-    let (mut w, s) = enchanting(l);
-    let before = totals(&w.state);
-    assert!(!ok(&enchant_with(&mut w, s, 0)));
-    assert_eq!(totals(&w.state), before, "the pickaxe and the lapis stay");
-    assert!(
-        w.inv(s)
-            .get(SlotRef::Ui(0))
-            .unwrap()
-            .stack
-            .extra()
-            .is_none()
-    );
-
-    let (w, s) = enchanting(on(
-        |e: &mut PlayerEnchantingOptionsRequest, _: &mut Context<'_>| e.cancel(),
-    ));
-    assert!(
-        w.inv(s)
-            .window
-            .as_ref()
-            .unwrap()
-            .station
-            .options()
-            .is_empty()
-    );
-}
-
-// api: PlayerEnchantingOptionsRequestEvent
-/// A listener gives options for an item the table offers none for, and they enchant it.
-#[test]
-fn a_listener_gives_options_for_an_item_the_table_offers_none() {
-    let l = on(
-        |e: &mut PlayerEnchantingOptionsRequest, _: &mut Context<'_>| {
-            assert!(e.options().is_empty());
-            e.set_options(vec![EnchantOption::new(
-                1,
-                "x".to_owned(),
-                vec![(Enchantment::Efficiency, 1)],
-            )]);
-        },
-    );
-    let (mut w, s) = world_with(l, &[sticks(1), Stack::new(item(it::Kind::LapisLazuli), 3)]);
-    w.place_block(AT, blk::Kind::EnchantingTable.default_state());
-    w.open_block(s, AT);
-    put(&mut w, s, 0, 1, (C::EnchantingInput, 14));
-    put(&mut w, s, 1, 3, (C::EnchantingMaterial, 15));
-    let options = w.inv(s).window.as_ref().unwrap().station.options().to_vec();
-    assert_eq!(options.len(), 1);
-    assert!(ok(&enchant_with(&mut w, s, 0)));
-    let stick = w.inv(s).get(SlotRef::Ui(0)).unwrap().stack;
-    assert_eq!(
-        stick.extra().unwrap().enchantments,
-        [(Enchantment::Efficiency, 1)]
-    );
 }
 
 /// A villager selling one bread for two apples, beside the player; its ID.
@@ -900,205 +674,6 @@ fn pick_block_raises_block_pick_and_cancelling_gives_nothing() {
     assert!(pick(true).is_empty());
 }
 
-/// The item type named `name`.
-fn named(name: &str) -> Type {
-    Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap()
-}
-
-/// The furnace's slots after `ticks` ticks of a furnace with two raw iron and one coal.
-fn furnace(listeners: Listeners, ticks: u32) -> Vec<Stack> {
-    let (mut w, _) = world_with(listeners, &[]);
-    w.place_block(AT, blk::Kind::Furnace.default_state());
-    let mut cx = Context {
-        state: &mut w.state,
-    };
-    let mut inv = cx.block_inventory_mut(world::Id::DEFAULT, AT).unwrap();
-    inv.set(0, Stack::new(named("minecraft:raw_iron"), 2))
-        .unwrap();
-    inv.set(1, Stack::new(item(it::Kind::Coal), 1)).unwrap();
-    for _ in 0..ticks {
-        w.tick(Vec::new());
-    }
-    w.state
-        .rules
-        .block_entities
-        .get(0, AT)
-        .unwrap()
-        .items
-        .clone()
-}
-
-/// A `FurnaceBurn` listener that swaps the fuel cancels this burn.
-/// The furnace burns the new fuel the next tick, as after any other change of its slots.
-#[test]
-fn a_furnace_whose_fuel_a_listener_swaps_burns_it_the_next_tick() {
-    let swap_coal = || {
-        on(|e: &mut FurnaceBurn, cx: &mut Context<'_>| {
-            if e.fuel().item() == Some(item(it::Kind::Coal)) {
-                let mut inv = cx.block_inventory_mut(world::Id::DEFAULT, e.pos()).unwrap();
-                inv.set(1, Stack::new(named("minecraft:charcoal"), 1))
-                    .unwrap();
-            }
-        })
-    };
-    let charcoal = Stack::new(named("minecraft:charcoal"), 1);
-    assert_eq!(
-        furnace(swap_coal(), 1)[1],
-        charcoal,
-        "the coal's burn cancelled"
-    );
-    let fuel = furnace(swap_coal(), 2)[1].clone();
-    assert!(fuel.is_empty(), "the charcoal burns: {fuel:?}");
-}
-
-// api: FurnaceBurnEvent, FurnaceSmeltEvent
-#[test]
-fn furnace_events_change_the_burn_and_the_result_and_cancelling_keeps_the_items() {
-    let coal = Stack::new(item(it::Kind::Coal), 1);
-    let gold = Stack::new(named("minecraft:gold_ingot"), 3);
-    let mut l = on(|e: &mut FurnaceBurn, _: &mut Context<'_>| {
-        log(format!(
-            "burn {:?} {} {}",
-            e.fuel(),
-            e.burn_time_ticks(),
-            e.is_burning()
-        ));
-        e.set_burning(false);
-        e.set_burn_time_ticks(250);
-    });
-    l.push(
-        Priority::Normal,
-        |e: &mut FurnaceSmelt, _: &mut Context<'_>| {
-            log(format!("smelt {:?}", e.source()));
-            e.set_result(Stack::new(named("minecraft:gold_ingot"), 3));
-        },
-    );
-    l.push_monitor(|e: &FurnaceSmelt, cx: &Context<'_>| {
-        let out = &cx.state.rules.block_entities.get(0, e.pos()).unwrap().items[2];
-        log(format!("applied {}", out.count()));
-    });
-    let items = furnace(l, 201);
-    assert_eq!(items[1], coal, "the fuel is not used up");
-    assert_eq!(items[2], gold, "the listener's result");
-    assert_eq!(items[0].count(), 1);
-    let raw = Stack::new(named("minecraft:raw_iron"), 1);
-    assert_eq!(
-        logged(),
-        [
-            format!("burn {coal:?} 1600 true"),
-            format!("smelt {raw:?}"),
-            "applied 3".to_owned()
-        ]
-    );
-    // A cancelled burn: nothing burns, so nothing smelts.
-    let items = furnace(
-        on(|e: &mut FurnaceBurn, _: &mut Context<'_>| e.cancel()),
-        300,
-    );
-    assert_eq!(items[0].count(), 2, "nothing burns, nothing smelts");
-    assert_eq!(items[1], coal);
-    let items = furnace(
-        on(|e: &mut FurnaceSmelt, _: &mut Context<'_>| e.cancel()),
-        201,
-    );
-    assert_eq!(items[0].count(), 2, "the smelt is cancelled");
-    assert!(items[2].is_empty());
-    // A result that does not fit the output cancels the smelt.
-    let items = furnace(
-        on(|e: &mut FurnaceSmelt, _: &mut Context<'_>| e.set_result(Stack::EMPTY)),
-        201,
-    );
-    assert_eq!(items[0].count(), 2);
-}
-
-// api: BrewingFuelUseEvent, BrewItemEvent
-#[test]
-fn brewing_events_change_the_fuel_and_each_bottle() {
-    let water = Stack::new(item(it::Kind::Potion), 1);
-    let mut l = on(|e: &mut BrewingFuelUse, _: &mut Context<'_>| {
-        log(format!("fuel {}", e.fuel_time()));
-        e.set_fuel_time(0);
-    });
-    l.push(Priority::Normal, |e: &mut BrewItem, _: &mut Context<'_>| {
-        log(format!("brew {}", e.slot()));
-        if e.slot() == 1 {
-            e.set_result(sticks(1));
-        } else {
-            e.cancel();
-        }
-    });
-    let (mut w, _) = world_with(l, &[]);
-    w.place_block(AT, blk::Kind::BrewingStand.default_state());
-    let mut cx = Context {
-        state: &mut w.state,
-    };
-    let mut inv = cx.block_inventory_mut(world::Id::DEFAULT, AT).unwrap();
-    inv.set(0, Stack::new(named("minecraft:nether_wart"), 1))
-        .unwrap();
-    inv.set(1, water.clone()).unwrap();
-    inv.set(3, water.clone()).unwrap();
-    inv.set(4, Stack::new(item(it::Kind::BlazePowder), 2))
-        .unwrap();
-    for _ in 0..401 {
-        w.tick(Vec::new());
-    }
-    let e = w.state.rules.block_entities.get(0, AT).unwrap();
-    assert_eq!(e.items[1], sticks(1));
-    assert_eq!(e.items[3], water, "the cancelled bottle stays");
-    assert!(e.items[0].is_empty(), "the ingredient is used up");
-    // One brew of fuel per powder: the first brew used it up as it began, so the second
-    // powder went in on the next tick.
-    assert!(e.items[4].is_empty());
-    assert!(matches!(&e.kind, block_entity::Kind::BrewingStand(b) if b.fuel_total == 1));
-    assert_eq!(logged(), ["fuel 20", "fuel 20", "brew 1", "brew 3"]);
-}
-
-// api: CampfireCookEvent
-#[test]
-fn campfire_cook_changes_what_drops_and_cancelling_keeps_the_item() {
-    let cook = |cancel: bool| {
-        let l = on(move |e: &mut CampfireCook, _: &mut Context<'_>| {
-            log(format!("{} {:?}", e.slot(), e.input().item()));
-            if cancel {
-                e.cancel();
-            } else {
-                e.set_result(sticks(2));
-            }
-        });
-        let (mut w, _) = world_with(l, &[]);
-        let lit = blk::Kind::Campfire
-            .default_state()
-            .with("extinguished", PropertyValue::Byte(0))
-            .unwrap();
-        w.place_block(AT, lit);
-        let mut cx = Context {
-            state: &mut w.state,
-        };
-        let mut inv = cx.block_inventory_mut(world::Id::DEFAULT, AT).unwrap();
-        assert_eq!(
-            inv.set(0, Stack::new(named("minecraft:beef"), 2)),
-            Err(crate::inventory::Error::TooMany),
-            "a campfire slot takes one"
-        );
-        inv.set(0, Stack::new(named("minecraft:beef"), 1)).unwrap();
-        for _ in 0..620 {
-            w.tick(Vec::new());
-        }
-        let e = w.state.rules.block_entities.get(0, AT).unwrap();
-        (e.items[0].clone(), dropped())
-    };
-    let (left, drops) = cook(false);
-    assert!(left.is_empty());
-    assert_eq!(drops, [sticks(2)]);
-    assert_eq!(
-        logged()[0],
-        format!("0 {:?}", Some(named("minecraft:beef")))
-    );
-    let (left, drops) = cook(true);
-    assert_eq!(left, Stack::new(named("minecraft:beef"), 1));
-    assert!(drops.is_empty());
-}
-
 // api: ChestPairEvent
 #[test]
 fn chest_pair_names_the_halves_and_cancelling_keeps_them_single() {
@@ -1130,9 +705,9 @@ fn chest_pair_names_the_halves_and_cancelling_keeps_them_single() {
 }
 
 /// Listeners for the conservation model (`run_model`), drawn from `seed`.
-/// On every request event they cancel, cancel and uncancel, or move items themselves through the
-/// Context (swap two main slots, move a main stack into the model's chest or a chest stack into
-/// the inventory), keeping the item totals.
+/// On every transaction and drop event they cancel, cancel and uncancel, or move items themselves
+/// through the Context (swap two main slots, move a main stack into the model's chest or a chest
+/// stack into the inventory), keeping the item totals.
 pub(super) fn random_listeners(seed: i64) -> Listeners {
     fn act(
         rng: &mut Random,
@@ -1201,23 +776,10 @@ pub(super) fn random_listeners(seed: i64) -> Listeners {
     );
     let mut n = 0_u64;
     l.push(
-        Priority::High,
-        move |e: &mut CraftItem, cx: &mut Context<'_>| {
-            n += 1;
-            let mut rng = Random::new(seed, n, 2);
-            let mut cancelled = false;
-            act(&mut rng, e.player().session(), cx, &mut |c| cancelled = c);
-            if cancelled {
-                e.cancel();
-            }
-        },
-    );
-    let mut n = 0_u64;
-    l.push(
         Priority::Low,
         move |e: &mut PlayerDropItem, cx: &mut Context<'_>| {
             n += 1;
-            let mut rng = Random::new(seed, n, 3);
+            let mut rng = Random::new(seed, n, 2);
             let mut cancelled = false;
             act(&mut rng, e.player().session(), cx, &mut |c| cancelled = c);
             if cancelled {

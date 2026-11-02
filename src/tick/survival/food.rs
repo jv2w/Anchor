@@ -24,10 +24,6 @@ use crate::tick::interact::drops;
 use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
-/// What a slice of cake restores (PMMP `BaseCake`).
-const CAKE_FOOD: f64 = 2.0;
-/// The saturation a slice of cake adds (PMMP `BaseCake`).
-const CAKE_SATURATION: f64 = 0.4;
 /// The random stream key of a chorus fruit's teleport.
 const CHORUS_FRUIT: u64 = random::tag("chorus-fruit");
 /// The most blocks a chorus fruit teleports in each direction (PMMP `ChorusFruit::onConsume`).
@@ -422,29 +418,6 @@ fn chorus_teleport(state: &mut State, session: SessionId) {
         super::teleport(state, session, world_index, eye);
         return;
     }
-}
-
-/// Eats a slice of cake (PMMP `BaseCake` through `Human::consumeObject`): false if the player
-/// cannot eat it now.
-pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
-    let Some(player) = state.players.get(&session) else {
-        return false;
-    };
-    let mode = game_mode(state, player);
-    if player.phase != Phase::Spawned
-        || player.survival.is_dead()
-        || mode == GameMode::Spectator
-        || !can_eat(state, player, mode)
-    {
-        return false;
-    }
-    let Some(player) = state.players.get_mut(&session) else {
-        return false;
-    };
-    add_food(&mut player.survival, CAKE_FOOD, CAKE_SATURATION);
-    player.data_dirty = true;
-    sound::at_feet(state, session, Sound::Burp);
-    true
 }
 
 /// Counts one tick of food (PMMP `HungerManager::tick`): peaceful refills food and heals; a

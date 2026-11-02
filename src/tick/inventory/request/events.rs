@@ -1,16 +1,12 @@
 //! The events of an item stack request: the whole request as one [`InventoryTransaction`], then
-//! what it makes ([`CraftItem`], [`PlayerItemEnchant`], [`Trade`]) and what it drops
-//! ([`PlayerDropItem`]), each built only when heard.
+//! the trade it makes ([`Trade`]) and what it drops ([`PlayerDropItem`]), each built only when
+//! heard.
 //!
-//! PMMP raises only one of the first four (a crafting transaction raises `CraftItemEvent`
-//! instead of `InventoryTransactionEvent`); Anchor raises the transaction for every request that
-//! changes a slot, so a listener that guards every slot change also sees crafts and trades.
+//! Anchor raises the transaction for every request that changes a slot, so a listener that guards
+//! every slot change also sees trades.
 
 use super::{Describe, Error, Made, Plan, Result};
-use crate::event::{
-    CraftItem, EnchantOption, Inventory, InventoryTransaction, PlayerDropItem, PlayerItemEnchant,
-    SlotChange, Trade,
-};
+use crate::event::{Inventory, InventoryTransaction, PlayerDropItem, SlotChange, Trade};
 use crate::inventory::Kind;
 use crate::item::Stack;
 use crate::tick::inventory::{SlotRef, WindowKind};
@@ -20,8 +16,6 @@ use crate::tick::{SessionId, State, dispatch, trade};
 #[derive(Debug)]
 pub(super) struct Raised {
     transaction: Option<InventoryTransaction>,
-    craft: Option<CraftItem>,
-    enchant: Option<PlayerItemEnchant>,
     trade: Option<Trade>,
     drop: Option<PlayerDropItem>,
 }
@@ -45,7 +39,7 @@ impl Raised {
             changes,
             cancelled: false,
         });
-        let (craft, enchant, trade) = made(state, session, plan, window);
+        let trade = made(state, session, plan);
         let drop = plan
             .drop
             .as_ref()
@@ -57,8 +51,6 @@ impl Raised {
             });
         Self {
             transaction,
-            craft,
-            enchant,
             trade,
             drop,
         }
@@ -68,8 +60,6 @@ impl Raised {
     /// changed.
     pub(super) fn has_listened(&self, state: &State) -> bool {
         (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
-            || (self.craft.is_some() && dispatch::listened::<CraftItem>(state))
-            || (self.enchant.is_some() && dispatch::listened::<PlayerItemEnchant>(state))
             || (self.trade.is_some() && dispatch::listened::<Trade>(state))
             || (self.drop.is_some() && dispatch::listened::<PlayerDropItem>(state))
     }
@@ -91,8 +81,6 @@ impl Raised {
             Ok(())
         }
         one(state, self.transaction.as_mut(), |e| e.cancelled)?;
-        one(state, self.craft.as_mut(), |e| e.cancelled)?;
-        one(state, self.enchant.as_mut(), |e| e.cancelled)?;
         one(state, self.trade.as_mut(), |e| e.cancelled)?;
         one(state, self.drop.as_mut(), |e| e.cancelled)
     }
@@ -101,18 +89,10 @@ impl Raised {
     pub(super) fn watch(self, state: &mut State) {
         let Self {
             transaction,
-            craft,
-            enchant,
             trade,
             drop,
         } = self;
         if let Some(e) = transaction {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = craft {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = enchant {
             dispatch::watch(state, &e);
         }
         if let Some(e) = trade {
@@ -130,11 +110,7 @@ impl Raised {
 pub(super) fn describes(state: &State, edit: Option<crate::menu::Id>) -> Describe {
     if edit.is_some() || dispatch::heard::<InventoryTransaction>(state) {
         Describe::Slots
-    } else if dispatch::heard::<CraftItem>(state)
-        || dispatch::heard::<PlayerItemEnchant>(state)
-        || dispatch::heard::<Trade>(state)
-        || dispatch::heard::<PlayerDropItem>(state)
-    {
+    } else if dispatch::heard::<Trade>(state) || dispatch::heard::<PlayerDropItem>(state) {
         Describe::Made
     } else {
         Describe::Nothing
@@ -160,73 +136,27 @@ pub(super) fn named(plan: &Plan, inv: &crate::tick::inventory::Inventory) -> Vec
         .collect()
 }
 
-/// The heard events of what `plan` makes.
-fn made(
-    state: &State,
-    session: SessionId,
-    plan: &Plan,
-    window: Option<WindowKind>,
-) -> (Option<CraftItem>, Option<PlayerItemEnchant>, Option<Trade>) {
-    let player = crate::player::Id::new(session);
-    let (mut craft, mut enchant, mut traded) = (None, None, None);
-    match &plan.made {
-        Some(Made::Craft {
-            inputs,
-            outputs,
-            times,
-        }) if dispatch::heard::<CraftItem>(state) => {
-            craft = Some(CraftItem {
-                player,
-                inputs: inputs.clone(),
-                outputs: outputs.clone(),
-                repetitions: *times,
-                cancelled: false,
-            });
-        }
-        Some(Made::Enchant {
-            choice,
-            input,
-            output,
-            cost,
-        }) if dispatch::heard::<PlayerItemEnchant>(state) => {
-            if let Some(WindowKind::Station { world, pos, .. }) = window {
-                enchant = Some(PlayerItemEnchant {
-                    player,
-                    world: crate::world::Id::of(world),
-                    pos,
-                    option: EnchantOption {
-                        required_level: choice.level,
-                        name: choice.name.clone(),
-                        enchantments: choice.enchantments.clone(),
-                    },
-                    input_item: input.clone(),
-                    output_item: output.clone(),
-                    cost: *cost,
-                    cancelled: false,
-                });
-            }
-        }
-        Some(Made::Trade {
-            net_id,
-            inputs,
-            output,
-            times,
-        }) if dispatch::heard::<Trade>(state) => {
-            if let Some((villager, offer)) = trade::trading(state, session, *net_id) {
-                traded = Some(Trade {
-                    player,
-                    villager,
-                    offer,
-                    inputs: inputs.clone(),
-                    output: output.clone(),
-                    uses: *times,
-                    cancelled: false,
-                });
-            }
-        }
-        _ => {}
+/// The heard event of the trade `plan` makes.
+fn made(state: &State, session: SessionId, plan: &Plan) -> Option<Trade> {
+    let Made {
+        net_id,
+        inputs,
+        output,
+        times,
+    } = plan.made.as_ref()?;
+    if !dispatch::heard::<Trade>(state) {
+        return None;
     }
-    (craft, enchant, traded)
+    let (villager, offer) = trade::trading(state, session, *net_id)?;
+    Some(Trade {
+        player: crate::player::Id::new(session),
+        villager,
+        offer,
+        inputs: inputs.clone(),
+        output: output.clone(),
+        uses: *times,
+        cancelled: false,
+    })
 }
 
 /// The change of request slot `r` from `before` to `after`, as events name it; `None` if it
@@ -256,7 +186,6 @@ fn place(r: SlotRef, window: Option<WindowKind>) -> Option<(Inventory, u8)> {
         SlotRef::Armor(i) => (Inventory::Player(Kind::Armor), i),
         SlotRef::Offhand => (Inventory::Player(Kind::Offhand), 0),
         SlotRef::Cursor => (Inventory::Player(Kind::Cursor), 0),
-        SlotRef::Grid(i) => (Inventory::Player(Kind::Crafting), i),
         SlotRef::Ender(i) => (Inventory::Player(Kind::EnderChest), i),
         SlotRef::Block(i) => {
             let [Some((world, pos)), _] = window?.blocks() else {

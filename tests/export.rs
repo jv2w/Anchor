@@ -53,14 +53,7 @@ fn an_exported_world_imports_back_into_the_same_world_file() {
     assert_eq!(report.chunks(), imported.chunks());
     assert_eq!(report.block_entities(), imported.block_entities());
     // The import left the entities out, and an import makes no spills.
-    assert_eq!(
-        (
-            report.entities(),
-            report.scheduled_updates(),
-            report.spills()
-        ),
-        (0, 0, 0)
-    );
+    assert_eq!((report.entities(), report.spills()), (0, 0));
     assert!(folder.join("level.dat").exists());
     assert!(!data.0.join("bedrock").join(format!("{NAME}.tmp")).exists());
 

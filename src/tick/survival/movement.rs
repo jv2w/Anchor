@@ -26,9 +26,7 @@ use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, Sound
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
 use crate::tick::entity::{INSIDE_INSET, MOTION_THRESHOLD, Touch};
-use crate::tick::{
-    Phase, Player, SessionId, State, dispatch, entity, inside_border, interact, update,
-};
+use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, inside_border};
 use crate::world::{BlockPos, Entry, World};
 
 /// Fall damage above which landing makes the long fall sound (PMMP `Living::onHitGround`).
@@ -774,7 +772,7 @@ fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
 }
 
 /// The player lands (PMMP `Living::onHitGround`): the block landed on has its say first (beds
-/// and hay bales soften the fall, slime cancels it, farmland may be trampled), then the fall
+/// and hay bales soften the fall, slime cancels it), then the fall
 /// hurts with the long or short fall sound, or the landing makes the block's land sound (always
 /// with `fall-damage = false`).
 fn land(state: &mut State, session: SessionId) {
@@ -797,9 +795,6 @@ fn land(state: &mut State, session: SessionId) {
             s.fall_distance *= if block.is(Class::Bed) { 0.5 } else { 0.2 };
         } else if block.is(Class::Slime) && !s.motion.sneaking {
             s.fall_distance = 0.0;
-        } else if block.is(Class::Farmland) {
-            let distance = s.fall_distance;
-            update::trample(state, world, pos, distance, Actor::Player(Id::new(session)));
         }
     }
     let Some(player) = state.players.get(&session) else {
@@ -894,15 +889,6 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             let source = CombustSource::Block(pos);
             damage::combust(state, session, u32::from(seconds), source);
         }
-    } else if touch == Some(Touch::Campfire) {
-        if let Some(player) = state
-            .players
-            .get(&session)
-            .filter(|p| p.survival.fire_ticks > 0)
-        {
-            let world = player.world;
-            interact::light_campfire(state, world, pos, block);
-        }
     } else if touch == Some(Touch::Water) {
         reset_fall(state, session);
         let mut out = false;
@@ -926,9 +912,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         };
         player.survival.fire_ticks = 0;
         player.data_dirty = true;
-        let world = player.world;
         damage::extinguished(state, session, ExtinguishCause::WaterCauldron);
-        interact::lower_water_cauldron(state, world, pos, block);
     } else if block.is(Class::Ladder) {
         let inside_block = state
             .players
@@ -1209,10 +1193,9 @@ mod tests {
         assert_eq!(player.survival.health, 20.0);
     }
 
-    /// A burning player in a water cauldron is put out and the cauldron loses a level (PMMP
-    /// `WaterCauldron::onEntityInside`).
+    /// A burning player in a water cauldron is put out and the cauldron keeps its level.
     #[test]
-    fn a_water_cauldron_puts_out_a_burning_player_and_drops_a_level() {
+    fn a_water_cauldron_puts_out_a_burning_player_and_keeps_its_level() {
         let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
         let level = |n| {
             block::Kind::Cauldron
@@ -1229,34 +1212,7 @@ mod tests {
         player.survival.fire_ticks = 100;
         crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(state.players[&session].survival.fire_ticks, 0);
-        assert_eq!(state.worlds[0].block(pos), Some(level(5)));
-        // Not burning: the water stays.
-        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(state.worlds[0].block(pos), Some(level(5)));
-    }
-
-    /// A burning player lights an unlit campfire it is in; one not burning leaves it out (PMMP
-    /// `Campfire::onEntityInside`).
-    #[test]
-    fn a_burning_player_lights_an_unlit_campfire() {
-        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
-        let lit = |on: bool| {
-            block::Kind::Campfire
-                .default_state()
-                .with("extinguished", PropertyValue::Byte(u8::from(!on)))
-                .unwrap()
-        };
-        let pos = BlockPos::new(0, -60, 0);
-        state.worlds[0].set_block(pos, lit(false)).unwrap();
-        let session = SessionId::new(1);
-        let player = state.players.get_mut(&session).unwrap();
-        player.position = Vec3::new(0.5, -60.0 + crate::tick::survival::EYE_HEIGHT, 0.5);
-        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(state.worlds[0].block(pos), Some(lit(false)));
-        let player = state.players.get_mut(&session).unwrap();
-        player.survival.fire_ticks = 100;
-        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(state.worlds[0].block(pos), Some(lit(true)));
+        assert_eq!(state.worlds[0].block(pos), Some(level(6)));
     }
 
     /// A player without block collision never stands (PMMP `Player::checkGroundState`), so a

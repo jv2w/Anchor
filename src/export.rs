@@ -11,7 +11,7 @@
 //! blocks in tables in that order: the same file gives the same bytes whatever the thread count.
 //! A chunk's terrain is its sub-chunk values (`chunk`), or what the world's generator makes when
 //! it has none (a chunk whose extras alone were saved); its block entities go as they are saved,
-//! in Bedrock form. Entities, scheduled block updates and spills (the items of broken containers
+//! in Bedrock form. Entities and spills (the items of broken containers
 //! waiting to drop) are left out and counted: their saved form is Anchor's. Chunks the file does
 //! not hold (generated and never changed) are not written: the `level.dat` (`level_dat`) gives
 //! the Bedrock world a flat generator that makes them.
@@ -54,7 +54,6 @@ pub struct Report {
     chunks: u64,
     block_entities: u64,
     entities: u64,
-    scheduled_updates: u64,
     spills: u64,
 }
 
@@ -72,11 +71,6 @@ impl Report {
     /// The number of entities left out: Anchor saves them in its own form.
     pub fn entities(&self) -> u64 {
         self.entities
-    }
-
-    /// The number of scheduled block updates left out: Anchor saves them in its own form.
-    pub fn scheduled_updates(&self) -> u64 {
-        self.scheduled_updates
     }
 
     /// The number of spills left out: the items of broken containers waiting to drop,
@@ -156,7 +150,6 @@ struct Converted {
     values: Vec<(Vec<u8>, Vec<u8>)>,
     block_entities: u64,
     entities: u64,
-    scheduled_updates: u64,
     spills: u64,
 }
 
@@ -241,7 +234,6 @@ pub(crate) fn run(
         chunks = report.chunks,
         block_entities = report.block_entities,
         left_out_entities = report.entities,
-        left_out_scheduled_updates = report.scheduled_updates,
         left_out_spills = report.spills,
         "world exported"
     );
@@ -313,7 +305,6 @@ fn write(
             report.chunks += 1;
             report.block_entities += c.block_entities;
             report.entities += c.entities;
-            report.scheduled_updates += c.scheduled_updates;
             report.spills += c.spills;
             for entry in c.values {
                 let entry_bytes = entry.0.len().saturating_add(entry.1.len());
@@ -407,7 +398,6 @@ fn convert(
         values,
         block_entities: block_entities.len() as u64,
         entities: extras.get(ChunkKind::Entities).len() as u64,
-        scheduled_updates: extras.get(ChunkKind::ScheduledUpdates).len() as u64,
         spills: (saved.len() - block_entities.len()) as u64,
     })
 }

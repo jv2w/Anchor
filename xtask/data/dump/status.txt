@@ -1315,33 +1315,8 @@ world\World::notifyNeighbourBlockUpdate merged World::setBlock
 world\World::requestSafeSpawn merged World::getSafeSpawn
 world\World::setChunk skipped the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block`
 world\World::setDisplayName skipped a world's name is its storage key and the reference of players' spawn points, so it never changes
-Server::getCraftingManager merged CraftingManager::matchRecipe
-crafting\CraftingManager merged CraftingManager::matchRecipe
-crafting\CraftingManager::getFurnaceRecipeManager merged FurnaceRecipeManager::match
-crafting\FurnaceRecipeManager merged FurnaceRecipeManager::match
-crafting\*Manager::__construct skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
-crafting\CraftingManager::sort skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe`
-crafting\CraftingManager::getCraftingRecipeIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
-crafting\CraftingManager::getCraftingRecipeFromIndex skipped recipe network IDs are internal numbers; the public lookup is Context::crafting_result
-crafting\CraftingRecipe merged CraftingManager::matchRecipe
-crafting\*Recipe::getResultsFor merged CraftingManager::matchRecipe
-crafting\*Recipe::matchesCraftingGrid merged CraftingManager::matchRecipe
-crafting\*RecipeIngredient::accepts merged CraftingManager::matchRecipe
-crafting\FurnaceRecipe::getResult merged FurnaceRecipeManager::match
-crafting\BrewingRecipe merged CraftingManager::matchBrewingRecipe
-crafting\*Recipe::getResultFor merged CraftingManager::matchBrewingRecipe
-crafting\CraftingGrid merged Player::getCraftingGrid
-crafting\CraftingGrid::__construct skipped the engine makes each player's crafting grid
-crafting\CraftingGrid::getGridWidth merged Inventory::getSize
-crafting\CraftingGrid::getIngredient merged Inventory::getItem
-crafting\CraftingGrid::getRecipe* merged CraftingManager::matchRecipe
-crafting\ShapedRecipe merged ShapedRecipe::__construct
-crafting\ShapelessRecipe merged ShapelessRecipe::__construct
-crafting\FurnaceRecipe merged FurnaceRecipe::__construct
-crafting\*RecipeIngredient merged ExactRecipeIngredient::__construct
-crafting\PotionTypeRecipe merged PotionTypeRecipe::__construct
-crafting\PotionContainerChangeRecipe merged PotionContainerChangeRecipe::__construct
-crafting\** skipped recipe objects are internal: PMMP's recipes are generated static tables and a server's own are `custom::Recipe` values fixed at build; the lookups answer by items (`Context::crafting_result`, `furnace_result`, `brewing_result`)
+Server::getCraftingManager skipped Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes
+crafting\** skipped Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes
 
 # Block entities: `Context::block_entity` lends a `Tile` to read and
 # `block_entity_mut` a `tile::Mut` to change; the classes are one type with a getter per kind.
@@ -1356,9 +1331,6 @@ block\tile\*::getDefaultName skipped the client names a container without a cust
 block\tile\*::canOpenWith merged Container::canOpenWith
 block\tile\Chest::isPaired merged block\tile\Chest::getPair
 block\tile\EnderChest::setViewerCount skipped the engine counts the windows open on a block
-block\tile\Campfire::getCookingTimes merged block\Campfire::getCookingTime
-block\tile\Campfire::setCookingTimes merged block\Campfire::setCookingTime
-block\tile\ItemFrame::hasItem merged block\tile\ItemFrame::getItem
 block\tile\MobHead::*etMobHeadType merged Block
 block\tile\Sign::*EditorEntityRuntimeId skipped Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS)
 block\tile\Sign::fixTextBlob skipped deprecated PMMP helper: `SignText::from_blob` reads a text blob

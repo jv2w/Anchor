@@ -46,11 +46,6 @@ impl Random {
         lo.wrapping_add(self.below(span + 1).cast_signed())
     }
 
-    /// Draws true with probability `numerator / denominator` (false when `denominator` is 0).
-    pub(crate) fn chance(&mut self, numerator: u32, denominator: u32) -> bool {
-        denominator != 0 && self.below(denominator) < numerator
-    }
-
     /// Draws a float in `[0, 1)` with 53 random bits.
     #[expect(
         clippy::cast_precision_loss,
@@ -102,6 +97,14 @@ impl Fnv {
     pub(crate) fn bytes(&mut self, bytes: &[u8]) {
         self.usize(bytes.len());
         self.raw(bytes);
+    }
+
+    /// Mixes the three coordinates of `pos` into the hash.
+    #[cfg(test)]
+    pub(crate) fn block_pos(&mut self, pos: crate::world::BlockPos) {
+        for c in [pos.x, pos.y, pos.z] {
+            self.u64(u64::from(c.cast_unsigned()));
+        }
     }
 }
 
@@ -156,7 +159,6 @@ mod tests {
         }
         assert_eq!(r.below(0), 0);
         assert_eq!(r.range(5, 1), 5);
-        assert!(!r.chance(1, 0));
         r.range(i32::MIN, i32::MAX);
     }
 }

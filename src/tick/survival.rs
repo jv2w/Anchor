@@ -28,7 +28,7 @@ pub(super) use api::{marked, sync};
 pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
 pub(super) use attributes::{
     HEALTH_ATTRIBUTE, actor_data, adventure_settings, all_attributes, full_metadata, game_rules,
-    random_tick_speed_changed, update_abilities,
+    update_abilities,
 };
 pub(super) use clock::{
     Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
@@ -373,13 +373,13 @@ impl Survival {
             match point {
                 Some(p) => {
                     h.bytes(p.world.as_bytes());
-                    hash_pos(h, p.pos);
+                    h.block_pos(p.pos);
                 }
                 None => h.u64(0),
             }
         }
         match sleeping {
-            Some(p) => hash_pos(h, *p),
+            Some(p) => h.block_pos(*p),
             None => h.u64(0),
         }
         motion.hash_into(h);
@@ -473,13 +473,6 @@ pub(super) struct Melee {
     pub(super) critical: bool,
     /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
     pub(super) magic: bool,
-}
-
-#[cfg(test)]
-fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
-    for c in [pos.x, pos.y, pos.z] {
-        h.u64(u64::from(c.cast_unsigned()));
-    }
 }
 
 /// Reads the player's survival keys from its saved extra (empty for a new player), its items
@@ -868,25 +861,9 @@ pub(super) fn enchantment_seed(player: &Player) -> i32 {
     player.survival.xp_seed.unwrap_or(0)
 }
 
-/// Draws a new enchanting seed for the player of `session` at once (PMMP
-/// `regenerateEnchantmentSeed`): the options the player's next input shows already use it.
-pub(super) fn regenerate_enchantment_seed(state: &mut State, session: SessionId) {
-    let tick = state.tick;
-    let seed = world_seed(state, session);
-    if let Some(player) = state.players.get_mut(&session) {
-        draw_enchantment_seed(seed, tick, player);
-    }
-}
-
 /// The xp level (PMMP `ExperienceManager::getXpLevel`).
 pub(super) fn xp_level(player: &Player) -> u32 {
     player.survival.xp_level
-}
-
-/// The xp points the player ever gained (PMMP `ExperienceManager::getLifetimeTotalXp`).
-#[cfg(test)]
-pub(super) fn lifetime_xp(player: &Player) -> u32 {
-    player.survival.xp_lifetime
 }
 
 /// Takes `levels` xp levels, keeping the progress (PMMP `subtractXpLevels`); not below 0.
@@ -916,17 +893,6 @@ pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
 /// the item is a consumable it handled.
 pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     food::start_eating(state, session)
-}
-
-/// The player lies down in the bed at `pos` (PMMP `Bed::onInteract`, `Player::sleepOn`): false if
-/// it cannot sleep now (day, not a whole bed, too far, occupied, dead).
-pub(super) fn sleep(
-    state: &mut State,
-    session: SessionId,
-    world: crate::save::WorldIndex,
-    pos: crate::world::BlockPos,
-) -> bool {
-    clock::sleep(state, session, world, pos)
 }
 
 /// The player stops using its held item: drawing a bow or trident, eating or drinking (PMMP
@@ -1203,14 +1169,6 @@ pub(super) fn reset_item_cooldown(state: &mut State, session: SessionId, item: c
     if let Some(player) = state.players.get_mut(&session) {
         food::reset_cooldown(tick, player, item);
     }
-}
-
-/// The player eats a slice of cake (PMMP `BaseCake::onInteract` → `Human::consumeObject`): false,
-/// and nothing changes, if it cannot eat now (food full outside peaceful and creative, dead, a
-/// spectator). Otherwise food +2, saturation +0.4 and the burp sound; the caller then takes a
-/// bite off the block (PMMP `BaseCake::onConsume`).
-pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
-    food::eat_cake(state, session)
 }
 
 /// The player picks up an xp orb worth `amount` points (PMMP
@@ -2940,40 +2898,6 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
-    fn sleeping_through_the_night_skips_to_morning() {
-        let mut server = Server::new(1, |_| {});
-        let spawn = server.state.worlds[0].spawn();
-        let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
-        let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
-        server.state.worlds[0]
-            .set_block(foot, bed(false, false))
-            .unwrap();
-        server.state.worlds[0]
-            .set_block(head, bed(true, false))
-            .unwrap();
-        assert!(!sleep(&mut server.state, sid(1), 0, foot), "not at day");
-        server.state.worlds[0].set_time(13_000);
-        assert!(sleep(&mut server.state, sid(1), 0, foot));
-        assert!(!sleep(&mut server.state, sid(1), 0, foot), "already asleep");
-        assert_eq!(server.survival_mut(1).sleeping, Some(head));
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
-        assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, true)));
-        server.idle(60);
-        let time = server.state.worlds[0].time_ticks();
-        assert_eq!(time % 24_000, 0, "{time}");
-        assert_eq!(server.survival_mut(1).sleeping, None);
-        assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
-        assert!(
-            server
-                .take(1)
-                .iter()
-                .any(|p| matches!(p, Packet::Animate(_)))
-        );
-        let spawn_point = server.survival_mut(1).spawn.clone().map(|p| p.pos);
-        assert_eq!(spawn_point, Some(head));
-    }
-
     // api: Player::isSleeping, Player::stopSleep
     #[test]
     fn stop_sleep_frees_the_bed_by_the_end_of_the_tick() {
@@ -2986,7 +2910,10 @@ mod tests {
         world.set_block(head, bed(true, false)).unwrap();
         world.set_time(13_000);
         assert!(!server.player_mut(1).stop_sleep(), "awake");
-        assert!(sleep(&mut server.state, sid(1), 0, foot));
+        let mut cx = Context {
+            state: &mut server.state,
+        };
+        assert!(cx.sleep_on(Id::new(sid(1)), foot));
         assert!(server.player(1).is_sleeping());
         assert!(server.player_mut(1).stop_sleep());
         server.take(1);
@@ -3040,15 +2967,11 @@ mod tests {
         server.state.worlds[0]
             .set_block(head, bed(true, false))
             .unwrap();
-        server.state.worlds[0].set_time(14_000);
-        assert!(sleep(&mut server.state, sid(1), 0, head));
-        assert!(!sleep(&mut server.state, sid(2), 0, foot), "occupied");
-        server.idle(60);
-        assert_eq!(
-            server.state.worlds[0].time_ticks() % 24_000,
-            14_060,
-            "player 2 is awake"
-        );
+        let mut cx = Context {
+            state: &mut server.state,
+        };
+        assert!(cx.sleep_on(Id::new(sid(1)), head));
+        assert!(!cx.sleep_on(Id::new(sid(2)), foot), "occupied");
         assert!(server.hurt(1, 1.0, Damage::Magic));
         assert_eq!(server.survival_mut(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
@@ -3463,26 +3386,6 @@ mod tests {
     }
 
     #[test]
-    fn cake_feeds_two_and_needs_food() {
-        let mut server = Server::new(1, |_| {});
-        server.take(1);
-        assert!(!eat_cake(&mut server.state, sid(1)), "full");
-        server.survival_mut(1).food = 10.0;
-        server.survival_mut(1).saturation = 0.0;
-        assert!(eat_cake(&mut server.state, sid(1)));
-        let s = server.survival_mut(1);
-        assert_eq!(s.food, 12.0);
-        assert!((s.saturation - 0.4).abs() < 1e-12);
-        server.idle(1);
-        assert_eq!(sounds(&server.take(1)), ["burp"]);
-        let mut peaceful = Server::new(1, |c| c.general.difficulty = Difficulty::Peaceful);
-        assert!(
-            eat_cake(&mut peaceful.state, sid(1)),
-            "peaceful eats when full"
-        );
-    }
-
-    #[test]
     fn effects_replace_only_stronger_or_longer_ones_as_pmmp() {
         let mut server = Server::new(1, |_| {});
         let speed = |duration, amplifier| {
@@ -3651,41 +3554,6 @@ mod tests {
         assert!(s.effects.contains_key(&effect::Type::Blindness));
         let held = server.player(1).inventory.held().item().unwrap();
         assert_eq!(held.name(), "minecraft:glass_bottle");
-    }
-
-    #[test]
-    fn landing_on_farmland_tramples_it_as_pmmp() {
-        // PMMP `Farmland::onEntityLand`: trampled when a random float is below the fall distance
-        // less 0.5, so always after a fall of 1.5 blocks or more, never after 0.5 or less.
-        for (fall, trampled, sound) in [
-            (0.5_f64, false, "land"),
-            (2.0, true, "land"),
-            (5.0, true, "fall.small"),
-        ] {
-            let mut server = Server::new(1, |c| c.developer.random_tick_speed = 0);
-            let start = server.player(1).position;
-            let below = BlockPos::containing(feet(server.player(1)));
-            let below = BlockPos::new(below.x, below.y - 1, below.z);
-            let farmland = block::Kind::Farmland.default_state();
-            server.state.worlds[0].set_block(below, farmland).unwrap();
-            server.survival_mut(1).motion.force_sync = false;
-            for (i, y) in [fall, 0.0].into_iter().enumerate() {
-                let auth = p::PlayerAuthInput {
-                    position: (start + Vec3::new(0.0, y, 0.0)).to_f32(),
-                    tick: u64::try_from(i).unwrap() + 1,
-                    ..p::PlayerAuthInput::default()
-                };
-                let input = server.send(1, Packet::PlayerAuthInput(Box::new(auth)));
-                server.run(vec![input]);
-            }
-            let now = server.state.worlds[0].block(below).unwrap();
-            assert_eq!(now == block::DIRT, trampled, "fall {fall}");
-            assert_eq!(server.survival_mut(1).fall_distance, 0.0);
-            assert!(
-                sounds(&server.take(1)).contains(&sound.to_owned()),
-                "{fall}"
-            );
-        }
     }
 
     #[test]

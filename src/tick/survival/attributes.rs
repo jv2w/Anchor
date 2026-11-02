@@ -22,6 +22,7 @@ use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, EntityProperties,
     FlagSet, GameRule, GameRuleValue, MetadataValue,
 };
+use crate::tick::update::RANDOM_TICKS_PER_SUB_CHUNK;
 use crate::tick::{Phase, Player, SessionId, Settings, State, entity};
 
 /// Abilities changed (game mode, flying).
@@ -375,7 +376,7 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("maxCommandChainLength", Uint32(65_535)),
         ("doInsomnia", Bool(false)),
         ("commandBlocksEnabled", Bool(false)),
-        (RANDOM_TICK_SPEED, Uint32(settings.random_tick_speed)),
+        (RANDOM_TICK_SPEED, Uint32(RANDOM_TICKS_PER_SUB_CHUNK)),
         ("doImmediateRespawn", Bool(settings.immediate_respawn)),
         ("showDeathMessages", Bool(settings.show_death_messages)),
         ("functionCommandLimit", Uint32(10_000)),
@@ -394,13 +395,6 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
             .into_iter()
             .map(|(name, value)| rule(name, value))
             .collect(),
-    })
-}
-
-/// The packet that tells a player the random tick speed is now `speed`.
-pub(in crate::tick) fn random_tick_speed_changed(speed: u32) -> Packet {
-    Packet::GameRulesChanged(GameRulesChanged {
-        game_rules: vec![rule(RANDOM_TICK_SPEED, GameRuleValue::Uint32(speed))],
     })
 }
 

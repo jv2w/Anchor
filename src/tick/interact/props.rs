@@ -1,11 +1,10 @@
-//! Reading and changing the Bedrock properties of block states by their PMMP meaning: facing,
-//! axis, rotation and the plain integer, flag and string properties (PMMP `BlockStateWriter`,
-//! `ValueMappings`, `CommonProperties`).
+//! Reading and changing the Bedrock properties of block states by their meaning: facing, axis,
+//! rotation and the plain integer, flag and string properties.
 //!
-//! A state is a Bedrock state, so a PMMP property such as "facing north" is one of several
-//! Bedrock properties with a block-specific encoding. The encoding is chosen by the property the
-//! state has and, where Bedrock reuses a name with different values (`direction`), by the PMMP
-//! class, as PMMP's serializer does.
+//! A state is a Bedrock state, so a property such as "facing north" is one of several Bedrock
+//! properties with a block-specific encoding. The encoding is chosen by the property the state
+//! has and, where Bedrock reuses a name with different values (`direction`), by the block's
+//! class.
 
 use crate::block::{Class, Face, MAX_PROPERTIES, PropertyValue, State};
 
@@ -27,8 +26,6 @@ const DOUBLE_SLAB_SUFFIX: &str = "_double_slab";
 const FACING_DIRECTION: &str = "facing_direction";
 /// The degrees of a full turn.
 const FULL_TURN_DEGREES: f64 = 360.0;
-/// The name prefix of the lit form of a block, after the namespace.
-const LIT_PREFIX: &str = "lit_";
 /// The namespace of the blocks Anchor knows.
 const NAMESPACE: &str = "minecraft:";
 /// The property `pillar_axis`.
@@ -44,7 +41,7 @@ const TORCH_FACING: &str = "torch_facing_direction";
 /// The property `weirdo_direction` (stairs).
 const WEIRDO_DIRECTION: &str = "weirdo_direction";
 
-/// A pillar axis (PMMP `Axis`).
+/// A pillar axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tick) enum Axis {
     /// East-west.
@@ -56,7 +53,7 @@ pub(in crate::tick) enum Axis {
 }
 
 impl Axis {
-    /// The axis of a face (PMMP `Facing::axis`).
+    /// The axis of a face.
     pub(in crate::tick) const fn of(face: Face) -> Self {
         match face {
             Face::Down | Face::Up => Self::Y,
@@ -77,14 +74,14 @@ pub(in crate::tick) enum Encoding {
     Classic,
     /// `coral_direction` west 0, east 1, north 2, south 3.
     Coral,
-    /// Doors' `minecraft:cardinal_direction`, a quarter turn clockwise from the facing (PMMP
-    /// `CommonProperties::$doorProperties`: a door facing north is "east").
+    /// Doors' `minecraft:cardinal_direction`, a quarter turn clockwise from the facing (a door
+    /// facing north is "east").
     DoorCardinal,
     /// End rods: classic with the horizontal faces reversed.
     EndRod,
     /// `direction` or `weirdo_direction` east 0, west 1, south 2, north 3 (trapdoors, stairs).
     FiveMinus,
-    /// Stems: classic, with "not attached" (PMMP up) written as 0.
+    /// Stems: classic, with "not attached" (up) written as 0.
     Stem,
     /// `direction` south 0, west 1, north 2, east 3.
     Swne,
@@ -94,7 +91,7 @@ pub(in crate::tick) enum Encoding {
     Torch,
 }
 
-/// The PMMP facing of a state (horizontal or any), whatever Bedrock property holds it.
+/// The facing of a state (horizontal or any), whatever Bedrock property holds it.
 pub(in crate::tick) fn facing(state: State) -> Option<Face> {
     let (name, encoding) = encoding(state)?;
     facing_in(state, name, encoding)
@@ -118,7 +115,7 @@ pub(in crate::tick) fn facing_in(state: State, name: &str, encoding: Encoding) -
             .iter()
             .find(|(_, value)| *value == v)
             .map(|(f, _)| *f)
-            // PMMP reads a stem's 1 as not attached too.
+            // A stem's 1 is not attached too.
             .or((encoding == Encoding::Stem && v == 1).then_some(Face::Up)),
         PropertyValue::String(v) => match encoding {
             Encoding::DoorCardinal => face_of(v).map(rotate_counterclockwise),
@@ -225,7 +222,7 @@ fn int_table(encoding: Encoding) -> &'static [(Face, i32)] {
     }
 }
 
-/// The state with its pillar axis set (PMMP `PillarRotationTrait`); `None` without one.
+/// The state with its pillar axis set; `None` without one.
 pub(super) fn with_axis(state: State, axis: Axis) -> Option<State> {
     let value = match axis {
         Axis::X => "x",
@@ -238,17 +235,8 @@ pub(super) fn with_axis(state: State, axis: Axis) -> Option<State> {
     with_string(state, PORTAL_AXIS, value)
 }
 
-/// The lit or unlit form of a block whose lit form is named `lit_<name>` (furnaces, redstone
-/// ore), with its properties; `None` without such a form.
-pub(in crate::tick) fn with_lit(state: State, lit: bool) -> Option<State> {
-    let name = state.name().strip_prefix(NAMESPACE)?;
-    let base = name.strip_prefix(LIT_PREFIX).unwrap_or(name);
-    let prefix = if lit { LIT_PREFIX } else { "" };
-    renamed(state, &namespaced(prefix, base))
-}
-
-/// The dead form of living coral, with its properties (PMMP `setDead(true)`); `None` for dead
-/// coral or a block without a dead form.
+/// The dead form of living coral, with its properties; `None` for dead coral or a block without
+/// a dead form.
 pub(in crate::tick) fn dead_coral(state: State) -> Option<State> {
     if is_dead_coral(state) {
         return None;
@@ -257,7 +245,7 @@ pub(in crate::tick) fn dead_coral(state: State) -> Option<State> {
     renamed(state, &namespaced(DEAD_PREFIX, name))
 }
 
-/// The sixteenth-of-a-turn rotation of a yaw (PMMP `SignLikeRotationTrait::getRotationFromYaw`).
+/// The sixteenth-of-a-turn rotation of a yaw.
 pub(super) fn rotation_from_yaw(yaw: f64) -> i32 {
     let steps = f64::from(ROTATION_STEPS);
     let turned = ((yaw + FULL_TURN_DEGREES / 2.0) * steps / FULL_TURN_DEGREES + 0.5).floor();
@@ -265,8 +253,7 @@ pub(super) fn rotation_from_yaw(yaw: f64) -> i32 {
     float_to_i32(turned) & (ROTATION_STEPS - 1)
 }
 
-/// The horizontal face a yaw looks toward (PMMP `Entity::getHorizontalFacing`): yaw 0 looks
-/// south, 90 west, 180 north, 270 east.
+/// The horizontal face a yaw looks toward: yaw 0 looks south, 90 west, 180 north, 270 east.
 pub(in crate::tick) fn horizontal_facing(yaw: f64) -> Face {
     let mut angle = yaw % FULL_TURN_DEGREES;
     if angle < 0.0 {
@@ -328,9 +315,8 @@ pub(in crate::tick) fn with_string(state: State, name: &str, value: &str) -> Opt
     state.with(name, PropertyValue::String(value))
 }
 
-/// The state named `name` with exactly the properties of `state`, as PMMP copies a block's
-/// properties to another type (stripping a log, waxing copper, a dead coral); `None` if no such
-/// state exists.
+/// The state named `name` with exactly the properties of `state` (a dead coral, a double slab);
+/// `None` if no such state exists.
 pub(in crate::tick) fn renamed(state: State, name: &str) -> Option<State> {
     // `State::find` takes at most the properties a table state has.
     let mut buffer = [("", PropertyValue::Byte(0)); MAX_PROPERTIES];
@@ -352,15 +338,6 @@ pub(super) fn double_slab(state: State) -> Option<State> {
         None => format!("{}{DOUBLE_SLAB_SUFFIX}", name.strip_suffix("_slab")?),
     };
     renamed(state, &double)
-}
-
-/// Whether a block is the lit form of a block whose lit form is named `lit_<name>` (furnaces,
-/// redstone ore).
-pub(crate) fn is_lit(state: State) -> bool {
-    state
-        .name()
-        .strip_prefix(NAMESPACE)
-        .is_some_and(|name| name.starts_with(LIT_PREFIX))
 }
 
 /// Whether coral is dead: Bedrock names the dead forms `dead_<name>`.
@@ -394,8 +371,8 @@ pub(in crate::tick) fn face_of(name: &str) -> Option<Face> {
     Face::ALL.into_iter().find(|f| face_name(*f) == name)
 }
 
-/// The `multi_face_direction_bits` bit of a face (PMMP `MULTI_FACE_DIRECTION_FLAG_*`: down 1,
-/// up 2, south 4, west 8, north 16, east 32).
+/// The `multi_face_direction_bits` bit of a face: down 1, up 2, south 4, west 8, north 16, east
+/// 32.
 pub(in crate::tick) const fn multi_face_bit(face: Face) -> i32 {
     match face {
         Face::Down => 0x01,
@@ -407,8 +384,7 @@ pub(in crate::tick) const fn multi_face_bit(face: Face) -> i32 {
     }
 }
 
-/// The `vine_direction_bits` bit of a side (PMMP `BlockLegacyMetadata::VINE_FLAG_*`: south 1,
-/// west 2, north 4, east 8); `None` up and down.
+/// The `vine_direction_bits` bit of a side: south 1, west 2, north 4, east 8; `None` up and down.
 pub(in crate::tick) const fn vine_bit(face: Face) -> Option<i32> {
     match face {
         Face::Down | Face::Up => None,
@@ -419,8 +395,8 @@ pub(in crate::tick) const fn vine_bit(face: Face) -> Option<i32> {
     }
 }
 
-/// The face a quarter turn clockwise from `face` seen from above (PMMP `Facing::rotateY`): north
-/// goes east. Up and down stay.
+/// The face a quarter turn clockwise from `face` seen from above: north goes east. Up and down
+/// stay.
 pub(in crate::tick) const fn rotate_clockwise(face: Face) -> Face {
     match face {
         Face::Down | Face::Up => face,
@@ -431,8 +407,8 @@ pub(in crate::tick) const fn rotate_clockwise(face: Face) -> Face {
     }
 }
 
-/// The face a quarter turn counterclockwise from `face` seen from above (PMMP `Facing::rotateY`):
-/// north goes west. Up and down stay.
+/// The face a quarter turn counterclockwise from `face` seen from above: north goes west. Up and
+/// down stay.
 pub(in crate::tick) const fn rotate_counterclockwise(face: Face) -> Face {
     match face {
         Face::Down | Face::Up => face,
@@ -467,7 +443,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn horizontal_facing_follows_pmmp_yaw_ranges() {
+    fn horizontal_facing_follows_the_yaw_ranges() {
         assert_eq!(horizontal_facing(0.0), Face::South);
         assert_eq!(horizontal_facing(44.9), Face::South);
         assert_eq!(horizontal_facing(45.0), Face::West);
@@ -480,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn rotation_from_yaw_matches_pmmp() {
+    fn rotation_from_yaw_gives_sixteenths_of_a_turn() {
         assert_eq!(rotation_from_yaw(0.0), 8);
         assert_eq!(rotation_from_yaw(30.0), 9);
         assert_eq!(rotation_from_yaw(-180.0), 0);
@@ -508,18 +484,6 @@ mod tests {
         let flowing = renamed(water, "minecraft:flowing_water").unwrap();
         assert_eq!(flowing.name(), "minecraft:flowing_water");
         assert_eq!(flowing.value("liquid_depth"), water.value("liquid_depth"));
-    }
-
-    #[test]
-    fn lit_forms_swap_the_prefix() {
-        let furnace = State::all()
-            .find(|s| s.name() == "minecraft:furnace")
-            .unwrap();
-        let lit = with_lit(furnace, true).unwrap();
-        assert_eq!(lit.name(), "minecraft:lit_furnace");
-        assert!(is_lit(lit));
-        assert!(!is_lit(furnace));
-        assert_eq!(with_lit(lit, false), Some(furnace));
     }
 
     #[test]

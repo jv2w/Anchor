@@ -31,14 +31,14 @@ use super::{
 };
 use crate::config::GameMode;
 use crate::entity::{Animation, Id};
-use crate::event::{Actor, CombustSource, DamageSource};
+use crate::event::{CombustSource, DamageSource};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::Compound;
 use crate::protocol::Uuid;
 use crate::save::WorldIndex;
-use crate::tick::{Phase, SessionId, survival, update};
-use crate::world::{BlockPos, Sound};
+use crate::tick::{Phase, SessionId, survival};
+use crate::world::Sound;
 
 /// Spawns `npc` at `pos`, or `None` at the entity limit, in an unloaded chunk or for a long name.
 /// A name is long past [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module
@@ -284,22 +284,8 @@ pub(super) fn tick(state: &mut State, id: Id) {
 }
 
 /// Handles an NPC landing after a fall of `fall` blocks (PMMP `Living::onHitGround`).
-/// It may trample the farmland it lands on, and takes the fall damage beyond 3 blocks.
+/// It takes the fall damage beyond 3 blocks.
 pub(super) fn landed(state: &mut State, id: Id, fall: f64) {
-    let Some(e) = state.rules.entities.get(id) else {
-        return;
-    };
-    let (world, p) = (e.world, e.body.position);
-    let mut pos = BlockPos::containing(p);
-    let empty = state
-        .worlds
-        .get(world)
-        .and_then(|w| w.block(pos))
-        .is_none_or(|s| s.collision_boxes().is_empty());
-    if empty {
-        pos = BlockPos::new(pos.x, pos.y.saturating_sub(1), pos.z);
-    }
-    update::trample(state, world, pos, fall, Actor::Entity(id));
     let damage = (fall - SAFE_FALL).ceil();
     if damage > 0.0 {
         hurt(state, id, Blow::of(Cause::Fall, damage), None);

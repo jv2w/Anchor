@@ -1,11 +1,11 @@
 //! Leaks: a player joins, opens and closes every window, is sent a form, places and breaks blocks
-//! with block entities, makes and loses entities, schedules block updates, trades and leaves, 100
-//! times; every table and queue [`Tables`] lists is back at its start.
+//! with block entities, makes and loses entities, trades and leaves, 100 times; every table and
+//! queue [`Tables`] lists is back at its start.
 
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::block::{self, Face, Kind};
+use crate::block::{Face, Kind};
 use crate::form::Modal;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
@@ -18,43 +18,14 @@ use crate::world::BlockPos;
 
 /// Where the window blocks go as (x, z): in front of the player at the spawn (looking south),
 /// apart so no two chests pair, and within survival reach.
-const SPOTS: [(i32, i32); 16] = [
-    (-5, 1),
-    (-3, 1),
-    (-1, 1),
-    (1, 1),
-    (3, 1),
-    (5, 1),
-    (-5, 3),
-    (-3, 3),
-    (-1, 3),
-    (1, 3),
-    (3, 3),
-    (5, 3),
-    (-3, 5),
-    (-1, 5),
-    (1, 5),
-    (3, 5),
-];
+const SPOTS: [(i32, i32); 4] = [(-5, 1), (-3, 1), (-1, 1), (1, 1)];
 
 /// The blocks with a window, each opened once a cycle.
-const WINDOWS: [Kind; 16] = [
+const WINDOWS: [Kind; 4] = [
     Kind::Chest,
     Kind::Barrel,
     Kind::ShulkerBox,
-    Kind::Hopper,
     Kind::EnderChest,
-    Kind::Furnace,
-    Kind::BlastFurnace,
-    Kind::Smoker,
-    Kind::BrewingStand,
-    Kind::CraftingTable,
-    Kind::EnchantingTable,
-    Kind::Anvil,
-    Kind::SmithingTable,
-    Kind::Stonecutter,
-    Kind::Loom,
-    Kind::Beacon,
 ];
 
 /// Every table and queue the leak test watches, by a size or a form that holds no counter.
@@ -79,10 +50,8 @@ struct Tables {
     chunks_idle: bool,
     extras: usize,
     saving_idle: bool,
-    /// Loaded chunks, viewer entries, spills, active block entities.
-    block_entities: (usize, usize, usize, usize),
-    /// Scheduled updates, their index, queued neighbour updates.
-    updates: (usize, usize, usize),
+    /// Loaded chunks, viewer entries, spills.
+    block_entities: (usize, usize, usize),
     /// Every entity table, without its ID counters.
     entities: String,
     /// The trading sessions and their index, without the offer ID counter.
@@ -164,7 +133,6 @@ fn tables(state: &State) -> Tables {
         extras: state.chunks.extras.len(),
         saving_idle: state.saving.is_idle(),
         block_entities: state.rules.block_entities.sizes(),
-        updates: state.rules.updates.len(),
         entities: masked(
             &format!("{:?}", state.rules.entities),
             &["retired", "cursor"],
@@ -244,7 +212,7 @@ fn offers() -> trade::Offers {
 }
 
 /// One cycle of session `n`: join, a form, every window, block entities placed and broken,
-/// entities, block updates, a trade, leave; then the world settles.
+/// entities, a trade, leave; then the world settles.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one cycle reads in the order a player plays it"
@@ -343,13 +311,6 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
     entity::drop_xp(state, 0, Vec3::new(0.5, -60.0, 2.5), 30);
     let snowball = Stack::new(crate::item::Kind::Snowball.default_type(), 1);
     assert!(entity::throw(state, SessionId::new(n), &snowball));
-    // Block updates: sand over air falls as an entity and lands; a scheduled update of dirt.
-    let sand = BlockPos::new(-2, -57, 7);
-    state.worlds[0]
-        .set_block(sand, Kind::Sand.default_state())
-        .unwrap();
-    update::schedule(state, 0, sand, 2);
-    update::schedule(state, 0, BlockPos::new(2, -61, 7), 3);
     for _ in 0..30 {
         run(state, output, &mut s, Vec::new());
     }
@@ -362,19 +323,15 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
         .unwrap()
         .items[0] = stick;
     for (i, kind) in WINDOWS.into_iter().enumerate() {
-        let cause = interact::Destroy::Rules;
+        let cause = interact::Destroy::Explosion {
+            size: 4.0,
+            raise: entity::Raise::Quiet,
+        };
         assert!(interact::destroy(state, 0, spot(i), cause), "{kind:?}");
     }
     for _ in 0..10 {
         run(state, output, &mut s, Vec::new());
     }
-    let landed = BlockPos::new(-2, -60, 7);
-    assert_eq!(
-        state.worlds[0].block(landed),
-        Some(Kind::Sand.default_state()),
-        "the sand fell"
-    );
-    state.worlds[0].set_block(landed, block::AIR).unwrap();
     remove_entities(state, first_entity);
     let bye = leave(n, s.next_seq());
     run(state, output, &mut s, vec![bye]);

@@ -1,5 +1,5 @@
-//! A player breaking an inert block ([`block::Inert`]): PMMP `Player::breakBlock` with the same
-//! checks as for an Anchor state, but no drops of its own and no rule of the block: it becomes air.
+//! A player breaking an inert block ([`block::Inert`]): the same checks as for an Anchor state,
+//! but no drops of its own and no rule of the block: it becomes air.
 
 use tracing::debug;
 
@@ -17,8 +17,8 @@ use crate::world::BlockPos;
 /// caller resyncs) for a spectator, an adventure player whose tool's `CanDestroy` does not name
 /// it, a block that cannot be broken, a break before its time when `counted`, or a [`BlockBreak`]
 /// listener that cancels it. The event names [`block::INFO_UPDATE`] in its place (the block
-/// Anchor stands in for states it does not implement) and starts with no drops; drops and
-/// xp a listener gives are dropped.
+/// Anchor stands in for states it does not implement) and starts with no drops; the drops a
+/// listener gives fall.
 pub(super) fn break_block(
     state: &mut State,
     mut actor: Actor,
@@ -47,7 +47,6 @@ pub(super) fn break_block(
             item: tool.clone(),
             insta_break: !counted,
             drops: Vec::new(),
-            xp_drop_amount: 0,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -72,11 +71,9 @@ pub(super) fn break_block(
         }
         event = Some(e);
     }
-    let (drops, xp) = event
-        .as_ref()
-        .map_or((Vec::new(), 0), |e| (e.drops.clone(), e.xp_drop_amount));
+    let drops = event.as_ref().map_or_else(Vec::new, |e| e.drops.clone());
     let broke = finish_break_with(state, &actor, pos, |state| {
-        destroy(state, &actor, pos, block, &tool, drops, xp).then_some(())
+        destroy(state, &actor, pos, block, &tool, drops).then_some(())
     })
     .is_some();
     if let Some(e) = event.filter(|_| broke) {
@@ -99,7 +96,6 @@ fn destroy(
     block: Inert,
     tool: &Stack,
     drops: Vec<Stack>,
-    xp: u32,
 ) -> bool {
     if !drops_fit(state, actor.world, drops.len()) {
         return false;
@@ -120,7 +116,7 @@ fn destroy(
         .expect("the world of a break is loaded")
         .set_block(pos, block::AIR)
         .expect("a broken block is in a loaded chunk inside the world");
-    spawn_drops(state, actor.world, pos, drops, xp);
+    spawn_drops(state, actor.world, pos, drops);
     wear_after_break(state, actor, pos, tool, block.break_info());
     true
 }

@@ -1,5 +1,4 @@
-//! The item stack request executor (PMMP `ItemStackRequestExecutor`, with BDS's stack network
-//! ID rules, P6).
+//! The item stack request executor, with the official server's stack network ID rules (P6).
 //!
 //! A request is one unit: its actions run in order on a scratch copy of the slots they touch
 //! ([`Exec`]); if every action and the end-of-request checks pass, the changes are committed at
@@ -9,16 +8,12 @@
 //! request left it (no check); a negative ID must be the request that last changed the slot; any
 //! other ID must be the slot's ID before the request. A whole stack that moves keeps its ID; part
 //! of a stack moved into an empty slot gets a new ID while the rest keeps its own; a merge or a
-//! count change keeps the ID; created items (crafting, creative) get new IDs.
+//! count change keeps the ID; created items (a trade, creative) get new IDs.
 //!
-//! Crafting: `CraftRecipe` crafts from the crafting grid (2x2, or the crafting table's 3x3): the
-//! grid as the action finds it must lay out the recipe (shaped: exact shape or its mirror;
-//! shapeless: exactly the ingredients), and the request must consume exactly the crafted count from
-//! every occupied cell and nothing else. `CraftRecipeAuto` (the recipe book) ignores the client's
-//! ingredient list: what the request consumes, from the inventory and the grid, must be exactly the
-//! recipe's ingredients for the crafted count; in a trade window it is the quick trade, which the
-//! station checks against the offer. `CraftResultsDeprecated` is ignored (BDS does not check it
-//! either).
+//! Crafting is not offered: a craft action outside a trade window is refused. In a trade
+//! window `CraftRecipe` is a trade and `CraftRecipeAuto` the quick trade, which the trade
+//! window's [`station`] checks against the offer. `CraftResultsDeprecated` is ignored (the
+//! official server does not check it either).
 
 mod events;
 
@@ -28,13 +23,11 @@ use std::fmt;
 use tracing::{debug, warn};
 
 use super::{
-    Container, GRID, HOTBAR, Inventory, MAX_RECENT_REQUESTS, MAX_SAVED_PENDING, Notice, Slot,
-    SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window, WindowKind, block_slot, can_throw,
-    close_now, give_pending, held_count, menu, resend_all, slot_packet, station, take_stack_id,
-    throw_stack, window_slot_of,
+    Container, HOTBAR, Inventory, MAX_RECENT_REQUESTS, MAX_SAVED_PENDING, Notice, Slot, SlotRef,
+    StackId, UI_CREATED_OUTPUT, Window, WindowKind, block_slot, can_throw, close_now, give_pending,
+    held_count, menu, resend_all, slot_packet, station, take_stack_id, throw_stack, window_slot_of,
 };
 use crate::block::{self, Class};
-use crate::crafting::{self, Recipe, ShapelessType};
 use crate::item::{ArmorSlot, Stack};
 use crate::menu::{Change, Input, Response};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
@@ -45,36 +38,13 @@ use crate::protocol::{
     TransferStackRequestAction,
 };
 use crate::tick::entity::Raise;
-use crate::tick::{Phase, Player, SessionId, State, block_entity, entity, survival};
+use crate::tick::{Phase, Player, SessionId, State, block_entity, survival};
 
-/// The most actions in one request (PMMP: the recipe book's largest craft needs about 53).
+/// The most actions in one request: a quick trade consumes from the 36 main slots and the two
+/// payment slots, besides its craft and take actions.
 pub(super) const MAX_ACTIONS: usize = 60;
-/// The most entries of a recipe book craft's ingredient list (a recipe has at most 9).
-const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
-/// The most requests a player has handled per tick (PMMP: 80 per packet); more are refused.
+/// The most requests a player has handled per tick; more are refused.
 pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
-/// The player's 2x2 crafting grid.
-const PLAYER_GRID: [SlotRef; 4] = [
-    SlotRef::Grid(0),
-    SlotRef::Grid(1),
-    SlotRef::Grid(2),
-    SlotRef::Grid(3),
-];
-/// The crafting table's 3x3 grid: the first nine of the window's own slots.
-const TABLE_GRID: [SlotRef; 9] = [
-    SlotRef::Ui(0),
-    SlotRef::Ui(1),
-    SlotRef::Ui(2),
-    SlotRef::Ui(3),
-    SlotRef::Ui(4),
-    SlotRef::Ui(5),
-    SlotRef::Ui(6),
-    SlotRef::Ui(7),
-    SlotRef::Ui(8),
-];
-const _: () = assert!(GRID == PLAYER_GRID.len());
-const _: () = assert!(GRID <= crafting::GRID_CELLS);
-const _: () = assert!(MAX_ACTIONS <= crafting::MAX_PROVIDED);
 
 /// One request applied on a scratch copy of the slots it touches.
 pub(super) struct Exec<'a> {
@@ -83,8 +53,8 @@ pub(super) struct Exec<'a> {
     /// The block container slots of the window, by half (a double chest has two).
     halves: [&'a [Stack]; 2],
     request: i32,
-    pub(super) creative: bool,
-    /// What the stations read from outside the inventory.
+    creative: bool,
+    /// What the trade window reads from outside the inventory.
     pub(super) outside: &'a station::Outside,
     /// The slots changed so far, in their new state.
     overlay: BTreeMap<SlotRef, Slot>,
@@ -93,11 +63,10 @@ pub(super) struct Exec<'a> {
     seen: BTreeSet<(u8, u8)>,
     next_id: i32,
     created: Option<Created>,
-    craft: Option<Craft<'a>>,
-    /// A station's craft in progress.
-    pub(super) station: Option<station::Craft>,
-    /// What the request's station crafts do once committed.
-    pub(super) effects: Vec<station::Effect>,
+    /// The trade in progress.
+    pub(super) craft: Option<station::Craft>,
+    /// The trade the request makes once committed.
+    pub(super) traded: Option<station::Traded>,
     /// What consume actions took, and from where (`None`: the created output).
     pub(super) consumed: Vec<(Option<SlotRef>, Stack)>,
     drop: Option<Stack>,
@@ -143,8 +112,7 @@ impl<'a> Exec<'a> {
             next_id: inv.next_id,
             created: None,
             craft: None,
-            station: None,
-            effects: Vec::new(),
+            traded: None,
             consumed: Vec::new(),
             drop: None,
             lent: inv.lent,
@@ -155,7 +123,7 @@ impl<'a> Exec<'a> {
     }
 
     /// The slot as the request has left it so far.
-    pub(super) fn slot(&self, r: SlotRef) -> Result<Slot> {
+    fn slot(&self, r: SlotRef) -> Result<Slot> {
         match self.overlay.get(&r) {
             Some(s) => Ok(s.clone()),
             None => self.base(r).ok_or(Error::NoSlot),
@@ -163,7 +131,7 @@ impl<'a> Exec<'a> {
     }
 
     /// The slot a request slot names, after checking its stack network ID.
-    pub(super) fn resolve(&mut self, info: &StackRequestSlotInfo) -> Result<SlotRef> {
+    fn resolve(&mut self, info: &StackRequestSlotInfo) -> Result<SlotRef> {
         let (container, slot) = (info.container.container_id, info.slot);
         if info.container.dynamic_container_id.is_some() {
             return Err(Error::NoSlot);
@@ -187,7 +155,7 @@ impl<'a> Exec<'a> {
 
     /// Takes `count` items from a request slot (the created output included): the slot keeps
     /// its ID unless it empties. Returns where they came from and what was taken.
-    pub(super) fn remove(
+    fn remove(
         &mut self,
         info: &StackRequestSlotInfo,
         count: u8,
@@ -211,7 +179,7 @@ impl<'a> Exec<'a> {
     }
 
     /// Puts items into the created output; the previous ones must all have been taken, unless
-    /// they came from the creative inventory (PMMP `setNextCreatedItem`).
+    /// they came from the creative inventory.
     pub(super) fn set_created(&mut self, next: Option<Created>) -> Result<()> {
         if let Some(c) = &self.created
             && !c.creative
@@ -242,8 +210,8 @@ impl<'a> Exec<'a> {
         }
     }
 
-    /// Whether slot `r` takes `stack` (PMMP slot validators): armour only in its slot (a carved
-    /// pumpkin or a mob head on the head), only what [`Stack::can_enter_shulker_box`] in a shulker box.
+    /// Whether slot `r` takes `stack`: armour only in its slot (a carved pumpkin or a mob head on
+    /// the head), only what [`Stack::can_enter_shulker_box`] in a shulker box.
     fn accepts(&self, r: SlotRef, stack: &Stack) -> Result<()> {
         let Some(item) = stack.item() else {
             return Ok(());
@@ -290,70 +258,6 @@ impl<'a> Exec<'a> {
         Ok(())
     }
 
-    /// Whether the consume actions took exactly what `craft` takes, each cell's from the item it
-    /// held when the craft began.
-    fn check_consumed(&self, craft: &Craft<'_>) -> Result<()> {
-        let times = u32::from(craft.times);
-        let Some((cells, refs, side)) = &craft.grid else {
-            return self.check_auto(craft, times);
-        };
-        let laid_out = match craft.recipe {
-            Recipe::Shaped(r) => r.matches(cells, *side),
-            Recipe::Shapeless(r) => r.matches(cells),
-            _ => false,
-        };
-        if !laid_out {
-            return Err(Error::Layout);
-        }
-        let mut taken = [0_u32; crafting::GRID_CELLS];
-        for (r, stack) in &self.consumed {
-            let k = refs
-                .iter()
-                .position(|x| Some(*x) == *r)
-                .ok_or(Error::Consumed)?;
-            if !cells.get(k).is_some_and(|cell| cell.can_stack_with(stack)) {
-                return Err(Error::Consumed);
-            }
-            let t = taken.get_mut(k).ok_or(Error::Consumed)?;
-            *t = t.saturating_add(u32::from(stack.count()));
-        }
-        let exact = cells
-            .iter()
-            .zip(taken)
-            .all(|(cell, t)| t == if cell.is_empty() { 0 } else { times });
-        if exact { Ok(()) } else { Err(Error::Consumed) }
-    }
-
-    /// The recipe book: what was consumed, from the inventory and the grids, is exactly `times`
-    /// of every ingredient.
-    fn check_auto(&self, craft: &Craft<'_>, times: u32) -> Result<()> {
-        let workbench = self.window.is_some_and(|w| w.kind.is_workbench());
-        let mut provided = Vec::with_capacity(self.consumed.len());
-        for (r, stack) in &self.consumed {
-            let allowed = match r {
-                Some(SlotRef::Main(_) | SlotRef::Grid(_)) => true,
-                Some(SlotRef::Ui(i)) => workbench && *i < 9,
-                _ => false,
-            };
-            if !allowed {
-                return Err(Error::Consumed);
-            }
-            provided.push((stack.clone(), u32::from(stack.count())));
-        }
-        let matched = match craft.recipe {
-            Recipe::Shaped(r) => crafting::consumed_matches(r.ingredients(), &provided, times),
-            Recipe::Shapeless(r) => {
-                crafting::consumed_matches(r.ingredients.iter(), &provided, times)
-            }
-            _ => false,
-        };
-        if matched {
-            Ok(())
-        } else {
-            Err(Error::Consumed)
-        }
-    }
-
     fn action(&mut self, action: &StackRequestAction) -> Result<()> {
         match action {
             StackRequestAction::Take(a) => self.transfer(&a.transfer_stack_request_action),
@@ -367,11 +271,6 @@ impl<'a> Exec<'a> {
                 self.drop = Some(dropped);
                 Ok(())
             }
-            StackRequestAction::Destroy(a) if station::can_take_destroy(self) => {
-                let consumed = self.remove(&a.source, a.count)?;
-                self.consumed.push(consumed);
-                Ok(())
-            }
             StackRequestAction::Destroy(a) => {
                 if !self.creative {
                     return Err(Error::NotCreative);
@@ -380,25 +279,12 @@ impl<'a> Exec<'a> {
             }
             StackRequestAction::Consume(a) => {
                 let a = &a.destroy_stack_request_action;
-                if self.craft.is_none() && !station::is_crafting(self) {
-                    return Err(Error::Crafting);
+                if self.craft.is_none() {
+                    return Err(Error::Trade);
                 }
                 let consumed = self.remove(&a.source, a.count)?;
                 self.consumed.push(consumed);
                 Ok(())
-            }
-            StackRequestAction::Create(a) => {
-                let craft = self.craft.as_mut().ok_or(Error::Crafting)?;
-                let index = usize::from(a.results_slot);
-                let result = craft.results.get(index).cloned().ok_or(Error::Recipe)?;
-                let bit = 1_u32.checked_shl(u32::from(a.results_slot)).unwrap_or(0);
-                // Each result is made once per craft; a second create would duplicate it.
-                if craft.created & bit != 0 {
-                    return Err(Error::Crafting);
-                }
-                craft.created |= bit;
-                let times = u32::from(craft.times);
-                self.set_created(Some(Created::of(&result, times)))
             }
             StackRequestAction::CraftCreative(a) => {
                 if !self.creative {
@@ -408,7 +294,7 @@ impl<'a> Exec<'a> {
                     .outside
                     .custom
                     .creative_stack(self.outside.creative, a.creative_item_network_id)
-                    .ok_or(Error::Recipe)?;
+                    .ok_or(Error::NoItem)?;
                 self.set_created(Some(Created {
                     stack,
                     total: 0,
@@ -416,25 +302,9 @@ impl<'a> Exec<'a> {
                     creative: true,
                 }))
             }
-            StackRequestAction::CraftRecipe(a) if !station::can_take_craft_recipe(self) => {
-                self.begin_craft(a.recipe_network_id, a.number_of_crafts, Ingredients::Grid)
-            }
-            StackRequestAction::AutoCraftRecipe(_) if station::can_take_auto_craft(self) => {
-                station::action(self, action)
-            }
-            StackRequestAction::AutoCraftRecipe(_) if !self.outside.custom.has_recipe_book() => {
-                Err(Error::Recipe)
-            }
-            StackRequestAction::AutoCraftRecipe(a) => {
-                // The client's ingredient list is not used, only bounded (P6).
-                if a.ingredients.len() > MAX_INGREDIENT_ENTRIES {
-                    return Err(Error::TooLarge);
-                }
-                self.begin_craft(a.recipe_network_id, a.number_of_crafts, Ingredients::Book)
-            }
             StackRequestAction::CraftResultsDeprecated(_) => Ok(()),
             StackRequestAction::MineBlock(a) => {
-                // Durability is the server's; the slot is only named in the response (PMMP).
+                // Durability is the server's; the slot is only named in the response.
                 let slot = u8::try_from(a.hotbar_slot)
                     .ok()
                     .filter(|s| *s < HOTBAR)
@@ -467,7 +337,7 @@ impl<'a> Exec<'a> {
         take_stack_id(&mut self.next_id)
     }
 
-    /// `Take` and `Place`: moves `count` items (PMMP `transferItems`).
+    /// `Take` and `Place`: moves `count` items.
     fn transfer(&mut self, a: &TransferStackRequestAction) -> Result<()> {
         let count = a.count;
         if count == 0 {
@@ -566,7 +436,7 @@ impl<'a> Exec<'a> {
         }
     }
 
-    /// Takes `count` created items (PMMP `takeCreatedItem`); a stack holds at most its maximum.
+    /// Takes `count` created items; a stack holds at most its maximum.
     fn take_created(&mut self, count: u8) -> Result<Stack> {
         let created = self.created.as_mut().ok_or(Error::NothingCreated)?;
         if count == 0 || count > created.stack.max_count() {
@@ -583,78 +453,10 @@ impl<'a> Exec<'a> {
         Ok(taken)
     }
 
-    /// `CraftRecipe` and `CraftRecipeAuto`: begins crafting a crafting recipe `times` times. It
-    /// must fit the open grid (the crafting table's 3x3, else the 2x2). A recipe with one result
-    /// puts it into the created output now; others wait for `Create` actions.
-    fn begin_craft(&mut self, id: u32, times: u8, ingredients: Ingredients) -> Result<()> {
-        if self.craft.is_some() || times == 0 {
-            return Err(Error::Crafting);
-        }
-        let recipe = self.outside.custom.recipe(id).ok_or(Error::Recipe)?;
-        let workbench = self.window.is_some_and(|w| w.kind.is_workbench());
-        let side = if workbench { 3 } else { 2 };
-        let results = match recipe {
-            Recipe::Shaped(r) if r.size().0 <= side && r.size().1 <= side => r.results,
-            Recipe::Shapeless(r)
-                if r.kind == ShapelessType::Crafting && r.ingredients.len() <= side * side =>
-            {
-                r.results
-            }
-            _ => return Err(Error::Recipe),
-        };
-        let results: Vec<Stack> = results
-            .iter()
-            .map(|s| s.to_item())
-            .collect::<Option<_>>()
-            .ok_or(Error::Recipe)?;
-        let grid = match ingredients {
-            Ingredients::Book => None,
-            Ingredients::Grid => {
-                let refs: &'static [SlotRef] = if workbench { &TABLE_GRID } else { &PLAYER_GRID };
-                let cells = refs
-                    .iter()
-                    .map(|r| self.slot(*r).map(|s| s.stack))
-                    .collect::<Result<Vec<_>>>()?;
-                Some((cells, refs, side))
-            }
-        };
-        let single = match results.as_slice() {
-            [one] => Some(Created::of(one, u32::from(times))),
-            _ => None,
-        };
-        if self.describe {
-            self.made = Some(Made::Craft {
-                inputs: Vec::new(),
-                outputs: results.clone(),
-                times: u32::from(times),
-            });
-        }
-        self.craft = Some(Craft {
-            recipe,
-            times,
-            created: u32::from(single.is_some()),
-            results,
-            grid,
-        });
-        match single {
-            Some(created) => self.set_created(Some(created)),
-            None => Ok(()),
-        }
-    }
-
-    /// The end-of-request checks: every created item taken, and a craft consumed exactly what
-    /// it takes.
+    /// The end-of-request checks: every created item taken, a trade consumed exactly its
+    /// payments, and the stacks held outside the slots can go back.
     fn finish(&mut self) -> Result<()> {
         self.set_created(None)?;
-        if let Some(craft) = self.craft.take() {
-            let all = 1_u32
-                .checked_shl(u32::try_from(craft.results.len()).unwrap_or(32))
-                .map_or(u32::MAX, |b| b - 1);
-            if craft.created != all {
-                return Err(Error::CreatedLeft);
-            }
-            self.check_consumed(&craft)?;
-        }
         self.check_returnable()?;
         station::finish(self)
     }
@@ -673,16 +475,13 @@ impl<'a> Exec<'a> {
         } else {
             Vec::new()
         };
-        if let Some(Made::Craft { inputs, times, .. }) = &mut self.made {
-            *inputs = per_craft(&self.consumed, *times);
-        }
         Ok(Plan {
             writes: self.overlay.into_iter().collect(),
             before,
             touched: self.touched,
             next_id: self.next_id,
             drop: self.drop,
-            effects: self.effects,
+            traded: self.traded,
             made: self.made,
             lent: self.lent,
         })
@@ -698,19 +497,6 @@ impl fmt::Debug for Exec<'_> {
     }
 }
 
-/// A craft in progress in a request.
-#[derive(Debug)]
-struct Craft<'a> {
-    recipe: Recipe<'a>,
-    times: u8,
-    /// The recipe's results, one craft's worth each.
-    results: Vec<Stack>,
-    /// Bit `i`: result `i` was created.
-    created: u32,
-    /// The crafting grid when the craft began, with its slots; `None` for the recipe book.
-    grid: Option<(Vec<Stack>, &'static [SlotRef], usize)>,
-}
-
 /// Items waiting in the created output (container 60, slot 50).
 #[derive(Debug, Clone)]
 pub(super) struct Created {
@@ -723,7 +509,7 @@ pub(super) struct Created {
 }
 
 impl Created {
-    /// `times` crafts of `result`.
+    /// `times` makes of `result`.
     pub(super) fn of(result: &Stack, times: u32) -> Self {
         Self {
             stack: result.with_count(1),
@@ -734,30 +520,26 @@ impl Created {
     }
 }
 
-/// What a request makes, for its events.
+/// The trade a request makes, for its events: `times` trades of the offer with network ID
+/// `net_id`.
 #[derive(Debug, Clone)]
-pub(super) enum Made {
-    /// A recipe (crafting grid, recipe book, stonecutter, smithing table, loom) `times` times;
-    /// `inputs` is filled at the end from what the request consumed.
-    Craft {
-        inputs: Vec<Stack>,
-        outputs: Vec<Stack>,
-        times: u32,
-    },
-    /// An enchanting option.
-    Enchant {
-        choice: station::Choice,
-        input: Stack,
-        output: Stack,
-        cost: u8,
-    },
+pub(super) struct Made {
+    net_id: u32,
+    inputs: [Stack; 2],
+    output: Stack,
+    times: u32,
+}
+
+impl Made {
     /// `times` trades of the offer with network ID `net_id`.
-    Trade {
-        net_id: u32,
-        inputs: [Stack; 2],
-        output: Stack,
-        times: u32,
-    },
+    pub(super) fn of(net_id: u32, inputs: [Stack; 2], output: Stack, times: u32) -> Self {
+        Self {
+            net_id,
+            inputs,
+            output,
+            times,
+        }
+    }
 }
 
 /// What a request does once every check passed.
@@ -769,7 +551,7 @@ pub(super) struct Plan {
     touched: Vec<(u8, u8)>,
     next_id: i32,
     drop: Option<Stack>,
-    effects: Vec<station::Effect>,
+    traded: Option<station::Traded>,
     made: Option<Made>,
     /// How many of the cursor's items are lent afterwards ([`Inventory::lent`]).
     lent: u8,
@@ -777,7 +559,7 @@ pub(super) struct Plan {
 
 impl Plan {
     /// Whether `other` does the same: the same slots to the same stacks, the same drop, the same
-    /// station effects and the same lent items (stack network IDs aside).
+    /// trade and the same lent items (stack network IDs aside).
     fn is_same_as(&self, other: &Self) -> bool {
         self.writes.len() == other.writes.len()
             && self
@@ -786,7 +568,7 @@ impl Plan {
                 .zip(&other.writes)
                 .all(|((ra, a), (rb, b))| ra == rb && a.stack == b.stack)
             && self.drop == other.drop
-            && self.effects == other.effects
+            && self.traded == other.traded
             && self.lent == other.lent
     }
 }
@@ -796,7 +578,7 @@ impl Plan {
 pub(super) enum Error {
     /// More requests this tick than [`MAX_REQUESTS_PER_TICK`].
     Busy,
-    /// More actions than [`MAX_ACTIONS`] or ingredient entries than a recipe has.
+    /// More actions than [`MAX_ACTIONS`].
     TooLarge,
     /// A request ID the player used recently.
     Repeat,
@@ -816,13 +598,13 @@ pub(super) enum Error {
     NothingCreated,
     /// Created items left behind.
     CreatedLeft,
-    /// A consume or create action outside a craft, or a second craft.
-    Crafting,
-    /// An unknown recipe, or one that does not fit the open grid.
-    Recipe,
-    /// The grid does not lay out the recipe.
-    Layout,
-    /// What was consumed is not what the craft takes.
+    /// A consume action outside a trade, or a second trade.
+    Trade,
+    /// An unknown trade offer, or one the trade window cannot make now.
+    Offer,
+    /// A creative item number the player's creative inventory lacks.
+    NoItem,
+    /// What was consumed is not what the trade takes.
     Consumed,
     /// More than one drop in a request (a failed second drop could not undo the first).
     Drops,
@@ -831,7 +613,7 @@ pub(super) enum Error {
     /// The stacks held outside the slots afterwards could not all wait for room on a close (the
     /// player already waits with many stacks).
     Unreturnable,
-    /// An action of a station that is not open or not handled.
+    /// An action the open window does not take (a craft outside a trade window).
     Unsupported,
     /// A listener cancelled the request, or changed the game so that it no longer does what
     /// the listeners saw.
@@ -858,14 +640,14 @@ impl fmt::Display for Error {
             Self::NotCreative => f.write_str("not in creative mode"),
             Self::NothingCreated => f.write_str("no created item to take"),
             Self::CreatedLeft => f.write_str("created items were not all taken"),
-            Self::Crafting => f.write_str("craft action out of place"),
-            Self::Recipe => f.write_str("no such recipe for this grid"),
-            Self::Layout => f.write_str("the grid does not lay out the recipe"),
-            Self::Consumed => f.write_str("consumed items do not match the recipe"),
+            Self::Trade => f.write_str("trade action out of place"),
+            Self::Offer => f.write_str("no such trade offer"),
+            Self::NoItem => f.write_str("no such creative item"),
+            Self::Consumed => f.write_str("consumed items do not match the trade"),
             Self::Drops => f.write_str("more than one drop"),
             Self::Undroppable => f.write_str("no room in the world for the drop"),
             Self::Unreturnable => f.write_str("held items could not go back"),
-            Self::Unsupported => f.write_str("station action not available"),
+            Self::Unsupported => f.write_str("action not available in this window"),
             Self::Cancelled => f.write_str("cancelled by a listener"),
             Self::MenuChanged => f.write_str("changed by the menu handler"),
             Self::Menu => f.write_str("menu slot not editable or change refused by its handler"),
@@ -878,16 +660,6 @@ impl std::error::Error for Error {}
 /// A result with the module's [`enum@Error`].
 pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The stack network ID a viewer's slot gets when a container changes outside its requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Renumber {
-    /// A new ID (another player's request, an item that changed).
-    New,
-    /// The slot's ID stays: the container's own tick changed only its count (BDS keeps it, P6). An
-    /// empty slot gets ID 0 and a slot without an ID a new one.
-    Keep,
-}
-
 /// What a checked plan tells of itself, for the events and the open menu's handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Describe {
@@ -897,15 +669,6 @@ enum Describe {
     Made,
     /// What it makes and drops, and the slots it changes before and after.
     Slots,
-}
-
-/// Where a craft takes its ingredients from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ingredients {
-    /// The crafting grid, laid out as the recipe says (`CraftRecipe`).
-    Grid,
-    /// The inventory and the grids, as the recipe book picks them (`CraftRecipeAuto`).
-    Book,
 }
 
 impl Inventory {
@@ -934,7 +697,7 @@ pub(in crate::tick) fn on_item_stack_request(
     if player.phase == Phase::Loading {
         return;
     }
-    // PMMP `executeInventoryTransaction`: moving items stops using the held item.
+    // Moving items stops using the held item.
     survival::stop_using_item(player);
     let inv = &mut player.inventory;
     if inv.budget.0 != tick {
@@ -1095,14 +858,8 @@ fn is_creative(state: &State, session: SessionId) -> bool {
         .is_some_and(|p| !survival::has_finite_resources(survival::game_mode(state, p)))
 }
 
-/// Checks a request without applying it.
-#[cfg(test)]
-pub(super) fn dry_run(state: &State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
-    check(state, session, request, Describe::Nothing).map(|_| ())
-}
-
-/// Answers a refused request: an error response, then the whole inventory again (PMMP
-/// `requestSyncAll`) so the client undoes what it predicted.
+/// Answers a refused request: an error response, then the whole inventory again so the client
+/// undoes what it predicted.
 fn refuse(state: &mut State, session: SessionId, request: i32) {
     let tick = state.tick;
     let blocks = &state.rules.block_entities;
@@ -1140,20 +897,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
         .expect("a checked player is in the game");
     let kind = player.inventory.window.as_ref().map(|w| w.kind);
     let mut changed_blocks = Vec::new();
-    let mut enchant_input = false;
-    let mut furnace_taken = None;
     for (r, slot) in plan.writes {
-        if r == SlotRef::Ui(0)
-            && matches!(
-                kind,
-                Some(WindowKind::Station {
-                    kind: Station::Enchant,
-                    ..
-                })
-            )
-        {
-            enchant_input = true;
-        }
         if let SlotRef::Block(i) = r {
             let Some((world, pos, j)) = kind.and_then(|k| block_slot(k, i)) else {
                 continue;
@@ -1163,19 +907,6 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
                 .get_mut(world, pos)
                 .and_then(|e| e.items.get_mut(j))
             {
-                // dragonfly `collectRewards`: taking from a furnace's output gives its stored
-                // xp.
-                let furnace = matches!(
-                    kind,
-                    Some(WindowKind::Container {
-                        kind: Container::Furnace(_),
-                        ..
-                    })
-                );
-                if furnace && j == block_entity::FURNACE_OUTPUT && slot.stack.count() < item.count()
-                {
-                    furnace_taken = Some((world, pos));
-                }
                 *item = slot.stack;
             }
             if let Some(id) = player
@@ -1207,38 +938,16 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) {
     ));
     give_pending(player);
     for (world, pos, j) in changed_blocks {
-        rules.block_entities.wake(world, pos);
         for viewer in rules.block_entities.viewers(world, pos) {
             if *viewer != session
                 && let Some(other) = players.get_mut(viewer)
             {
-                notify(other, &rules.block_entities, world, pos, j, Renumber::New);
+                notify(other, &rules.block_entities, world, pos, j);
             }
         }
     }
-    if let Some((world, pos)) = furnace_taken {
-        drop_furnace_xp(state, session, world, pos);
-    }
-    station::apply(state, session, request, plan.effects);
-    if enchant_input {
-        station::refresh_enchant_options(state, session);
-    }
-}
-
-/// Drops the xp stored in the furnace at `pos` at the feet of the player who took its
-/// output.
-fn drop_furnace_xp(
-    state: &mut State,
-    session: SessionId,
-    world: crate::save::WorldIndex,
-    pos: crate::world::BlockPos,
-) {
-    let xp = block_entity::take_xp(state, world, pos);
-    if let Some(player) = state.players.get(&session)
-        && xp > 0
-    {
-        let (world, at) = (player.world, player.position);
-        entity::drop_xp(state, world, at, xp);
+    if let Some(traded) = plan.traded {
+        station::apply(state, session, request, traded);
     }
 }
 
@@ -1282,15 +991,14 @@ fn offer(
     }
 }
 
-/// Tells a viewer of a container that a slot changed outside its own requests, with the slot's
-/// ID as `renumber` says.
+/// Tells a viewer of a container that a slot changed outside its own requests, with a new stack
+/// network ID.
 pub(super) fn notify(
     player: &mut Player,
     blocks: &block_entity::BlockEntities,
     world: crate::save::WorldIndex,
     pos: crate::world::BlockPos,
     index: usize,
-    renumber: Renumber,
 ) {
     let Some(stack) = blocks
         .get(world, pos)
@@ -1311,21 +1019,15 @@ pub(super) fn notify(
     let Some(slot) = window_slot_of(kind, pos, index) else {
         return;
     };
-    let kept = player
-        .inventory
-        .window
-        .as_ref()
-        .and_then(|w| w.ids.get(usize::from(slot)).copied())
-        .filter(|id| renumber == Renumber::Keep && id.net != 0 && !stack.is_empty());
-    let net = match kept {
-        Some(id) => id.net,
-        None if stack.is_empty() => 0,
-        None => player.inventory.new_id(),
+    let net = if stack.is_empty() {
+        0
+    } else {
+        player.inventory.new_id()
     };
     if let Some(w) = player.inventory.window.as_mut()
         && let Some(slot_id) = w.ids.get_mut(usize::from(slot))
     {
-        *slot_id = kept.unwrap_or(StackId { net, request: None });
+        *slot_id = StackId { net, request: None };
     }
     player.send_packet(slot_packet(
         u32::from(id),
@@ -1335,8 +1037,8 @@ pub(super) fn notify(
 }
 
 /// The response of a request that succeeded: every container and slot it named, grouped by
-/// container in first-seen order, with the slots' contents now (PMMP `ItemStackResponseBuilder`;
-/// BDS: `Slot` = `HotbarSlot`, no filtered name). The created output is left out.
+/// container in first-seen order, with the slots' contents now (as the official server: `Slot` =
+/// `HotbarSlot`, no filtered name). The created output is left out.
 fn response(
     inv: &Inventory,
     blocks: &block_entity::BlockEntities,
@@ -1396,22 +1098,6 @@ fn response(
         request_id: request,
         container_info: containers,
     }
-}
-
-/// What one of `times` crafts used up: the consumed stacks, those that stack together summed,
-/// divided by `times` (the checks made the consumption exactly `times` crafts' worth).
-fn per_craft(consumed: &[(Option<SlotRef>, Stack)], times: u32) -> Vec<Stack> {
-    let mut sums: Vec<(Stack, u32)> = Vec::with_capacity(consumed.len());
-    for (_, stack) in consumed {
-        match sums.iter_mut().find(|(s, _)| s.can_stack_with(stack)) {
-            Some((_, n)) => *n = n.saturating_add(u32::from(stack.count())),
-            None => sums.push((stack.clone(), u32::from(stack.count()))),
-        }
-    }
-    sums.into_iter()
-        .map(|(s, n)| s.with_count(u8::try_from(n / times.max(1)).unwrap_or(u8::MAX)))
-        .filter(|s| !s.is_empty())
-        .collect()
 }
 
 /// Whether a request slot is the created output (container 60, slot 50).

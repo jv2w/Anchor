@@ -14,7 +14,6 @@ mod registry;
 mod stack;
 mod table;
 
-pub use crate::crafting::{TRIM_MATERIALS, TRIM_PATTERNS};
 pub use registry::SHIELD_RUNTIME_ID;
 #[cfg(test)]
 pub(crate) use stack::MAX_STORED_BYTES;
@@ -101,6 +100,61 @@ const TRAITS_FOOD: u32 = TRAITS_ITEM
 
 /// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
 const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
+
+/// The armour trim materials: material ID, text colour code and item, in the order the official
+/// server sends them in `TrimData`.
+pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
+    ("quartz", "\u{a7}h", "minecraft:quartz"),
+    ("iron", "\u{a7}i", "minecraft:iron_ingot"),
+    ("netherite", "\u{a7}j", "minecraft:netherite_ingot"),
+    ("redstone", "\u{a7}m", "minecraft:redstone"),
+    ("copper", "\u{a7}n", "minecraft:copper_ingot"),
+    ("gold", "\u{a7}p", "minecraft:gold_ingot"),
+    ("emerald", "\u{a7}q", "minecraft:emerald"),
+    ("diamond", "\u{a7}s", "minecraft:diamond"),
+    ("lapis", "\u{a7}t", "minecraft:lapis_lazuli"),
+    ("amethyst", "\u{a7}u", "minecraft:amethyst_shard"),
+    ("resin", "\u{a7}v", "minecraft:resin_brick"),
+];
+
+/// The armour trim material IDs (an item's [`TAG_TRIM_MATERIAL`]), in the order the official
+/// server sends them in `TrimData`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: evaluated when the crate builds, so an index out of range fails the build"
+)]
+pub const TRIM_MATERIALS: [&str; TRIM_MATERIAL_TABLE.len()] = {
+    let mut ids = [""; TRIM_MATERIAL_TABLE.len()];
+    let mut i = 0;
+    while i < ids.len() {
+        ids[i] = TRIM_MATERIAL_TABLE[i].0;
+        i += 1;
+    }
+    ids
+};
+
+/// The armour trim pattern IDs (an item's [`TAG_TRIM_PATTERN`]), in the order the official server
+/// sends them in `TrimData`: each is the template `minecraft:<pattern>_armor_trim_smithing_template`.
+pub const TRIM_PATTERNS: [&str; 18] = [
+    "ward",
+    "sentry",
+    "snout",
+    "dune",
+    "spire",
+    "tide",
+    "wild",
+    "rib",
+    "coast",
+    "shaper",
+    "eye",
+    "vex",
+    "silence",
+    "wayfinder",
+    "raiser",
+    "host",
+    "flow",
+    "bolt",
+];
 
 /// An item type: a Bedrock item name with its meta value and, for a block item, the block state
 /// of its saved form ([`Type::block`]).
@@ -1096,12 +1150,6 @@ impl EnchantmentData {
 pub struct Tag(u8);
 
 impl Tag {
-    /// The tag at this index of the tag table. Only generated tables call it.
-    #[inline]
-    pub(crate) const fn from_index(index: u8) -> Self {
-        Self(index)
-    }
-
     /// The tag with this name, or `None`.
     pub fn find(name: &str) -> Option<Self> {
         let at = table::TAG_NAMES.binary_search(&name).ok()?;
@@ -1495,13 +1543,6 @@ pub(crate) fn max_runtime_id() -> i16 {
         .map(|e| e.runtime_id)
         .max()
         .expect("the item registry has entries")
-}
-
-/// The dye colour ID (PMMP `DyeColorIdMap`, white 0 … black 15) of a dye item.
-#[doc(alias = "Dye::getColor")]
-pub(crate) fn dye_colour(item: Type) -> Option<u8> {
-    let at = DYES.iter().position(|(name, _)| *name == item.name())?;
-    u8::try_from(at).ok()
 }
 
 /// The opaque ARGB value of a dye colour ID (PMMP `DyeColor::getRgbValue()->toARGB()`).
@@ -2314,14 +2355,9 @@ mod tests {
         }
     }
 
-    // api: Dye::getColor
-    /// Dye items have PMMP `DyeColorIdMap` IDs (white 0 … black 15) and PMMP's RGB values.
+    /// Dye colours have PMMP's RGB values.
     #[test]
-    fn dyes_have_pmmp_colour_ids() {
-        assert_eq!(dye_colour(by_name("minecraft:white_dye")), Some(0));
-        assert_eq!(dye_colour(by_name("minecraft:red_dye")), Some(14));
-        assert_eq!(dye_colour(by_name("minecraft:black_dye")), Some(15));
-        assert_eq!(dye_colour(by_name("minecraft:stick")), None);
+    fn dyes_have_pmmp_rgb_values() {
         // PMMP `DyeColor::RED`: (176, 46, 38).
         assert_eq!(dye_argb(14), Some(0xffb0_2e26));
         assert_eq!(dye_argb(16), None);

@@ -606,16 +606,6 @@ pub struct Extra {
     pub nbt: Compound,
 }
 
-impl Extra {
-    /// Sets enchantment `e` to `level`, in place of the one there or after the others.
-    pub(crate) fn set_enchantment(&mut self, e: Enchantment, level: u16) {
-        match self.enchantments.iter_mut().find(|(x, _)| *x == e) {
-            Some(slot) => slot.1 = level,
-            None => self.enchantments.push((e, level)),
-        }
-    }
-}
-
 /// Why a stack was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

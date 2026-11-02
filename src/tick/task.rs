@@ -7,8 +7,7 @@
 //! ([`data`]) rides the save snapshots. Every one of them runs only in the tick's serial step, so
 //! a replay of the input log runs them at the same points with the same state.
 //!
-//! The villager and game rule methods (`spawn_villager`, `set_random_tick_speed`) take the NPC
-//! and the game rule packet from the rule modules that own them.
+//! The villager method (`spawn_villager`) takes the NPC from the rule module that owns it.
 
 #[cfg(test)]
 mod crash;
@@ -33,8 +32,8 @@ use std::time::Duration;
 
 use super::checkpoint::{self, Reader, Writer};
 use super::queue::{Control, InputSender, SessionId};
-use super::{Phase, State, entity, player, survival, trade};
-use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED_RANGE};
+use super::{Phase, State, entity, player, trade};
+use crate::config::{Difficulty, GameMode};
 use crate::math::Vec3;
 use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
 use crate::protocol::Uuid;
@@ -381,25 +380,6 @@ impl Context<'_> {
         let npc = entity::Npc::Villager { profession, offers };
         entity::spawn_npc(self.state, w, pos, npc).ok_or(crate::custom::Error::NotSpawned)
     }
-
-    /// Sets the random block ticks per sub-chunk per tick (the `randomTickSpeed` game rule;
-    /// `random-tick-speed` sets it at start) until the server stops, and tells the players.
-    /// False, changing nothing, above the setting's limit (4,096).
-    pub fn set_random_tick_speed(&mut self, speed: u32) -> bool {
-        if !RANDOM_TICK_SPEED_RANGE.contains(&speed) {
-            return false;
-        }
-        self.state.settings.random_tick_speed = speed;
-        let packet = survival::random_tick_speed_changed(speed);
-        // A player still loading gets the rule in its spawn window (`survival::game_rules`); a
-        // joined one whose window has not gone out yet gets it twice, which does no harm.
-        for p in self.state.players.values_mut() {
-            if in_game(p) {
-                p.send_packet(packet.clone());
-            }
-        }
-        true
-    }
 }
 
 impl fmt::Debug for Context<'_> {
@@ -534,7 +514,6 @@ mod tests {
     use crate::event::Listeners;
     use crate::item::{Stack, Type};
     use crate::nbt::Compound;
-    use crate::protocol::GameRuleValue;
     use crate::tick::queue::{Client, Identity, InputKind, Outbound, Skin, outbound_queue};
     use crate::tick::tests::{
         initialised, input, join, new_state, radius, received, settings, tick,
@@ -734,37 +713,6 @@ mod tests {
             "a world the server does not have"
         );
         assert_eq!(state.hash(), before);
-    }
-
-    #[test]
-    fn the_random_tick_speed_changes_up_to_the_setting_limit_and_joined_players_hear_it() {
-        let (mut state, [mut rx1, mut rx2]) = state();
-        let mut cx = Context { state: &mut state };
-        assert!(!cx.set_random_tick_speed(4097));
-        assert!(cx.set_random_tick_speed(0));
-        assert!(cx.set_random_tick_speed(4096));
-        assert_eq!(state.settings.random_tick_speed, 4096);
-        while rx1.try_recv().is_ok() {}
-        while rx2.try_recv().is_ok() {}
-        tick(&mut state, &mut Vec::new(), &mut Output::default());
-        let rules = |rx: &mut mpsc::Receiver<Outbound>| {
-            received(rx)
-                .0
-                .into_iter()
-                .filter_map(|p| match p {
-                    P::GameRulesChanged(g) => Some(g.game_rules),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        };
-        let spawned = rules(&mut rx1);
-        assert_eq!(spawned.len(), 2);
-        assert!(spawned.iter().all(|r| r.len() == 1
-            && r[0].name == "randomTickSpeed"
-            && matches!(r[0].value, GameRuleValue::Uint32(0 | 4096))));
-        // Session 2 has not asked for its chunks: it hears the rule now, and its spawn window
-        // carries the new value again.
-        assert_eq!(rules(&mut rx2), spawned);
     }
 
     // api: World::save, WorldManager::getDefaultWorld, WorldManager::getWorldByName

@@ -4,10 +4,8 @@
 
 use super::*;
 use crate::event::{
-    BlockBreak, BlockExplode, BlockPlace, BlockPreExplode, BlockTeleport, InteractAction,
-    InventoryClose, Listeners, PlayerBucketEmpty, PlayerBucketFill, PlayerEntityInteract,
-    PlayerInteract, PlayerItemUse, PlayerRespawnAnchorUse, Priority, RespawnAnchorAction,
-    SignChange,
+    BlockBreak, BlockPlace, InteractAction, InventoryClose, Listeners, PlayerEntityInteract,
+    PlayerInteract, PlayerItemUse, Priority, SignChange,
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
@@ -167,7 +165,7 @@ fn main_counts(packets: &[Packet], slot: u8) -> Vec<u16> {
 
 // api: BlockBreakEvent
 #[test]
-fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_xp() {
+fn a_block_break_listener_sees_the_break_and_sets_its_drops() {
     let mut l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
         note(
             SEEN,
@@ -179,11 +177,9 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_xp() {
                 e.item().clone(),
                 e.insta_break(),
                 e.drops().to_vec(),
-                e.xp_drop_amount(),
             ),
         );
         e.set_drops(vec![stack(ItemKind::Stick).with_count(3)]);
-        e.set_xp_drop_amount(7);
     });
     l.push_monitor(move |e: &BlockBreak, cx: &Context<'_>| {
         note(WATCHED, cx.state.worlds[0].block(e.pos()).unwrap());
@@ -208,8 +204,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_xp() {
             dandelion(),
             tool,
             false,
-            vec![flower.clone()],
-            0
+            vec![flower.clone()]
         ))]
     );
     assert_eq!(
@@ -217,7 +212,7 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops_and_xp() {
         [dbg(block::AIR)],
         "the monitor sees the block gone"
     );
-    assert_eq!(ground(&mut h, flower.item().unwrap()), (0, 7));
+    assert_eq!(ground(&mut h, flower.item().unwrap()), (0, 0));
     let mut h2 = Harness::new(|_| {});
     h2.set(TARGET, dandelion());
     h2.act(vec![action(
@@ -655,7 +650,7 @@ fn only_the_first_right_click_of_a_held_press_is_first() {
 
 // api: PlayerInteractEvent
 #[test]
-fn a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg() {
+fn a_cancelled_left_click_starts_no_breaking() {
     let l = listen(move |e: &mut PlayerInteract, _: &mut Context<'_>| {
         note(SEEN, (e.action(), e.block(), e.touch_vector()));
         e.cancel();
@@ -669,11 +664,6 @@ fn a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg() {
         notes(SEEN),
         [dbg((InteractAction::LeftClickBlock, glass, Vec3::ZERO))]
     );
-    let egg = Kind::DragonEgg.default_state();
-    let at = BlockPos::new(3, -60, 0);
-    h.set(at, egg);
-    h.act(vec![action(PlayerAction::StartBreak, at, Face::West)]);
-    assert_eq!(h.block(at), egg);
     // The twin: the client only says which face it cracks.
     let run = |listeners: Listeners, kind: PlayerAction| {
         let mut h = Harness::with(|_| {}, listeners);
@@ -689,8 +679,8 @@ fn a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg() {
     );
 }
 
-/// Starting to eat asks the item use listeners, and a cancel keeps the player from eating
-/// (PMMP `Player::useHeldItem`); finishing does not ask again.
+/// Starting to eat asks the item use listeners, and a cancel keeps the player from eating;
+/// finishing does not ask again.
 #[test]
 fn starting_to_eat_asks_the_item_use_listeners() {
     let apple = stack(ItemKind::GoldenApple);
@@ -760,108 +750,6 @@ fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_i
     use_in_air(&mut h);
     assert!(h.player().inventory.armor()[0].is_empty());
     assert_eq!(h.held(), stack(ItemKind::Stick));
-}
-
-fn water_source() -> block::State {
-    block::State::find(
-        "minecraft:water",
-        &[("liquid_depth", block::PropertyValue::Int(0))],
-    )
-    .unwrap()
-}
-
-// api: PlayerBucketFillEvent, PlayerBucketEvent::setItem, PlayerBucketEmptyEvent
-#[test]
-fn bucket_listeners_see_the_bucket_and_may_cancel_or_change_what_the_player_gets() {
-    let lava = stack(ItemKind::LavaBucket);
-    let l = listen(move |e: &mut PlayerBucketFill, _: &mut Context<'_>| {
-        note(
-            SEEN,
-            (
-                e.player(),
-                e.block_clicked(),
-                e.block_face(),
-                e.bucket().clone(),
-                e.item().clone(),
-            ),
-        );
-        e.set_item(stack(ItemKind::LavaBucket));
-    });
-    let mut h = Harness::with(|_| {}, l);
-    h.set(TARGET, water_source());
-    let bucket = stack(ItemKind::Bucket);
-    h.hold(bucket.clone());
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(
-        notes(SEEN),
-        [dbg((
-            me(),
-            TARGET,
-            Face::West,
-            bucket.clone(),
-            stack(ItemKind::WaterBucket)
-        ))]
-    );
-    assert_eq!((h.block(TARGET), h.held()), (block::AIR, lava));
-    // Cancelled: the water and the bucket stay.
-    let mut h = Harness::with(|_| {}, cancel(PlayerBucketFill::cancel));
-    h.set(TARGET, water_source());
-    h.hold(bucket.clone());
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(
-        (h.block(TARGET), h.held()),
-        (water_source(), bucket.clone())
-    );
-    assert_eq!(cancels(), 1);
-    // Pouring: watched once the hand holds the empty bucket; cancelled, no water flows.
-    let mut l = Listeners::default();
-    l.push_monitor(move |e: &PlayerBucketEmpty, cx: &Context<'_>| {
-        let hand = cx.state.players[&SessionId::new(1)]
-            .inventory
-            .held()
-            .clone();
-        note(WATCHED, (e.block_clicked(), e.block_face(), hand));
-    });
-    let mut h = Harness::with(|_| {}, l);
-    h.hold(stack(ItemKind::WaterBucket));
-    use_on(&mut h, GROUND, Face::Up);
-    assert_eq!(h.block(TARGET).kind(), Kind::Water);
-    assert_eq!(notes(WATCHED), [dbg((GROUND, Face::Up, bucket))]);
-    let mut h = Harness::with(|_| {}, cancel(PlayerBucketEmpty::cancel));
-    h.hold(stack(ItemKind::WaterBucket));
-    use_on(&mut h, GROUND, Face::Up);
-    assert_eq!(h.block(TARGET), block::AIR);
-    assert_eq!(h.held(), stack(ItemKind::WaterBucket));
-    assert_eq!(cancels(), 1);
-}
-
-/// Listeners that swap the hand for a stick.
-fn take_hand<E: crate::event::Event>() -> Listeners {
-    listen(|_: &mut E, cx: &mut Context<'_>| set_hand(cx, stack(ItemKind::Stick)))
-}
-
-// api: PlayerBucketFillEvent, PlayerBucketEmptyEvent, SignChangeEvent
-#[test]
-fn a_listener_that_takes_the_bucket_or_the_dye_cancels_the_use() {
-    let stick = stack(ItemKind::Stick);
-    let mut h = Harness::with(|_| {}, take_hand::<PlayerBucketFill>());
-    h.set(TARGET, water_source());
-    h.hold(stack(ItemKind::Bucket));
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!((h.block(TARGET), h.held()), (water_source(), stick.clone()));
-    let mut h = Harness::with(|_| {}, take_hand::<PlayerBucketEmpty>());
-    h.hold(stack(ItemKind::WaterBucket));
-    use_on(&mut h, GROUND, Face::Up);
-    assert_eq!((h.block(TARGET), h.held()), (block::AIR, stick.clone()));
-    let mut h = Harness::with(|_| {}, take_hand::<SignChange>());
-    let sign = stack(ItemKind::OakSign);
-    h.hold(sign.clone());
-    place_on_grass(&mut h, &sign);
-    h.run(Vec::new());
-    h.hold(named("minecraft:red_dye"));
-    use_on_target(&mut h);
-    assert_eq!(h.held(), stick);
-    assert_eq!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
 }
 
 /// The front lines of the sign at [`TARGET`].
@@ -939,37 +827,6 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
         assert!(data.is_some() && block < data, "{packets:?}");
     }
     assert_eq!(cancels(), 1);
-}
-
-// api: SignChangeEvent
-#[test]
-fn a_cancelled_sign_dye_keeps_the_dye_and_opens_the_editor() {
-    let mut h = Harness::with(|_| {}, cancel(SignChange::cancel));
-    let sign = stack(ItemKind::OakSign);
-    h.hold(sign.clone());
-    place_on_grass(&mut h, &sign);
-    h.run(Vec::new());
-    h.packets();
-    let dye = named("minecraft:red_dye").with_count(2);
-    h.hold(dye.clone());
-    use_on_target(&mut h);
-    assert_eq!(h.held(), dye);
-    assert_eq!(cancels(), 1);
-    assert_eq!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
-    assert!(h.packets().iter().any(|p| matches!(p, Packet::OpenSign(_))));
-    // A listener that rewrites the text with the dye writes both.
-    let l = listen(|e: &mut SignChange, _: &mut Context<'_>| {
-        e.set_new_text(["dyed", "", "", ""].map(String::from));
-    });
-    let mut h = Harness::with(|_| {}, l);
-    h.hold(sign.clone());
-    place_on_grass(&mut h, &sign);
-    h.run(Vec::new());
-    h.hold(dye);
-    use_on_target(&mut h);
-    assert_eq!(h.held().count(), 1);
-    assert_eq!(sign_at(&h).0[0], "dyed");
-    assert_ne!(sign_at(&h).1, crate::tick::block_entity::BLACK_TEXT);
 }
 
 /// A villager NPC two blocks south of the player: its entity ID and runtime ID.
@@ -1075,31 +932,26 @@ fn an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade()
     assert_eq!(cancels(), 1);
 }
 
-// api: BlockTeleportEvent, BlockTeleportEvent::setTo
+// api: PlayerInteractEvent
+/// A click on a block with no click behaviour still raises the event, with the block, and the
+/// block is sent again.
 #[test]
-fn a_dragon_egg_teleport_listener_may_send_it_elsewhere_or_keep_it() {
-    let egg = Kind::DragonEgg.default_state();
-    let to = BlockPos::new(3, -60, 2);
-    let send = listen(move |e: &mut BlockTeleport, _: &mut Context<'_>| {
-        note(SEEN, (e.world(), e.pos(), e.block()));
-        e.set_to(to);
+fn the_click_event_is_raised_for_a_click_on_a_removed_block() {
+    let lever = Kind::Lever.default_state();
+    let l = listen(move |e: &mut PlayerInteract, _: &mut Context<'_>| {
+        note(SEEN, (e.action(), e.pos(), e.block()));
     });
-    let mut h = Harness::with(|_| {}, send);
-    h.set(TARGET, egg);
-    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
-    assert_eq!((h.block(TARGET), h.block(to)), (block::AIR, egg));
-    assert_eq!(notes(SEEN), [dbg((crate::world::Id::DEFAULT, TARGET, egg))]);
-    // Cancelled, or sent into the ground: the egg stays.
-    let ground_target = listen(|e: &mut BlockTeleport, _: &mut Context<'_>| {
-        e.set_to(BlockPos::new(3, -61, 2));
-    });
-    for listeners in [cancel(BlockTeleport::cancel), ground_target] {
-        let mut h = Harness::with(|_| {}, listeners);
-        h.set(TARGET, egg);
-        h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
-        assert_eq!(h.block(TARGET), egg);
-    }
-    assert_eq!(cancels(), 1);
+    let mut h = Harness::with(|_| {}, l);
+    h.set(TARGET, lever);
+    h.hold(Stack::EMPTY);
+    h.packets();
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(
+        notes(SEEN),
+        [dbg((InteractAction::RightClickBlock, TARGET, lever))]
+    );
+    assert_eq!(h.block(TARGET), lever);
+    assert!(updates(&h.packets()).contains(&TARGET), "resent");
 }
 
 /// Does `action` through [`Context::perform`] and runs it.
@@ -1113,8 +965,7 @@ fn perform(h: &mut Harness, a: impl crate::action::Action) {
     crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
-// api: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::attackBlock
-// api: Player::interactEntity
+// api: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::interactEntity
 #[test]
 fn actions_do_what_the_player_would_with_events() {
     let l = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
@@ -1137,11 +988,6 @@ fn actions_do_what_the_player_would_with_events() {
     h.hold(helmet.clone());
     perform(&mut h, action::UseItem::new(me()));
     assert_eq!(h.player().inventory.armor()[0], helmet);
-    let egg = Kind::DragonEgg.default_state();
-    let at = BlockPos::new(3, -60, 0);
-    h.set(at, egg);
-    perform(&mut h, action::AttackBlock::new(me(), at, Face::West));
-    assert_ne!(h.block(at), egg, "the egg jumped away");
     let (id, _) = villager(&mut h);
     h.run(Vec::new());
     h.packets();
@@ -1150,8 +996,7 @@ fn actions_do_what_the_player_would_with_events() {
     assert!(trade_opened(&mut h));
 }
 
-/// A break elsewhere, done or refused, leaves the block the player breaks alone (PMMP
-/// `Player::stopBreakBlock` stops only the block it names).
+/// A break elsewhere, done or refused, leaves the block the player breaks alone.
 #[test]
 fn a_break_elsewhere_keeps_the_players_breaking() {
     let beside = BlockPos::new(2, -60, 1);
@@ -1207,23 +1052,17 @@ fn every_interaction(listeners: Listeners) -> u64 {
         TARGET,
         Face::West,
     )]);
-    // Fill a bucket and pour it back.
-    h.set(TARGET, water_source());
-    h.hold(stack(ItemKind::Bucket));
-    use_on(&mut h, TARGET, Face::West);
-    use_on(&mut h, GROUND, Face::Up);
-    // A sign: written, then dyed.
+    // A lever clicked, which only resends it.
+    h.set(TARGET, Kind::Lever.default_state());
+    h.hold(Stack::EMPTY);
+    use_on_target(&mut h);
+    // A sign: written.
     h.set(TARGET, block::AIR);
     let sign = stack(ItemKind::OakSign);
     h.hold(sign.clone());
     place_on_grass(&mut h, &sign);
     sign_edit(&mut h, "hi");
-    h.hold(named("minecraft:red_dye"));
-    use_on_target(&mut h);
-    // A dragon egg hit, a helmet put on, a villager used.
-    let at = BlockPos::new(3, -60, 0);
-    h.set(at, Kind::DragonEgg.default_state());
-    h.act(vec![action(PlayerAction::StartBreak, at, Face::West)]);
+    // A helmet put on, a villager used.
     h.hold(stack(ItemKind::IronHelmet));
     use_in_air(&mut h);
     let (_, runtime_id) = villager(&mut h);
@@ -1245,11 +1084,8 @@ fn idle(monitors: bool) -> Listeners {
     let mut l = Listeners::default();
     on::<BlockBreak>(&mut l, monitors);
     on::<BlockPlace>(&mut l, monitors);
-    on::<BlockTeleport>(&mut l, monitors);
     on::<PlayerInteract>(&mut l, monitors);
     on::<PlayerItemUse>(&mut l, monitors);
-    on::<PlayerBucketEmpty>(&mut l, monitors);
-    on::<PlayerBucketFill>(&mut l, monitors);
     on::<SignChange>(&mut l, monitors);
     on::<PlayerEntityInteract>(&mut l, monitors);
     l
@@ -1410,7 +1246,7 @@ fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
 }
 
 // api: SignChangeEvent::setNewText
-/// A listener's text goes on the sign as it is (PMMP cleans the player's text only) and the
+/// A listener's text goes on the sign as it is (only the player's own text is cleaned) and the
 /// monitors see what went on; text over a sign's 1,000 bytes in all is refused.
 #[test]
 fn a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it() {
@@ -1684,253 +1520,12 @@ fn mining_raises_player_exhaust_with_the_mining_cause() {
     assert!(seen.contains(&mining), "{seen:?}");
 }
 
-/// A respawn anchor with `charges`.
-fn anchor(charges: i32) -> block::State {
-    props::with_int(
-        Kind::RespawnAnchor.default_state(),
-        "respawn_anchor_charge",
-        charges,
-    )
-    .unwrap()
-}
-
-/// Runs ticks until a click like the last one is not taken for the client repeating itself.
-fn past_repeat(h: &mut Harness) {
-    for _ in 0..3 {
-        h.run(Vec::new());
-    }
-}
-
-/// A charged anchor east of the player and a stick in its hand; the anchor is used.
-fn use_charged_anchor(h: &mut Harness) {
-    h.set(TARGET, anchor(1));
-    h.hold(stack(ItemKind::Stick));
-    use_on(h, TARGET, Face::West);
-}
-
-// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
-#[test]
-fn glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world() {
-    let mut h = Harness::new(|_| {});
-    h.set(TARGET, anchor(0));
-    h.hold(block_item(Kind::Glowstone, 2));
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(h.block(TARGET), anchor(1));
-    assert_eq!(h.held().count(), 1, "one glowstone used");
-    // Anything but glowstone: it explodes (PMMP: in every world, not only the nether).
-    past_repeat(&mut h);
-    h.hold(stack(ItemKind::Stick));
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(h.block(TARGET), block::AIR, "the anchor is gone");
-    assert_ne!(
-        h.block(GROUND),
-        block::GRASS_BLOCK,
-        "a radius 5 explosion breaks the ground under it"
-    );
-    assert!(!h.player().is_alive(), "two blocks from a size 5 explosion");
-}
-
-// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
-#[test]
-fn an_anchor_explosion_is_the_same_on_every_run() {
-    let run = || {
-        let mut h = Harness::new(|_| {});
-        use_charged_anchor(&mut h);
-        h.run(Vec::new());
-        h.state.hash()
-    };
-    assert_eq!(run(), run());
-}
-
-// api: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock
-// api: PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent
-// api: BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance
-// api: BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking
-// api: BlockExplodeEvent, BlockExplodeEvent::getPosition
-// api: BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
-#[test]
-fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome() {
-    let mut l = Listeners::default();
-    l.push(
-        Priority::Normal,
-        |e: &mut PlayerRespawnAnchorUse, _: &mut Context<'_>| {
-            note(SEEN, ("use", e.player(), e.pos(), e.block(), e.action()));
-        },
-    );
-    l.push(
-        Priority::Normal,
-        |e: &mut BlockPreExplode, _: &mut Context<'_>| {
-            note(
-                SEEN,
-                (
-                    "pre",
-                    e.pos(),
-                    e.block(),
-                    e.player(),
-                    e.radius(),
-                    e.fire_chance(),
-                    e.is_block_breaking(),
-                ),
-            );
-        },
-    );
-    l.push(
-        Priority::Normal,
-        |e: &mut BlockExplode, _: &mut Context<'_>| {
-            note(
-                SEEN,
-                (
-                    "explode",
-                    e.pos(),
-                    e.position(),
-                    e.blocks().contains(&GROUND),
-                    e.yield_percent(),
-                ),
-            );
-        },
-    );
-    l.push_monitor(|_: &PlayerRespawnAnchorUse, cx: &Context<'_>| {
-        note(WATCHED, ("use", cx.state.worlds[0].block(TARGET)));
-    });
-    l.push_monitor(|_: &BlockPreExplode, cx: &Context<'_>| {
-        note(WATCHED, ("pre", cx.state.worlds[0].block(TARGET)));
-    });
-    l.push_monitor(|e: &BlockExplode, cx: &Context<'_>| {
-        let ground = cx.state.worlds[0].block(GROUND);
-        note(WATCHED, ("explode", e.blocks().contains(&GROUND), ground));
-    });
-    let mut h = Harness::with(|_| {}, l);
-    use_charged_anchor(&mut h);
-    let center = Vec3::new(2.5, -59.5, 0.5);
-    assert_eq!(
-        notes(SEEN),
-        [
-            dbg(("use", me(), TARGET, anchor(1), RespawnAnchorAction::Explode)),
-            dbg(("pre", TARGET, anchor(1), Some(me()), 5.0, 1.0 / 3.0, true)),
-            dbg(("explode", TARGET, center, true, 20.0)),
-        ]
-    );
-    let ground = h.block(GROUND);
-    assert_ne!(ground, block::GRASS_BLOCK);
-    assert_eq!(
-        notes(WATCHED),
-        [
-            dbg(("explode", true, Some(ground))),
-            dbg(("pre", Some(block::AIR))),
-            dbg(("use", Some(block::AIR))),
-        ]
-    );
-}
-
-// api: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel
-// api: BlockExplodeEvent::cancel
-#[test]
-fn cancelling_an_anchor_event_stops_what_it_announces() {
-    let grass = block::GRASS_BLOCK;
-    // The use: the anchor stays charged; a stick is not placeable, so nothing happens.
-    let mut h = Harness::with(|_| {}, cancel(PlayerRespawnAnchorUse::cancel));
-    use_charged_anchor(&mut h);
-    assert_eq!(h.block(TARGET), anchor(1));
-    assert!(h.player().is_alive());
-    // The coming explosion: the anchor stays.
-    let mut h = Harness::with(|_| {}, cancel(BlockPreExplode::cancel));
-    use_charged_anchor(&mut h);
-    assert_eq!(h.block(TARGET), anchor(1));
-    assert!(h.player().is_alive());
-    // The explosion: the anchor is gone, but nothing breaks and nobody is hurt.
-    let mut h = Harness::with(|_| {}, cancel(BlockExplode::cancel));
-    use_charged_anchor(&mut h);
-    assert_eq!((h.block(TARGET), h.block(GROUND)), (block::AIR, grass));
-    assert_eq!(h.player().health(), 20.0);
-    assert_eq!(cancels(), 3);
-}
-
-// api: PlayerRespawnAnchorUseEvent::setAction, Player::setSpawn
-#[test]
-fn a_listener_may_make_the_anchor_set_the_spawn_once() {
-    let set = listen(|e: &mut PlayerRespawnAnchorUse, _: &mut Context<'_>| {
-        e.set_action(RespawnAnchorAction::SetSpawn);
-    });
-    let mut h = Harness::with(|_| {}, set);
-    use_charged_anchor(&mut h);
-    let name = h.state.worlds[0].name().to_owned();
-    assert_eq!(h.player().spawn(), Some((name.as_str(), TARGET)));
-    assert_eq!(h.block(TARGET), anchor(1), "nothing explodes");
-    assert!(h.player().is_alive());
-    let told = |packets: &[Packet]| {
-        packets
-            .iter()
-            .filter(|p| {
-                matches!(p, Packet::Text(t) if t.message == "§7%tile.respawn_anchor.respawnSet")
-            })
-            .count()
-    };
-    assert_eq!(told(&h.packets()), 1);
-    past_repeat(&mut h);
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(h.player().spawn(), Some((name.as_str(), TARGET)));
-    assert_eq!(
-        told(&h.packets()),
-        0,
-        "already its spawn: no second message"
-    );
-}
-
-// api: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius
-// api: BlockPreExplodeEvent::setIncendiary
-#[test]
-fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
-    let calm = listen(|e: &mut BlockPreExplode, _: &mut Context<'_>| {
-        e.set_block_breaking(false);
-        e.set_radius(0.5);
-        e.set_incendiary(false);
-    });
-    let mut h = Harness::with(|_| {}, calm);
-    use_charged_anchor(&mut h);
-    assert_eq!(h.block(TARGET), block::AIR, "the anchor itself goes");
-    assert_eq!(h.block(GROUND), block::GRASS_BLOCK);
-    assert!(h.player().is_alive(), "a radius 0.5 blast does not reach");
-}
-
-// api: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions
-// api: BlockExplodeEvent::setYield
-#[test]
-fn an_explode_listener_chooses_the_blocks() {
-    let only_ground = listen(|e: &mut BlockExplode, _: &mut Context<'_>| {
-        e.set_blocks(vec![GROUND]);
-        e.set_ignitions(Vec::new());
-        e.set_yield_percent(0.0);
-    });
-    let mut h = Harness::with(|_| {}, only_ground);
-    use_charged_anchor(&mut h);
-    assert_eq!(h.block(GROUND), block::AIR);
-    let below = BlockPos::new(2, -62, 0);
-    assert_eq!(h.block(below), Kind::Dirt.default_state(), "not listed");
-    let dirt = block_item(Kind::Dirt, 1).item().unwrap();
-    assert_eq!(ground(&mut h, dirt), (0, 0), "yield 0: no drops");
-}
-
-#[test]
-fn a_listener_that_changes_the_anchor_cancels_its_use_and_its_explosion() {
-    fn take(cx: &mut Context<'_>) {
-        cx.state.worlds[0].set_block(TARGET, anchor(2)).unwrap();
-    }
-    let on_use = listen(|_: &mut PlayerRespawnAnchorUse, cx: &mut Context<'_>| take(cx));
-    let on_pre = listen(|_: &mut BlockPreExplode, cx: &mut Context<'_>| take(cx));
-    for listeners in [on_use, on_pre] {
-        let mut h = Harness::with(|_| {}, listeners);
-        use_charged_anchor(&mut h);
-        assert_eq!(h.block(TARGET), anchor(2));
-        assert!(h.player().is_alive());
-    }
-}
-
 /// The trapdoor east of the player.
 fn trapdoor(h: &mut Harness) {
     h.set(TARGET, Kind::OakTrapdoor.default_state());
 }
 
-/// Whether `packets` hold a door sound (PMMP `DoorSound`, level event `SoundOpenDoor`).
+/// How many door sounds (level event `SoundOpenDoor`) `packets` hold.
 fn door_sounds(packets: &[Packet]) -> usize {
     packets
         .iter()
@@ -2127,8 +1722,8 @@ fn a_breaks_sound_and_particle_listeners_see_it_applied() {
 }
 
 // api: WorldSoundEvent, Player::interactBlock
-/// The listeners of a use's sound hear it once the held item is applied: a placed block and a
-/// framed item are already gone from the hand.
+/// The listeners of a use's sound hear it once the held item is applied: a placed block is
+/// already gone from the hand.
 #[test]
 fn a_uses_sound_listeners_hear_it_once_the_held_item_is_applied() {
     let l = listen(|e: &mut crate::event::WorldSound, cx: &mut Context<'_>| {
@@ -2144,18 +1739,6 @@ fn a_uses_sound_listeners_hear_it_once_the_held_item_is_applied() {
     place_on_grass(&mut h, &planks);
     let placed = crate::world::Sound::BlockPlace(Kind::OakPlanks.default_state());
     assert_eq!(notes(SEEN), [dbg((placed, 4))]);
-    // Hung on the west face of a stone east of it.
-    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
-    let frame = block::State::all()
-        .find(|b| b.name() == "minecraft:frame")
-        .and_then(|f| props::with_facing(f, Face::West))
-        .unwrap();
-    set_with_entity(&mut h, frame, &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(stack(ItemKind::Stick).with_count(3));
-    use_on_target(&mut h);
-    let framed = crate::world::Sound::ItemFrameAddItem;
-    assert_eq!(notes(SEEN), [dbg((framed, 2))]);
 }
 
 // api: BlockPlaceEvent
@@ -2190,37 +1773,4 @@ fn a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement() {
     let at = place_on_grass(&mut h, &planks);
     assert_eq!(h.block(at), block::AIR);
     assert_eq!(h.held().count(), 5);
-}
-
-// api: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent::cancel
-/// The monitors of an anchor's use see only a use that was applied: a cancelled explosion keeps
-/// the anchor and tells them nothing.
-#[test]
-fn an_anchor_use_monitor_sees_only_an_applied_use() {
-    let mut l = cancel(BlockPreExplode::cancel);
-    l.push_monitor(|_: &PlayerRespawnAnchorUse, _: &Context<'_>| {
-        note(WATCHED, "used");
-    });
-    let mut h = Harness::with(|_| {}, l);
-    use_charged_anchor(&mut h);
-    assert_eq!(h.block(TARGET), anchor(1));
-    assert_eq!(cancels(), 1);
-    assert!(notes(WATCHED).is_empty());
-}
-
-// api: PlayerRespawnAnchorUseEvent::cancel
-/// An anchor listener that changes the held item and cancels the use keeps the block once held
-/// from being placed: the click goes on only as it was.
-#[test]
-fn an_anchor_listener_that_changes_the_hand_keeps_the_old_block_from_being_placed() {
-    let swap = listen(|e: &mut PlayerRespawnAnchorUse, cx: &mut Context<'_>| {
-        set_hand(cx, stack(ItemKind::Stick));
-        e.cancel();
-    });
-    let mut h = Harness::with(|_| {}, swap);
-    h.set(TARGET, anchor(1));
-    h.hold(block_item(Kind::OakPlanks, 5));
-    use_on(&mut h, TARGET, Face::West);
-    assert_eq!(h.block(BlockPos::new(1, -60, 0)), block::AIR);
-    assert_eq!(h.held(), stack(ItemKind::Stick));
 }

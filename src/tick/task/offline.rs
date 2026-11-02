@@ -57,7 +57,7 @@ impl Offline {
     }
 
     /// Reads the record of saved data `data` as a join reads it.
-    fn load(state: &State, data: PlayerData) -> Self {
+    fn load(state: &State, data: PlayerData, player: &str) -> Self {
         let PlayerData {
             world,
             position,
@@ -65,7 +65,7 @@ impl Offline {
         } = data;
         let mut extra = extra::player_loaded(extra);
         let mut inventory = Inventory::default();
-        inventory::load(&mut inventory, extra.raw(), &state.custom);
+        inventory::load(&mut inventory, extra.raw(), &state.custom, player);
         super::placed(&state.data, &mut extra);
         Self {
             world,
@@ -440,7 +440,7 @@ fn hold(
         (None, PlayerLoad::Absent) => return Err(Error::NotSaved),
         (None, PlayerLoad::Damaged) => return Err(Error::Damaged),
     };
-    let record = Offline::load(state, data);
+    let record = Offline::load(state, data, key.as_str());
     state.tasks.offline.held.insert(
         key.clone(),
         Held {
@@ -584,7 +584,7 @@ mod tests {
             (data.world.as_str(), data.position),
             ("world", [0.5, 1.62, 0.5])
         );
-        let again = Offline::load(&state, data.clone());
+        let again = Offline::load(&state, data.clone(), key.as_str());
         assert_eq!(again.data::<Kills>(), Some(&Kills(4)));
         assert_eq!(again.inventory(Kind::Main).item(0), Some(&stick(5)));
         assert_eq!(again.inventory(Kind::EnderChest).item(2), Some(&stick(1)));

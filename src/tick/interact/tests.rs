@@ -28,15 +28,15 @@ use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, 
 /// Window opening clicks squeezed into one tick by a client that changes each click a little
 /// (so none is a repeat) and acknowledges every close at once.
 const CLICKS: usize = 1000;
-/// The network ID of dripstone in the 1.26.60 reference list (the value BDS sends), a block only
-/// clients know.
+/// The network ID of dripstone in the 1.26.60 reference list (the value the official server
+/// sends), a block only clients know.
 const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
 /// Looking east, level.
 const EAST: f32 = 270.0;
 /// The player's feet: on the flat world's grass at the spawn.
 const FEET: [f64; 3] = [0.5, -60.0, 0.5];
-/// The network ID of moss in the 1.26.60 reference list (the value BDS sends), a block only
-/// clients know.
+/// The network ID of moss in the 1.26.60 reference list (the value the official server sends), a
+/// block only clients know.
 const MOSS_BLOCK: u32 = 3_743_819_255;
 /// The notes of listeners and hooks.
 const SEEN: usize = 0;
@@ -505,21 +505,20 @@ fn a_repeated_click_places_once() {
 }
 
 #[test]
-fn a_refused_placement_changes_nothing_and_resyncs_the_clicked_and_target_blocks() {
+fn a_refused_placement_changes_nothing_and_resyncs_the_clicked_block() {
     let mut h = Harness::new(|_| {});
     let planks = block_item(Kind::OakPlanks, 5);
     h.hold(planks.clone());
-    // The player stands where the block would go.
+    // The block that would be placed is already there: nothing changes.
     let ground = BlockPos::new(0, -61, 0);
+    h.set(BlockPos::new(0, -60, 0), Kind::OakPlanks.default_state());
     h.packets();
     let data = click(ground, Face::Up, &planks);
     let input = h.auth(Vec::new(), Some(data));
     h.run(vec![input]);
-    assert_eq!(h.block(BlockPos::new(0, -60, 0)), block::AIR);
     assert_eq!(h.held().count(), 5);
     let sent = updates(&h.packets());
-    assert!(sent.contains(&BlockPos::new(0, -60, 0)), "{sent:?}");
-    assert!(sent.contains(&BlockPos::new(0, -62, 0)), "{sent:?}");
+    assert!(sent.contains(&ground), "{sent:?}");
     // A held item the client does not have is refused too.
     let wrong = click(
         BlockPos::new(2, -61, 0),
@@ -532,31 +531,26 @@ fn a_refused_placement_changes_nothing_and_resyncs_the_clicked_and_target_blocks
     assert_eq!(h.held().count(), 5);
 }
 
-/// A refused click sends the real blocks around it, each once with its block.
+/// A refused click sends the real clicked block once with its block.
 #[test]
-fn a_refused_click_sends_each_real_block_around_it_once() {
+fn a_refused_click_sends_the_real_clicked_block_once() {
     let mut h = Harness::new(|_| {});
     let planks = block_item(Kind::OakPlanks, 5);
     h.hold(planks.clone());
-    // The player stands where the block would go.
+    // The block that would be placed is already there: nothing changes.
     let ground = BlockPos::new(0, -61, 0);
+    h.set(BlockPos::new(0, -60, 0), Kind::OakPlanks.default_state());
     h.packets();
     let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &planks)));
     h.run(vec![input]);
     let sent = blocks_set(&h.packets());
-    let expected = [
-        (ground, h.block(ground)),
-        (BlockPos::new(0, -60, 0), block::AIR),
-        (BlockPos::new(0, -62, 0), h.block(BlockPos::new(0, -62, 0))),
-        (BlockPos::new(1, -60, 0), block::AIR),
-    ];
-    for (pos, block) in expected {
-        assert_eq!(
-            sent.iter().filter(|(p, _)| *p == pos).collect::<Vec<_>>(),
-            [&(pos, block.network_id())],
-            "{sent:?}"
-        );
-    }
+    assert_eq!(
+        sent.iter()
+            .filter(|(p, _)| *p == ground)
+            .collect::<Vec<_>>(),
+        [&(ground, h.block(ground).network_id())],
+        "{sent:?}"
+    );
 }
 
 /// A refused click sends the blocks around it as the tick leaves them: a block a later input of
@@ -566,8 +560,9 @@ fn a_refused_click_sends_the_blocks_around_it_as_the_tick_leaves_them() {
     let mut h = Harness::new(|_| {});
     let planks = block_item(Kind::OakPlanks, 5);
     h.hold(planks.clone());
+    h.set(BlockPos::new(0, -60, 0), Kind::OakPlanks.default_state());
     h.packets();
-    // Refused: the player stands where the block would go; (1, -60, 0) is among the blocks sent.
+    // Refused: the block is already there; (1, -60, 0) is among the blocks sent.
     let refused = click(BlockPos::new(0, -61, 0), Face::Up, &planks);
     let refused = h.auth(Vec::new(), Some(refused));
     let target = BlockPos::new(1, -60, 0);
@@ -596,7 +591,8 @@ fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
     .unwrap();
     h.run(Vec::new());
     h.packets();
-    // The player stands where the block would go: refused, and the clicked block is resent.
+    // The block that would be placed is already there: refused, and the clicked block is resent.
+    h.set(BlockPos::new(0, -60, 0), Kind::OakPlanks.default_state());
     let data = click(ground, Face::Up, &planks);
     let input = h.auth(Vec::new(), Some(data));
     h.run(vec![input]);
@@ -646,86 +642,160 @@ fn doors_place_and_break_as_two_blocks() {
 }
 
 #[test]
-fn doors_and_trapdoors_open_and_close() {
+fn doors_trapdoors_and_fence_gates_open_and_close() {
     let mut h = Harness::new(|_| {});
     let door = Kind::OakDoor.default_state();
     let top = props::with_flag(door, "upper_block_bit", true).unwrap();
     h.set(TARGET, door);
     h.set(BlockPos::new(2, -59, 0), top);
     h.hold(Stack::EMPTY);
-    let data = click(TARGET, Face::West, &Stack::EMPTY);
-    let input = h.auth(Vec::new(), Some(data));
-    h.run(vec![input]);
+    use_on_target(&mut h);
     assert_eq!(props::flag(h.block(TARGET), "open_bit"), Some(true));
     assert_eq!(
         props::flag(h.block(BlockPos::new(2, -59, 0)), "open_bit"),
         Some(true)
     );
+    h.set(BlockPos::new(2, -59, 0), block::AIR);
+    for kind in [Kind::OakTrapdoor, Kind::OakFenceGate] {
+        h.set(TARGET, kind.default_state());
+        // A tick apart, so the same click is not taken for the client repeating itself.
+        h.run(Vec::new());
+        use_on_target(&mut h);
+        assert_eq!(
+            props::flag(h.block(TARGET), "open_bit"),
+            Some(true),
+            "{kind:?}"
+        );
+        h.run(Vec::new());
+        use_on_target(&mut h);
+        assert_eq!(
+            props::flag(h.block(TARGET), "open_bit"),
+            Some(false),
+            "{kind:?}"
+        );
+    }
 }
 
+/// A click on a block of a removed kind changes nothing, opens no window and sends the clicked
+/// block again; the click event still fires (see the events tests).
 #[test]
-fn hoes_till_and_axes_strip_with_wear() {
-    let mut h = Harness::new(|_| {});
-    let hoe = stack(crate::item::Kind::WoodenHoe);
-    h.hold(hoe.clone());
-    let grass = BlockPos::new(2, -61, 0);
-    let input = h.auth(Vec::new(), Some(click(grass, Face::Up, &hoe)));
-    h.run(vec![input]);
-    assert_eq!(h.block(grass).kind(), Kind::Farmland);
-    assert_eq!(h.held().damage(), 1);
-    let axe = stack(crate::item::Kind::WoodenAxe);
-    h.hold(axe.clone());
-    h.set(TARGET, Kind::OakLog.default_state());
-    let input = h.auth(Vec::new(), Some(click(TARGET, Face::West, &axe)));
-    h.run(vec![input]);
-    assert!(h.block(TARGET).name().contains("stripped_oak_log"));
+fn a_click_on_a_removed_block_changes_nothing_and_resends_it() {
+    let bed = props::with_flag(Kind::Bed.default_state(), "head_piece_bit", false).unwrap();
+    let removed = [
+        Kind::Lever,
+        Kind::StoneButton,
+        Kind::Cake,
+        Kind::CraftingTable,
+        Kind::Anvil,
+        Kind::Furnace,
+        Kind::Jukebox,
+        Kind::NoteBlock,
+        Kind::Bell,
+    ];
+    let states = removed.into_iter().map(Kind::default_state).chain([bed]);
+    for state in states {
+        let mut h = Harness::new(|_| {});
+        h.state.worlds[0].set_time(13_000);
+        h.set(TARGET, state);
+        h.hold(Stack::EMPTY);
+        h.packets();
+        use_on_target(&mut h);
+        assert_eq!(h.block(TARGET), state, "{state:?}");
+        assert!(!h.player().is_sleeping(), "{state:?}");
+        let sent = h.packets();
+        assert!(updates(&sent).contains(&TARGET), "{state:?}");
+        assert!(
+            !sent.iter().any(|p| matches!(p, Packet::ContainerOpen(_))),
+            "{state:?}"
+        );
+    }
 }
 
-/// `durability = false`: tilling and breaking do not wear the tool.
+/// The use of an item that changed a block or hung an entity changes nothing now: the held item,
+/// the block and the entities stay, and the clicked block is sent again.
 #[test]
-fn durability_off_keeps_tools_as_they_are() {
-    let mut h = Harness::new(|c| c.general.durability = false);
-    let hoe = stack(crate::item::Kind::WoodenHoe);
-    h.hold(hoe.clone());
-    let grass = BlockPos::new(2, -61, 0);
-    let input = h.auth(Vec::new(), Some(click(grass, Face::Up, &hoe)));
-    h.run(vec![input]);
-    assert_eq!(h.block(grass).kind(), Kind::Farmland);
-    assert_eq!(h.held(), hoe);
-}
-
-#[test]
-fn buckets_take_and_pour_water() {
-    let mut h = Harness::new(|_| {});
-    let water = props::with_int(
-        block::State::find(
-            "minecraft:water",
-            &[("liquid_depth", block::PropertyValue::Int(0))],
-        )
-        .unwrap(),
-        "liquid_depth",
-        0,
+fn a_removed_item_use_changes_nothing_and_resends_the_clicked_block() {
+    use crate::item::Kind as ItemKind;
+    let ground = BlockPos::new(2, -61, 0);
+    let source = block::State::find(
+        "minecraft:water",
+        &[("liquid_depth", block::PropertyValue::Int(0))],
     )
     .unwrap();
-    h.set(TARGET, water);
-    let bucket = stack(crate::item::Kind::Bucket);
-    h.hold(bucket.clone());
-    let input = h.auth(Vec::new(), Some(click(TARGET, Face::West, &bucket)));
-    h.run(vec![input]);
-    assert_eq!(h.block(TARGET), block::AIR);
-    assert_eq!(
-        h.held().item(),
-        Some(crate::item::Kind::WaterBucket.default_type())
-    );
-    let full = h.held();
-    let ground = BlockPos::new(2, -61, 0);
-    let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &full)));
-    h.run(vec![input]);
-    assert_eq!(h.block(BlockPos::new(2, -60, 0)).kind(), Kind::Water);
-    assert_eq!(
-        h.held().item(),
-        Some(crate::item::Kind::Bucket.default_type())
-    );
+    // The item, the block set at the clicked place (the ground is grass), the place, the face.
+    let cases = [
+        (ItemKind::WoodenHoe, None, ground, Face::Up),
+        (ItemKind::WoodenShovel, None, ground, Face::Up),
+        (
+            ItemKind::WoodenAxe,
+            Some(Kind::OakLog.default_state()),
+            TARGET,
+            Face::West,
+        ),
+        (ItemKind::FlintAndSteel, None, ground, Face::Up),
+        (ItemKind::FireCharge, None, ground, Face::Up),
+        (ItemKind::BoneMeal, None, ground, Face::Up),
+        (ItemKind::WaterBucket, None, ground, Face::Up),
+        (ItemKind::Bucket, Some(source), TARGET, Face::West),
+        (
+            ItemKind::Painting,
+            Some(Kind::Stone.default_state()),
+            TARGET,
+            Face::West,
+        ),
+        (
+            ItemKind::EndCrystal,
+            Some(Kind::Obsidian.default_state()),
+            TARGET,
+            Face::Up,
+        ),
+    ];
+    for (kind, block, at, face) in cases {
+        let mut h = Harness::new(|_| {});
+        if let Some(block) = block {
+            h.set(at, block);
+        }
+        let held = stack(kind);
+        h.hold(held.clone());
+        let around = |h: &Harness| {
+            let above = at.step(Face::Up).unwrap();
+            [at, above].map(|pos| h.block(pos))
+        };
+        let blocks = around(&h);
+        let entities = h.state.rules.entities.count(0);
+        h.packets();
+        let input = h.auth(Vec::new(), Some(click(at, face, &held)));
+        h.run(vec![input]);
+        h.run(Vec::new());
+        assert_eq!(h.held(), held, "{kind:?}");
+        assert_eq!(around(&h), blocks, "{kind:?}");
+        assert_eq!(h.state.rules.entities.count(0), entities, "{kind:?}");
+        assert!(updates(&h.packets()).contains(&at), "{kind:?}");
+    }
+}
+
+/// `durability = false`: breaking does not wear the tool.
+#[test]
+fn durability_off_keeps_tools_as_they_are() {
+    let worn = |durability: bool| {
+        let mut h = Harness::new(|c| {
+            c.general.break_time_check = false;
+            c.general.durability = durability;
+        });
+        let pickaxe = stack(crate::item::Kind::WoodenPickaxe);
+        h.hold(pickaxe);
+        h.set(TARGET, Kind::Stone.default_state());
+        h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+        h.act(vec![action(
+            PlayerAction::PredictDestroyBlock,
+            TARGET,
+            Face::West,
+        )]);
+        assert_eq!(h.block(TARGET), block::AIR);
+        h.held().damage()
+    };
+    assert_eq!(worn(true), 1);
+    assert_eq!(worn(false), 0);
 }
 
 #[test]
@@ -778,18 +848,16 @@ fn a_normal_transaction_that_is_no_q_key_drop_changes_nothing() {
     assert_eq!(h.state.rules.entities.count(0), entities);
 }
 
-/// Frosted ice is ice: the world or a survival player breaking it leaves water (PMMP `FrostedIce`
-/// keeps `Ice::onBreak`).
-#[test]
-fn destroyed_frosted_ice_melts_like_ice() {
-    let mut h = Harness::new(|_| {});
-    h.set(TARGET, Kind::FrostedIce.default_state());
-    assert!(destroy(&mut h.state, 0, TARGET, Destroy::Rules));
-    assert_eq!(h.block(TARGET).kind(), Kind::Water);
+/// An explosion that raises no event.
+fn quiet_explosion() -> Destroy {
+    Destroy::Explosion {
+        size: 4.0,
+        raise: Raise::Quiet,
+    }
 }
 
 #[test]
-fn destroying_for_each_cause_follows_pmmp() {
+fn destroying_for_each_cause_leaves_air_and_respects_the_entity_cap() {
     let mut h = Harness::new(|_| {});
     // Both halves of a door go, whichever is destroyed.
     let door = Kind::OakDoor.default_state();
@@ -797,13 +865,13 @@ fn destroying_for_each_cause_follows_pmmp() {
     let up = BlockPos::new(2, -59, 0);
     h.set(TARGET, door);
     h.set(up, top);
-    assert!(destroy(&mut h.state, 0, TARGET, Destroy::Rules));
+    assert!(destroy(&mut h.state, 0, TARGET, quiet_explosion()));
     assert_eq!(h.block(TARGET), block::AIR);
     assert_eq!(h.block(up), block::AIR);
-    // Ice the world removes melts; an explosion leaves air.
+    // Ice leaves air, not water; so does an explosion.
     h.set(TARGET, Kind::Ice.default_state());
-    assert!(destroy(&mut h.state, 0, TARGET, Destroy::Rules));
-    assert_eq!(h.block(TARGET).kind(), Kind::Water);
+    assert!(destroy(&mut h.state, 0, TARGET, quiet_explosion()));
+    assert_eq!(h.block(TARGET), block::AIR);
     h.set(TARGET, Kind::Stone.default_state());
     assert!(destroy(
         &mut h.state,
@@ -816,7 +884,7 @@ fn destroying_for_each_cause_follows_pmmp() {
     ));
     assert_eq!(h.block(TARGET), block::AIR);
     // Air is not destroyed again.
-    assert!(!destroy(&mut h.state, 0, TARGET, Destroy::Rules));
+    assert!(!destroy(&mut h.state, 0, TARGET, quiet_explosion()));
     // A player's break whose drop finds no room changes nothing: the world is at its entity cap.
     // (The door's drop is one of the entities already.)
     let mut i = 0_u32;
@@ -853,25 +921,6 @@ fn use_on_target(h: &mut Harness) {
     h.run(vec![input]);
 }
 
-/// The dyed water's colour: set to `colour` if given, then read.
-fn cauldron_colour(h: &mut Harness, colour: Option<i32>) -> Option<i32> {
-    match h
-        .state
-        .rules
-        .block_entities
-        .get_mut(0, TARGET)
-        .map(|e| &mut e.kind)
-    {
-        Some(crate::tick::block_entity::Kind::Cauldron(c)) => {
-            if colour.is_some() {
-                c.colour = colour;
-            }
-            c.colour
-        }
-        other => panic!("{other:?}"),
-    }
-}
-
 /// Makes a stack of one item of the item name `name`.
 fn named(name: &str) -> Stack {
     let t = crate::item::Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap();
@@ -882,135 +931,6 @@ fn named(name: &str) -> Stack {
 fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
     h.set(TARGET, block);
     crate::tick::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
-}
-
-/// A dye of another colour than the water's is used even when the mix keeps the colour; the
-/// water's own colour is refused (PMMP `WaterCauldron::onInteract` compares the dye's colour).
-#[test]
-fn a_dye_is_weighed_by_its_own_colour() {
-    let mut h = Harness::new(|_| {});
-    let water = props::with_string(Kind::Cauldron.default_state(), "cauldron_liquid", "water")
-        .and_then(|s| props::with_int(s, "fill_level", 6))
-        .unwrap();
-    set_with_entity(&mut h, water, &named("minecraft:cauldron"));
-    // Mixed with red, this colour stays itself.
-    let stalled = 0xffaf_2d25_u32.cast_signed();
-    cauldron_colour(&mut h, Some(stalled));
-    h.hold(named("minecraft:red_dye").with_count(2));
-    use_on_target(&mut h);
-    assert_eq!(h.held().count(), 1, "used");
-    assert_eq!(cauldron_colour(&mut h, None), Some(stalled));
-    cauldron_colour(&mut h, Some(0xffb0_2e26_u32.cast_signed()));
-    use_on_target(&mut h);
-    assert_eq!(h.held().count(), 1, "the water's own colour");
-}
-
-/// Emptying a dyed cauldron, or pouring clear water into it, washes the dye out (PMMP
-/// `Cauldron::writeStateToWorld`, `WaterCauldron::onInteract`); a bottle of water taken out of a
-/// fuller one keeps it.
-#[test]
-fn emptying_or_pouring_clear_water_into_a_dyed_cauldron_washes_the_dye_out() {
-    let water = |level: i32| {
-        props::with_string(Kind::Cauldron.default_state(), "cauldron_liquid", "water")
-            .and_then(|s| props::with_int(s, "fill_level", level))
-            .unwrap()
-    };
-    let red = 0xffb0_2e26_u32.cast_signed();
-    let cases = [
-        (6, crate::item::Kind::Bucket, None),
-        (6, crate::item::Kind::GlassBottle, Some(red)),
-        (2, crate::item::Kind::GlassBottle, None),
-        (2, crate::item::Kind::Potion, None),
-        (2, crate::item::Kind::WaterBucket, None),
-    ];
-    for (level, held, colour) in cases {
-        let mut h = Harness::new(|_| {});
-        set_with_entity(&mut h, water(level), &named("minecraft:cauldron"));
-        cauldron_colour(&mut h, Some(red));
-        h.hold(stack(held));
-        use_on_target(&mut h);
-        assert_eq!(cauldron_colour(&mut h, None), colour, "{level} {held:?}");
-    }
-}
-
-#[test]
-fn honeycomb_waxes_copper_and_an_axe_scrapes_it() {
-    let mut h = Harness::new(|_| {});
-    let exposed = block::State::find("minecraft:exposed_copper", &[]).unwrap();
-    h.set(TARGET, exposed);
-    h.hold(stack(crate::item::Kind::Honeycomb).with_count(2));
-    use_on_target(&mut h);
-    assert_eq!(h.block(TARGET).name(), "minecraft:waxed_exposed_copper");
-    assert_eq!(h.held().count(), 1);
-    h.hold(stack(crate::item::Kind::WoodenAxe));
-    // A tick apart, so the same click is not taken for the client repeating itself.
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(h.block(TARGET).name(), "minecraft:exposed_copper");
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(h.block(TARGET).name(), "minecraft:copper_block");
-    assert_eq!(h.held().damage(), 2);
-}
-
-#[test]
-fn candles_light_with_flint_and_go_out_by_hand() {
-    let mut h = Harness::new(|_| {});
-    h.set(TARGET, Kind::Candle.default_state());
-    h.hold(stack(crate::item::Kind::FlintAndSteel));
-    use_on_target(&mut h);
-    assert_eq!(props::flag(h.block(TARGET), "lit"), Some(true));
-    assert_eq!(h.held().damage(), 1);
-    h.hold(Stack::EMPTY);
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(props::flag(h.block(TARGET), "lit"), Some(false));
-}
-
-#[test]
-fn cauldrons_fill_from_buckets_and_empty_into_bottles() {
-    let mut h = Harness::new(|_| {});
-    h.set(TARGET, Kind::Cauldron.default_state());
-    h.hold(stack(crate::item::Kind::WaterBucket));
-    use_on_target(&mut h);
-    assert_eq!(props::int(h.block(TARGET), "fill_level"), Some(6));
-    assert_eq!(
-        h.held().item(),
-        Some(crate::item::Kind::Bucket.default_type())
-    );
-    h.hold(stack(crate::item::Kind::GlassBottle));
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(props::int(h.block(TARGET), "fill_level"), Some(4));
-    assert_eq!(
-        h.held().item(),
-        Some(crate::item::Kind::Potion.default_type())
-    );
-}
-
-#[test]
-fn levers_toggle_and_buttons_stay_pressed() {
-    let mut h = Harness::new(|_| {});
-    // On the west face of a stone east of it; the button hangs under a stone above it. Toggling
-    // updates the block itself, and an unsupported one breaks (PMMP).
-    let stone = Kind::Stone.default_state();
-    h.set(BlockPos::new(3, -60, 0), stone);
-    h.set(BlockPos::new(2, -59, 0), stone);
-    let lever = props::with_string(Kind::Lever.default_state(), "lever_direction", "west").unwrap();
-    h.set(TARGET, lever);
-    h.hold(Stack::EMPTY);
-    use_on_target(&mut h);
-    assert_eq!(props::flag(h.block(TARGET), "open_bit"), Some(true));
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(props::flag(h.block(TARGET), "open_bit"), Some(false));
-    h.set(TARGET, Kind::StoneButton.default_state());
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(
-        props::flag(h.block(TARGET), "button_pressed_bit"),
-        Some(true)
-    );
 }
 
 #[test]
@@ -1042,40 +962,6 @@ fn sneaking_places_instead_of_opening() {
     h.run(vec![input]);
     assert_eq!(props::flag(h.block(TARGET), "open_bit"), Some(false));
     assert_eq!(h.block(BlockPos::new(1, -60, 0)).kind(), Kind::OakPlanks);
-}
-
-#[test]
-fn ripe_berries_come_off_before_bone_meal_counts() {
-    let mut h = Harness::new(|_| {});
-    let ripe = props::with_int(Kind::SweetBerryBush.default_state(), "growth", 3).unwrap();
-    h.set(TARGET, ripe);
-    h.hold(stack(crate::item::Kind::BoneMeal).with_count(4));
-    use_on_target(&mut h);
-    assert_eq!(props::int(h.block(TARGET), "growth"), Some(1));
-    assert_eq!(h.held().count(), 4);
-}
-
-/// Picking glow berries off cave vines makes the picking sound (PMMP `CaveVines::onInteract`).
-#[test]
-fn picking_glow_berries_is_heard() {
-    let mut h = Harness::new(|_| {});
-    let berries = block::State::all()
-        .find(|b| b.name() == "minecraft:cave_vines_head_with_berries")
-        .unwrap();
-    h.set(BlockPos::new(2, -59, 0), Kind::Stone.default_state());
-    h.set(TARGET, berries);
-    h.packets();
-    use_on_target(&mut h);
-    assert_eq!(h.block(TARGET).name(), "minecraft:cave_vines");
-    let sounds: Vec<String> = h
-        .packets()
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::LevelSoundEvent(e) => Some(e.sound_type),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(sounds.len(), 1, "{sounds:?}");
 }
 
 /// Breaks the glass at [`TARGET`] with `ticks` client ticks between start and predicted break;
@@ -1211,7 +1097,7 @@ fn sign_edit(h: &mut Harness, text: &str) {
 }
 
 #[test]
-fn signs_keep_their_text_and_take_dye_glow_and_wax() {
+fn signs_keep_their_text() {
     let mut h = Harness::new(|_| {});
     let sign = stack(crate::item::Kind::OakSign);
     h.hold(sign.clone());
@@ -1222,27 +1108,18 @@ fn signs_keep_their_text_and_take_dye_glow_and_wax() {
     assert_eq!(&lines[..2], ["hello", "world"]);
     assert_eq!(
         (colour, glowing, waxed),
-        (crate::tick::block_entity::BLACK_TEXT, false, false)
+        (crate::tile::BLACK_TEXT, false, false)
     );
     let sent = h.packets();
     assert!(sent.iter().any(|p| matches!(p, Packet::BlockActorData(d)
         if d.position == [at.x, at.y, at.z] && d.nbt_data.contains_key("FrontText"))));
-    h.hold(named("minecraft:red_dye").with_count(2));
+    // A click with a dye on the sign opens the editor and dyes nothing.
+    let red_dye = named("minecraft:red_dye").with_count(2);
+    h.hold(red_dye.clone());
     use_on_target(&mut h);
-    assert_eq!(sign_at(&h).1, (0xff00_0000_u32 | 0xb0_2e26).cast_signed());
-    assert_eq!(h.held().count(), 1);
-    h.run(Vec::new());
-    h.hold(stack(crate::item::Kind::GlowInkSac));
-    use_on_target(&mut h);
-    assert!(sign_at(&h).2);
-    h.run(Vec::new());
-    h.hold(stack(crate::item::Kind::Honeycomb));
-    use_on_target(&mut h);
-    assert!(sign_at(&h).3);
-    // A waxed sign takes no edit.
-    h.player_mut().breaking.sign_editor = Some((0, TARGET));
-    sign_edit(&mut h, "changed");
-    assert_eq!(sign_at(&h).0[0], "hello");
+    assert_eq!(h.held(), red_dye);
+    assert_eq!(sign_at(&h).1, crate::tile::BLACK_TEXT);
+    assert_eq!(h.player().breaking.sign_editor, Some((0, TARGET)));
 }
 
 // api: Player::openSignEditor
@@ -1302,182 +1179,6 @@ fn a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens() {
         state: &mut h.state,
     };
     assert!(!cx.open_sign_editor(id, TARGET, crate::tile::Side::Front));
-}
-
-/// At the world's entity limit a chiseled bookshelf keeps its books: one taken out may have to
-/// drop, so the shelf refuses as a flower pot does.
-#[test]
-fn a_chiseled_bookshelf_keeps_its_books_at_the_entity_limit() {
-    let mut h = Harness::new(|_| {});
-    let shelf = props::with_facing(Kind::ChiseledBookshelf.default_state(), Face::West).unwrap();
-    set_with_entity(&mut h, shelf, &Stack::EMPTY);
-    let book = stack(crate::item::Kind::Book);
-    let books = |h: &Harness| {
-        let contents = h.state.rules.block_entities.get(0, TARGET).unwrap();
-        contents.items.iter().filter(|s| !s.is_empty()).count()
-    };
-    let contents = h.state.rules.block_entities.get_mut(0, TARGET).unwrap();
-    for slot in &mut contents.items {
-        *slot = book.clone();
-    }
-    let mut i = 0_u32;
-    while entity::has_room(&h.state, 0, 1) {
-        let at = Vec3::new(
-            f64::from(i % 64) - 32.0,
-            -59.0,
-            f64::from(i / 64 % 64) - 32.0,
-        );
-        assert!(entity::drop_item(&mut h.state, 0, at, book.clone()));
-        i += 1;
-    }
-    h.hold(Stack::EMPTY);
-    let _ = interact_block(
-        &mut h.state,
-        SessionId::new(1),
-        TARGET,
-        Face::West,
-        Vec3::new(0.0, 0.75, 0.5),
-        Source::Action,
-    );
-    assert_eq!(books(&h), 6);
-    assert!(h.held().is_empty());
-}
-
-/// A pot's plant Anchor does not know has no rules, as an inert block: an empty hand takes
-/// nothing out and a flower does not replace it.
-#[test]
-fn a_flower_pot_keeps_a_plant_anchor_does_not_know_when_used() {
-    let mut h = Harness::new(|_| {});
-    set_with_entity(&mut h, Kind::FlowerPot.default_state(), &Stack::EMPTY);
-    let unknown = crate::tick::block_entity::Kind::FlowerPot {
-        plant: Some(crate::tick::block_entity::Plant::Unknown {
-            nbt: crate::nbt::Compound::from([(
-                "name".to_owned(),
-                crate::nbt::Value::String("minecraft:cherry_sapling".to_owned()),
-            )]),
-            shown: true,
-        }),
-    };
-    h.state
-        .rules
-        .block_entities
-        .get_mut(0, TARGET)
-        .unwrap()
-        .kind = unknown.clone();
-    use_on_target(&mut h);
-    assert_eq!(entity_at(&h), unknown);
-    assert!(h.held().is_empty());
-    h.hold(block_item(Kind::Dandelion, 1));
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(entity_at(&h), unknown);
-}
-
-#[test]
-fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
-    let mut h = Harness::new(|_| {});
-    // A flower pot takes a pottable plant and gives it back.
-    set_with_entity(&mut h, Kind::FlowerPot.default_state(), &Stack::EMPTY);
-    let flower = block_item(Kind::Dandelion, 1);
-    h.hold(flower.clone());
-    use_on_target(&mut h);
-    assert!(matches!(
-        entity_at(&h),
-        crate::tick::block_entity::Kind::FlowerPot { plant: Some(_) }
-    ));
-    assert!(h.held().is_empty());
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert!(matches!(
-        entity_at(&h),
-        crate::tick::block_entity::Kind::FlowerPot { plant: None }
-    ));
-    assert_eq!(h.held(), flower);
-
-    // A frame takes one item, turns it, and drops it when hit.
-    // Hung on the west face of a stone east of it.
-    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
-    let frame = block::State::all()
-        .find(|b| b.name() == "minecraft:frame")
-        .and_then(|f| props::with_facing(f, Face::West))
-        .unwrap();
-    set_with_entity(&mut h, frame, &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(stack(crate::item::Kind::Stick).with_count(3));
-    use_on_target(&mut h);
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    match entity_at(&h) {
-        crate::tick::block_entity::Kind::ItemFrame(f) => {
-            assert_eq!(f.item, stack(crate::item::Kind::Stick));
-            assert_eq!(f.rotation, 1);
-        }
-        other => panic!("{other:?}"),
-    }
-    assert_eq!(h.held().count(), 2);
-    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
-    match entity_at(&h) {
-        crate::tick::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
-        other => panic!("{other:?}"),
-    }
-
-    // A jukebox takes a record and ejects it.
-    let disc = named("minecraft:music_disc_13");
-    set_with_entity(&mut h, Kind::Jukebox.default_state(), &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(disc.clone());
-    use_on_target(&mut h);
-    assert!(
-        matches!(entity_at(&h), crate::tick::block_entity::Kind::Jukebox { record } if record == disc)
-    );
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert!(
-        matches!(entity_at(&h), crate::tick::block_entity::Kind::Jukebox { record } if record.is_empty())
-    );
-
-    // A lectern takes a book; a page beyond it is refused.
-    set_with_entity(&mut h, Kind::Lectern.default_state(), &Stack::EMPTY);
-    h.run(Vec::new());
-    h.hold(stack(crate::item::Kind::WritableBook));
-    use_on_target(&mut h);
-    let turn = h.input(Packet::LecternUpdate(
-        crate::protocol::packet::LecternUpdate {
-            page: 3,
-            page_count: 1,
-            position: [TARGET.x, TARGET.y, TARGET.z],
-        },
-    ));
-    h.run(vec![turn]);
-    assert!(matches!(entity_at(&h),
-        crate::tick::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
-}
-
-#[test]
-fn a_campfire_cooks_what_it_is_given_and_drops_the_result() {
-    let mut h = Harness::new(|_| {});
-    let campfire = Kind::Campfire.default_state();
-    let lit = props::with_flag(campfire, "extinguished", false).unwrap();
-    set_with_entity(&mut h, lit, &Stack::EMPTY);
-    h.hold(named("minecraft:beef").with_count(2));
-    use_on_target(&mut h);
-    assert_eq!(h.held().count(), 1);
-    let holds = |h: &Harness| {
-        h.state
-            .rules
-            .block_entities
-            .get(0, TARGET)
-            .unwrap()
-            .items
-            .iter()
-            .filter(|s| !s.is_empty())
-            .count()
-    };
-    assert_eq!(holds(&h), 1);
-    for _ in 0..620 {
-        h.run(Vec::new());
-    }
-    assert_eq!(holds(&h), 0, "cooked and dropped");
 }
 
 #[test]
@@ -1580,74 +1281,8 @@ fn breaking_a_bed_or_banner_drops_its_block_entity_item() {
     );
 }
 
-/// `xp = false`: a broken ore gives no xp (the break event names none).
-#[test]
-fn without_xp_breaking_an_ore_gives_none() {
-    let xp = |enabled: bool| {
-        let mut h = Harness::new(|c| c.general.xp = enabled);
-        h.set(TARGET, Kind::DiamondOre.default_state());
-        let cause = Destroy::Player {
-            session: SessionId::new(1),
-            tool: stack(crate::item::Kind::IronPickaxe),
-        };
-        plan_destruction(&h.state, 0, TARGET, &cause).unwrap().xp
-    };
-    assert!((3..=7).contains(&xp(true)));
-    assert_eq!(xp(false), 0);
-}
-
-/// `beds = false`: a bed is a block like any other: a click at night neither lays the player
-/// down nor sets its spawn point, and the held block goes on top of it.
-#[test]
-fn with_beds_off_a_bed_is_a_plain_block() {
-    let click_bed_at_night = |beds: bool| {
-        let mut h = Harness::new(|c| c.general.beds = beds);
-        let bed =
-            crate::item::Type::from_name("minecraft:bed", 0, None, &crate::nbt::Compound::new())
-                .unwrap();
-        h.hold(Stack::new(bed, 1));
-        let at = place_on_grass(&mut h, &Stack::new(bed, 1));
-        assert!(h.block(at).is(Class::Bed));
-        h.state.worlds[0].set_time(13_000);
-        let planks = block_item(Kind::OakPlanks, 1);
-        h.hold(planks.clone());
-        let input = h.auth(Vec::new(), Some(click(at, Face::Up, &planks)));
-        h.run(vec![input]);
-        let above = h.block(at.step(Face::Up).unwrap()).kind();
-        (
-            h.player().is_sleeping(),
-            h.player().spawn().is_some(),
-            above,
-        )
-    };
-    assert_eq!(click_bed_at_night(true), (true, true, Kind::Air));
-    assert_eq!(click_bed_at_night(false), (false, false, Kind::OakPlanks));
-}
-
-/// PMMP `Bed::onInteract`: a foot whose head block faces another way is an incomplete bed, so a
-/// click at night lays the player in neither it nor the bed that head belongs to.
-#[test]
-fn clicking_a_bed_foot_whose_head_faces_another_way_does_not_sleep() {
-    let mut h = Harness::new(|_| {});
-    h.state.worlds[0].set_time(13_000);
-    let bed = |face: Face, head: bool| {
-        let s = props::with_facing(Kind::Bed.default_state(), face).unwrap();
-        props::with_flag(s, "head_piece_bit", head).unwrap()
-    };
-    let east_head = TARGET.step(Face::North).unwrap();
-    h.set(TARGET, bed(Face::North, false));
-    h.set(east_head, bed(Face::East, true));
-    h.set(east_head.step(Face::West).unwrap(), bed(Face::East, false));
-    h.hold(Stack::EMPTY);
-    let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &Stack::EMPTY)));
-    h.run(vec![input]);
-    assert!(!h.player().is_sleeping());
-    assert_eq!(props::flag(h.block(east_head), "occupied_bit"), Some(false));
-}
-
-/// Breaking reads the survival rules' effects (PMMP `calculateBreakProgressPerTick`): with
-/// Haste II glass breaks after 3 client ticks instead of 7; and the block's own break time
-/// counts (PMMP: shears break leaves at once).
+/// Breaking reads the survival rules' effects: with Haste II glass breaks after 3 client ticks
+/// instead of 7; and the block's own break time counts (shears break leaves at once).
 #[test]
 fn breaking_counts_haste_and_the_blocks_own_break_time() {
     let glass = Kind::Glass.default_state();
@@ -1676,8 +1311,7 @@ fn breaking_counts_haste_and_the_blocks_own_break_time() {
     assert_eq!(h.block(TARGET), block::AIR, "shears break leaves at once");
 }
 
-/// A teleport ends the breaking in progress (PMMP `Player::teleport` drops the break handler)
-/// and the viewers see the cracking stop.
+/// A teleport ends the breaking in progress and the viewers see the cracking stop.
 #[test]
 fn a_teleport_stops_breaking() {
     let mut h = Harness::new(|_| {});
@@ -1699,29 +1333,6 @@ fn a_teleport_stops_breaking() {
     assert!(stopped);
 }
 
-/// A hungry player eats a slice of cake (PMMP `BaseCake::onInteract`): the cake loses a bite and
-/// is gone after the last; a player with a full food bar leaves it alone.
-#[test]
-fn a_hungry_player_eats_cake_one_bite_at_a_time() {
-    let mut h = Harness::new(|_| {});
-    h.set(TARGET, Kind::Cake.default_state());
-    h.hold(Stack::EMPTY);
-    use_on_target(&mut h);
-    assert_eq!(props::int(h.block(TARGET), "bite_counter"), Some(0), "full");
-    survival::exhaust(h.player_mut(), 28.0);
-    h.run(Vec::new());
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(props::int(h.block(TARGET), "bite_counter"), Some(1));
-    let last = props::with_int(Kind::Cake.default_state(), "bite_counter", 6).unwrap();
-    h.set(TARGET, last);
-    survival::exhaust(h.player_mut(), 28.0);
-    h.run(Vec::new());
-    h.run(Vec::new());
-    use_on_target(&mut h);
-    assert_eq!(h.block(TARGET), block::AIR, "the last bite");
-}
-
 /// A use in the air with the held `stack`.
 fn air(stack: &Stack) -> UseItemTransactionData {
     let mut data = UseItemTransactionData {
@@ -1734,8 +1345,8 @@ fn air(stack: &Stack) -> UseItemTransactionData {
     data
 }
 
-/// Ender pearls wait for their cooldown (PMMP `Player::useHeldItem`): a throw starts it and
-/// tells the client, a throw before it ends does nothing.
+/// Ender pearls wait for their cooldown: a throw starts it and tells the client, a throw before
+/// it ends does nothing.
 #[test]
 fn ender_pearls_wait_for_their_cooldown() {
     let mut h = Harness::new(|_| {});
@@ -1764,7 +1375,7 @@ fn ender_pearls_wait_for_their_cooldown() {
 }
 
 /// An explosion breaks both halves of a door at once and drops it at most once, without the
-/// per-block break particles (PMMP `Explosion::explodeB`).
+/// per-block break particles.
 #[test]
 fn explosions_break_both_door_halves_once_without_break_particles() {
     let mut h = Harness::new(|_| {});
@@ -1796,8 +1407,8 @@ fn explosions_break_both_door_halves_once_without_break_particles() {
     assert_eq!(drops, 1, "one door");
 }
 
-/// Selecting another hotbar slot stops drawing (PMMP `Player::selectHotbarSlot`): a bow or
-/// trident drawn, then put away and taken back, is not still drawn.
+/// Selecting another hotbar slot stops drawing: a bow or trident drawn, then put away and taken
+/// back, is not still drawn.
 #[test]
 fn switching_the_held_slot_cancels_a_drawn_bow() {
     for weapon in [crate::item::Kind::Bow, crate::item::Kind::Trident] {
@@ -1829,9 +1440,8 @@ fn switching_the_held_slot_cancels_a_drawn_bow() {
     }
 }
 
-/// Selecting another hotbar slot (PMMP `Player::selectHotbarSlot`), moving items (PMMP
-/// `executeInventoryTransaction`) or a change of the held stack (PMMP: the held slot listener)
-/// stops eating, even when the held slot then holds the same food.
+/// Selecting another hotbar slot, moving items or a change of the held stack stops eating, even
+/// when the held slot then holds the same food.
 #[test]
 fn switching_the_held_slot_or_moving_items_stops_eating() {
     let apple = stack(crate::item::Kind::GoldenApple);
@@ -1910,8 +1520,7 @@ fn dying_stops_the_breaking_viewers_see() {
         if e.event_type == i32::from(Event::StopBlockCracking))));
 }
 
-/// Every block action ends the use of the held item, an ignored repeat start too (PMMP
-/// `InGamePacketHandler::handlePlayerActionFromData`).
+/// Every block action ends the use of the held item, an ignored repeat start too.
 #[test]
 fn a_block_action_stops_a_drawn_bow() {
     let mut h = Harness::new(|_| {});
@@ -1932,8 +1541,7 @@ fn a_block_action_stops_a_drawn_bow() {
     assert!(!h.player().is_using_item(), "an abort");
 }
 
-/// After a death the client starts breaking anew: the block last attacked is forgotten (PMMP: the
-/// respawn makes a new `InGamePacketHandler`).
+/// After a death the client starts breaking anew: the block last attacked is forgotten.
 #[test]
 fn dying_forgets_the_block_last_attacked() {
     let mut h = Harness::new(|_| {});
@@ -1967,8 +1575,8 @@ fn a_dead_player_neither_breaks_nor_places() {
 }
 
 /// The client starts the use of a bow, trident, goat horn or spyglass on its own and stops it
-/// unless the server sends the `UsingItem` entity flag (P6 `itemuse`: BDS sends it, as PMMP's
-/// `ACTION` flag for its `Releasable` items): the flag is on while in use and off once released.
+/// unless the server sends the `UsingItem` entity flag (P6 `itemuse`: the official server sends
+/// it): the flag is on while in use and off once released.
 #[test]
 fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
     let flag = |packets: &[Packet]| {
@@ -2016,67 +1624,19 @@ fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
     }
 }
 
-/// A hit on a frame whose drop chance fails clears the item without the removal sound (PMMP
-/// `ItemFrame::onAttack` plays it with the drop).
+/// An explosion at the world's entity limit breaks a chest: its items wait as a spill in the
+/// chunk instead of being lost.
 #[test]
-fn a_frame_hit_without_a_drop_makes_no_sound() {
+fn explosion_at_the_entity_cap_keeps_chest_items_as_spill() {
     let mut h = Harness::new(|_| {});
-    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
-    let frame = block::State::all()
-        .find(|b| b.name() == "minecraft:frame")
-        .and_then(|f| props::with_facing(f, Face::West))
-        .unwrap();
-    set_with_entity(&mut h, frame, &Stack::EMPTY);
-    match h
-        .state
-        .rules
-        .block_entities
-        .get_mut(0, TARGET)
-        .map(|e| &mut e.kind)
-    {
-        Some(crate::tick::block_entity::Kind::ItemFrame(f)) => {
-            f.item = stack(crate::item::Kind::Stick);
-            f.drop_chance = 0.0;
-        }
-        other => panic!("{other:?}"),
-    }
-    h.run(Vec::new());
-    h.packets();
-    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
-    match entity_at(&h) {
-        crate::tick::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
-        other => panic!("{other:?}"),
-    }
-    let removed = i32::from(Event::SoundItemFrameRemoveItem);
-    let sounded = h
-        .packets()
-        .iter()
-        .any(|p| matches!(p, Packet::LevelEvent(e) if e.event_type == removed));
-    assert!(!sounded);
-}
-
-/// An explosion at the world's entity limit breaks an item frame: the frame and its item wait as
-/// a spill in the chunk instead of being lost.
-#[test]
-fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
-    let mut h = Harness::new(|_| {});
-    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
-    let frame = block::State::all()
-        .find(|b| b.name() == "minecraft:frame")
-        .and_then(|f| props::with_facing(f, Face::West))
-        .unwrap();
-    set_with_entity(&mut h, frame, &Stack::EMPTY);
+    set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
     let sword = stack(crate::item::Kind::DiamondSword);
-    match h
-        .state
+    h.state
         .rules
         .block_entities
         .get_mut(0, TARGET)
-        .map(|e| &mut e.kind)
-    {
-        Some(crate::tick::block_entity::Kind::ItemFrame(f)) => f.item = sword.clone(),
-        other => panic!("{other:?}"),
-    }
+        .unwrap()
+        .items[0] = sword.clone();
     for i in 0..u32::try_from(entity::MAX_ENTITIES_PER_WORLD).unwrap() {
         let at = Vec3::new(
             f64::from(i % 64) - 32.0,
@@ -2104,36 +1664,18 @@ fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
     assert!(kept.contains(&sword), "{kept:?}");
 }
 
-/// A dead player standing where a block goes does not keep it from being placed (PMMP
-/// `canBeCollidedWith`: alive and not a spectator); a living one does.
+/// A block goes where the game sent it, even into a player standing there.
 #[test]
-fn dead_players_do_not_block_placing() {
-    use crate::tick::tests::initialised;
+fn a_block_is_placed_into_a_standing_player() {
     let mut h = Harness::new(|_| {});
-    let (j, _rx) = join(2, 1);
-    h.run(vec![j, radius(2, 2, 4)]);
-    for _ in 0..8 {
-        h.run(Vec::new());
-    }
-    let two = SessionId::new(2);
-    let runtime_id = h.state.players[&two].runtime_id;
-    h.run(vec![initialised(2, 3, runtime_id)]);
-    assert_eq!(h.state.players[&two].phase, Phase::Spawned);
     let planks = block_item(Kind::OakPlanks, 5);
     h.hold(planks.clone());
-    let stand = |h: &mut Harness| {
-        h.state.players.get_mut(&two).unwrap().position = Vec3::new(2.5, -60.0 + EYE_HEIGHT, 0.5);
-    };
-    stand(&mut h);
-    let at = place_on_grass(&mut h, &planks);
-    assert_eq!(h.block(at), block::AIR, "a living player is in the way");
-    for _ in 0..3 {
-        h.run(Vec::new());
-    }
-    stand(&mut h);
-    assert!(h.state.players.get_mut(&two).unwrap().kill());
-    let at = place_on_grass(&mut h, &planks);
-    assert_eq!(h.block(at).kind(), Kind::OakPlanks);
+    // The player stands at the feet position (0.5, -60, 0.5).
+    let ground = BlockPos::new(0, -61, 0);
+    let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &planks)));
+    h.run(vec![input]);
+    assert_eq!(h.block(BlockPos::new(0, -60, 0)).kind(), Kind::OakPlanks);
+    assert_eq!(h.held().count(), 4);
 }
 
 #[test]
@@ -2340,21 +1882,20 @@ fn creative_breaks_an_inert_block_at_once_and_a_spectator_cannot() {
     }
 }
 
-/// Blocks go on inert blocks (ones only clients know) as on their stand-ins: a solid one (moss)
-/// gives full support, so stone and a torch go on top; one that is not (moss carpet) gives none,
-/// so a torch cannot stand on it but stone goes into the cell above it; seagrass is not replaced
-/// (BDS's data does not say vanilla replaces it), the stone goes above. The inert block stays.
+/// Blocks go on inert blocks (ones only clients know) as on their stand-ins, and a torch needs no
+/// support: the block goes into the cell above, seagrass is not replaced, and the inert block
+/// stays.
 #[test]
-fn blocks_go_on_inert_blocks_beside_them_and_torches_need_a_solid_one() {
+fn blocks_go_on_inert_blocks_beside_them() {
     let above = BlockPos::new(2, -59, 0);
     let cases = [
-        ("minecraft:moss_block", Kind::Stone, true),
-        ("minecraft:moss_block", Kind::Torch, true),
-        ("minecraft:moss_carpet", Kind::Torch, false),
-        ("minecraft:moss_carpet", Kind::Stone, true),
-        ("minecraft:seagrass", Kind::Stone, true),
+        ("minecraft:moss_block", Kind::Stone),
+        ("minecraft:moss_block", Kind::Torch),
+        ("minecraft:moss_carpet", Kind::Torch),
+        ("minecraft:moss_carpet", Kind::Stone),
+        ("minecraft:seagrass", Kind::Stone),
     ];
-    for (name, kind, placed) in cases {
+    for (name, kind) in cases {
         let mut h = Harness::new(|_| {});
         let mut nbt = stored(name);
         if name == "minecraft:seagrass" {
@@ -2371,14 +1912,8 @@ fn blocks_go_on_inert_blocks_beside_them_and_torches_need_a_solid_one() {
         let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &item)));
         h.run(vec![input]);
         assert_eq!(h.state.worlds[0].entry(TARGET), Some(inert), "{name} stays");
-        let now = h.block(above);
-        if placed {
-            assert_eq!(now.kind(), kind, "{name} {kind:?}");
-            assert_eq!(h.held().count(), 3);
-        } else {
-            assert_eq!(now, block::AIR, "{name} {kind:?}");
-            assert_eq!(h.held().count(), 4);
-        }
+        assert_eq!(h.block(above).kind(), kind, "{name} {kind:?}");
+        assert_eq!(h.held().count(), 3);
     }
 }
 

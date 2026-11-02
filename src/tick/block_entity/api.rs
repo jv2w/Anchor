@@ -4,32 +4,16 @@
 //! A read looks the block entity up by position (two ordered-map steps) each time, so a [`Tile`]
 //! holds no borrow of the store's insides. A write checks its value, changes the block entity (its
 //! chunk is saved at the next commit) and marks its client data, which the players who see the
-//! chunk get once at the end of the tick (PMMP sends a tile's spawn compound when it changes).
-//! Writes raise no events: a direct API call never re-enters the listeners.
+//! chunk get once at the end of the tick. Writes raise no events: a direct API call never
+//! re-enters the listeners.
 
-use super::{
-    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon, beacon_effect_allowed,
-    block_at, campfire_kind, chests_pair, decor, mark_spawn, set_beacon,
-};
+use super::{BlockEntity, Kind, Plant, block_at, chests_pair, decor, mark_spawn};
 use crate::block::{self, Face, TypeTag};
-use crate::effect;
-use crate::item::{self, Stack};
-use crate::nbt::Compound;
-use crate::protocol::Rgba;
-use crate::tick::interact::book::page_count;
 use crate::tick::{Context, State, inventory};
 use crate::tile::{
-    self, BannerPattern, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText,
-    Tile,
+    BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText, Tile,
 };
 use crate::world::{self, BlockPos, ChunkPos};
-
-/// The potion item names a cauldron's potion container type stands for (0, 1, 2).
-const POTIONS: [&str; 3] = [
-    "minecraft:potion",
-    "minecraft:splash_potion",
-    "minecraft:lingering_potion",
-];
 
 impl Context<'_> {
     /// The block entity at `pos` in `world` to read; `None` if its chunk is not loaded or the
@@ -104,8 +88,7 @@ impl<'a> Tile<'a> {
         self.entity()?.name.as_deref()
     }
 
-    /// Whether a held item named `key` opens it: true without a `Lock` (PMMP
-    /// `Container::canOpenWith`).
+    /// Whether a held item named `key` opens it: true without a `Lock`.
     #[doc(alias = "Container::canOpenWith")]
     #[doc(alias = "ContainerTrait::canOpenWith")]
     pub fn can_open_with(&self, key: &str) -> bool {
@@ -135,28 +118,6 @@ impl<'a> Tile<'a> {
     pub fn shulker_facing(&self) -> Option<Face> {
         match self.kind()? {
             Kind::ShulkerBox { facing } => Face::ALL.get(usize::from(*facing)).copied(),
-            _ => None,
-        }
-    }
-
-    /// Ticks the item in campfire slot `slot` (0 to 3) has cooked.
-    #[doc(alias = "block\\Campfire::getCookingTime")]
-    pub fn cooking_time_ticks(&self, slot: usize) -> Option<u16> {
-        match self.kind()? {
-            Kind::Campfire(c) => c.times.get(slot).copied(),
-            _ => None,
-        }
-    }
-
-    /// A beacon's primary and secondary effects, each `None` if not chosen.
-    #[doc(alias = "block\\tile\\Beacon::getPrimaryEffect")]
-    #[doc(alias = "block\\tile\\Beacon::getSecondaryEffect")]
-    pub fn beacon_effects(&self) -> Option<(Option<effect::Type>, Option<effect::Type>)> {
-        match self.kind()? {
-            Kind::Beacon { primary, secondary } => Some((
-                effect::Type::from_id(*primary),
-                effect::Type::from_id(*secondary),
-            )),
             _ => None,
         }
     }
@@ -207,10 +168,10 @@ impl<'a> Tile<'a> {
     /// and shown as they came).
     #[doc(alias = "BaseBanner::getPatterns")]
     #[doc(alias = "block\\tile\\Banner::getPatterns")]
-    pub fn banner_patterns(&self) -> Option<impl Iterator<Item = BannerPattern> + 'a> {
+    pub fn banner_patterns(&self) -> Option<impl Iterator<Item = BannerLayer> + 'a> {
         match self.kind()? {
             Kind::Banner(b) => Some(b.patterns.iter().filter_map(|(id, colour)| {
-                Some(BannerPattern::new(
+                Some(BannerLayer::new(
                     block::BannerPattern::from_id(id)?,
                     DyeColour::from_banner_id(*colour)?,
                 ))
@@ -242,112 +203,12 @@ impl<'a> Tile<'a> {
         }
     }
 
-    /// The item in an item frame (empty when none).
-    #[doc(alias = "block\\ItemFrame::getFramedItem")]
-    #[doc(alias = "block\\tile\\ItemFrame::getItem")]
-    pub fn framed_item(&self) -> Option<&'a Stack> {
-        match self.kind()? {
-            Kind::ItemFrame(f) => Some(&f.item),
-            _ => None,
-        }
-    }
-
-    /// The rotation of an item frame's item, in eighths of a turn (0 to 7).
-    #[doc(alias = "block\\ItemFrame::getItemRotation")]
-    #[doc(alias = "block\\tile\\ItemFrame::getItemRotation")]
-    pub fn frame_rotation(&self) -> Option<u8> {
-        match self.kind()? {
-            Kind::ItemFrame(f) => Some(f.rotation),
-            _ => None,
-        }
-    }
-
-    /// The chance (0 to 1) that an item frame's item drops when hit or broken.
-    #[doc(alias = "block\\ItemFrame::getItemDropChance")]
-    #[doc(alias = "block\\tile\\ItemFrame::getItemDropChance")]
-    pub fn frame_drop_chance(&self) -> Option<f32> {
-        match self.kind()? {
-            Kind::ItemFrame(f) => Some(f.drop_chance),
-            _ => None,
-        }
-    }
-
-    /// The record in a jukebox (empty when none).
-    #[doc(alias = "block\\Jukebox::getRecord")]
-    #[doc(alias = "block\\tile\\Jukebox::getRecord")]
-    pub fn record(&self) -> Option<&'a Stack> {
-        match self.kind()? {
-            Kind::Jukebox { record } => Some(record),
-            _ => None,
-        }
-    }
-
-    /// The book on a lectern (empty when none).
-    #[doc(alias = "block\\Lectern::getBook")]
-    #[doc(alias = "block\\tile\\Lectern::getBook")]
-    pub fn lectern_book(&self) -> Option<&'a Stack> {
-        match self.kind()? {
-            Kind::Lectern { book, .. } => Some(book),
-            _ => None,
-        }
-    }
-
-    /// The page a lectern's book is open at.
-    #[doc(alias = "block\\Lectern::getViewedPage")]
-    #[doc(alias = "block\\tile\\Lectern::getViewedPage")]
-    pub fn lectern_page(&self) -> Option<u32> {
-        match self.kind()? {
-            Kind::Lectern { page, .. } => u32::try_from(*page).ok(),
-            _ => None,
-        }
-    }
-
-    /// The chiseled bookshelf slot (0 to 5) a player used last; `None` for none or another kind.
-    #[doc(alias = "block\\ChiseledBookshelf::getLastInteractedSlot")]
-    #[doc(alias = "block\\tile\\ChiseledBookshelf::getLastInteractedSlot")]
-    pub fn last_interacted_slot(&self) -> Option<u8> {
-        match self.kind()? {
-            Kind::ChiseledBookshelf { last } => u8::try_from(last.checked_sub(1)?).ok(),
-            _ => None,
-        }
-    }
-
     /// A mob head's rotation on the floor, in sixteenths of a turn (0 to 15).
     #[doc(alias = "block\\MobHead::getRotation")]
     #[doc(alias = "block\\tile\\MobHead::getRotation")]
     pub fn skull_rotation(&self) -> Option<u8> {
         match self.kind()? {
             Kind::Skull { rotation, .. } => Some(*rotation),
-            _ => None,
-        }
-    }
-
-    /// The potion in a cauldron, as one potion, splash potion or lingering potion item (empty
-    /// when none).
-    #[doc(alias = "PotionCauldron::getPotionItem")]
-    #[doc(alias = "block\\tile\\Cauldron::getPotionItem")]
-    pub fn cauldron_potion(&self) -> Option<Stack> {
-        match self.kind()? {
-            Kind::Cauldron(c) => {
-                let potion = usize::try_from(c.container)
-                    .ok()
-                    .and_then(|i| POTIONS.get(i))
-                    .zip(u16::try_from(c.potion).ok())
-                    .and_then(|(name, meta)| {
-                        item::Type::from_name(name, meta, None, &Compound::new())
-                    });
-                Some(potion.map_or(Stack::EMPTY, |t| Stack::new(t, 1)))
-            }
-            _ => None,
-        }
-    }
-
-    /// The dyed colour of a cauldron's water; `None` for none or another kind.
-    #[doc(alias = "WaterCauldron::getCustomWaterColor")]
-    #[doc(alias = "block\\tile\\Cauldron::getCustomWaterColor")]
-    pub fn cauldron_water_colour(&self) -> Option<Rgba> {
-        match self.kind()? {
-            Kind::Cauldron(c) => c.colour.map(tile::from_argb),
             _ => None,
         }
     }
@@ -373,9 +234,8 @@ impl Mut<'_> {
         }
     }
 
-    /// Names a container (`None` or an empty name clears it): a chest, a barrel, a shulker box,
-    /// a hopper, a furnace, a brewing stand or an enchanting table. A window open on it keeps
-    /// its old title.
+    /// Names a container (`None` or an empty name clears it): a chest, a barrel or a shulker box.
+    /// A window open on it keeps its old title.
     #[doc(alias = "Nameable::setName")]
     #[doc(alias = "NameableTrait::setName")]
     pub fn set_name(&mut self, name: Option<&str>) -> Result<()> {
@@ -443,47 +303,6 @@ impl Mut<'_> {
         })
     }
 
-    /// Sets how long the item in campfire slot `slot` (0 to 3) has cooked, up to the campfire's
-    /// cook time (the item cooks at its next update once the time is reached). `Invalid` for an
-    /// empty slot: a slot's time starts at 0 when an item goes in.
-    #[doc(alias = "block\\Campfire::setCookingTime")]
-    pub fn set_cooking_time_ticks(&mut self, slot: usize, ticks: u16) -> Result<()> {
-        let most = self.view().block().map(|b| campfire_kind(b).cook_ticks());
-        self.edit(|e| match &mut e.kind {
-            Kind::Campfire(c) => Some(match (c.times.get_mut(slot), e.items.get(slot), most) {
-                (Some(t), Some(item), Some(most)) if !item.is_empty() && ticks <= most => {
-                    *t = ticks;
-                    Ok(())
-                }
-                _ => Err(Error::Invalid),
-            }),
-            _ => None,
-        })
-    }
-
-    /// Chooses a beacon's effects (each a beacon effect or `None`); the pyramid under it decides
-    /// which it gives.
-    #[doc(alias = "block\\tile\\Beacon::setPrimaryEffect")]
-    #[doc(alias = "block\\tile\\Beacon::setSecondaryEffect")]
-    pub fn set_beacon_effects(
-        &mut self,
-        primary: Option<effect::Type>,
-        secondary: Option<effect::Type>,
-    ) -> Result<()> {
-        let id = |e: Option<effect::Type>| e.map_or(0, |t| i32::from(t.id()));
-        let (primary, secondary) = (id(primary), id(secondary));
-        if !matches!(self.view().kind(), Some(Kind::Beacon { .. })) {
-            return Err(Error::WrongKind);
-        }
-        if !beacon_effect_allowed(primary, beacon::MAX_LEVEL)
-            || !beacon_effect_allowed(secondary, beacon::MAX_LEVEL)
-        {
-            return Err(Error::Invalid);
-        }
-        set_beacon(self.state, self.world, self.pos, primary, secondary);
-        Ok(())
-    }
-
     /// Writes one side of a sign (a waxed sign takes it too: only players are kept out).
     #[doc(alias = "BaseSign::setText")]
     #[doc(alias = "BaseSign::setFaceText")]
@@ -546,7 +365,7 @@ impl Mut<'_> {
     /// (at most 16).
     #[doc(alias = "BaseBanner::setPatterns")]
     #[doc(alias = "block\\tile\\Banner::setPatterns")]
-    pub fn set_banner_patterns(&mut self, patterns: &[BannerPattern]) -> Result<()> {
+    pub fn set_banner_patterns(&mut self, patterns: &[BannerLayer]) -> Result<()> {
         if patterns.len() > decor::MAX_PATTERNS {
             return Err(Error::TooLong);
         }
@@ -574,9 +393,8 @@ impl Mut<'_> {
         })
     }
 
-    /// Puts a plant into a flower pot (`None` empties it): a block the pot takes (PMMP
-    /// `FlowerPot::isValidPlant`: the pottable type tag). The plant before, even one Anchor does
-    /// not know, is replaced and not dropped.
+    /// Puts a plant into a flower pot (`None` empties it): a block the pot takes (the pottable
+    /// type tag). The plant before, even one Anchor does not know, is replaced and not dropped.
     #[doc(alias = "block\\FlowerPot::setPlant")]
     #[doc(alias = "block\\tile\\FlowerPot::setPlant")]
     pub fn set_potted_plant(&mut self, plant: Option<block::State>) -> Result<()> {
@@ -586,135 +404,6 @@ impl Mut<'_> {
         self.edit(|e| match &mut e.kind {
             Kind::FlowerPot { plant: p } => {
                 *p = plant.map(Plant::Known);
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Puts one of `item` into an item frame (an empty stack empties it and turns the frame back
-    /// to rotation 0, as taking the item out does). The item before is not dropped.
-    #[doc(alias = "block\\ItemFrame::setFramedItem")]
-    #[doc(alias = "block\\tile\\ItemFrame::setItem")]
-    pub fn set_framed_item(&mut self, item: &Stack) -> Result<()> {
-        let one = item.with_count(1);
-        self.edit(|e| match &mut e.kind {
-            Kind::ItemFrame(f) => {
-                if one.is_empty() {
-                    f.rotation = 0;
-                }
-                f.item = one;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Turns an item frame's item to `rotation` eighths of a turn (0 to 7).
-    #[doc(alias = "block\\ItemFrame::setItemRotation")]
-    #[doc(alias = "block\\tile\\ItemFrame::setItemRotation")]
-    pub fn set_frame_rotation(&mut self, rotation: u8) -> Result<()> {
-        if rotation >= FRAME_ROTATIONS {
-            return Err(Error::Invalid);
-        }
-        self.edit(|e| match &mut e.kind {
-            Kind::ItemFrame(f) => {
-                f.rotation = rotation;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Sets the chance (0 to 1) that an item frame's item drops when hit or broken.
-    #[doc(alias = "block\\ItemFrame::setItemDropChance")]
-    #[doc(alias = "block\\tile\\ItemFrame::setItemDropChance")]
-    pub fn set_frame_drop_chance(&mut self, chance: f32) -> Result<()> {
-        if !(0.0..=1.0).contains(&chance) {
-            return Err(Error::Invalid);
-        }
-        self.edit(|e| match &mut e.kind {
-            Kind::ItemFrame(f) => {
-                f.drop_chance = chance;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Puts one of a record into a jukebox (an empty stack empties it). The record before is not
-    /// dropped. Only the jukebox's data changes: Anchor sends no record sound.
-    #[doc(alias = "block\\tile\\Jukebox::setRecord")]
-    pub fn set_record(&mut self, record: &Stack) -> Result<()> {
-        if !record.is_empty() && !record.item().is_some_and(|t| t.is(item::Class::Record)) {
-            return Err(Error::Invalid);
-        }
-        let one = record.with_count(1);
-        self.edit(|e| match &mut e.kind {
-            Kind::Jukebox { record } => {
-                *record = one;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Puts one of a writable or written book on a lectern, open at its first page (an empty
-    /// stack takes the book off). The book before is not dropped.
-    #[doc(alias = "block\\Lectern::setBook")]
-    #[doc(alias = "block\\tile\\Lectern::setBook")]
-    pub fn set_lectern_book(&mut self, book: &Stack) -> Result<()> {
-        let is_book = book
-            .item()
-            .is_some_and(|t| t.is(item::Class::WritableBookBase));
-        if !book.is_empty() && !is_book {
-            return Err(Error::Invalid);
-        }
-        let one = book.with_count(1);
-        self.edit(|e| match &mut e.kind {
-            Kind::Lectern { book, page } => {
-                *book = one;
-                *page = 0;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Opens a lectern's book at `page`, a page the book has (the first page of a book without
-    /// pages).
-    #[doc(alias = "block\\Lectern::setViewedPage")]
-    #[doc(alias = "block\\tile\\Lectern::setViewedPage")]
-    pub fn set_lectern_page(&mut self, page: u32) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::Lectern { book, page: p } => Some({
-                let pages = page_count(book).max(1);
-                match i32::try_from(page) {
-                    Ok(at)
-                        if !book.is_empty() && usize::try_from(page).is_ok_and(|i| i < pages) =>
-                    {
-                        *p = at;
-                        Ok(())
-                    }
-                    _ => Err(Error::Invalid),
-                }
-            }),
-            _ => None,
-        })
-    }
-
-    /// Sets the chiseled bookshelf slot (0 to 5) used last, or none.
-    #[doc(alias = "block\\ChiseledBookshelf::setLastInteractedSlot")]
-    #[doc(alias = "block\\tile\\ChiseledBookshelf::setLastInteractedSlot")]
-    pub fn set_last_interacted_slot(&mut self, slot: Option<u8>) -> Result<()> {
-        let last = match slot {
-            Some(s) if usize::from(s) < BOOKSHELF_SLOTS => i32::from(s) + 1,
-            Some(_) => return Err(Error::Invalid),
-            None => 0,
-        };
-        self.edit(|e| match &mut e.kind {
-            Kind::ChiseledBookshelf { last: l } => {
-                *l = last;
                 Some(Ok(()))
             }
             _ => None,
@@ -731,47 +420,6 @@ impl Mut<'_> {
         self.edit(|e| match &mut e.kind {
             Kind::Skull { rotation: r, .. } => {
                 *r = rotation;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Fills a cauldron's potion from a potion, splash potion or lingering potion item (an empty
-    /// stack empties it). The cauldron block's fill level is the block's.
-    #[doc(alias = "PotionCauldron::setPotionItem")]
-    #[doc(alias = "block\\tile\\Cauldron::setPotionItem")]
-    pub fn set_cauldron_potion(&mut self, potion: &Stack) -> Result<()> {
-        let (container, id) = match potion.item() {
-            Some(t) => {
-                let container = POTIONS
-                    .iter()
-                    .position(|n| *n == t.name())
-                    .and_then(|i| i16::try_from(i).ok())
-                    .ok_or(Error::Invalid)?;
-                (
-                    container,
-                    i16::try_from(t.meta()).map_err(|_| Error::Invalid)?,
-                )
-            }
-            None => (-1, -1),
-        };
-        self.edit(|e| match &mut e.kind {
-            Kind::Cauldron(c) => {
-                (c.container, c.potion) = (container, id);
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Dyes a cauldron's water `colour`, or clears the dye.
-    #[doc(alias = "WaterCauldron::setCustomWaterColor")]
-    #[doc(alias = "block\\tile\\Cauldron::setCustomWaterColor")]
-    pub fn set_cauldron_water_colour(&mut self, colour: Option<Rgba>) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::Cauldron(c) => {
-                c.colour = colour.map(tile::to_argb);
                 Some(Ok(()))
             }
             _ => None,
@@ -830,10 +478,11 @@ mod tests {
 
     use tokio::sync::mpsc::Receiver;
 
-    use crate::effect::Type as Effect;
     use crate::event::Listeners;
-    use crate::nbt::Value;
+    use crate::item::{self, Stack};
+    use crate::nbt::{Compound, Value};
     use crate::pool::Pool;
+    use crate::protocol::Rgba;
     use crate::protocol::packet::Packet;
     use crate::save::Response;
     use crate::tick::block_entity::{beside, cardinal, placed, send_marked};
@@ -996,8 +645,8 @@ mod tests {
         let bread = Stack::new(crate::item::Kind::Bread.default_type(), 3);
         let mut slots = cx.block_inventory_mut(WORLD, chest_at).unwrap();
         assert!(slots.add(&bread).is_empty());
-        let furnace = block::Kind::Furnace.default_state();
-        h.state.worlds[0].set_block(sign_at, furnace).unwrap();
+        let barrel = block::Kind::Barrel.default_state();
+        h.state.worlds[0].set_block(sign_at, barrel).unwrap();
         h.tick(Vec::new());
         let cx = h.cx();
         assert_eq!(
@@ -1040,7 +689,7 @@ mod tests {
         t.set_sign_text(Side::Back, text(["", "Back", "", ""], 0xff00_0000))
             .unwrap();
         t.set_sign_waxed(true).unwrap();
-        assert_eq!(t.set_cooking_time_ticks(0, 1), Err(Error::WrongKind));
+        assert_eq!(t.set_bed_colour(DyeColour::Red), Err(Error::WrongKind));
         let view = t.view();
         assert_eq!(
             view.sign_text(Side::Front).map(SignText::colour),
@@ -1226,8 +875,8 @@ mod tests {
         assert_eq!(t.view().banner_colour(), Some(DyeColour::Black));
         assert_eq!(t.view().banner_type(), Some(BannerType::Normal));
         let layers = [
-            BannerPattern::new(block::BannerPattern::Border, DyeColour::White),
-            BannerPattern::new(block::BannerPattern::Creeper, DyeColour::Green),
+            BannerLayer::new(block::BannerPattern::Border, DyeColour::White),
+            BannerLayer::new(block::BannerPattern::Creeper, DyeColour::Green),
         ];
         t.set_banner_colour(DyeColour::Yellow).unwrap();
         t.set_banner_patterns(&layers).unwrap();
@@ -1287,21 +936,12 @@ mod tests {
     }
 
     // api: block\FlowerPot::getPlant, block\tile\FlowerPot::getPlant, block\FlowerPot::setPlant,
-    // api: block\tile\FlowerPot::setPlant, block\ItemFrame::getFramedItem,
-    // api: block\tile\ItemFrame::getItem, block\ItemFrame::setFramedItem,
-    // api: block\tile\ItemFrame::setItem, block\ItemFrame::getItemRotation,
-    // api: block\tile\ItemFrame::getItemRotation, block\ItemFrame::setItemRotation,
-    // api: block\tile\ItemFrame::setItemRotation, block\ItemFrame::getItemDropChance,
-    // api: block\tile\ItemFrame::getItemDropChance, block\ItemFrame::setItemDropChance,
-    // api: block\tile\ItemFrame::setItemDropChance, block\Jukebox::getRecord,
-    // api: block\tile\Jukebox::getRecord, block\tile\Jukebox::setRecord
+    // api: block\tile\FlowerPot::setPlant
     #[test]
-    fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
+    fn a_flower_pot_holds_the_plant_it_is_given() {
         let mut h = Harness::new();
-        let (pot, frame, jukebox) = (h.spot(1), h.spot(3), h.spot(5));
+        let pot = h.spot(1);
         h.place(pot, block::Kind::FlowerPot.default_state());
-        h.place(frame, block::Kind::ItemFrame.default_state());
-        h.place(jukebox, block::Kind::Jukebox.default_state());
         let dandelion = block::Kind::Dandelion.default_state();
         let mut cx = h.cx();
         let mut t = cx.block_entity_mut(WORLD, pot).unwrap();
@@ -1313,246 +953,15 @@ mod tests {
         t.set_potted_plant(Some(dandelion)).unwrap();
         assert_eq!(t.view().potted_plant(), Some(dandelion));
         assert!(h.actor_data(pot)[0].contains_key("PlantBlock"));
-
-        let sticks = Stack::new(item::Kind::Stick.default_type(), 5);
+        h.reload(&[pot]);
         let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, frame).unwrap();
-        assert_eq!(t.view().framed_item(), Some(&Stack::EMPTY));
-        t.set_framed_item(&sticks).unwrap();
-        t.set_frame_rotation(3).unwrap();
-        t.set_frame_drop_chance(0.25).unwrap();
-        assert_eq!(t.set_frame_rotation(8), Err(Error::Invalid));
-        assert_eq!(t.set_frame_drop_chance(f32::NAN), Err(Error::Invalid));
-        assert_eq!(t.set_frame_drop_chance(1.5), Err(Error::Invalid));
-        let view = t.view();
-        assert_eq!(view.framed_item(), Some(&sticks.with_count(1)), "one item");
-        assert_eq!(
-            (view.frame_rotation(), view.frame_drop_chance()),
-            (Some(3), Some(0.25))
-        );
-        let sent = h.actor_data(frame);
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].get("ItemRotation"), Some(&Value::Float(135.0)));
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, frame).unwrap();
-        t.set_framed_item(&Stack::EMPTY).unwrap();
-        assert_eq!(
-            t.view().frame_rotation(),
-            Some(0),
-            "an emptied frame turns back for the next item"
-        );
-
-        let disc = item("minecraft:music_disc_13", 0);
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, jukebox).unwrap();
-        assert_eq!(t.set_record(&sticks), Err(Error::Invalid), "not a record");
-        t.set_record(&disc).unwrap();
-        assert_eq!(t.view().record(), Some(&disc));
-        assert!(h.actor_data(jukebox)[0].contains_key("RecordItem"));
-        h.reload(&[pot, frame, jukebox]);
-        let cx = h.cx();
         assert_eq!(
             cx.block_entity(WORLD, pot).unwrap().potted_plant(),
             Some(dandelion)
         );
-        assert_eq!(
-            cx.block_entity(WORLD, frame).unwrap().frame_drop_chance(),
-            Some(0.25)
-        );
-        assert_eq!(
-            cx.block_entity(WORLD, jukebox).unwrap().record(),
-            Some(&disc)
-        );
-    }
-
-    /// Pages in a list of another type are no pages for a lectern either (PMMP
-    /// `WritableBookBase::deserializeCompoundTag` reads compound or string lists only).
-    #[test]
-    fn a_lectern_book_with_pages_of_another_type_has_none() {
-        let mut h = Harness::new();
-        let lectern = h.spot(1);
-        h.place(lectern, block::Kind::Lectern.default_state());
-        let pages = Compound::from([(
-            "pages".to_owned(),
-            Value::List(crate::nbt::List::Int(vec![1, 2])),
-        )]);
-        let book = Stack::new(item::Kind::WritableBook.default_type(), 1)
-            .with_extra(Some(item::Extra {
-                nbt: pages,
-                ..item::Extra::default()
-            }))
-            .unwrap();
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
-        t.set_lectern_book(&book).unwrap();
-        assert_eq!(t.set_lectern_page(1), Err(Error::Invalid));
-        let sent = h.actor_data(lectern);
-        assert_eq!(sent[0].get("totalPages"), Some(&Value::Int(0)));
-    }
-
-    // api: block\Lectern::getBook, block\tile\Lectern::getBook, block\Lectern::setBook,
-    // api: block\tile\Lectern::setBook, block\Lectern::getViewedPage,
-    // api: block\tile\Lectern::getViewedPage, block\Lectern::setViewedPage,
-    // api: block\tile\Lectern::setViewedPage, block\ChiseledBookshelf::getLastInteractedSlot,
-    // api: block\tile\ChiseledBookshelf::getLastInteractedSlot,
-    // api: block\ChiseledBookshelf::setLastInteractedSlot,
-    // api: block\tile\ChiseledBookshelf::setLastInteractedSlot
-    #[test]
-    fn lecterns_and_bookshelves_keep_their_books_place() {
-        let mut h = Harness::new();
-        let (lectern, shelf) = (h.spot(1), h.spot(3));
-        h.place(lectern, block::Kind::Lectern.default_state());
-        h.place(shelf, block::Kind::ChiseledBookshelf.default_state());
-        let pages = Compound::from([(
-            "pages".to_owned(),
-            Value::List(crate::nbt::List::Compound(vec![Compound::new(); 3])),
-        )]);
-        let book = Stack::new(item::Kind::WritableBook.default_type(), 2)
-            .with_extra(Some(item::Extra {
-                nbt: pages,
-                ..item::Extra::default()
-            }))
-            .unwrap();
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
-        assert_eq!(t.set_lectern_page(0), Err(Error::Invalid), "no book");
-        assert_eq!(
-            t.set_lectern_book(&Stack::new(item::Kind::Stick.default_type(), 1)),
-            Err(Error::Invalid)
-        );
-        t.set_lectern_book(&book).unwrap();
-        t.set_lectern_page(2).unwrap();
-        assert_eq!(
-            t.set_lectern_page(3),
-            Err(Error::Invalid),
-            "past the last page"
-        );
-        assert_eq!(t.view().lectern_book(), Some(&book.with_count(1)));
-        assert_eq!(t.view().lectern_page(), Some(2));
-        let sent = h.actor_data(lectern);
-        assert_eq!(sent[0].get("page"), Some(&Value::Int(2)));
-        assert_eq!(sent[0].get("hasBook"), Some(&Value::Byte(1)));
-
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, shelf).unwrap();
-        assert_eq!(t.view().last_interacted_slot(), None);
-        t.set_last_interacted_slot(Some(5)).unwrap();
-        assert_eq!(t.set_last_interacted_slot(Some(6)), Err(Error::Invalid));
-        assert_eq!(t.view().last_interacted_slot(), Some(5));
-        assert!(
-            h.actor_data(shelf).is_empty(),
-            "clients get no bookshelf data"
-        );
-        h.reload(&[lectern, shelf]);
-        let mut cx = h.cx();
-        assert_eq!(
-            cx.block_entity(WORLD, lectern).unwrap().lectern_page(),
-            Some(2)
-        );
-        let mut t = cx.block_entity_mut(WORLD, shelf).unwrap();
-        assert_eq!(t.view().last_interacted_slot(), Some(5));
-        t.set_last_interacted_slot(None).unwrap();
-        assert_eq!(t.view().last_interacted_slot(), None);
-    }
-
-    // api: block\Campfire::getCookingTime, block\Campfire::setCookingTime,
-    // api: block\tile\Beacon::getPrimaryEffect, block\tile\Beacon::getSecondaryEffect,
-    // api: block\tile\Beacon::setPrimaryEffect, block\tile\Beacon::setSecondaryEffect,
-    // api: PotionCauldron::getPotionItem, block\tile\Cauldron::getPotionItem,
-    // api: PotionCauldron::setPotionItem, block\tile\Cauldron::setPotionItem,
-    // api: WaterCauldron::getCustomWaterColor, block\tile\Cauldron::getCustomWaterColor,
-    // api: WaterCauldron::setCustomWaterColor, block\tile\Cauldron::setCustomWaterColor
-    #[test]
-    fn campfires_beacons_and_cauldrons_take_their_values() {
-        let mut h = Harness::new();
-        let (fire, beacon, cauldron) = (h.spot(1), h.spot(3), h.spot(5));
-        h.place(fire, block::Kind::Campfire.default_state());
-        h.place(beacon, block::Kind::Beacon.default_state());
-        h.place(cauldron, block::Kind::Cauldron.default_state());
-        let mut cx = h.cx();
-        cx.block_inventory_mut(WORLD, fire)
-            .unwrap()
-            .set(2, item("minecraft:beef", 0))
-            .unwrap();
-        let mut t = cx.block_entity_mut(WORLD, fire).unwrap();
-        assert_eq!(t.view().cooking_time_ticks(0), Some(0));
-        t.set_cooking_time_ticks(2, 100).unwrap();
-        assert_eq!(
-            t.set_cooking_time_ticks(0, 1),
-            Err(Error::Invalid),
-            "an empty slot"
-        );
-        assert_eq!(
-            t.set_cooking_time_ticks(4, 1),
-            Err(Error::Invalid),
-            "no fifth slot"
-        );
-        assert_eq!(
-            t.set_cooking_time_ticks(2, u16::MAX),
-            Err(Error::Invalid),
-            "past the cook time"
-        );
-        assert_eq!(t.view().cooking_time_ticks(2), Some(100));
-        assert_eq!(t.view().cooking_time_ticks(0), Some(0));
-        assert_eq!(t.view().cooking_time_ticks(4), None);
-
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, beacon).unwrap();
-        assert_eq!(t.view().beacon_effects(), Some((None, None)));
-        t.set_beacon_effects(Some(Effect::Speed), Some(Effect::Regeneration))
-            .unwrap();
-        assert_eq!(
-            t.set_beacon_effects(Some(Effect::Poison), None),
-            Err(Error::Invalid),
-            "not a beacon effect"
-        );
-        assert_eq!(
-            t.view().beacon_effects(),
-            Some((Some(Effect::Speed), Some(Effect::Regeneration)))
-        );
-        assert_eq!(h.actor_data(beacon)[0].get("primary"), Some(&Value::Int(1)));
-
-        let splash = item("minecraft:splash_potion", 5);
-        let mut cx = h.cx();
-        let mut t = cx.block_entity_mut(WORLD, cauldron).unwrap();
-        assert_eq!(t.view().cauldron_potion(), Some(Stack::EMPTY));
-        assert_eq!(t.view().cauldron_water_colour(), None);
-        assert_eq!(
-            t.set_cauldron_potion(&Stack::new(item::Kind::Stick.default_type(), 1)),
-            Err(Error::Invalid)
-        );
-        t.set_cauldron_potion(&splash).unwrap();
-        let teal = Rgba {
-            r: 0x12,
-            g: 0x34,
-            b: 0x56,
-            a: 0xff,
-        };
-        t.set_cauldron_water_colour(Some(teal)).unwrap();
-        assert_eq!(t.view().cauldron_potion(), Some(splash.clone()));
-        assert_eq!(t.view().cauldron_water_colour(), Some(teal));
-        let sent = h.actor_data(cauldron);
-        assert_eq!(sent[0].get("PotionType"), Some(&Value::Short(1)));
-        assert_eq!(sent[0].get("PotionId"), Some(&Value::Short(5)));
-        h.reload(&[fire, beacon, cauldron]);
-        let mut cx = h.cx();
-        assert_eq!(
-            cx.block_entity(WORLD, fire).unwrap().cooking_time_ticks(2),
-            Some(100)
-        );
-        assert_eq!(
-            cx.block_entity(WORLD, cauldron).unwrap().cauldron_potion(),
-            Some(splash)
-        );
-        assert_eq!(
-            cx.block_entity(WORLD, beacon).unwrap().beacon_effects(),
-            Some((Some(Effect::Speed), Some(Effect::Regeneration)))
-        );
-        let mut t = cx.block_entity_mut(WORLD, cauldron).unwrap();
-        t.set_cauldron_potion(&Stack::EMPTY).unwrap();
-        t.set_cauldron_water_colour(None).unwrap();
-        assert_eq!(t.view().cauldron_potion(), Some(Stack::EMPTY));
-        assert_eq!(t.view().cauldron_water_colour(), None);
+        let mut t = cx.block_entity_mut(WORLD, pot).unwrap();
+        t.set_potted_plant(None).unwrap();
+        assert_eq!(t.view().potted_plant(), None);
     }
 
     #[test]
@@ -1588,8 +997,8 @@ mod tests {
         assert_eq!(h.state.rules.block_entities.count(1), 0);
     }
 
-    /// A renamed item's name goes to the block entity only for the kinds that have one (PMMP
-    /// `NameableTrait::copyDataFromItem`), the kinds `set_name` takes.
+    /// A renamed item's name goes to the block entity only for the kinds that have one, the kinds
+    /// `set_name` takes.
     #[test]
     fn only_containers_take_a_placed_items_name() {
         let mut h = Harness::new();

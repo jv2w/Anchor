@@ -1,17 +1,21 @@
-//! Block entities: the data of blocks beyond their state (PMMP `pocketmine\block\tile`), read
-//! through [`Tile`] and changed through [`Mut`].
+//! Block entities: the data of blocks beyond their state, read through [`Tile`] (the module's main
+//! type, a block entity by the name of the module) and changed through [`Mut`].
 //!
 //! [`Context::block_entity`](crate::Context) lends the block entity at a position to read and
-//! `block_entity_mut` to change: a sign's text, a banner's patterns, an item frame's item, a
-//! flower pot's plant, a jukebox's record, a lectern's book, a campfire's cooking times, a
-//! beacon's effects, a bed's colour, a mob head's rotation, a cauldron's potion, a container's
-//! name and a chest's pair. The slots of containers are the inventory API's
-//! ([`Context::block_inventory`](crate::Context)).
+//! `block_entity_mut` to change: a sign's text, a banner's patterns, a flower pot's plant, a
+//! bed's colour, a mob head's rotation, a container's name and a chest's pair. The slots of
+//! containers are the inventory API's ([`Context::block_inventory`](crate::Context)).
 //!
 //! A read of a kind the block entity is not gives `None`. A write changes the block entity at
 //! once, tells the players who see its chunk (its client data, as when the rules change it) and
 //! is saved with the chunk at the next commit; a value it does not take or a kind it does not
 //! apply to is an [`Error`], changing nothing. Writes raise no events.
+//!
+//! A block placed by [`World::set_block`](crate::world::World::set_block) or by a generator has no
+//! block entity until the tick's block change phase makes an empty one for it; a block entity
+//! whose block was changed to one that does not take it (by `set_block` too) stays readable until
+//! that phase, then goes: the items of a container, and a shulker box's, drop as items, a sign's
+//! text and a banner's patterns are gone.
 
 use std::fmt;
 
@@ -20,14 +24,14 @@ use crate::save::WorldIndex;
 use crate::tick::State;
 use crate::world::BlockPos;
 
-/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`), as signed ARGB.
+/// The text colour of a new sign: opaque black, as signed ARGB.
 pub(crate) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
 /// The longest custom name of a container, in bytes.
 pub const MAX_NAME_BYTES: usize = 1024;
-/// The most text bytes a sign side holds, all lines together (PMMP `BaseSign::updateFaceText`,
-/// the limit on players' edits; PMMP has none for plugins, Anchor keeps one bound for both).
+/// The most text bytes a sign side holds, all lines together: the limit on players' edits, and
+/// one bound for the API too.
 pub const MAX_SIGN_TEXT_BYTES: usize = 1000;
-/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
+/// The lines of a sign side.
 pub const SIGN_LINES: usize = 4;
 
 /// A block entity to read ([`Context::block_entity`](crate::Context)): its position, its block
@@ -173,7 +177,7 @@ impl Default for SignText {
     }
 }
 
-/// A dye colour, in PMMP `DyeColorIdMap` order (the Bedrock ID of a bed's or carpet's colour).
+/// A dye colour, in the order of its Bedrock ID (a bed's or carpet's colour).
 #[doc(alias = "DyeColor")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -240,7 +244,7 @@ impl DyeColour {
             .and_then(Self::from_id)
     }
 
-    /// The colour of a `DyeColorIdMap` ID, or `None`.
+    /// The colour of a Bedrock dye ID, or `None`.
     pub(crate) fn from_id(id: u8) -> Option<Self> {
         Self::ALL.get(usize::from(id)).copied()
     }
@@ -250,7 +254,7 @@ impl DyeColour {
         15 - i32::from(self as u8)
     }
 
-    /// The colour's RGB value, opaque (PMMP's: white is `#f0f0f0`, black `#1d1d21`).
+    /// The colour's RGB value, opaque (white is `#f0f0f0`, black `#1d1d21`).
     #[doc(alias = "DyeColor::getRgbValue")]
     #[expect(
         clippy::missing_panics_doc,
@@ -269,21 +273,21 @@ impl DyeColour {
 /// Whether a banner is a normal or an ominous (raid captain's) banner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BannerType {
-    /// A normal banner (PMMP `Banner::TYPE_NORMAL`).
+    /// A normal banner.
     Normal,
-    /// An ominous banner (PMMP `Banner::TYPE_OMINOUS`).
+    /// An ominous banner.
     Ominous,
 }
 
 /// One pattern layer of a banner: its pattern and colour.
 #[doc(alias = "BannerPatternLayer")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BannerPattern {
+pub struct BannerLayer {
     pattern: crate::block::BannerPattern,
     colour: DyeColour,
 }
 
-impl BannerPattern {
+impl BannerLayer {
     /// A layer of `pattern` in `colour`.
     pub fn new(pattern: crate::block::BannerPattern, colour: DyeColour) -> Self {
         Self { pattern, colour }
@@ -302,15 +306,14 @@ impl BannerPattern {
     }
 }
 
-/// The lines of a sign side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
-/// [`SIGN_LINES`] lines, the rest dropped).
+/// The lines of a sign side's text blob: split at newlines, at most [`SIGN_LINES`] lines, the rest
+/// dropped.
 pub(crate) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
     blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
 }
 
-/// Checks the lines of a sign side: [`Error::Invalid`] if a line holds a newline (PMMP
-/// `SignText`), [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all (PMMP
-/// `BaseSign::updateFaceText`).
+/// Checks the lines of a sign side: [`Error::Invalid`] if a line holds a newline,
+/// [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all.
 pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<()> {
     let mut bytes = 0_usize;
     for line in lines {
@@ -325,13 +328,13 @@ pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Resul
     Ok(())
 }
 
-/// The colour of a signed ARGB int, as block entities save colours (PMMP `Color::fromARGB`).
+/// The colour of a signed ARGB int, as block entities save colours.
 pub(crate) fn from_argb(argb: i32) -> Rgba {
     let [a, r, g, b] = argb.to_be_bytes();
     Rgba { r, g, b, a }
 }
 
-/// The signed ARGB int of a colour, as block entities save colours (PMMP `Color::toARGB`).
+/// The signed ARGB int of a colour, as block entities save colours.
 pub(crate) fn to_argb(c: Rgba) -> i32 {
     i32::from_be_bytes([c.a, c.r, c.g, c.b])
 }
@@ -393,7 +396,7 @@ e",
     // api: BannerPatternLayer, BannerPatternLayer::getType, BannerPatternLayer::getColor
     #[test]
     fn banner_colours_count_the_other_way() {
-        let layer = BannerPattern::new(crate::block::BannerPattern::Border, DyeColour::Red);
+        let layer = BannerLayer::new(crate::block::BannerPattern::Border, DyeColour::Red);
         assert_eq!(
             (layer.pattern(), layer.colour()),
             (crate::block::BannerPattern::Border, DyeColour::Red)
@@ -409,13 +412,13 @@ e",
 
     // api: DyeColor, DyeColor::getRgbValue
     #[test]
-    fn dye_colours_have_pmmps_rgb_values() {
-        // PMMP `DyeColor::getMetadata`, white to black.
-        let pmmp: [u32; 16] = [
+    fn dye_colours_have_the_dump_rgb_values() {
+        // White to black.
+        let expected: [u32; 16] = [
             0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
             0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
         ];
-        for (c, rgb) in DyeColour::ALL.into_iter().zip(pmmp) {
+        for (c, rgb) in DyeColour::ALL.into_iter().zip(expected) {
             let [_, r, g, b] = rgb.to_be_bytes();
             assert_eq!(c.rgb(), Rgba { r, g, b, a: 0xff }, "{c:?}");
         }

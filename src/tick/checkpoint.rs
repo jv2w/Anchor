@@ -522,14 +522,6 @@ impl Codec for Uuid {
     }
 }
 
-variants!(crate::crafting::FurnaceType {
-    0 => Furnace,
-    1 => BlastFurnace,
-    2 => Smoker,
-    3 => Campfire,
-    4 => SoulCampfire,
-});
-
 variants!(crate::menu::Kind {
     0 => Chest,
     1 => DoubleChest,
@@ -1175,7 +1167,6 @@ impl State {
         settings.game_mode.encode(&mut w);
         settings.difficulty.encode(&mut w);
         settings.max_players.encode(&mut w);
-        settings.random_tick_speed.encode(&mut w);
         settings.motd.encode(&mut w);
         settings.world_views.encode(&mut w);
         started.encode(&mut w);
@@ -1304,7 +1295,6 @@ impl State {
         self.settings.game_mode = Codec::decode(&mut r)?;
         self.settings.difficulty = Codec::decode(&mut r)?;
         self.settings.max_players = Codec::decode(&mut r)?;
-        self.settings.random_tick_speed = Codec::decode(&mut r)?;
         self.settings.motd = Codec::decode(&mut r)?;
         self.settings.world_views = Codec::decode(&mut r)?;
         self.started = Codec::decode(&mut r)?;

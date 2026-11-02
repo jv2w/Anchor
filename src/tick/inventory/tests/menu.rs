@@ -1667,7 +1667,7 @@ fn saved_sticks(w: &World, s: SessionId) -> (u64, u64) {
         .filter_map(Stack::from_nbt)
         .collect();
     let mut loaded = Inventory::default();
-    load(&mut loaded, &extra, &w.state.custom);
+    load(&mut loaded, &extra, &w.state.custom, "player");
     restore(&mut loaded);
     let restored = count_sticks(loaded.main.stacks.iter().chain(&loaded.pending));
     (count_sticks(&saved), restored)
@@ -2031,51 +2031,6 @@ fn a_creative_destroy_off_a_lent_cursor_deletes_the_player_s_own_first() {
         let inv = w.inv(s);
         assert_eq!((inv.cursor.stack(0).count(), inv.lent), after, "{answer:?}");
         assert_eq!(STORE.get(), store, "{answer:?}");
-    }
-}
-
-#[test]
-fn a_craft_from_lent_items_naming_no_menu_slot_is_heard() {
-    let mut w = World::new(GameMode::Survival);
-    let s = w.join(1);
-    let plank = block_item(blk::Kind::OakPlanks);
-    let (recipe, _) = recipe_for(item(it::Kind::Stick), &[plank]);
-    open_lending(&mut w, s, &[Stack::new(plank, 2)], false, Response::Keep);
-    let (_, net) = shown(&w, s, 0);
-    assert!(ok(&w.request(
-        s,
-        vec![take(2, at(C::LevelEntity, 0, net), at(C::Cursor, 0, 0))],
-    )));
-    assert_eq!(lent_heard(), [(0, 2)]);
-    // The two lent planks laid out in the grid and crafted into sticks for the player.
-    for (answer, sticks_had) in [(Response::Refuse, 0), (Response::Keep, 4)] {
-        ANSWER.set(answer);
-        let (cursor, id) = (w.id(s, C::Cursor, 0), w.next_id(s));
-        let r = w.request_as(
-            s,
-            id,
-            vec![
-                place(1, at(C::Cursor, 0, cursor), at(C::CraftingInput, 28, 0)),
-                place(1, at(C::Cursor, 0, id), at(C::CraftingInput, 30, 0)),
-                craft(recipe, 1),
-                deprecated(),
-                consume(1, at(C::CraftingInput, 28, id)),
-                consume(1, at(C::CraftingInput, 30, id)),
-                place(4, created(id), at(C::CombinedHotBarAndInventory, 0, 0)),
-            ],
-        );
-        assert_eq!(ok(&r), answer == Response::Keep, "{answer:?}: {r:?}");
-        assert_eq!(lent_heard(), [(2, 0)], "{answer:?}");
-        let player = totals(&w.state)
-            .get(&plain(it::Kind::Stick))
-            .copied()
-            .unwrap_or(0);
-        assert_eq!(player, sticks_had, "{answer:?}");
-        assert_eq!(
-            STORE.get(),
-            if sticks_had == 0 { 2 } else { 0 },
-            "{answer:?}"
-        );
     }
 }
 

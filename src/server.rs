@@ -92,7 +92,7 @@ impl Server {
     /// chunk whose terrain was never saved (only its entities or block entities were) gets what
     /// the world's generator makes, as when it loads: a declared world's generator and seed, or
     /// for another name the default world's generator with the seed of the name. Entities,
-    /// scheduled block updates and spills are left out and counted in the
+    /// and spills are left out and counted in the
     /// [`export::Report`](crate::export::Report): they are saved in Anchor's own form, and so
     /// are players, who are not in the world's file. Chunks the file does not hold (generated
     /// and never changed) are not written: the Bedrock world's flat generator makes them, as
@@ -609,12 +609,6 @@ impl ServerBuilder {
             runtime::logical_cpus(),
         )?;
         self.setup.commands.finish().map_err(Error::Command)?;
-        if !self.config.general.vanilla_recipes {
-            self.setup.custom.drop_vanilla_recipes();
-        }
-        if !self.config.general.recipe_book {
-            self.setup.custom.hide_recipe_book();
-        }
         self.setup.custom.finish().map_err(Error::Custom)?;
         self.setup
             .custom_entities
@@ -1099,27 +1093,6 @@ mod tests {
         assert!(matches!(refused, Err(Error::Config(_))));
         let undeclared = Server::builder().world_settings("nowhere", own).build();
         assert!(matches!(undeclared, Err(Error::Config(_))));
-    }
-
-    /// `vanilla-recipes = false` and `recipe-book = false` reach the recipes the server builds.
-    #[test]
-    fn the_recipe_switches_reach_the_built_recipes() {
-        let built = |vanilla: bool, book: bool| {
-            let mut config = Config::default();
-            config.general.vanilla_recipes = vanilla;
-            config.general.recipe_book = book;
-            Server::builder()
-                .config(config)
-                .build()
-                .unwrap()
-                .setup
-                .custom
-        };
-        let on = built(true, true);
-        assert!(on.first_special_id() > 1 && on.has_recipe_book());
-        let off = built(false, false);
-        assert_eq!(off.first_special_id(), 1);
-        assert!(!off.has_recipe_book());
     }
 
     #[test]

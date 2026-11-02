@@ -17,7 +17,7 @@ use crate::tick::entity::physics::tests::named;
 use crate::tick::entity::saved::tests::{bytes, stack};
 use crate::tick::entity::tests::{Harness, TEST_HOOKS, adds, at, calls, standing};
 use crate::tick::trade::Offers;
-use crate::world::ChunkPos;
+use crate::world::{BlockPos, ChunkPos};
 
 thread_local! {
     /// Trade windows the stand-in opener opened.
@@ -667,13 +667,12 @@ fn baby_zombies_and_villagers_survive_a_checkpoint() {
 }
 
 #[test]
-fn npcs_trample_farmland_and_take_fall_damage_when_they_land() {
+fn npcs_leave_farmland_as_it_is_and_take_fall_damage_when_they_land() {
     let mut h = Harness::new(1);
     h.spawn(1, standing(0.0, 0.0));
     let soil = BlockPos::new(5, -61, 5);
-    h.state.worlds[0]
-        .set_block(soil, named("minecraft:farmland"))
-        .unwrap();
+    let farmland = named("minecraft:farmland");
+    h.state.worlds[0].set_block(soil, farmland).unwrap();
     let v = villager(&mut h, at(5.5, -50.0, 5.5));
     vulnerable(&mut h, v);
     for _ in 0..40 {
@@ -681,11 +680,7 @@ fn npcs_trample_farmland_and_take_fall_damage_when_they_land() {
     }
     let y = h.state.rules.entities.get(v).unwrap().body.position.y;
     assert_eq!(y, -60.0625, "on the farmland (15/16 high)");
-    assert_eq!(
-        h.state.worlds[0].block(soil),
-        Some(crate::block::DIRT),
-        "trampled"
-    );
+    assert_eq!(h.state.worlds[0].block(soil), Some(farmland));
     let lost = 20.0 - health(&h, v);
     assert!(
         (6.0..=8.0).contains(&lost),
