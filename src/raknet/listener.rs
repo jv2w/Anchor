@@ -15,6 +15,7 @@ use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
 use super::wire::{self, Cursor, FLAG_DATAGRAM, UDP_HEADER_BYTES};
 use super::{Error, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, Result};
 use crate::bucket::{Bucket, Rate};
+use crate::tick::queue::LeaveReason;
 
 /// How long a closing connection may take to deliver what it queued (go-raknet `Close`).
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -222,7 +223,7 @@ impl Listener {
             self.release(conn.ip);
         }
         if conn.state != State::Handshake {
-            sink.close(conn.id);
+            sink.close(conn.id, reason.leave_reason());
         }
         debug!(%addr, id = conn.id, %reason, "raknet connection closed");
     }
@@ -330,7 +331,8 @@ impl Listener {
             debug!(addr = %from, "raknet connection refused: too many before login");
             return Ok(());
         }
-        let peer = Peer::new(now, mtu, self.config.limits)?;
+        let limits = self.config.limits;
+        let peer = Peer::new(now, mtu, limits.to_handshake())?;
         let id = self.next_id;
         self.next_id = id.saturating_add(1);
         self.conns.insert(
@@ -339,6 +341,7 @@ impl Listener {
                 id,
                 ip,
                 peer,
+                limits,
                 state: State::Handshake,
                 pre_login: true,
                 created: now,
@@ -392,8 +395,8 @@ pub(super) trait Sink {
     /// Hands a game message (after 0xfe) to the connection's session. `false` means its
     /// inbound queue is full and the connection closes.
     fn deliver(&mut self, id: u64, message: Vec<u8>) -> bool;
-    /// Reports that an accepted connection is gone.
-    fn close(&mut self, id: u64);
+    /// Reports that an accepted connection is gone, and why.
+    fn close(&mut self, id: u64, reason: LeaveReason);
     /// Reports that an accepted connection's client answered a connected ping after `rtt`.
     fn ping(&mut self, id: u64, rtt: Duration);
     /// Reports an open connection's bytes still queued or unacknowledged, after each update.
@@ -406,6 +409,8 @@ struct Conn {
     id: u64,
     ip: u128,
     peer: Peer,
+    /// The receive limits once the handshake is done ([`Limits::to_handshake`] holds until then).
+    limits: Limits,
     state: State,
     pre_login: bool,
     created: Duration,
@@ -488,6 +493,7 @@ impl Conn {
                     return Err(Close::Rejected);
                 }
                 self.state = State::Open;
+                self.peer.set_limits(self.limits);
                 debug!(%addr, id = self.id, mtu = self.peer.mtu(), "raknet connection opened");
             }
             wire::ID_DISCONNECT_NOTIFICATION => return Err(Close::Remote),
@@ -565,6 +571,19 @@ enum Close {
     Failed(Error),
 }
 
+impl Close {
+    /// Why the session sees the connection end.
+    fn leave_reason(&self) -> LeaveReason {
+        match self {
+            Self::Remote => LeaveReason::Left,
+            Self::Timeout | Self::HandshakeTimeout => LeaveReason::TimedOut,
+            Self::Done | Self::Rejected | Self::Shutdown | Self::Failed(_) => {
+                LeaveReason::ConnectionClosed
+            }
+        }
+    }
+}
+
 impl fmt::Display for Close {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -604,7 +623,7 @@ pub(super) mod tests {
 
     use crate::protocol::{Rng, fuzz};
     use crate::raknet::peer::tests::{datagram, header};
-    use crate::raknet::wire::Reliability;
+    use crate::raknet::wire::{Header, Reliability, Split};
 
     pub(in crate::raknet) const GUID: u64 = 0x0123_4567_89ab_cdef;
     /// The message limit of the tests: about 2.4 MiB, thousands of fragments at the smallest MTU.
@@ -631,7 +650,7 @@ pub(super) mod tests {
         sent: Vec<(SocketAddr, Vec<u8>)>,
         accepted: Vec<u64>,
         delivered: Vec<(u64, Vec<u8>)>,
-        closed: Vec<u64>,
+        closed: Vec<(u64, LeaveReason)>,
         pings: Vec<(u64, Duration)>,
         undelivered: Vec<(u64, usize)>,
         accept: bool,
@@ -682,8 +701,8 @@ pub(super) mod tests {
             self.deliver
         }
 
-        fn close(&mut self, id: u64) {
-            self.closed.push(id);
+        fn close(&mut self, id: u64, reason: LeaveReason) {
+            self.closed.push((id, reason));
         }
 
         fn ping(&mut self, id: u64, rtt: Duration) {
@@ -1189,7 +1208,7 @@ pub(super) mod tests {
         client.send(T, wire::ID_GAME, b"x".to_vec());
         pump(&mut listener, &mut sink, &mut client, T);
         assert!(listener.conns.is_empty());
-        assert_eq!(sink.closed, [id]);
+        assert_eq!(sink.closed, [(id, LeaveReason::ConnectionClosed)]);
         assert!(client.disconnected());
     }
 
@@ -1222,6 +1241,87 @@ pub(super) mod tests {
         listener.receive(T, from, &data, &mut sink);
         assert!(listener.conns.is_empty());
         assert!(sink.delivered.is_empty());
+    }
+
+    /// Connections that have not finished the handshake hold a few datagrams of unfinished
+    /// fragments at most: every one of them ends long before it has sent 64 KiB, however many
+    /// there are.
+    #[test]
+    fn handshake_connections_hold_only_a_few_datagrams_of_fragments() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let part = [0xfe; 1000];
+        let connections = 8;
+        for last in 1..=connections {
+            listener.receive(
+                T,
+                addr(last, 1),
+                &Client::request_2(1492, 1 << 63),
+                &mut sink,
+            );
+        }
+        assert_eq!(listener.conns.len(), usize::from(connections));
+        for seq in 0..64 {
+            let fragment = Header {
+                split: Some(Split {
+                    count: 1000,
+                    id: 0,
+                    index: seq,
+                }),
+                ..header(Reliability::Unreliable)
+            };
+            for last in 1..=connections {
+                let data = datagram(seq, &[(fragment, &part)]);
+                listener.receive(T, addr(last, 1), &data, &mut sink);
+            }
+        }
+        assert!(listener.conns.is_empty());
+        assert_eq!(listener.pre_login, 0);
+    }
+
+    /// An ACK nobody could have sent, from the client's address, does not end its connection.
+    #[test]
+    fn a_backwards_acknowledgement_keeps_the_connection() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 1492);
+        connect(&mut listener, &mut sink, &mut client, T);
+        let mut backwards = vec![FLAG_DATAGRAM | wire::FLAG_ACK, 0, 1, 0];
+        wire::put_u24(&mut backwards, 10);
+        wire::put_u24(&mut backwards, 5);
+        listener.receive(T, client.addr, &backwards, &mut sink);
+        assert_eq!(listener.conns.len(), 1);
+        assert!(sink.closed.is_empty());
+        client.send(T, wire::ID_GAME, b"still here".to_vec());
+        pump(&mut listener, &mut sink, &mut client, T);
+        assert_eq!(sink.delivered.len(), 1);
+    }
+
+    /// A datagram number far ahead is dropped: the honest datagrams after it are delivered, and
+    /// when nothing else comes, it does not keep the connection from timing out.
+    #[test]
+    fn a_datagram_number_jump_is_dropped_and_does_not_feed_the_idle_timer() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 1492);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        let jump = datagram(1 << 22, &[(header(Reliability::Unreliable), b"\xfejump")]);
+        let late = T + IDLE_TIMEOUT / 2;
+        listener.receive(late, client.addr, &jump, &mut sink);
+        assert_eq!(listener.conns.len(), 1);
+        assert!(sink.delivered.is_empty());
+        listener.update(T + IDLE_TIMEOUT + Duration::from_millis(1), &mut sink);
+        assert!(listener.conns.is_empty());
+        assert_eq!(sink.closed, [(id, LeaveReason::TimedOut)]);
+
+        let mut listener = self::listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 1492);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        listener.receive(T, client.addr, &jump, &mut sink);
+        client.send(T, wire::ID_GAME, b"hello".to_vec());
+        pump(&mut listener, &mut sink, &mut client, T);
+        assert_eq!(sink.delivered, [(id, b"hello".to_vec())]);
     }
 
     #[test]
@@ -1314,7 +1414,7 @@ pub(super) mod tests {
         let id = connect(&mut listener, &mut sink, &mut client, T);
         listener.update(T + Duration::from_secs(6), &mut sink);
         assert!(listener.conns.is_empty());
-        assert_eq!(sink.closed, [id]);
+        assert_eq!(sink.closed, [(id, LeaveReason::TimedOut)]);
     }
 
     #[test]
@@ -1329,7 +1429,7 @@ pub(super) mod tests {
             listener.receive(T, client.addr, &data, &mut sink);
         }
         assert!(listener.conns.is_empty());
-        assert_eq!(sink.closed, [id]);
+        assert_eq!(sink.closed, [(id, LeaveReason::Left)]);
         assert!(sink.take(client.addr).is_empty());
     }
 
@@ -1354,7 +1454,7 @@ pub(super) mod tests {
         }
         assert_eq!(client.game(), [big.as_slice()]);
         assert!(client.disconnected());
-        assert_eq!(sink.closed, [id]);
+        assert_eq!(sink.closed, [(id, LeaveReason::ConnectionClosed)]);
     }
 
     #[test]

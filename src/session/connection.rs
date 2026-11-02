@@ -36,8 +36,8 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ServerToClientHandshake,
 };
 use crate::tick::queue::{
-    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs,
-    SharedBatches, SharedPacket,
+    self, Client, Identity, InputKind, LeaveReason, Measure, Message, Outbound, SessionId,
+    SessionInputs, SharedBatches, SharedPacket,
 };
 
 /// The input budget refills this fraction of `max-batch-bytes` per second.
@@ -307,7 +307,14 @@ impl Session {
             debug!(session = self.id.get(), player = %identity.name, "session of a player ended");
         }
         if let Some(inputs) = self.inputs.take() {
-            inputs.leave().await;
+            // Only the transport knows why a connection it closed ended; any other end is the
+            // session's or the server's own.
+            let reason = if matches!(end, End::Closed) {
+                self.conn.leave_reason()
+            } else {
+                LeaveReason::ConnectionClosed
+            };
+            inputs.leave(reason).await;
         }
         // The tick tells the players it holds; these the server stopped before the tick did.
         if matches!(end, End::Shutdown | End::TickStopped) && self.encoder.is_some() {

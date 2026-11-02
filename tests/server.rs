@@ -333,6 +333,57 @@ fn a_shutdown_before_run_stops_it_at_once() {
     handle.shutdown();
 }
 
+/// `run` makes its own runtime on a thread of its own, so a program may call it from inside a
+/// tokio runtime, which refuses a runtime started or stopped on its threads.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test macro starts a runtime to run inside"
+)]
+#[tokio::test]
+async fn run_inside_a_tokio_runtime_ends_ok() {
+    let data = TempPath::new("inside-runtime");
+    let server = Server::builder()
+        .config(local_config())
+        .data_dir(&data.0)
+        .build()
+        .unwrap();
+    server.shutdown_handle().shutdown();
+    server.run().unwrap();
+}
+
+/// A key that is neither an XUID in decimal nor `offline:` and a name is refused where it enters.
+#[test]
+fn deleting_a_player_record_refuses_a_key_that_names_no_player() {
+    let data = TempPath::new("delete-player-key");
+    let server = Server::builder()
+        .data_dir(&data.0)
+        .without_console_log()
+        .build()
+        .unwrap();
+    for key in ["", "steve", "007", "-1", "offline:", "offline:\n"] {
+        let refused = server.delete_player_data(key);
+        assert!(
+            matches!(&refused, Err(Error::InvalidPlayerKey { key: named }) if named == key),
+            "{key:?}: {refused:?}"
+        );
+    }
+}
+
+/// A record that is not there answers false and makes no file.
+#[test]
+fn deleting_a_player_record_that_is_not_there_answers_false() {
+    let data = TempPath::new("delete-player-none");
+    let server = Server::builder()
+        .data_dir(&data.0)
+        .without_console_log()
+        .build()
+        .unwrap();
+    for key in ["2535428917000000", "offline:Steve"] {
+        assert!(!server.delete_player_data(key).unwrap(), "{key}");
+    }
+    assert!(!exists(&data.0.join("players.redb")));
+}
+
 /// The global subscriber that fills [`WARNINGS`]. It skips the tick pacer's warning that ticks
 /// overran: a loaded machine makes it in a normal run, and it is no stage of the stop.
 struct Warnings;

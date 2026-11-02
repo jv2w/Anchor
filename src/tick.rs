@@ -68,7 +68,7 @@ use crate::random::Fnv;
 use crate::save::{Request, Response, WorldIndex};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
-use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
+use queue::{Identity, Input, InputKind, InputReceiver, LeaveReason, Message, Outbound, SessionId};
 
 /// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
 const LIGHT_BUDGET: u32 = 16_384;
@@ -1265,7 +1265,7 @@ fn step_marked(
             InputKind::Packet { packet, size } => {
                 log.record(session, seq, EntryKind::Packet(packet), size)
             }
-            InputKind::Leave => log.record(session, seq, EntryKind::Leave, 0),
+            InputKind::Leave(reason) => log.record(session, seq, EntryKind::Leave(reason), 0),
             InputKind::Console(line) => {
                 let size = line.len();
                 log.record(session, seq, EntryKind::Console(line), size)
@@ -1282,7 +1282,7 @@ fn step_marked(
                     apply_packet(state, session, &packet);
                 }
             }
-            EntryKind::Leave => state.leave(session, QuitReason::Left),
+            EntryKind::Leave(reason) => state.leave(session, quit_reason(*reason)),
             EntryKind::Console(line) => command::console(state, line),
             EntryKind::Job(outcome) => task::finish(state, seq, outcome),
             EntryKind::Measure(measure) => network::apply(state, session, *measure),
@@ -1308,6 +1308,15 @@ fn step_marked(
     output.deferred_runs = deferred_runs;
     state.tick = state.tick.saturating_add(1);
     mark(Part::Output);
+}
+
+/// The quit reason of a connection that ended for `reason`.
+fn quit_reason(reason: LeaveReason) -> QuitReason {
+    match reason {
+        LeaveReason::Left => QuitReason::Left,
+        LeaveReason::ConnectionClosed => QuitReason::ConnectionClosed,
+        LeaveReason::TimedOut => QuitReason::TimedOut,
+    }
 }
 
 /// Applies one answer of the save thread and records it.
@@ -2169,7 +2178,11 @@ mod tests {
     }
 
     pub(super) fn leave(session: u64, seq: u64) -> Input {
-        input(session, seq, InputKind::Leave)
+        leave_for(session, seq, LeaveReason::Left)
+    }
+
+    fn leave_for(session: u64, seq: u64, reason: LeaveReason) -> Input {
+        input(session, seq, InputKind::Leave(reason))
     }
 
     #[test]
@@ -2195,6 +2208,29 @@ mod tests {
         let once_later = run_ticks(settings(|_| {}), vec![first, vec![leave(1, 1)], Vec::new()]);
         assert_eq!(once_later.hash(), later.hash());
         assert_eq!(once.players.len(), 1);
+    }
+
+    /// Each connection end quits with the reason its leave carries, not always as a client that
+    /// left.
+    #[test]
+    fn a_leave_quits_with_its_reason() {
+        let quit_reasons = |reason: LeaveReason| {
+            let (tx, mut seen) = mpsc::channel(8);
+            let mut listeners = Listeners::default();
+            listeners.push(Priority::Normal, move |e: &mut PlayerQuit, _| {
+                tx.try_send(e.reason().clone()).unwrap();
+            });
+            let (j, _rx) = join(1, 0);
+            let ticks = vec![vec![j], vec![leave_for(1, 1, reason)]];
+            run_ticks_with(settings(|_| {}), listeners, ticks);
+            std::iter::from_fn(|| seen.try_recv().ok()).collect::<Vec<_>>()
+        };
+        assert_eq!(quit_reasons(LeaveReason::Left), [QuitReason::Left]);
+        assert_eq!(
+            quit_reasons(LeaveReason::ConnectionClosed),
+            [QuitReason::ConnectionClosed]
+        );
+        assert_eq!(quit_reasons(LeaveReason::TimedOut), [QuitReason::TimedOut]);
     }
 
     fn spawn_status_count(packets: &[Packet]) -> usize {
@@ -2293,7 +2329,7 @@ mod tests {
                 tick(&mut queue, &mut state);
             }
             assert_eq!(state.players.len(), 1);
-            let mut leaving = pin!(inputs.leave());
+            let mut leaving = pin!(inputs.leave(LeaveReason::Left));
             let polled = leaving
                 .as_mut()
                 .poll(&mut Context::from_waker(Waker::noop()));
@@ -3128,7 +3164,13 @@ mod tests {
                     }
                     _ => {
                         self.joined[i] = false;
-                        InputKind::Leave
+                        // The reasons vary with the sequence number, so a replay that loses
+                        // one re-records different log bytes.
+                        InputKind::Leave(match seq % 3 {
+                            0 => LeaveReason::Left,
+                            1 => LeaveReason::ConnectionClosed,
+                            _ => LeaveReason::TimedOut,
+                        })
                     }
                 };
                 batch.push(input(s, seq, kind));
@@ -3407,7 +3449,7 @@ mod tests {
                             }
                         }
                         EntryKind::Packet(p) => packet(p.clone()),
-                        EntryKind::Leave => InputKind::Leave,
+                        EntryKind::Leave(reason) => InputKind::Leave(*reason),
                         EntryKind::Console(line) => InputKind::Console(line.clone()),
                         EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                         EntryKind::Measure(measure) => InputKind::Measure(*measure),
@@ -3567,14 +3609,15 @@ mod tests {
     fn the_log_stops_at_its_bound_without_the_partial_tick() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        let left = EntryKind::Leave(LeaveReason::Left);
+        log.record(SessionId::new(1), 1, left.clone(), log::MAX_BYTES / 2);
         log.begin(1);
-        log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
-        log.record(SessionId::new(2), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        log.record(SessionId::new(1), 2, left.clone(), 0);
+        log.record(SessionId::new(2), 1, left.clone(), log::MAX_BYTES / 2);
         assert!(log.is_truncated());
         assert_eq!(log.ticks().len(), 1, "tick 1 is incomplete and left out");
         log.begin(2);
-        log.record(SessionId::new(3), 1, EntryKind::Leave, 0);
+        log.record(SessionId::new(3), 1, left, 0);
         log.dropped(SessionId::new(3));
         assert_eq!(log.ticks().len(), 1);
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();

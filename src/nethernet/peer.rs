@@ -26,6 +26,7 @@ use super::message::{self, Reassembler};
 use super::sdp;
 use super::{STUN_HEADER_LEN, STUN_MAGIC_COOKIE};
 use crate::raknet::MAX_UNSENT_BYTES;
+use crate::tick::queue::LeaveReason;
 
 /// The ICE `ice-char` set (RFC 8445 15.4): letters, digits, `+` and `/`. 64 characters, so one
 /// random byte masked to 6 bits picks one uniformly.
@@ -92,6 +93,26 @@ pub(crate) enum Error {
     Certificate,
     /// Randomness for the ICE credentials failed.
     Crypto(crate::crypto::Error),
+}
+
+impl Error {
+    /// Why the session sees the connection end: the remote closing and a silent remote are told
+    /// apart, everything else is a close the client did not ask for.
+    pub(crate) fn leave_reason(&self) -> LeaveReason {
+        match self {
+            Self::Remote => LeaveReason::Left,
+            Self::Timeout(_) => LeaveReason::TimedOut,
+            Self::Closed
+            | Self::Channel(_)
+            | Self::Message(_)
+            | Self::Limit(_)
+            | Self::Address(_)
+            | Self::Webrtc(_)
+            | Self::Panicked
+            | Self::Certificate
+            | Self::Crypto(_) => LeaveReason::ConnectionClosed,
+        }
+    }
 }
 
 impl fmt::Display for Error {
@@ -1817,6 +1838,18 @@ pub(crate) mod tests {
             }
         }
         assert!(matches!(h.peer.poll(silent), Output::Closed(Error::Closed)));
+    }
+
+    #[test]
+    fn a_close_tells_the_session_why() {
+        assert_eq!(Error::Remote.leave_reason(), LeaveReason::Left);
+        assert_eq!(
+            Error::Timeout("no datagrams").leave_reason(),
+            LeaveReason::TimedOut
+        );
+        for error in [Error::Closed, Error::Limit("queue"), Error::Panicked] {
+            assert_eq!(error.leave_reason(), LeaveReason::ConnectionClosed);
+        }
     }
 
     #[test]

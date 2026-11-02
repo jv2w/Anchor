@@ -151,8 +151,8 @@ impl Context<'_> {
     }
 
     /// Closes the form `player` sees and those queued behind it on its client. Their handlers
-    /// never run, and answers that still arrive for them are ignored. False if the player is not
-    /// in the game.
+    /// never run, and answers that still arrive for them are ignored; the caller is how its own
+    /// close is known. False if the player is not in the game.
     #[doc(alias = "Player::closeAllForms")]
     pub fn close_forms(&mut self, player: player::Id) -> bool {
         let Some((p, open)) = open(self.state, player) else {

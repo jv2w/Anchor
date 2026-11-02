@@ -9,6 +9,7 @@ use tokio::sync::watch;
 use crate::crypto::PublicKey;
 use crate::nethernet;
 use crate::raknet;
+use crate::tick::queue::LeaveReason;
 
 /// One accepted connection of either transport.
 #[derive(Debug)]
@@ -57,6 +58,14 @@ impl Transport {
         match self {
             Self::Raknet(_) => None,
             Self::Nethernet(c) => c.client_key(),
+        }
+    }
+
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(super) fn leave_reason(&self) -> LeaveReason {
+        match self {
+            Self::Raknet(c) => c.leave_reason(),
+            Self::Nethernet(c) => c.leave_reason(),
         }
     }
 

@@ -282,7 +282,7 @@ impl Replayer {
                         packet: p.clone(),
                         size: 0,
                     },
-                    EntryKind::Leave => InputKind::Leave,
+                    EntryKind::Leave(reason) => InputKind::Leave(*reason),
                     EntryKind::Console(line) => InputKind::Console(line.clone()),
                     EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                     EntryKind::Measure(measure) => InputKind::Measure(*measure),

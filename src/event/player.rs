@@ -1358,7 +1358,8 @@ getters!(PlayerQuit {
     /// player's name.
     #[doc(alias = "PlayerQuitEvent::getQuitMessage")]
     quit_message: &str,
-    /// Why the player left.
+    /// Why the player left: what the transport reported for a connection that ended, or the
+    /// reason the server itself gave (a kick, a transfer, a replacement, the shutdown).
     #[doc(alias = "PlayerQuitEvent::getQuitReason")]
     reason: &QuitReason,
 });
@@ -1373,11 +1374,13 @@ setters!(PlayerQuit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum QuitReason {
-    /// The client left.
+    /// The client closed the connection itself.
     Left,
-    /// The connection closed without the client leaving.
+    /// The connection ended without the client closing it: the session failed (a broken protocol
+    /// or limit, a missed login or spawn deadline) or the transport closed it, or could not tell
+    /// why.
     ConnectionClosed,
-    /// The connection stayed silent until it timed out.
+    /// The client stayed silent until its connection timed out.
     TimedOut,
     /// The server dropped a session whose outbound queue was full or closed.
     ConnectionLost,

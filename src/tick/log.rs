@@ -40,7 +40,7 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use super::checkpoint::{Checkpoint, capacity, read_skin, skin_bytes};
-use super::queue::{Client, Identity, JobOutcome, Measure, SessionId};
+use super::queue::{Client, Identity, JobOutcome, LeaveReason, Measure, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
@@ -110,6 +110,12 @@ const KIND_CONSOLE: u8 = 3;
 const KIND_JOB: u8 = 4;
 /// The tag of a measure input.
 const KIND_MEASURE: u8 = 5;
+/// The tag of a leave because the client closed the connection.
+const LEAVE_LEFT: u8 = 0;
+/// The tag of a leave because the connection closed otherwise.
+const LEAVE_CONNECTION_CLOSED: u8 = 1;
+/// The tag of a leave because the connection timed out.
+const LEAVE_TIMED_OUT: u8 = 2;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The most bytes the log counts: recording stops where its inputs would pass it, and old
@@ -572,7 +578,7 @@ impl InputLog {
                 chain.raw(&[KIND_PACKET]);
                 chain.u64(u64::from(packet.id()));
             }
-            EntryKind::Leave => chain.raw(&[KIND_LEAVE]),
+            EntryKind::Leave(reason) => chain.raw(&[KIND_LEAVE, leave_tag(*reason)]),
             EntryKind::Console(_) => chain.raw(&[KIND_CONSOLE]),
             EntryKind::Job(_) => chain.raw(&[KIND_JOB]),
             EntryKind::Measure(measure) => {
@@ -851,7 +857,7 @@ pub(crate) struct Entry {
 pub(crate) enum EntryKind {
     Join(Identity),
     Packet(Packet),
-    Leave,
+    Leave(LeaveReason),
     /// A console line ([`InputKind::Console`](super::queue::InputKind::Console)).
     Console(String),
     /// A blocking job's result ([`InputKind::Job`](super::queue::InputKind::Job)); the entry's
@@ -1084,8 +1090,8 @@ impl<'a> Read<'a> {
     /// `packet_budget`.
     fn tick(&mut self, packet_budget: &mut usize) -> Result<Tick> {
         let number = self.u64()?;
-        // An entry takes at least 17 bytes, a dropped session 8.
-        let entries = self.count(17)?;
+        // An entry takes at least 18 bytes, a dropped session 8.
+        let entries = self.count(18)?;
         let mut inputs = Vec::with_capacity(capacity::<Entry>(entries, self.0.len()));
         for _ in 0..entries {
             let session = SessionId::new(self.u64()?);
@@ -1118,7 +1124,7 @@ impl<'a> Read<'a> {
                         .map_err(Error::Packet)?;
                     EntryKind::Packet(packet)
                 }
-                KIND_LEAVE => EntryKind::Leave,
+                KIND_LEAVE => EntryKind::Leave(self.leave_reason()?),
                 KIND_CONSOLE => EntryKind::Console(self.text()?),
                 KIND_JOB => EntryKind::Job(self.job()?),
                 KIND_MEASURE => EntryKind::Measure(self.measure()?),
@@ -1207,6 +1213,15 @@ impl<'a> Read<'a> {
             random_id: i64::from_le_bytes(self.array()?),
             port: u16::from_le_bytes(self.array()?),
             join_time_ms: i64::from_le_bytes(self.array()?),
+        })
+    }
+
+    fn leave_reason(&mut self) -> Result<LeaveReason> {
+        Ok(match self.u8()? {
+            LEAVE_LEFT => LeaveReason::Left,
+            LEAVE_CONNECTION_CLOSED => LeaveReason::ConnectionClosed,
+            LEAVE_TIMED_OUT => LeaveReason::TimedOut,
+            _ => return Err(Error::Format("leave reason")),
         })
     }
 
@@ -1373,7 +1388,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                     .map_err(Error::Packet)?;
                 put_bytes(out, body)?;
             }
-            EntryKind::Leave => out.push(KIND_LEAVE),
+            EntryKind::Leave(reason) => out.extend_from_slice(&[KIND_LEAVE, leave_tag(*reason)]),
             EntryKind::Console(line) => {
                 out.push(KIND_CONSOLE);
                 put_bytes(out, line.as_bytes())?;
@@ -1551,6 +1566,15 @@ fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// The tag a leave reason is written and chained as.
+fn leave_tag(reason: LeaveReason) -> u8 {
+    match reason {
+        LeaveReason::Left => LEAVE_LEFT,
+        LeaveReason::ConnectionClosed => LEAVE_CONNECTION_CLOSED,
+        LeaveReason::TimedOut => LEAVE_TIMED_OUT,
+    }
+}
+
 /// A logged player extra: one little-endian NBT root compound and nothing after it, read within
 /// the budget its players record was read with, which it came from.
 fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
@@ -1645,7 +1669,7 @@ mod tests {
         log.record(
             SessionId::new(1),
             0,
-            EntryKind::Leave,
+            EntryKind::Leave(LeaveReason::Left),
             MAX_BYTES - 3 * tick - entry + 1,
         );
         assert_eq!(starts(&log), [2, 3]);
@@ -1657,7 +1681,12 @@ mod tests {
             "dropped ticks free their bytes"
         );
         // With no committed segment to drop, the input that does not fit truncates.
-        log.record(SessionId::new(1), 1, EntryKind::Leave, tick);
+        log.record(
+            SessionId::new(1),
+            1,
+            EntryKind::Leave(LeaveReason::Left),
+            tick,
+        );
         assert!(log.is_truncated());
         assert_eq!(starts(&log), [2, 3]);
         // After the next commit, the segment before it goes once the bound needs room: here for
@@ -1677,7 +1706,12 @@ mod tests {
     fn recording_resumes_after_a_truncated_segment_and_room_drops_it() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, MAX_BYTES);
+        log.record(
+            SessionId::new(1),
+            0,
+            EntryKind::Leave(LeaveReason::Left),
+            MAX_BYTES,
+        );
         assert!(log.is_truncated());
         log.snapshot(1);
         log.begin(1);
@@ -1692,7 +1726,7 @@ mod tests {
         log.record(
             SessionId::new(1),
             1,
-            EntryKind::Leave,
+            EntryKind::Leave(LeaveReason::Left),
             MAX_BYTES - size_of::<Tick>() - size_of::<Entry>(),
         );
         assert!(!log.is_truncated(), "room dropped the truncated segment");
@@ -1716,12 +1750,22 @@ mod tests {
     fn a_quarter_of_the_bound_since_the_last_commit_asks_for_a_commit() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, COMMIT_BYTES / 2);
+        log.record(
+            SessionId::new(1),
+            0,
+            EntryKind::Leave(LeaveReason::Left),
+            COMMIT_BYTES / 2,
+        );
         log.snapshot(1);
         log.begin(1);
         assert!(!log.wants_commit(1));
         // The bytes since the newest committed state count, across segments.
-        log.record(SessionId::new(1), 1, EntryKind::Leave, COMMIT_BYTES / 2);
+        log.record(
+            SessionId::new(1),
+            1,
+            EntryKind::Leave(LeaveReason::Left),
+            COMMIT_BYTES / 2,
+        );
         assert!(log.wants_commit(2));
         log.committed(1);
         assert!(!log.wants_commit(2), "only segment 1 counts now");
@@ -1784,7 +1828,12 @@ mod tests {
         let run = |tick_time: u32, size: usize| {
             let mut log = InputLog::from_state(0, Some(3));
             log.begin(0);
-            log.record(SessionId::new(1), 0, EntryKind::Leave, size);
+            log.record(
+                SessionId::new(1),
+                0,
+                EntryKind::Leave(LeaveReason::Left),
+                size,
+            );
             log.record(
                 SessionId::ENGINE,
                 0,
@@ -1868,6 +1917,34 @@ mod tests {
         assert_eq!(read.ticks(), log.ticks());
     }
 
+    #[test]
+    fn leave_reasons_survive_the_written_log() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        for (session, reason) in [
+            (1, LeaveReason::Left),
+            (2, LeaveReason::ConnectionClosed),
+            (3, LeaveReason::TimedOut),
+        ] {
+            log.record(SessionId::new(session), 0, EntryKind::Leave(reason), 0);
+        }
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        let reasons: Vec<_> = read.ticks()[0]
+            .inputs
+            .iter()
+            .map(|entry| entry.kind.clone())
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                EntryKind::Leave(LeaveReason::Left),
+                EntryKind::Leave(LeaveReason::ConnectionClosed),
+                EntryKind::Leave(LeaveReason::TimedOut),
+            ]
+        );
+    }
+
     /// Puts the checksum of the bytes before it at the end of a written log.
     fn reseal(bytes: &mut [u8]) {
         let Some(at) = bytes.len().checked_sub(4) else {
@@ -1876,6 +1953,25 @@ mod tests {
         let mut crc = Crc32c::new();
         crc.update(&bytes[..at]);
         bytes[at..].copy_from_slice(&crc.finish().to_le_bytes());
+    }
+
+    #[test]
+    fn an_unknown_leave_reason_is_damage() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        let timed_out = EntryKind::Leave(LeaveReason::TimedOut);
+        log.record(SessionId::new(1), 0, timed_out, 0);
+        let mut bytes = log.encode().unwrap();
+        let at = bytes
+            .windows(2)
+            .rposition(|pair| pair == [KIND_LEAVE, LEAVE_TIMED_OUT])
+            .unwrap();
+        bytes[at + 1] = 9;
+        reseal(&mut bytes);
+        assert!(matches!(
+            InputLog::decode(&bytes),
+            Err(Error::Format("leave reason"))
+        ));
     }
 
     #[test]
@@ -2263,7 +2359,12 @@ mod tests {
         log.begin(1);
         log.segments[1].checkpoint = Some(Point::Written(vec![1, 2, 3]));
         log.snapshot(2);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, MAX_BYTES);
+        log.record(
+            SessionId::new(1),
+            0,
+            EntryKind::Leave(LeaveReason::Left),
+            MAX_BYTES,
+        );
         log.committed(1);
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!(read.fingerprints(), fingerprints);

@@ -104,6 +104,8 @@ pub(crate) const MAX_WORLDS: usize = 1024;
 const META: Table = TableDefinition::new("meta");
 /// The key of the `meta` value.
 const META_KEY: &[u8] = b"meta";
+/// What the key of a player without an XUID starts with, before the lowercase name.
+const OFFLINE_PREFIX: &str = "offline:";
 /// The table of the players' records.
 const PLAYERS: Table = TableDefinition::new("players");
 /// The file of the players' data.
@@ -438,10 +440,23 @@ impl PlayerKey {
         Self(text.to_owned())
     }
 
+    /// The key a program names with `text`, an XUID in decimal without leading zeros or
+    /// `offline:` and a name ([`check_name`](crate::permission::check_name)); `None` for any other
+    /// text.
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        if let Some(name) = text.strip_prefix(OFFLINE_PREFIX) {
+            return crate::permission::check_name(name)
+                .ok()
+                .map(|()| Self::offline(name));
+        }
+        let key = Self::xuid(text.parse().ok()?);
+        (key.as_str() == text).then_some(key)
+    }
+
     /// The key of an offline player: names that differ only in ASCII case are one player, as the
     /// tick matches them.
     pub(crate) fn offline(name: &str) -> Self {
-        Self(format!("offline:{}", name.to_ascii_lowercase()))
+        Self(format!("{OFFLINE_PREFIX}{}", name.to_ascii_lowercase()))
     }
 
     /// The key of a signed-in player.
@@ -953,6 +968,13 @@ impl Storage {
         }
         let before = self.retrying(meta_value)?;
         self.retrying(|db| write_with_savepoint(db, batch, before.as_deref()))
+    }
+
+    /// Deletes the value under `key` from the `players` table in one write transaction, without
+    /// reading it, and says whether there was one. It is not retried: a try that landed before
+    /// its call failed would answer false on the next.
+    pub(crate) fn remove_player(&mut self, key: &PlayerKey) -> Result<bool> {
+        remove_player(self.database()?, key)
     }
 
     /// Starts the world import's write: one quick-repair write transaction that
@@ -1761,6 +1783,24 @@ fn write_with_savepoint(db: &Database, batch: &Batch, before: Option<&[u8]>) -> 
     apply(&txn, batch)?;
     txn.commit().map_err(Error::database)?;
     Ok(())
+}
+
+/// One write transaction deleting the `players` value under `key`: whether there was one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the program deletes a player record while no server runs"
+)]
+fn remove_player(db: &Database, key: &PlayerKey) -> Result<bool> {
+    let mut txn = db.begin_write().map_err(Error::database)?;
+    txn.set_quick_repair(true);
+    let existed = txn
+        .open_table(PLAYERS)
+        .map_err(Error::database)?
+        .remove(key.as_str().as_bytes())
+        .map_err(Error::database)?
+        .is_some();
+    txn.commit().map_err(Error::database)?;
+    Ok(existed)
 }
 
 /// The sealed meta value of the last commit of `db`, if it holds one.

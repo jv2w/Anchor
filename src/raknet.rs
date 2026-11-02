@@ -22,6 +22,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tracing::{debug, trace};
 
 use crate::clock;
+use crate::tick::queue::LeaveReason;
 use crate::udp::Sockets;
 use listener::{Config, Listener, Sink};
 use peer::Limits;
@@ -264,6 +265,7 @@ impl Sink for Io {
         let (signal, watcher) = watch::channel(Flags::default());
         let (ping, pings) = watch::channel(None);
         let (undelivered, undelivered_watcher) = watch::channel(0);
+        let (reason, reason_watcher) = watch::channel(LeaveReason::ConnectionClosed);
         let connection = Connection {
             id,
             addr,
@@ -272,6 +274,7 @@ impl Sink for Io {
             signal,
             ping: pings,
             undelivered: undelivered_watcher,
+            reason: reason_watcher,
         };
         if let Err(error) = self.accepted.try_send(connection) {
             debug!(
@@ -287,6 +290,7 @@ impl Sink for Io {
             signal: watcher,
             ping,
             undelivered,
+            reason,
         };
         self.links.insert(id, link);
         true
@@ -298,8 +302,11 @@ impl Sink for Io {
             .is_some_and(|link| link.inbox.deliver(message))
     }
 
-    fn close(&mut self, id: u64) {
-        self.links.remove(&id);
+    fn close(&mut self, id: u64, reason: LeaveReason) {
+        if let Some(link) = self.links.remove(&id) {
+            // Set before the link goes: dropping its inbox is what ends the session's receive.
+            link.reason.send_replace(reason);
+        }
     }
 
     fn ping(&mut self, id: u64, rtt: Duration) {
@@ -323,6 +330,7 @@ struct Link {
     signal: watch::Receiver<Flags>,
     ping: watch::Sender<Option<Duration>>,
     undelivered: watch::Sender<usize>,
+    reason: watch::Sender<LeaveReason>,
 }
 
 /// One RakNet connection, held by its session. Dropping it closes the connection gracefully.
@@ -335,6 +343,7 @@ pub(crate) struct Connection {
     signal: watch::Sender<Flags>,
     ping: watch::Receiver<Option<Duration>>,
     undelivered: watch::Receiver<usize>,
+    reason: watch::Receiver<LeaveReason>,
 }
 
 impl Connection {
@@ -353,6 +362,11 @@ impl Connection {
     /// driver's last update; the sender is dropped once the connection is gone.
     pub(crate) fn undelivered(&self) -> watch::Receiver<usize> {
         self.undelivered.clone()
+    }
+
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(crate) fn leave_reason(&self) -> LeaveReason {
+        *self.reason.borrow()
     }
 
     /// Receives the next game message (after its 0xfe byte), or `None` once the connection is
@@ -611,6 +625,7 @@ pub(crate) mod tests {
         let (signal, _) = watch::channel(Flags::default());
         let (_, ping) = watch::channel(None);
         let (_, undelivered) = watch::channel(0);
+        let (_, reason) = watch::channel(LeaveReason::ConnectionClosed);
         Connection {
             id: 0,
             addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
@@ -619,6 +634,7 @@ pub(crate) mod tests {
             signal,
             ping,
             undelivered,
+            reason,
         }
     }
 
@@ -646,6 +662,7 @@ pub(crate) mod tests {
         let (signal, _) = watch::channel(Flags::default());
         let (_, ping) = watch::channel(None);
         let (undelivered, undelivered_watcher) = watch::channel(0);
+        let (_, reason) = watch::channel(LeaveReason::ConnectionClosed);
         let connection = Connection {
             id: 0,
             addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
@@ -654,6 +671,7 @@ pub(crate) mod tests {
             signal,
             ping,
             undelivered: undelivered_watcher,
+            reason,
         };
         let far = Far {
             _inbound: inbound_sender,
@@ -941,6 +959,31 @@ pub(crate) mod tests {
                 step(&mut driver, &mut remote).await;
             }
             assert_eq!(remote.client.game(), [b"bye"]);
+        });
+    }
+
+    #[test]
+    fn a_disconnect_notification_ends_the_connection_as_left() {
+        run(async {
+            let (mut driver, mut connections) = loopback_driver();
+            let mut remote = Remote::new(server(&driver)).await;
+            remote.client.start();
+            let mut connection = loop {
+                if let Ok(connection) = connections.try_recv() {
+                    break connection;
+                }
+                step(&mut driver, &mut remote).await;
+            };
+            let now = remote.now();
+            remote
+                .client
+                .send(now, wire::ID_DISCONNECT_NOTIFICATION, Vec::new());
+            remote.flush().await;
+            while !connection.inbound.is_closed() {
+                step(&mut driver, &mut remote).await;
+            }
+            assert_eq!(connection.recv().await, None);
+            assert_eq!(connection.leave_reason(), LeaveReason::Left);
         });
     }
 

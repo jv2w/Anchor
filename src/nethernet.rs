@@ -35,6 +35,7 @@ use crate::login::{self, Mode};
 use crate::raknet::{
     Flags, Inbound, Inbox, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, ip_key, report_undelivered,
 };
+use crate::tick::queue::LeaveReason;
 use crate::udp::Sockets;
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
@@ -148,6 +149,7 @@ pub(crate) struct Connection {
     signal: watch::Sender<Flags>,
     ping: watch::Receiver<Option<Duration>>,
     undelivered: watch::Receiver<usize>,
+    reason: watch::Receiver<LeaveReason>,
 }
 
 impl Connection {
@@ -172,6 +174,11 @@ impl Connection {
     /// The client key the offer's identity proved; `None` for an offline offer without one.
     pub(crate) fn client_key(&self) -> Option<&PublicKey> {
         self.client_key.as_ref()
+    }
+
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(crate) fn leave_reason(&self) -> LeaveReason {
+        *self.reason.borrow()
     }
 
     /// Takes the next game message, or `None` once the connection is closed.
@@ -452,6 +459,9 @@ struct Link {
     signal: watch::Receiver<Flags>,
     ping: watch::Sender<Option<Duration>>,
     undelivered: watch::Sender<usize>,
+    /// Set when the peer reports why it closed; a close the driver causes keeps the initial
+    /// [`LeaveReason::ConnectionClosed`].
+    reason: watch::Sender<LeaveReason>,
 }
 
 /// One peer in the driver.
@@ -764,6 +774,9 @@ impl Driver {
                         error = &reason as &(dyn std::error::Error + 'static),
                         "nethernet peer closed"
                     );
+                    if let Some(link) = &entry.link {
+                        link.reason.send_replace(reason.leave_reason());
+                    }
                     self.doomed.push(id);
                     return;
                 }
@@ -988,6 +1001,7 @@ fn accept(
     let (signal, watcher) = watch::channel(Flags::default());
     let (ping, pings) = watch::channel(None);
     let (undelivered, undelivered_watcher) = watch::channel(0);
+    let (reason, reason_watcher) = watch::channel(LeaveReason::ConnectionClosed);
     let connection = Connection {
         id,
         addr,
@@ -997,6 +1011,7 @@ fn accept(
         signal,
         ping: pings,
         undelivered: undelivered_watcher,
+        reason: reason_watcher,
     };
     if let Err(error) = accepted.try_send(connection) {
         debug!(
@@ -1011,6 +1026,7 @@ fn accept(
         signal: watcher,
         ping,
         undelivered,
+        reason,
     })
 }
 

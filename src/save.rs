@@ -885,6 +885,36 @@ pub(crate) fn open_replica(
     resolve(files_open, opener, saved, stored, specs, Some(seeds))
 }
 
+/// Deletes the record `key` from the players file of the data folder `data_dir` and says whether
+/// there was one. It is the only value written; the record is deleted without being read, so a
+/// damaged one goes too. The file is opened as a start opens it (`start.check` as it says, no
+/// start backup), so a file that is in use (a server runs), damaged, of a newer format, or later
+/// than the main file ([`storage::check_settled`]) is refused as it was; a missing file holds no
+/// record. The file's savepoint is deleted and its normal-stop mark written again, as at a clean
+/// shutdown.
+pub(crate) fn delete_player(
+    data_dir: &std::path::Path,
+    start: Start,
+    key: &PlayerKey,
+) -> Result<bool, storage::Error> {
+    let main = Place::data(data_dir, storage::MAIN_FILE);
+    let players = Place::data(data_dir, storage::PLAYERS_FILE);
+    if !storage::has_data(&players.file)? {
+        return Ok(false);
+    }
+    storage::check_settled(&players.file, &main.file)?;
+    let mut storage = Storage::open(
+        &players,
+        Start {
+            backup: StartBackup::Skip,
+            ..start
+        },
+    )?;
+    let existed = storage.remove_player(key)?;
+    storage.close()?;
+    Ok(existed)
+}
+
 /// The engine tick and commit identity of the last commit of the data file `path`, opened
 /// read-only (a replay looks for the files of its segment's state).
 pub(crate) fn committed_meta(path: &std::path::Path) -> Result<Meta, crate::Error> {
@@ -4041,6 +4071,110 @@ pub(crate) mod tests {
                 "{answers:?}"
             );
         }
+    }
+
+    /// What a load of the player `key` answers from the data folder of `dir`.
+    fn saved_player(dir: &TempDir, key: &PlayerKey) -> PlayerLoad {
+        let (mut answers, _, result) = serve(dir, vec![Request::Player(key.clone())]);
+        result.unwrap();
+        let Some(Response::Player { data, .. }) = answers.pop() else {
+            panic!("{answers:?}");
+        };
+        data
+    }
+
+    /// Saves the players `keys` with the same data in one commit to the data folder of `dir`, and
+    /// returns that data.
+    fn save_players(dir: &TempDir, keys: &[&PlayerKey]) -> PlayerData {
+        let data = PlayerData {
+            world: "world".to_owned(),
+            position: [0.5, -59.0, 0.5],
+            extra: Compound::new(),
+        };
+        let snapshot = Snapshot {
+            start: 5,
+            identity: 5,
+            players: keys
+                .iter()
+                .map(|&key| (key.clone(), data.clone()))
+                .collect(),
+            ..Snapshot::default()
+        };
+        let (_, _, result) = serve(dir, vec![Request::Commit(Box::new(snapshot))]);
+        result.unwrap();
+        data
+    }
+
+    /// Deleting a player's record removes that record alone: the other player, the main file's
+    /// save and the players file's meta value stay, and deleting again answers false and leaves
+    /// the same state.
+    #[test]
+    fn deleting_a_player_record_removes_that_record_alone_and_twice_is_the_same() {
+        let dir = TempDir::new("delete-player");
+        let (xuid, offline) = (PlayerKey::xuid(7), PlayerKey::offline("Alex"));
+        let data = save_players(&dir, &[&xuid, &offline]);
+        let players = Place::data(&dir.0, storage::PLAYERS_FILE).file;
+        let meta = committed_meta(&players).unwrap();
+        let start = Start::checked(StartBackup::Skip);
+        assert!(delete_player(&dir.0, start, &xuid).unwrap());
+        for _ in 0..2 {
+            assert_eq!(saved_player(&dir, &xuid), PlayerLoad::Absent);
+            assert_eq!(
+                saved_player(&dir, &offline),
+                PlayerLoad::Found(data.clone())
+            );
+            let after = committed_meta(&players).unwrap();
+            assert_eq!((after.tick, after.identity), (meta.tick, meta.identity));
+            assert!(storage::closed_normally(&players));
+            assert!(!delete_player(&dir.0, start, &xuid).unwrap());
+        }
+        assert_eq!(data_files(&dir.0), ["main.redb", "players.redb"]);
+    }
+
+    /// A name nobody saved answers false, and a folder without a players file gets none.
+    #[test]
+    fn deleting_a_record_nobody_saved_answers_false_and_writes_nothing() {
+        let dir = TempDir::new("delete-player-absent");
+        let start = Start::checked(StartBackup::Skip);
+        let steve = PlayerKey::offline("Steve");
+        assert!(!delete_player(&dir.0, start, &steve).unwrap());
+        assert!(data_files(&dir.0).is_empty());
+        let xuid = PlayerKey::xuid(7);
+        let data = save_players(&dir, &[&xuid]);
+        assert!(!delete_player(&dir.0, start, &steve).unwrap());
+        assert_eq!(saved_player(&dir, &xuid), PlayerLoad::Found(data));
+    }
+
+    /// A record that does not unseal is deleted without being read, and the player is new again.
+    #[test]
+    fn a_damaged_player_record_is_deleted_without_being_read() {
+        let dir = TempDir::new("delete-player-damaged");
+        let player = PlayerKey::offline("Steve");
+        save_players(&dir, &[&player]);
+        let place = Place::data(&dir.0, storage::PLAYERS_FILE);
+        let start = Start::checked(StartBackup::Skip);
+        let mut storage = Storage::open(&place, start).unwrap();
+        let mut batch = Batch::with_capacity(1);
+        batch.put(Key::Player(player.clone()), b"not a sealed value".to_vec());
+        storage.commit(&batch).unwrap();
+        storage.close().unwrap();
+        assert_eq!(saved_player(&dir, &player), PlayerLoad::Damaged);
+        assert!(delete_player(&dir.0, start, &player).unwrap());
+        assert_eq!(saved_player(&dir, &player), PlayerLoad::Absent);
+    }
+
+    /// A server that has the files open holds redb's lock: the deletion is refused as in use and
+    /// the record stays.
+    #[test]
+    fn a_player_record_is_not_deleted_while_the_files_are_open() {
+        let dir = TempDir::new("delete-player-open");
+        let player = PlayerKey::xuid(7);
+        let data = save_players(&dir, &[&player]);
+        let opened = open(&dir.0, specs()).unwrap();
+        let refused = delete_player(&dir.0, Start::checked(StartBackup::Skip), &player);
+        assert!(matches!(refused, Err(storage::Error::InUse)), "{refused:?}");
+        drop(opened);
+        assert_eq!(saved_player(&dir, &player), PlayerLoad::Found(data));
     }
 
     /// The world files of `data/worlds/` are the stored worlds, declared or not; a name that is

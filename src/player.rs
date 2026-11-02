@@ -12,7 +12,7 @@ pub use crate::tick::{Offline, Player};
 use std::fmt;
 use std::time::Duration;
 
-use crate::protocol::consts::{TextType, TitleAction};
+use crate::protocol::consts::{self, TextType, TitleAction};
 use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
 use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
 use crate::tick::TICK;
@@ -323,6 +323,66 @@ impl TitleTimes {
             fade_out_duration: ticks(self.fade_out),
             ..SetTitle::default()
         })
+    }
+}
+
+/// A part of the player's screen that [`Player::hide_hud`] hides and [`Player::show_hud`] shows
+/// again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum HudElement {
+    /// The player's figure in the corner of the screen.
+    PaperDoll,
+    /// The armour bar.
+    Armour,
+    /// The tool tips.
+    ToolTips,
+    /// The touch controls.
+    TouchControls,
+    /// The crosshair.
+    Crosshair,
+    /// The hotbar.
+    HotBar,
+    /// The health bar.
+    Health,
+    /// The xp bar.
+    ProgressBar,
+    /// The food bar.
+    Food,
+    /// The air bubbles.
+    AirBubbles,
+    /// The health bar of the horse the player rides.
+    HorseHealth,
+    /// The status effect icons.
+    StatusEffects,
+    /// The name of the held item shown above the hotbar.
+    ItemText,
+}
+
+impl HudElement {
+    /// The bit of the element in a set of elements.
+    pub(crate) const fn bit(self) -> u16 {
+        1 << self as u16
+    }
+}
+
+impl From<HudElement> for consts::HudElement {
+    fn from(element: HudElement) -> Self {
+        match element {
+            HudElement::PaperDoll => Self::PaperDoll,
+            HudElement::Armour => Self::Armour,
+            HudElement::ToolTips => Self::ToolTips,
+            HudElement::TouchControls => Self::TouchControls,
+            HudElement::Crosshair => Self::Crosshair,
+            HudElement::HotBar => Self::HotBar,
+            HudElement::Health => Self::Health,
+            HudElement::ProgressBar => Self::ProgressBar,
+            HudElement::Food => Self::Hunger,
+            HudElement::AirBubbles => Self::AirBubbles,
+            HudElement::HorseHealth => Self::HorseHealth,
+            HudElement::StatusEffects => Self::StatusEffects,
+            HudElement::ItemText => Self::ItemText,
+        }
     }
 }
 

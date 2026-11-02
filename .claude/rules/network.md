@@ -76,6 +76,7 @@ paths:
 - The RakNet layer adds and removes the 0xfe byte; the session stays transport-independent.
 - RakNet timing uses the monotonic clock (`clock::now`).
 - Never use the connection cookie (security).
+- Drop a malformed ACK or NAK, and a datagram whose number is the history (1,024) or more ahead, as that datagram alone. Never close the connection for them.
 - Never preallocate for the fragment count a message declares.
 - Refuse `;` and control characters in `motd` and `level-name`.
 

@@ -67,11 +67,12 @@ vendor/                     patched dependency copies (dependencies.md)
 | Network workers (tokio, `anchor-network`) | `network-threads` | Transports, sessions, codecs, compression, encryption, signaling |
 | CPU pool (rayon, `anchor-cpu-<n>`) | `cpu-threads` | The tick's parallel read-only phases; for the save thread, chunk decoding, generation and first lighting, chunk extras reading, chunk sealing, and the file checks at start |
 | Blocking pool (tokio) | at most 8 | 4 for the engine (the authorization fetch and key loading), 4 for user `spawn_blocking` jobs |
+| Run (`anchor-run`) | 1 | Creates, drives and stops the tokio runtime for `Server::run`, so the caller may be inside a tokio runtime; it waits, so it is not in the budget |
 | Console (`anchor-console`) | 1 | Puts standard input lines into a bounded queue (`console-input`) |
 | Console log (`anchor-log`) | 1 | Anchor's default console writer, writing standard error (when `log-level` is not `off` and `without_console_log` was not called) |
 
 - How `"auto"` resolves the thread counts, and how settings over the compute-thread budget are refused, is in `config.md` (`network-threads`, `cpu-threads`).
-- Blocking threads wait on I/O, so they do not count against the budget. Neither do the console threads.
+- Blocking threads wait on I/O, so they do not count against the budget. Neither do the run, console and log threads.
 - The 4 MiB stack holds the recursion of dropping NBT nested 512 deep, whatever the OS default or `RUST_MIN_STACK`.
 - Main queue bounds:
 
@@ -122,7 +123,7 @@ Phases:
 
 ## Input log and replay
 
-- The log holds every input the tick applies: join identities, decoded packets (their sizes count against the bound only and are not kept), leaves, console lines, job results, measured values, save thread answers, and the sessions dropped because their outbound queue was full. An input enters the log before it applies, so the log of a tick that panicked holds the input that did.
+- The log holds every input the tick applies: join identities, decoded packets (their sizes count against the bound only and are not kept), leaves with the reason the networking gave (the client left, the connection closed, or it timed out), console lines, job results, measured values, save thread answers, and the sessions dropped because their outbound queue was full. An input enters the log before it applies, so the log of a tick that panicked holds the input that did.
 - The log is a list of segments. One starts with the process and one with each save snapshot, each headed by its start tick, its commit identity, and a checkpoint of that state. The log head holds the SHA-256 fingerprints of the tick settings and worlds and of the registrations (commands, custom items, blocks and entities, listeners per event, task periods, data types, hooks).
 - The bound is 64 MiB of counted bytes: each input counts its wire size, or for a packet the larger of that and what decoding it allocated (item NBT allocates far more than its bytes), and every list the log holds counts the room it reserves (ticks, inputs, answers and forgotten sessions at their own size, the room doubling as a list grows), checkpoints the room of their body, so the bound counts the memory the log holds, idle ticks included; reading a log back, all packets share one 64 MiB decode budget. Recording stops when the inputs alone would pass the bound; committed segments are dropped oldest first when the inputs and the checkpoints of every kept segment would, never the newest committed one. Checkpoints have no bound of their own. A quarter of the bound recorded since the last commit asks for a snapshot even with automatic saving off, so the other three quarters cover the commit's time. A segment whose recording stops, at the bound or at a save thread answer that cannot be logged, is marked truncated, and a replay ends there.
 - Commit identity: the log chains every input the tick applies (its place, its kind, and the measured values, not packet bodies) into an identity that each commit writes into the files with its tick. So a replay never takes a file another run committed at the same tick.

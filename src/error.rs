@@ -14,7 +14,7 @@ use crate::{command, config, data, entity, export, import, pack, storage, udp};
 pub enum Error {
     /// The settings are invalid; [`source`](std::error::Error::source) names the setting.
     Config(config::Error),
-    /// The runtime, a thread (tick, save, CPU pool, console, console log) or the startup state
+    /// The runtime, a thread (run, tick, save, CPU pool, console, console log) or the startup state
     /// (server key, random numbers, shared spawn batches, the blocking tasks that load resource
     /// packs, the NetherNet identity key and TLS files, the NetherNet DTLS certificate, the
     /// NetherNet signaling task) could not be started.
@@ -69,6 +69,11 @@ pub enum Error {
     InvalidWorldName {
         /// The name.
         name: String,
+    },
+    /// A player record key is neither an XUID in decimal nor `offline:` and a player name.
+    InvalidPlayerKey {
+        /// The key.
+        key: String,
     },
     /// Two generator types have the same [`name`](crate::world::Generator::name).
     DuplicateGenerator {
@@ -138,6 +143,9 @@ impl fmt::Display for Error {
             Self::InvalidWorldName { name } => {
                 write!(f, "the world name {name:?} cannot be a file name")
             }
+            Self::InvalidPlayerKey { key } => {
+                write!(f, "{key:?} is not the key of a player record")
+            }
             Self::DuplicateGenerator { name } => {
                 write!(f, "two generator types are named {name:?}")
             }
@@ -180,6 +188,7 @@ impl std::error::Error for Error {
             | Self::WorldNewerFormat { .. }
             | Self::DuplicateWorld { .. }
             | Self::InvalidWorldName { .. }
+            | Self::InvalidPlayerKey { .. }
             | Self::DuplicateGenerator { .. }
             | Self::GeneratorSpawn { .. }
             | Self::Usage => None,

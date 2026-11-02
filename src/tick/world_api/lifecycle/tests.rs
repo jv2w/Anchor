@@ -1469,7 +1469,7 @@ fn replay(ticks: &[LoggedTick], pool: &Pool) -> Vec<u64> {
                         }
                     }
                     EntryKind::Packet(p) => crate::tick::tests::packet(p.clone()),
-                    EntryKind::Leave => InputKind::Leave,
+                    EntryKind::Leave(reason) => InputKind::Leave(*reason),
                     EntryKind::Console(line) => InputKind::Console(line.clone()),
                     EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                     EntryKind::Measure(measure) => InputKind::Measure(*measure),

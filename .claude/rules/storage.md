@@ -57,6 +57,7 @@ paths:
 - Treat a file redb repaired in place (`check_integrity()` returning `Ok(false)`) as damaged.
 - Never call redb `check_integrity()` while the server runs.
 - Never restore anything automatically, from a backup or otherwise.
+- Delete one damaged player record only through `Server::delete_player_data`, which never reads its content.
 
 ## Start and stop
 - Never write a file in the start check: keep redb's writes on the bounded in-memory backend.

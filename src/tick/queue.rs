@@ -407,8 +407,8 @@ pub(crate) enum InputKind {
     /// its bound: the larger of its size on the wire and what decoding it allocated. The log does
     /// not keep the size, and no tick rule reads it.
     Packet { packet: Packet, size: usize },
-    /// The connection closed.
-    Leave,
+    /// The connection closed, for the given reason.
+    Leave(LeaveReason),
     /// A line typed on the console ([`SessionId::CONSOLE`]), at most
     /// [`MAX_LINE_BYTES`](crate::command::parse::MAX_LINE_BYTES) bytes, without its line end.
     Console(String),
@@ -418,6 +418,19 @@ pub(crate) enum InputKind {
     /// A value measured off the tick by a clock or the network, which the tick reads only as
     /// this logged input, so that a replay reads the same.
     Measure(Measure),
+}
+
+/// Why a connection ended, as far as the networking knows. A kick, a transfer and the like are
+/// decided by the tick, not reported here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LeaveReason {
+    /// The client closed the connection.
+    Left,
+    /// The connection closed without the client closing it: the transport, the session or the
+    /// server ended it, or the transport cannot tell why.
+    ConnectionClosed,
+    /// The connection stayed silent until it timed out.
+    TimedOut,
 }
 
 /// A value measured off the tick: what the wall clock or the network would tell,
@@ -672,10 +685,10 @@ impl SessionInputs {
         }
     }
 
-    /// Queues [`InputKind::Leave`] with the connection share, waiting for room in the session's
-    /// share so that the tick always learns the session ended. Returns at once if the tick has
-    /// stopped.
-    pub(crate) async fn leave(mut self) {
+    /// Queues [`InputKind::Leave`] for `reason` with the connection share, waiting for room in the
+    /// session's share so that the tick always learns the session ended. Returns at once if the
+    /// tick has stopped.
+    pub(crate) async fn leave(mut self, reason: LeaveReason) {
         #[expect(
             clippy::expect_used,
             reason = "invariant: nothing closes the share, so acquiring only waits for the tick to \
@@ -689,7 +702,7 @@ impl SessionInputs {
             input: Input {
                 session: self.session,
                 seq: self.next_seq,
-                kind: InputKind::Leave,
+                kind: InputKind::Leave(reason),
             },
             _share: Some(share),
             _connection: self.connection.take(),
@@ -801,9 +814,9 @@ mod tests {
         let (sender, mut rx) = input_queue(1);
         let mut a = sender.session(SessionId::new(7));
         let mut b = sender.session(SessionId::new(3));
-        a.try_send(InputKind::Leave).unwrap();
-        b.try_send(InputKind::Leave).unwrap();
-        a.try_send(InputKind::Leave).unwrap();
+        a.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
+        b.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
+        a.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
         let got: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok())
             .map(|i| (i.session.get(), i.seq))
             .collect();
@@ -822,19 +835,25 @@ mod tests {
             "two connections at most"
         );
         for _ in 0..MAX_SESSION_INPUTS {
-            a.try_send(InputKind::Leave).unwrap();
+            a.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
         }
-        assert_eq!(a.try_send(InputKind::Leave), Err(Error::Full));
-        b.try_send(InputKind::Leave).unwrap();
+        assert_eq!(
+            a.try_send(InputKind::Leave(LeaveReason::Left)),
+            Err(Error::Full)
+        );
+        b.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
         rx.try_recv().unwrap();
-        a.try_send(InputKind::Leave).unwrap();
+        a.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
         drop(b);
         assert!(
             sender.connection(SessionId::new(3)).is_some(),
             "b's share is free again"
         );
         drop(rx);
-        assert_eq!(a.try_send(InputKind::Leave), Err(Error::Closed));
+        assert_eq!(
+            a.try_send(InputKind::Leave(LeaveReason::Left)),
+            Err(Error::Closed)
+        );
     }
 
     /// A connection that left keeps its connection share until the tick takes its leave, so the
@@ -845,9 +864,9 @@ mod tests {
         let _b = sender.connection(SessionId::new(1)).unwrap();
         let mut a = sender.connection(SessionId::new(2)).unwrap();
         for _ in 1..MAX_SESSION_INPUTS {
-            a.try_send(InputKind::Leave).unwrap();
+            a.try_send(InputKind::Leave(LeaveReason::Left)).unwrap();
         }
-        let leaving = std::pin::pin!(a.leave());
+        let leaving = std::pin::pin!(a.leave(LeaveReason::Left));
         let polled = leaving.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
         assert_eq!(polled, std::task::Poll::Ready(()));
         for _ in 1..MAX_SESSION_INPUTS {

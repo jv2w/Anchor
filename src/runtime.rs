@@ -170,7 +170,7 @@ impl Runtime {
     /// Runs `future` to completion on the calling thread, inside the runtime.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: `Server::run` blocks its caller until shutdown"
+        reason = "off-tick: `Server::run` blocks its run thread until shutdown"
     )]
     pub(crate) fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.0.block_on(future)
@@ -239,6 +239,16 @@ pub(crate) fn spawn_save<T: Send + 'static>(
     run: impl FnOnce() -> T + Send + 'static,
 ) -> Result<JoinHandle<T>> {
     spawn_thread("anchor-save", log::logged(run)).map_err(Error::Start)
+}
+
+/// Starts the run thread running `run`: the thread that creates, drives and stops the tokio
+/// runtime, because tokio refuses all three on a thread that is inside another runtime, which
+/// the caller of `Server::run` may be. It mostly waits, as the console and log threads do, so it
+/// is not counted in the compute thread budget.
+pub(crate) fn spawn_run<T: Send + 'static>(
+    run: impl FnOnce() -> T + Send + 'static,
+) -> Result<JoinHandle<T>> {
+    spawn_thread("anchor-run", log::logged(run)).map_err(Error::Start)
 }
 
 /// Starts a thread named `name` with [`STACK_BYTES`] of stack running `run` as it is: wrap `run`

@@ -23,10 +23,12 @@ use crate::event::{
     Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, QuitReason, TeleportCause,
 };
 use crate::math::Vec3;
-use crate::player::{Error, Id, Message, Packets, Result};
+use crate::player::{Error, HudElement, Id, Message, Packets, Result};
 use crate::protocol::Uuid;
-use crate::protocol::consts::{DeviceOs, DisconnectReason, InputMode};
-use crate::protocol::packet::{Disconnect, Packet, PlaySound, SpawnParticleEffect, Transfer};
+use crate::protocol::consts::{self, DeviceOs, DisconnectReason, HudVisibility, InputMode};
+use crate::protocol::packet::{
+    Disconnect, Packet, PlaySound, SetHud, SpawnParticleEffect, Transfer,
+};
 use crate::save::WorldIndex;
 use crate::world;
 
@@ -367,6 +369,20 @@ impl Player {
         Ok(())
     }
 
+    /// Hides `elements` of the player's screen. The packet follows this tick's other packets;
+    /// an element already hidden is not sent again, so a repeated call changes nothing. The
+    /// hidden elements are kept for the connection and not saved, and a new join shows
+    /// everything.
+    pub fn hide_hud(&mut self, elements: &[HudElement]) {
+        self.change_hud(elements, HudVisibility::Hide);
+    }
+
+    /// Shows `elements` of the player's screen again, as [`hide_hud`](Self::hide_hud) hides them;
+    /// an element that is shown is not sent again.
+    pub fn show_hud(&mut self, elements: &[HudElement]) {
+        self.change_hud(elements, HudVisibility::Reset);
+    }
+
     /// Disconnects the player at the end of the tick with `reason` on its screen (the client's
     /// "disconnected" text when empty); the other players see that it left the game. Fails if the
     /// player already leaves, or for a reason longer than 65,536 bytes.
@@ -404,6 +420,26 @@ impl Player {
             message: TRANSFERRED.to_owned(),
         });
         Ok(())
+    }
+
+    /// Sends the elements whose visibility `visibility` changes, in one packet.
+    fn change_hud(&mut self, elements: &[HudElement], visibility: HudVisibility) {
+        let hiding = visibility == HudVisibility::Hide;
+        let mut changed = Vec::new();
+        for &element in elements {
+            let bit = element.bit();
+            if (self.marks.hidden_hud & bit != 0) == hiding {
+                continue;
+            }
+            self.marks.hidden_hud ^= bit;
+            changed.push(i32::from(consts::HudElement::from(element)));
+        }
+        if !changed.is_empty() {
+            self.send_packet(Packet::SetHud(SetHud {
+                elements: changed,
+                visibility: visibility.into(),
+            }));
+        }
     }
 }
 
@@ -610,6 +646,8 @@ pub(super) struct Marks {
     pub(super) chat: (u64, u8),
     /// The lines the player's screen shows at once; `None` is 7. Not saved.
     line_height: Option<u32>,
+    /// The screen elements the player's client hides, one [`HudElement::bit`] each. Not saved.
+    hidden_hud: u16,
 }
 
 impl Marks {
@@ -622,6 +660,7 @@ impl Marks {
             teleport,
             chat,
             line_height,
+            hidden_hud,
         } = self;
         match display_name {
             Some(name) => h.bytes(name.as_bytes()),
@@ -663,6 +702,7 @@ impl Marks {
         h.u64(chat.0);
         h.u64(u64::from(chat.1));
         h.u64(line_height.map_or(0, u64::from));
+        h.u64(u64::from(*hidden_hud));
     }
 }
 
@@ -672,6 +712,7 @@ super::checkpoint::fields!(Marks {
     teleport,
     chat,
     line_height,
+    hidden_hud,
 });
 
 /// How a player leaves.
@@ -998,7 +1039,9 @@ pub(super) mod tests {
     use crate::player::{MAX_TEXT, TitleTimes};
     use crate::tick::Context;
     use crate::tick::log::{EntryKind, InputLog};
-    use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};
+    use crate::tick::queue::{
+        Client, Identity, Input, InputKind, LeaveReason, Measure, Outbound, SessionId,
+    };
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 
     /// The number of players in the skin broadcast test.
@@ -1625,6 +1668,62 @@ pub(super) mod tests {
         assert_eq!(p.screen_line_height(), DEFAULT_LINE_HEIGHT);
     }
 
+    /// The `SetHud` packets in `packets`, as (elements, visibility).
+    fn hud_packets(packets: Vec<Packet>) -> Vec<(Vec<i32>, i32)> {
+        packets
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::SetHud(h) => Some((h.elements, h.visibility)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Hiding screen elements sends the changed ones to that player alone, a repeat sends
+    /// nothing and leaves the state hash as it was, and showing them again sends them back.
+    #[test]
+    fn hiding_and_showing_the_hud_sends_the_changes_to_that_player_alone() {
+        let (mut state, [mut rx1, mut rx2]) = two();
+        let hide = i32::from(HudVisibility::Hide);
+        let reset = i32::from(HudVisibility::Reset);
+        let health = i32::from(consts::HudElement::Health);
+        let hunger = i32::from(consts::HudElement::Hunger);
+        let hot_bar = i32::from(consts::HudElement::HotBar);
+        let both = [HudElement::Health, HudElement::Food];
+
+        player_mut(&mut state, 1).hide_hud(&both);
+        run(&mut state, Vec::new());
+        assert_eq!(
+            hud_packets(received(&mut rx1).0),
+            [(vec![health, hunger], hide)]
+        );
+        assert!(hud_packets(received(&mut rx2).0).is_empty());
+
+        let hash = state.hash();
+        player_mut(&mut state, 1).hide_hud(&both);
+        player_mut(&mut state, 1).hide_hud(&[HudElement::Health, HudElement::Health]);
+        assert_eq!(state.hash(), hash, "the second call changes nothing");
+        run(&mut state, Vec::new());
+        assert!(hud_packets(received(&mut rx1).0).is_empty());
+
+        player_mut(&mut state, 1).hide_hud(&[HudElement::HotBar, HudElement::Food]);
+        player_mut(&mut state, 1).show_hud(&[HudElement::Health, HudElement::PaperDoll]);
+        run(&mut state, Vec::new());
+        assert_eq!(
+            hud_packets(received(&mut rx1).0),
+            [(vec![hot_bar], hide), (vec![health], reset)]
+        );
+
+        player_mut(&mut state, 1).show_hud(&[HudElement::Food, HudElement::HotBar]);
+        run(&mut state, Vec::new());
+        assert_eq!(
+            hud_packets(received(&mut rx1).0),
+            [(vec![hunger, hot_bar], reset)]
+        );
+        assert_eq!(player_mut(&mut state, 1).marks.hidden_hud, 0);
+        assert!(hud_packets(received(&mut rx2).0).is_empty());
+    }
+
     /// A login with every client value set, joining at `join_ms`.
     fn alex(join_ms: i64) -> Identity {
         Identity {
@@ -1819,7 +1918,7 @@ pub(super) mod tests {
         let leave = Input {
             session: SessionId::new(1),
             seq: 1,
-            kind: InputKind::Leave,
+            kind: InputKind::Leave(LeaveReason::Left),
         };
         tick(&mut state, &mut vec![leave], &mut output);
         let offline = state

@@ -1334,7 +1334,7 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
                             }
                         }
                         EntryKind::Packet(p) => packet(p.clone()),
-                        EntryKind::Leave => InputKind::Leave,
+                        EntryKind::Leave(reason) => InputKind::Leave(*reason),
                         EntryKind::Console(line) => InputKind::Console(line.clone()),
                         EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                         EntryKind::Measure(measure) => InputKind::Measure(*measure),

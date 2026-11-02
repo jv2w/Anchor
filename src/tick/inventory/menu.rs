@@ -20,8 +20,9 @@
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
 //! it; closing drops the menu's items (a copy of what its handler kept), shows the blocks it
 //! stood on again, hands the handler the cursor's stack ([`crate::menu::Close`], but for a direct
-//! call's close) and gives it back but its lent items unless the handler took it. Menus raise no
-//! events of their own; a change raises the request's events, the menu's slots as the window's.
+//! call's close) and gives it back but its lent items unless the handler took it. A menu's close
+//! is heard by its handler alone, never as `InventoryClose`; a change raises the request's events,
+//! the menu's slots as the window's.
 
 use std::collections::BTreeMap;
 use std::fmt;

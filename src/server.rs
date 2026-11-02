@@ -172,6 +172,42 @@ impl Server {
         )
     }
 
+    /// Deletes the saved record of one player from `data/players.redb` and says whether there
+    /// was one, so a player whose damaged record refuses the join can join again. `record_key` is
+    /// the key the log and [`PlayerDataSave::record_key`](crate::event::PlayerDataSave::record_key)
+    /// give: the player's XUID in decimal, or `offline:` and the name for a player without an
+    /// Xbox sign-in.
+    ///
+    /// Only that record is written; the other players, the worlds and the lists are not touched.
+    /// The record is deleted without being read, so a damaged one goes too, and deleting again
+    /// leaves the same state and answers false. Nothing is restored from a backup. The file is
+    /// checked as a start checks it, so a file that is damaged or of a newer format is refused
+    /// as it was.
+    ///
+    /// It needs the file to itself: a running server holds it, so it is refused
+    /// ([`Error::Storage`]). It blocks the calling thread.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
+    /// [`Error::Storage`] for a file in use, another process's included, or that cannot be read or
+    /// written, or that holds a later save than the main file (one start of the server rolls it
+    /// back). [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a damaged file and one
+    /// of a newer format.
+    pub fn delete_player_data(&self, record_key: &str) -> Result<bool> {
+        let key = crate::storage::PlayerKey::parse(record_key).ok_or_else(|| {
+            Error::InvalidPlayerKey {
+                key: record_key.to_owned(),
+            }
+        })?;
+        let _log = self.console_log().map_err(Error::Start)?;
+        Ok(save::delete_player(
+            &self.data_dir,
+            crate::storage::Start::of(&self.config),
+            &key,
+        )?)
+    }
+
     /// Replays the crash log at `log` (a `data/crash/input-*.log` the server wrote when it
     /// stopped on a panic or a failed save) with this server's settings, worlds and
     /// registrations, and reports how it ended ([`crate::replay`]): it starts from the saved
@@ -211,8 +247,11 @@ impl Server {
     /// ends the process with status 130, as after a crash: the last commit stays. It first lets
     /// the console log write its lines, for half a second at most.
     ///
-    /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
-    /// thread's default and that of every thread Anchor starts.
+    /// It runs the server on a thread of its own, `anchor-run`, which the calling thread waits for,
+    /// so it may be called from inside a tokio runtime (`#[tokio::main]`) or from a
+    /// `spawn_blocking` job. While it runs, Anchor's console log
+    /// ([`ServerBuilder::without_console_log`]) is the default of that thread and of every thread
+    /// Anchor starts.
     ///
     /// It first loads the resource packs from `data/packs`, so a pack that cannot be offered stops
     /// the start before any data file is made. It then opens the data files: `data/main.redb` (the save's tick, operators, bans,
@@ -246,7 +285,7 @@ impl Server {
     /// Runs the command `task` of the process arguments, or the server for [`Task::Run`].
     fn run_task(self, task: Task) -> Result<()> {
         let answer = match task {
-            Task::Run => return self.serve(),
+            Task::Run => return self.serve_on_run_thread(),
             Task::UpdateConfig => args::updated(self.config.updated()),
             Task::Import { dir, world } => {
                 let world = world.unwrap_or_else(|| self.config.general.level_name.clone());
@@ -261,6 +300,16 @@ impl Server {
             }
         };
         args::say(&answer).map_err(Error::Output)
+    }
+
+    /// Runs [`serve`](Self::serve) on the run thread and waits for it, so that the calling thread
+    /// may be inside a tokio runtime or on a blocking thread of one. A panic of the run thread
+    /// goes on in the calling thread.
+    fn serve_on_run_thread(self) -> Result<()> {
+        match runtime::spawn_run(move || self.serve())?.join() {
+            Ok(served) => served,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     /// Runs the server ([`run`](Self::run) without a command of the process arguments).

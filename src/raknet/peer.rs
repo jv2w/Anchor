@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tracing::trace;
+
 use super::wire::{
     self, CHANNELS, Cursor, DATAGRAM_HEADER_BYTES, FLAG_ACK, FLAG_DATAGRAM, FLAG_NAK,
     FLAG_NEEDS_B_AND_AS, Header, MAX_FRAME_HEADER_BYTES, Reliability, Split, U24_MASK,
@@ -21,11 +23,16 @@ const ACK_BATCH: usize = 64;
 /// clustered at the ACK interval do not trigger spurious resends.
 const ACK_DELAY: Duration = Duration::from_millis(100);
 /// Datagram numbers remembered for dropping duplicates. A later arrival than this many newer
-/// datagrams is dropped as a duplicate; its reliable frames come again in the resend.
+/// datagrams is dropped as a duplicate; its reliable frames come again in the resend. A number
+/// this far ahead of the next one expected or more is dropped too.
 const DATAGRAM_HISTORY: usize = 1024;
 /// Memory one queued frame costs besides its payload, charged against `MAX_UNSENT_BYTES` so that
 /// many tiny messages cannot exceed the cap's memory.
 const FRAME_COST_BYTES: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
+/// Bytes held in reassemblies and ordering queues at most before `NewIncomingConnection`: every
+/// message of the handshake fits one datagram and arrives about in order, so a few datagrams
+/// cover reordering. Anyone can open a connection to this point (there is no cookie).
+const HANDSHAKE_HELD_BYTES: usize = 4 * MAX_MTU as usize;
 /// First congestion window, in datagrams carrying reliable frames.
 const INITIAL_CWND: usize = 32;
 /// Resend timeout before the first RTT sample (RFC 6298 uses 1 s; RakNet links are faster).
@@ -48,8 +55,8 @@ pub(crate) const MAX_MTU: u16 = 1492;
 const MAX_RELIABLE_GAPS: usize = 8192;
 /// Highest resend timeout, well inside the idle timeout so a slow link still resends.
 const MAX_RTO: Duration = Duration::from_secs(2);
-/// How far a datagram number or reliable index may run ahead, and how far the oldest missing
-/// reliable index may lag: far inside the 2^23 where 24-bit serial order becomes ambiguous.
+/// How far a reliable index may run ahead, and how far the oldest missing reliable index may lag:
+/// far inside the 2^23 where 24-bit serial order becomes ambiguous.
 const MAX_SPAN: u32 = 1 << 22;
 /// The lowest congestion window, so that a lossy link keeps moving.
 const MIN_CWND: usize = 4;
@@ -165,8 +172,14 @@ impl Peer {
         self.queue.is_empty() && self.resend.is_empty() && self.in_flight.is_empty()
     }
 
+    /// Replaces the receive limits. Bytes already held count against the new ones.
+    pub(super) fn set_limits(&mut self, limits: Limits) {
+        self.limits = limits;
+    }
+
     /// Handles one connected packet (data datagram, ACK or NAK) and appends the messages it
-    /// completes to `out`, in delivery order. NAKs go out at once, ACKs in batches.
+    /// completes to `out`, in delivery order. NAKs go out at once, ACKs in batches. A malformed
+    /// ACK or NAK, or a datagram number too far ahead, drops that datagram only.
     pub(super) fn receive(
         &mut self,
         now: Duration,
@@ -176,21 +189,30 @@ impl Peer {
     ) -> Result<()> {
         let mut cur = Cursor::new(datagram);
         let flags = cur.u8()?;
-        self.last_received = now;
-        self.received_any = true;
         if flags & FLAG_ACK != 0 {
-            return wire::read_ranges(cur.rest(), |first, last| self.acknowledge(now, first, last));
+            let acknowledged =
+                wire::read_ranges(cur.rest(), |first, last| self.acknowledge(now, first, last));
+            return self.heard_ranges(now, acknowledged);
         }
         if flags & FLAG_NAK != 0 {
-            return wire::read_ranges(cur.rest(), |first, last| self.negative(first, last));
+            let negated = wire::read_ranges(cur.rest(), |first, last| self.negative(first, last));
+            return self.heard_ranges(now, negated);
         }
         if flags & FLAG_DATAGRAM == 0 {
             return Err(Error::Malformed("not a datagram"));
         }
         let seq = cur.u24()?;
-        match self.datagrams.insert(seq)? {
-            Arrival::Duplicate => return Ok(()),
+        match self.datagrams.insert(seq) {
+            Arrival::Jump => {
+                trace!(seq, "raknet datagram number too far ahead; dropped");
+                return Ok(());
+            }
+            Arrival::Duplicate => {
+                self.hear(now);
+                return Ok(());
+            }
             Arrival::New { gap } => {
+                self.hear(now);
                 push_index(&mut self.acks, seq);
                 if let Some(gap) = gap {
                     self.naks.push(gap);
@@ -352,6 +374,24 @@ impl Peer {
 
     fn max_datagram(&self) -> usize {
         usize::from(self.mtu).saturating_sub(UDP_HEADER_BYTES)
+    }
+
+    /// Counts the datagram just accepted as proof the peer is alive, for the idle timeout.
+    fn hear(&mut self, now: Duration) {
+        self.last_received = now;
+        self.received_any = true;
+    }
+
+    /// Ends the handling of an ACK or NAK whose ranges gave `result`. A malformed one is dropped
+    /// and does not count as heard: nothing authenticates a datagram, so anyone who knows the
+    /// client's address could send one to close its connection or keep it from timing out.
+    fn heard_ranges(&mut self, now: Duration, result: Result<()>) -> Result<()> {
+        if let Err(Error::Malformed(what)) = result {
+            trace!(what, "raknet malformed acknowledgement dropped");
+            return Ok(());
+        }
+        self.hear(now);
+        result
     }
 
     /// The datagrams an inclusive 24-bit range of our sequence numbers can name, as the lowest
@@ -635,6 +675,15 @@ impl Limits {
             held,
         })
     }
+
+    /// These limits for a connection that has not finished the handshake: held bytes cut to
+    /// [`HANDSHAKE_HELD_BYTES`].
+    pub(super) fn to_handshake(self) -> Self {
+        Self {
+            held: self.held.min(HANDSHAKE_HELD_BYTES),
+            ..self
+        }
+    }
 }
 
 /// A whole received message: its first byte (a RakNet message ID, or 0xfe for game data) and
@@ -656,8 +705,10 @@ struct Datagrams {
 }
 
 impl Datagrams {
-    /// Records datagram number `seq` as received.
-    fn insert(&mut self, seq: u32) -> Result<Arrival> {
+    /// Records datagram number `seq` as received. A number further ahead than the history holds
+    /// is not recorded: the datagram is dropped and the numbers stay where they were, so a
+    /// datagram nobody can vouch for cannot push the real ones out of the window.
+    fn insert(&mut self, seq: u32) -> Arrival {
         let Some(ahead) = wire::u24_ahead(seq, self.next) else {
             let back = self.next.wrapping_sub(1).wrapping_sub(seq) & U24_MASK;
             let len = self.recent.len();
@@ -665,23 +716,21 @@ impl Datagrams {
                 .ok()
                 .and_then(|back| len.checked_sub(back + 1))
             else {
-                return Ok(Arrival::Duplicate);
+                return Arrival::Duplicate;
             };
-            return Ok(match self.recent.get_mut(at) {
+            return match self.recent.get_mut(at) {
                 Some(seen) if !*seen => {
                     *seen = true;
                     Arrival::New { gap: None }
                 }
                 _ => Arrival::Duplicate,
-            });
+            };
         };
-        if ahead >= MAX_SPAN {
-            return Err(Error::Limit("datagram number jump"));
-        }
+        let skipped = match usize::try_from(ahead) {
+            Ok(skipped) if skipped < DATAGRAM_HISTORY => skipped,
+            _ => return Arrival::Jump,
+        };
         let gap = (ahead > 0).then(|| (self.next, seq.wrapping_sub(1) & U24_MASK));
-        let skipped = usize::try_from(ahead)
-            .unwrap_or(usize::MAX)
-            .min(DATAGRAM_HISTORY - 1);
         let keep = DATAGRAM_HISTORY - 1 - skipped;
         if let Some(excess) = self.recent.len().checked_sub(keep) {
             self.recent.drain(..excess);
@@ -689,11 +738,13 @@ impl Datagrams {
         self.recent.extend(std::iter::repeat_n(false, skipped));
         self.recent.push_back(true);
         self.next = seq.wrapping_add(1) & U24_MASK;
-        Ok(Arrival::New { gap })
+        Arrival::New { gap }
     }
 }
 
 enum Arrival {
+    /// Further ahead than the history holds.
+    Jump,
     Duplicate,
     /// New; `gap` is the inclusive range of numbers this arrival skipped over.
     New {
@@ -1065,6 +1116,41 @@ pub(super) mod tests {
         assert_eq!(error, (5, Error::Limit("held bytes")));
     }
 
+    /// Before the handshake is done a peer holds `HANDSHAKE_HELD_BYTES` at most, and the full
+    /// limits come back with `set_limits`.
+    #[test]
+    fn a_handshaking_peer_holds_only_a_few_datagrams() {
+        let limits = Limits::new(DEFAULT_MESSAGE).unwrap();
+        assert!(limits.held > HANDSHAKE_HELD_BYTES);
+        let mut peer = Peer::new(T0, MAX_MTU, limits.to_handshake()).unwrap();
+        let part = [0xfe; 1000];
+        let unreliable = |index| Header {
+            split: Some(Split {
+                count: 1000,
+                id: 0,
+                index,
+            }),
+            ..header(Reliability::Unreliable)
+        };
+        let mut index = 0;
+        let error = loop {
+            let data = datagram(index, &[(unreliable(index), &part)]);
+            if let Err(error) = receive(&mut peer, &data) {
+                break error;
+            }
+            assert!(peer.held <= HANDSHAKE_HELD_BYTES);
+            index += 1;
+        };
+        assert_eq!(error, Error::Limit("held bytes"));
+        assert_eq!(
+            usize::try_from(index).unwrap(),
+            HANDSHAKE_HELD_BYTES / (part.len() + PART_COST_BYTES)
+        );
+        peer.set_limits(limits);
+        let data = datagram(index + 1, &[(unreliable(index), &part)]);
+        assert_eq!(receive(&mut peer, &data), Ok(Vec::new()));
+    }
+
     #[test]
     fn tiny_fragments_count_against_held_bytes() {
         // Every assembly declares the largest count and misses one fragment, so none finishes:
@@ -1146,17 +1232,27 @@ pub(super) mod tests {
         );
     }
 
+    /// A datagram number past the history is dropped without moving the numbers, so the honest
+    /// datagrams after it are delivered, and it does not count as heard.
     #[test]
-    fn datagram_number_jump_past_the_limit_is_an_error() {
+    fn datagram_number_jump_past_the_history_is_dropped() {
         let mut peer = peer(SMALL);
         let unreliable = header(Reliability::Unreliable);
-        let inside = datagram(MAX_SPAN - 1, &[(unreliable, b"\xfe")]);
+        let later = Duration::from_secs(3);
+        let jump = datagram(MAX_SPAN - 1, &[(unreliable, b"\xfe")]);
+        let mut out = Vec::new();
+        peer.receive(later, &jump, &mut out, &mut |_| {}).unwrap();
+        assert_eq!(out, Vec::new());
+        assert_eq!(peer.last_received(), T0);
+        assert!(!peer.received_any());
+        let honest = datagram(0, &[(unreliable, b"\xfe")]);
+        assert_eq!(receive(&mut peer, &honest).map(|out| out.len()), Ok(1));
+        // The last number the history holds is accepted, the next one is not.
+        let history = u32::try_from(DATAGRAM_HISTORY).unwrap();
+        let inside = datagram(history, &[(unreliable, b"\xfe")]);
         assert_eq!(receive(&mut peer, &inside).map(|out| out.len()), Ok(1));
-        let outside = datagram(2 * MAX_SPAN, &[(unreliable, b"\xfe")]);
-        assert_eq!(
-            receive(&mut peer, &outside),
-            Err(Error::Limit("datagram number jump"))
-        );
+        let outside = datagram(2 * history + 1, &[(unreliable, b"\xfe")]);
+        assert_eq!(receive(&mut peer, &outside), Ok(Vec::new()));
     }
 
     #[test]
@@ -1216,34 +1312,36 @@ pub(super) mod tests {
         assert_eq!(receive(&mut peer, &skip).map(|out| out.len()), Ok(1));
         let late = datagram(3, &[(reliable(1), b"\xfeb")]);
         assert_eq!(receive(&mut peer, &late).map(|out| out.len()), Ok(1));
-        let far = u32::try_from(DATAGRAM_HISTORY).unwrap() + 10;
+        let far = u32::try_from(DATAGRAM_HISTORY).unwrap() + 4;
         let jump = datagram(far, &[(reliable(3), b"\xfed")]);
         assert_eq!(receive(&mut peer, &jump).map(|out| out.len()), Ok(1));
         let old = datagram(4, &[(reliable(4), b"\xfee")]);
         assert_eq!(receive(&mut peer, &old), Ok(Vec::new()));
     }
 
+    /// An ACK or NAK that cannot be read is dropped, and neither closes the connection nor counts
+    /// as heard: the datagram is unauthenticated.
     #[test]
-    fn malformed_acknowledgements_are_errors() {
+    fn malformed_acknowledgements_are_dropped() {
         let mut peer = peer(SMALL);
+        let later = Duration::from_secs(3);
         let mut backwards = vec![FLAG_DATAGRAM | FLAG_ACK, 0, 1, 0];
         wire::put_u24(&mut backwards, 10);
         wire::put_u24(&mut backwards, 5);
-        assert_eq!(
-            receive(&mut peer, &backwards),
-            Err(Error::Malformed("acknowledgement range"))
-        );
-        let record = [FLAG_DATAGRAM | FLAG_NAK, 0, 1, 2, 0, 0, 0];
-        assert_eq!(
-            receive(&mut peer, &record),
-            Err(Error::Malformed("acknowledgement record type"))
-        );
+        let record = vec![FLAG_DATAGRAM | FLAG_NAK, 0, 1, 2, 0, 0, 0];
         // A count larger than the records present is a truncation, not a long loop.
-        let count = [FLAG_DATAGRAM | FLAG_ACK, 0xff, 0xff, 1, 0, 0, 0];
-        assert_eq!(
-            receive(&mut peer, &count),
-            Err(Error::Malformed("truncated packet"))
-        );
+        let count = vec![FLAG_DATAGRAM | FLAG_ACK, 0xff, 0xff, 1, 0, 0, 0];
+        for data in [backwards, record, count] {
+            let mut out = Vec::new();
+            peer.receive(later, &data, &mut out, &mut |_| {}).unwrap();
+            assert_eq!(out, Vec::new());
+            assert_eq!(peer.last_received(), T0);
+        }
+        // A readable one still counts.
+        let readable = [FLAG_DATAGRAM | FLAG_ACK, 0, 0];
+        peer.receive(later, &readable, &mut Vec::new(), &mut |_| {})
+            .unwrap();
+        assert_eq!(peer.last_received(), later);
     }
 
     #[test]
@@ -1341,16 +1439,13 @@ pub(super) mod tests {
             recent: VecDeque::new(),
         };
         for seq in [U24_MASK - 1, U24_MASK, 0, 1] {
-            assert!(matches!(
-                datagrams.insert(seq),
-                Ok(Arrival::New { gap: None })
-            ));
+            assert!(matches!(datagrams.insert(seq), Arrival::New { gap: None }));
         }
-        assert!(matches!(datagrams.insert(U24_MASK), Ok(Arrival::Duplicate)));
+        assert!(matches!(datagrams.insert(U24_MASK), Arrival::Duplicate));
         assert_eq!(datagrams.next, 2);
         assert!(matches!(
             datagrams.insert(5),
-            Ok(Arrival::New { gap: Some((2, 4)) })
+            Arrival::New { gap: Some((2, 4)) }
         ));
         let mut reliables = Reliables {
             next: u64::from(U24_MASK),
