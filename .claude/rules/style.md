@@ -17,7 +17,7 @@ Every kind of code has exactly one form, written here. Two forms for one kind is
 ## Modules and visibility
 - Modules are `foo.rs` and `foo/bar.rs`; `mod.rs` is forbidden. Module placement is in `.claude/rules/architecture.md`.
 - The first line of every module is a `//!` comment stating its responsibility.
-- Visibility is private by default, `pub(crate)` when split inside the crate, `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
+- Visibility is the narrowest that covers the item's users: private, `pub(super)` (the parent module and its children), `pub(in crate::<module>)` (one subtree), `pub(crate)` (the crate), `pub` only for API reachable from the crate root. Every public item has `///` documentation and a `Debug` implementation.
 - Re-exports of any visibility (`pub use`, `pub(crate) use`, `pub(super) use`) form one block in rustfmt's path order. No `use` path starts with `self::` (`pub use stack::Stack;`, `use stack::Slot;`).
 - Paths: `super::` names only the parent module and what it holds (`super::Item`, `super::sibling::Item`, and `use super::*;` in tests). Every other crate item is named from `crate::`; never `super::super::`.
 
@@ -45,7 +45,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - An enum's declaration order is canonical: every `match`, table, doc list, serialization, and configuration listing of its variants follows it. An arm of several variants takes the place of its first; `Option` and `Result` arms put `Some` and `Ok` first.
 - A struct's field declaration order is canonical: every struct literal, destructuring pattern, manual `Debug`, state hash and checkpoint destructuring, doc table, and serialization follows it.
 - The key order of `DEFAULT_FILE` is the key order of `.claude/docs/config.md` and of the configuration struct.
-- Where no order carries meaning, the order is alphabetical, comparing names word by word with a shorter word first (`QUEUE_CAPACITY` before `QUEUED_WORDS`).
+- Module constants and statics are alphabetical, except the tag bytes of a written format (`<GROUP>_<VARIANT>`), which follow their values. Where no order carries meaning, the order is alphabetical, comparing names word by word with a shorter word first (`QUEUE_CAPACITY` before `QUEUED_WORDS`).
 
 ## Signatures
 - Parameter order: receiver, context (`ctx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
@@ -55,7 +55,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Paths and strings: internal functions take `&Path` and `&str`. Public functions take `impl AsRef<Path>` or `&str` for a value they only read, and `impl Into<PathBuf>` or `impl Into<String>` for one they keep.
 
 ## Errors
-- Every module that can fail has one hand-written `Error` enum and exactly this alias, with the module's visibility: `pub type Result<T, E = Error> = std::result::Result<T, E>;`.
+- Every module that can fail has one hand-written `Error` enum and exactly this alias, with the module's visibility: `pub type Result<T, E = Error> = std::result::Result<T, E>;`, placed directly after the `Error` type's `impl`s. Development tools under `xtask/` are the exception: their functions return `Result<T, String>`, written out, with no alias and no `Error` enum.
 - `Display` is `impl fmt::Display for Error` after `use std::fmt;`, with `f: &mut fmt::Formatter<'_>`. Public errors are `std::error::Error + Send + Sync`. Variants never end in `Error`; the cause is given only through `source()`.
 - A variant wrapping a cause is a tuple variant `Variant(Cause)`; conversion is `.map_err(Error::Variant)`, never a closure that only wraps. A variant that carries context besides its cause is a struct variant with the cause in a field named `source`. Only the crate-root `anchor::Error` implements `From`, for the module errors that reach it through `?`.
 - `Display` writes fixed text with `f.write_str("…")` and text with arguments with `write!(f, "…", …)`.
@@ -99,7 +99,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Documents never name external servers. Use "the official server" (the server program Mojang distributes), "the dump" or "the dump source" (data source), "the API table" (API parity), "the reference list source". Names stay only where unavoidable: the pinned-source and `.cache/` tables in `.claude/docs/data.md`, the configuration migration table in `.claude/docs/config.md`, literal paths, commands, and markers (`xtask/data/pmmp/`, `.cache/bds`, `p6 bds`, `// pmmp:`), and Go library names (gophertunnel, go-raknet, go-nethernet). This rule covers documents (`CLAUDE.md`, `README.md`, `.claude/`, `xtask/data/p6/facts.md`) only; code comments, tool data (`intended.txt`, `deferred.txt`, `fields.txt`), and generated files are outside it.
 
 ## Tests
-- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`.
+- Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`, which follow the file layout too, a helper directly above its first user.
 - In a test module, a helper sits directly above the first test or helper that uses it.
 - Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// pmmp:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// pmmp:`.
 
