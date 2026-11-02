@@ -136,7 +136,7 @@ Dedicated to the public domain under CC0 1.0; listed for attribution only.
 ## PocketMine-MP output
 
 `blocks.json`, `deserialized.json`, `items.json`, `creative.json`, `tables.json` and `api.json` in
-`xtask/data/dump/` are output of PocketMine-MP (LGPL-3.0)
+`xtask/data/dump/` and the goldens in `xtask/data/upgrade/golden/` are output of PocketMine-MP (LGPL-3.0)
 run by the scripts in `xtask/php/`: block and item values, effect and enchantment tables, test
 goldens, and a list of its public class and method names and signatures. They contain no PocketMine-MP
 implementation code.
@@ -150,5 +150,6 @@ their MIT terms.
 
 Minecraft is a trademark of Mojang Synergies AB. Game data in `xtask/data/` (block, item, biome and entity
 data, the protocol field limits in `xtask/data/reference/protocol_limits.json`, and the camera presets in
-`xtask/data/reference/camera.json` captured from the official server) describes Minecraft and belongs
+`xtask/data/reference/camera.json` captured from the official server, and the world fixtures in
+`xtask/data/import/`) describes Minecraft and belongs
 to Mojang. NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.

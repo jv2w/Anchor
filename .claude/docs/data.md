@@ -147,14 +147,14 @@ Defects of the schema repositories and the dump source's upgrader:
 | Folder | Origin | Pin | Read by |
 |---|---|---|---|
 | `dump` | `https://github.com/pmmp/PocketMine-MP.git` | The sources table's commit + `vendor/` (`composer.lock`) | `dump`, every PHP script |
-| `dragonfly` | `https://github.com/HashimTheArab/dragonfly.git` (the fork of PR #1481) | The sources table's commit | `dump` |
+| `reference-a` | `https://github.com/HashimTheArab/dragonfly.git` (the fork of PR #1481) | The sources table's commit | `dump` |
 | `reference-data` | `https://github.com/CloudburstMC/Data.git` | The sources table's commit | `dump`, `p6` (biome and jigsaw comparison), `xtask/tests/spawn.rs`, the physics unit test of `xtask/src/dump.rs` |
 | `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | The commit of the pinned-version table of `.claude/docs/protocol.md` | `dump` (field limits) |
 | `block-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockBlockUpgradeSchema.git` | The sources table's commit | `dump` |
 | `item-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockItemUpgradeSchema.git` | The sources table's commit | `dump` |
 | `dump-php/bin/php/php.exe` | pmmp/PHP-Binaries release php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4` (sources table), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c` (PHP 8.4.16 ZTS) | `dump`, every PHP script |
-| `official/1.26.60.6/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.60.6 (`bedrock-server-1.26.60.6.zip`) | zip `21620db4f80d0fe206f21cb08f52f4e5f14252ce865ec49ccfbe0d9f93ce88b0`, `bedrock_server.exe` `d7b26d6c5e8f3e910f66e8cbf7e1dfde06e570032349bf7abdd070deb6e9d884` | `p6 official`, `p6 game official`, `p6 api official`, `p6 import` |
-| `official/1.26.60.6/` (Linux checkout) | minecraft.net Bedrock Dedicated Server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned yet: no SHA-256 recorded | Every `p6` command on Linux |
+| `official/1.26.60.6/` | minecraft.net official server, Windows 1.26.60.6 (`bedrock-server-1.26.60.6.zip`) | zip `21620db4f80d0fe206f21cb08f52f4e5f14252ce865ec49ccfbe0d9f93ce88b0`, `bedrock_server.exe` `d7b26d6c5e8f3e910f66e8cbf7e1dfde06e570032349bf7abdd070deb6e9d884` | `p6 official`, `p6 game official`, `p6 api official`, `p6 import` |
+| `official/1.26.60.6/` (Linux checkout) | minecraft.net official server, Linux 1.26.60.6 (`bin-linux/bedrock-server-1.26.60.6.zip`) | Not pinned yet: no SHA-256 recorded | Every `p6` command on Linux |
 | `tools/strawberry-perl-5.42.3.1/` | StrawberryPerl GitHub release SP_54231_64bit, portable zip | zip `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, `perl/bin/perl.exe` `d4fa3a6ebe78f5f60e185cf7d7809a7dd8c541739ca4a7bc8687c75548473f42` | The dimpl copy's tests in `verify` (OpenSSL source build) |
 | `str0m-test-data/` | `https://raw.githubusercontent.com/algesten/str0m/<commit>/tests/data/<file>` | The commit in `vendor/str0m/.cargo_vcs_info.json`; per file, `xtask/data/vendor/str0m-test-data.sha256` | `vendor-test str0m` (downloads what is missing) |
 

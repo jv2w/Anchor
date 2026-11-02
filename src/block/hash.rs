@@ -1,6 +1,6 @@
 //! The network block hash: the ID a client with `UseBlockNetworkIDHashes`
 //! knows a block state by, FNV-1a 32 over the state's little-endian NBT `{name, states}` with
-//! the states in name order (dragonfly `networkBlockHash`; BDS sends the same values).
+//! the states in name order (the reference list's hash; the official server sends the same values).
 //!
 //! The state table carries the reference list's IDs, which the golden test of the block module recomputes;
 //! custom states get theirs from here when the server makes them.
@@ -22,7 +22,7 @@ const TAG_INT: u8 = 3;
 const TAG_STRING: u8 = 8;
 /// The NBT tag number of a compound.
 const TAG_COMPOUND: u8 = 10;
-/// The hash dragonfly gives `minecraft:unknown`.
+/// The hash the reference list gives `minecraft:unknown`.
 const UNKNOWN: u32 = 0xffff_fffe;
 
 /// The value of a block state property, typed as the client's block state NBT types it.

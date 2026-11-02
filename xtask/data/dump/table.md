@@ -25,7 +25,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Air::canBePlaced` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Air::canBeReplaced` | merged | src/block.rs:393 `can_be_replaced` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::canBeReplaced` |
 | `block\AmethystCluster` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\AmethystCluster::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\AmethystCluster::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\AmethystCluster::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\AmethystCluster::getDropsForIncompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\AmethystCluster::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -33,13 +33,13 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\AmethystCluster::getStage` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\AmethystCluster::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\AmethystCluster::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
-| `block\AmethystCluster::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\AmethystCluster::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\AmethystCluster::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
 | `block\AmethystCluster::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\AmethystCluster::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\AmethystCluster::setStage` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Anvil` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Anvil::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Anvil::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Anvil::getDamage` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Anvil::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Anvil::getFallDamagePerBlock` | skipped |  |  | falling block rule code |
@@ -48,7 +48,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Anvil::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Anvil::onHitGround` | skipped |  |  | falling block rule code |
 | `block\Anvil::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Anvil::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Anvil::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Anvil::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Anvil::setDamage` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Anvil::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -56,7 +56,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Azalea` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Azalea::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Azalea::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Azalea::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Azalea::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Bamboo` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bamboo::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\Bamboo::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
@@ -66,8 +66,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Bamboo::isReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bamboo::isThick` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bamboo::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Bamboo::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Bamboo::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Bamboo::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Bamboo::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Bamboo::setLeafSize` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bamboo::setReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bamboo::setThick` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -77,8 +77,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BambooSapling::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BambooSapling::isReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BambooSapling::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\BambooSapling::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\BambooSapling::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\BambooSapling::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\BambooSapling::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BambooSapling::setReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BambooSapling::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Barrel` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -91,7 +91,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Barrel::setOpen` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseBanner` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseBanner::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
-| `block\BaseBanner::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\BaseBanner::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\BaseBanner::getColor` | implemented | src/tick/block_entity/api.rs:158 `banner_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
 | `block\BaseBanner::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\BaseBanner::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -99,7 +99,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BaseBanner::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `block\BaseBanner::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BaseBanner::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
-| `block\BaseBanner::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseBanner::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseBanner::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseBanner::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\BaseBanner::setColor` | implemented | src/tick/block_entity/api.rs:352 `set_banner_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
@@ -111,7 +111,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BaseBigDripleaf::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\BaseBigDripleaf::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BaseBigDripleaf::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\BaseBigDripleaf::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseBigDripleaf::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseBigDripleaf::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseBigDripleaf::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseCake` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -123,18 +123,18 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BaseCake::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BaseCake::onConsume` | skipped |  |  | cake is eaten by the block rule |
 | `block\BaseCake::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\BaseCake::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseCake::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseCake::requiresHunger` | skipped |  |  | cake is eaten by the block rule |
 | `block\BaseCoral` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\BaseCoral::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\BaseCoral::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\BaseCoral::getCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseCoral::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\BaseCoral::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BaseCoral::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\BaseCoral::isDead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseCoral::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
-| `block\BaseCoral::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\BaseCoral::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseCoral::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\BaseCoral::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseCoral::setCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseCoral::setDead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BaseFire` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -148,17 +148,17 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BaseOminousBanner::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `block\BaseOminousBanner::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BaseOminousBanner::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
-| `block\BaseOminousBanner::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseOminousBanner::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseOminousBanner::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseOminousBanner::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\BaseRail` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\BaseRail::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseRail::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseRail::onPostPlace` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseRail::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\BaseSign::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\BaseSign::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\BaseSign::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
-| `block\BaseSign::getEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
+| `block\BaseSign::getEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as the official server does) |
 | `block\BaseSign::getFaceText` | implemented | src/tick/block_entity/api.rs:127 `sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\BaseSign::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\BaseSign::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -168,11 +168,11 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BaseSign::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\BaseSign::isWaxed` | implemented | src/tick/block_entity/api.rs:141 `is_sign_waxed` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\BaseSign::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\BaseSign::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BaseSign::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BaseSign::onPostPlace` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseSign::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\BaseSign::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\BaseSign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
+| `block\BaseSign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as the official server does) |
 | `block\BaseSign::setFaceText` | implemented | src/tick/block_entity/api.rs:308 `set_sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\BaseSign::setText` | implemented | src/tick/block_entity/api.rs:307 `set_sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\BaseSign::setWaxed` | implemented | src/tick/block_entity/api.rs:325 `set_sign_waxed` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
@@ -182,7 +182,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Beacon` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Beacon::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\Bed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Bed::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Bed::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Bed::getAffectedBlocks` | skipped |  |  | block rule code |
 | `block\Bed::getColor` | implemented | src/tick/block_entity/api.rs:148 `bed_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
 | `block\Bed::getDrops` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -194,7 +194,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Bed::isOccupied` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bed::onEntityLand` | skipped |  |  | block rule code |
 | `block\Bed::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Bed::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Bed::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Bed::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Bed::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Bed::setColor` | implemented | src/tick/block_entity/api.rs:339 `set_bed_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
@@ -214,7 +214,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Bell::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Bell::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Bell::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Bell::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Bell::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Bell::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
 | `block\Bell::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Bell::ring` | skipped |  |  | block rule code |
@@ -225,13 +225,13 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BigDripleafHead::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\BigDripleafHead::onEntityInside` | skipped |  |  | block rule code |
 | `block\BigDripleafHead::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
-| `block\BigDripleafHead::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BigDripleafHead::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BigDripleafHead::setLeafState` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BigDripleafStem` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BigDripleafStem::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\Block` | implemented | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\Block::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `block\Block::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Block::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Block::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `block\Block::addVelocityToEntity` | skipped |  |  | block rule code: liquid currents |
 | `block\Block::asItem` | implemented | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data |  |
@@ -244,7 +244,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Block::canBeReplaced` | implemented | src/block.rs:393 `can_be_replaced` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\Block::canClimb` | skipped |  |  | climbing is the client's rule: Anchor has no per-block climb data |
 | `block\Block::collidesWithBB` | merged | src/block.rs:443 `collision_boxes` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getCollisionBoxes` |
-| `block\Block::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Block::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Block::generateStatePermutations` | merged | src/block.rs:123 `all` | src/block.rs::every_kind_and_state_has_its_data<br>tests/block.rs::every_state_is_a_reference_state_with_its_network_id | into `BlockStateDictionary::getStates` |
 | `block\Block::getAffectedBlocks` | skipped |  |  | block rule code |
 | `block\Block::getAllSides` | implemented | src/block.rs:1020 `ALL` | src/block.rs::sides_step_to_the_six_and_the_four_neighbours |  |
@@ -272,7 +272,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Block::getSupportType` | implemented | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\Block::getTypeId` | implemented | src/block.rs:270 `kind` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\Block::getTypeTags` | merged | src/block.rs:422 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values | into `Block::hasTypeTag` |
-| `block\Block::getXpDropForTool` | skipped |  |  | block rule code: listeners see and change the experience in BlockBreak |
+| `block\Block::getXpDropForTool` | skipped |  |  | block rule code: listeners see and change the xp in BlockBreak |
 | `block\Block::hasEntityCollision` | implemented | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\Block::hasSameTypeId` | merged | src/block.rs:270 `kind` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getTypeId` |
 | `block\Block::hasTypeTag` | implemented | src/block.rs:422 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values |  |
@@ -287,45 +287,45 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Block::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
 | `block\Block::onEntityInside` | skipped |  |  | block rule code |
 | `block\Block::onEntityLand` | skipped |  |  | block rule code |
-| `block\Block::onIncinerate` | skipped |  |  | block rule code: listeners see BlockBurn |
+| `block\Block::onIncinerate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Block::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Block::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Block::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Block::onPostPlace` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Block::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
-| `block\Block::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
-| `block\Block::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Block::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Block::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Block::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Block::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Block::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Block::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\BlockBreakInfo` | implemented | src/block.rs:835 `BreakInfo` | src/block.rs::gameplay_data_are_the_dump_values |  |
-| `block\BlockBreakInfo::__construct` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
-| `block\BlockBreakInfo::axe` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::__construct` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::axe` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
 | `block\BlockBreakInfo::breaksInstantly` | implemented | src/block.rs:876 `breaks_instantly` | src/block.rs::gameplay_data_are_the_dump_values |  |
 | `block\BlockBreakInfo::getBlastResistance` | implemented | src/block.rs:882 `blast_resistance` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\BlockBreakInfo::getBreakTime` | implemented | src/block.rs:918 `break_time_secs` | src/block.rs::break_times_follow_the_tool_rules<br>src/block.rs::an_unbreakable_block_has_no_break_time<br>src/block.rs::gameplay_data_are_the_dump_values |  |
 | `block\BlockBreakInfo::getHardness` | implemented | src/block.rs:864 `hardness` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\BlockBreakInfo::getToolHarvestLevel` | implemented | src/block.rs:894 `harvest_level` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\BlockBreakInfo::getToolType` | implemented | src/block.rs:888 `tool_type` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
-| `block\BlockBreakInfo::indestructible` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
-| `block\BlockBreakInfo::instant` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::indestructible` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::instant` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
 | `block\BlockBreakInfo::isBreakable` | implemented | src/block.rs:870 `is_breakable` | src/block.rs::an_unbreakable_block_has_no_break_time<br>src/block.rs::gameplay_data_are_the_dump_values |  |
-| `block\BlockBreakInfo::isExplosionHarvestable` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::isExplosionHarvestable` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
 | `block\BlockBreakInfo::isToolCompatible` | implemented | src/block.rs:901 `is_tool_compatible` | src/block.rs::gameplay_data_are_the_dump_values |  |
-| `block\BlockBreakInfo::pickaxe` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
-| `block\BlockBreakInfo::shovel` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
-| `block\BlockBreakInfo::tier` | skipped |  |  | break info is generated from the PMMP dump; custom blocks give theirs in the definition |
-| `block\BlockIdentifier` | skipped |  |  | kinds are generated from the PMMP dump |
-| `block\BlockIdentifier::__construct` | skipped |  |  | kinds are generated from the PMMP dump |
+| `block\BlockBreakInfo::pickaxe` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::shovel` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
+| `block\BlockBreakInfo::tier` | skipped |  |  | break info is generated from the dump; custom blocks give theirs in the definition |
+| `block\BlockIdentifier` | skipped |  |  | kinds are generated from the dump |
+| `block\BlockIdentifier::__construct` | skipped |  |  | kinds are generated from the dump |
 | `block\BlockIdentifier::getBlockTypeId` | merged | src/block.rs:270 `kind` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getTypeId` |
 | `block\BlockIdentifier::getTileClass` | skipped |  |  | block entity kinds are generated |
 | `block\BlockToolType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\BlockTypeIds` | skipped |  |  | kinds are generated from the PMMP dump |
-| `block\BlockTypeIds::newId` | skipped |  |  | kinds are generated from the PMMP dump |
-| `block\BlockTypeInfo` | skipped |  |  | kinds are generated from the PMMP dump |
-| `block\BlockTypeInfo::__construct` | skipped |  |  | kinds are generated from the PMMP dump |
+| `block\BlockTypeIds` | skipped |  |  | kinds are generated from the dump |
+| `block\BlockTypeIds::newId` | skipped |  |  | kinds are generated from the dump |
+| `block\BlockTypeInfo` | skipped |  |  | kinds are generated from the dump |
+| `block\BlockTypeInfo::__construct` | skipped |  |  | kinds are generated from the dump |
 | `block\BlockTypeInfo::getBreakInfo` | merged | src/block.rs:349 `break_info` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getBreakInfo` |
-| `block\BlockTypeInfo::getEnchantmentTags` | skipped |  |  | kinds are generated from the PMMP dump |
+| `block\BlockTypeInfo::getEnchantmentTags` | skipped |  |  | kinds are generated from the dump |
 | `block\BlockTypeInfo::getTypeTags` | merged | src/block.rs:422 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values | into `Block::hasTypeTag` |
 | `block\BlockTypeInfo::hasTypeTag` | merged | src/block.rs:422 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values | into `Block::hasTypeTag` |
 | `block\BlockTypeTags` | blank | src/block/table.rs:81414 `TypeTag` |  | no `// api:` test (implemented) |
@@ -348,7 +348,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BrewingStand::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\BrewingStand::hasSlot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BrewingStand::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\BrewingStand::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\BrewingStand::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BrewingStand::setSlot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BrewingStand::setSlots` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BrownMushroom` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -358,14 +358,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BuddingAmethyst` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BuddingAmethyst::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\BuddingAmethyst::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
-| `block\BuddingAmethyst::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\BuddingAmethyst::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\BuddingAmethyst::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Button` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Button::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Button::isPressed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Button::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Button::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Button::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Button::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Button::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Button::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Button::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Button::setPressed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -376,15 +376,15 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Cactus::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Cactus::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\Cactus::onEntityInside` | skipped |  |  | block rule code |
-| `block\Cactus::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Cactus::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Cactus::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Cactus::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Cactus::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Cactus::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\CactusFlower` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CactusFlower::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CactusFlower::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\CactusFlower::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
-| `block\CactusFlower::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\CactusFlower::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Cake` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Cake::getBites` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Cake::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -404,8 +404,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CakeWithCandle::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
 | `block\CakeWithCandle::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CakeWithDyedCandle` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CakeWithDyedCandle::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
-| `block\CakeWithDyedCandle::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CakeWithDyedCandle::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
+| `block\CakeWithDyedCandle::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CakeWithDyedCandle::getCandle` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CakeWithDyedCandle::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CakeWithDyedCandle::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -421,9 +421,9 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Campfire::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Campfire::onEntityInside` | skipped |  |  | block rule code |
 | `block\Campfire::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Campfire::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Campfire::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Campfire::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
-| `block\Campfire::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Campfire::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Campfire::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Campfire::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Campfire::setCookingTime` | blank |  |  |  |
@@ -445,12 +445,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Candle::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Carpet` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Carpet::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\Carpet::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Carpet::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Carpet::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Carpet::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Carpet::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Carpet::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
-| `block\Carpet::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Carpet::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Carpet::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Carrot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Carrot::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
@@ -465,7 +465,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Cauldron` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Cauldron::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Cauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Cauldron::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Cauldron::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Cauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\CaveVines` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CaveVines::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
@@ -482,8 +482,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CaveVines::isHead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CaveVines::onEntityInside` | skipped |  |  | block rule code |
 | `block\CaveVines::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\CaveVines::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\CaveVines::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\CaveVines::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\CaveVines::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CaveVines::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CaveVines::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CaveVines::setBerries` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -492,12 +492,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CeilingCenterHangingSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CeilingCenterHangingSign::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CeilingCenterHangingSign::getRotation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CeilingCenterHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\CeilingCenterHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CeilingCenterHangingSign::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CeilingCenterHangingSign::setRotation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CeilingEdgesHangingSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CeilingEdgesHangingSign::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CeilingEdgesHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\CeilingEdgesHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CeilingEdgesHangingSign::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CeilingEdgesHangingSign::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Chain` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -538,15 +538,15 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ChorusFlower::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ChorusFlower::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChorusFlower::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ChorusFlower::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\ChorusFlower::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ChorusFlower::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
-| `block\ChorusFlower::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\ChorusFlower::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ChorusFlower::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChorusFlower::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\ChorusPlant` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChorusPlant::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ChorusPlant::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
-| `block\ChorusPlant::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\ChorusPlant::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ChorusPlant::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Clay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Clay::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -571,42 +571,42 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CocoaBlock::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CocoaBlock::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CocoaBlock::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\CocoaBlock::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\CocoaBlock::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\CocoaBlock::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\CocoaBlock::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CocoaBlock::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\CocoaBlock::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CocoaBlock::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CocoaBlock::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Concrete` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Concrete::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Concrete::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Concrete::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Concrete::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ConcretePowder` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ConcretePowder::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\ConcretePowder::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\ConcretePowder::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ConcretePowder::getFallDamagePerBlock` | skipped |  |  | falling block rule code |
 | `block\ConcretePowder::getLandSound` | skipped |  |  | falling block rule code |
 | `block\ConcretePowder::getMaxFallDamage` | skipped |  |  | falling block rule code |
 | `block\ConcretePowder::onHitGround` | skipped |  |  | falling block rule code |
-| `block\ConcretePowder::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\ConcretePowder::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ConcretePowder::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ConcretePowder::tickFalling` | skipped |  |  | falling block rule code |
 | `block\Copper` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Copper::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Copper::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Copper::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Copper::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Copper::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Copper::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Copper::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBars` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperBars::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperBars::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperBars::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBars::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBars::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\CopperBars::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBars::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBulb` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperBulb::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperBulb::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperBulb::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\CopperBulb::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBulb::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -619,14 +619,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CopperBulb::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperBulb::togglePowered` | skipped |  |  | redstone |
 | `block\CopperChain` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperChain::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperChain::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperChain::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperChain::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperChain::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\CopperChain::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperChain::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperDoor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperDoor::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperDoor::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperDoor::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperDoor::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperDoor::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -634,14 +634,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CopperDoor::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperDoor::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperGrate` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperGrate::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperGrate::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperGrate::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperGrate::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperGrate::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\CopperGrate::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperGrate::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperLantern` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperLantern::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperLantern::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperLantern::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperLantern::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperLantern::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -651,21 +651,21 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CopperOre::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\CopperOre::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\CopperSlab` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperSlab::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperSlab::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperSlab::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperSlab::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperSlab::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\CopperSlab::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperSlab::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperStairs` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperStairs::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperStairs::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperStairs::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperStairs::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperStairs::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\CopperStairs::setOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperStairs::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperTrapdoor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CopperTrapdoor::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CopperTrapdoor::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CopperTrapdoor::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperTrapdoor::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CopperTrapdoor::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -674,15 +674,15 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CopperTrapdoor::setWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Coral` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Coral::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\Coral::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Coral::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CoralBlock` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CoralBlock::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\CoralBlock::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\CoralBlock::getCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CoralBlock::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\CoralBlock::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\CoralBlock::isDead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\CoralBlock::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\CoralBlock::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\CoralBlock::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\CoralBlock::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\CoralBlock::setCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CoralBlock::setDead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CraftingTable` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -693,8 +693,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Crops::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Crops::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Crops::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Crops::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Crops::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Crops::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Crops::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Crops::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Crops::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\DaylightSensor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -703,7 +703,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\DaylightSensor::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\DaylightSensor::isInverted` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DaylightSensor::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\DaylightSensor::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\DaylightSensor::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\DaylightSensor::setInverted` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DaylightSensor::setOutputSignalStrength` | skipped |  |  | redstone |
 | `block\DeadBush` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -712,7 +712,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\DeadBush::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\DeadBush::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\DeadBush::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
-| `block\DeadBush::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\DeadBush::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\DetectorRail` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DetectorRail::isActivated` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DetectorRail::setActivated` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -720,7 +720,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\DiamondOre::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\DiamondOre::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Dirt` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Dirt::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Dirt::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Dirt::getDirtType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Dirt::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Dirt::setDirtType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -734,7 +734,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Door::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\Door::isTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Door::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Door::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Door::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Door::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Door::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Door::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -743,12 +743,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Door::setTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePitcherCrop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePitcherCrop::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
-| `block\DoublePitcherCrop::describeBlockOnlyState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\DoublePitcherCrop::describeBlockOnlyState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\DoublePitcherCrop::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePitcherCrop::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\DoublePitcherCrop::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePitcherCrop::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\DoublePitcherCrop::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\DoublePitcherCrop::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\DoublePitcherCrop::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePitcherCrop::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\DoublePlant` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -758,7 +758,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\DoublePlant::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\DoublePlant::isTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoublePlant::isValidHalfPlant` | skipped |  |  | block rule code |
-| `block\DoublePlant::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\DoublePlant::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\DoublePlant::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\DoublePlant::setTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DoubleTallGrass` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -776,26 +776,26 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\DragonEgg::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\DragonEgg::onHitGround` | skipped |  |  | falling block rule code |
 | `block\DragonEgg::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\DragonEgg::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\DragonEgg::teleport` | skipped |  |  | block rule code: listeners see BlockTeleport |
+| `block\DragonEgg::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\DragonEgg::teleport` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\DragonEgg::tickFalling` | skipped |  |  | falling block rule code |
 | `block\DriedKelp` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DriedKelp::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\DriedKelp::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\DriedKelp::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\DyedCandle` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\DyedCandle::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\DyedCandle::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\DyedCandle::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DyedCandle::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DyedShulkerBox` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\DyedShulkerBox::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\DyedShulkerBox::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\DyedShulkerBox::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\DyedShulkerBox::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Element` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Element::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
-| `block\Element::getAtomicWeight` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
-| `block\Element::getGroup` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
-| `block\Element::getSymbol` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
+| `block\Element::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
+| `block\Element::getAtomicWeight` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
+| `block\Element::getGroup` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
+| `block\Element::getSymbol` | skipped |  |  | Education Edition chemistry values (symbol, atomic weight, group) are not in the dump Anchor's block data comes from; the element number is in the block's name (`minecraft:element_<number>`) |
 | `block\EmeraldOre` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\EmeraldOre::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\EmeraldOre::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
@@ -829,8 +829,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Farmland::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `block\Farmland::getWetness` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Farmland::onEntityLand` | skipped |  |  | block rule code |
-| `block\Farmland::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Farmland::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Farmland::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Farmland::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Farmland::setWetness` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Farmland::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Fence` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -838,7 +838,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Fence::getThickness` | merged | src/block.rs:443 `collision_boxes` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getCollisionBoxes` |
 | `block\Fence::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\FenceGate` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\FenceGate::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\FenceGate::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\FenceGate::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FenceGate::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\FenceGate::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
@@ -848,7 +848,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\FenceGate::isInWall` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FenceGate::isOpen` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FenceGate::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\FenceGate::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\FenceGate::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\FenceGate::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\FenceGate::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FenceGate::setInWall` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -863,9 +863,9 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Fire` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Fire::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Fire::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Fire::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Fire::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
-| `block\Fire::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Fire::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Fire::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Fire::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Fire::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Fire::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\FletchingTable` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -878,7 +878,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\FloorCoralFan::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\FloorCoralFan::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\FloorCoralFan::getAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\FloorCoralFan::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\FloorCoralFan::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\FloorCoralFan::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\FloorCoralFan::setAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FloorSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -894,7 +894,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Flower::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Flower::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Flower::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
-| `block\Flower::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Flower::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\FlowerPot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FlowerPot::canAddPlant` | skipped |  |  | block rule code |
 | `block\FlowerPot::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
@@ -902,12 +902,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\FlowerPot::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `block\FlowerPot::getPlant` | implemented | src/tick/block_entity/api.rs:195 `potted_plant` | src/tick/block_entity/api.rs::a_flower_pot_holds_the_plant_it_is_given |  |
 | `block\FlowerPot::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\FlowerPot::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\FlowerPot::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\FlowerPot::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\FlowerPot::setPlant` | implemented | src/tick/block_entity/api.rs:398 `set_potted_plant` | src/tick/block_entity/api.rs::a_flower_pot_holds_the_plant_it_is_given |  |
 | `block\FlowerPot::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Froglight` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Froglight::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Froglight::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Froglight::getFroglightType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Froglight::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\Froglight::setFroglightType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -915,18 +915,18 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\FrostedIce::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FrostedIce::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\FrostedIce::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
-| `block\FrostedIce::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\FrostedIce::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
-| `block\FrostedIce::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\FrostedIce::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\FrostedIce::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\FrostedIce::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\FrostedIce::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Furnace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Furnace::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Furnace::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Furnace::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Furnace::getFurnaceType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Furnace::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\Furnace::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Furnace::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Furnace::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Furnace::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Furnace::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Furnace::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Furnace::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -940,7 +940,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\GlassPane::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\GlassPane::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\GlazedTerracotta` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\GlazedTerracotta::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\GlazedTerracotta::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\GlazedTerracotta::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\GlazedTerracotta::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\GlazedTerracotta::place` | skipped |  |  | block rule code: listeners see BlockPlace |
@@ -957,7 +957,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\GlowLichen::hasFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\GlowLichen::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\GlowLichen::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\GlowLichen::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\GlowLichen::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\GlowLichen::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\GlowLichen::setFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\GlowLichen::setFaces` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -974,12 +974,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Grass::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Grass::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Grass::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Grass::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Grass::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Grass::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\GrassPath` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\GrassPath::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\GrassPath::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
-| `block\GrassPath::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\GrassPath::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Gravel` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Gravel::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Gravel::getFallDamagePerBlock` | skipped |  |  | falling block rule code |
@@ -987,12 +987,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Gravel::getMaxFallDamage` | skipped |  |  | falling block rule code |
 | `block\Gravel::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Gravel::onHitGround` | skipped |  |  | falling block rule code |
-| `block\Gravel::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Gravel::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Gravel::tickFalling` | skipped |  |  | falling block rule code |
 | `block\HangingRoots` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\HangingRoots::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\HangingRoots::getDropsForIncompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
-| `block\HangingRoots::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\HangingRoots::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\HardenedClay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\HardenedGlass` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\HardenedGlassPane` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1008,7 +1008,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Hopper::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Hopper::isPowered` | skipped |  |  | redstone |
 | `block\Hopper::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Hopper::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Hopper::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Hopper::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Hopper::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Hopper::setPowered` | skipped |  |  | redstone |
@@ -1018,14 +1018,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Ice::getLightFilter` | merged | src/block.rs:328 `light_filter` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightFilter` |
 | `block\Ice::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Ice::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
-| `block\Ice::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Ice::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Ice::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\InfestedPillar` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\InfestedPillar::getAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\InfestedPillar::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\InfestedPillar::setAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\InfestedStone` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\InfestedStone::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\InfestedStone::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\InfestedStone::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\InfestedStone::getImitatedBlock` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\InfestedStone::getSilkTouchDrops` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -1043,7 +1043,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ItemFrame::hasMap` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ItemFrame::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\ItemFrame::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\ItemFrame::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\ItemFrame::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ItemFrame::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ItemFrame::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\ItemFrame::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1071,15 +1071,15 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Ladder::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\Ladder::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\Ladder::onEntityInside` | skipped |  |  | block rule code |
-| `block\Ladder::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Ladder::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Ladder::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Ladder::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lantern` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Lantern::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Lantern::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Lantern::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\Lantern::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Lantern::isHanging` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Lantern::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Lantern::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Lantern::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Lantern::setHanging` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\LapisOre` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1101,7 +1101,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\LavaCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\LavaCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Leaves` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Leaves::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Leaves::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Leaves::blocksDirectSkyLight` | merged | src/block.rs:338 `blocks_direct_sky_light` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::blocksDirectSkyLight` |
 | `block\Leaves::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Leaves::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
@@ -1111,8 +1111,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Leaves::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Leaves::isCheckDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Leaves::isNoDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Leaves::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Leaves::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Leaves::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Leaves::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Leaves::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Leaves::setCheckDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Leaves::setNoDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1128,7 +1128,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Lectern::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Lectern::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Lectern::onPageTurn` | skipped |  |  | block rule code |
-| `block\Lectern::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Lectern::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Lectern::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Lectern::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Lectern::setBook` | blank |  |  |  |
@@ -1140,19 +1140,19 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Lever::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lever::isActivated` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lever::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Lever::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Lever::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Lever::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Lever::setActivated` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lever::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Light` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Light::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Light::canBeReplaced` | merged | src/block.rs:393 `can_be_replaced` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::canBeReplaced` |
-| `block\Light::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Light::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Light::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\Light::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Light::setLightLevel` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\LightningRod` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\LightningRod::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\LightningRod::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\LightningRod::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\LightningRod::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\LightningRod::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1181,8 +1181,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Liquid::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\Liquid::isSource` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Liquid::isStill` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Liquid::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Liquid::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Liquid::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Liquid::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Liquid::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Liquid::setDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Liquid::setFalling` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1209,7 +1209,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\MelonStem` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\MelonStem::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\MobHead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\MobHead::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\MobHead::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\MobHead::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\MobHead::getMobHeadType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:207 `skull_rotation` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
@@ -1222,20 +1222,20 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\MonsterSpawner` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\MonsterSpawner::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\MonsterSpawner::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
-| `block\MonsterSpawner::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\MonsterSpawner::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\MushroomStem` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\MushroomStem::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\MushroomStem::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Mycelium` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Mycelium::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Mycelium::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
-| `block\Mycelium::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Mycelium::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Mycelium::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\NetherFungus` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\NetherFungus::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\NetherFungus::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\NetherFungus::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\NetherFungus::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\NetherFungus::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\NetherFungus::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\NetherGoldOre` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherGoldOre::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\NetherGoldOre::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
@@ -1254,12 +1254,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\NetherReactor::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\NetherRoots` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherRoots::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\NetherRoots::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\NetherRoots::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\NetherSprouts` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherSprouts::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\NetherSprouts::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\NetherSprouts::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\NetherVines` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\NetherVines::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\NetherVines::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\NetherVines::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\NetherVines::canClimb` | skipped |  |  | climbing is the client's rule: Anchor has no per-block climb data |
 | `block\NetherVines::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1270,8 +1270,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\NetherVines::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\NetherVines::onEntityInside` | skipped |  |  | block rule code |
 | `block\NetherVines::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\NetherVines::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\NetherVines::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\NetherVines::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\NetherVines::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\NetherVines::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\NetherVines::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherVines::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
@@ -1280,8 +1280,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\NetherWartPlant::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherWartPlant::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\NetherWartPlant::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\NetherWartPlant::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\NetherWartPlant::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\NetherWartPlant::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\NetherWartPlant::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\NetherWartPlant::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\NetherWartPlant::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Netherrack` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1289,16 +1289,16 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Netherrack::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Note` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Note::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
-| `block\Note::getPitch` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
+| `block\Note::getPitch` | skipped |  |  | Anchor keeps no note block entity: the API plays no notes, and Anchor keeps a saved `Music` entry as it came |
 | `block\Note::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\Note::setPitch` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
+| `block\Note::setPitch` | skipped |  |  | Anchor keeps no note block entity: the API plays no notes, and Anchor keeps a saved `Music` entry as it came |
 | `block\Note::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Nylium` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Nylium::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Nylium::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Nylium::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Nylium::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Nylium::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Nylium::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Nylium::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Nylium::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\OminousFloorBanner` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\OminousFloorBanner::getRotation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1322,7 +1322,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\PinkPetals::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\PinkPetals::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\PinkPetals::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\PinkPetals::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\PinkPetals::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\PinkPetals::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\PinkPetals::setCount` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\PinkPetals::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1333,12 +1333,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\PitcherCrop::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\PitcherCrop::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\PitcherCrop::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\PitcherCrop::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\PitcherCrop::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\PitcherCrop::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\PitcherCrop::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\PitcherCrop::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\PitcherCrop::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Planks` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Planks::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Planks::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Planks::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Planks::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Planks::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
@@ -1350,12 +1350,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Potato::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\Potato::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\PotionCauldron` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\PotionCauldron::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\PotionCauldron::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\PotionCauldron::getEmptySound` | skipped |  |  | block rule code |
 | `block\PotionCauldron::getFillSound` | skipped |  |  | block rule code |
 | `block\PotionCauldron::getPotionItem` | blank |  |  |  |
 | `block\PotionCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\PotionCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\PotionCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\PotionCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\PotionCauldron::setPotionItem` | blank |  |  |  |
 | `block\PotionCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -1363,14 +1363,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\PoweredRail::isPowered` | skipped |  |  | redstone |
 | `block\PoweredRail::setPowered` | skipped |  |  | redstone |
 | `block\PressurePlate` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\PressurePlate::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\PressurePlate::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\PressurePlate::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\PressurePlate::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\PressurePlate::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\PressurePlate::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `block\PressurePlate::onEntityInside` | skipped |  |  | block rule code |
-| `block\PressurePlate::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\PressurePlate::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\PressurePlate::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\PressurePlate::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Pumpkin` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Pumpkin::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\PumpkinStem` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1379,11 +1379,11 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Rail::getShape` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Rail::setShape` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedMushroom` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\RedMushroom::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\RedMushroom::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\RedMushroom::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\RedMushroom::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\RedMushroomBlock` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\RedMushroomBlock::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\RedMushroomBlock::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\RedMushroomBlock::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\RedMushroomBlock::getMushroomBlockType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedMushroomBlock::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
@@ -1398,7 +1398,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\RedstoneComparator::isPowered` | skipped |  |  | redstone |
 | `block\RedstoneComparator::isSubtractMode` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneComparator::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\RedstoneComparator::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\RedstoneComparator::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\RedstoneComparator::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\RedstoneComparator::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\RedstoneComparator::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1418,8 +1418,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\RedstoneOre::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\RedstoneOre::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneOre::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\RedstoneOre::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\RedstoneOre::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\RedstoneOre::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\RedstoneOre::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\RedstoneOre::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneOre::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\RedstoneRepeater` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1428,13 +1428,13 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\RedstoneRepeater::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneRepeater::isPowered` | skipped |  |  | redstone |
 | `block\RedstoneRepeater::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\RedstoneRepeater::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\RedstoneRepeater::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\RedstoneRepeater::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\RedstoneRepeater::setDelay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneRepeater::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneRepeater::setPowered` | skipped |  |  | redstone |
 | `block\RedstoneTorch` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\RedstoneTorch::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\RedstoneTorch::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\RedstoneTorch::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
 | `block\RedstoneTorch::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\RedstoneTorch::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1442,7 +1442,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\RedstoneWire::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\RedstoneWire::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\RedstoneWire::getOutputSignalStrength` | skipped |  |  | redstone |
-| `block\RedstoneWire::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\RedstoneWire::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\RedstoneWire::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\RedstoneWire::setOutputSignalStrength` | skipped |  |  | redstone |
 | `block\Reserved6` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1452,7 +1452,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ResinClump::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\ResinClump::hasFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ResinClump::isSolid` | merged | src/block.rs:379 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
-| `block\ResinClump::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\ResinClump::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\ResinClump::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ResinClump::setFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ResinClump::setFaces` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1466,21 +1466,21 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Sand::getLandSound` | skipped |  |  | falling block rule code |
 | `block\Sand::getMaxFallDamage` | skipped |  |  | falling block rule code |
 | `block\Sand::onHitGround` | skipped |  |  | falling block rule code |
-| `block\Sand::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Sand::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Sand::tickFalling` | skipped |  |  | falling block rule code |
 | `block\Sapling` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Sapling::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Sapling::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Sapling::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Sapling::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\Sapling::isReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sapling::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Sapling::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Sapling::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Sapling::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Sapling::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Sapling::setReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sapling::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Sculk` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sculk::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
-| `block\Sculk::getXpDropAmount` | skipped |  |  | block rule code: listeners see and change the experience in BlockBreak |
+| `block\Sculk::getXpDropAmount` | skipped |  |  | block rule code: listeners see and change the xp in BlockBreak |
 | `block\Sculk::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\SeaLantern` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SeaLantern::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -1513,7 +1513,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\SimplePressurePlate::isPressed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SimplePressurePlate::setPressed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Slab` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Slab::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\Slab::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\Slab::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Slab::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Slab::getSlabType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1525,7 +1525,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Slime::getFrictionFactor` | merged | src/block.rs:415 `friction_factor` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getFrictionFactor` |
 | `block\Slime::onEntityLand` | skipped |  |  | block rule code |
 | `block\SmallDripleaf` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\SmallDripleaf::describeBlockOnlyState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\SmallDripleaf::describeBlockOnlyState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\SmallDripleaf::getAffectedBlocks` | skipped |  |  | block rule code |
 | `block\SmallDripleaf::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\SmallDripleaf::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1534,7 +1534,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\SmallDripleaf::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\SmallDripleaf::isTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SmallDripleaf::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\SmallDripleaf::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\SmallDripleaf::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\SmallDripleaf::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\SmallDripleaf::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SmallDripleaf::setTop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1553,8 +1553,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\SnowLayer::getMaxFallDamage` | skipped |  |  | falling block rule code |
 | `block\SnowLayer::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\SnowLayer::onHitGround` | skipped |  |  | falling block rule code |
-| `block\SnowLayer::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\SnowLayer::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\SnowLayer::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\SnowLayer::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\SnowLayer::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\SnowLayer::setLayers` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SnowLayer::tickFalling` | skipped |  |  | falling block rule code |
@@ -1565,33 +1565,33 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\SoulFire` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SoulFire::canBeSupportedBy` | skipped |  |  | block rule code |
 | `block\SoulFire::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
-| `block\SoulFire::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\SoulFire::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\SoulSand` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sponge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Sponge::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Sponge::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Sponge::isWet` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sponge::setWet` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SporeBlossom` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SporeBlossom::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\SporeBlossom::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\SporeBlossom::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\StainedGlass` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\StainedGlass::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\StainedGlass::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\StainedGlass::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedGlass::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedGlassPane` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\StainedGlassPane::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\StainedGlassPane::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\StainedGlassPane::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedGlassPane::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedClay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\StainedHardenedClay::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\StainedHardenedClay::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\StainedHardenedClay::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedClay::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedGlass` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\StainedHardenedGlass::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\StainedHardenedGlass::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\StainedHardenedGlass::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedGlass::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedGlassPane` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\StainedHardenedGlassPane::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\StainedHardenedGlassPane::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\StainedHardenedGlassPane::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\StainedHardenedGlassPane::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Stair` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1607,8 +1607,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Stem` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Stem::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Stem::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Stem::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Stem::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Stem::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Stem::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Stem::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Stem::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\StoneButton` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1629,8 +1629,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Sugarcane::getAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sugarcane::getMaxAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Sugarcane::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\Sugarcane::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Sugarcane::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Sugarcane::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Sugarcane::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Sugarcane::onSupportBlockChange` | skipped |  |  | block rule code |
 | `block\Sugarcane::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Sugarcane::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1645,32 +1645,32 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\SweetBerryBush::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\SweetBerryBush::onEntityInside` | skipped |  |  | block rule code |
 | `block\SweetBerryBush::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\SweetBerryBush::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\SweetBerryBush::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\SweetBerryBush::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\SweetBerryBush::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\SweetBerryBush::setAge` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\SweetBerryBush::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\TNT` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\TNT::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\TNT::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\TNT::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\TNT::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\TNT::ignite` | blank |  |  |  |
 | `block\TNT::isUnstable` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TNT::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
-| `block\TNT::onIncinerate` | skipped |  |  | block rule code: listeners see BlockBurn |
+| `block\TNT::onIncinerate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\TNT::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\TNT::onProjectileHit` | skipped |  |  | block rule code: listeners see ProjectileHitBlock |
 | `block\TNT::setUnstable` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TNT::setWorksUnderwater` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TNT::worksUnderwater` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TallGrass` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\TallGrass::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\TallGrass::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\TallGrass::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\TallGrass::canBeReplaced` | merged | src/block.rs:393 `can_be_replaced` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::canBeReplaced` |
 | `block\TallGrass::getDropsForIncompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\TallGrass::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\TallGrass::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\TallGrass::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\TallGrass::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\TallGrass::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Thin` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Thin::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Thin::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -1679,17 +1679,17 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Torch` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Torch::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Torch::getLightLevel` | merged | src/block.rs:318 `light_emission` | tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getLightLevel` |
-| `block\Torch::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Torch::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Torch::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Torch::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TorchflowerCrop` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TorchflowerCrop::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\TorchflowerCrop::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\TorchflowerCrop::describeBlockOnlyState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\TorchflowerCrop::describeBlockOnlyState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\TorchflowerCrop::isReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TorchflowerCrop::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\TorchflowerCrop::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\TorchflowerCrop::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\TorchflowerCrop::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\TorchflowerCrop::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\TorchflowerCrop::setReady` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TorchflowerCrop::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Transparent` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1726,9 +1726,9 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\UnderwaterTorch` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\UnderwaterTorch::canBeFlowedInto` | merged | src/block.rs:401 `can_be_flowed_into` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::canBeFlowedInto` |
 | `block\UnknownBlock` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\UnknownBlock::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\UnknownBlock::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\UnknownBlock::canBePlaced` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\UnknownBlock::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\UnknownBlock::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\UnknownBlock::getDrops` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\VanillaBlocks` | implemented | src/block.rs:1368 `default_state` | src/block.rs::every_kind_and_state_has_its_data<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
 | `block\VanillaBlocks::ACACIA_BUTTON` | merged | src/block.rs:1368 `default_state` | src/block.rs::every_kind_and_state_has_its_data<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `VanillaBlocks` |
@@ -2541,8 +2541,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Vine::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\Vine::hasFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Vine::onEntityInside` | skipped |  |  | block rule code |
-| `block\Vine::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
-| `block\Vine::onRandomTick` | skipped |  |  | block rule code: listeners see BlockGrow, BlockSpread and the other update events |
+| `block\Vine::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
+| `block\Vine::onRandomTick` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Vine::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Vine::setFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Vine::setFaces` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -2552,7 +2552,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Wall::getConnections` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wall::getSupportType` | merged | src/block.rs:429 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `block\Wall::isPost` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Wall::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\Wall::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Wall::setConnection` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wall::setConnections` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wall::setPost` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -2563,12 +2563,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\WallCoralFan` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WallCoralFan::asItem` | merged | src/block.rs:459 `item` | src/block.rs::every_kind_and_state_has_its_data | into `Block::asItem` |
 | `block\WallCoralFan::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WallCoralFan::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\WallCoralFan::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\WallCoralFan::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\WallCoralFan::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WallHangingSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WallHangingSign::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WallHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\WallHangingSign::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\WallHangingSign::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\WallHangingSign::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WallSign` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -2589,16 +2589,16 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\WaterCauldron::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\WaterCauldron::onEntityInside` | skipped |  |  | block rule code |
 | `block\WaterCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
-| `block\WaterCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\WaterCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\WaterCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\WaterCauldron::setCustomWaterColor` | blank |  |  |  |
 | `block\WaterCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\WaterLily` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WaterLily::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\WaterLily::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\WaterLily::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\WaterLily::supportedWhenPlacedAt` | skipped |  |  | block rule code |
 | `block\WeightedPressurePlate` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WeightedPressurePlate::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WeightedPressurePlate::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WeightedPressurePlate::getOutputSignalStrength` | skipped |  |  | redstone |
 | `block\WeightedPressurePlate::setOutputSignalStrength` | skipped |  |  | redstone |
 | `block\WeightedPressurePlateHeavy` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -2612,10 +2612,10 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\WitherRose::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WitherRose::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\WitherRose::onEntityInside` | skipped |  |  | block rule code |
-| `block\WitherRose::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\WitherRose::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Wood` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Wood::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
-| `block\Wood::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Wood::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
+| `block\Wood::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Wood::getAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wood::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Wood::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
@@ -2627,42 +2627,42 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Wood::setAxis` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wood::setStripped` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenButton` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenButton::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenButton::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenButton::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenButton::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenButton::hasEntityCollision` | merged | src/block.rs:408 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
 | `block\WoodenDoor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenDoor::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenDoor::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenDoor::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenDoor::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenFence` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenFence::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenFence::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenFence::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenFence::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenFence::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenFence::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenPressurePlate` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenPressurePlate::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenPressurePlate::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenPressurePlate::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenPressurePlate::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenSlab` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenSlab::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenSlab::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenSlab::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenSlab::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenSlab::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenSlab::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenStairs` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenStairs::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenStairs::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenStairs::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenStairs::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\WoodenStairs::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenStairs::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WoodenTrapdoor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WoodenTrapdoor::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\WoodenTrapdoor::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\WoodenTrapdoor::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `block\WoodenTrapdoor::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wool` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Wool::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\Wool::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\Wool::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Wool::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Wool::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
@@ -2765,7 +2765,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\inventory\StonecutterInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
 | `block\tile\Banner` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\Banner::getBaseColor` | implemented | src/tick/block_entity/api.rs:159 `banner_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
-| `block\tile\Banner::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Banner::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Banner::getPatterns` | implemented | src/tick/block_entity/api.rs:170 `banner_patterns` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
 | `block\tile\Banner::getType` | implemented | src/tick/block_entity/api.rs:184 `banner_type` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
 | `block\tile\Banner::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2778,7 +2778,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Barrel::canOpenWith` | merged | src/tick/block_entity/api.rs:92 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `block\tile\Barrel::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Barrel::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Barrel::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Barrel::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Barrel::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\Barrel::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\Barrel::getRealInventory` | merged | src/tick/inventory/api.rs:132 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
@@ -2812,7 +2812,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\BrewingStand::canOpenWith` | merged | src/tick/block_entity/api.rs:92 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `block\tile\BrewingStand::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\BrewingStand::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\BrewingStand::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\BrewingStand::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\BrewingStand::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\BrewingStand::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\BrewingStand::getRealInventory` | merged | src/tick/inventory/api.rs:132 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
@@ -2842,7 +2842,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Chest::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Chest::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\Chest::getCleanedNBT` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Chest::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Chest::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Chest::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\Chest::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\Chest::getPair` | implemented | src/tick/block_entity/api.rs:111 `chest_pair` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
@@ -2876,7 +2876,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\EnchantTable` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\EnchantTable::addAdditionalSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\EnchantTable::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\EnchantTable::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\EnchantTable::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\EnchantTable::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\EnchantTable::hasName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\EnchantTable::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2896,7 +2896,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Furnace::canOpenWith` | merged | src/tick/block_entity/api.rs:92 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `block\tile\Furnace::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Furnace::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Furnace::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Furnace::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Furnace::getFurnaceType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\tile\Furnace::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\Furnace::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
@@ -2913,7 +2913,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Hopper::canOpenWith` | merged | src/tick/block_entity/api.rs:92 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `block\tile\Hopper::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Hopper::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Hopper::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Hopper::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Hopper::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\Hopper::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\Hopper::getRealInventory` | merged | src/tick/inventory/api.rs:132 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
@@ -2949,23 +2949,23 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\MonsterSpawner` | skipped |  |  | spawners spawn mobs: no mob AI |
 | `block\tile\MonsterSpawner::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\Nameable` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `block\tile\Nameable::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\Nameable::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\Nameable::getName` | implemented | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `block\tile\Nameable::hasName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\Nameable::setName` | implemented | src/tick/block_entity/api.rs:239 `set_name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `block\tile\NameableTrait` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\NameableTrait::addAdditionalSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\NameableTrait::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\NameableTrait::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\NameableTrait::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\NameableTrait::getName` | implemented | src/tick/block_entity/api.rs:86 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `block\tile\NameableTrait::hasName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `block\tile\NameableTrait::setName` | implemented | src/tick/block_entity/api.rs:240 `set_name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `block\tile\NormalFurnace` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\NormalFurnace::getFurnaceType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\tile\Note` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
-| `block\tile\Note::getPitch` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
+| `block\tile\Note` | skipped |  |  | Anchor keeps no note block entity: the API plays no notes, and Anchor keeps a saved `Music` entry as it came |
+| `block\tile\Note::getPitch` | skipped |  |  | Anchor keeps no note block entity: the API plays no notes, and Anchor keeps a saved `Music` entry as it came |
 | `block\tile\Note::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Note::setPitch` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
+| `block\tile\Note::setPitch` | skipped |  |  | Anchor keeps no note block entity: the API plays no notes, and Anchor keeps a saved `Music` entry as it came |
 | `block\tile\ShulkerBox` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\ShulkerBox::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\ShulkerBox::addNameSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2973,7 +2973,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\ShulkerBox::close` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\ShulkerBox::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\ShulkerBox::getCleanedNBT` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\ShulkerBox::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
+| `block\tile\ShulkerBox::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (the API sends none either) |
 | `block\tile\ShulkerBox::getFacing` | implemented | src/tick/block_entity/api.rs:117 `shulker_facing` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `block\tile\ShulkerBox::getInventory` | merged | src/tick/inventory/api.rs:133 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\ShulkerBox::getName` | merged | src/tick/block_entity/api.rs:85 `name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
@@ -2984,14 +2984,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\ShulkerBox::setName` | merged | src/tick/block_entity/api.rs:239 `set_name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `block\tile\Sign` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\Sign::__construct` | skipped |  |  | block entities are made by the block rules with their block |
-| `block\tile\Sign::fixTextBlob` | skipped |  |  | deprecated PMMP helper: `SignText::from_blob` reads a text blob |
+| `block\tile\Sign::fixTextBlob` | skipped |  |  | deprecated helper of the API: `SignText::from_blob` reads a text blob |
 | `block\tile\Sign::getBackText` | implemented | src/tick/block_entity/api.rs:129 `sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `block\tile\Sign::getEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
+| `block\tile\Sign::getEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as the official server does) |
 | `block\tile\Sign::getText` | implemented | src/tick/block_entity/api.rs:128 `sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\tile\Sign::isWaxed` | implemented | src/tick/block_entity/api.rs:142 `is_sign_waxed` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\tile\Sign::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\Sign::setBackText` | implemented | src/tick/block_entity/api.rs:310 `set_sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `block\tile\Sign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
+| `block\tile\Sign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as the official server does) |
 | `block\tile\Sign::setText` | implemented | src/tick/block_entity/api.rs:309 `set_sign_text` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\tile\Sign::setWaxed` | implemented | src/tick/block_entity/api.rs:326 `set_sign_waxed` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `block\tile\Smoker` | merged | src/tile.rs:40 `Tile` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
@@ -3046,7 +3046,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\AnyFacingTrait::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\AnyFacingTrait::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\BannerPatternLayer` | implemented | src/tile.rs:283 `BannerLayer` | src/tile.rs::banner_colours_count_the_other_way |  |
-| `block\utils\BannerPatternLayer::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\utils\BannerPatternLayer::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\utils\BannerPatternLayer::getColor` | implemented | src/tile.rs:297 `colour` | src/tile.rs::banner_colours_count_the_other_way |  |
 | `block\utils\BannerPatternLayer::getType` | implemented | src/tile.rs:303 `pattern` | src/tile.rs::banner_colours_count_the_other_way |  |
 | `block\utils\BannerPatternType` | blank | src/block/table.rs:94800 `BannerPattern` |  | no `// api:` test (implemented) |
@@ -3092,7 +3092,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\Colored::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\Colored::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\ColoredTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\utils\ColoredTrait::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\utils\ColoredTrait::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\utils\ColoredTrait::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\ColoredTrait::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\CopperMaterial` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -3112,7 +3112,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\CopperOxidation::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperOxidation::tryFrom` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\utils\CopperTrait::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\utils\CopperTrait::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\utils\CopperTrait::getOxidation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\CopperTrait::isWaxed` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\CopperTrait::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -3132,7 +3132,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\CoralType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CoralType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CoralTypeTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\utils\CoralTypeTrait::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `block\utils\CoralTypeTrait::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\utils\CoralTypeTrait::getCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\CoralTypeTrait::isDead` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\CoralTypeTrait::setCoralType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -3180,7 +3180,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\FallableTrait::getLandSound` | skipped |  |  | falling block rule code |
 | `block\utils\FallableTrait::getMaxFallDamage` | skipped |  |  | falling block rule code |
 | `block\utils\FallableTrait::onHitGround` | skipped |  |  | falling block rule code |
-| `block\utils\FallableTrait::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\utils\FallableTrait::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\utils\FallableTrait::tickFalling` | skipped |  |  | falling block rule code |
 | `block\utils\FortuneDropHelper` | skipped |  |  | drop rule code |
 | `block\utils\FortuneDropHelper::binomial` | skipped |  |  | drop rule code |
@@ -3224,7 +3224,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\LightableTrait::isLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\LightableTrait::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\MinimumCostFlowCalculator` | skipped |  |  | liquid rule code |
-| `block\utils\MinimumCostFlowCalculator::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\utils\MinimumCostFlowCalculator::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\utils\MinimumCostFlowCalculator::getOptimalFlowDirections` | skipped |  |  | liquid rule code |
 | `block\utils\MobHeadType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\MobHeadType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -3247,7 +3247,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\MultiAnySupportTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\MultiAnySupportTrait::getFaces` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\MultiAnySupportTrait::hasFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\utils\MultiAnySupportTrait::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\utils\MultiAnySupportTrait::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\utils\MultiAnySupportTrait::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\utils\MultiAnySupportTrait::setFace` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\MultiAnySupportTrait::setFaces` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -3280,7 +3280,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\RecordType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\RecordType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\RecordType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `block\utils\RecordType::getSoundId` | skipped |  |  | deprecated in PMMP and always 0: a disc plays as `world::Sound::Record` |
+| `block\utils\RecordType::getSoundId` | skipped |  |  | deprecated in the API and always 0: a disc plays as `world::Sound::Record` |
 | `block\utils\RecordType::getSoundName` | skipped |  |  | a disc's names are client-side translations (Anchor sends translation keys) |
 | `block\utils\RecordType::getTranslatableName` | skipped |  |  | a disc's names are client-side translations (Anchor sends translation keys) |
 | `block\utils\RecordType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -3301,7 +3301,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\SignLikeRotationTrait::getRotation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\SignLikeRotationTrait::setRotation` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\SignText` | implemented | src/tile.rs:113 `SignText` | src/tile.rs::sign_text_checks_its_lines_and_keeps_its_colour |  |
-| `block\utils\SignText::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\utils\SignText::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\utils\SignText::fromBlob` | implemented | src/tile.rs:135 `from_blob` | src/tile.rs::sign_text_checks_its_lines_and_keeps_its_colour |  |
 | `block\utils\SignText::getBaseColor` | implemented | src/tile.rs:145 `colour` | src/tile.rs::sign_text_checks_its_lines_and_keeps_its_colour |  |
 | `block\utils\SignText::getLine` | implemented | src/tile.rs:157 `line` | src/tile.rs::sign_text_checks_its_lines_and_keeps_its_colour |  |
@@ -3323,7 +3323,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\StairShape::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\StaticSupportTrait` | skipped |  |  | block rule code |
 | `block\utils\StaticSupportTrait::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
-| `block\utils\StaticSupportTrait::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
+| `block\utils\StaticSupportTrait::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\utils\SupportType` | implemented | src/block.rs:973 `SupportType` | src/block.rs::support_and_boxes_follow_the_state |  |
 | `block\utils\SupportType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\SupportType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -3347,14 +3347,14 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\WoodType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\WoodType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\WoodType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `block\utils\WoodType::getAllSidedLogSuffix` | skipped |  |  | PMMP's block naming: Anchor's block names are the generated Bedrock names |
+| `block\utils\WoodType::getAllSidedLogSuffix` | skipped |  |  | the API'sblock naming: Anchor's block names are the generated Bedrock names |
 | `block\utils\WoodType::getDisplayName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
-| `block\utils\WoodType::getStandardLogSuffix` | skipped |  |  | PMMP's block naming: Anchor's block names are the generated Bedrock names |
+| `block\utils\WoodType::getStandardLogSuffix` | skipped |  |  | the API'sblock naming: Anchor's block names are the generated Bedrock names |
 | `block\utils\WoodType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\WoodType::isFlammable` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\utils\WoodType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\WoodTypeTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\utils\WoodTypeTrait::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
+| `block\utils\WoodTypeTrait::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\utils\WoodTypeTrait::getWoodType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 
 ## `command`
@@ -3363,48 +3363,48 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `command\ClosureCommand` | implemented | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\ClosureCommand::__construct` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\ClosureCommand::execute` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\Command` | implemented | src/command.rs:87 `Command` | tests/server.rs::a_server_builds_with_a_command_of_the_users |  |
-| `command\Command::__construct` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\ClosureCommand` | implemented | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\ClosureCommand::__construct` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\ClosureCommand::execute` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\Command` | implemented | src/command.rs:85 `Command` | tests/server.rs::a_server_builds_with_a_command_of_the_users |  |
+| `command\Command::__construct` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\Command::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:793 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\Command::execute` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\Command::getAliases` | implemented | src/command.rs:163 `aliases` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::getDescription` | implemented | src/command.rs:169 `description` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::getLabel` | merged | src/command.rs:175 `name` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `Command::getName` |
-| `command\Command::getName` | implemented | src/command.rs:175 `name` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::getPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
-| `command\Command::getPermissions` | implemented | src/command.rs:181 `permissions` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads<br>src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::getUsage` | implemented | src/command.rs:188 `usage_text` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::execute` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\Command::getAliases` | implemented | src/command.rs:161 `aliases` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::getDescription` | implemented | src/command.rs:167 `description` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::getLabel` | merged | src/command.rs:173 `name` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `Command::getName` |
+| `command\Command::getName` | implemented | src/command.rs:173 `name` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::getPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as the official server sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
+| `command\Command::getPermissions` | implemented | src/command.rs:179 `permissions` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads<br>src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::getUsage` | implemented | src/command.rs:186 `usage_text` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\Command::isRegistered` | skipped |  |  | commands are fixed at `build()` |
 | `command\Command::register` | skipped |  |  | commands are fixed at `build()` |
-| `command\Command::setAliases` | implemented | src/command.rs:124 `alias` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::setDescription` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\Command::setLabel` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\Command::setPermission` | implemented | src/command.rs:152 `permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `command\Command::setPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
-| `command\Command::setPermissions` | implemented | src/command.rs:153 `permission` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads |  |
-| `command\Command::setUsage` | implemented | src/command.rs:116 `with_usage` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::setAliases` | implemented | src/command.rs:122 `alias` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\Command::setDescription` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\Command::setLabel` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\Command::setPermission` | implemented | src/command.rs:150 `permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `command\Command::setPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as the official server sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
+| `command\Command::setPermissions` | implemented | src/command.rs:151 `permission` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads |  |
+| `command\Command::setUsage` | implemented | src/command.rs:114 `with_usage` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\Command::testPermission` | merged | src/tick/command.rs:574 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
 | `command\Command::testPermissionSilent` | implemented | src/tick/command.rs:574 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\Command::unregister` | skipped |  |  | commands are fixed at `build()` |
-| `command\CommandExecutor` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\CommandExecutor::onCommand` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\CommandExecutor` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
+| `command\CommandExecutor::onCommand` | merged | src/command.rs:84 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\CommandMap` | merged | src/tick/command.rs:507 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `CommandMap::register` |
 | `command\CommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
 | `command\CommandMap::dispatch` | implemented | src/tick/command.rs:749 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `command\CommandMap::getCommand` | implemented | src/tick/command.rs:582 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\CommandMap::register` | implemented | src/tick/command.rs:507 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\CommandMap::registerAll` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\CommandSender` | implemented | src/command.rs:486 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `command\CommandSender` | implemented | src/command.rs:480 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\CommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `command\CommandSender::getName` | implemented | src/tick/command.rs:563 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:224 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
+| `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:222 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:774 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:277 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
+| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:275 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
 | `command\SimpleCommandMap` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
@@ -3413,7 +3413,7 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:594 `commands` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\SimpleCommandMap::register` | implemented | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\SimpleCommandMap::registerServerAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
+| `command\SimpleCommandMap::registerServerAliases` | skipped |  |  | the API's config file command aliases: aliases are given in code (`Command::alias`) |
 | `command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:518 `without_command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\defaults\BanCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
@@ -3550,7 +3550,7 @@ implemented 3, differs 0, merged 5, skipped 20, blank 0 (of 28 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `console\ConsoleCommandSender` | implemented | src/command.rs:492 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
+| `console\ConsoleCommandSender` | implemented | src/command.rs:486 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
 | `console\ConsoleCommandSender::__construct` | skipped |  |  | the console sender is `command::Sender`'s console case |
 | `console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
@@ -3614,10 +3614,10 @@ implemented 0, differs 0, merged 0, skipped 119, blank 0 (of 119 rows)
 | `crafting\CraftingManager::registerShapedRecipe` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `crafting\CraftingManager::registerShapelessRecipe` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `crafting\CraftingManager::sort` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
-| `crafting\CraftingManagerFromDataHelper` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\CraftingManagerFromDataHelper::deserializeItemStack` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\CraftingManagerFromDataHelper::loadJsonArrayOfObjectsFile` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\CraftingManagerFromDataHelper::make` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
+| `crafting\CraftingManagerFromDataHelper` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\CraftingManagerFromDataHelper::deserializeItemStack` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\CraftingManagerFromDataHelper::loadJsonArrayOfObjectsFile` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\CraftingManagerFromDataHelper::make` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
 | `crafting\CraftingRecipe` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `crafting\CraftingRecipe::getIngredientList` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `crafting\CraftingRecipe::getResultsFor` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
@@ -3686,24 +3686,24 @@ implemented 0, differs 0, merged 0, skipped 119, blank 0 (of 119 rows)
 | `crafting\ShapelessRecipeType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `crafting\ShapelessRecipeType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `crafting\ShapelessRecipeType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `crafting\json\ItemStackData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ItemStackData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ItemStackData::jsonSerialize` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\PotionContainerChangeRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\PotionContainerChangeRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\PotionTypeRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\PotionTypeRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\RecipeIngredientData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapedRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapedRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapedRecipeData::jsonSerialize` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapelessRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapelessRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\ShapelessRecipeData::jsonSerialize` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\SmithingTransformRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\SmithingTransformRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\SmithingTrimRecipeData` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
-| `crafting\json\SmithingTrimRecipeData::__construct` | skipped |  |  | PMMP's JSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ItemStackData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ItemStackData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ItemStackData::jsonSerialize` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\PotionContainerChangeRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\PotionContainerChangeRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\PotionTypeRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\PotionTypeRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\RecipeIngredientData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapedRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapedRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapedRecipeData::jsonSerialize` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapelessRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapelessRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\ShapelessRecipeData::jsonSerialize` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\SmithingTransformRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\SmithingTransformRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\SmithingTrimRecipeData` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
+| `crafting\json\SmithingTrimRecipeData::__construct` | skipped |  |  | the API'sJSON recipe files: Anchor's recipe data is generated |
 
 ## `crash`
 
@@ -3711,21 +3711,21 @@ implemented 0, differs 0, merged 0, skipped 15, blank 0 (of 15 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `crash\CrashDump` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDump::__construct` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDump::encodeData` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDump::getData` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDump::getEncodedData` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpData` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpData::jsonSerialize` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpDataGeneral` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpDataGeneral::__construct` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpDataPluginEntry` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpDataPluginEntry::__construct` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpRenderer` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpRenderer::__construct` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpRenderer::addLine` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `crash\CrashDumpRenderer::renderHumanReadable` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
+| `crash\CrashDump` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDump::__construct` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDump::encodeData` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDump::getData` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDump::getEncodedData` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpData` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpData::jsonSerialize` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpDataGeneral` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpDataGeneral::__construct` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpDataPluginEntry` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpDataPluginEntry::__construct` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpRenderer` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpRenderer::__construct` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpRenderer::addLine` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `crash\CrashDumpRenderer::renderHumanReadable` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
 
 ## `data`
 
@@ -3735,35 +3735,35 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 |---|---|---|---|---|
 | `data\SavedDataLoadingException` | skipped |  |  | PHP exception: a corrupt record keeps its original and reports through `Result` |
 | `data\bedrock\BannerPatternTypeIdMap` | merged | src/block.rs:1451 `from_id` | src/block.rs::every_kind_and_state_has_its_data | into `BannerPatternTypeIdMap::fromId` |
-| `data\bedrock\BannerPatternTypeIdMap::__construct` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\BannerPatternTypeIdMap::__construct` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\BannerPatternTypeIdMap::fromId` | implemented | src/block.rs:1451 `from_id` | src/block.rs::every_kind_and_state_has_its_data |  |
 | `data\bedrock\BannerPatternTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\BannerPatternTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\BannerPatternTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\BannerPatternTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\BannerPatternTypeIdMap::toId` | implemented | src/block.rs:1460 `id` | src/block.rs::every_kind_and_state_has_its_data |  |
-| `data\bedrock\BedrockDataFiles` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\BiomeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\CompoundTypeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap::fromInvertedId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap::fromItemId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\BedrockDataFiles` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\BiomeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\CompoundTypeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap::fromInvertedId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap::fromItemId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\DyeColorIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\DyeColorIdMap::registerInt` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\DyeColorIdMap::registerInt` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\DyeColorIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\DyeColorIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\DyeColorIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap::toInvertedId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\DyeColorIdMap::toItemId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\EffectIdMap` | merged | src/effect.rs:282 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
-| `data\bedrock\EffectIdMap::fromId` | implemented | src/effect.rs:282 `from_id` | src/effect.rs::ids_round_trip |  |
+| `data\bedrock\DyeColorIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap::toInvertedId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\DyeColorIdMap::toItemId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\EffectIdMap` | merged | src/effect.rs:276 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
+| `data\bedrock\EffectIdMap::fromId` | implemented | src/effect.rs:276 `from_id` | src/effect.rs::ids_round_trip |  |
 | `data\bedrock\EffectIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EffectIdMap::register` | skipped |  |  | no custom effects (the client cannot show them) |
 | `data\bedrock\EffectIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EffectIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\EffectIdMap::toId` | implemented | src/effect.rs:289 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `data\bedrock\EffectIds` | merged | src/effect.rs:282 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
+| `data\bedrock\EffectIdMap::toId` | implemented | src/effect.rs:283 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `data\bedrock\EffectIds` | merged | src/effect.rs:276 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
 | `data\bedrock\EnchantmentIdMap` | merged | src/item.rs:1055 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
 | `data\bedrock\EnchantmentIdMap::fromId` | implemented | src/item.rs:1055 `from_id` | src/item.rs::enchantment_ids_round_trip |  |
 | `data\bedrock\EnchantmentIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -3772,26 +3772,26 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\bedrock\EnchantmentIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EnchantmentIdMap::toId` | implemented | src/item.rs:1067 `id` | src/item.rs::enchantment_ids_round_trip |  |
 | `data\bedrock\EnchantmentIds` | merged | src/item.rs:1055 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
-| `data\bedrock\FireworkRocketTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\FireworkRocketTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\FireworkRocketTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\FireworkRocketTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\FireworkRocketTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\FireworkRocketTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\FireworkRocketTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\FireworkRocketTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\FireworkRocketTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\FireworkRocketTypeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\GoatHornTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\GoatHornTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\FireworkRocketTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\FireworkRocketTypeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\GoatHornTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\GoatHornTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\GoatHornTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\GoatHornTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\GoatHornTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\GoatHornTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\GoatHornTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\GoatHornTypeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\IntSaveIdMapTrait` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\IntSaveIdMapTrait::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\IntSaveIdMapTrait::register` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\IntSaveIdMapTrait::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\GoatHornTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\GoatHornTypeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\IntSaveIdMapTrait` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\IntSaveIdMapTrait::fromId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\IntSaveIdMapTrait::register` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\IntSaveIdMapTrait::toId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\LegacyBiomeIdToStringIdMap` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `data\bedrock\LegacyBiomeIdToStringIdMap::__construct` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `data\bedrock\LegacyBiomeIdToStringIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -3807,451 +3807,451 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\bedrock\LegacyToStringIdMap::add` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `data\bedrock\LegacyToStringIdMap::getLegacyToStringMap` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `data\bedrock\LegacyToStringIdMap::legacyToString` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
-| `data\bedrock\MedicineTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MedicineTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\MedicineTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MedicineTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\MedicineTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MedicineTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\MedicineTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MedicineTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\MedicineTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MedicineTypeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MobHeadTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MobHeadTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\MedicineTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MedicineTypeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MobHeadTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MobHeadTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\MobHeadTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MobHeadTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\MobHeadTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MobHeadTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\MobHeadTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MushroomBlockTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MushroomBlockTypeIdMap::__construct` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\MushroomBlockTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\MobHeadTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MushroomBlockTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MushroomBlockTypeIdMap::__construct` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\MushroomBlockTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\MushroomBlockTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MushroomBlockTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\MushroomBlockTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\MushroomBlockTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\MushroomBlockTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\NoteInstrumentIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\NoteInstrumentIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\MushroomBlockTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\NoteInstrumentIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\NoteInstrumentIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\NoteInstrumentIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\NoteInstrumentIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\NoteInstrumentIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\NoteInstrumentIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\NoteInstrumentIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\PotionTypeIdMap` | merged | src/effect.rs:353 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
-| `data\bedrock\PotionTypeIdMap::fromId` | implemented | src/effect.rs:353 `from_id` | src/effect.rs::ids_round_trip |  |
+| `data\bedrock\NoteInstrumentIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\PotionTypeIdMap` | merged | src/effect.rs:347 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
+| `data\bedrock\PotionTypeIdMap::fromId` | implemented | src/effect.rs:347 `from_id` | src/effect.rs::ids_round_trip |  |
 | `data\bedrock\PotionTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\PotionTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\PotionTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\PotionTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\PotionTypeIdMap::toId` | implemented | src/effect.rs:360 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `data\bedrock\PotionTypeIds` | merged | src/effect.rs:353 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
-| `data\bedrock\SuspiciousStewTypeIdMap` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\SuspiciousStewTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the PMMP dump |
+| `data\bedrock\PotionTypeIdMap::toId` | implemented | src/effect.rs:354 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `data\bedrock\PotionTypeIds` | merged | src/effect.rs:347 `from_id` | src/effect.rs::ids_round_trip | into `PotionTypeIdMap::fromId` |
+| `data\bedrock\SuspiciousStewTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\SuspiciousStewTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\SuspiciousStewTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\SuspiciousStewTypeIdMap::register` | skipped |  |  | save ID maps are generated and fixed |
 | `data\bedrock\SuspiciousStewTypeIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\SuspiciousStewTypeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\SuspiciousStewTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\SuspiciousStewTypeIds` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\WorldDataVersions` | skipped |  |  | save ID tables are generated from the PMMP dump |
-| `data\bedrock\block\BlockLegacyMetadata` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\SuspiciousStewTypeIdMap::toId` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\SuspiciousStewTypeIds` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\WorldDataVersions` | skipped |  |  | save ID tables are generated from the dump |
+| `data\bedrock\block\BlockLegacyMetadata` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
 | `data\bedrock\block\BlockStateData` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `data\bedrock\block\BlockStateData::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\block\BlockStateData::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
 | `data\bedrock\block\BlockStateData::current` | merged | src/block.rs:157 `find` | src/block.rs::named_states_are_the_states_of_their_names<br>tests/block.rs::every_state_is_found_by_its_network_id_and_properties | into `BlockStateDictionary::lookupStateIdFromData` |
 | `data\bedrock\block\BlockStateData::equals` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `data\bedrock\block\BlockStateData::fromNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\block\BlockStateData::fromNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
 | `data\bedrock\block\BlockStateData::getName` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `data\bedrock\block\BlockStateData::getState` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `data\bedrock\block\BlockStateData::getStates` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `data\bedrock\block\BlockStateData::getVersion` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateData::getVersionAsString` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateData::toNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateData::toVanillaNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateDeserializeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateDeserializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateDeserializer::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateNames` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateSerializeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateSerializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateSerializer::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockStateStringValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\BlockTypeNames` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::isRegistered` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::map` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockObjectToStateSerializer::serializeBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapColored` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapFlattenedId` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapModel` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeButton` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCandle` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeComparator` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCopper` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCrops` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDaylightSensor` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoublePlant` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoubleSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFenceGate` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFloorCoralFan` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFloorSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFlowingLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeItemFrame` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLeaves` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeMushroomBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeRepeater` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSapling` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSimplePressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSingleSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStem` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStillLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeTrapdoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWall` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWallSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWaxedCopper` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWeightedPressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::badValueException` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::checkUnreadProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::ignored` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::mapIntFromInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::mapIntFromString` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::missingOrWrongTypeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::read5MinusHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readBellAttachmentType` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readBlockFace` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readBool` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readBoundedInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readCardinalHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readCoralFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readEndRodFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readFacingFlags` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readFacingWithoutDown` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readFacingWithoutUp` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readLegacyHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readPillarAxis` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readSlabPosition` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readString` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readTorchFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readUnitEnum` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readWallConnectionType` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::readWeirdoHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateReader::todo` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeButton` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCandle` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCauldron` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeChemistryTable` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCrops` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeDoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeDoublePlant` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFenceGate` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFloorSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFurnace` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeItemFrame` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLeaves` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeMushroomBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeQuartz` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSapling` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSimplePressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeStem` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeTorch` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeTrapdoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeWall` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeWallSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateSerializerHelper::selectCopperId` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::deserializeBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::getDeserializerForId` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::map` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::getBlockStateData` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::mapIntToInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::mapIntToString` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::write5MinusHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeBellAttachmentType` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeBlockFace` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeBool` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeCardinalHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeCoralFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeEndRodFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeFacingFlags` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeFacingWithoutDown` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeFacingWithoutUp` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeLegacyHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writePillarAxis` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeSlabPosition` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeString` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeTorchFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeUnitEnum` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeWallConnectionType` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\BlockStateWriter::writeWeirdoHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::getBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::getIdComponents` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::getProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::idComponents` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\FlattenedIdModel::properties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model::getBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model::getId` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model::getProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\Model::properties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\UnsupportedBlockStateException` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolFromStringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\BoolProperty::unused` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\CommonProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\block\BlockStateData::getVersion` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateData::getVersionAsString` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateData::toNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateData::toVanillaNbt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateDeserializeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateDeserializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateDeserializer::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateNames` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateSerializeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateSerializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateSerializer::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockStateStringValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\BlockTypeNames` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::isRegistered` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::map` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockObjectToStateSerializer::serializeBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapColored` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapFlattenedId` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapModel` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockSerializerDeserializerRegistrar::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeButton` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCandle` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeComparator` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCopper` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeCrops` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDaylightSensor` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoublePlant` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeDoubleSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFenceGate` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFloorCoralFan` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFloorSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeFlowingLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeItemFrame` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLeaves` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeMushroomBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeRepeater` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSapling` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSimplePressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeSingleSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStem` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeStillLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeTrapdoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWall` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWallSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWaxedCopper` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateDeserializerHelper::decodeWeightedPressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::badValueException` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::checkUnreadProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::ignored` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::mapIntFromInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::mapIntFromString` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::missingOrWrongTypeException` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::read5MinusHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readBellAttachmentType` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readBlockFace` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readBool` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readBoundedInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readCardinalHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readCoralFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readEndRodFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readFacingFlags` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readFacingWithoutDown` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readFacingWithoutUp` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readLegacyHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readPillarAxis` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readSlabPosition` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readString` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readTorchFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readUnitEnum` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readWallConnectionType` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::readWeirdoHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateReader::todo` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeButton` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCandle` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCauldron` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeChemistryTable` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeCrops` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeDoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeDoublePlant` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFenceGate` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFloorSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeFurnace` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeItemFrame` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLeaves` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLiquid` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeMushroomBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeQuartz` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSapling` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSimplePressurePlate` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeStem` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeTorch` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeTrapdoor` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeWall` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::encodeWallSign` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateSerializerHelper::selectCopperId` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::deserializeBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::getDeserializerForId` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::map` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapLog` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapSimple` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapSlab` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateToObjectDeserializer::mapStairs` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::getBlockStateData` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::mapIntToInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::mapIntToString` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::write5MinusHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeBellAttachmentType` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeBlockFace` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeBool` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeCardinalHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeCoralFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeEndRodFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeFacingDirection` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeFacingFlags` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeFacingWithoutDown` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeFacingWithoutUp` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeInt` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeLegacyHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writePillarAxis` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeSlabPosition` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeString` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeTorchFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeUnitEnum` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeWallConnectionType` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\BlockStateWriter::writeWeirdoHorizontalFacing` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::getBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::getIdComponents` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::getProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::idComponents` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\FlattenedIdModel::properties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model::create` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model::getBlock` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model::getId` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model::getProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\Model::properties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\UnsupportedBlockStateException` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolFromStringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\BoolProperty::unused` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\CommonProperties` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
 | `data\bedrock\block\convert\property\CommonProperties::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\convert\property\CommonProperties::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\convert\property\CommonProperties::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\block\convert\property\DummyProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\DummyProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\DummyProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\DummyProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\DummyProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::int` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::string` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\EnumFromRawStateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::cases` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::from` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::tryFrom` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::int` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::string` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntFromRawStateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\IntProperty::unused` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\Property` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\Property::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\Property::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\Property::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\StringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromIntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueFromStringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueMappings` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueMappings::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\block\convert\property\DummyProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\DummyProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\DummyProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\DummyProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\DummyProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::int` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::string` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\EnumFromRawStateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::cases` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::from` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\FlattenedCaveVinesVariant::tryFrom` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::int` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::string` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntFromRawStateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\IntProperty::unused` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\Property` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\Property::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\Property::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\Property::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StateMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StateMap::getRawToValueMap` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StateMap::printableValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StateMap::rawToValue` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StateMap::valueToRaw` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\StringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromIntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::deserializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::getPossibleValues` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueFromStringProperty::serializePlain` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueMappings` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueMappings::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
 | `data\bedrock\block\convert\property\ValueMappings::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\convert\property\ValueMappings::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\convert\property\ValueMappings::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\block\convert\property\ValueSetFromIntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueSetFromIntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueSetFromIntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueSetFromIntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\convert\property\ValueSetFromIntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\block\upgrade\BlockDataUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::getBlockIdMetaUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::getBlockStateUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeBlockStateNbt` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeIntIdMeta` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeStringIdMeta` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::addIdMetaToStateMapping` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::addIntIdToStringIdMapping` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::fromIntIdMeta` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::fromStringIdMeta` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::loadFromString` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchema` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::getSchemaId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::getVersionId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::isEmpty` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap::equals` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo::equals` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::describe` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::fromJsonModel` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::loadSchemaFromString` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::loadSchemas` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::tagToJsonModel` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::toJsonModel` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaValueRemap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaValueRemap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgrader::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgrader::addSchema` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\BlockStateUpgrader::upgrade` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
+| `data\bedrock\block\convert\property\ValueSetFromIntProperty` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueSetFromIntProperty::__construct` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueSetFromIntProperty::deserialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueSetFromIntProperty::getName` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\convert\property\ValueSetFromIntProperty::serialize` | skipped |  |  | Bedrock block (de)serialisation is generated from the dump |
+| `data\bedrock\block\upgrade\BlockDataUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::getBlockIdMetaUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::getBlockStateUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeBlockStateNbt` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeIntIdMeta` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockDataUpgrader::upgradeStringIdMeta` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::addIdMetaToStateMapping` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::addIntIdToStringIdMapping` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::fromIntIdMeta` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::fromStringIdMeta` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockIdMetaUpgrader::loadFromString` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchema` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::getSchemaId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::getVersionId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchema::isEmpty` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaBlockRemap::equals` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaFlattenInfo::equals` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::describe` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::fromJsonModel` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::loadSchemaFromString` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::loadSchemas` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::tagToJsonModel` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaUtils::toJsonModel` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaValueRemap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgradeSchemaValueRemap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgrader::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgrader::addSchema` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\BlockStateUpgrader::upgrade` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
 | `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\block\upgrade\LegacyBlockIdToStringIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModel` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModel::jsonSerialize` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelBlockRemap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelBlockRemap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo::jsonSerialize` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelTag` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelValueRemap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelValueRemap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\BlockItemIdMap` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\BlockItemIdMap::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModel` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModel::jsonSerialize` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelBlockRemap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelBlockRemap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelFlattenInfo::jsonSerialize` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelTag` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelValueRemap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\block\upgrade\model\BlockStateUpgradeSchemaModelValueRemap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\BlockItemIdMap` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\BlockItemIdMap::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
 | `data\bedrock\item\BlockItemIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\item\BlockItemIdMap::lookupBlockId` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\BlockItemIdMap::lookupItemId` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\item\BlockItemIdMap::lookupBlockId` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\BlockItemIdMap::lookupItemId` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
 | `data\bedrock\item\BlockItemIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\item\BlockItemIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\item\ItemDeserializer` | merged | src/item.rs:215 `from_name` | src/item.rs::lookups_round_trip_for_every_type | into `ItemDeserializer::deserializeType` |
-| `data\bedrock\item\ItemDeserializer::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemDeserializer::deserializeStack` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
+| `data\bedrock\item\ItemDeserializer::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemDeserializer::deserializeStack` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
 | `data\bedrock\item\ItemDeserializer::deserializeType` | implemented | src/item.rs:215 `from_name` | src/item.rs::lookups_round_trip_for_every_type |  |
-| `data\bedrock\item\ItemDeserializer::getDeserializerForId` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemDeserializer::map` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemDeserializer::mapBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer::map` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer::mapBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer::serializeStack` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializer::serializeType` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1ToNItem` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1Block` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1BlockWithMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1Item` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1ItemWithMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemTypeDeserializeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemTypeNames` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\ItemTypeSerializeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::getBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::getMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::getName` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::getTag` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemData::toNbt` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getCanDestroy` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getCanPlaceOn` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getCount` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getSlot` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getTypeData` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::getWasPickedUp` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\SavedItemStackData::toNbt` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\UnsupportedItemTypeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the PMMP dump |
-| `data\bedrock\item\upgrade\ItemDataUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemDataUpgrader::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemDataUpgrader::getIdMetaUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemStackNbt` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemTypeDataInt` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemTypeDataString` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getRemappedMetas` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getRenamedIds` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getSchemaId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::remapMeta` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::renameId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils::loadSchemaFromString` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils::loadSchemas` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgrader` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::addSchema` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::getSchemas` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::upgrade` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
+| `data\bedrock\item\ItemDeserializer::getDeserializerForId` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemDeserializer::map` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemDeserializer::mapBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer::map` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer::mapBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer::serializeStack` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializer::serializeType` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1ToNItem` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1Block` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1BlockWithMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1Item` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemSerializerDeserializerRegistrar::map1to1ItemWithMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemTypeDeserializeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemTypeNames` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\ItemTypeSerializeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::getBlock` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::getMeta` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::getName` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::getTag` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemData::toNbt` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::__construct` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getCanDestroy` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getCanPlaceOn` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getCount` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getSlot` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getTypeData` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::getWasPickedUp` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\SavedItemStackData::toNbt` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\UnsupportedItemTypeException` | skipped |  |  | Bedrock item (de)serialisation is generated from the dump |
+| `data\bedrock\item\upgrade\ItemDataUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemDataUpgrader::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemDataUpgrader::getIdMetaUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemStackNbt` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemTypeDataInt` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemDataUpgrader::upgradeItemTypeDataString` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getRemappedMetas` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getRenamedIds` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::getSchemaId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::remapMeta` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchema::renameId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils::loadSchemaFromString` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgradeSchemaUtils::loadSchemas` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgrader` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::addSchema` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::getSchemas` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\ItemIdMetaUpgrader::upgrade` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
 | `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\item\upgrade\LegacyItemIdToStringIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::__construct` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
-| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::blockIdToItemId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
+| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::__construct` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
+| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::blockIdToItemId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
 | `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::itemIdToBlockId` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
+| `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::itemIdToBlockId` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
 | `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\item\upgrade\R12ItemIdToBlockIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\item\upgrade\model\ItemIdMetaUpgradeSchemaModel` | skipped |  |  | save upgrades are generated from PMMP's schemas at build time |
+| `data\bedrock\item\upgrade\model\ItemIdMetaUpgradeSchemaModel` | skipped |  |  | save upgrades are generated from the API's schemas at build time |
 | `data\java\GameModeIdMap` | skipped |  |  | Java Edition IDs: Anchor is Bedrock only |
 | `data\java\GameModeIdMap::__construct` | skipped |  |  | Java Edition IDs: Anchor is Bedrock only |
 | `data\java\GameModeIdMap::fromId` | skipped |  |  | Java Edition IDs: Anchor is Bedrock only |
@@ -4259,159 +4259,159 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\java\GameModeIdMap::reset` | skipped |  |  | Java Edition IDs: Anchor is Bedrock only |
 | `data\java\GameModeIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\java\GameModeIdMap::toId` | skipped |  |  | Java Edition IDs: Anchor is Bedrock only |
-| `data\runtime\InvalidSerializedRuntimeDataException` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::bellAttachmentType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::copperOxidation` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::coralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::dirtType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::dripleafState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::dyeColor` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::froglightType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::leverFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::medicineType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::mobHeadType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::mushroomBlockType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::potionType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::slabType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\LegacyRuntimeEnumDescriberTrait::suspiciousStewType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::axis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::bool` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::boundedInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::boundedIntAuto` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::brewingStandSlots` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::enum` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::enumSet` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::facing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::facingExcept` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::facingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::horizontalAxis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::horizontalFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::horizontalFacingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::int` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::railShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::straightOnlyRailShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataDescriber::wallConnections` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::__construct` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::axis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::bellAttachmentType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::bool` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::boundedInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::boundedIntAuto` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::brewingStandSlots` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::copperOxidation` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::coralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::dirtType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::dripleafState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::dyeColor` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::enum` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::enumSet` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::facing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::facingExcept` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::facingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::froglightType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::getOffset` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::horizontalAxis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::horizontalFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::horizontalFacingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::int` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::leverFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::medicineType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::mobHeadType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::mushroomBlockType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::potionType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::railShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::readInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::slabType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::straightOnlyRailShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::suspiciousStewType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataReader::wallConnections` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::axis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::bellAttachmentType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::bool` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::boundedInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::boundedIntAuto` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::brewingStandSlots` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::copperOxidation` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::coralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::dirtType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::dripleafState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::dyeColor` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::enum` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::enumSet` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::facing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::facingExcept` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::facingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::froglightType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::getBitsUsed` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::horizontalAxis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::horizontalFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::horizontalFacingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::int` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::leverFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::medicineType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::mobHeadType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::mushroomBlockType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::potionType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::railShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::slabType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::straightOnlyRailShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::suspiciousStewType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataSizeCalculator::wallConnections` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::__construct` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::axis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::bellAttachmentType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::bool` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::boundedInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::boundedIntAuto` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::brewingStandSlots` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::copperOxidation` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::coralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::dirtType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::dripleafState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::dyeColor` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::enum` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::enumSet` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::facing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::facingExcept` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::facingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::froglightType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::getOffset` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::getValue` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::horizontalAxis` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::horizontalFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::horizontalFacingFlags` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::int` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::leverFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::medicineType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::mobHeadType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::mushroomBlockType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::potionType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::railShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::slabType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::straightOnlyRailShape` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::suspiciousStewType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::wallConnections` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeDataWriter::writeInt` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::bellAttachmentType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::copperOxidation` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::coralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::dirtType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::dripleafState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::dyeColor` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::froglightType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::leverFacing` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::medicineType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::mobHeadType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::mushroomBlockType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::potionType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::slabType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
-| `data\runtime\RuntimeEnumDescriber::suspiciousStewType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\InvalidSerializedRuntimeDataException` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::bellAttachmentType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::copperOxidation` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::coralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::dirtType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::dripleafState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::dyeColor` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::froglightType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::leverFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::medicineType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::mobHeadType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::mushroomBlockType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::potionType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::slabType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\LegacyRuntimeEnumDescriberTrait::suspiciousStewType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::axis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::bool` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::boundedInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::boundedIntAuto` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::brewingStandSlots` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::enum` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::enumSet` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::facing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::facingExcept` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::facingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::horizontalAxis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::horizontalFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::horizontalFacingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::int` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::railShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::straightOnlyRailShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataDescriber::wallConnections` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::__construct` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::axis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::bellAttachmentType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::bool` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::boundedInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::boundedIntAuto` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::brewingStandSlots` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::copperOxidation` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::coralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::dirtType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::dripleafState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::dyeColor` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::enum` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::enumSet` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::facing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::facingExcept` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::facingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::froglightType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::getOffset` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::horizontalAxis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::horizontalFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::horizontalFacingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::int` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::leverFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::medicineType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::mobHeadType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::mushroomBlockType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::potionType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::railShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::readInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::slabType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::straightOnlyRailShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::suspiciousStewType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataReader::wallConnections` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::axis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::bellAttachmentType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::bool` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::boundedInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::boundedIntAuto` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::brewingStandSlots` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::copperOxidation` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::coralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::dirtType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::dripleafState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::dyeColor` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::enum` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::enumSet` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::facing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::facingExcept` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::facingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::froglightType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::getBitsUsed` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::horizontalAxis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::horizontalFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::horizontalFacingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::int` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::leverFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::medicineType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::mobHeadType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::mushroomBlockType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::potionType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::railShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::slabType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::straightOnlyRailShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::suspiciousStewType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataSizeCalculator::wallConnections` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::__construct` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::axis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::bellAttachmentType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::bool` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::boundedInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::boundedIntAuto` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::brewingStandSlots` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::copperOxidation` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::coralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::dirtType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::dripleafState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::dyeColor` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::enum` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::enumSet` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::facing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::facingExcept` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::facingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::froglightType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::getOffset` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::getValue` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::horizontalAxis` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::horizontalFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::horizontalFacingFlags` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::int` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::leverFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::medicineType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::mobHeadType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::mushroomBlockType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::potionType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::railShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::slabType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::straightOnlyRailShape` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::suspiciousStewType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::wallConnections` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeDataWriter::writeInt` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::bellAttachmentType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::copperOxidation` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::coralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::dirtType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::dripleafState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::dyeColor` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::froglightType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::leverFacing` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::medicineType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::mobHeadType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::mushroomBlockType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::potionType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::slabType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
+| `data\runtime\RuntimeEnumDescriber::suspiciousStewType` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 
 ## `entity`
 
@@ -4457,7 +4457,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::addMotion` | differs | src/tick/entity/api.rs:90 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index | `Mut::set_motion` replaces the motion; it does not add to it |
-| `entity\Entity::attack` | implemented | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
+| `entity\Entity::attack` | implemented | src/action/survival.rs:45 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `entity\Entity::broadcastAnimation` | implemented | src/tick/entity/api.rs:2036 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\Entity::broadcastSound` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:1169 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
@@ -4477,7 +4477,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:1071 `direction`<br>src/tick/survival/api.rs:486 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
 | `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:1071 `direction`<br>src/tick/survival/api.rs:486 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:1051 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
-| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1065 `eye_position`<br>src/tick/player.rs:260 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1065 `eye_position`<br>src/tick/player.rs:258 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:1114 `fall_distance`<br>src/tick/survival/api.rs:456 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:1096 `fire_ticks`<br>src/tick/survival/api.rs:430 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1423 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
@@ -4485,7 +4485,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:492 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `entity\Entity::getId` | implemented | src/tick/entity/api.rs:1000 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:547 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
-| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1026 `position`<br>src/tick/player.rs:254 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1026 `position`<br>src/tick/player.rs:252 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:1083 `max_health`<br>src/tick/survival/api.rs:306 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:1044 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:1126 `name_tag`<br>src/tick/survival/api.rs:637 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4495,7 +4495,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1308 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1309 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1262 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1025 `position`<br>src/tick/player.rs:253 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
+| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1025 `position`<br>src/tick/player.rs:251 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
 | `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:1144 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:647 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::getSize` | merged | src/tick/entity.rs:489 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
@@ -4503,7 +4503,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1182 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1018 `world`<br>src/tick/player.rs:244 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1018 `world`<br>src/tick/player.rs:242 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:1156 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:669 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4538,7 +4538,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::setFallDistance` | implemented | src/tick/survival/api.rs:1097 `set_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::setFireTicks` | implemented | src/tick/entity/api.rs:258 `set_fire_ticks`<br>src/tick/survival/api.rs:1024 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::setForceMovementUpdate` | skipped |  |  | entity rule code |
-| `entity\Entity::setGravity` | skipped |  |  | an entity kind's physics are PMMP's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off |
+| `entity\Entity::setGravity` | skipped |  |  | an entity kind's physics are the API's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off |
 | `entity\Entity::setHasGravity` | implemented | src/tick/entity/api.rs:225 `set_has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setHealth` | implemented | src/tick/entity/api.rs:274 `set_health`<br>src/tick/survival/api.rs:703 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/entity/saved.rs::an_npc_saved_without_health_loads_dying<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:218 `set_invisible`<br>src/tick/survival/api.rs:1333 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4555,11 +4555,11 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Entity::setScale` | implemented | src/tick/entity/api.rs:202 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1321 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1340 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are PMMP's constants per kind: `Entity::step_height` reads them |
+| `entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are the API's constants per kind: `Entity::step_height` reads them |
 | `entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::spawnToAll` | implemented | src/tick/entity/custom.rs:310 `spawn_custom_entity` | src/tick/entity/custom/tests.rs::custom_entities_are_shown_with_their_identifier_health_and_box_and_removed |  |
-| `entity\Entity::teleport` | implemented | src/action/survival.rs:171 `Teleport`<br>src/tick/entity/api.rs:140 `teleport`<br>src/tick/player.rs:423 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::teleport` | implemented | src/action/survival.rs:170 `Teleport`<br>src/tick/entity/api.rs:140 `teleport`<br>src/tick/player.rs:421 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\EntityDataHelper` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseLocation` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseVec3` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4579,7 +4579,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:489 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:202 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
 | `entity\ExperienceManager` | merged | src/tick/survival/api.rs:356 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
-| `entity\ExperienceManager::__construct` | skipped |  |  | every player has its experience |
+| `entity\ExperienceManager::__construct` | skipped |  |  | every player has its xp |
 | `entity\ExperienceManager::addXp` | implemented | src/tick/survival/api.rs:920 `add_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::addXpLevels` | implemented | src/tick/survival/api.rs:885 `add_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::canAttractXpOrbs` | implemented | src/tick/survival/api.rs:393 `can_attract_xp_orbs` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
@@ -4589,8 +4589,8 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\ExperienceManager::getRemainderXp` | implemented | src/tick/survival/api.rs:380 `remainder_xp` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
 | `entity\ExperienceManager::getXpLevel` | implemented | src/tick/survival/api.rs:356 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::getXpProgress` | implemented | src/tick/survival/api.rs:362 `xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::onPickupXp` | skipped |  |  | experience rule code: listeners see PlayerExperienceChange |
-| `entity\ExperienceManager::resetXpCooldown` | skipped |  |  | experience rule code |
+| `entity\ExperienceManager::onPickupXp` | skipped |  |  | xp rule code: listeners see PlayerXpChange |
+| `entity\ExperienceManager::resetXpCooldown` | skipped |  |  | xp rule code |
 | `entity\ExperienceManager::setCanAttractXpOrbs` | implemented | src/tick/survival/api.rs:969 `set_can_attract_xp_orbs` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
 | `entity\ExperienceManager::setCurrentTotalXp` | implemented | src/tick/survival/api.rs:944 `set_current_total_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::setLifetimeTotalXp` | implemented | src/tick/survival/api.rs:957 `set_lifetime_total_xp` | src/tick/survival/api.rs::xp_remainder_lifetime_and_orb_settings |  |
@@ -4599,7 +4599,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\ExperienceManager::setXpProgress` | implemented | src/tick/survival/api.rs:905 `set_xp_progress` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::subtractXp` | implemented | src/tick/survival/api.rs:930 `subtract_xp` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
 | `entity\ExperienceManager::subtractXpLevels` | implemented | src/tick/survival/api.rs:892 `subtract_xp_levels` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds |  |
-| `entity\ExperienceManager::tick` | skipped |  |  | experience rule code |
+| `entity\ExperienceManager::tick` | skipped |  |  | xp rule code |
 | `entity\Explosive` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:205 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\Explosive::explode` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:205 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\FoodSource` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
@@ -4609,7 +4609,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Human` | implemented | src/entity.rs:89 `Human` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1866 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
-| `entity\Human::canEat` | skipped |  |  | hunger rule code |
+| `entity\Human::canEat` | skipped |  |  | food rule code |
 | `entity\Human::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `entity\Human::emote` | implemented | src/tick/survival/api.rs:1217 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
@@ -4617,14 +4617,14 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:39 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:325 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:35 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `entity\Human::getName` | merged | src/tick/player.rs:54 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `entity\Human::getName` | merged | src/tick/player.rs:53 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:1011 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\Human::getOffHandInventory` | implemented | src/tick/inventory/api.rs:37 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Human::getSkin` | implemented | src/tick/player.rs:88 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `entity\Human::getSkin` | implemented | src/tick/player.rs:87 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `entity\Human::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Human::getUniqueId` | merged | src/tick/player.rs:82 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
-| `entity\Human::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
+| `entity\Human::getUniqueId` | merged | src/tick/player.rs:81 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
+| `entity\Human::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\Human::getXpManager` | merged | src/tick/survival/api.rs:356 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\Human::jump` | skipped |  |  | movement rule code: listeners see PlayerJump |
 | `entity\Human::parseSkinNBT` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4635,13 +4635,13 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1231 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\HungerManager` | merged | src/tick/survival/api.rs:325 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
-| `entity\HungerManager::__construct` | skipped |  |  | every player has its hunger |
+| `entity\HungerManager::__construct` | skipped |  |  | every player has its food |
 | `entity\HungerManager::addFood` | implemented | src/tick/survival/api.rs:802 `add_food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::addSaturation` | implemented | src/tick/survival/api.rs:833 `add_saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::exhaust` | implemented | src/tick/survival/api.rs:858 `exhaust` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::getExhaustion` | implemented | src/tick/survival/api.rs:350 `exhaustion` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::getFood` | implemented | src/tick/survival/api.rs:325 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
-| `entity\HungerManager::getFoodTickTimer` | skipped |  |  | hunger rule code |
+| `entity\HungerManager::getFoodTickTimer` | skipped |  |  | food rule code |
 | `entity\HungerManager::getMaxFood` | merged | src/tick/survival/api.rs:325 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\HungerManager::getSaturation` | implemented | src/tick/survival/api.rs:344 `saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::isEnabled` | implemented | src/tick/survival/api.rs:331 `food_enabled` | src/tick/survival/api.rs::food_turned_off_for_one_player_spends_nothing |  |
@@ -4649,13 +4649,13 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\HungerManager::setEnabled` | implemented | src/tick/survival/api.rs:814 `set_food_enabled` | src/tick/survival/api.rs::food_turned_off_for_one_player_spends_nothing |  |
 | `entity\HungerManager::setExhaustion` | implemented | src/tick/survival/api.rs:845 `set_exhaustion` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::setFood` | implemented | src/tick/survival/api.rs:790 `set_food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
-| `entity\HungerManager::setFoodTickTimer` | skipped |  |  | hunger rule code |
+| `entity\HungerManager::setFoodTickTimer` | skipped |  |  | food rule code |
 | `entity\HungerManager::setSaturation` | implemented | src/tick/survival/api.rs:821 `set_saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
-| `entity\HungerManager::tick` | skipped |  |  | hunger rule code |
+| `entity\HungerManager::tick` | skipped |  |  | food rule code |
 | `entity\InvalidSkinException` | merged | src/entity/skin.rs:58 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names | into `Skin::__construct` |
 | `entity\Living` | merged | src/tick/survival/api.rs:399 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `Living::getEffects` |
 | `entity\Living::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
-| `entity\Living::attack` | implemented | src/action/survival.rs:47 `Damage`<br>src/tick/entity/api.rs:305 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
+| `entity\Living::attack` | implemented | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:305 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `entity\Living::canBeRenamed` | skipped |  |  | name tag item rule code |
 | `entity\Living::canBreathe` | skipped |  |  | breathing rule code |
 | `entity\Living::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
@@ -4664,7 +4664,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Living::getAirSupplyTicks` | implemented | src/tick/survival/api.rs:437 `air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Living::getArmorInventory` | implemented | src/tick/inventory/api.rs:36 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Living::getArmorPoints` | implemented | src/tick/survival/api.rs:540 `armor_points` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
-| `entity\Living::getDisplayName` | merged | src/tick/player.rs:61 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `entity\Living::getDisplayName` | merged | src/tick/player.rs:60 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `entity\Living::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `entity\Living::getEffects` | implemented | src/tick/survival/api.rs:399 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\Living::getFrostWalkerLevel` | blank |  |  |  |
@@ -4674,10 +4674,10 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:444 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:1084 `max_health`<br>src/tick/survival/api.rs:307 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:533 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::getName` | merged | src/tick/player.rs:54 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `entity\Living::getName` | merged | src/tick/player.rs:53 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
 | `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1420 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
+| `entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:450 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Living::isGliding` | implemented | src/tick/survival/api.rs:577 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Living::isSneaking` | implemented | src/tick/survival/api.rs:514 `is_sneaking` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
@@ -4716,13 +4716,13 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Skin::getGeometryName` | implemented | src/entity/skin.rs:119 `geometry_name` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::getSkinData` | implemented | src/entity/skin.rs:107 `data` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::getSkinId` | implemented | src/entity/skin.rs:125 `id` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Squid` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::attack` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::getDrops` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::getName` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::getNetworkTypeId` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::getPickedItem` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\Squid::initEntity` | skipped |  |  | mob AI: PMMP's squid swims on its own |
+| `entity\Squid` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::attack` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::getDrops` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::getName` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::getNetworkTypeId` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::getPickedItem` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\Squid::initEntity` | skipped |  |  | mob AI: the API's squid swims on its own |
 | `entity\Villager` | implemented | src/entity.rs:86 `Villager` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Villager::getName` | implemented | src/tick/entity/api.rs:1397 `name` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Villager::getNetworkTypeId` | merged | src/tick/entity/api.rs:1011 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
@@ -4731,16 +4731,16 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Villager::isBaby` | implemented | src/tick/entity/api.rs:1415 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
 | `entity\Villager::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\Villager::setProfession` | implemented | src/tick/entity/api.rs:611 `set_profession` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\WaterAnimal` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
-| `entity\WaterAnimal::canBreathe` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
-| `entity\WaterAnimal::isBaby` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
-| `entity\WaterAnimal::onAirExpired` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
+| `entity\WaterAnimal` | skipped |  |  | mob AI: the API's water animals are its swimming squid |
+| `entity\WaterAnimal::canBreathe` | skipped |  |  | mob AI: the API's water animals are its swimming squid |
+| `entity\WaterAnimal::isBaby` | skipped |  |  | mob AI: the API's water animals are its swimming squid |
+| `entity\WaterAnimal::onAirExpired` | skipped |  |  | mob AI: the API's water animals are its swimming squid |
 | `entity\Zombie` | implemented | src/entity.rs:92 `Zombie` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
 | `entity\Zombie::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `entity\Zombie::getName` | implemented | src/tick/entity/api.rs:1398 `name` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
 | `entity\Zombie::getNetworkTypeId` | implemented | src/tick/entity/api.rs:1012 `network_type` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
 | `entity\Zombie::getPickedItem` | implemented | src/tick/entity/api.rs:1268 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\Zombie::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
+| `entity\Zombie::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\animation\Animation` | implemented | src/entity/animation.rs:12 `Animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\Animation::encode` | merged | src/tick/entity/api.rs:2036 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ArmSwingAnimation` | implemented | src/entity/animation.rs:17 `ArmSwing` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
@@ -4773,16 +4773,16 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\animation\RespawnAnimation` | implemented | src/entity/animation.rs:65 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\RespawnAnimation::__construct` | implemented | src/entity/animation.rs:66 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\RespawnAnimation::encode` | merged | src/tick/entity/api.rs:2036 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
-| `entity\animation\SquidInkCloudAnimation` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\animation\SquidInkCloudAnimation::__construct` | skipped |  |  | mob AI: PMMP's squid swims on its own |
-| `entity\animation\SquidInkCloudAnimation::encode` | skipped |  |  | mob AI: PMMP's squid swims on its own |
+| `entity\animation\SquidInkCloudAnimation` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\animation\SquidInkCloudAnimation::__construct` | skipped |  |  | mob AI: the API's squid swims on its own |
+| `entity\animation\SquidInkCloudAnimation::encode` | skipped |  |  | mob AI: the API's squid swims on its own |
 | `entity\animation\TotemUseAnimation` | implemented | src/entity/animation.rs:69 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\TotemUseAnimation::__construct` | implemented | src/entity/animation.rs:70 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `entity\animation\TotemUseAnimation::encode` | merged | src/tick/entity/api.rs:2036 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values | into `Entity::broadcastAnimation` |
-| `entity\effect\AbsorptionEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\AbsorptionEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\AbsorptionEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\AbsorptionEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\Effect` | implemented | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
+| `entity\effect\Effect` | implemented | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `entity\effect\Effect::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\effect\Effect::__construct` | skipped |  |  | effect kinds are a generated table; no custom effects (the client cannot show them) |
 | `entity\effect\Effect::__serialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -4791,120 +4791,120 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\effect\Effect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\Effect::canTick` | skipped |  |  | effect rule code |
 | `entity\effect\Effect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\Effect::getColor` | implemented | src/effect.rs:301 `colour` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\Effect::getDefaultDuration` | implemented | src/effect.rs:318 `default_duration_ticks` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\Effect::getName` | implemented | src/effect.rs:295 `text` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\Effect::hasBubbles` | implemented | src/effect.rs:324 `has_bubbles` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\Effect::isBad` | implemented | src/effect.rs:307 `is_bad` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
+| `entity\effect\Effect::getColor` | implemented | src/effect.rs:295 `colour` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::getDefaultDuration` | implemented | src/effect.rs:312 `default_duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::getName` | implemented | src/effect.rs:289 `text` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::hasBubbles` | implemented | src/effect.rs:318 `has_bubbles` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\Effect::isBad` | implemented | src/effect.rs:301 `is_bad` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `entity\effect\Effect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
 | `entity\effect\EffectCollection` | merged | src/tick/survival/api.rs:994 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `EffectCollection::add` |
 | `entity\effect\EffectCollection::__construct` | skipped |  |  | every player and living entity has its effects |
 | `entity\effect\EffectCollection::add` | implemented | src/tick/survival/api.rs:994 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::all` | implemented | src/tick/survival/api.rs:400 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::canAdd` | implemented | src/effect.rs:199 `can_replace` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
+| `entity\effect\EffectCollection::canAdd` | implemented | src/effect.rs:194 `can_replace` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::clear` | implemented | src/tick/survival/api.rs:1011 `clear_effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::get` | implemented | src/tick/survival/api.rs:409 `effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::getBubbleColor` | implemented | src/effect.rs:399 `bubble_colour` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
+| `entity\effect\EffectCollection::getBubbleColor` | implemented | src/effect.rs:393 `bubble_colour` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::getEffectAddHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove |
 | `entity\effect\EffectCollection::getEffectRemoveHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove |
 | `entity\effect\EffectCollection::has` | implemented | src/tick/survival/api.rs:418 `has_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\effect\EffectCollection::hasOnlyAmbientEffects` | implemented | src/effect.rs:406 `only_ambient` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
+| `entity\effect\EffectCollection::hasOnlyAmbientEffects` | implemented | src/effect.rs:399 `only_ambient` | src/effect.rs::collections_replace_and_colour_by_the_rules |  |
 | `entity\effect\EffectCollection::remove` | implemented | src/tick/survival/api.rs:1003 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectCollection::setEffectFilterForBubbles` | skipped |  |  | bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks |
-| `entity\effect\EffectInstance` | implemented | src/effect.rs:40 `Instance` | src/effect.rs::effect_and_potion_data_are_pmmp_values |  |
-| `entity\effect\EffectInstance::__construct` | implemented | src/effect.rs:332 `instance` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::decreaseDuration` | merged | src/effect.rs:102 `with_duration_ticks` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy | into `EffectInstance::setDuration` |
-| `entity\effect\EffectInstance::getAmplifier` | implemented | src/effect.rs:154 `amplifier` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\EffectInstance::getColor` | implemented | src/effect.rs:190 `colour` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::getDuration` | implemented | src/effect.rs:148 `duration_ticks` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\EffectInstance::getEffectLevel` | implemented | src/effect.rs:178 `level` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::getType` | implemented | src/effect.rs:142 `effect` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\EffectInstance::hasExpired` | implemented | src/effect.rs:184 `is_expired` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::isAmbient` | implemented | src/effect.rs:166 `is_ambient` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:172 `is_infinite` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
-| `entity\effect\EffectInstance::isVisible` | implemented | src/effect.rs:160 `is_visible` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
+| `entity\effect\EffectInstance` | implemented | src/effect.rs:38 `Instance` | src/effect.rs::effect_and_potion_data_are_the_dump_values |  |
+| `entity\effect\EffectInstance::__construct` | implemented | src/effect.rs:326 `instance` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::decreaseDuration` | merged | src/effect.rs:99 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy | into `EffectInstance::setDuration` |
+| `entity\effect\EffectInstance::getAmplifier` | implemented | src/effect.rs:150 `amplifier` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::getColor` | implemented | src/effect.rs:186 `colour` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::getDuration` | implemented | src/effect.rs:144 `duration_ticks` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::getEffectLevel` | implemented | src/effect.rs:174 `level` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::getType` | implemented | src/effect.rs:138 `effect` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::hasExpired` | implemented | src/effect.rs:180 `is_expired` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::isAmbient` | implemented | src/effect.rs:162 `is_ambient` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:168 `is_infinite` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::isVisible` | implemented | src/effect.rs:156 `is_visible` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `entity\effect\EffectInstance::resetColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved |
-| `entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:128 `with_ambient` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
-| `entity\effect\EffectInstance::setAmplifier` | implemented | src/effect.rs:114 `with_amplifier` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:125 `with_ambient` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::setAmplifier` | implemented | src/effect.rs:111 `with_amplifier` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
 | `entity\effect\EffectInstance::setColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved |
-| `entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:102 `with_duration_ticks` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:121 `with_visible` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:99 `with_duration_ticks` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy |  |
+| `entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:118 `with_visible` | src/effect.rs::instances_start_with_the_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
 | `entity\effect\EffectManager` | merged | src/tick/survival/api.rs:993 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `EffectManager::add` |
 | `entity\effect\EffectManager::__construct` | skipped |  |  | every player and living entity has its effects |
 | `entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:993 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectManager::remove` | implemented | src/tick/survival/api.rs:1002 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\effect\EffectManager::tick` | skipped |  |  | effect rule code |
-| `entity\effect\HealthBoostEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\HealthBoostEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\HealthBoostEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\HealthBoostEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\HungerEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\HungerEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\HungerEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\HungerEffect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\InstantDamageEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\InstantDamageEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\InstantDamageEffect::applyEffect` | skipped |  |  | effect rule code |
-| `entity\effect\InstantEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\InstantEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\InstantEffect::__construct` | skipped |  |  | effect kinds are a generated table; no custom effects (the client cannot show them) |
 | `entity\effect\InstantEffect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\InstantHealthEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\InstantHealthEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\InstantHealthEffect::applyEffect` | skipped |  |  | effect rule code |
-| `entity\effect\InvisibilityEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\InvisibilityEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\InvisibilityEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\InvisibilityEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\LevitationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\LevitationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\LevitationEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\LevitationEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\LevitationEffect::getApplyInterval` | skipped |  |  | effect rule code |
 | `entity\effect\LevitationEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\PoisonEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\PoisonEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\PoisonEffect::__construct` | skipped |  |  | effect kinds are a generated table; no custom effects (the client cannot show them) |
 | `entity\effect\PoisonEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\PoisonEffect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\RegenerationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\RegenerationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\RegenerationEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\RegenerationEffect::getApplyInterval` | skipped |  |  | effect rule code |
-| `entity\effect\SaturationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\SaturationEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\SaturationEffect::applyEffect` | skipped |  |  | effect rule code |
-| `entity\effect\SlownessEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\SlownessEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\SlownessEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\SlownessEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\SpeedEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\SpeedEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\SpeedEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\SpeedEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
-| `entity\effect\StringToEffectParser` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks effects up by typed name |
+| `entity\effect\StringToEffectParser` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks effects up by typed name |
 | `entity\effect\StringToEffectParser::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `entity\effect\StringToEffectParser::parse` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks effects up by typed name |
-| `entity\effect\StringToEffectParser::reset` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks effects up by typed name |
+| `entity\effect\StringToEffectParser::parse` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks effects up by typed name |
+| `entity\effect\StringToEffectParser::reset` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks effects up by typed name |
 | `entity\effect\StringToEffectParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `entity\effect\VanillaEffects` | implemented | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `entity\effect\VanillaEffects::ABSORPTION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::BLINDNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::CONDUIT_POWER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::DARKNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::FATAL_POISON` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::FIRE_RESISTANCE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::HASTE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::HEALTH_BOOST` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::HUNGER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::INSTANT_DAMAGE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::INSTANT_HEALTH` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::INVISIBILITY` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::JUMP_BOOST` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::LEVITATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::MINING_FATIGUE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::NAUSEA` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::NIGHT_VISION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::POISON` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::REGENERATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::RESISTANCE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::SATURATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::SLOWNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::SPEED` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::STRENGTH` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::WATER_BREATHING` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::WEAKNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::WITHER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\VanillaEffects::getAll` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `VanillaEffects` |
-| `entity\effect\WitherEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
+| `entity\effect\VanillaEffects` | implemented | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `entity\effect\VanillaEffects::ABSORPTION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::BLINDNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::CONDUIT_POWER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::DARKNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::FATAL_POISON` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::FIRE_RESISTANCE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::HASTE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::HEALTH_BOOST` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::HUNGER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::INSTANT_DAMAGE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::INSTANT_HEALTH` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::INVISIBILITY` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::JUMP_BOOST` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::LEVITATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::MINING_FATIGUE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::NAUSEA` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::NIGHT_VISION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::POISON` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::REGENERATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::RESISTANCE` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::SATURATION` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::SLOWNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::SPEED` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::STRENGTH` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::WATER_BREATHING` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::WEAKNESS` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::WITHER` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\VanillaEffects::getAll` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `VanillaEffects` |
+| `entity\effect\WitherEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values | into `Effect` |
 | `entity\effect\WitherEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\WitherEffect::getApplyInterval` | skipped |  |  | effect rule code |
 | `entity\object\AreaEffectCloud` | implemented | src/entity.rs:83 `AreaEffectCloud` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
@@ -4930,7 +4930,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\object\AreaEffectCloud::setRadiusChangePerTick` | implemented | src/tick/entity/api.rs:900 `set_cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
 | `entity\object\AreaEffectCloud::setReapplicationDelay` | implemented | src/tick/entity/api.rs:859 `set_cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_their_defaults_and_take_bounded_values |  |
 | `entity\object\EndCrystal` | implemented | src/entity.rs:100 `EndCrystal` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\EndCrystal::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
+| `entity\object\EndCrystal::attack` | merged | src/action/survival.rs:45 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\EndCrystal::explode` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:205 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\object\EndCrystal::getBeamTarget` | implemented | src/tick/entity/api.rs:1470 `beam_target` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\EndCrystal::getNetworkTypeId` | merged | src/tick/entity/api.rs:1011 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
@@ -4956,7 +4956,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\object\ExperienceOrb::splitIntoOrbSizes` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock` | implemented | src/entity.rs:59 `FallingBlock` | src/tick/entity.rs::falling_blocks_land_as_blocks_or_drop_their_item<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\object\FallingBlock::__construct` | implemented | src/tick/entity/api.rs:1768 `spawn_falling_block` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `entity\object\FallingBlock::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
+| `entity\object\FallingBlock::attack` | merged | src/action/survival.rs:45 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\FallingBlock::canBeMovedByCurrents` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock::canCollideWith` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock::getBlock` | implemented | src/tick/entity/api.rs:1274 `falling_block` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
@@ -5019,7 +5019,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\object\PaintingMotive::init` | skipped |  |  | PHP lazy setup of the motive table: `PaintingMotive` is an enum |
 | `entity\object\PaintingMotive::registerMotive` | skipped |  |  | the motives are the closed set Bedrock clients draw (`PaintingMotive`): a new name needs client resources |
 | `entity\object\PrimedTNT` | implemented | src/entity.rs:62 `PrimedTnt` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\PrimedTNT::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
+| `entity\object\PrimedTNT::attack` | merged | src/action/survival.rs:45 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\PrimedTNT::canCollideWith` | skipped |  |  | entity rule code |
 | `entity\object\PrimedTNT::explode` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:205 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\object\PrimedTNT::getFuse` | implemented | src/tick/entity/api.rs:1283 `fuse_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
@@ -5055,7 +5055,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\projectile\IceBomb::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\Projectile` | merged | src/tick/entity/api.rs:1804 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
 | `entity\projectile\Projectile::__construct` | implemented | src/tick/entity/api.rs:1804 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `entity\projectile\Projectile::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
+| `entity\projectile\Projectile::attack` | merged | src/action/survival.rs:45 `Damage`<br>src/tick/entity/api.rs:304 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\projectile\Projectile::canBeCollidedWith` | merged | src/tick/entity/api.rs:1169 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\projectile\Projectile::canCollideWith` | skipped |  |  | entity rule code |
 | `entity\projectile\Projectile::getBaseDamage` | implemented | src/tick/entity/api.rs:1298 `base_damage` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
@@ -5086,10 +5086,10 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\projectile\Trident::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\projectile\Trident::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\projectile\Trident::setItem` | implemented | src/tick/entity/api.rs:806 `set_item` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
-| `entity\utils\ExperienceUtils` | implemented | src/player.rs:376 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `entity\utils\ExperienceUtils::getLevelFromXp` | implemented | src/player.rs:334 `level_from_xp` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `entity\utils\ExperienceUtils::getXpToCompleteLevel` | implemented | src/player.rs:362 `xp_to_complete_level` | src/player.rs::level_thresholds_follow_pmmp |  |
-| `entity\utils\ExperienceUtils::getXpToReachLevel` | implemented | src/player.rs:377 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
+| `entity\utils\ExperienceUtils` | implemented | src/player.rs:372 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_the_formula |  |
+| `entity\utils\ExperienceUtils::getLevelFromXp` | implemented | src/player.rs:332 `level_from_xp` | src/player.rs::level_thresholds_follow_the_formula |  |
+| `entity\utils\ExperienceUtils::getXpToCompleteLevel` | implemented | src/player.rs:359 `xp_to_complete_level` | src/player.rs::level_thresholds_follow_the_formula |  |
+| `entity\utils\ExperienceUtils::getXpToReachLevel` | implemented | src/player.rs:373 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_the_formula |  |
 
 ## `event`
 
@@ -5115,8 +5115,8 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\HandlerList::getListenerList` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerList::getListenersByPriority` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerList::getParent` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `event\HandlerList::register` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
-| `event\HandlerList::registerAll` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\HandlerList::register` | merged | src/server.rs:531 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\HandlerList::registerAll` | merged | src/server.rs:531 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `event\HandlerList::unregister` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::getAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
@@ -5124,7 +5124,7 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\HandlerListManager::getListFor` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::global` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::unregisterAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `event\Listener` | merged | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\Listener` | merged | src/server.rs:531 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `event\ListenerMethodTags` | skipped |  |  | PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on` |
 | `event\RegisteredListener` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\RegisteredListener::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5144,7 +5144,7 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\BlockBreakEvent::isCancelled` | implemented | src/event/block.rs:64 `Raised` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setDrops` | implemented | src/event/block.rs:55 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setDropsVariadic` | implemented | src/event/block.rs:56 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::setInstaBreak` | skipped |  |  | a break before its time is refused before the event (PMMP never reads the value back either) |
+| `event\block\BlockBreakEvent::setInstaBreak` | skipped |  |  | a break before its time is refused before the event (nothing reads the value back either) |
 | `event\block\BlockBreakEvent::setXpDropAmount` | blank |  |  |  |
 | `event\block\BlockBreakEvent::uncancel` | implemented | src/event/block.rs:63 `Raised` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBurnEvent` | blank |  |  |  |
@@ -5175,16 +5175,16 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\BlockGrowEvent` | blank |  |  |  |
 | `event\block\BlockGrowEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockGrowEvent::getPlayer` | blank |  |  |  |
-| `event\block\BlockItemPickupEvent` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::__construct` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::cancel` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::getInventory` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::getItem` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::getOrigin` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::isCancelled` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::setInventory` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::setItem` | skipped |  |  | PMMP never raises it |
-| `event\block\BlockItemPickupEvent::uncancel` | skipped |  |  | PMMP never raises it |
+| `event\block\BlockItemPickupEvent` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::__construct` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::cancel` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::getInventory` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::getItem` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::getOrigin` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::isCancelled` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::setInventory` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::setItem` | skipped |  |  | the API'snever raises it |
+| `event\block\BlockItemPickupEvent::uncancel` | skipped |  |  | the API'snever raises it |
 | `event\block\BlockMeltEvent` | blank |  |  |  |
 | `event\block\BlockPlaceEvent` | implemented | src/event/block.rs:69 `BlockPlace` | src/event/block.rs::block_place_lists_every_block_it_sets<br>src/tick/interact/tests/events.rs::a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door<br>src/tick/interact/tests/events.rs::a_cancelled_placement_changes_nothing_and_resyncs<br>src/tick/interact/tests/events.rs::a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places<br>src/tick/interact/tests/events.rs::a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items<br>src/tick/interact/tests/events.rs::a_place_listener_that_ends_creative_mode_has_the_block_paid_for<br>src/tick/interact/tests/events.rs::a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement |  |
 | `event\block\BlockPlaceEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5764,7 +5764,7 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:943 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
 | `event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:954 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
 | `event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:953 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:958 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_bds_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
+| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:958 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_the_official_server_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
 | `event\player\PlayerJoinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:971 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:977 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
@@ -5822,20 +5822,20 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1119 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `event\player\PlayerPreLoginEvent::setAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
 | `event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1153 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit |  |
-| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1345 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_bds_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1345 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_the_translated_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `event\player\PlayerQuitEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1359 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1362 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
 | `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1368 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:126 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
-| `event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:124 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
+| `event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:679 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:679 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerRespawnAnchorUseEvent` | blank |  |  |  |
 | `event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerRespawnAnchorUseEvent::cancel` | blank |  |  |  |
@@ -5907,29 +5907,29 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\server\CommandEvent::isCancelled` | implemented | src/event/server.rs:49 `cfg` | src/event/server.rs::command_line_can_change |  |
 | `event\server\CommandEvent::setCommand` | implemented | src/event/server.rs:39 `set_command` | src/event/server.rs::command_line_can_change |  |
 | `event\server\CommandEvent::uncancel` | implemented | src/event/server.rs:48 `cfg` | src/event/server.rs::command_line_can_change |  |
-| `event\server\DataPacketDecodeEvent` | implemented | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets |  |
-| `event\server\DataPacketDecodeEvent::__construct` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::cancel` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::getOrigin` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::getPacketBuffer` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::getPacketId` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::isCancelled` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketDecodeEvent::uncancel` | merged | src/tick/hook.rs:122 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
-| `event\server\DataPacketReceiveEvent` | implemented | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets |  |
-| `event\server\DataPacketReceiveEvent::__construct` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketReceiveEvent::cancel` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketReceiveEvent::getOrigin` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketReceiveEvent::getPacket` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketReceiveEvent::isCancelled` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketReceiveEvent::uncancel` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
-| `event\server\DataPacketSendEvent` | implemented | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent |  |
-| `event\server\DataPacketSendEvent::__construct` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::cancel` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::getPackets` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::getTargets` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::isCancelled` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::setPackets` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
-| `event\server\DataPacketSendEvent::uncancel` | merged | src/tick/hook.rs:146 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketDecodeEvent` | implemented | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets |  |
+| `event\server\DataPacketDecodeEvent::__construct` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::cancel` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::getOrigin` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::getPacketBuffer` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::getPacketId` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::isCancelled` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketDecodeEvent::uncancel` | merged | src/tick/hook.rs:121 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
+| `event\server\DataPacketReceiveEvent` | implemented | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets |  |
+| `event\server\DataPacketReceiveEvent::__construct` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketReceiveEvent::cancel` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketReceiveEvent::getOrigin` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketReceiveEvent::getPacket` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketReceiveEvent::isCancelled` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketReceiveEvent::uncancel` | merged | src/tick/hook.rs:120 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketReceiveEvent` |
+| `event\server\DataPacketSendEvent` | implemented | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent |  |
+| `event\server\DataPacketSendEvent::__construct` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::cancel` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::getPackets` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::getTargets` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::isCancelled` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::setPackets` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
+| `event\server\DataPacketSendEvent::uncancel` | merged | src/tick/hook.rs:145 `on_send` | src/tick/hook.rs::send_hooks_change_or_drop_what_a_player_is_sent | into `DataPacketSendEvent` |
 | `event\server\LowMemoryEvent` | skipped |  |  | PHP memory management |
 | `event\server\LowMemoryEvent::__construct` | skipped |  |  | PHP memory management |
 | `event\server\LowMemoryEvent::getMemory` | skipped |  |  | PHP memory management |
@@ -5937,21 +5937,21 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\server\LowMemoryEvent::getMemoryLimit` | skipped |  |  | PHP memory management |
 | `event\server\LowMemoryEvent::getTriggerCount` | skipped |  |  | PHP memory management |
 | `event\server\LowMemoryEvent::isGlobal` | skipped |  |  | PHP memory management |
-| `event\server\NetworkInterfaceEvent` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceEvent::__construct` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceEvent::getInterface` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceRegisterEvent` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceRegisterEvent::cancel` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceRegisterEvent::isCancelled` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceRegisterEvent::uncancel` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
-| `event\server\NetworkInterfaceUnregisterEvent` | skipped |  |  | PMMP network interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceEvent` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceEvent::__construct` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceEvent::getInterface` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceRegisterEvent` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceRegisterEvent::cancel` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceRegisterEvent::isCancelled` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceRegisterEvent::uncancel` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
+| `event\server\NetworkInterfaceUnregisterEvent` | skipped |  |  | the API'snetwork interfaces: Anchor's transports are internal |
 | `event\server\QueryRegenerateEvent` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `event\server\QueryRegenerateEvent::__construct` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `event\server\QueryRegenerateEvent::getQueryInfo` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `event\server\ServerEvent` | merged | src/event.rs:482 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run | into `Event` |
-| `event\server\UpdateNotifyEvent` | skipped |  |  | PMMP update checker |
-| `event\server\UpdateNotifyEvent::__construct` | skipped |  |  | PMMP update checker |
-| `event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | PMMP update checker |
+| `event\server\UpdateNotifyEvent` | skipped |  |  | the API'supdate checker |
+| `event\server\UpdateNotifyEvent::__construct` | skipped |  |  | the API'supdate checker |
+| `event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | the API'supdate checker |
 | `event\world\ChunkEvent` | merged | src/event/world.rs:30 `chunk` | src/event/world.rs::chunk_events_name_the_chunk | into `ChunkEvent::getChunkX` |
 | `event\world\ChunkEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\world\ChunkEvent::getChunk` | merged | src/world.rs:816 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
@@ -6013,7 +6013,7 @@ implemented 2, differs 0, merged 1, skipped 0, blank 0 (of 3 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `form\Form` | implemented | src/form.rs:69 `Form` | src/form.rs::forms_serialize_to_the_json_bds_sends_with_escaping |  |
+| `form\Form` | implemented | src/form.rs:69 `Form` | src/form.rs::forms_serialize_to_the_json_the_official_server_sends_with_escaping |  |
 | `form\Form::handleResponse` | implemented | src/tick/form.rs:125 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response |  |
 | `form\FormValidationException` | merged | src/tick/form.rs:125 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response | into `Form::handleResponse` |
 
@@ -6163,7 +6163,7 @@ implemented 83, differs 0, merged 11, skipped 109, blank 1 (of 204 rows)
 | `inventory\SlotValidatedInventory` | skipped |  |  | slot rules are the rule code's |
 | `inventory\SlotValidatedInventory::getSlotValidators` | skipped |  |  | slot rules are the rule code's |
 | `inventory\TemporaryInventory` | skipped |  |  | window rule code |
-| `inventory\json\CreativeGroupData` | skipped |  |  | PMMP's JSON data files: Anchor's creative list is generated |
+| `inventory\json\CreativeGroupData` | skipped |  |  | the API'sJSON data files: Anchor's creative list is generated |
 | `inventory\transaction\CraftingTransaction` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\CraftingTransaction::__construct` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
 | `inventory\transaction\CraftingTransaction::matchIngredients` | skipped |  |  | transactions are the rule code's: listeners see InventoryTransaction with the changed slots |
@@ -6238,7 +6238,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Apple::getFoodRestore` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\Apple::getSaturationRestore` | merged | src/item.rs:867 `saturation_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Armor` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Armor::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\Armor::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Armor::clearCustomColor` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Armor::getArmorSlot` | implemented | src/item.rs:823 `slot` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data |  |
 | `item\Armor::getCustomColor` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
@@ -6252,11 +6252,11 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Armor::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
 | `item\Armor::setCustomColor` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\ArmorMaterial` | skipped |  |  | armour materials are a generated table |
-| `item\ArmorMaterial::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\ArmorMaterial::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ArmorMaterial::getEnchantability` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\ArmorMaterial::getEquipSound` | skipped |  |  | armour materials are a generated table |
 | `item\ArmorTypeInfo` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\ArmorTypeInfo::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\ArmorTypeInfo::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ArmorTypeInfo::getArmorSlot` | merged | src/item.rs:823 `slot` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Armor::getArmorSlot` |
 | `item\ArmorTypeInfo::getDefensePoints` | merged | src/item.rs:433 `defense_points` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getDefensePoints` |
 | `item\ArmorTypeInfo::getMaterial` | skipped |  |  | armour materials are a generated table |
@@ -6295,7 +6295,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\BlazeRod` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\BlazeRod::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Boat` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Boat::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\Boat::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Boat::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Boat::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `item\Boat::getType` | merged | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getTypeId` |
@@ -6366,9 +6366,9 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Cookie::getFoodRestore` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\Cookie::getSaturationRestore` | merged | src/item.rs:867 `saturation_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CoralFan` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CoralFan::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
-| `item\CoralFan::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
-| `item\CoralFan::encodeCoralType` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
+| `item\CoralFan::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
+| `item\CoralFan::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's item types are a generated table |
+| `item\CoralFan::encodeCoralType` | skipped |  |  | the API'sruntime state bit packing: Anchor's item types are a generated table |
 | `item\CoralFan::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\CoralFan::getCoralType` | merged | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getTypeId` |
 | `item\CoralFan::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
@@ -6414,7 +6414,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\FireworkRocket::setExplosions` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocket::setFlightTimeMultiplier` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocketExplosion` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\FireworkRocketExplosion::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\FireworkRocketExplosion::fromCompoundTag` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocketExplosion::getColorMix` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocketExplosion::getColors` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
@@ -6428,7 +6428,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\FireworkRocketType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\FireworkRocketType::getExplosionSound` | skipped |  |  | entity rule code: the burst sound is played by the firework rocket entity (`entity::Type::FireworkRocket`) |
 | `item\FireworkStar` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\FireworkStar::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\FireworkStar::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\FireworkStar::getColor` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkStar::getCustomColor` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkStar::getExplosion` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
@@ -6474,7 +6474,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\GoldenCarrot::getFoodRestore` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\GoldenCarrot::getSaturationRestore` | merged | src/item.rs:867 `saturation_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\HangingSign` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\HangingSign::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\HangingSign::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\HangingSign::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\HangingSign::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\HangingSign::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6496,7 +6496,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\IceBomb::getThrowForce` | merged | src/item.rs:485 `throw_force` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `ProjectileItem::getThrowForce` |
 | `item\Item` | implemented | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `item\Item::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\Item::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Item::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `item\Item::addEnchantment` | merged | src/item/stack.rs:606 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\Item::canBePlaced` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
@@ -6531,7 +6531,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Item::getName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
 | `item\Item::getNamedTag` | implemented | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getPlacementTransaction` | skipped |  |  | item rule code: listeners see BlockPlace |
-| `item\Item::getStateId` | skipped |  |  | PMMP's runtime state bit packing: Anchor's item types are a generated table |
+| `item\Item::getStateId` | skipped |  |  | the API'sruntime state bit packing: Anchor's item types are a generated table |
 | `item\Item::getTypeId` | implemented | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data |  |
 | `item\Item::getVanillaName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
 | `item\Item::hasCustomBlockData` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
@@ -6541,7 +6541,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Item::hasNamedTag` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::isFireProof` | implemented | src/item.rs:420 `is_fire_proof` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data |  |
 | `item\Item::isNull` | implemented | src/item/stack.rs:259 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `item\Item::jsonSerialize` | skipped |  |  | PMMP's JSON item format (crafting data files): Anchor's recipe data is generated |
+| `item\Item::jsonSerialize` | skipped |  |  | the API'sJSON item format (crafting data files): Anchor's recipe data is generated |
 | `item\Item::keepOnDeath` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::legacyJsonDeserialize` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `item\Item::nbtDeserialize` | implemented | src/tick/interact/custom.rs:37 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
@@ -6566,14 +6566,14 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Item::setLore` | merged | src/item/stack.rs:602 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getLore` |
 | `item\Item::setNamedTag` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\ItemBlock` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\ItemBlock::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\ItemBlock::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ItemBlock::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\ItemBlock::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\ItemBlock::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `item\ItemBlock::isFireProof` | merged | src/item.rs:420 `is_fire_proof` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::isFireProof` |
 | `item\ItemBlock::isNull` | merged | src/item/stack.rs:259 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::isNull` |
 | `item\ItemBlockWallOrFloor` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\ItemBlockWallOrFloor::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\ItemBlockWallOrFloor::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ItemBlockWallOrFloor::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\ItemBlockWallOrFloor::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\ItemBlockWallOrFloor::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -6587,14 +6587,14 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\ItemEnchantmentHandlingTrait::hasEnchantments` | merged | src/item/stack.rs:606 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\ItemEnchantmentHandlingTrait::removeEnchantment` | merged | src/item/stack.rs:606 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\ItemEnchantmentHandlingTrait::removeEnchantments` | merged | src/item/stack.rs:606 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemIdentifier` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemIdentifier::__construct` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemIdentifier::fromBlock` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemIdentifier::getTypeId` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemTypeIds` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemTypeIds::fromBlockTypeId` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemTypeIds::newId` | skipped |  |  | item types are generated from the PMMP dump |
-| `item\ItemTypeIds::toBlockTypeId` | skipped |  |  | item types are generated from the PMMP dump |
+| `item\ItemIdentifier` | skipped |  |  | item types are generated from the dump |
+| `item\ItemIdentifier::__construct` | skipped |  |  | item types are generated from the dump |
+| `item\ItemIdentifier::fromBlock` | skipped |  |  | item types are generated from the dump |
+| `item\ItemIdentifier::getTypeId` | skipped |  |  | item types are generated from the dump |
+| `item\ItemTypeIds` | skipped |  |  | item types are generated from the dump |
+| `item\ItemTypeIds::fromBlockTypeId` | skipped |  |  | item types are generated from the dump |
+| `item\ItemTypeIds::newId` | skipped |  |  | item types are generated from the dump |
+| `item\ItemTypeIds::toBlockTypeId` | skipped |  |  | item types are generated from the dump |
 | `item\ItemUseResult` | skipped |  |  | item rule code |
 | `item\ItemUseResult::__callStatic` | skipped |  |  | item rule code |
 | `item\ItemUseResult::cases` | skipped |  |  | item rule code |
@@ -6612,7 +6612,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\LegacyStringToItemParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `item\LegacyStringToItemParserException` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `item\LiquidBucket` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\LiquidBucket::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\LiquidBucket::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\LiquidBucket::getFuelResidue` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\LiquidBucket::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\LiquidBucket::getLiquid` | merged | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getTypeId` |
@@ -6686,8 +6686,8 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\PotionType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `item\PotionType::getDisplayName` | implemented | src/effect.rs:366 `text` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `item\PotionType::getEffects` | implemented | src/effect.rs:376 `effects` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
+| `item\PotionType::getDisplayName` | implemented | src/effect.rs:360 `display_name` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
+| `item\PotionType::getEffects` | implemented | src/effect.rs:370 `effects` | src/effect.rs::effect_and_potion_data_are_the_dump_values<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `item\PotionType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\ProjectileItem` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6730,7 +6730,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\RawSalmon::getFoodRestore` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\RawSalmon::getSaturationRestore` | merged | src/item.rs:867 `saturation_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Record` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Record::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\Record::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Record::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `item\Record::getRecordType` | merged | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getTypeId` |
 | `item\Redstone` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6762,7 +6762,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\SpiderEye::getFoodRestore` | merged | src/item.rs:861 `food_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\SpiderEye::getSaturationRestore` | merged | src/item.rs:867 `saturation_restore` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\SplashPotion` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\SplashPotion::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\SplashPotion::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\SplashPotion::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
 | `item\SplashPotion::getThrowForce` | merged | src/item.rs:485 `throw_force` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `ProjectileItem::getThrowForce` |
 | `item\SplashPotion::getType` | merged | src/item.rs:364 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getTypeId` |
@@ -6778,15 +6778,15 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Stick::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\StringItem` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\StringItem::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
-| `item\StringToItemParser` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `item\StringToItemParser::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `item\StringToItemParser::lookupAliases` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::lookupBlockAliases` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::override` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::parse` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::register` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::registerBlock` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
-| `item\StringToItemParser::reset` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::lookupAliases` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::lookupBlockAliases` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::override` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::parse` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::register` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::registerBlock` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
+| `item\StringToItemParser::reset` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `item\StringToItemParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `item\SuspiciousStew` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\SuspiciousStew::getAdditionalEffects` | merged | src/item.rs:902 `effects` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
@@ -6817,7 +6817,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Sword::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `item\Sword::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
 | `item\TieredTool` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\TieredTool::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\TieredTool::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\TieredTool::getEnchantability` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\TieredTool::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\TieredTool::getMaxDurability` | merged | src/item.rs:413 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Durable::getMaxDurability` |
@@ -7191,7 +7191,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\WheatSeeds::getBlock` | merged | src/item.rs:499 `placed_block` | src/item.rs::food_and_armour_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\WritableBook` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\WritableBookBase` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\WritableBookBase::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\WritableBookBase::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\WritableBookBase::addPage` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookBase::deletePage` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookBase::getMaxStackSize` | merged | src/item.rs:406 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armour_data | into `Item::getMaxStackSize` |
@@ -7203,7 +7203,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\WritableBookBase::setPages` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookBase::swapPages` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookPage` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookPage::__construct` | skipped |  |  | item types are generated from the PMMP dump; a stack is made with `item::Stack::new` |
+| `item\WritableBookPage::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\WritableBookPage::getPhotoName` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookPage::getText` | merged | src/item/stack.rs:610 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WrittenBook` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -7230,10 +7230,10 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\enchantment\AvailableEnchantmentRegistry::setSecondaryItemTags` | skipped |  |  | enchanting is out of scope: Anchor has no enchantment availability rules |
 | `item\enchantment\AvailableEnchantmentRegistry::unregister` | skipped |  |  | enchanting is out of scope: Anchor has no enchantment availability rules |
 | `item\enchantment\AvailableEnchantmentRegistry::unregisterAll` | skipped |  |  | enchanting is out of scope: Anchor has no enchantment availability rules |
-| `item\enchantment\EnchantingHelper` | skipped |  |  | enchanting table rule code: listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant |
-| `item\enchantment\EnchantingHelper::enchantItem` | skipped |  |  | enchanting table rule code: listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant |
-| `item\enchantment\EnchantingHelper::generateOptions` | skipped |  |  | enchanting table rule code: listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant |
-| `item\enchantment\EnchantingHelper::generateSeed` | skipped |  |  | enchanting table rule code: listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant |
+| `item\enchantment\EnchantingHelper` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
+| `item\enchantment\EnchantingHelper::enchantItem` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
+| `item\enchantment\EnchantingHelper::generateOptions` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
+| `item\enchantment\EnchantingHelper::generateSeed` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\enchantment\EnchantingOption` | blank |  |  |  |
 | `item\enchantment\EnchantingOption::__construct` | skipped |  |  | enchanting options are made by the enchanting table rule |
 | `item\enchantment\EnchantingOption::getDisplayName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
@@ -7299,10 +7299,10 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\enchantment\SharpnessEnchantment` | merged | src/item/table.rs:14606 `Enchantment` | src/item.rs::enchantment_ids_round_trip | into `Enchantment` |
 | `item\enchantment\SharpnessEnchantment::getDamageBonus` | skipped |  |  | enchantment rule code |
 | `item\enchantment\SharpnessEnchantment::isApplicableTo` | skipped |  |  | enchantment rule code |
-| `item\enchantment\StringToEnchantmentParser` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names |
+| `item\enchantment\StringToEnchantmentParser` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names |
 | `item\enchantment\StringToEnchantmentParser::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `item\enchantment\StringToEnchantmentParser::parse` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names |
-| `item\enchantment\StringToEnchantmentParser::reset` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names |
+| `item\enchantment\StringToEnchantmentParser::parse` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names |
+| `item\enchantment\StringToEnchantmentParser::reset` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names |
 | `item\enchantment\StringToEnchantmentParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `item\enchantment\VanillaEnchantments` | implemented | src/item/table.rs:14607 `Enchantment` | src/item.rs::enchantment_ids_round_trip |  |
 | `item\enchantment\VanillaEnchantments::AQUA_AFFINITY` | merged | src/item/table.rs:14607 `Enchantment` | src/item.rs::enchantment_ids_round_trip | into `VanillaEnchantments` |
@@ -7346,14 +7346,14 @@ implemented 0, differs 0, merged 8, skipped 10, blank 0 (of 18 rows)
 | `lang\Language::translate` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\Language::translateString` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\LanguageNotFoundException` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `lang\Translatable` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::__construct` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::format` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameter` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameters` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getText` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::postfix` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::prefix` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::__construct` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::format` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameter` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameters` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getText` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::postfix` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::prefix` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
 
 ## `network`
 
@@ -7384,7 +7384,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\FilterNoisyPacketException` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network` | skipped |  |  | the network object: its server name, blocks and connection counts are `Context` methods (`set_motd`, `block_address`, `connection_count`); interfaces, bandwidth and raw packets are internal |
 | `network\Network::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::blockAddress` | differs | src/tick/task.rs:277 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; PMMP: a timeout of 0 or less); a new block replaces the old end (PMMP keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; at most 4,096 addresses at once |
+| `network\Network::blockAddress` | differs | src/tick/task.rs:275 `block_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound | the block starts and ends by the networking's clock when it reads it after the tick (`Duration::MAX` lasts until unblocked; the API: a timeout of 0 or less); a new block replaces the old end (the API keeps the first unless the new one is endless); it refuses new connections when the networking hands them to the sessions, and connected players stay; at most 4,096 addresses at once |
 | `network\Network::getBandwidthTracker` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::getConnectionCount` | differs | src/tick/task.rs:85 `connection_count` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | the networking reports the count to the tick every second when it changed, as a logged input |
 | `network\Network::getInterfaces` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7395,12 +7395,12 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\Network::registerInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::registerRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::sendPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::setName` | implemented | src/tick/task.rs:257 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::setName` | implemented | src/tick/task.rs:255 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::unblockAddress` | implemented | src/tick/task.rs:284 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::unblockAddress` | implemented | src/tick/task.rs:282 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::unregisterInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::unregisterRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::updateName` | implemented | src/tick/task.rs:258 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::updateName` | implemented | src/tick/task.rs:256 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\NetworkInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::setName` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::shutdown` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7493,52 +7493,52 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkBroadcastUtils::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:376 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:374 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::disconnectIncompatibleProtocol` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:376 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:374 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::getBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getCompressor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:61 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:60 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `network\mcpe\NetworkSession::getEntityEventBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getInvManager` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:101 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:100 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `network\mcpe\NetworkSession::getLogger` | skipped |  |  | Anchor logs with `tracing` |
-| `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:116 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
+| `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:115 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
 | `network\mcpe\NetworkSession::getPlayer` | skipped |  |  | the session is the player: `Context::player` |
 | `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1233 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
-| `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:108 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:107 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `network\mcpe\NetworkSession::getTypeConverter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleAckReceipt` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleDataPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleEncoded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:232 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
+| `network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:230 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
 | `network\mcpe\NetworkSession::notifyTerrainReady` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:294 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
-| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:297 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
+| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:292 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
+| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:295 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
 | `network\mcpe\NetworkSession::onClientDisconnect` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onCloseAllForms` | merged | src/tick/form.rs:156 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them | into `Player::closeAllForms` |
 | `network\mcpe\NetworkSession::onEnterWorld` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:124 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
 | `network\mcpe\NetworkSession::onItemCooldownChanged` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:293 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
+| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:291 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
 | `network\mcpe\NetworkSession::onOpenSignEditor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerAdded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerDestroyed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerRemoved` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:292 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
-| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
+| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
+| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:296 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
 | `network\mcpe\NetworkSession::onServerDeath` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onServerRespawn` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:296 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
-| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:291 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
-| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:295 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
-| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:299 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
-| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:300 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
+| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:294 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
+| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:289 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
+| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:293 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
+| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:297 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
+| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:933 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:934 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7556,7 +7556,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::syncWorldSpawnPoint` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::syncWorldTime` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:394 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
+| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:215 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
 | `network\mcpe\PacketBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketBroadcaster::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketRateLimiter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8133,13 +8133,13 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 |---|---|---|---|---|
 | `permission\BanEntry` | implemented | src/permission.rs:114 `BanEntry` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::__construct` | merged | src/tick/command.rs:961 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
-| `permission\BanEntry::fromString` | skipped |  |  | PMMP's banned-players.txt line format: bans live in redb |
+| `permission\BanEntry::fromString` | skipped |  |  | the API'sbanned-players.txt line format: bans live in redb |
 | `permission\BanEntry::getCreated` | implemented | src/permission.rs:195 `created` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getExpires` | implemented | src/permission.rs:201 `expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getName` | implemented | src/permission.rs:218 `name` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getReason` | implemented | src/permission.rs:224 `reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getSource` | implemented | src/permission.rs:230 `source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::getString` | skipped |  |  | PMMP's banned-players.txt line format: bans live in redb |
+| `permission\BanEntry::getString` | skipped |  |  | the API'sbanned-players.txt line format: bans live in redb |
 | `permission\BanEntry::hasExpired` | implemented | src/permission.rs:207 `has_expired` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::setCreated` | skipped |  |  | a ban's creation time is the engine tick `Context::ban` adds it at |
 | `permission\BanEntry::setExpires` | implemented | src/permission.rs:152 `with_expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
@@ -8152,12 +8152,12 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\BanList::getEntries` | implemented | src/tick/command.rs:708 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::getEntry` | implemented | src/tick/command.rs:697 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::isBanned` | implemented | src/tick/command.rs:685 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::isEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
+| `permission\BanList::isEnabled` | skipped |  |  | bans always apply: nothing in the API turns a ban list off either |
 | `permission\BanList::load` | skipped |  |  | bans live in redb and commit with the world |
 | `permission\BanList::remove` | implemented | src/tick/command.rs:971 `unban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::removeExpired` | skipped |  |  | ended bans never apply, and `Context::ban` drops them |
 | `permission\BanList::save` | skipped |  |  | bans live in redb and commit with the world |
-| `permission\BanList::setEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
+| `permission\BanList::setEnabled` | skipped |  |  | bans always apply: nothing in the API turns a ban list off either |
 | `permission\DefaultPermissionNames` | implemented | src/permission.rs:296 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
 | `permission\DefaultPermissions` | merged | src/permission.rs:296 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor | into `DefaultPermissionNames` |
 | `permission\DefaultPermissions::registerCorePermissions` | skipped |  |  | the default permissions are registered by `build()` |
@@ -8198,7 +8198,7 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\Permission::getChildren` | skipped |  |  | no child permissions: a command takes any of up to 16 permissions |
 | `permission\Permission::getDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
 | `permission\Permission::getName` | implemented | src/permission.rs:71 `name` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
-| `permission\Permission::getPermissibles` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\Permission::getPermissibles` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\Permission::recalculatePermissibles` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::removeChild` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::setDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
@@ -8207,7 +8207,7 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:920 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:633 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\PermissionAttachment::getPlugin` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `permission\PermissionAttachment::getSubscribers` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\PermissionAttachment::getSubscribers` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
@@ -8223,15 +8223,15 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\PermissionManager::clearPermissions` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\PermissionManager::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:600 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `permission\PermissionManager::getPermissionSubscriptions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\PermissionManager::getPermissionSubscriptions` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:606 `permissions` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `permission\PermissionManager::removePermission` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\PermissionManager::subscribeToPermission` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionManager::unsubscribeFromAllPermissions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionManager::unsubscribeFromPermission` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\PermissionManager::subscribeToPermission` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\PermissionManager::unsubscribeFromAllPermissions` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
+| `permission\PermissionManager::unsubscribeFromPermission` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionParser` | implemented | src/permission.rs:78 `Default` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
 | `permission\PermissionParser::defaultFromString` | implemented | src/permission.rs:94 `from_name` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
-| `permission\PermissionParser::loadPermissions` | skipped |  |  | PMMP's plugin.yml permissions: permissions are given in code (`Permission::new`) |
+| `permission\PermissionParser::loadPermissions` | skipped |  |  | the API'splugin.yml permissions: permissions are given in code (`Permission::new`) |
 | `permission\PermissionParserException` | merged | src/permission.rs:94 `from_name` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status | into `PermissionParser::defaultFromString` |
 
 ## `player`
@@ -8242,11 +8242,11 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 |---|---|---|---|---|
 | `player\ChunkSelector` | skipped |  |  | chunk sending is the engine's |
 | `player\ChunkSelector::selectChunks` | skipped |  |  | chunk sending is the engine's |
-| `player\DatFilePlayerDataProvider` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\DatFilePlayerDataProvider::__construct` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\DatFilePlayerDataProvider::hasData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\DatFilePlayerDataProvider::loadData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\DatFilePlayerDataProvider::saveData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
+| `player\DatFilePlayerDataProvider` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\DatFilePlayerDataProvider::__construct` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\DatFilePlayerDataProvider::hasData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\DatFilePlayerDataProvider::loadData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\DatFilePlayerDataProvider::saveData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\GameMode` | implemented | src/config.rs:1125 `GameMode` | src/config.rs::game_modes_parse_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
 | `player\GameMode::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -8258,26 +8258,26 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\GameMode::getTranslatableName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
 | `player\GameMode::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `player\IPlayer` | skipped |  |  | PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`) |
-| `player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:189 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
-| `player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:198 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `player\IPlayer::getName` | merged | src/tick/player.rs:54 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
-| `player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:206 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `player\IPlayer` | skipped |  |  | the API'sinterface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`) |
+| `player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:188 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:196 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `player\IPlayer::getName` | merged | src/tick/player.rs:53 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:204 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\OfflinePlayer` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::__construct` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getFirstPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getName` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `player\Player` | implemented | src/tick.rs:871 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player` | implemented | src/tick.rs:872 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `player\Player::attack` | implemented | src/action/survival.rs:48 `Damage`<br>src/tick/survival/api.rs:1480 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
-| `player\Player::attackBlock` | blank | src/action/interact.rs:16 `AttackBlock` |  | no `// api:` test (implemented) |
+| `player\Player::attack` | implemented | src/action/survival.rs:47 `Damage`<br>src/tick/survival/api.rs:1480 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
+| `player\Player::attackBlock` | blank | src/action/interact.rs:15 `AttackBlock` |  | no `// api:` test (implemented) |
 | `player\Player::attackEntity` | implemented | src/action/entity.rs:16 `Attack`<br>src/tick/entity.rs:4237 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
-| `player\Player::breakBlock` | implemented | src/action/interact.rs:39 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
+| `player\Player::breakBlock` | implemented | src/action/interact.rs:38 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
 | `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:2037 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `player\Player::broadcastSound` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `player\Player::canBeCollidedWith` | skipped |  |  | player rule code |
@@ -8285,7 +8285,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::canBeRenamed` | skipped |  |  | player rule code |
 | `player\Player::canBreathe` | skipped |  |  | player rule code |
 | `player\Player::canCollideWith` | skipped |  |  | player rule code |
-| `player\Player::canEat` | skipped |  |  | hunger rule code |
+| `player\Player::canEat` | skipped |  |  | food rule code |
 | `player\Player::canInteract` | implemented | src/tick/survival/api.rs:500 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `player\Player::canSee` | implemented | src/tick/entity/api.rs:1673 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
@@ -8294,7 +8294,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::closeAllForms` | implemented | src/tick/form.rs:156 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `player\Player::continueBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `player\Player::disconnect` | implemented | src/tick/player.rs:376 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::disconnect` | implemented | src/tick/player.rs:374 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
 | `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1454 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
@@ -8305,51 +8305,51 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:58 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:38 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:627 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::getDisplayName` | implemented | src/tick/player.rs:61 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getDisplayName` | implemented | src/tick/player.rs:60 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
 | `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:650 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `player\Player::getFirstPlayed` | differs | src/tick/player.rs:188 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `player\Player::getFirstPlayed` | differs | src/tick/player.rs:187 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:602 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:262 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:462 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1365 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1372 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `player\Player::getLastPlayed` | differs | src/tick/player.rs:197 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `player\Player::getLastPlayed` | differs | src/tick/player.rs:195 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
 | `player\Player::getLeaveMessage` | merged | src/event/player.rs:1359 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
-| `player\Player::getLocale` | implemented | src/tick/player.rs:124 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `player\Player::getName` | implemented | src/tick/player.rs:54 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getLocale` | implemented | src/tick/player.rs:123 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `player\Player::getName` | implemented | src/tick/player.rs:53 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
 | `player\Player::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `player\Player::getPlayerInfo` | merged | src/event/player.rs:1233 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
-| `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:224 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:222 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `player\Player::getSpawn` | implemented | src/tick/survival/api.rs:617 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::getUniqueId` | implemented | src/tick/player.rs:82 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getUniqueId` | implemented | src/tick/player.rs:81 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getUsedChunkStatus` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::getUsedChunks` | skipped |  |  | chunk sending is the engine's |
-| `player\Player::getViewDistance` | implemented | src/tick/player.rs:217 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
-| `player\Player::getXpDropAmount` | skipped |  |  | player rule code: listeners see and change the experience in PlayerDeath |
-| `player\Player::getXuid` | implemented | src/tick/player.rs:70 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getViewDistance` | implemented | src/tick/player.rs:215 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::getXpDropAmount` | skipped |  |  | player rule code: listeners see and change the xp in PlayerDeath |
+| `player\Player::getXuid` | implemented | src/tick/player.rs:69 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::handleMovement` | skipped |  |  | movement rule code: listeners see PlayerMove |
 | `player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:565 `auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:608 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:293 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1359 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::hasPermission` | implemented | src/tick/command.rs:616 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:205 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:203 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:618 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:2060 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `player\Player::interactBlock` | implemented | src/action/interact.rs:105 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
-| `player\Player::interactEntity` | implemented | src/action/interact.rs:60 `InteractEntity`<br>src/tick/entity.rs:4245 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::interactBlock` | implemented | src/action/interact.rs:104 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
+| `player\Player::interactEntity` | implemented | src/action/interact.rs:59 `InteractEntity`<br>src/tick/entity.rs:4245 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:281 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `player\Player::isAuthenticated` | implemented | src/tick/player.rs:76 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
-| `player\Player::isConnected` | implemented | src/tick/player.rs:232 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::isAuthenticated` | implemented | src/tick/player.rs:75 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::isConnected` | implemented | src/tick/player.rs:230 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::isCreative` | implemented | src/tick/survival/api.rs:275 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isFlying` | implemented | src/tick/survival/api.rs:589 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::isOnline` | implemented | src/tick/player.rs:231 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::isOnline` | implemented | src/tick/player.rs:229 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::isPermissionSet` | implemented | src/tick/command.rs:623 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::isSleeping` | blank |  |  |  |
 | `player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:520 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
@@ -8359,7 +8359,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:583 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
-| `player\Player::kick` | implemented | src/action/survival.rs:90 `Kick`<br>src/tick/player.rs:375 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `player\Player::kick` | implemented | src/action/survival.rs:89 `Kick`<br>src/tick/player.rs:373 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `player\Player::missSwing` | skipped |  |  | player rule code: listeners see PlayerMissSwing |
 | `player\Player::onBlockChanged` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkChanged` | skipped |  |  | chunk sending is the engine's |
@@ -8372,27 +8372,27 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::pickBlock` | skipped |  |  | player rule code: listeners see PlayerBlockPick |
 | `player\Player::pickEntity` | skipped |  |  | player rule code: listeners see PlayerEntityPick |
 | `player\Player::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `player\Player::releaseHeldItem` | merged | src/action/interact.rs:85 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
+| `player\Player::releaseHeldItem` | merged | src/action/interact.rs:84 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
 | `player\Player::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:218 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `player\Player::removeTitles` | implemented | src/tick/player.rs:297 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::removeTitles` | implemented | src/tick/player.rs:295 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1108 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1431 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::resetTitles` | implemented | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::resetTitles` | implemented | src/tick/player.rs:296 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::respawn` | implemented | src/tick/survival/api.rs:768 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `player\Player::save` | skipped |  |  | player records commit with the world |
 | `player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:85 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
-| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:294 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:292 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
 | `player\Player::sendForm` | implemented | src/tick/form.rs:124 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
-| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:293 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendMessage` | implemented | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendPopup` | implemented | src/tick/player.rs:292 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:291 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendMessage` | implemented | src/tick/player.rs:288 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendPopup` | implemented | src/tick/player.rs:290 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
-| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:296 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTip` | implemented | src/tick/player.rs:291 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTitle` | implemented | src/tick/player.rs:295 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:300 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:294 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTip` | implemented | src/tick/player.rs:289 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTitle` | implemented | src/tick/player.rs:293 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1255 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1193 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setBasePermission` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
@@ -8400,43 +8400,43 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:193 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:207 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1300 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `player\Player::setDisplayName` | implemented | src/tick/player.rs:267 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
+| `player\Player::setDisplayName` | implemented | src/tick/player.rs:265 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
 | `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1266 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1244 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setGamemode` | implemented | src/action/survival.rs:146 `SetGameMode`<br>src/tick/survival/api.rs:678 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
+| `player\Player::setGamemode` | implemented | src/action/survival.rs:145 `SetGameMode`<br>src/tick/survival/api.rs:678 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1279 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1205 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:277 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:275 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
 | `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1291 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:299 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:297 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
-| `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:420 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
+| `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:421 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:2082 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::sleepOn` | blank |  |  |  |
 | `player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\Player::stopSleep` | blank |  |  |  |
-| `player\Player::teleport` | implemented | src/action/survival.rs:172 `Teleport`<br>src/tick/player.rs:422 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
+| `player\Player::teleport` | implemented | src/action/survival.rs:171 `Teleport`<br>src/tick/player.rs:420 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
 | `player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSneak` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
-| `player\Player::transfer` | implemented | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:394 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `player\Player::transfer` | implemented | src/action/survival.rs:215 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `player\Player::unsetBasePermission` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `player\Player::useHeldItem` | implemented | src/action/interact.rs:85 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::useHeldItem` | implemented | src/action/interact.rs:84 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
-| `player\PlayerDataProvider` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\PlayerDataProvider::hasData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\PlayerDataProvider::loadData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `player\PlayerDataProvider::saveData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
+| `player\PlayerDataProvider` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\PlayerDataProvider::hasData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\PlayerDataProvider::loadData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
+| `player\PlayerDataProvider::saveData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\PlayerDataSaveException` | skipped |  |  | player records commit with the world |
 | `player\PlayerInfo` | implemented | src/event/player.rs:1227 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::__construct` | skipped |  |  | login makes it |
-| `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:94 `device_os`<br>src/tick/player.rs:133 `input_mode`<br>src/tick/player.rs:139 `device_model`<br>src/tick/player.rs:145 `device_id`<br>src/tick/player.rs:152 `self_signed_id`<br>src/tick/player.rs:159 `client_random_id`<br>src/tick/player.rs:167 `playfab_id`<br>src/tick/player.rs:174 `game_version`<br>src/tick/player.rs:181 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
-| `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:125 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:88 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
+| `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:93 `device_os`<br>src/tick/player.rs:132 `input_mode`<br>src/tick/player.rs:138 `device_model`<br>src/tick/player.rs:144 `device_id`<br>src/tick/player.rs:151 `self_signed_id`<br>src/tick/player.rs:158 `client_random_id`<br>src/tick/player.rs:166 `playfab_id`<br>src/tick/player.rs:173 `game_version`<br>src/tick/player.rs:180 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
+| `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:124 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:87 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
 | `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1233 `name` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1245 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\SurvivalBlockBreakHandler` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -8459,13 +8459,13 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\XboxLivePlayerInfo::__construct` | skipped |  |  | login makes it |
 | `player\XboxLivePlayerInfo::getXuid` | implemented | src/event/player.rs:1239 `xuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\XboxLivePlayerInfo::withoutXboxData` | skipped |  |  | login makes it |
-| `player\chat\ChatFormatter` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\ChatFormatter::format` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\LegacyRawChatFormatter` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\LegacyRawChatFormatter::__construct` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\LegacyRawChatFormatter::format` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\StandardChatFormatter` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
-| `player\chat\StandardChatFormatter::format` | skipped |  |  | PMMP chat formatters: listeners change the format in PlayerChat |
+| `player\chat\ChatFormatter` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\ChatFormatter::format` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\LegacyRawChatFormatter` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\LegacyRawChatFormatter::__construct` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\LegacyRawChatFormatter::format` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\StandardChatFormatter` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
+| `player\chat\StandardChatFormatter::format` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
 
 ## `plugin`
 
@@ -8591,7 +8591,7 @@ implemented 1, differs 0, merged 0, skipped 134, blank 0 (of 135 rows)
 | `plugin\PluginManager::getPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::isPluginEnabled` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::loadPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `plugin\PluginManager::registerEvent` | implemented | src/server.rs:532 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `plugin\PluginManager::registerEvent` | implemented | src/server.rs:531 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `plugin\PluginManager::registerEvents` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::registerInterface` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::tickSchedulers` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -8631,40 +8631,40 @@ implemented 22, differs 0, merged 6, skipped 6, blank 0 (of 34 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `resourcepacks\ResourcePack` | implemented | src/pack.rs:57 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:119 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:132 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:163 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:178 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:156 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePackException` | implemented | src/pack.rs:377 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `resourcepacks\ResourcePackManager` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `resourcepacks\ResourcePack` | implemented | src/pack.rs:55 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:117 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:130 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:161 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:176 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:154 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePackException` | implemented | src/pack.rs:375 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:676 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
 | `resourcepacks\ResourcePackManager::getPackById` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:126 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:124 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager::getPackIdList` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
 | `resourcepacks\ResourcePackManager::getResourceStack` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:679 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:108 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:106 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:680 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
-| `resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:58 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:97 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
+| `resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:56 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:95 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ZippedResourcePack::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:120 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:171 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:133 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:164 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:179 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:118 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:169 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:131 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:162 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:177 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `resourcepacks\ZippedResourcePack::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
-| `resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:157 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\json\Manifest` | merged | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestHeader` | merged | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:170 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:155 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\json\Manifest` | merged | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestHeader` | merged | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:168 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
 
 ## `root`
 
@@ -8699,23 +8699,23 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
 | `Server::addOp` | implemented | src/tick/command.rs:935 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
 | `Server::addWhitelist` | implemented | src/tick/command.rs:987 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `Server::broadcastMessage` | implemented | src/tick/task.rs:310 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastPopup` | implemented | src/tick/task.rs:312 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastTip` | implemented | src/tick/task.rs:311 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::broadcastTitle` | implemented | src/tick/task.rs:313 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
-| `Server::crashDump` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
+| `Server::broadcastMessage` | implemented | src/tick/task.rs:308 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastPopup` | implemented | src/tick/task.rs:310 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastTip` | implemented | src/tick/task.rs:309 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::broadcastTitle` | implemented | src/tick/task.rs:311 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
+| `Server::crashDump` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
 | `Server::createPlayer` | skipped |  |  | players join through the login flow |
 | `Server::dispatchCommand` | implemented | src/tick/command.rs:748 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `Server::forceShutdown` | merged | src/server.rs:677 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `Server::exceptionHandler` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
+| `Server::forceShutdown` | merged | src/server.rs:676 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `Server::getAllowedViewDistance` | merged | src/tick/task.rs:158 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `Server::getAsyncPool` | merged | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
-| `Server::getBroadcastChannelSubscribers` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
-| `Server::getCommandAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
+| `Server::getAsyncPool` | merged | src/tick/task/job.rs:171 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `Server::getBroadcastChannelSubscribers` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
+| `Server::getCommandAliases` | skipped |  |  | the API's config file command aliases: aliases are given in code (`Command::alias`) |
 | `Server::getCommandMap` | merged | src/tick/command.rs:583 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::getCommand` |
-| `Server::getConfigGroup` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
+| `Server::getConfigGroup` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
 | `Server::getCraftingManager` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `Server::getDataPath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `Server::getDifficulty` | implemented | src/tick/task.rs:132 `difficulty` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
@@ -8735,15 +8735,15 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getName` | implemented | src/tick/task.rs:57 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getNameBans` | implemented | src/tick/command.rs:709 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getNetwork` | skipped |  |  | protocol internals |
-| `Server::getOfflinePlayer` | skipped |  |  | PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
+| `Server::getOfflinePlayer` | skipped |  |  | the API'soffline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:274 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `Server::getOnlineMode` | implemented | src/config.rs:603 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getOnlinePlayers` | implemented | src/tick/task.rs:173 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_in_the_game |  |
 | `Server::getOps` | implemented | src/tick/command.rs:679 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `Server::getPlayerByPrefix` | implemented | src/tick/task.rs:206 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
-| `Server::getPlayerByRawUUID` | merged | src/tick/task.rs:225 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game | into `Server::getPlayerByUUID` |
-| `Server::getPlayerByUUID` | implemented | src/tick/task.rs:225 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game |  |
-| `Server::getPlayerExact` | implemented | src/tick/task.rs:193 `player_exact` | src/tick/task.rs::players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox |  |
+| `Server::getPlayerByPrefix` | implemented | src/tick/task.rs:204 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
+| `Server::getPlayerByRawUUID` | merged | src/tick/task.rs:223 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game | into `Server::getPlayerByUUID` |
+| `Server::getPlayerByUUID` | implemented | src/tick/task.rs:223 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game |  |
+| `Server::getPlayerExact` | implemented | src/tick/task.rs:192 `player_exact` | src/tick/task.rs::players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox |  |
 | `Server::getPluginCommand` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getPluginManager` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getPluginPath` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -8751,9 +8751,9 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getPort` | implemented | src/config.rs:594 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getPortV6` | implemented | src/config.rs:595 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
-| `Server::getResourcePackManager` | merged | src/pack.rs:475 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `Server::getResourcePackManager` | merged | src/pack.rs:473 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
-| `Server::getServerUniqueId` | skipped |  |  | PMMP usage statistics reporting |
+| `Server::getServerUniqueId` | skipped |  |  | the API'susage statistics reporting |
 | `Server::getStartTime` | skipped |  |  | game logic has no wall clock |
 | `Server::getTick` | implemented | src/tick/task.rs:70 `tick` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getTickSleeper` | skipped |  |  | PHP thread wake-ups: Anchor's tick loop is internal |
@@ -8761,7 +8761,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getTickUsageAverage` | differs | src/tick/task.rs:119 `average_mspt` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same | a `Duration` (milliseconds per tick) instead of the percentage of 50 ms; the tick loop measures each tick off the game logic and the next tick reads it as a logged input |
 | `Server::getTicksPerSecond` | implemented | src/tick/task.rs:100 `tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
 | `Server::getTicksPerSecondAverage` | implemented | src/tick/task.rs:106 `average_tps` | src/tick/network.rs::measured_tick_times_and_connection_counts_read_back_and_replay_the_same |  |
-| `Server::getUpdater` | skipped |  |  | PMMP update checker |
+| `Server::getUpdater` | skipped |  |  | the API'supdate checker |
 | `Server::getVersion` | implemented | src/tick/task.rs:61 `VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getViewDistance` | implemented | src/tick/task.rs:158 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getWhitelisted` | implemented | src/tick/command.rs:728 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
@@ -8778,29 +8778,29 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::removeWhitelist` | implemented | src/tick/command.rs:998 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::requiresAuthentication` | implemented | src/config.rs:604 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:315 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
-| `Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
+| `Server::sendUsage` | skipped |  |  | the API'susage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:164 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::shutdown` | implemented | src/server.rs:677 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
-| `Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
-| `Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
-| `Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
-| `ServerConfigGroup` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::__construct` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getConfigBool` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getConfigInt` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getConfigString` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getProperty` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getPropertyBool` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getPropertyInt` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::getPropertyString` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::save` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::setConfigBool` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::setConfigInt` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `ServerConfigGroup::setConfigString` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
-| `VersionInfo` | skipped |  |  | PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions |
-| `VersionInfo::BUILD_NUMBER` | skipped |  |  | PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions |
-| `VersionInfo::GIT_HASH` | skipped |  |  | PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions |
-| `VersionInfo::VERSION` | skipped |  |  | PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions |
+| `Server::shutdown` | implemented | src/server.rs:676 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `Server::subscribeToBroadcastChannel` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
+| `Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
+| `Server::unsubscribeFromBroadcastChannel` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
+| `ServerConfigGroup` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::__construct` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getConfigBool` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getConfigInt` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getConfigString` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getProperty` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getPropertyBool` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getPropertyInt` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::getPropertyString` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::save` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::setConfigBool` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::setConfigInt` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `ServerConfigGroup::setConfigString` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
+| `VersionInfo` | skipped |  |  | the API'sbuild metadata: `Server::getVersion` gives Anchor's version |
+| `VersionInfo::BUILD_NUMBER` | skipped |  |  | the API'sbuild metadata: `Server::getVersion` gives Anchor's version |
+| `VersionInfo::GIT_HASH` | skipped |  |  | the API'sbuild metadata: `Server::getVersion` gives Anchor's version |
+| `VersionInfo::VERSION` | skipped |  |  | the API'sbuild metadata: `Server::getVersion` gives Anchor's version |
 
 ## `scheduler`
 
@@ -8821,24 +8821,24 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\AsyncPool::selectWorker` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdown` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdownUnusedWorkers` | skipped |  |  | the blocking pool is internal and bounded |
-| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
-| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:173 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:171 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:171 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `scheduler\AsyncTask::cancelRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::hasCancelledRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::isSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:175 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::onProgressUpdate` | skipped |  |  | async work reports once: its result is the next tick's input |
-| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:173 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::publishProgress` | skipped |  |  | async work reports once: its result is the next tick's input |
 | `scheduler\AsyncTask::run` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
+| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:173 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
 | `scheduler\AsyncTask::setSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
 | `scheduler\AsyncWorker` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
 | `scheduler\AsyncWorker::__construct` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
@@ -8861,24 +8861,24 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\BulkCurlTaskOperation::getPage` | skipped |  |  | PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `scheduler\BulkCurlTaskOperation::getTimeout` | skipped |  |  | PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `scheduler\CancelTaskException` | skipped |  |  | PHP exception: a repeating closure cancels itself with `Context::cancel_task(cx.current_task())` |
-| `scheduler\ClosureTask` | implemented | src/tick/task/schedule.rs:228 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
-| `scheduler\ClosureTask::__construct` | merged | src/tick/task/schedule.rs:228 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\ClosureTask` | implemented | src/tick/task/schedule.rs:227 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\ClosureTask::__construct` | merged | src/tick/task/schedule.rs:227 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
 | `scheduler\ClosureTask::getName` | skipped |  |  | a scheduled closure has no name |
-| `scheduler\ClosureTask::onRun` | merged | src/tick/task/schedule.rs:228 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\ClosureTask::onRun` | merged | src/tick/task/schedule.rs:227 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
 | `scheduler\DumpWorkerMemoryTask` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\DumpWorkerMemoryTask::__construct` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\DumpWorkerMemoryTask::onRun` | skipped |  |  | PHP memory dump tooling |
 | `scheduler\GarbageCollectionTask` | skipped |  |  | PHP garbage collector control |
 | `scheduler\GarbageCollectionTask::onRun` | skipped |  |  | PHP garbage collector control |
-| `scheduler\Task` | merged | src/tick/task/schedule.rs:217 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
-| `scheduler\Task::getHandler` | implemented | src/tick/task/schedule.rs:217 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\Task` | merged | src/tick/task/schedule.rs:216 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
+| `scheduler\Task::getHandler` | implemented | src/tick/task/schedule.rs:216 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
 | `scheduler\Task::getName` | skipped |  |  | a scheduled closure has no name |
 | `scheduler\Task::onCancel` | skipped |  |  | a scheduled closure has no cancel hook: the code that cancels it (`Context::cancel_task`) does what follows |
-| `scheduler\Task::onRun` | merged | src/tick/task/schedule.rs:228 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
-| `scheduler\Task::setHandler` | merged | src/tick/task/schedule.rs:217 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
+| `scheduler\Task::onRun` | merged | src/tick/task/schedule.rs:227 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `ClosureTask` |
+| `scheduler\Task::setHandler` | merged | src/tick/task/schedule.rs:216 `current_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `Task::getHandler` |
 | `scheduler\TaskHandler` | implemented | src/task.rs:33 `Handle` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
 | `scheduler\TaskHandler::__construct` | skipped |  |  | handles are made by `Context::schedule*` |
-| `scheduler\TaskHandler::cancel` | implemented | src/tick/task/schedule.rs:271 `cancel_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskHandler::cancel` | implemented | src/tick/task/schedule.rs:270 `cancel_task` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
 | `scheduler\TaskHandler::getDelay` | merged | src/tick/task/schedule.rs:195 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
 | `scheduler\TaskHandler::getNextRun` | implemented | src/tick/task/schedule.rs:195 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
 | `scheduler\TaskHandler::getOwnerName` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -8888,15 +8888,15 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\TaskHandler::isCancelled` | merged | src/tick/task/schedule.rs:188 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves | into `TaskScheduler::isQueued` |
 | `scheduler\TaskHandler::isDelayed` | merged | src/tick/task/schedule.rs:195 `task_next_run` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled | into `TaskHandler::getNextRun` |
 | `scheduler\TaskHandler::isRepeating` | implemented | src/tick/task/schedule.rs:206 `task_period_ticks` | src/tick/task/schedule.rs::a_handle_tells_the_next_run_and_the_period_while_scheduled |  |
-| `scheduler\TaskScheduler` | merged | src/tick/task/schedule.rs:226 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `TaskScheduler::scheduleTask` |
+| `scheduler\TaskScheduler` | merged | src/tick/task/schedule.rs:225 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order | into `TaskScheduler::scheduleTask` |
 | `scheduler\TaskScheduler::__construct` | skipped |  |  | the tick loop runs scheduled work |
-| `scheduler\TaskScheduler::cancelAllTasks` | implemented | src/tick/task/schedule.rs:278 `cancel_all_tasks` | src/tick/task/schedule.rs::scheduling_past_the_limit_fails_and_cancel_all_empties_the_queue |  |
+| `scheduler\TaskScheduler::cancelAllTasks` | implemented | src/tick/task/schedule.rs:277 `cancel_all_tasks` | src/tick/task/schedule.rs::scheduling_past_the_limit_fails_and_cancel_all_empties_the_queue |  |
 | `scheduler\TaskScheduler::isQueued` | implemented | src/tick/task/schedule.rs:188 `is_task_scheduled` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
 | `scheduler\TaskScheduler::mainThreadHeartbeat` | skipped |  |  | the tick loop runs scheduled work |
-| `scheduler\TaskScheduler::scheduleDelayedRepeatingTask` | implemented | src/tick/task/schedule.rs:254 `schedule_delayed_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
-| `scheduler\TaskScheduler::scheduleDelayedTask` | implemented | src/tick/task/schedule.rs:227 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
-| `scheduler\TaskScheduler::scheduleRepeatingTask` | implemented | src/tick/task/schedule.rs:244 `schedule_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
-| `scheduler\TaskScheduler::scheduleTask` | implemented | src/tick/task/schedule.rs:226 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\TaskScheduler::scheduleDelayedRepeatingTask` | implemented | src/tick/task/schedule.rs:253 `schedule_delayed_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskScheduler::scheduleDelayedTask` | implemented | src/tick/task/schedule.rs:226 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
+| `scheduler\TaskScheduler::scheduleRepeatingTask` | implemented | src/tick/task/schedule.rs:243 `schedule_repeating` | src/tick/task/schedule.rs::repeating_tasks_run_every_period_until_cancelled_and_can_cancel_themselves |  |
+| `scheduler\TaskScheduler::scheduleTask` | implemented | src/tick/task/schedule.rs:225 `schedule` | src/tick/task/schedule.rs::delayed_tasks_run_once_by_due_tick_then_in_scheduling_order |  |
 | `scheduler\TaskScheduler::setEnabled` | skipped |  |  | the tick loop runs scheduled work |
 | `scheduler\TaskScheduler::shutdown` | skipped |  |  | the tick loop runs scheduled work |
 | `scheduler\TimingsCollectionTask` | skipped |  |  | PHP timings profiler |
@@ -8914,9 +8914,9 @@ implemented 0, differs 0, merged 0, skipped 3, blank 0 (of 3 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `stats\SendUsageTask` | skipped |  |  | PMMP usage statistics reporting |
-| `stats\SendUsageTask::__construct` | skipped |  |  | PMMP usage statistics reporting |
-| `stats\SendUsageTask::onRun` | skipped |  |  | PMMP usage statistics reporting |
+| `stats\SendUsageTask` | skipped |  |  | the API'susage statistics reporting |
+| `stats\SendUsageTask::__construct` | skipped |  |  | the API'susage statistics reporting |
+| `stats\SendUsageTask::onRun` | skipped |  |  | the API'susage statistics reporting |
 
 ## `thread`
 
@@ -9063,21 +9063,21 @@ implemented 0, differs 0, merged 0, skipped 15, blank 0 (of 15 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `updater\UpdateCheckTask` | skipped |  |  | PMMP update checker |
-| `updater\UpdateCheckTask::__construct` | skipped |  |  | PMMP update checker |
-| `updater\UpdateCheckTask::onCompletion` | skipped |  |  | PMMP update checker |
-| `updater\UpdateCheckTask::onRun` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::__construct` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::checkUpdateCallback` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::checkUpdateError` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::doCheck` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::getChannel` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::getEndpoint` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::getUpdateInfo` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::hasUpdate` | skipped |  |  | PMMP update checker |
-| `updater\UpdateChecker::showConsoleUpdate` | skipped |  |  | PMMP update checker |
-| `updater\UpdateInfo` | skipped |  |  | PMMP update checker |
+| `updater\UpdateCheckTask` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateCheckTask::__construct` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateCheckTask::onCompletion` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateCheckTask::onRun` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::__construct` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::checkUpdateCallback` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::checkUpdateError` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::doCheck` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::getChannel` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::getEndpoint` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::getUpdateInfo` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::hasUpdate` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateChecker::showConsoleUpdate` | skipped |  |  | the API'supdate checker |
+| `updater\UpdateInfo` | skipped |  |  | the API'supdate checker |
 
 ## `utils`
 
@@ -9086,55 +9086,55 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
 | `utils\AssumptionFailedError` | skipped |  |  | PHP assertion error: Anchor uses `expect` only for invariants |
-| `utils\BroadcastLoggerForwarder` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::__construct` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::addAttachment` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getEffectivePermissions` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getLanguage` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getName` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getPermissionRecalculationCallbacks` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getScreenLineHeight` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::getServer` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::hasPermission` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::isPermissionSet` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::recalculatePermissions` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::removeAttachment` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::sendMessage` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::setBasePermission` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::setScreenLineHeight` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\BroadcastLoggerForwarder::unsetBasePermission` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::__construct` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::addAttachment` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getEffectivePermissions` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getLanguage` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getName` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getPermissionRecalculationCallbacks` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getScreenLineHeight` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::getServer` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::hasPermission` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::isPermissionSet` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::recalculatePermissions` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::removeAttachment` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::sendMessage` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::setBasePermission` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::setScreenLineHeight` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\BroadcastLoggerForwarder::unsetBasePermission` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
 | `utils\CloningRegistryTrait` | skipped |  |  | PHP registry plumbing: Anchor's registries are generated enums and tables |
 | `utils\CloningRegistryTrait::__callStatic` | skipped |  |  | PHP registry plumbing: Anchor's registries are generated enums and tables |
-| `utils\Config` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::__construct` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::__get` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::__isset` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::__set` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::__unset` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::disableJsonOption` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::enableJsonOption` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::exists` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::fixYAMLIndexes` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::get` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::getAll` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::getJsonOptions` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::getNested` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::getPath` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::hasChanged` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::parseList` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::parseProperties` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::reload` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::remove` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::removeNested` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::save` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::set` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::setAll` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::setChanged` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::setDefaults` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::setJsonOptions` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::setNested` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::writeList` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
-| `utils\Config::writeProperties` | skipped |  |  | PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::__construct` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::__get` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::__isset` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::__set` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::__unset` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::disableJsonOption` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::enableJsonOption` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::exists` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::fixYAMLIndexes` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::get` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::getAll` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::getJsonOptions` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::getNested` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::getPath` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::hasChanged` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::parseList` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::parseProperties` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::reload` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::remove` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::removeNested` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::save` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::set` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::setAll` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::setChanged` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::setDefaults` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::setJsonOptions` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::setNested` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::writeList` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
+| `utils\Config::writeProperties` | skipped |  |  | the API'sgeneric YAML/JSON file class: Anchor reads one TOML file into typed `Config` |
 | `utils\ConfigLoadException` | skipped |  |  | PHP exception: Anchor returns `Result` with module `Error` enums |
 | `utils\ConfigLoadException::wrap` | skipped |  |  | PHP exception: Anchor returns `Result` with module `Error` enums |
 | `utils\DestructorCallbackTrait` | skipped |  |  | PHP destructor hooks: Rust has Drop and Anchor states each resource's release |
@@ -9159,9 +9159,9 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | `utils\Filesystem::recursiveUnlink` | skipped |  |  | PHP file helpers: Rust std covers them; Anchor's files are anchor.toml and data/ |
 | `utils\Filesystem::releaseLockFile` | skipped |  |  | PHP file helpers: Rust std covers them; Anchor's files are anchor.toml and data/ |
 | `utils\Filesystem::safeFilePutContents` | skipped |  |  | PHP file helpers: Rust std covers them; Anchor's files are anchor.toml and data/ |
-| `utils\Git` | skipped |  |  | PMMP build metadata |
-| `utils\Git::getRepositoryState` | skipped |  |  | PMMP build metadata |
-| `utils\Git::getRepositoryStatePretty` | skipped |  |  | PMMP build metadata |
+| `utils\Git` | skipped |  |  | the API'sbuild metadata |
+| `utils\Git::getRepositoryState` | skipped |  |  | the API'sbuild metadata |
+| `utils\Git::getRepositoryStatePretty` | skipped |  |  | the API'sbuild metadata |
 | `utils\Internet` | skipped |  |  | PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `utils\Internet::getIP` | skipped |  |  | PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
 | `utils\Internet::getInternalIP` | skipped |  |  | PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own |
@@ -9180,31 +9180,31 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | `utils\LegacyEnumShimTrait::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `utils\LegacyEnumShimTrait::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `utils\LegacyEnumShimTrait::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `utils\MainLogger` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::__construct` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::__destruct` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::alert` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::buffer` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::critical` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::debug` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::emergency` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::error` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::getFormat` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::info` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::log` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::logException` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::notice` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::setFormat` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::setLogDebug` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::shutdownLogWriterThread` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::syncFlushBuffer` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLogger::warning` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread::__construct` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread::run` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread::shutdown` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread::syncFlushBuffer` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
-| `utils\MainLoggerThread::write` | skipped |  |  | PMMP log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::__construct` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::__destruct` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::alert` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::buffer` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::critical` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::debug` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::emergency` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::error` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::getFormat` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::info` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::log` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::logException` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::notice` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::setFormat` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::setLogDebug` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::shutdownLogWriterThread` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::syncFlushBuffer` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLogger::warning` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread::__construct` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread::run` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread::shutdown` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread::syncFlushBuffer` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
+| `utils\MainLoggerThread::write` | skipped |  |  | the API'slog writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace |
 | `utils\NotCloneable` | skipped |  |  | PHP magic method guard: Rust types are not Clone unless they derive it |
 | `utils\NotCloneable::__clone` | skipped |  |  | PHP magic method guard: Rust types are not Clone unless they derive it |
 | `utils\NotSerializable` | skipped |  |  | PHP magic method guard: Rust types are not serialisable unless they derive it |
@@ -9226,17 +9226,17 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | `utils\Process::kill` | skipped |  |  | PHP process tooling |
 | `utils\Process::pid` | skipped |  |  | PHP process tooling |
 | `utils\Process::uid` | skipped |  |  | PHP process tooling |
-| `utils\Random` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::__construct` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::getSeed` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextBoolean` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextBoundedInt` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextFloat` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextInt` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextRange` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextSignedFloat` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::nextSignedInt` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
-| `utils\Random::setSeed` | skipped |  |  | PMMP's seeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::__construct` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::getSeed` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextBoolean` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextBoundedInt` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextFloat` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextInt` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextRange` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextSignedFloat` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::nextSignedInt` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
+| `utils\Random::setSeed` | skipped |  |  | the API'sseeded PRNG class: tick code uses the engine's counter RNG and users pick a Rust RNG crate |
 | `utils\RegistrySource` | skipped |  |  | PHP registry plumbing: Anchor's registries are generated enums and tables |
 | `utils\RegistrySource::__construct` | skipped |  |  | PHP registry plumbing: Anchor's registries are generated enums and tables |
 | `utils\RegistrySource::cloneResults` | skipped |  |  | PHP registry plumbing: Anchor's registries are generated enums and tables |
@@ -9259,26 +9259,26 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | `utils\SingletonTrait::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `utils\SingletonTrait::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `utils\SingletonTrait::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `utils\StringToTParser` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\StringToTParser::getKnownAliases` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\StringToTParser::override` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\StringToTParser::parse` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\StringToTParser::register` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\StringToTParser::registerAlias` | skipped |  |  | PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
-| `utils\Terminal` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::hasFormattingCodes` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::init` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::isInit` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::toANSI` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::write` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\Terminal::writeLine` | skipped |  |  | PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
-| `utils\TextFormat` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::addBase` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::clean` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::colorize` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::javaToBedrock` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::toHTML` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
-| `utils\TextFormat::tokenize` | skipped |  |  | PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\StringToTParser` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\StringToTParser::getKnownAliases` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\StringToTParser::override` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\StringToTParser::parse` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\StringToTParser::register` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\StringToTParser::registerAlias` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) |
+| `utils\Terminal` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::hasFormattingCodes` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::init` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::isInit` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::toANSI` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::write` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\Terminal::writeLine` | skipped |  |  | the API'sterminal colours: Anchor logs with `tracing` and the binary picks the subscriber |
+| `utils\TextFormat` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::addBase` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::clean` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::colorize` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::javaToBedrock` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::toHTML` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
+| `utils\TextFormat::tokenize` | skipped |  |  | the API'stext helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest |
 | `utils\Timezone` | skipped |  |  | PHP time zone setup: game logic has no wall clock |
 | `utils\Timezone::detectSystemTimezone` | skipped |  |  | PHP time zone setup: game logic has no wall clock |
 | `utils\Timezone::get` | skipped |  |  | PHP time zone setup: game logic has no wall clock |
@@ -9313,20 +9313,20 @@ implemented 0, differs 0, merged 0, skipped 242, blank 0 (of 242 rows)
 | `utils\Utils::testValidInstance` | skipped |  |  | PHP runtime helpers: Rust std, the type system and Anchor's input checks cover them |
 | `utils\Utils::validateArrayValueType` | skipped |  |  | PHP runtime helpers: Rust std, the type system and Anchor's input checks cover them |
 | `utils\Utils::validateCallableSignature` | skipped |  |  | PHP runtime helpers: Rust std, the type system and Anchor's input checks cover them |
-| `utils\VersionString` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::__construct` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::__toString` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::compare` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getBaseVersion` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getBuild` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getFullVersion` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getMajor` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getMinor` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getNumber` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getPatch` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::getSuffix` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::isDev` | skipped |  |  | PMMP version parsing |
-| `utils\VersionString::isValidBaseVersion` | skipped |  |  | PMMP version parsing |
+| `utils\VersionString` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::__construct` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::__toString` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::compare` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getBaseVersion` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getBuild` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getFullVersion` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getMajor` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getMinor` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getNumber` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getPatch` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::getSuffix` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::isDev` | skipped |  |  | the API'sversion parsing |
+| `utils\VersionString::isValidBaseVersion` | skipped |  |  | the API'sversion parsing |
 
 ## `wizard`
 
@@ -9334,9 +9334,9 @@ implemented 0, differs 0, merged 0, skipped 3, blank 0 (of 3 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `wizard\SetupWizard` | skipped |  |  | PMMP setup wizard: Anchor writes a default anchor.toml |
-| `wizard\SetupWizard::__construct` | skipped |  |  | PMMP setup wizard: Anchor writes a default anchor.toml |
-| `wizard\SetupWizard::run` | skipped |  |  | PMMP setup wizard: Anchor writes a default anchor.toml |
+| `wizard\SetupWizard` | skipped |  |  | the API'ssetup wizard: Anchor writes a default anchor.toml |
+| `wizard\SetupWizard::__construct` | skipped |  |  | the API'ssetup wizard: Anchor writes a default anchor.toml |
+| `wizard\SetupWizard::run` | skipped |  |  | the API'ssetup wizard: Anchor writes a default anchor.toml |
 
 ## `world`
 
@@ -9344,16 +9344,16 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `world\BlockTransaction` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::__construct` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::addBlock` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::addBlockAt` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::addValidator` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::apply` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::dummyValidator` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::fetchBlock` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::fetchBlockAt` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
-| `world\BlockTransaction::getBlocks` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list |
+| `world\BlockTransaction` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::__construct` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::addBlock` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::addBlockAt` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::addValidator` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::apply` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::dummyValidator` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::fetchBlock` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::fetchBlockAt` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
+| `world\BlockTransaction::getBlocks` | skipped |  |  | multi-block changes are the rule code's (`Tx`); listeners see BlockPlace with the block list |
 | `world\ChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListener::onBlockChanged` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListener::onChunkChanged` | skipped |  |  | chunk listeners: world changes are events |
@@ -9405,7 +9405,7 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\World` | implemented | src/world.rs:529 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::__construct` | merged | src/server.rs:572 `world`<br>src/tick/world_api/lifecycle.rs:344 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
+| `world\World::__construct` | merged | src/server.rs:571 `world`<br>src/tick/world_api/lifecycle.rs:344 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` |
 | `world\World::addOnUnloadCallback` | implemented | src/event/world.rs:212 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9437,7 +9437,7 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\World::getChunk` | implemented | src/world.rs:816 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
 | `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1587 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:1033 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:1031 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::getChunkPlayers` | implemented | src/tick/world_api.rs:49 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1609 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
@@ -9489,7 +9489,7 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\World::getViewersForPosition` | implemented | src/tick/world_api.rs:50 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getXZ` | skipped |  |  | chunk store internals |
 | `world\World::isChunkGenerated` | skipped |  |  | chunk loading is the engine's |
-| `world\World::isChunkInUse` | differs | src/tick/view.rs:1034 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
+| `world\World::isChunkInUse` | differs | src/tick/view.rs:1032 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
 | `world\World::isChunkLoaded` | implemented | src/world.rs:719 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isChunkLocked` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isChunkPopulated` | skipped |  |  | chunk loading is the engine's |
@@ -9498,19 +9498,19 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\World::isInWorld` | implemented | src/world.rs:734 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:266 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\World::isSpawnChunk` | implemented | src/world.rs:637 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
-| `world\World::loadChunk` | differs | src/tick/view.rs:973 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
+| `world\World::loadChunk` | differs | src/tick/view.rs:972 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1016 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
-| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:975 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:974 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:972 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:971 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::registerTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::removeEntity` | merged | src/tick/entity/api.rs:357 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Entity::flagForDespawn` |
 | `world\World::removeOnUnloadCallback` | implemented | src/event/world.rs:213 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\World::removeRandomTickedBlock` | skipped |  |  | which states tick randomly is fixed by the block table (`State::ticks_randomly`) |
-| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:974 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:973 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:303 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
-| `world\World::save` | implemented | src/tick/task.rs:339 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
+| `world\World::save` | implemented | src/tick/task.rs:337 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `world\World::scheduleDelayedBlockUpdate` | blank |  |  |  |
 | `world\World::setAutoSave` | merged | src/tick/command.rs:1031 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
@@ -9532,11 +9532,11 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\World::unlockChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unregisterChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::unregisterChunkListenerFromAll` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1024 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1023 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::unregisterTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::updateAllLight` | skipped |  |  | light rule code |
-| `world\World::useBreakOn` | merged | src/action/interact.rs:39 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied | into `Player::breakBlock` |
-| `world\World::useItemOn` | merged | src/action/interact.rs:105 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied | into `Player::interactBlock` |
+| `world\World::useBreakOn` | merged | src/action/interact.rs:38 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied | into `Player::breakBlock` |
+| `world\World::useItemOn` | merged | src/action/interact.rs:104 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied | into `Player::interactBlock` |
 | `world\WorldCreationOptions` | implemented | src/world.rs:272 `Options` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldCreationOptions::__construct` | merged | src/world.rs:285 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `WorldCreationOptions::create` |
 | `world\WorldCreationOptions::create` | implemented | src/world.rs:285 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
@@ -9554,13 +9554,13 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\WorldManager` | merged | src/tick/world_api.rs:78 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
 | `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1571 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\WorldManager::generateWorld` | implemented | src/server.rs:572 `world`<br>src/tick/world_api/lifecycle.rs:344 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
+| `world\WorldManager::generateWorld` | implemented | src/server.rs:571 `world`<br>src/tick/world_api/lifecycle.rs:344 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:740 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
-| `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:237 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:235 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\WorldManager::getWorld` | implemented | src/tick/world_api.rs:78 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:247 `world_named` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
+| `world\WorldManager::getWorldByName` | implemented | src/tick/task.rs:245 `world_named` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::getWorlds` | implemented | src/tick/world_api.rs:85 `worlds` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:259 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:265 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
@@ -9712,7 +9712,7 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\format\io\FastChunkSerializer::serializeTerrain` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\FormatConverter` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\FormatConverter::__construct` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
-| `world\format\io\FormatConverter::execute` | implemented | src/server.rs:157 `import_world` | tests/import.rs::a_bds_world_imports_once_and_the_server_loads_it |  |
+| `world\format\io\FormatConverter::execute` | implemented | src/server.rs:157 `import_world` | tests/import.rs::an_official_world_imports_once_and_the_server_loads_it |  |
 | `world\format\io\FormatConverter::getBackupPath` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\GlobalBlockStateHandlers` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\GlobalBlockStateHandlers::getDeserializer` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
@@ -9900,10 +9900,10 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\generator\Generator::convertSeed` | skipped |  |  | a world seed is an `i64` setting |
 | `world\generator\Generator::generateChunk` | implemented | src/world/generator.rs:28 `generate` | src/world/chunk.rs::generators_give_the_same_bytes_for_the_same_seed_and_position |  |
 | `world\generator\Generator::populateChunk` | skipped |  |  | vanilla terrain generation: Anchor's generators fill a chunk in one step |
-| `world\generator\GeneratorManager` | merged | src/server.rs:507 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
+| `world\generator\GeneratorManager` | merged | src/server.rs:506 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
 | `world\generator\GeneratorManager::__construct` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::addAlias` | skipped |  |  | a generator has one name, its `Generator::name` |
-| `world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:507 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:506 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\generator\GeneratorManager::getGenerator` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::getGeneratorList` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::getGeneratorName` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
@@ -10052,40 +10052,40 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\light\SkyLightUpdate::__construct` | skipped |  |  | light rule code on the CPU pool |
 | `world\light\SkyLightUpdate::recalculateChunk` | skipped |  |  | light rule code on the CPU pool |
 | `world\light\SkyLightUpdate::recalculateNode` | skipped |  |  | light rule code on the CPU pool |
-| `world\particle\AngryVillagerParticle` | implemented | src/world/particle.rs:91 `AngryVillager` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\AngryVillagerParticle` | implemented | src/world/particle.rs:90 `AngryVillager` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\AngryVillagerParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockBreakParticle` | implemented | src/world/particle.rs:95 `BlockBreak` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\BlockBreakParticle` | implemented | src/world/particle.rs:94 `BlockBreak` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\BlockBreakParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockBreakParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockForceFieldParticle` | implemented | src/world/particle.rs:98 `BlockForceField` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\BlockForceFieldParticle` | implemented | src/world/particle.rs:97 `BlockForceField` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\BlockForceFieldParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockForceFieldParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BlockPunchParticle` | implemented | src/world/particle.rs:102 `BlockPunch` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\BlockPunchParticle` | implemented | src/world/particle.rs:101 `BlockPunch` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\BlockPunchParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\BlockPunchParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\BubbleParticle` | implemented | src/world/particle.rs:105 `Bubble` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\BubbleParticle` | implemented | src/world/particle.rs:104 `Bubble` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\BubbleParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\CriticalParticle` | implemented | src/world/particle.rs:108 `Critical` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\CriticalParticle` | implemented | src/world/particle.rs:107 `Critical` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\CriticalParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\CriticalParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\DragonEggTeleportParticle` | implemented | src/world/particle.rs:112 `DragonEggTeleport` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\DragonEggTeleportParticle` | implemented | src/world/particle.rs:111 `DragonEggTeleport` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\DragonEggTeleportParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\DragonEggTeleportParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\DustParticle` | implemented | src/world/particle.rs:122 `Dust` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\DustParticle` | implemented | src/world/particle.rs:121 `Dust` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\DustParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\DustParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\EnchantParticle` | implemented | src/world/particle.rs:125 `Enchant` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\EnchantParticle` | implemented | src/world/particle.rs:124 `Enchant` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\EnchantParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\EnchantParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\EnchantmentTableParticle` | implemented | src/world/particle.rs:128 `EnchantmentTable` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\EnchantmentTableParticle` | implemented | src/world/particle.rs:127 `EnchantmentTable` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\EnchantmentTableParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\EndermanTeleportParticle` | implemented | src/world/particle.rs:131 `EndermanTeleport` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\EndermanTeleportParticle` | implemented | src/world/particle.rs:130 `EndermanTeleport` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\EndermanTeleportParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\EntityFlameParticle` | implemented | src/world/particle.rs:134 `EntityFlame` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\EntityFlameParticle` | implemented | src/world/particle.rs:133 `EntityFlame` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\EntityFlameParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\ExplodeParticle` | implemented | src/world/particle.rs:137 `Explode` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\ExplodeParticle` | implemented | src/world/particle.rs:136 `Explode` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\ExplodeParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\FlameParticle` | implemented | src/world/particle.rs:140 `Flame` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\FlameParticle` | implemented | src/world/particle.rs:139 `Flame` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\FlameParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\FloatingTextParticle` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::__construct` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
@@ -10096,185 +10096,185 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\particle\FloatingTextParticle::setInvisible` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::setText` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
 | `world\particle\FloatingTextParticle::setTitle` | skipped |  |  | floating text is a name-tag NPC (`Context::spawn_human`) |
-| `world\particle\HappyVillagerParticle` | implemented | src/world/particle.rs:143 `HappyVillager` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\HappyVillagerParticle` | implemented | src/world/particle.rs:142 `HappyVillager` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\HappyVillagerParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\HeartParticle` | implemented | src/world/particle.rs:146 `Heart` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\HeartParticle` | implemented | src/world/particle.rs:145 `Heart` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\HeartParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\HeartParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\HugeExplodeParticle` | implemented | src/world/particle.rs:149 `HugeExplode` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\HugeExplodeParticle` | implemented | src/world/particle.rs:148 `HugeExplode` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\HugeExplodeParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\HugeExplodeSeedParticle` | implemented | src/world/particle.rs:152 `HugeExplodeSeed` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\HugeExplodeSeedParticle` | implemented | src/world/particle.rs:151 `HugeExplodeSeed` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\HugeExplodeSeedParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\InkParticle` | implemented | src/world/particle.rs:155 `Ink` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\InkParticle` | implemented | src/world/particle.rs:154 `Ink` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\InkParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\InkParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\InstantEnchantParticle` | implemented | src/world/particle.rs:158 `InstantEnchant` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\InstantEnchantParticle` | implemented | src/world/particle.rs:157 `InstantEnchant` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\InstantEnchantParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\InstantEnchantParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\ItemBreakParticle` | implemented | src/world/particle.rs:161 `ItemBreak` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\ItemBreakParticle` | implemented | src/world/particle.rs:160 `ItemBreak` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\ItemBreakParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\ItemBreakParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\LavaDripParticle` | implemented | src/world/particle.rs:164 `LavaDrip` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\LavaDripParticle` | implemented | src/world/particle.rs:163 `LavaDrip` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\LavaDripParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\LavaParticle` | implemented | src/world/particle.rs:167 `Lava` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\LavaParticle` | implemented | src/world/particle.rs:166 `Lava` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\LavaParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\MobSpawnParticle` | implemented | src/world/particle.rs:171 `MobSpawn` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\MobSpawnParticle` | implemented | src/world/particle.rs:170 `MobSpawn` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\MobSpawnParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\MobSpawnParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\Particle` | implemented | src/world/particle.rs:88 `Particle` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\Particle` | implemented | src/world/particle.rs:87 `Particle` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\Particle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\PortalParticle` | implemented | src/world/particle.rs:179 `Portal` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\PortalParticle` | implemented | src/world/particle.rs:178 `Portal` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\PortalParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\PotionSplashParticle` | implemented | src/world/particle.rs:182 `PotionSplash` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\PotionSplashParticle` | implemented | src/world/particle.rs:181 `PotionSplash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\PotionSplashParticle::DEFAULT_COLOR` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\PotionSplashParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\PotionSplashParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\PotionSplashParticle::getColor` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\RainSplashParticle` | implemented | src/world/particle.rs:185 `RainSplash` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\RainSplashParticle` | implemented | src/world/particle.rs:184 `RainSplash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\RainSplashParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\RedstoneParticle` | implemented | src/world/particle.rs:188 `Redstone` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\RedstoneParticle` | implemented | src/world/particle.rs:187 `Redstone` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\RedstoneParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\RedstoneParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SmokeParticle` | implemented | src/world/particle.rs:191 `Smoke` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\SmokeParticle` | implemented | src/world/particle.rs:190 `Smoke` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\SmokeParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\SmokeParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SnowballPoofParticle` | implemented | src/world/particle.rs:194 `SnowballPoof` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\SnowballPoofParticle` | implemented | src/world/particle.rs:193 `SnowballPoof` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\SnowballPoofParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SonicExplosionParticle` | implemented | src/world/particle.rs:197 `SonicExplosion` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\SonicExplosionParticle` | implemented | src/world/particle.rs:196 `SonicExplosion` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\SonicExplosionParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SplashParticle` | implemented | src/world/particle.rs:200 `Splash` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\SplashParticle` | implemented | src/world/particle.rs:199 `Splash` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\SplashParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\SporeParticle` | implemented | src/world/particle.rs:203 `Spore` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\SporeParticle` | implemented | src/world/particle.rs:202 `Spore` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\SporeParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\TerrainParticle` | implemented | src/world/particle.rs:206 `Terrain` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\TerrainParticle` | implemented | src/world/particle.rs:205 `Terrain` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\TerrainParticle::__construct` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
 | `world\particle\TerrainParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\WaterDripParticle` | implemented | src/world/particle.rs:209 `WaterDrip` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\WaterDripParticle` | implemented | src/world/particle.rs:208 `WaterDrip` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\WaterDripParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\particle\WaterParticle` | implemented | src/world/particle.rs:212 `Water` | src/world/particle.rs::particles_send_pmmps_events_with_pmmps_numbers |  |
+| `world\particle\WaterParticle` | implemented | src/world/particle.rs:211 `Water` | src/world/particle.rs::particles_send_the_official_events_with_the_official_numbers |  |
 | `world\particle\WaterParticle::encode` | merged | src/tick/world_api.rs:145 `add_particle` | src/tick/interact/tests/events.rs::a_world_particle_listener_sees_a_broken_block_and_may_hide_it<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addParticle` |
-| `world\sound\AmethystBlockChimeSound` | implemented | src/world/sound.rs:40 `AmethystBlockChime` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\AmethystBlockChimeSound` | implemented | src/world/sound.rs:40 `AmethystBlockChime` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\AmethystBlockChimeSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\AnvilBreakSound` | implemented | src/world/sound.rs:43 `AnvilBreak` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\AnvilBreakSound` | implemented | src/world/sound.rs:43 `AnvilBreak` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\AnvilBreakSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\AnvilFallSound` | implemented | src/world/sound.rs:46 `AnvilFall` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\AnvilFallSound` | implemented | src/world/sound.rs:46 `AnvilFall` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\AnvilFallSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\AnvilUseSound` | implemented | src/world/sound.rs:49 `AnvilUse` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\AnvilUseSound` | implemented | src/world/sound.rs:49 `AnvilUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\AnvilUseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipChainSound` | implemented | src/world/sound.rs:52 `ArmorEquipChain` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipChainSound` | implemented | src/world/sound.rs:52 `ArmorEquipChain` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipChainSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipCopperSound` | implemented | src/world/sound.rs:55 `ArmorEquipCopper` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipCopperSound` | implemented | src/world/sound.rs:55 `ArmorEquipCopper` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipCopperSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipDiamondSound` | implemented | src/world/sound.rs:58 `ArmorEquipDiamond` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipDiamondSound` | implemented | src/world/sound.rs:58 `ArmorEquipDiamond` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipDiamondSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipGenericSound` | implemented | src/world/sound.rs:61 `ArmorEquipGeneric` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipGenericSound` | implemented | src/world/sound.rs:61 `ArmorEquipGeneric` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipGenericSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipGoldSound` | implemented | src/world/sound.rs:64 `ArmorEquipGold` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipGoldSound` | implemented | src/world/sound.rs:64 `ArmorEquipGold` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipGoldSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipIronSound` | implemented | src/world/sound.rs:67 `ArmorEquipIron` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipIronSound` | implemented | src/world/sound.rs:67 `ArmorEquipIron` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipIronSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipLeatherSound` | implemented | src/world/sound.rs:70 `ArmorEquipLeather` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipLeatherSound` | implemented | src/world/sound.rs:70 `ArmorEquipLeather` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipLeatherSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArmorEquipNetheriteSound` | implemented | src/world/sound.rs:73 `ArmorEquipNetherite` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArmorEquipNetheriteSound` | implemented | src/world/sound.rs:73 `ArmorEquipNetherite` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArmorEquipNetheriteSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ArrowHitSound` | implemented | src/world/sound.rs:76 `ArrowHit` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ArrowHitSound` | implemented | src/world/sound.rs:76 `ArrowHit` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ArrowHitSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BarrelCloseSound` | implemented | src/world/sound.rs:79 `BarrelClose` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BarrelCloseSound` | implemented | src/world/sound.rs:79 `BarrelClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BarrelCloseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BarrelOpenSound` | implemented | src/world/sound.rs:82 `BarrelOpen` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BarrelOpenSound` | implemented | src/world/sound.rs:82 `BarrelOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BarrelOpenSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BellRingSound` | implemented | src/world/sound.rs:85 `BellRing` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BellRingSound` | implemented | src/world/sound.rs:85 `BellRing` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BellRingSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlastFurnaceSound` | implemented | src/world/sound.rs:88 `BlastFurnace` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BlastFurnaceSound` | implemented | src/world/sound.rs:88 `BlastFurnace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BlastFurnaceSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlazeShootSound` | implemented | src/world/sound.rs:91 `BlazeShoot` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BlazeShootSound` | implemented | src/world/sound.rs:91 `BlazeShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BlazeShootSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockBreakSound` | implemented | src/world/sound.rs:94 `BlockBreak` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BlockBreakSound` | implemented | src/world/sound.rs:94 `BlockBreak` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BlockBreakSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockBreakSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockPlaceSound` | implemented | src/world/sound.rs:97 `BlockPlace` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BlockPlaceSound` | implemented | src/world/sound.rs:97 `BlockPlace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BlockPlaceSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockPlaceSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BlockPunchSound` | implemented | src/world/sound.rs:100 `BlockPunch` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BlockPunchSound` | implemented | src/world/sound.rs:100 `BlockPunch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BlockPunchSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\BlockPunchSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BottleEmptySound` | implemented | src/world/sound.rs:103 `BottleEmpty` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BottleEmptySound` | implemented | src/world/sound.rs:103 `BottleEmpty` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BottleEmptySound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BowShootSound` | implemented | src/world/sound.rs:106 `BowShoot` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BowShootSound` | implemented | src/world/sound.rs:106 `BowShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BowShootSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BucketEmptyLavaSound` | implemented | src/world/sound.rs:109 `BucketEmptyLava` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BucketEmptyLavaSound` | implemented | src/world/sound.rs:109 `BucketEmptyLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BucketEmptyLavaSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BucketEmptyWaterSound` | implemented | src/world/sound.rs:112 `BucketEmptyWater` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BucketEmptyWaterSound` | implemented | src/world/sound.rs:112 `BucketEmptyWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BucketEmptyWaterSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BucketFillLavaSound` | implemented | src/world/sound.rs:115 `BucketFillLava` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BucketFillLavaSound` | implemented | src/world/sound.rs:115 `BucketFillLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BucketFillLavaSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BucketFillWaterSound` | implemented | src/world/sound.rs:118 `BucketFillWater` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BucketFillWaterSound` | implemented | src/world/sound.rs:118 `BucketFillWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BucketFillWaterSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\BurpSound` | implemented | src/world/sound.rs:121 `Burp` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\BurpSound` | implemented | src/world/sound.rs:121 `Burp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\BurpSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CampfireSound` | implemented | src/world/sound.rs:124 `Campfire` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CampfireSound` | implemented | src/world/sound.rs:124 `Campfire` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CampfireSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronAddDyeSound` | implemented | src/world/sound.rs:127 `CauldronAddDye` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronAddDyeSound` | implemented | src/world/sound.rs:127 `CauldronAddDye` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronAddDyeSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronCleanItemSound` | implemented | src/world/sound.rs:130 `CauldronCleanItem` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronCleanItemSound` | implemented | src/world/sound.rs:130 `CauldronCleanItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronCleanItemSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronDyeItemSound` | implemented | src/world/sound.rs:133 `CauldronDyeItem` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronDyeItemSound` | implemented | src/world/sound.rs:133 `CauldronDyeItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronDyeItemSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronEmptyLavaSound` | implemented | src/world/sound.rs:136 `CauldronEmptyLava` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronEmptyLavaSound` | implemented | src/world/sound.rs:136 `CauldronEmptyLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronEmptyLavaSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronEmptyPotionSound` | implemented | src/world/sound.rs:139 `CauldronEmptyPotion` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronEmptyPotionSound` | implemented | src/world/sound.rs:139 `CauldronEmptyPotion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronEmptyPotionSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronEmptyPowderSnowSound` | implemented | src/world/sound.rs:142 `CauldronEmptyPowderSnow` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronEmptyPowderSnowSound` | implemented | src/world/sound.rs:142 `CauldronEmptyPowderSnow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronEmptyPowderSnowSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronEmptyWaterSound` | implemented | src/world/sound.rs:145 `CauldronEmptyWater` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronEmptyWaterSound` | implemented | src/world/sound.rs:145 `CauldronEmptyWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronEmptyWaterSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronFillLavaSound` | implemented | src/world/sound.rs:148 `CauldronFillLava` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronFillLavaSound` | implemented | src/world/sound.rs:148 `CauldronFillLava` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronFillLavaSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronFillPotionSound` | implemented | src/world/sound.rs:151 `CauldronFillPotion` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronFillPotionSound` | implemented | src/world/sound.rs:151 `CauldronFillPotion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronFillPotionSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronFillPowderSnowSound` | implemented | src/world/sound.rs:154 `CauldronFillPowderSnow` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronFillPowderSnowSound` | implemented | src/world/sound.rs:154 `CauldronFillPowderSnow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronFillPowderSnowSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CauldronFillWaterSound` | implemented | src/world/sound.rs:157 `CauldronFillWater` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CauldronFillWaterSound` | implemented | src/world/sound.rs:157 `CauldronFillWater` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CauldronFillWaterSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ChestCloseSound` | implemented | src/world/sound.rs:160 `ChestClose` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ChestCloseSound` | implemented | src/world/sound.rs:160 `ChestClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ChestCloseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ChestOpenSound` | implemented | src/world/sound.rs:163 `ChestOpen` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ChestOpenSound` | implemented | src/world/sound.rs:163 `ChestOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ChestOpenSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ChorusFlowerDieSound` | implemented | src/world/sound.rs:166 `ChorusFlowerDie` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ChorusFlowerDieSound` | implemented | src/world/sound.rs:166 `ChorusFlowerDie` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ChorusFlowerDieSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ChorusFlowerGrowSound` | implemented | src/world/sound.rs:169 `ChorusFlowerGrow` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ChorusFlowerGrowSound` | implemented | src/world/sound.rs:169 `ChorusFlowerGrow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ChorusFlowerGrowSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ClickSound` | implemented | src/world/sound.rs:172 `Click` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ClickSound` | implemented | src/world/sound.rs:172 `Click` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ClickSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ClickSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ClickSound::getPitch` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CopperWaxApplySound` | implemented | src/world/sound.rs:178 `CopperWaxApply` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CopperWaxApplySound` | implemented | src/world/sound.rs:178 `CopperWaxApply` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CopperWaxApplySound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\CopperWaxRemoveSound` | implemented | src/world/sound.rs:181 `CopperWaxRemove` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\CopperWaxRemoveSound` | implemented | src/world/sound.rs:181 `CopperWaxRemove` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\CopperWaxRemoveSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DoorBumpSound` | implemented | src/world/sound.rs:184 `DoorBump` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DoorBumpSound` | implemented | src/world/sound.rs:184 `DoorBump` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DoorBumpSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DoorCrashSound` | implemented | src/world/sound.rs:187 `DoorCrash` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DoorCrashSound` | implemented | src/world/sound.rs:187 `DoorCrash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DoorCrashSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DoorSound` | implemented | src/world/sound.rs:190 `Door` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DoorSound` | implemented | src/world/sound.rs:190 `Door` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DoorSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DoorSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\DoorSound::getPitch` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DripleafTiltDownSound` | implemented | src/world/sound.rs:196 `DripleafTiltDown` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DripleafTiltDownSound` | implemented | src/world/sound.rs:196 `DripleafTiltDown` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DripleafTiltDownSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DripleafTiltUpSound` | implemented | src/world/sound.rs:199 `DripleafTiltUp` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DripleafTiltUpSound` | implemented | src/world/sound.rs:199 `DripleafTiltUp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DripleafTiltUpSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\DyeUseSound` | implemented | src/world/sound.rs:202 `DyeUse` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\DyeUseSound` | implemented | src/world/sound.rs:202 `DyeUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\DyeUseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\EnderChestCloseSound` | implemented | src/world/sound.rs:205 `EnderChestClose` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\EnderChestCloseSound` | implemented | src/world/sound.rs:205 `EnderChestClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\EnderChestCloseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\EnderChestOpenSound` | implemented | src/world/sound.rs:208 `EnderChestOpen` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\EnderChestOpenSound` | implemented | src/world/sound.rs:208 `EnderChestOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\EnderChestOpenSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\EndermanTeleportSound` | implemented | src/world/sound.rs:211 `EndermanTeleport` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\EndermanTeleportSound` | implemented | src/world/sound.rs:211 `EndermanTeleport` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\EndermanTeleportSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\EntityAttackNoDamageSound` | implemented | src/world/sound.rs:217 `EntityAttackNoDamage` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\EntityAttackNoDamageSound` | implemented | src/world/sound.rs:217 `EntityAttackNoDamage` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\EntityAttackNoDamageSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\EntityAttackSound` | implemented | src/world/sound.rs:214 `EntityAttack` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\EntityAttackSound` | implemented | src/world/sound.rs:214 `EntityAttack` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\EntityAttackSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\EntityLandSound` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityLandSound::__construct` | skipped |  |  | the entity rules play it |
@@ -10285,78 +10285,78 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\sound\EntityShortFallSound` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityShortFallSound::__construct` | skipped |  |  | the entity rules play it |
 | `world\sound\EntityShortFallSound::encode` | skipped |  |  | the entity rules play it |
-| `world\sound\ExplodeSound` | implemented | src/world/sound.rs:220 `Explode` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ExplodeSound` | implemented | src/world/sound.rs:220 `Explode` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ExplodeSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FireExtinguishSound` | implemented | src/world/sound.rs:223 `FireExtinguish` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FireExtinguishSound` | implemented | src/world/sound.rs:223 `FireExtinguish` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FireExtinguishSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FireworkCrackleSound` | implemented | src/world/sound.rs:226 `FireworkCrackle` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FireworkCrackleSound` | implemented | src/world/sound.rs:226 `FireworkCrackle` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FireworkCrackleSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FireworkExplosionSound` | implemented | src/world/sound.rs:229 `FireworkExplosion` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FireworkExplosionSound` | implemented | src/world/sound.rs:229 `FireworkExplosion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FireworkExplosionSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FireworkLargeExplosionSound` | implemented | src/world/sound.rs:232 `FireworkLargeExplosion` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FireworkLargeExplosionSound` | implemented | src/world/sound.rs:232 `FireworkLargeExplosion` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FireworkLargeExplosionSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FireworkLaunchSound` | implemented | src/world/sound.rs:235 `FireworkLaunch` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FireworkLaunchSound` | implemented | src/world/sound.rs:235 `FireworkLaunch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FireworkLaunchSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FizzSound` | implemented | src/world/sound.rs:238 `Fizz` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FizzSound` | implemented | src/world/sound.rs:238 `Fizz` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FizzSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FizzSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\FizzSound::getPitch` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FlintSteelSound` | implemented | src/world/sound.rs:244 `FlintSteel` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FlintSteelSound` | implemented | src/world/sound.rs:244 `FlintSteel` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FlintSteelSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\FurnaceSound` | implemented | src/world/sound.rs:247 `Furnace` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\FurnaceSound` | implemented | src/world/sound.rs:247 `Furnace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\FurnaceSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\GhastShootSound` | implemented | src/world/sound.rs:250 `GhastShoot` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\GhastShootSound` | implemented | src/world/sound.rs:250 `GhastShoot` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\GhastShootSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\GhastSound` | implemented | src/world/sound.rs:253 `Ghast` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\GhastSound` | implemented | src/world/sound.rs:253 `Ghast` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\GhastSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\GlowBerriesPickSound` | implemented | src/world/sound.rs:256 `GlowBerriesPick` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\GlowBerriesPickSound` | implemented | src/world/sound.rs:256 `GlowBerriesPick` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\GlowBerriesPickSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\GoatHornSound` | implemented | src/world/sound.rs:260 `GoatHorn` | src/world/sound.rs::notes_discs_and_horns_send_pmmps_sound_events |  |
+| `world\sound\GoatHornSound` | implemented | src/world/sound.rs:260 `GoatHorn` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\GoatHornSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\GoatHornSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\IceBombHitSound` | implemented | src/world/sound.rs:263 `IceBombHit` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\IceBombHitSound` | implemented | src/world/sound.rs:263 `IceBombHit` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\IceBombHitSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\IgniteSound` | implemented | src/world/sound.rs:266 `Ignite` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\IgniteSound` | implemented | src/world/sound.rs:266 `Ignite` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\IgniteSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\InkSacUseSound` | implemented | src/world/sound.rs:269 `InkSacUse` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\InkSacUseSound` | implemented | src/world/sound.rs:269 `InkSacUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\InkSacUseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemBreakSound` | implemented | src/world/sound.rs:272 `ItemBreak` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ItemBreakSound` | implemented | src/world/sound.rs:272 `ItemBreak` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ItemBreakSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemFrameAddItemSound` | implemented | src/world/sound.rs:275 `ItemFrameAddItem` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ItemFrameAddItemSound` | implemented | src/world/sound.rs:275 `ItemFrameAddItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ItemFrameAddItemSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemFrameRemoveItemSound` | implemented | src/world/sound.rs:278 `ItemFrameRemoveItem` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ItemFrameRemoveItemSound` | implemented | src/world/sound.rs:278 `ItemFrameRemoveItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ItemFrameRemoveItemSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemFrameRotateItemSound` | implemented | src/world/sound.rs:281 `ItemFrameRotateItem` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ItemFrameRotateItemSound` | implemented | src/world/sound.rs:281 `ItemFrameRotateItem` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ItemFrameRotateItemSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ItemUseOnBlockSound` | implemented | src/world/sound.rs:284 `ItemUseOnBlock` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ItemUseOnBlockSound` | implemented | src/world/sound.rs:284 `ItemUseOnBlock` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ItemUseOnBlockSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemUseOnBlockSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\ItemUseOnBlockSound::getBlock` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\LaunchSound` | implemented | src/world/sound.rs:287 `Launch` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\LaunchSound` | implemented | src/world/sound.rs:287 `Launch` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\LaunchSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\LaunchSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\LaunchSound::getPitch` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\LecternPlaceBookSound` | implemented | src/world/sound.rs:293 `LecternPlaceBook` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\LecternPlaceBookSound` | implemented | src/world/sound.rs:293 `LecternPlaceBook` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\LecternPlaceBookSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\NoteInstrument` | implemented | src/world/sound.rs:562 `NoteInstrument` | src/world/sound.rs::notes_discs_and_horns_send_pmmps_sound_events |  |
+| `world\sound\NoteInstrument` | implemented | src/world/sound.rs:562 `NoteInstrument` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\NoteInstrument::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `world\sound\NoteSound` | implemented | src/world/sound.rs:296 `Note` | src/world/sound.rs::notes_discs_and_horns_send_pmmps_sound_events |  |
+| `world\sound\NoteSound` | implemented | src/world/sound.rs:296 `Note` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\NoteSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\NoteSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PaintingPlaceSound` | implemented | src/world/sound.rs:304 `PaintingPlace` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\PaintingPlaceSound` | implemented | src/world/sound.rs:304 `PaintingPlace` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\PaintingPlaceSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PopSound` | implemented | src/world/sound.rs:307 `Pop` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\PopSound` | implemented | src/world/sound.rs:307 `Pop` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\PopSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PopSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PopSound::getPitch` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PotionFinishBrewingSound` | implemented | src/world/sound.rs:313 `PotionFinishBrewing` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\PotionFinishBrewingSound` | implemented | src/world/sound.rs:313 `PotionFinishBrewing` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\PotionFinishBrewingSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\PotionSplashSound` | implemented | src/world/sound.rs:316 `PotionSplash` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\PotionSplashSound` | implemented | src/world/sound.rs:316 `PotionSplash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\PotionSplashSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\PressurePlateActivateSound` | skipped |  |  | redstone |
 | `world\sound\PressurePlateActivateSound::__construct` | skipped |  |  | redstone |
@@ -10364,49 +10364,49 @@ implemented 252, differs 5, merged 231, skipped 584, blank 1 (of 1073 rows)
 | `world\sound\PressurePlateDeactivateSound` | skipped |  |  | redstone |
 | `world\sound\PressurePlateDeactivateSound::__construct` | skipped |  |  | redstone |
 | `world\sound\PressurePlateDeactivateSound::encode` | skipped |  |  | redstone |
-| `world\sound\RecordSound` | implemented | src/world/sound.rs:320 `Record` | src/world/sound.rs::notes_discs_and_horns_send_pmmps_sound_events |  |
+| `world\sound\RecordSound` | implemented | src/world/sound.rs:320 `Record` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\RecordSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\RecordSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RecordStopSound` | implemented | src/world/sound.rs:323 `RecordStop` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\RecordStopSound` | implemented | src/world/sound.rs:323 `RecordStop` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\RecordStopSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RedstonePowerOffSound` | implemented | src/world/sound.rs:329 `RedstonePowerOff` | src/world/sound.rs::levers_and_buttons_sound_as_pmmps_redstone_power |  |
+| `world\sound\RedstonePowerOffSound` | implemented | src/world/sound.rs:329 `RedstonePowerOff` | src/world/sound.rs::levers_and_buttons_sound_as_redstone_power |  |
 | `world\sound\RedstonePowerOffSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RedstonePowerOnSound` | implemented | src/world/sound.rs:326 `RedstonePowerOn` | src/world/sound.rs::levers_and_buttons_sound_as_pmmps_redstone_power |  |
+| `world\sound\RedstonePowerOnSound` | implemented | src/world/sound.rs:326 `RedstonePowerOn` | src/world/sound.rs::levers_and_buttons_sound_as_redstone_power |  |
 | `world\sound\RedstonePowerOnSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RespawnAnchorChargeSound` | implemented | src/world/sound.rs:332 `RespawnAnchorCharge` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\RespawnAnchorChargeSound` | implemented | src/world/sound.rs:332 `RespawnAnchorCharge` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\RespawnAnchorChargeSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RespawnAnchorDepleteSound` | implemented | src/world/sound.rs:335 `RespawnAnchorDeplete` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\RespawnAnchorDepleteSound` | implemented | src/world/sound.rs:335 `RespawnAnchorDeplete` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\RespawnAnchorDepleteSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\RespawnAnchorSetSpawnSound` | implemented | src/world/sound.rs:338 `RespawnAnchorSetSpawn` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\RespawnAnchorSetSpawnSound` | implemented | src/world/sound.rs:338 `RespawnAnchorSetSpawn` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\RespawnAnchorSetSpawnSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ScrapeSound` | implemented | src/world/sound.rs:341 `Scrape` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ScrapeSound` | implemented | src/world/sound.rs:341 `Scrape` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ScrapeSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ShulkerBoxCloseSound` | implemented | src/world/sound.rs:344 `ShulkerBoxClose` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ShulkerBoxCloseSound` | implemented | src/world/sound.rs:344 `ShulkerBoxClose` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ShulkerBoxCloseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ShulkerBoxOpenSound` | implemented | src/world/sound.rs:347 `ShulkerBoxOpen` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ShulkerBoxOpenSound` | implemented | src/world/sound.rs:347 `ShulkerBoxOpen` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ShulkerBoxOpenSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\SmokerSound` | implemented | src/world/sound.rs:350 `Smoker` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\SmokerSound` | implemented | src/world/sound.rs:350 `Smoker` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\SmokerSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\Sound` | implemented | src/world/sound.rs:37 `Sound` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\Sound` | implemented | src/world/sound.rs:37 `Sound` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\Sound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\SweetBerriesPickSound` | implemented | src/world/sound.rs:353 `SweetBerriesPick` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\SweetBerriesPickSound` | implemented | src/world/sound.rs:353 `SweetBerriesPick` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\SweetBerriesPickSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\ThrowSound` | implemented | src/world/sound.rs:356 `Throw` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\ThrowSound` | implemented | src/world/sound.rs:356 `Throw` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\ThrowSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\TotemUseSound` | implemented | src/world/sound.rs:359 `TotemUse` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\TotemUseSound` | implemented | src/world/sound.rs:359 `TotemUse` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\TotemUseSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\TridentHitBlockSound` | implemented | src/world/sound.rs:362 `TridentHitBlock` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\TridentHitBlockSound` | implemented | src/world/sound.rs:362 `TridentHitBlock` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\TridentHitBlockSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\TridentHitEntitySound` | implemented | src/world/sound.rs:365 `TridentHitEntity` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\TridentHitEntitySound` | implemented | src/world/sound.rs:365 `TridentHitEntity` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\TridentHitEntitySound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\TridentThrowSound` | implemented | src/world/sound.rs:368 `TridentThrow` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\TridentThrowSound` | implemented | src/world/sound.rs:368 `TridentThrow` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\TridentThrowSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\WaterSplashSound` | implemented | src/world/sound.rs:371 `WaterSplash` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\WaterSplashSound` | implemented | src/world/sound.rs:371 `WaterSplash` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\WaterSplashSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\WaterSplashSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\XpCollectSound` | implemented | src/world/sound.rs:377 `XpCollect` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\XpCollectSound` | implemented | src/world/sound.rs:377 `XpCollect` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\XpCollectSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\XpLevelUpSound` | implemented | src/world/sound.rs:380 `XpLevelUp` | src/world/sound.rs::sounds_send_pmmps_packets_with_gophertunnel_names |  |
+| `world\sound\XpLevelUpSound` | implemented | src/world/sound.rs:380 `XpLevelUp` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\XpLevelUpSound::__construct` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\XpLevelUpSound::encode` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\XpLevelUpSound::getXpLevel` | merged | src/tick/world_api.rs:163 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
