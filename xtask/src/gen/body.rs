@@ -26,7 +26,6 @@ pub(crate) enum Dir {
 }
 
 type Vars = BTreeSet<usize>;
-type R<T> = Result<T, String>;
 
 /// A Rust expression and the tracked locals it reads.
 #[derive(Debug, Clone, Default)]
@@ -47,7 +46,7 @@ impl E {
         }
     }
 
-    fn code(mut self, code: String) -> Self {
+    fn with_code(mut self, code: String) -> Self {
         self.code = code;
         self
     }
@@ -170,7 +169,7 @@ enum S {
 
 /// Where printed statements go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ctx {
+enum PrintMode {
     /// A function body: the last `Return` is the tail expression.
     Fn,
     /// A closure returning `Result`: the last `Return` is `Ok(value)`.
@@ -270,12 +269,12 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn rust_type(&self, t: &Type) -> R<String> {
+    fn rust_type(&self, t: &Type) -> Result<String, String> {
         self.m.rust_type(t, self.module)
     }
 
     /// A function result type: `sum` decides strings (`&str`, `&'static str` or `String`).
-    fn result_type(&self, t: &Type, sum: &str) -> R<String> {
+    fn result_type(&self, t: &Type, sum: &str) -> Result<String, String> {
         if is_string(t) {
             return Ok(if sum.contains("String") {
                 "String".to_owned()
@@ -290,7 +289,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// The type of a borrowed local holding a value of `t`.
-    fn borrowed_type(&self, t: &Type) -> R<String> {
+    fn borrowed_type(&self, t: &Type) -> Result<String, String> {
         if self.m.is_copy(t) {
             return self.rust_type(t);
         }
@@ -314,7 +313,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             .unwrap_or_default()
     }
 
-    fn new_var(&mut self, go: &str, ty: Option<String>) -> R<usize> {
+    fn new_var(&mut self, go: &str, ty: Option<String>) -> Result<usize, String> {
         let name = param_name(go)?;
         self.vars.push(Var { name, ty });
         Ok(self.vars.len() - 1)
@@ -326,7 +325,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn lookup(&self, go: &str) -> R<Binding> {
+    fn lookup(&self, go: &str) -> Result<Binding, String> {
         self.scopes
             .iter()
             .rev()
@@ -336,7 +335,13 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Declares a tracked local bound to a Go name; `borrowed` locals hold references.
-    fn declare(&mut self, go: &str, t: &Type, annotate: bool, borrowed: bool) -> R<usize> {
+    fn declare(
+        &mut self,
+        go: &str,
+        t: &Type,
+        annotate: bool,
+        borrowed: bool,
+    ) -> Result<usize, String> {
         let ty = match (annotate, t.kind.as_str()) {
             (false, _) | (_, "tuple") => None,
             _ if borrowed => Some(self.borrowed_type(t)?),
@@ -365,7 +370,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Encode: declares shadow locals for external places the body assigns and reads after.
-    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> R<()> {
+    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
         let mut locals = BTreeSet::new();
         collect_locals(stmts, &mut locals);
         let mut written = Vec::new();
@@ -571,7 +576,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn stmts(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> R<()> {
+    fn stmts(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
         for s in stmts {
             self.stmt(s, out)?;
             if ends(out) {
@@ -582,7 +587,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(())
     }
 
-    fn scoped(&mut self, stmts: &[Stmt]) -> R<Vec<S>> {
+    fn scoped(&mut self, stmts: &[Stmt]) -> Result<Vec<S>, String> {
         self.scopes.push(BTreeMap::new());
         let mut out = Vec::new();
         let result = self.stmts(stmts, &mut out);
@@ -590,7 +595,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         result.map(|()| out)
     }
 
-    fn stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         match s.kind.as_str() {
             "io" => self.io(s, out),
             "marshal" => self.marshal_stmt(s, out),
@@ -641,7 +646,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn return_stmt(&mut self, values: &[Expr]) -> R<S> {
+    fn return_stmt(&mut self, values: &[Expr]) -> Result<S, String> {
         match self.ret.clone() {
             Ret::Receiver(id) => {
                 let mut e = E::new(self.name(id));
@@ -676,7 +681,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn error(&mut self, s: &Stmt) -> R<S> {
+    fn error(&mut self, s: &Stmt) -> Result<S, String> {
         self.fallible = true;
         let mut reads = Vars::new();
         let code = match s.error.as_str() {
@@ -708,7 +713,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// A `&'static str` expression: a string constant, or the message of a non-nil error.
-    fn static_str(&mut self, e: &Expr) -> R<E> {
+    fn static_str(&mut self, e: &Expr) -> Result<E, String> {
         match e.kind.as_str() {
             "lit" | "const" => Ok(E::new(str_lit(e.value.as_deref().unwrap_or_default()))),
             "call" if e.func == "error.Error" => {
@@ -719,7 +724,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn io_args(s: &Stmt) -> R<Vec<String>> {
+    fn io_args(s: &Stmt) -> Result<Vec<String>, String> {
         let mut args = Vec::new();
         for a in &s.args {
             args.push(match a.kind.as_str() {
@@ -736,7 +741,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Decode: `r.method(args)` of an IO statement, returning `Result`.
-    fn io_read_call(&mut self, s: &Stmt) -> R<String> {
+    fn io_read_call(&mut self, s: &Stmt) -> Result<String, String> {
         let spec =
             model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
         if spec.read != Read::Returns {
@@ -790,7 +795,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Some(max)
     }
 
-    fn io(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn io(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let spec =
             model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
         let place = s.place.as_ref().ok_or("io without place")?;
@@ -801,7 +806,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let q = self.q();
                 out.push(S::Expr(
                     arg.clone()
-                        .code(format!("r.{}({}){q}", spec.rust, arg.code))
+                        .with_code(format!("r.{}({}){q}", spec.rust, arg.code))
                         .effect(),
                 ));
                 Ok(())
@@ -835,7 +840,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                     ),
                 };
                 out.push(S::Expr(
-                    arg.code(format!("w.{method}({}){q}", args.join(", ")))
+                    arg.with_code(format!("w.{method}({}){q}", args.join(", ")))
                         .effect(),
                 ));
                 Ok(())
@@ -843,7 +848,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn marshal_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn marshal_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let place = s.place.as_ref().ok_or("marshal without place")?;
         if s.dynamic {
             let v = self.expr(place)?;
@@ -853,7 +858,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 Dir::Decode => {
                     let e =
                         v.e.clone()
-                            .code(format!(
+                            .with_code(format!(
                                 "std::mem::take(&mut {}).decode_variant(r){q}",
                                 v.e.code
                             ))
@@ -863,7 +868,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 Dir::Encode => {
                     out.push(S::Expr(
                         v.e.clone()
-                            .code(format!("{recv}.encode_variant(w){q}"))
+                            .with_code(format!("{recv}.encode_variant(w){q}"))
                             .effect(),
                     ));
                     Ok(())
@@ -883,7 +888,9 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let q = self.q();
                 let recv = method_recv(&v.e.code);
                 out.push(S::Expr(
-                    v.e.clone().code(format!("{recv}.encode(w){q}")).effect(),
+                    v.e.clone()
+                        .with_code(format!("{recv}.encode(w){q}"))
+                        .effect(),
                 ));
                 Ok(())
             }
@@ -891,7 +898,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Decode: `T::decode(r)`, or `<Arc<T>>::decode(r)` into a shared field.
-    fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> R<String> {
+    fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> Result<String, String> {
         self.fallible = true;
         let name = self.m.named(go, self.module)?;
         let shared = place.is_some_and(|p| {
@@ -907,7 +914,7 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// Decode: the value a single-statement element body gives its element: `(call, true)` for
     /// an expression returning `Result`, `(value, false)` for a plain value.
-    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> R<Option<(E, bool)>> {
+    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> Result<Option<(E, bool)>, String> {
         let [s] = body else { return Ok(None) };
         let on_elem = s
             .place
@@ -931,7 +938,7 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// Decode: `r.list_*(F)` of a slice statement, returning `Result`; `r.list_*_max(N, F)`
     /// when the field holds at most `N` elements.
-    fn list_call(&mut self, s: &Stmt) -> R<E> {
+    fn list_call(&mut self, s: &Stmt) -> Result<E, String> {
         let elem = s.elem.as_ref().ok_or("slice without element")?;
         let max = self.limit(s.place.as_ref());
         let key = s.place.as_ref().and_then(|p| self.limit_key(p));
@@ -947,38 +954,38 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(match s.prefix.as_str() {
             "varuint32" | "uint8" | "uint32" => f
                 .clone()
-                .code(format!("r.list_{}{suffix}({max}{})", s.prefix, f.code)),
+                .with_code(format!("r.list_{}{suffix}({max}{})", s.prefix, f.code)),
             "" => {
                 let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
                 let len = self.u64_value(len)?;
                 f.clone()
                     .with(&len)
-                    .code(format!("r.list{suffix}({}, {max}{})", len.code, f.code))
+                    .with_code(format!("r.list{suffix}({}, {max}{})", len.code, f.code))
             }
             other => return Err(format!("unsupported slice prefix {other}")),
         })
     }
 
     /// Decode: the element reader passed to a list read.
-    fn elem_fn(&mut self, body: &[Stmt], elem: &Param) -> R<E> {
+    fn elem_fn(&mut self, body: &[Stmt], elem: &Param) -> Result<E, String> {
         self.fallible = true;
         if let Some((value, call)) = self.elem_value(body, elem)? {
             if !call {
-                return Ok(value.clone().code(format!("|r| Ok({})", value.code)));
+                return Ok(value.clone().with_code(format!("|r| Ok({})", value.code)));
             }
             let code = &value.code;
             if let Some(path) = code.strip_suffix("::decode(r)") {
-                return Ok(value.clone().code(format!("{path}::decode")));
+                return Ok(value.clone().with_code(format!("{path}::decode")));
             }
             if let Some(method) = code.strip_prefix("r.").and_then(|m| m.strip_suffix("()"))
                 && !method.contains('(')
             {
-                return Ok(value.clone().code(format!("Reader::{method}")));
+                return Ok(value.clone().with_code(format!("Reader::{method}")));
             }
-            return Ok(value.clone().code(format!("|r| {code}")));
+            return Ok(value.clone().with_code(format!("|r| {code}")));
         }
         let (stmts, first) = self.elem_stmts(body, elem)?;
-        let (code, reads) = self.print_nested(stmts, first, Ctx::Closure)?;
+        let (code, reads) = self.print_nested(stmts, first, PrintMode::Closure)?;
         let mut e = E::new(format!("|r| {{ {code} }}"));
         e.reads = reads;
         Ok(e)
@@ -986,7 +993,7 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// Decode: statements building one element in a fresh default local, ending in a return of
     /// it; and the first local id of the nested body.
-    fn elem_stmts(&mut self, body: &[Stmt], elem: &Param) -> R<(Vec<S>, usize)> {
+    fn elem_stmts(&mut self, body: &[Stmt], elem: &Param) -> Result<(Vec<S>, usize), String> {
         if contains_return(body) {
             return Err("return inside an element body".to_owned());
         }
@@ -1029,19 +1036,24 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// Cleans and prints a nested body; returns its code and the outer locals it reads. A body
     /// that assigns a local outside it is an error.
-    fn print_nested(&mut self, mut stmts: Vec<S>, first: usize, ctx: Ctx) -> R<(String, Vars)> {
+    fn print_nested(
+        &mut self,
+        mut stmts: Vec<S>,
+        first: usize,
+        mode: PrintMode,
+    ) -> Result<(String, Vars), String> {
         if sets_before(&stmts, first) {
             return Err("a nested body assigns a local outside it".to_owned());
         }
         live(&mut stmts, &Vars::new());
         let reads = outer(&stmts, first);
-        let (code, _) = self.print_block(&stmts, ctx, &mut Vars::new());
+        let (code, _) = self.print_block(&stmts, mode, &mut Vars::new());
         Ok((code, reads))
     }
 
     /// Decode: `if r.bool()? { Some(..) } else { None }` of an optional statement. The value
     /// takes the place's limit.
-    fn option_value(&mut self, s: &Stmt) -> R<E> {
+    fn option_value(&mut self, s: &Stmt) -> Result<E, String> {
         let elem = s.elem.as_ref().ok_or("optional without element")?;
         let key = s.place.as_ref().and_then(|p| self.limit_key(p));
         self.limit_vars.push((elem.name.clone(), key));
@@ -1050,34 +1062,34 @@ impl<'m, 'a> Lower<'m, 'a> {
         value
     }
 
-    fn option_inner(&mut self, s: &Stmt, elem: &Param) -> R<E> {
+    fn option_inner(&mut self, s: &Stmt, elem: &Param) -> Result<E, String> {
         self.fallible = true;
         let inner = if let Some((value, call)) = self.elem_value(&s.body, elem)? {
             if call {
-                value.clone().code(format!("{}?", value.code))
+                value.clone().with_code(format!("{}?", value.code))
             } else {
                 value
             }
         } else {
             let (stmts, first) = self.elem_stmts(&s.body, elem)?;
-            let (code, reads) = self.print_nested(stmts, first, Ctx::Block)?;
+            let (code, reads) = self.print_nested(stmts, first, PrintMode::Block)?;
             let mut e = E::new(format!("{{ {code} }}"));
             e.reads = reads;
             e
         };
-        Ok(inner.clone().code(format!(
+        Ok(inner.clone().with_code(format!(
             "if r.bool()? {{ Some({}) }} else {{ None }}",
             inner.code
         )))
     }
 
-    fn slice(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn slice(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let place = s.place.as_ref().ok_or("slice without place")?;
         let elem = s.elem.as_ref().ok_or("slice without element")?;
         match self.dir {
             Dir::Decode => {
                 let call = self.list_call(s)?;
-                let e = call.clone().code(format!("{}?", call.code)).effect();
+                let e = call.clone().with_code(format!("{}?", call.code)).effect();
                 self.store(place, e, out)
             }
             Dir::Encode => {
@@ -1093,7 +1105,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                             None => format!("length({recv}.len())"),
                         };
                         let code = format!("w.{}({len}{q})", s.prefix);
-                        out.push(S::Expr(v.e.clone().code(code).effect()));
+                        out.push(S::Expr(v.e.clone().with_code(code).effect()));
                     }
                     "" => {
                         let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
@@ -1104,7 +1116,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                         let cond = len
                             .clone()
                             .with(&v.e)
-                            .code(format!("{recv}.len() != {}{over}", len.code));
+                            .with_code(format!("{recv}.len() != {}{over}", len.code));
                         out.push(S::If {
                             cond: Cond::Plain { e: cond, neg: None },
                             then: vec![S::Fail(E::new("Error::Size"))],
@@ -1120,14 +1132,14 @@ impl<'m, 'a> Lower<'m, 'a> {
                 self.limit_vars.pop();
                 let (pat, body) = body?;
                 let code = format!("for {pat} in {} {{ {} }}", list.code, body.code);
-                out.push(S::Expr(list.with(&body).code(code).effect()));
+                out.push(S::Expr(list.with(&body).with_code(code).effect()));
                 Ok(())
             }
         }
     }
 
     /// Encode: the pattern and printed body run on each element (or the optional's value).
-    fn encode_elem_body(&mut self, body: &[Stmt], elem: &Param) -> R<(String, E)> {
+    fn encode_elem_body(&mut self, body: &[Stmt], elem: &Param) -> Result<(String, E), String> {
         self.scopes.push(BTreeMap::new());
         let name = param_name(&elem.name)?;
         let copy = self.m.is_copy(&elem.ty);
@@ -1148,7 +1160,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(body, &mut out);
         self.scopes.pop();
         result?;
-        let (code, reads) = self.print_nested(out, first, Ctx::Loop)?;
+        let (code, reads) = self.print_nested(out, first, PrintMode::Loop)?;
         let mut e = E::new(code);
         e.reads = reads;
         let pat = if copy && mentions_name(&e.code, &name) {
@@ -1161,7 +1173,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok((pat, e.effect()))
     }
 
-    fn optional(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn optional(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let place = s.place.as_ref().ok_or("optional without place")?;
         let elem = s.elem.as_ref().ok_or("optional without element")?;
         match self.dir {
@@ -1174,7 +1186,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let recv = method_recv(&v.e.code);
                 out.push(S::Expr(
                     v.e.clone()
-                        .code(format!("w.bool({recv}.is_some())"))
+                        .with_code(format!("w.bool({recv}.is_some())"))
                         .effect(),
                 ));
                 let key = self.limit_key(place);
@@ -1193,13 +1205,13 @@ impl<'m, 'a> Lower<'m, 'a> {
                 };
                 let pat = pat.trim_start_matches('&');
                 let code = format!("if let Some({pat}) = {scrut} {{ {} }}", body.code);
-                out.push(S::Expr(v.e.clone().with(&body).code(code).effect()));
+                out.push(S::Expr(v.e.clone().with(&body).with_code(code).effect()));
                 Ok(())
             }
         }
     }
 
-    fn integer_func(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn integer_func(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let place = s.place.as_ref().ok_or("integer_func without place")?;
         let elem = s.elem.as_ref().ok_or("integer_func without element")?;
         let [inner] = s.body.as_slice() else {
@@ -1237,7 +1249,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 };
                 let q = if spec.write_fails { self.q() } else { "" };
                 out.push(S::Expr(
-                    v.code(format!("w.{}({code}){q}", spec.rust)).effect(),
+                    v.with_code(format!("w.{}({code}){q}", spec.rust)).effect(),
                 ));
                 Ok(())
             }
@@ -1248,7 +1260,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         clippy::too_many_lines,
         reason = "consistency: one match arm per call target"
     )]
-    fn call_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn call_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         match s.target.as_str() {
             "function" => {
                 if let Some(method) = Model::hand_function(&s.func) {
@@ -1266,7 +1278,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                             out.push(S::Expr(
                                 arg_expr
                                     .clone()
-                                    .code(format!("w.{method}({}){q}", arg_expr.code))
+                                    .with_code(format!("w.{method}({}){q}", arg_expr.code))
                                     .effect(),
                             ));
                             Ok(())
@@ -1316,7 +1328,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let q = if sum.fallible { self.q() } else { "" };
                 let name = self.fn_path(&s.func, prefix)?;
                 let call = call
-                    .code(format!("{name}({}){q}", codes.join(", ")))
+                    .with_code(format!("{name}({}){q}", codes.join(", ")))
                     .effect();
                 if self.dir == Dir::Encode && !sum.in_out.is_empty() {
                     let [i] = sum.in_out.as_slice() else {
@@ -1362,7 +1374,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let name = self.fn_path(&s.func, "")?;
                 let q = self.q();
                 let call = call
-                    .code(format!("{name}({}){q}", codes.join(", ")))
+                    .with_code(format!("{name}({}){q}", codes.join(", ")))
                     .effect();
                 let target = s
                     .args
@@ -1375,7 +1387,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// The Rust path of a generated function, with `prefix` (`decode_`, `encode_`).
-    fn fn_path(&self, go: &str, prefix: &str) -> R<String> {
+    fn fn_path(&self, go: &str, prefix: &str) -> Result<String, String> {
         let name = fn_name(go, prefix)?;
         Ok(
             if model::module_of(go) == Module::Types && self.module == Module::Packet {
@@ -1387,7 +1399,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Assigns a value to a Go place.
-    fn store(&mut self, place: &Expr, rhs: E, out: &mut Vec<S>) -> R<()> {
+    fn store(&mut self, place: &Expr, rhs: E, out: &mut Vec<S>) -> Result<(), String> {
         if place.kind == "blank" {
             if rhs.effects {
                 out.push(S::Expr(rhs));
@@ -1442,7 +1454,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// Whether a store to this place is dropped: an encoder's write to what it writes.
-    fn drops_store(&self, place: &Expr) -> R<bool> {
+    fn drops_store(&self, place: &Expr) -> Result<bool, String> {
         if self.dir != Dir::Encode
             || place_path(place).is_some_and(|p| self.shadows.contains_key(&p))
         {
@@ -1454,7 +1466,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(b.external && !(place.kind == "var" && b.var.is_some()))
     }
 
-    fn assign(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn assign(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         match (s.lhs.as_slice(), s.rhs.as_slice()) {
             ([lhs_expr], [rhs_expr]) if s.op == ":=" => {
                 let val = self.expr(rhs_expr)?;
@@ -1509,12 +1521,12 @@ impl<'m, 'a> Lower<'m, 'a> {
                         let owned = Self::owned_value(opt);
                         owned
                             .clone()
-                            .code(format!("{}.unwrap_or_default()", owned.code))
+                            .with_code(format!("{}.unwrap_or_default()", owned.code))
                     }
                     Dir::Encode => opt
                         .e
                         .clone()
-                        .code(format!("{}.unwrap_or_default()", opt.e.code)),
+                        .with_code(format!("{}.unwrap_or_default()", opt.e.code)),
                 };
                 self.store(lhs_expr, value, out)
             }
@@ -1544,7 +1556,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn if_stmt(&mut self, s: &Stmt) -> R<S> {
+    fn if_stmt(&mut self, s: &Stmt) -> Result<S, String> {
         let cond_expr = s.cond.as_ref().ok_or("if without condition")?;
         let cond = match s.init.as_slice() {
             [] => self.cond(cond_expr)?,
@@ -1557,7 +1569,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// `if v, ok := opt.Value(); ok [&& c]` and `if err := f(); err != nil`.
-    fn if_let(&mut self, init: &Stmt, cond: &Expr) -> R<Cond> {
+    fn if_let(&mut self, init: &Stmt, cond: &Expr) -> Result<Cond, String> {
         let ([l, rest @ ..], [r]) = (init.lhs.as_slice(), init.rhs.as_slice()) else {
             return Err("unsupported if init".to_owned());
         };
@@ -1616,7 +1628,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             };
             return Ok(Cond::Let {
                 var: id,
-                expr: opt.e.clone().code(scrut),
+                expr: opt.e.clone().with_code(scrut),
                 extra,
             });
         }
@@ -1655,14 +1667,14 @@ impl<'m, 'a> Lower<'m, 'a> {
         Err("unsupported if init".to_owned())
     }
 
-    fn cond(&mut self, e: &Expr) -> R<Cond> {
+    fn cond(&mut self, e: &Expr) -> Result<Cond, String> {
         let v = self.expr(e)?;
         let neg = self.negate(e)?;
         Ok(Cond::Plain { e: v.e, neg })
     }
 
     /// The negation of a condition when it is simpler than `!(..)`.
-    fn negate(&mut self, e: &Expr) -> R<Option<String>> {
+    fn negate(&mut self, e: &Expr) -> Result<Option<String>, String> {
         if e.kind == "unary" && e.op == "!" {
             let x = self.expr(e.x.as_deref().ok_or("! without operand")?)?;
             return Ok(Some(x.e.code));
@@ -1688,7 +1700,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(None)
     }
 
-    fn switch(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn switch(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         if !s.init.is_empty() {
             return Err("switch with init".to_owned());
         }
@@ -1699,7 +1711,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let scrut = if is_string(&v.ty) {
             match v.form {
                 Form::Ref => v.e.clone(),
-                _ => v.e.clone().code(format!("{}.as_str()", v.e.code)),
+                _ => v.e.clone().with_code(format!("{}.as_str()", v.e.code)),
             }
         } else {
             self.copy_value(v)?
@@ -1712,7 +1724,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 c.values
                     .iter()
                     .map(|x| self.pattern(x))
-                    .collect::<R<Vec<_>>>()?
+                    .collect::<Result<Vec<_>, String>>()?
             };
             let body = self.scoped(&c.body)?;
             arms.push((pats, body));
@@ -1722,14 +1734,14 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// A case value as a pattern.
-    fn pattern(&mut self, e: &Expr) -> R<String> {
+    fn pattern(&mut self, e: &Expr) -> Result<String, String> {
         match e.kind.as_str() {
             "lit" | "const" => Ok(self.expr(e)?.e.code),
             _ => Err(format!("unsupported case value {e:?}")),
         }
     }
 
-    fn for_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn for_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         // for i := 0; i < N; i++ { ... X[i] ... } over an array X of length N.
         let ([init], [post]) = (s.init.as_slice(), s.post.as_slice()) else {
             return Err("unsupported for loop".to_owned());
@@ -1758,7 +1770,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         self.element_loop(&var, &base, &s.body, out)
     }
 
-    fn range(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
+    fn range(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
         let x = s.x.as_ref().ok_or("range without operand")?;
         let key = s
             .key
@@ -1827,7 +1839,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(&s.body, &mut body);
         self.scopes.pop();
         result?;
-        let (printed, reads) = self.print_nested(body, first, Ctx::Loop)?;
+        let (printed, reads) = self.print_nested(body, first, PrintMode::Loop)?;
         let used = |n: &Option<String>| n.as_ref().filter(|n| mentions_name(&printed, n)).cloned();
         let vpat = match used(&value_name) {
             Some(n) if copy => format!("&{n}"),
@@ -1847,7 +1859,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             }
             None => (vpat, list.code.clone()),
         };
-        let mut e = list.code(format!("for {head} in {iter} {{ {printed} }}"));
+        let mut e = list.with_code(format!("for {head} in {iter} {{ {printed} }}"));
         e.reads.extend(reads);
         out.push(S::Expr(e.effect()));
         Ok(())
@@ -1855,7 +1867,13 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// A loop over an array or slice whose body uses the index only to index it: the element
     /// takes the place of `base[var]`.
-    fn element_loop(&mut self, var: &str, base: &Expr, body: &[Stmt], out: &mut Vec<S>) -> R<()> {
+    fn element_loop(
+        &mut self,
+        var: &str,
+        base: &Expr,
+        body: &[Stmt],
+        out: &mut Vec<S>,
+    ) -> Result<(), String> {
         let bv = self.expr(base)?;
         let elem_t = bv
             .ty
@@ -1905,10 +1923,10 @@ impl<'m, 'a> Lower<'m, 'a> {
         let result = self.stmts(&renamed, &mut stmts);
         self.scopes.pop();
         result?;
-        let (printed, reads) = self.print_nested(stmts, first, Ctx::Loop)?;
+        let (printed, reads) = self.print_nested(stmts, first, PrintMode::Loop)?;
         let mut e =
             bv.e.clone()
-                .code(format!("for {pat} in {iter} {{ {printed} }}"));
+                .with_code(format!("for {pat} in {iter} {{ {printed} }}"));
         if writes {
             e.muts.extend(&bv.e.reads);
         }
@@ -1917,7 +1935,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(())
     }
 
-    fn field_of(&self, t: &Type, go_field: &str) -> R<(String, Type)> {
+    fn field_of(&self, t: &Type, go_field: &str) -> Result<(String, Type), String> {
         let def = self
             .m
             .struct_def(&t.name)
@@ -1951,7 +1969,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         clippy::too_many_lines,
         reason = "consistency: one match arm per Go expression kind"
     )]
-    fn expr(&mut self, e: &Expr) -> R<Val> {
+    fn expr(&mut self, e: &Expr) -> Result<Val, String> {
         let ty = e.ty.clone().unwrap_or_else(|| basic_ty("untyped int"));
         match e.kind.as_str() {
             "var" | "field" if self.shadow(e).is_some() => {
@@ -1973,7 +1991,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                         self.val(x, b.ty.clone(), form)
                     }
                     BKind::Ref if copy => self.val(
-                        x.clone().code(format!("*{}", x.code)),
+                        x.clone().with_code(format!("*{}", x.code)),
                         b.ty.clone(),
                         Form::Copy,
                     ),
@@ -2008,7 +2026,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let base_t = base_expr.ty.clone().ok_or("field of untyped base")?;
                 let (name, _) = self.field_of(&base_t, &e.name)?;
                 let code = format!("{}.{name}", base.e.code.trim_start_matches('*'));
-                Ok(self.val(base.e.code(code), ty, Form::Place))
+                Ok(self.val(base.e.with_code(code), ty, Form::Place))
             }
             "index" => {
                 let base_expr = e.x.as_deref().ok_or("index without base")?;
@@ -2024,7 +2042,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 if fixed && index.kind == "lit" {
                     let i = index.value.clone().unwrap_or_default();
                     let code = format!("{}[{i}]", base.e.code.trim_start_matches('*'));
-                    return Ok(self.val(base.e.code(code), ty, Form::Place));
+                    return Ok(self.val(base.e.with_code(code), ty, Form::Place));
                 }
                 let i = self.expr(index)?;
                 let i = self.copy_value(i)?;
@@ -2033,14 +2051,14 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let helper = self.helper_path("go_index");
                 let list = Self::ref_iter(&base);
                 let code = format!("{helper}({}, {}){q}", list.code, i.code);
-                let x = list.with(&i).code(code).effect();
+                let x = list.with(&i).with_code(code).effect();
                 if self.m.is_copy(&ty) || is_string(&ty) {
                     let form = if is_string(&ty) {
                         Form::Ref
                     } else {
                         Form::Copy
                     };
-                    let x = x.clone().code(format!("*{}", x.code));
+                    let x = x.clone().with_code(format!("*{}", x.code));
                     Ok(Val {
                         e: x,
                         prim: prim_of(&ty),
@@ -2069,7 +2087,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let list = Self::ref_iter(&base);
                 let code = format!("{helper}({}, {}){q}", list.code, high.code);
                 Ok(Val {
-                    e: list.with(&high).code(code).effect(),
+                    e: list.with(&high).with_code(code).effect(),
                     ty,
                     form: Form::Ref,
                     prim: None,
@@ -2093,7 +2111,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                     "-" => format!("-{}", paren(&xc.code)),
                     other => return Err(format!("unsupported unary {other}")),
                 };
-                let mut v = self.val(xc.code(code), ty, Form::Copy);
+                let mut v = self.val(xc.with_code(code), ty, Form::Copy);
                 v.prim = prim.or(v.prim);
                 Ok(v)
             }
@@ -2107,7 +2125,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                         let xc = self.copy_value(x)?;
                         let code = self.convert_code(&xc.code, from, to)?;
                         Ok(Val {
-                            e: xc.code(code),
+                            e: xc.with_code(code),
                             ty,
                             form: Form::Copy,
                             prim: Some(to),
@@ -2132,7 +2150,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 };
                 let code = format!("Some({})", inner.code);
                 Ok(Val {
-                    e: inner.code(code),
+                    e: inner.with_code(code),
                     ty,
                     form: Form::Owned,
                     prim: None,
@@ -2146,7 +2164,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn constant(e: &Expr, ty: Type) -> R<Val> {
+    fn constant(e: &Expr, ty: Type) -> Result<Val, String> {
         let value = e.value.clone().ok_or("constant without value")?;
         if is_string(&ty) {
             return Ok(Val {
@@ -2172,7 +2190,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         })
     }
 
-    fn binary(&mut self, e: &Expr, ty: Type) -> R<Val> {
+    fn binary(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
         let xe = e.x.as_deref().ok_or("binary without left side")?;
         let ye = e.y.as_deref().ok_or("binary without right side")?;
         let op = e.op.as_str();
@@ -2187,7 +2205,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 "!=" => format!("{}.is_some()", val.e.code),
                 _ => return Err("unsupported nil comparison".to_owned()),
             };
-            return Ok(self.val(val.e.code(code), basic_ty("bool"), Form::Copy));
+            return Ok(self.val(val.e.with_code(code), basic_ty("bool"), Form::Copy));
         }
         let lhs = self.expr(xe)?;
         let rhs = self.expr(ye)?;
@@ -2196,7 +2214,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             let b = self.ref_value_or_copy(rhs)?;
             let code = format!("[{}, {}].concat()", a.code, b.code);
             return Ok(Val {
-                e: a.with(&b).code(code),
+                e: a.with(&b).with_code(code),
                 ty,
                 form: Form::Owned,
                 prim: None,
@@ -2207,10 +2225,14 @@ impl<'m, 'a> Lower<'m, 'a> {
             if ye.value.as_deref() == Some("") && matches!(op, "==" | "!=") {
                 let not = if op == "!=" { "!" } else { "" };
                 let code = format!("{not}{}.is_empty()", method_recv(&lhs.e.code));
-                return Ok(self.val(lhs.e.code(code), basic_ty("bool"), Form::Copy));
+                return Ok(self.val(lhs.e.with_code(code), basic_ty("bool"), Form::Copy));
             }
             let code = format!("{} {op} {}", lhs.e.code, rhs.e.code);
-            return Ok(self.val(lhs.e.with(&rhs.e).code(code), basic_ty("bool"), Form::Copy));
+            return Ok(self.val(
+                lhs.e.with(&rhs.e).with_code(code),
+                basic_ty("bool"),
+                Form::Copy,
+            ));
         }
         // A constant takes the type of the other side.
         let literal = |e: &Expr| {
@@ -2253,7 +2275,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             other => return Err(format!("unsupported operator {other}")),
         };
         let compares = matches!(op, "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||");
-        let mut val = self.val(xc.with(&yc).code(code), ty, Form::Copy);
+        let mut val = self.val(xc.with(&yc).with_code(code), ty, Form::Copy);
         if !compares {
             val.prim = prim;
         }
@@ -2261,7 +2283,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// `len(x) == 0` and the like as `is_empty` (`clippy::len_zero`).
-    fn len_zero(&mut self, xe: &Expr, ye: &Expr, op: &str) -> R<Option<Val>> {
+    fn len_zero(&mut self, xe: &Expr, ye: &Expr, op: &str) -> Result<Option<Val>, String> {
         if xe.kind != "call" || xe.func != "len" || ye.kind != "lit" {
             return Ok(None);
         }
@@ -2278,7 +2300,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             format!("!{recv}.is_empty()")
         };
         Ok(Some(self.val(
-            arg.e.code(code),
+            arg.e.with_code(code),
             basic_ty("bool"),
             Form::Copy,
         )))
@@ -2288,13 +2310,13 @@ impl<'m, 'a> Lower<'m, 'a> {
         clippy::too_many_lines,
         reason = "consistency: one match arm per Go call kind"
     )]
-    fn call_expr(&mut self, e: &Expr, ty: Type) -> R<Val> {
+    fn call_expr(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
         match (e.target.as_str(), e.func.as_str()) {
             ("builtin", "len") => {
                 let a = self.expr(e.args.first().ok_or("len without argument")?)?;
                 let code = format!("{}.len()", method_recv(&a.e.code));
                 Ok(Val {
-                    e: a.e.code(code),
+                    e: a.e.with_code(code),
                     ty,
                     form: Form::Copy,
                     prim: Some("usize"),
@@ -2308,7 +2330,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let v = self.expr(v)?;
                 let v = self.copy_value(v)?;
                 let code = format!("{}.contains(&{})", method_recv(&s.e.code), v.code);
-                Ok(self.val(s.e.with(&v).code(code), basic_ty("bool"), Form::Copy))
+                Ok(self.val(s.e.with(&v).with_code(code), basic_ty("bool"), Form::Copy))
             }
             ("builtin", "strings.EqualFold") => {
                 let [a, b] = e.args.as_slice() else {
@@ -2322,7 +2344,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                     method_recv(&a.e.code),
                     br.code
                 );
-                Ok(self.val(a.e.with(&br).code(code), basic_ty("bool"), Form::Copy))
+                Ok(self.val(a.e.with(&br).with_code(code), basic_ty("bool"), Form::Copy))
             }
             ("builtin", "strings.TrimPrefix") => {
                 let [a, b] = e.args.as_slice() else {
@@ -2332,7 +2354,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let b = self.expr(b)?;
                 let code = format!("{0}.strip_prefix({1}).unwrap_or({0})", a.e.code, b.e.code);
                 Ok(Val {
-                    e: a.e.with(&b.e).code(code),
+                    e: a.e.with(&b.e).with_code(code),
                     ty,
                     form: Form::Ref,
                     prim: None,
@@ -2385,7 +2407,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let fails = en.default.iter().any(|s| s.kind == "error");
                 let q = if fails { self.q() } else { "" };
                 let name = self.fn_path(func, "")?;
-                let mut x = x.code(format!("{name}({}){q}", codes.join(", ")));
+                let mut x = x.with_code(format!("{name}({}){q}", codes.join(", ")));
                 x.effects |= fails;
                 Ok(self.call_val(x, ty, false))
             }
@@ -2422,7 +2444,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 }
                 let q = if sum.fallible { self.q() } else { "" };
                 let name = self.fn_path(func, "")?;
-                let mut x = x.code(format!("{name}({}){q}", codes.join(", ")));
+                let mut x = x.with_code(format!("{name}({}){q}", codes.join(", ")));
                 x.effects |= sum.fallible;
                 Ok(self.call_val(x, ty, sum.result == "String"))
             }
@@ -2452,7 +2474,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn composite(&mut self, e: &Expr, ty: Type) -> R<Val> {
+    fn composite(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
         match ty.kind.as_str() {
             "optional" if e.fields.is_empty() && e.elems.is_empty() => Ok(Val {
                 e: E::new("None"),
@@ -2471,7 +2493,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 }
                 let code = format!("[{}]", parts.join(", "));
                 Ok(Val {
-                    e: x.code(code),
+                    e: x.with_code(code),
                     ty,
                     form: Form::Ref,
                     prim: None,
@@ -2505,7 +2527,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 }
                 let code = format!("{name} {{ {} }}", parts.join(", "));
                 Ok(Val {
-                    e: x.code(code),
+                    e: x.with_code(code),
                     ty,
                     form: Form::Owned,
                     prim: None,
@@ -2516,7 +2538,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// A `Copy` value.
-    fn copy_value(&mut self, v: Val) -> R<E> {
+    fn copy_value(&mut self, v: Val) -> Result<E, String> {
         match v.form {
             Form::Copy => Ok(v.e),
             _ if self.m.is_copy(&v.ty) => Ok(v.e),
@@ -2528,19 +2550,19 @@ impl<'m, 'a> Lower<'m, 'a> {
     fn ref_arg(v: &Val) -> E {
         match v.form {
             Form::Ref => v.e.clone(),
-            _ => v.e.clone().code(format!("&{}", v.e.code)),
+            _ => v.e.clone().with_code(format!("&{}", v.e.code)),
         }
     }
 
     /// A borrowed value with its final type (`&str` for strings), or a `Copy` value.
-    fn ref_value_or_copy(&mut self, v: Val) -> R<E> {
+    fn ref_value_or_copy(&mut self, v: Val) -> Result<E, String> {
         if self.m.is_copy(&v.ty) && v.form != Form::Ref {
             return self.copy_value(v);
         }
         Ok(match v.form {
             Form::Ref | Form::Copy => v.e,
-            _ if is_string(&v.ty) => v.e.clone().code(format!("{}.as_str()", v.e.code)),
-            _ => v.e.clone().code(format!("&{}", v.e.code)),
+            _ if is_string(&v.ty) => v.e.clone().with_code(format!("{}.as_str()", v.e.code)),
+            _ => v.e.clone().with_code(format!("&{}", v.e.code)),
         })
     }
 
@@ -2549,8 +2571,8 @@ impl<'m, 'a> Lower<'m, 'a> {
         match v.form {
             Form::Ref => v.e.clone(),
             _ => match v.e.code.strip_prefix('*') {
-                Some(inner) => v.e.clone().code(inner.to_owned()),
-                None => v.e.clone().code(format!("&{}", v.e.code)),
+                Some(inner) => v.e.clone().with_code(inner.to_owned()),
+                None => v.e.clone().with_code(format!("&{}", v.e.code)),
             },
         }
     }
@@ -2572,17 +2594,17 @@ impl<'m, 'a> Lower<'m, 'a> {
             Form::Copy | Form::Owned | Form::Local => v.e,
             Form::Ref if is_string(&v.ty) => {
                 v.e.clone()
-                    .code(format!("{}.to_owned()", method_recv(&v.e.code)))
+                    .with_code(format!("{}.to_owned()", method_recv(&v.e.code)))
             }
             Form::Place | Form::Ref => {
                 v.e.clone()
-                    .code(format!("{}.clone()", method_recv(&v.e.code)))
+                    .with_code(format!("{}.clone()", method_recv(&v.e.code)))
             }
         }
     }
 
     /// The initial or assigned value of a local.
-    fn local_value(&mut self, v: Val, borrowed: bool) -> R<E> {
+    fn local_value(&mut self, v: Val, borrowed: bool) -> Result<E, String> {
         if !borrowed {
             return Ok(Self::owned_value(v));
         }
@@ -2592,7 +2614,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         self.ref_value_or_copy(v)
     }
 
-    fn return_value(&mut self, v: Val) -> R<E> {
+    fn return_value(&mut self, v: Val) -> Result<E, String> {
         if self.m.is_copy(&v.ty) && v.form != Form::Ref {
             return self.copy_value(v);
         }
@@ -2602,14 +2624,14 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn i64_value(&mut self, v: Val) -> R<E> {
+    fn i64_value(&mut self, v: Val) -> Result<E, String> {
         let from = v.prim.ok_or("enum value of unknown type")?;
         let e = self.copy_value(v)?;
         let code = self.convert_code(&e.code, from, "i64")?;
-        Ok(e.code(code))
+        Ok(e.with_code(code))
     }
 
-    fn u64_value(&mut self, v: Val) -> R<E> {
+    fn u64_value(&mut self, v: Val) -> Result<E, String> {
         let from = v.prim.unwrap_or("u32");
         let e = self.copy_value(v)?;
         let code = match from {
@@ -2620,10 +2642,10 @@ impl<'m, 'a> Lower<'m, 'a> {
                 format!("u64::try_from({}).map_err(|_| Error::Size){q}", e.code)
             }
         };
-        Ok(e.code(code))
+        Ok(e.with_code(code))
     }
 
-    fn usize_value(&mut self, v: Val) -> R<E> {
+    fn usize_value(&mut self, v: Val) -> Result<E, String> {
         let from = v.prim.unwrap_or("usize");
         let e = self.copy_value(v)?;
         let code = match from {
@@ -2634,7 +2656,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 format!("usize::try_from({}).map_err(|_| Error::Size){q}", e.code)
             }
         };
-        Ok(e.code(code))
+        Ok(e.with_code(code))
     }
 
     fn helper_path(&self, name: &str) -> String {
@@ -2646,7 +2668,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// A Go integer conversion of `code` from the Rust integer `from` to `to`.
-    fn convert_code(&mut self, code: &str, from: &str, to: &str) -> R<String> {
+    fn convert_code(&mut self, code: &str, from: &str, to: &str) -> Result<String, String> {
         if from == to {
             return Ok(code.to_owned());
         }
@@ -2674,7 +2696,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// The zero value of a Go type as a local initializer.
-    fn zero(&mut self, t: &Type) -> R<E> {
+    fn zero(&mut self, t: &Type) -> Result<E, String> {
         Ok(E::new(match t.kind.as_str() {
             "basic" => match t.name.as_str() {
                 "bool" => "false".to_owned(),
@@ -2695,7 +2717,7 @@ impl<'m, 'a> Lower<'m, 'a> {
 
     /// Prints a cleaned statement list; `init` holds the locals initialized before it (by-value
     /// parameters). Returns the code and the locals that need `mut`.
-    fn print_block(&self, stmts: &[S], ctx: Ctx, init: &mut Vars) -> (String, Vars) {
+    fn print_block(&self, stmts: &[S], mode: PrintMode, init: &mut Vars) -> (String, Vars) {
         let folded = fold(stmts);
         let stmts = folded.as_slice();
         let mut muts = Vars::new();
@@ -2703,7 +2725,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         assigned(stmts, &mut state, &mut muts);
         collect_muts(stmts, &mut muts);
         let mut out = String::new();
-        self.print(stmts, &muts, &mut out, ctx, true);
+        self.print(stmts, &muts, &mut out, mode, true);
         (out, muts)
     }
 
@@ -2712,7 +2734,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         clippy::too_many_lines,
         reason = "consistency: one match arm per statement kind"
     )]
-    fn print(&self, stmts: &[S], muts: &Vars, out: &mut String, ctx: Ctx, last: bool) {
+    fn print(&self, stmts: &[S], muts: &Vars, out: &mut String, mode: PrintMode, last: bool) {
         // Late-initialized locals merged into their first assignment
         // (clippy::needless_late_init): statement index to the `let` replacing it.
         let mut merged: BTreeMap<usize, String> = BTreeMap::new();
@@ -2743,7 +2765,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                             && last
                             && matches!(rest, [S::Return(Some(e))] if e.code == self.name(*id))
                         {
-                            put!(out, "{}", self.tail(&init.code, ctx));
+                            put!(out, "{}", self.tail(&init.code, mode));
                             return;
                         }
                     }
@@ -2802,17 +2824,17 @@ impl<'m, 'a> Lower<'m, 'a> {
                     }
                 }
                 S::If { cond, then, els } => {
-                    self.print_if(cond, then, els, muts, out, ctx, is_last);
+                    self.print_if(cond, then, els, muts, out, mode, is_last);
                     out.push('\n');
                 }
                 S::Match { scrut, arms } => {
-                    self.print_match(scrut, arms, muts, out, ctx, is_last);
+                    self.print_match(scrut, arms, muts, out, mode, is_last);
                     out.push('\n');
                 }
                 S::Return(e) => {
                     let value = e.as_ref().map_or("()", |e| e.code.as_str());
-                    if is_last && ctx != Ctx::Loop {
-                        put!(out, "{}", self.tail(value, ctx));
+                    if is_last && mode != PrintMode::Loop {
+                        put!(out, "{}", self.tail(value, mode));
                     } else {
                         put!(out, "return {};\n", self.fn_value(value));
                     }
@@ -2826,11 +2848,11 @@ impl<'m, 'a> Lower<'m, 'a> {
     }
 
     /// The tail expression giving `value`.
-    fn tail(&self, value: &str, ctx: Ctx) -> String {
-        match ctx {
-            Ctx::Closure => format!("Ok({value})"),
-            Ctx::Block => value.to_owned(),
-            Ctx::Fn | Ctx::Loop => {
+    fn tail(&self, value: &str, mode: PrintMode) -> String {
+        match mode {
+            PrintMode::Closure => format!("Ok({value})"),
+            PrintMode::Block => value.to_owned(),
+            PrintMode::Fn | PrintMode::Loop => {
                 let v = self.fn_value(value);
                 if v == "()" { String::new() } else { v }
             }
@@ -2889,7 +2911,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             return Some(rhs.code.clone());
         }
         let mut out = String::new();
-        self.print(init, &Vars::new(), &mut out, Ctx::Loop, false);
+        self.print(init, &Vars::new(), &mut out, PrintMode::Loop, false);
         Some(format!("{{ {out} {} }}", rhs.code))
     }
 
@@ -2904,7 +2926,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         els: &[S],
         muts: &Vars,
         out: &mut String,
-        ctx: Ctx,
+        mode: PrintMode,
         last: bool,
     ) {
         let (cond_code, then, els) = match cond {
@@ -2956,23 +2978,23 @@ impl<'m, 'a> Lower<'m, 'a> {
                 paren_or(&cond_code),
                 paren_or(&e.code)
             );
-            self.print(inner, muts, out, ctx, last);
+            self.print(inner, muts, out, mode, last);
             out.push('}');
             return;
         }
         put!(out, "if {cond_code} {{ ");
-        self.print(then, muts, out, ctx, last);
+        self.print(then, muts, out, mode, last);
         out.push('}');
         if els.is_empty() {
             return;
         }
         out.push_str(" else ");
         if let [S::If { cond, then, els }] = els {
-            self.print_if(cond, then, els, muts, out, ctx, last);
+            self.print_if(cond, then, els, muts, out, mode, last);
             return;
         }
         out.push_str("{ ");
-        self.print(els, muts, out, ctx, last);
+        self.print(els, muts, out, mode, last);
         out.push('}');
     }
 
@@ -2982,7 +3004,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         arms: &[(Vec<String>, Vec<S>)],
         muts: &Vars,
         out: &mut String,
-        ctx: Ctx,
+        mode: PrintMode,
         last: bool,
     ) {
         // Arms with the same body merge (clippy::match_same_arms); without a default, empty
@@ -2991,7 +3013,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         let mut default: Option<String> = None;
         for (pats, body) in arms {
             let mut b = String::new();
-            self.print(body, muts, &mut b, ctx, last);
+            self.print(body, muts, &mut b, mode, last);
             if pats.is_empty() {
                 default = Some(b);
                 continue;
@@ -3043,7 +3065,7 @@ pub(crate) fn function(
     dir: Dir,
     f: &Function,
     sum: &Summary,
-) -> R<Lowered> {
+) -> Result<Lowered, String> {
     let module = model::module_of(&f.name);
     let mut l = Lower::new(m, sums, dir, module);
     let all: Vec<&Param> = f.receiver.iter().chain(&f.params).collect();
@@ -3125,7 +3147,7 @@ pub(crate) fn function(
         .results
         .iter()
         .map(|t| l.result_type(t, &sum.result))
-        .collect::<R<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, String>>()?;
     l.ret = Ret::Values { results, in_out };
     let mut out = Vec::new();
     if dir == Dir::Encode {
@@ -3136,7 +3158,7 @@ pub(crate) fn function(
         out.push(l.return_stmt(&[])?);
     }
     live(&mut out, &Vars::new());
-    let (body, muts) = l.print_block(&out, Ctx::Fn, &mut init);
+    let (body, muts) = l.print_block(&out, PrintMode::Fn, &mut init);
     let params = params
         .into_iter()
         .map(|(id, text)| match id {
@@ -3165,7 +3187,7 @@ pub(crate) fn marshal(
     go: &str,
     receiver: &str,
     stmts: &[Stmt],
-) -> R<Lowered> {
+) -> Result<Lowered, String> {
     let mut l = Lower::new(m, sums, dir, module);
     let t = named_ty(go);
     // An unnamed receiver (`func (*T) Marshal(IO)`) is never referenced.
@@ -3220,7 +3242,7 @@ pub(crate) fn marshal(
         out.push(l.return_stmt(&[])?);
     }
     live(&mut out, &Vars::new());
-    let (body, _) = l.print_block(&out, Ctx::Fn, &mut init);
+    let (body, _) = l.print_block(&out, PrintMode::Fn, &mut init);
     Ok(Lowered {
         params: String::new(),
         body,
@@ -3286,7 +3308,7 @@ pub(crate) fn int_lit(value: &str) -> String {
 }
 
 /// A Rust float literal from a Go `g` formatted value.
-fn float_lit(value: &str) -> R<String> {
+fn float_lit(value: &str) -> Result<String, String> {
     let f: f64 = value
         .parse()
         .map_err(|_| format!("bad float constant {value}"))?;
@@ -4132,12 +4154,12 @@ pub(crate) fn compress(pats: &[String]) -> String {
 }
 
 /// The Rust name of a struct field.
-pub(crate) fn field_rust_name(ty: &str, go: &str) -> R<String> {
+pub(crate) fn field_rust_name(ty: &str, go: &str) -> Result<String, String> {
     names::snake(go, &format!("{ty}.{go}"))
 }
 
 /// The Rust name of a Go local or parameter (`r`, `w` and `self` are taken).
-fn param_name(go: &str) -> R<String> {
+fn param_name(go: &str) -> Result<String, String> {
     let name = names::snake(go, go)?;
     Ok(if matches!(name.as_str(), "r" | "w" | "self" | "r#self") {
         format!("{}_", name.trim_start_matches("r#"))
@@ -4147,12 +4169,12 @@ fn param_name(go: &str) -> R<String> {
 }
 
 /// The Rust name of a generated function.
-pub(crate) fn fn_name(go: &str, prefix: &str) -> R<String> {
+pub(crate) fn fn_name(go: &str, prefix: &str) -> Result<String, String> {
     let local = go.split_once('.').map_or(go, |(_, n)| n);
     let snake = local
         .split('.')
         .map(|part| names::snake(part, go).map(|s| s.trim_start_matches("r#").to_owned()))
-        .collect::<R<Vec<_>>>()?
+        .collect::<Result<Vec<_>, String>>()?
         .join("_");
     Ok(format!("{prefix}{snake}"))
 }

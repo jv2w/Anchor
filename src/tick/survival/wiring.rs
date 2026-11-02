@@ -1328,12 +1328,12 @@ fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
 // pmmp: EntityEffectRemoveEvent
 #[test]
 fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
-    let listeners = on(|_: &mut EntityEffectRemove, ctx: &mut Context<'_>| {
+    let listeners = on(|_: &mut EntityEffectRemove, cx: &mut Context<'_>| {
         let given = effect::Type::Speed
             .instance()
             .with_duration_ticks(200)
             .with_amplifier(1);
-        ctx.player_mut(pid(1)).unwrap().add_effect(given);
+        cx.player_mut(pid(1)).unwrap().add_effect(given);
     });
     let mut game = Game::new(1, listeners);
     effects::add(
@@ -1768,8 +1768,8 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
 // pmmp: PlayerChangeSkinEvent
 #[test]
 fn a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change() {
-    let listeners = on(|_: &mut PlayerChangeSkin, ctx: &mut Context<'_>| {
-        ctx.player_mut(pid(1))
+    let listeners = on(|_: &mut PlayerChangeSkin, cx: &mut Context<'_>| {
+        cx.player_mut(pid(1))
             .unwrap()
             .set_skin(skin("api"))
             .unwrap();

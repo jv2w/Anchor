@@ -37,7 +37,9 @@ use table::{Cursor, TableFile, Tables};
 /// The only key order the reader knows: bytewise.
 pub(crate) const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
 /// The kind of a deleted key.
-const DELETION: u8 = 0;
+const KIND_DELETION: u8 = 0;
+/// The kind of a key holding a value.
+pub(crate) const KIND_VALUE: u8 = 1;
 /// Levels in a LevelDB version.
 pub(crate) const LEVELS: usize = 7;
 /// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
@@ -55,8 +57,6 @@ const MAX_MANIFEST: u64 = 64 << 20;
 const MAX_SEQUENCE: u64 = (1 << 56) - 1;
 /// The sequence and kind after the user key in an internal key.
 pub(crate) const TAG: usize = 8;
-/// The kind of a key holding a value.
-pub(crate) const VALUE: u8 = 1;
 
 /// The LevelDB of a Bedrock world (its `db` folder), opened read-only: the world import's own
 /// reader, for the keys the import leaves out (players, entities, the scoreboard, ...). Mojang
@@ -275,7 +275,7 @@ impl Db {
                 break;
             };
             if last.as_deref() != Some(user.as_slice()) {
-                if tag & 0xff == u64::from(VALUE) {
+                if tag & 0xff == u64::from(KIND_VALUE) {
                     let value = source.entry().map_or(&[][..], |(_, _, value)| value);
                     if f(&user, value)?.is_break() {
                         return Ok(());
@@ -324,7 +324,11 @@ impl Source<'_> {
         let (key, value) = match self {
             Self::Memory { entries, at } => {
                 let e = entries.get(*at)?;
-                let kind = if e.value.is_some() { VALUE } else { DELETION };
+                let kind = if e.value.is_some() {
+                    KIND_VALUE
+                } else {
+                    KIND_DELETION
+                };
                 let tag = e.sequence << 8 | u64::from(kind);
                 return Some((&e.key, tag, e.value.as_deref().unwrap_or_default()));
             }
@@ -413,22 +417,6 @@ impl Files {
         }
     }
 
-    fn path(&self, name: &std::ffi::OsStr) -> PathBuf {
-        match self {
-            Self::Disk { dir, .. } => dir.join(name),
-            #[cfg(test)]
-            Self::Memory(_) => PathBuf::from(name),
-        }
-    }
-
-    /// `error` located in the file `name`.
-    fn fault(&self, name: &str, error: Error) -> Error {
-        Error::File {
-            path: self.path(name.as_ref()),
-            source: Box::new(error),
-        }
-    }
-
     /// Every file in the folder with its stamp.
     #[expect(
         clippy::disallowed_methods,
@@ -487,6 +475,22 @@ impl Files {
             },
         };
         read.map_err(|e| self.fault(name, e))
+    }
+
+    /// `error` located in the file `name`.
+    fn fault(&self, name: &str, error: Error) -> Error {
+        Error::File {
+            path: self.path(name.as_ref()),
+            source: Box::new(error),
+        }
+    }
+
+    fn path(&self, name: &std::ffi::OsStr) -> PathBuf {
+        match self {
+            Self::Disk { dir, .. } => dir.join(name),
+            #[cfg(test)]
+            Self::Memory(_) => PathBuf::from(name),
+        }
     }
 
     /// Fills `buf` from the file `name` at `offset`; callers check the range against its size.
@@ -605,6 +609,12 @@ impl Stamp {
 struct Bytes<'a>(&'a [u8]);
 
 impl<'a> Bytes<'a> {
+    /// A varint32 length and that many bytes.
+    fn prefixed(&mut self) -> Result<&'a [u8]> {
+        let len = usize::try_from(self.varint32()?).map_err(|_| Error::Malformed("length"))?;
+        self.take(len)
+    }
+
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let (head, rest) = self
             .0
@@ -612,15 +622,6 @@ impl<'a> Bytes<'a> {
             .ok_or(Error::Malformed("value ends early"))?;
         self.0 = rest;
         Ok(head)
-    }
-
-    fn u8(&mut self) -> Result<u8> {
-        let (&b, rest) = self
-            .0
-            .split_first()
-            .ok_or(Error::Malformed("value ends early"))?;
-        self.0 = rest;
-        Ok(b)
     }
 
     fn u32(&mut self) -> Result<u32> {
@@ -641,6 +642,14 @@ impl<'a> Bytes<'a> {
         Ok(u64::from_le_bytes(*head))
     }
 
+    fn varint32(&mut self) -> Result<u32> {
+        u32::try_from(self.varint(32)?).map_err(|_| Error::Malformed("varint too long"))
+    }
+
+    fn varint64(&mut self) -> Result<u64> {
+        self.varint(64)
+    }
+
     /// A varint of at most `bits` bits.
     fn varint(&mut self, bits: u32) -> Result<u64> {
         let mut value = 0_u64;
@@ -658,18 +667,13 @@ impl<'a> Bytes<'a> {
         Err(Error::Malformed("varint too long"))
     }
 
-    fn varint32(&mut self) -> Result<u32> {
-        u32::try_from(self.varint(32)?).map_err(|_| Error::Malformed("varint too long"))
-    }
-
-    fn varint64(&mut self) -> Result<u64> {
-        self.varint(64)
-    }
-
-    /// A varint32 length and that many bytes.
-    fn prefixed(&mut self) -> Result<&'a [u8]> {
-        let len = usize::try_from(self.varint32()?).map_err(|_| Error::Malformed("length"))?;
-        self.take(len)
+    fn u8(&mut self) -> Result<u8> {
+        let (&b, rest) = self
+            .0
+            .split_first()
+            .ok_or(Error::Malformed("value ends early"))?;
+        self.0 = rest;
+        Ok(b)
     }
 }
 
@@ -824,7 +828,7 @@ fn check_held(held: usize) -> Result<()> {
 fn seek_key(user: &[u8]) -> Vec<u8> {
     let mut key = Vec::with_capacity(user.len() + TAG);
     key.extend_from_slice(user);
-    key.extend_from_slice(&(MAX_SEQUENCE << 8 | u64::from(VALUE)).to_le_bytes());
+    key.extend_from_slice(&(MAX_SEQUENCE << 8 | u64::from(KIND_VALUE)).to_le_bytes());
     key
 }
 

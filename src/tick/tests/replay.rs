@@ -125,24 +125,24 @@ fn data_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
     let stone = crate::block::State::find("minecraft:stone", &[]).unwrap();
     let mut tasks = Tasks::default();
-    tasks.push(NonZeroU32::MIN, move |ctx| {
-        let tick = ctx.tick();
-        hashes.try_send((tick, ctx.state.hash())).unwrap();
+    tasks.push(NonZeroU32::MIN, move |cx| {
+        let tick = cx.tick();
+        hashes.try_send((tick, cx.state.hash())).unwrap();
         let t = i32::try_from(tick % 1000).unwrap();
         if t % 2 == 0 {
             let at = BlockPos::new((t * 7) % 32 - 16, -60, (t * 13) % 32 - 16);
             let state = if t % 3 == 0 { crate::block::AIR } else { stone };
             // The spawn chunks load in the first ticks.
-            match ctx.default_world_mut().set_block(at, state) {
+            match cx.default_world_mut().set_block(at, state) {
                 Ok(()) | Err(crate::world::Error::NotLoaded) => {}
                 Err(e) => panic!("{e}"),
             }
         }
         if plan.saves.contains(&tick) {
-            ctx.save();
+            cx.save();
         }
         if plan.schedule_at == Some(tick) {
-            ctx.schedule(1_000_000, |_| {}).unwrap();
+            cx.schedule(1_000_000, |_| {}).unwrap();
         }
         assert!(plan.panic_at != Some(tick), "replayed panic at {tick}");
     });
@@ -668,14 +668,14 @@ type Seen = Vec<(u64, u32, usize)>;
 /// [`STOP_TICKS`] ticks.
 fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, usize)>) -> Setup {
     let mut tasks = Tasks::default();
-    tasks.push(NonZeroU32::MIN, move |ctx| {
-        let tick = ctx.tick();
-        hashes.try_send((tick, ctx.state.hash())).unwrap();
+    tasks.push(NonZeroU32::MIN, move |cx| {
+        let tick = cx.tick();
+        hashes.try_send((tick, cx.state.hash())).unwrap();
         let world = crate::world::Id::DEFAULT;
         let chests = (0..STOPS)
-            .filter(|&i| ctx.block_entity(world, first_chest(stop(i))).is_some())
+            .filter(|&i| cx.block_entity(world, first_chest(stop(i))).is_some())
             .fold(0_u32, |bits, i| bits | 1 << i);
-        seen.try_send((tick, chests, ctx.entities(world).count()))
+        seen.try_send((tick, chests, cx.entities(world).count()))
             .unwrap();
         let leg = tick.checked_sub(TOUR_START).filter(|t| t % STOP_TICKS == 0);
         if let Some(i) = leg.map(|t| t / STOP_TICKS)
@@ -688,8 +688,8 @@ fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, us
                 f64::from(center.z * 16) + 8.5,
             );
             let id = crate::player::Id::new(SessionId::new(1));
-            if ctx.player(id).is_some() {
-                ctx.teleport(id, world, feet).unwrap();
+            if cx.player(id).is_some() {
+                cx.teleport(id, world, feet).unwrap();
             }
         }
     });

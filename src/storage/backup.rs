@@ -27,6 +27,7 @@ pub(crate) const KEPT: usize = 3;
 /// alone is larger: the save thread serves its queued requests between steps, so a load waits at
 /// most one step.
 pub(super) const STEP_BYTES: usize = 8 << 20;
+/// The extension of a backup's name.
 const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
@@ -70,6 +71,151 @@ impl Drop for Temp {
                 "could not remove an incomplete backup"
             );
         }
+    }
+}
+
+/// A table of a data file as an online backup copies it (or a check reads it): its name and the
+/// entries left.
+pub(super) type Source = (
+    String,
+    Peekable<redb::Range<'static, &'static [u8], &'static [u8]>>,
+);
+
+/// An online backup being made: every table of one read transaction of an open data file, copied
+/// in steps of at most [`STEP_BYTES`], one commit each, into a new database under `<backup>.tmp`,
+/// which is then committed durably once, closed, flushed to disk and renamed, and its folder
+/// flushed. The step commits are not flushed: only the whole copy has to reach the disk, and a
+/// copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view of
+/// one commit, so commits made between steps are not in the copy. A backup begins only after the
+/// main file's commit of the save it copies (or at start, after the roll back to that save), so
+/// its rename and the pruning after it come after that commit too. Dropped before it is whole, it
+/// removes its temporary file.
+pub(crate) struct Online {
+    // Dropped in this order: the source's read transaction, the copy, then its file, which
+    // Windows cannot remove while it is open.
+    /// The tables left to copy, the next last.
+    tables: Vec<Source>,
+    /// The copy.
+    db: Database,
+    temp: Temp,
+    /// The backup's name.
+    path: PathBuf,
+    dir: PathBuf,
+}
+
+impl std::fmt::Debug for Online {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Online")
+            .field("path", &self.path)
+            .field("tables_left", &self.tables.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Online {
+    /// Starts a backup of `source`'s last commit into a new backup in `dir`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread starts an online backup"
+    )]
+    pub(crate) fn begin(source: &Database, dir: &Path) -> Result<Self> {
+        std::fs::create_dir_all(dir).map_err(Error::Io)?;
+        let (path, temp, file) = new_file(dir)?;
+        let mut builder = Builder::new();
+        builder.set_cache_size(CACHE_BYTES);
+        let backend = target(file).map_err(|e| Error::Database(e.into()))?;
+        let db = builder
+            .create_with_backend(backend)
+            .map_err(Error::from_open)?;
+        Ok(Self {
+            tables: tables(source)?,
+            db,
+            temp,
+            path,
+            dir: dir.to_path_buf(),
+        })
+    }
+
+    /// Whether every table is copied: [`finish`](Self::finish) is left.
+    pub(crate) fn is_copied(&self) -> bool {
+        self.tables.is_empty()
+    }
+
+    /// Copies the next step and commits it, without flushing it to disk: entries while the step
+    /// stays within [`STEP_BYTES`] (a larger value is a step alone). Each step is its own commit,
+    /// so no step writes more than its own entries, and none waits for the disk to sync.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread copies a step of an online backup"
+    )]
+    pub(crate) fn step(&mut self) -> Result<()> {
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)
+            .map_err(redb::Error::from)?;
+        let mut bytes = 0_usize;
+        while let Some((name, entries)) = self.tables.last_mut() {
+            // Opening it creates it, so an empty table is in the copy too.
+            let mut target = txn.open_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
+            while let Some(entry) = entries.peek() {
+                let size = match entry {
+                    Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
+                    Err(_) => 0,
+                };
+                if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
+                    drop(target);
+                    txn.commit()?;
+                    return Ok(());
+                }
+                if let Some(entry) = entries.next() {
+                    let (key, value) = entry?;
+                    drop(target.insert(key.value(), value.value())?);
+                }
+                bytes = bytes.saturating_add(size);
+            }
+            drop(target);
+            self.tables.pop();
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Commits the whole copy durably, closes and flushes it, gives it its backup name and keeps
+    /// the [`KEPT`] newest backups; returns its path. The durable commit is the one that makes
+    /// the steps' commits reach the disk; closing the copy alone could not report a failure.
+    ///
+    /// The copy is not compacted: `compact` is one call that took
+    /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
+    /// 10 to 13% of the file.
+    #[expect(
+        clippy::disallowed_types,
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread finishes an online backup"
+    )]
+    pub(crate) fn finish(self) -> Result<PathBuf> {
+        let Self {
+            tables: _,
+            db,
+            temp,
+            path,
+            dir,
+        } = self;
+        db.begin_write()?.commit()?;
+        // Closed first: Windows cannot rename an open file.
+        drop(db);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&temp.path)
+            .and_then(|file| file.sync_all())
+            .map_err(Error::Io)?;
+        temp.rename(&path)?;
+        if let Err(e) = prune(&dir, &path) {
+            warn!(
+                path = %dir.display(),
+                error = &e as &(dyn std::error::Error + 'static),
+                "could not remove old backups"
+            );
+        }
+        Ok(path)
     }
 }
 
@@ -222,13 +368,6 @@ fn target(file: std::fs::File) -> Result<tests::Counted, redb::DatabaseError> {
     FileBackend::new(file).map(tests::Counted)
 }
 
-/// A table of a data file as an online backup copies it (or a check reads it): its name and the
-/// entries left.
-pub(super) type Source = (
-    String,
-    Peekable<redb::Range<'static, &'static [u8], &'static [u8]>>,
-);
-
 /// Every table of one read transaction of `source`, the first last: a consistent view of its
 /// last commit, which commits made meanwhile do not change.
 #[expect(
@@ -247,144 +386,6 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     }
     tables.reverse();
     Ok(tables)
-}
-
-/// An online backup being made: every table of one read transaction of an open data file, copied
-/// in steps of at most [`STEP_BYTES`], one commit each, into a new database under `<backup>.tmp`,
-/// which is then committed durably once, closed, flushed to disk and renamed, and its folder
-/// flushed. The step commits are not flushed: only the whole copy has to reach the disk, and a
-/// copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view of
-/// one commit, so commits made between steps are not in the copy. A backup begins only after the
-/// main file's commit of the save it copies (or at start, after the roll back to that save), so
-/// its rename and the pruning after it come after that commit too. Dropped before it is whole, it
-/// removes its temporary file.
-pub(crate) struct Online {
-    // Dropped in this order: the source's read transaction, the copy, then its file, which
-    // Windows cannot remove while it is open.
-    /// The tables left to copy, the next last.
-    tables: Vec<Source>,
-    /// The copy.
-    db: Database,
-    temp: Temp,
-    /// The backup's name.
-    path: PathBuf,
-    dir: PathBuf,
-}
-
-impl std::fmt::Debug for Online {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Online")
-            .field("path", &self.path)
-            .field("tables_left", &self.tables.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Online {
-    /// Starts a backup of `source`'s last commit into a new backup in `dir`.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread starts an online backup"
-    )]
-    pub(crate) fn begin(source: &Database, dir: &Path) -> Result<Self> {
-        std::fs::create_dir_all(dir).map_err(Error::Io)?;
-        let (path, temp, file) = new_file(dir)?;
-        let mut builder = Builder::new();
-        builder.set_cache_size(CACHE_BYTES);
-        let backend = target(file).map_err(|e| Error::Database(e.into()))?;
-        let db = builder
-            .create_with_backend(backend)
-            .map_err(Error::from_open)?;
-        Ok(Self {
-            tables: tables(source)?,
-            db,
-            temp,
-            path,
-            dir: dir.to_path_buf(),
-        })
-    }
-
-    /// Whether every table is copied: [`finish`](Self::finish) is left.
-    pub(crate) fn is_copied(&self) -> bool {
-        self.tables.is_empty()
-    }
-
-    /// Copies the next step and commits it, without flushing it to disk: entries while the step
-    /// stays within [`STEP_BYTES`] (a larger value is a step alone). Each step is its own commit,
-    /// so no step writes more than its own entries, and none waits for the disk to sync.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread copies a step of an online backup"
-    )]
-    pub(crate) fn step(&mut self) -> Result<()> {
-        let mut txn = self.db.begin_write()?;
-        txn.set_durability(Durability::None)
-            .map_err(redb::Error::from)?;
-        let mut bytes = 0_usize;
-        while let Some((name, entries)) = self.tables.last_mut() {
-            // Opening it creates it, so an empty table is in the copy too.
-            let mut target = txn.open_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
-            while let Some(entry) = entries.peek() {
-                let size = match entry {
-                    Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
-                    Err(_) => 0,
-                };
-                if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
-                    drop(target);
-                    txn.commit()?;
-                    return Ok(());
-                }
-                if let Some(entry) = entries.next() {
-                    let (key, value) = entry?;
-                    drop(target.insert(key.value(), value.value())?);
-                }
-                bytes = bytes.saturating_add(size);
-            }
-            drop(target);
-            self.tables.pop();
-        }
-        txn.commit()?;
-        Ok(())
-    }
-
-    /// Commits the whole copy durably, closes and flushes it, gives it its backup name and keeps
-    /// the [`KEPT`] newest backups; returns its path. The durable commit is the one that makes
-    /// the steps' commits reach the disk; closing the copy alone could not report a failure.
-    ///
-    /// The copy is not compacted: `compact` is one call that took
-    /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
-    /// 10 to 13% of the file.
-    #[expect(
-        clippy::disallowed_types,
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread finishes an online backup"
-    )]
-    pub(crate) fn finish(self) -> Result<PathBuf> {
-        let Self {
-            tables: _,
-            db,
-            temp,
-            path,
-            dir,
-        } = self;
-        db.begin_write()?.commit()?;
-        // Closed first: Windows cannot rename an open file.
-        drop(db);
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&temp.path)
-            .and_then(|file| file.sync_all())
-            .map_err(Error::Io)?;
-        temp.rename(&path)?;
-        if let Err(e) = prune(&dir, &path) {
-            warn!(
-                path = %dir.display(),
-                error = &e as &(dyn std::error::Error + 'static),
-                "could not remove old backups"
-            );
-        }
-        Ok(path)
-    }
 }
 
 #[cfg(test)]

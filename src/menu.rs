@@ -32,9 +32,9 @@
 //! use anchor::menu::{Action, Input, Kind, Menu, Response};
 //! use anchor::player;
 //!
-//! fn open_shop(ctx: &mut Context<'_>, player: player::Id, sword: Stack) {
+//! fn open_shop(cx:&mut Context<'_>, player: player::Id, sword: Stack) {
 //!     let menu = Menu::new(Kind::Chest).with_title("Shop").item(13, sword);
-//!     let opened = ctx.open_menu(player, menu, |_, _, input| match input {
+//!     let opened = cx.open_menu(player, menu, |_, _, input| match input {
 //!         Input::Click(click) if click.slot() == 13 && click.action() == Action::Take => {
 //!             // Give the sword through the player's inventory here.
 //!             Response::Close

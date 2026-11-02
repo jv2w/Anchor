@@ -19,7 +19,6 @@ use crate::protocol::{Reader, Writer};
 /// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
 /// bounded so that it does (`item::MAX_NBT_BYTES`).
 pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD;
-const DEFLATE: u8 = 2;
 /// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
 /// a whole imported world, both slower.
 const DEFLATE_LEVEL: u8 = 6;
@@ -40,181 +39,20 @@ const HEADER: usize = 12;
 /// whole column would take up to 24 times that, which is why the terrain is stored by
 /// sub-chunk. Extras lists are split into pages of at most this.
 pub(crate) const MAX_RECORD: usize = 16 << 20;
+/// The method byte of a record stored as it is.
+const METHOD_STORED: u8 = 0;
+/// The method byte of a record compressed with raw DEFLATE.
+const METHOD_DEFLATE: u8 = 2;
 /// Records shorter than this are stored: compression cannot pay for itself.
 const MIN_COMPRESSED: usize = 64;
-const STORED: u8 = 0;
 /// `TABLES[k][b]` is the CRC of byte `b` followed by `k` zero bytes.
 static TABLES: [[u32; 256]; 8] = crc_tables();
-
-/// Encodes `record` and seals it under `key` (the key's bytes).
-pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
-    let mut w = Writer::new(Vec::new(), 0);
-    record.encode(&mut w).map_err(Error::Encode)?;
-    seal_encoded(key, w.as_bytes())
-}
-
-/// Seals record bytes already encoded in the current format (an extras page) under `key`,
-/// compressed with raw DEFLATE when that makes them smaller.
-pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
-    if record.len() > MAX_RECORD {
-        return Err(Error::Encode(crate::protocol::Error::Size));
-    }
-    let raw_len =
-        u32::try_from(record.len()).map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
-    let mut out = Vec::with_capacity(HEADER + record.len() / 2);
-    out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
-    out.extend_from_slice(&[STORED, 0]);
-    out.extend_from_slice(&raw_len.to_le_bytes());
-    out.extend_from_slice(&[0; 4]);
-    if record.len() >= MIN_COMPRESSED {
-        Compressor::new(Compression::Zlib, DEFLATE_LEVEL).compress(record, &mut out);
-    }
-    let compressed = out.len() - HEADER;
-    if compressed == 0 || compressed >= record.len() {
-        out.truncate(HEADER);
-        out.extend_from_slice(record);
-    } else if let Some(method) = out.get_mut(2) {
-        *method = DEFLATE;
-    }
-    let crc = checksum(key, &out);
-    if let Some(field) = out.get_mut(8..HEADER) {
-        field.copy_from_slice(&crc.to_le_bytes());
-    }
-    Ok(out)
-}
-
-/// Opens a value sealed under `key` and decodes its record.
-pub(crate) fn unseal<R: Record>(key: &[u8], sealed: &[u8]) -> Result<R> {
-    let record = unseal_bytes(key, sealed)?;
-    let mut r = Reader::new(&record, DECODE_BUDGET, 0);
-    R::decode(&mut r).map_err(Error::Record)
-}
-
-/// The checksum field of a sealed value, read without checking it; 0 if the value is shorter
-/// than its header. After [`unseal`] succeeded it identifies the stored bytes.
-pub(crate) fn stored_checksum(sealed: &[u8]) -> u32 {
-    sealed
-        .get(8..HEADER)
-        .and_then(|b| b.try_into().ok())
-        .map_or(0, u32::from_le_bytes)
-}
-
-/// The format version of a sealed value, read without checking anything else.
-pub(crate) fn version(sealed: &[u8]) -> Result<u16> {
-    let bytes = sealed
-        .first_chunk::<2>()
-        .ok_or(Error::Malformed("shorter than the header"))?;
-    Ok(u16::from_le_bytes(*bytes))
-}
-
-/// Checks a sealed value as [`unseal`] does, without decompressing or decoding its record: its
-/// header and its checksum, which covers the stored body (`/check`).
-pub(crate) fn verify(key: &[u8], sealed: &[u8]) -> Result<()> {
-    match checked(key, sealed)? {
-        (STORED, raw_len, body) if body.len() != raw_len => {
-            Err(Error::Malformed("stored length differs from the header"))
-        }
-        (STORED | DEFLATE, _, _) => Ok(()),
-        _ => Err(Error::Malformed("unknown compression method")),
-    }
-}
-
-/// Checks a sealed value's header and checksum; returns its compression method, its record
-/// length (at most [`MAX_RECORD`]) and its body.
-fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
-    let version = version(sealed)?;
-    if version > FORMAT_VERSION {
-        return Err(Error::NewerFormat { version });
-    }
-    let (header, body) = sealed
-        .split_first_chunk::<HEADER>()
-        .ok_or(Error::Malformed("shorter than the header"))?;
-    let [_, _, method, reserved, l0, l1, l2, l3, c0, c1, c2, c3] = *header;
-    if checksum(key, sealed) != u32::from_le_bytes([c0, c1, c2, c3]) {
-        return Err(Error::Checksum);
-    }
-    if version != FORMAT_VERSION || reserved != 0 {
-        return Err(Error::Malformed("unknown version or reserved bits set"));
-    }
-    let raw_len = usize::try_from(u32::from_le_bytes([l0, l1, l2, l3]))
-        .map_err(|_| Error::Malformed("record length over the limit"))?;
-    if raw_len > MAX_RECORD {
-        return Err(Error::Malformed("record length over the limit"));
-    }
-    Ok((method, raw_len, body))
-}
-
-/// Checks a sealed value and returns its record bytes.
-fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
-    let (method, raw_len, body) = checked(key, sealed)?;
-    match method {
-        STORED if body.len() == raw_len => Ok(Cow::Borrowed(body)),
-        STORED => Err(Error::Malformed("stored length differs from the header")),
-        DEFLATE => {
-            let mut out = Vec::new();
-            zlib::Decoder::new()
-                .decompress_whole(body, raw_len, Framing::Raw, &mut out)
-                .map_err(Error::Compression)?;
-            if out.len() == raw_len {
-                Ok(Cow::Owned(out))
-            } else {
-                Err(Error::Malformed(
-                    "decompressed length differs from the header",
-                ))
-            }
-        }
-        _ => Err(Error::Malformed("unknown compression method")),
-    }
-}
-
-/// The CRC-32C a sealed value carries: over `key` and the value without its checksum field.
-fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
-    let mut crc = Crc32c::new();
-    crc.update(key);
-    crc.update(sealed.get(..8).unwrap_or_default());
-    crc.update(sealed.get(HEADER..).unwrap_or_default());
-    crc.finish()
-}
 
 /// CRC-32C (Castagnoli, reflected polynomial `0x82F63B78`), eight bytes per step.
 ///
 /// Hand-written: Rust's hardware CRC instructions need `unsafe`, and no dependency offers it.
 /// A CRC detects every burst error up to 32 bits, which a non-CRC hash of the same width does not.
 pub(crate) struct Crc32c(u32);
-
-#[expect(
-    clippy::indexing_slicing,
-    reason = "invariant: the loops index arrays of 8 and 256 within their lengths"
-)]
-const fn crc_tables() -> [[u32; 256]; 8] {
-    let mut tables = [[0; 256]; 8];
-    let mut b: u32 = 0;
-    while b < 256 {
-        let mut crc = b;
-        let mut bit = 0;
-        while bit < 8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0x82f6_3b78
-            } else {
-                crc >> 1
-            };
-            bit += 1;
-        }
-        tables[0][b as usize] = crc;
-        b += 1;
-    }
-    let mut k = 1;
-    while k < 8 {
-        let mut b = 0;
-        while b < 256 {
-            let prev = tables[k - 1][b];
-            tables[k][b] = (prev >> 8) ^ tables[0][(prev & 0xff) as usize];
-            b += 1;
-        }
-        k += 1;
-    }
-    tables
-}
 
 impl Crc32c {
     /// A CRC of no bytes yet.
@@ -252,6 +90,170 @@ impl Crc32c {
     pub(crate) fn finish(&self) -> u32 {
         !self.0
     }
+}
+
+/// Encodes `record` and seals it under `key` (the key's bytes).
+pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
+    let mut w = Writer::new(Vec::new(), 0);
+    record.encode(&mut w).map_err(Error::Encode)?;
+    seal_encoded(key, w.as_bytes())
+}
+
+/// Seals record bytes already encoded in the current format (an extras page) under `key`,
+/// compressed with raw DEFLATE when that makes them smaller.
+pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
+    if record.len() > MAX_RECORD {
+        return Err(Error::Encode(crate::protocol::Error::Size));
+    }
+    let raw_len =
+        u32::try_from(record.len()).map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
+    let mut out = Vec::with_capacity(HEADER + record.len() / 2);
+    out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&[METHOD_STORED, 0]);
+    out.extend_from_slice(&raw_len.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    if record.len() >= MIN_COMPRESSED {
+        Compressor::new(Compression::Zlib, DEFLATE_LEVEL).compress(record, &mut out);
+    }
+    let compressed = out.len() - HEADER;
+    if compressed == 0 || compressed >= record.len() {
+        out.truncate(HEADER);
+        out.extend_from_slice(record);
+    } else if let Some(method) = out.get_mut(2) {
+        *method = METHOD_DEFLATE;
+    }
+    let crc = checksum(key, &out);
+    if let Some(field) = out.get_mut(8..HEADER) {
+        field.copy_from_slice(&crc.to_le_bytes());
+    }
+    Ok(out)
+}
+
+/// Opens a value sealed under `key` and decodes its record.
+pub(crate) fn unseal<R: Record>(key: &[u8], sealed: &[u8]) -> Result<R> {
+    let record = unseal_bytes(key, sealed)?;
+    let mut r = Reader::new(&record, DECODE_BUDGET, 0);
+    R::decode(&mut r).map_err(Error::Record)
+}
+
+/// The checksum field of a sealed value, read without checking it; 0 if the value is shorter
+/// than its header. After [`unseal`] succeeded it identifies the stored bytes.
+pub(crate) fn stored_checksum(sealed: &[u8]) -> u32 {
+    sealed
+        .get(8..HEADER)
+        .and_then(|b| b.try_into().ok())
+        .map_or(0, u32::from_le_bytes)
+}
+
+/// Checks a sealed value as [`unseal`] does, without decompressing or decoding its record: its
+/// header and its checksum, which covers the stored body (`/check`).
+pub(crate) fn verify(key: &[u8], sealed: &[u8]) -> Result<()> {
+    match checked(key, sealed)? {
+        (METHOD_STORED, raw_len, body) if body.len() != raw_len => {
+            Err(Error::Malformed("stored length differs from the header"))
+        }
+        (METHOD_STORED | METHOD_DEFLATE, _, _) => Ok(()),
+        _ => Err(Error::Malformed("unknown compression method")),
+    }
+}
+
+/// Checks a sealed value and returns its record bytes.
+fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+    let (method, raw_len, body) = checked(key, sealed)?;
+    match method {
+        METHOD_STORED if body.len() == raw_len => Ok(Cow::Borrowed(body)),
+        METHOD_STORED => Err(Error::Malformed("stored length differs from the header")),
+        METHOD_DEFLATE => {
+            let mut out = Vec::new();
+            zlib::Decoder::new()
+                .decompress_whole(body, raw_len, Framing::Raw, &mut out)
+                .map_err(Error::Compression)?;
+            if out.len() == raw_len {
+                Ok(Cow::Owned(out))
+            } else {
+                Err(Error::Malformed(
+                    "decompressed length differs from the header",
+                ))
+            }
+        }
+        _ => Err(Error::Malformed("unknown compression method")),
+    }
+}
+
+/// Checks a sealed value's header and checksum; returns its compression method, its record
+/// length (at most [`MAX_RECORD`]) and its body.
+fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
+    let version = version(sealed)?;
+    if version > FORMAT_VERSION {
+        return Err(Error::NewerFormat { version });
+    }
+    let (header, body) = sealed
+        .split_first_chunk::<HEADER>()
+        .ok_or(Error::Malformed("shorter than the header"))?;
+    let [_, _, method, reserved, l0, l1, l2, l3, c0, c1, c2, c3] = *header;
+    if checksum(key, sealed) != u32::from_le_bytes([c0, c1, c2, c3]) {
+        return Err(Error::Checksum);
+    }
+    if version != FORMAT_VERSION || reserved != 0 {
+        return Err(Error::Malformed("unknown version or reserved bits set"));
+    }
+    let raw_len = usize::try_from(u32::from_le_bytes([l0, l1, l2, l3]))
+        .map_err(|_| Error::Malformed("record length over the limit"))?;
+    if raw_len > MAX_RECORD {
+        return Err(Error::Malformed("record length over the limit"));
+    }
+    Ok((method, raw_len, body))
+}
+
+/// The format version of a sealed value, read without checking anything else.
+pub(crate) fn version(sealed: &[u8]) -> Result<u16> {
+    let bytes = sealed
+        .first_chunk::<2>()
+        .ok_or(Error::Malformed("shorter than the header"))?;
+    Ok(u16::from_le_bytes(*bytes))
+}
+
+/// The CRC-32C a sealed value carries: over `key` and the value without its checksum field.
+fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
+    let mut crc = Crc32c::new();
+    crc.update(key);
+    crc.update(sealed.get(..8).unwrap_or_default());
+    crc.update(sealed.get(HEADER..).unwrap_or_default());
+    crc.finish()
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: the loops index arrays of 8 and 256 within their lengths"
+)]
+const fn crc_tables() -> [[u32; 256]; 8] {
+    let mut tables = [[0; 256]; 8];
+    let mut b: u32 = 0;
+    while b < 256 {
+        let mut crc = b;
+        let mut bit = 0;
+        while bit < 8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0x82f6_3b78
+            } else {
+                crc >> 1
+            };
+            bit += 1;
+        }
+        tables[0][b as usize] = crc;
+        b += 1;
+    }
+    let mut k = 1;
+    while k < 8 {
+        let mut b = 0;
+        while b < 256 {
+            let prev = tables[k - 1][b];
+            tables[k][b] = (prev >> 8) ^ tables[0][(prev & 0xff) as usize];
+            b += 1;
+        }
+        k += 1;
+    }
+    tables
 }
 
 #[cfg(test)]
@@ -320,7 +322,7 @@ mod tests {
         let mut rng = Rng(21);
         let chunk = terrain_chunk(&mut rng);
         let sealed = seal(KEY, &chunk).unwrap();
-        assert_eq!(sealed[2], DEFLATE);
+        assert_eq!(sealed[2], METHOD_DEFLATE);
         assert!(sealed.len() < encode(&chunk).len() / 4);
         assert_eq!(unseal::<ChunkRecord>(KEY, &sealed).unwrap(), chunk);
         let chunk = random_chunk(&mut rng);
@@ -330,7 +332,7 @@ mod tests {
         );
         let meta = Meta::at(77);
         let sealed = seal(b"meta", &meta).unwrap();
-        assert_eq!((sealed[2], sealed.len()), (STORED, HEADER + 9));
+        assert_eq!((sealed[2], sealed.len()), (METHOD_STORED, HEADER + 9));
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
         assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
         // The checksum field is what the seal wrote.

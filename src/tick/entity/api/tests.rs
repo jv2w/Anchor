@@ -89,9 +89,9 @@ fn object_reads(e: &Entity, kind: &Kind) {
 fn every_kind_reads_as_what_it_is() {
     let mut h = harness();
     let made = every_kind(&mut h);
-    let ctx = context(&mut h);
+    let cx = context(&mut h);
     for (id, kind) in &made {
-        let e = ctx.entity(*id).unwrap();
+        let e = cx.entity(*id).unwrap();
         assert!(e.runtime_id().is_some());
         assert_eq!(e.entity_type(), kind.entity_type());
         assert_eq!(e.network_type(), kind.identifier());
@@ -183,7 +183,7 @@ fn every_kind_reads_as_what_it_is() {
     }
     // A thing that is not that kind answers `None`.
     let (item, _) = made[0];
-    let e = ctx.entity(item).unwrap();
+    let e = cx.entity(item).unwrap();
     assert!(e.fuse_ticks().is_none() && e.xp_value().is_none() && e.skin().is_none());
     assert!(e.owning_player().is_none() && e.target_player().is_none());
     assert!(e.painting_motive().is_none() && e.painting_facing().is_none());
@@ -219,13 +219,13 @@ fn owners_targets_and_viewers_are_players() {
     })
     .unwrap();
     let player = player::Id::new(me);
-    let ctx = context(&mut h);
-    assert_eq!(ctx.entity(a).unwrap().owning_player(), Some(player));
-    assert_eq!(ctx.entity(o).unwrap().target_player(), Some(player));
+    let cx = context(&mut h);
+    assert_eq!(cx.entity(a).unwrap().owning_player(), Some(player));
+    assert_eq!(cx.entity(o).unwrap().target_player(), Some(player));
     h.entities();
-    let ctx = context(&mut h);
+    let cx = context(&mut h);
     assert_eq!(
-        ctx.entity(a).unwrap().viewers().collect::<Vec<_>>(),
+        cx.entity(a).unwrap().viewers().collect::<Vec<_>>(),
         vec![player]
     );
 }
@@ -259,8 +259,8 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
     {
-        let mut ctx = context(&mut h);
-        let mut e = ctx.entity_mut(id).unwrap();
+        let mut cx = context(&mut h);
+        let mut e = cx.entity_mut(id).unwrap();
         assert!(e.set_name_tag("Boom"));
         assert!(!e.set_name_tag(&"x".repeat(1025)));
         e.set_name_tag_visible(false);
@@ -324,11 +324,11 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
 #[test]
 fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
-    let id = ctx
+    let mut cx = context(&mut h);
+    let id = cx
         .spawn_human(WORLD, at(0.5, -60.0, 3.5), "Guide", None)
         .unwrap();
-    let mut e = ctx.entity_mut(id).unwrap();
+    let mut e = cx.entity_mut(id).unwrap();
     assert!(!e.set_motion(Vec3::new(f64::NAN, 0.0, 0.0)));
     assert!(e.set_motion(Vec3::new(0.0, 0.5, 0.0)));
     assert_eq!(e.motion(), Vec3::new(0.0, 0.5, 0.0));
@@ -351,17 +351,17 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
     assert!(!e.teleport(world::Id::of(1), at(0.5, -60.0, 0.5)));
     assert!(!e.teleport(WORLD, at(0.5, 30_000_001.0, 0.5)));
     assert!(!e.teleport(WORLD, at(0.5, f64::NAN, 0.5)));
-    let found = ctx.entities_in(
+    let found = cx.entities_in(
         WORLD,
         Aabb::new(at(39.0, -61.0, 39.0), at(42.0, -58.0, 42.0)),
     );
     assert_eq!(found, vec![id]);
     assert!(
-        ctx.entities_in(WORLD, Aabb::new(at(-2.0, -61.0, 2.0), at(2.0, -58.0, 5.0)))
+        cx.entities_in(WORLD, Aabb::new(at(-2.0, -61.0, 2.0), at(2.0, -58.0, 5.0)))
             .is_empty()
     );
-    assert_eq!(ctx.chunk_entities(WORLD, ChunkPos::new(2, 2)).count(), 1);
-    assert_eq!(ctx.chunk_entities(WORLD, ChunkPos::new(0, 0)).count(), 0);
+    assert_eq!(cx.chunk_entities(WORLD, ChunkPos::new(2, 2)).count(), 1);
+    assert_eq!(cx.chunk_entities(WORLD, ChunkPos::new(0, 0)).count(), 0);
 }
 
 // pmmp: Entity::setHealth, Living::setHealth, Entity::heal, Entity::attack, Living::attack,
@@ -370,11 +370,11 @@ fn motion_rotation_and_teleports_change_the_entity_and_its_index() {
 #[test]
 fn health_fire_damage_and_death_follow_pmmp_without_events() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
-    let human = ctx
+    let mut cx = context(&mut h);
+    let human = cx
         .spawn_human(WORLD, at(2.5, -60.0, 2.5), "Target", None)
         .unwrap();
-    let item = ctx
+    let item = cx
         .drop_item(
             WORLD,
             at(-2.5, -60.0, 2.5),
@@ -382,7 +382,7 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
             None,
         )
         .unwrap();
-    let mut e = ctx.entity_mut(human).unwrap();
+    let mut e = cx.entity_mut(human).unwrap();
     // Invulnerable NPCs take no API damage.
     assert!(!e.attack(5.0));
     assert!(e.set_invulnerable(false));
@@ -414,11 +414,11 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
     assert!(!e.is_alive());
     assert!(!e.set_health(10.0), "a dying NPC stays dying");
     e.kill();
-    let mut i = ctx.entity_mut(item).unwrap();
+    let mut i = cx.entity_mut(item).unwrap();
     assert!(!i.knock_back(1.0, 0.0, 0.4, 0.4), "only living NPCs");
     assert!(i.attack(2.0));
     assert!(i.set_health(0.0));
-    assert!(ctx.entity(item).is_none(), "a dead item is gone");
+    assert!(cx.entity(item).is_none(), "a dead item is gone");
     for _ in 0..30 {
         h.entities();
     }
@@ -435,9 +435,9 @@ fn health_fire_damage_and_death_follow_pmmp_without_events() {
 fn kind_setters_change_their_kind_only() {
     let mut h = harness();
     let made = every_kind(&mut h);
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     for (id, kind) in made {
-        let mut e = ctx.entity_mut(id).unwrap();
+        let mut e = cx.entity_mut(id).unwrap();
         let is = |t: Type| e.entity_type() == t;
         let (item, orb, tnt, arrow) = (
             is(Type::Item),
@@ -506,12 +506,12 @@ fn kind_setters_change_their_kind_only() {
 fn a_dropped_item_takes_the_despawn_delay_its_getter_returns() {
     let mut h = harness();
     h.state.settings.item_despawn_ticks = 50_000;
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let stick = stack("minecraft:stick", 1);
-    let id = ctx
+    let id = cx
         .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
         .unwrap();
-    let mut e = ctx.entity_mut(id).unwrap();
+    let mut e = cx.entity_mut(id).unwrap();
     assert_eq!(e.despawn_delay_ticks(), Some(50_000));
     assert!(e.set_despawn_delay_ticks(50_000));
     assert!(!e.set_despawn_delay_ticks(50_001));
@@ -524,11 +524,11 @@ fn entities_not_saved_with_their_chunk_are_left_out_and_go_with_it() {
     let key = (0, ChunkPos::new(1, 1));
     // The chunk holds sample saved compounds of its own.
     let before = h.state.rules.entities.list(key).len();
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let pos = at(20.5, -60.0, 20.5);
-    let kept = ctx.spawn_tnt(WORLD, pos, 1000).unwrap();
-    let temporary = ctx.spawn_tnt(WORLD, pos, 1000).unwrap();
-    let mut e = ctx.entity_mut(temporary).unwrap();
+    let kept = cx.spawn_tnt(WORLD, pos, 1000).unwrap();
+    let temporary = cx.spawn_tnt(WORLD, pos, 1000).unwrap();
+    let mut e = cx.entity_mut(temporary).unwrap();
     assert!(e.can_save_with_chunk());
     assert!(e.set_can_save_with_chunk(false));
     assert!(!e.can_save_with_chunk());
@@ -544,11 +544,11 @@ fn entities_not_saved_with_their_chunk_are_left_out_and_go_with_it() {
 #[test]
 fn a_firework_rocket_is_never_saved_with_its_chunk() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
-    let rocket = ctx
+    let mut cx = context(&mut h);
+    let rocket = cx
         .spawn_firework_rocket(WORLD, at(2.5, -55.0, 2.5), 30, Vec::new(), Vec3::ZERO)
         .unwrap();
-    let mut e = ctx.entity_mut(rocket).unwrap();
+    let mut e = cx.entity_mut(rocket).unwrap();
     assert!(!e.can_save_with_chunk());
     assert!(!e.set_can_save_with_chunk(true));
     assert!(!e.can_save_with_chunk());
@@ -572,33 +572,32 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
     for round in 0..200_i32 {
         let x = f64::from(round % 20) - 10.0;
         let p = at(x + 0.5, -55.0, 6.5);
-        let mut ctx = context(&mut h);
+        let mut cx = context(&mut h);
         let mut ids = vec![
-            ctx.drop_item(WORLD, p, stack("minecraft:stick", 1), Some(Vec3::ZERO))
+            cx.drop_item(WORLD, p, stack("minecraft:stick", 1), Some(Vec3::ZERO))
                 .unwrap(),
-            ctx.spawn_experience_orb(WORLD, p, 5).unwrap(),
-            ctx.spawn_falling_block(WORLD, p, sand).unwrap(),
-            ctx.spawn_tnt(WORLD, p, 500).unwrap(),
-            ctx.spawn_projectile(WORLD, p, Projectile::Snowball, Vec3::ZERO)
+            cx.spawn_experience_orb(WORLD, p, 5).unwrap(),
+            cx.spawn_falling_block(WORLD, p, sand).unwrap(),
+            cx.spawn_tnt(WORLD, p, 500).unwrap(),
+            cx.spawn_projectile(WORLD, p, Projectile::Snowball, Vec3::ZERO)
                 .unwrap(),
-            ctx.spawn_projectile(
+            cx.spawn_projectile(
                 WORLD,
                 p,
                 Projectile::LingeringPotion(Potion::Healing),
                 Vec3::ZERO,
             )
             .unwrap(),
-            ctx.spawn_human(WORLD, p, "npc", Some(skin.clone()))
-                .unwrap(),
+            cx.spawn_human(WORLD, p, "npc", Some(skin.clone())).unwrap(),
         ];
-        assert_eq!(ctx.drop_experience(WORLD, p, 10), 10);
-        ids.extend(ctx.entities(WORLD).map(|(id, _)| id));
+        assert_eq!(cx.drop_experience(WORLD, p, 10), 10);
+        ids.extend(cx.entities(WORLD).map(|(id, _)| id));
         ids.sort_unstable();
         ids.dedup();
         spawned += ids.len();
         for id in ids {
-            ctx.entity_mut(id).unwrap().flag_for_despawn();
-            assert!(ctx.entity(id).is_none(), "gone at once for the API");
+            cx.entity_mut(id).unwrap().flag_for_despawn();
+            assert!(cx.entity(id).is_none(), "gone at once for the API");
         }
         h.entities();
     }
@@ -633,7 +632,7 @@ fn spawning_and_despawning_through_the_api_leaves_every_table_at_its_start() {
 #[test]
 fn queries_go_through_the_chunk_index_whatever_the_area() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let mut ids = Vec::new();
     for i in 0..40_i32 {
         let p = at(
@@ -641,83 +640,83 @@ fn queries_go_through_the_chunk_index_whatever_the_area() {
             -60.0,
             f64::from(i % 7) * 5.0 - 15.0,
         );
-        ids.push(ctx.spawn_tnt(WORLD, p, 1000).unwrap());
+        ids.push(cx.spawn_tnt(WORLD, p, 1000).unwrap());
     }
     // A small box, a box over many chunks (the index walk) and a huge one agree.
     let small = Aabb::new(at(-61.0, -61.0, -16.0), at(-55.0, -50.0, 20.0));
-    let found = ctx.entities_in(WORLD, small);
+    let found = cx.entities_in(WORLD, small);
     assert_eq!(found, ids[..2].to_vec());
     let big = Aabb::new(at(-61.0, -61.0, -16.0), at(60.0, -50.0, 20.0));
-    let all = ctx.entities_in(WORLD, big);
+    let all = cx.entities_in(WORLD, big);
     assert_eq!(all.len(), 40);
     let mut sorted = all.clone();
     sorted.sort_unstable();
     assert_eq!(sorted, ids);
     let huge = Aabb::new(at(-3e7, -1e9, -3e7), at(3e7, 1e9, 3e7));
-    assert_eq!(ctx.entities_in(WORLD, huge), all, "chunk then Id order");
+    assert_eq!(cx.entities_in(WORLD, huge), all, "chunk then Id order");
     assert!(
-        ctx.entities_in(WORLD, Aabb::new(at(f64::NAN, 0.0, 0.0), at(1.0, 1.0, 1.0)))
+        cx.entities_in(WORLD, Aabb::new(at(f64::NAN, 0.0, 0.0), at(1.0, 1.0, 1.0)))
             .is_empty()
     );
-    assert!(ctx.entities_in(world::Id::of(3), big).is_empty());
+    assert!(cx.entities_in(world::Id::of(3), big).is_empty());
     // The nearest, with a filter and a reach.
     let origin = at(-60.0, -60.0, -15.0);
     assert_eq!(
-        ctx.nearest_entity(WORLD, origin, 2.0, |_| true),
+        cx.nearest_entity(WORLD, origin, 2.0, |_| true),
         Some(ids[0])
     );
     // ids[1] is √34 away.
     assert_eq!(
-        ctx.nearest_entity(WORLD, origin, 6.0, |e| e.position().x > -60.0),
+        cx.nearest_entity(WORLD, origin, 6.0, |e| e.position().x > -60.0),
         Some(ids[1])
     );
     assert_eq!(
-        ctx.nearest_entity(WORLD, origin, 5.5, |e| e.position().x > -60.0),
+        cx.nearest_entity(WORLD, origin, 5.5, |e| e.position().x > -60.0),
         None
     );
     assert_eq!(
-        ctx.nearest_entity(WORLD, origin, f64::INFINITY, |_| true),
+        cx.nearest_entity(WORLD, origin, f64::INFINITY, |_| true),
         None
     );
     assert_eq!(
-        ctx.nearest_entity(WORLD, origin, 1e7, |_| true),
+        cx.nearest_entity(WORLD, origin, 1e7, |_| true),
         Some(ids[0])
     );
     // Every entity of the world, in Id order, and the runtime ID index.
-    let listed: Vec<Id> = ctx.entities(WORLD).map(|(id, _)| id).collect();
+    let listed: Vec<Id> = cx.entities(WORLD).map(|(id, _)| id).collect();
     assert_eq!(listed, ids);
-    assert_eq!(ctx.entities(world::Id::of(2)).count(), 0);
+    assert_eq!(cx.entities(world::Id::of(2)).count(), 0);
     // x -60, -57 and -54 at z -15, -10 and -5.
-    let chunk = ctx.chunk_entities(WORLD, ChunkPos::new(-4, -1)).count();
+    let chunk = cx.chunk_entities(WORLD, ChunkPos::new(-4, -1)).count();
     assert_eq!(chunk, 3);
     h.entities();
-    let ctx = context(&mut h);
-    let runtime_id = ctx.entity(ids[5]).unwrap().runtime_id().unwrap();
-    assert_eq!(ctx.find_entity(runtime_id), Some(ids[5]));
-    assert_eq!(ctx.find_entity(u64::MAX), None);
+    let cx = context(&mut h);
+    let runtime_id = cx.entity(ids[5]).unwrap().runtime_id().unwrap();
+    assert_eq!(cx.find_entity(runtime_id), Some(ids[5]));
+    assert_eq!(cx.find_entity(u64::MAX), None);
 }
 
 #[test]
 fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let stick = stack("minecraft:stick", 7);
     let ok = at(0.5, -60.0, 0.5);
     let far = at(5000.5, -60.0, 0.5);
     assert_eq!(
-        ctx.drop_item(world::Id::of(1), ok, stick.clone(), None),
+        cx.drop_item(world::Id::of(1), ok, stick.clone(), None),
         Err(stick.clone())
     );
     assert_eq!(
-        ctx.drop_item(WORLD, far, stick.clone(), None),
+        cx.drop_item(WORLD, far, stick.clone(), None),
         Err(stick.clone())
     );
     assert_eq!(
-        ctx.drop_item(WORLD, ok, Stack::EMPTY, None),
+        cx.drop_item(WORLD, ok, Stack::EMPTY, None),
         Err(Stack::EMPTY)
     );
     assert_eq!(
-        ctx.drop_item(
+        cx.drop_item(
             WORLD,
             ok,
             stick.clone(),
@@ -725,34 +724,31 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
         ),
         Err(stick.clone())
     );
-    assert_eq!(ctx.drop_experience(WORLD, far, 50), 0);
-    assert_eq!(ctx.drop_experience(world::Id::of(9), ok, 50), 0);
-    assert!(ctx.spawn_experience_orb(WORLD, ok, 0).is_none());
-    assert!(ctx.spawn_tnt(WORLD, ok, 40_000).is_none());
+    assert_eq!(cx.drop_experience(WORLD, far, 50), 0);
+    assert_eq!(cx.drop_experience(world::Id::of(9), ok, 50), 0);
+    assert!(cx.spawn_experience_orb(WORLD, ok, 0).is_none());
+    assert!(cx.spawn_tnt(WORLD, ok, 40_000).is_none());
     let high = at(0.5, 30_000_001.0, 0.5);
-    assert!(ctx.spawn_tnt(WORLD, high, 10).is_none());
-    assert!(ctx.spawn_human(WORLD, high, "up", None).is_none());
-    assert_eq!(ctx.drop_experience(WORLD, high, 5), 0);
+    assert!(cx.spawn_tnt(WORLD, high, 10).is_none());
+    assert!(cx.spawn_human(WORLD, high, "up", None).is_none());
+    assert_eq!(cx.drop_experience(WORLD, high, 5), 0);
     assert_eq!(
-        ctx.drop_item(WORLD, high, stick.clone(), None),
+        cx.drop_item(WORLD, high, stick.clone(), None),
         Err(stick.clone())
     );
     assert!(
-        ctx.spawn_projectile(WORLD, ok, Projectile::Egg, Vec3::new(0.0, f64::NAN, 0.0))
+        cx.spawn_projectile(WORLD, ok, Projectile::Egg, Vec3::new(0.0, f64::NAN, 0.0))
             .is_none()
     );
-    assert!(
-        ctx.spawn_human(WORLD, ok, &"n".repeat(1025), None)
-            .is_none()
-    );
-    assert!(ctx.entity_mut(Id::new(77, 0)).is_none());
+    assert!(cx.spawn_human(WORLD, ok, &"n".repeat(1025), None).is_none());
+    assert!(cx.entity_mut(Id::new(77, 0)).is_none());
     // At the cap nothing more is made and the stack comes back.
-    let n = MAX_ENTITIES_PER_WORLD - ctx.entities(WORLD).count();
+    let n = MAX_ENTITIES_PER_WORLD - cx.entities(WORLD).count();
     for _ in 0..n {
-        ctx.spawn_tnt(WORLD, ok, 1000).unwrap();
+        cx.spawn_tnt(WORLD, ok, 1000).unwrap();
     }
-    assert_eq!(ctx.drop_item(WORLD, ok, stick.clone(), None), Err(stick));
-    assert!(ctx.spawn_human(WORLD, ok, "late", None).is_none());
+    assert_eq!(cx.drop_item(WORLD, ok, stick.clone(), None), Err(stick));
+    assert!(cx.spawn_human(WORLD, ok, "late", None).is_none());
 }
 
 #[test]
@@ -776,8 +772,8 @@ fn human_npcs_show_their_skin_and_keep_it_across_a_save() {
     assert_eq!(list.username, "Shop");
     assert_eq!(list.skin.skin_data, skin.data());
     assert_eq!(list.skin.skin_image_height, 64);
-    let ctx = context(&mut h);
-    let e = ctx.entity(id).unwrap();
+    let cx = context(&mut h);
+    let e = cx.entity(id).unwrap();
     assert_eq!(e.skin(), Some(&skin));
     assert!(e.is_name_tag_always_visible());
     let saved = saved::save(e);
@@ -862,19 +858,19 @@ fn animations_reach_the_players_who_see_the_actor_with_pmmp_values() {
         (Animation::Respawn, (18, 0.0)),
         (Animation::TotemUse, (65, 0.0)),
     ];
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     for (animation, _) in all {
-        assert!(ctx.play_animation(Actor::Entity(id), animation));
+        assert!(cx.play_animation(Actor::Entity(id), animation));
     }
     let want: Vec<(u8, f64)> = all.iter().map(|(_, w)| *w).collect();
     h.entities();
     assert_eq!(animations_of(&h.take(1), runtime_id), want);
     // A player sees its own animation; a gone actor plays nothing.
-    let mut ctx = context(&mut h);
-    assert!(ctx.play_animation(Actor::Player(player_of(1)), Animation::Hurt));
-    assert!(!ctx.play_animation(Actor::Player(player_of(9)), Animation::Hurt));
-    ctx.entity_mut(id).unwrap().flag_for_despawn();
-    assert!(!ctx.play_animation(Actor::Entity(id), Animation::Hurt));
+    let mut cx = context(&mut h);
+    assert!(cx.play_animation(Actor::Player(player_of(1)), Animation::Hurt));
+    assert!(!cx.play_animation(Actor::Player(player_of(9)), Animation::Hurt));
+    cx.entity_mut(id).unwrap().flag_for_despawn();
+    assert!(!cx.play_animation(Actor::Entity(id), Animation::Hurt));
     let own = h.runtime_id(1);
     h.entities();
     assert_eq!(animations_of(&h.take(1), own), vec![(2, 0.0)]);
@@ -890,22 +886,22 @@ fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
     h.take(1);
     h.take(2);
     let (p1, p2) = (player_of(1), player_of(2));
-    let mut ctx = context(&mut h);
-    assert!(ctx.can_see(p1, p2));
-    assert!(ctx.hide_player(p1, p2));
-    assert!(ctx.hide_player(p1, p2), "hiding twice is hiding once");
-    assert!(!ctx.hide_player(p1, p1));
-    assert!(!ctx.hide_player(p1, player_of(9)) && !ctx.hide_player(player_of(9), p1));
-    assert!(!ctx.can_see(p1, p2) && ctx.can_see(p2, p1));
+    let mut cx = context(&mut h);
+    assert!(cx.can_see(p1, p2));
+    assert!(cx.hide_player(p1, p2));
+    assert!(cx.hide_player(p1, p2), "hiding twice is hiding once");
+    assert!(!cx.hide_player(p1, p1));
+    assert!(!cx.hide_player(p1, player_of(9)) && !cx.hide_player(player_of(9), p1));
+    assert!(!cx.can_see(p1, p2) && cx.can_see(p2, p1));
     h.step(Vec::new());
     assert_eq!(removes(&h.take(1)), vec![two]);
     assert!(removes(&h.take(2)).is_empty(), "the other way stays");
     h.go(2, standing(4.0, 3.0));
     h.step(Vec::new());
     assert!(adds(&h.take(1)).is_empty(), "not sent again while hidden");
-    let mut ctx = context(&mut h);
-    assert!(ctx.show_player(p1, p2));
-    assert!(!ctx.show_player(p1, p2));
+    let mut cx = context(&mut h);
+    assert!(cx.show_player(p1, p2));
+    assert!(!cx.show_player(p1, p2));
     h.step(Vec::new());
     assert_eq!(adds(&h.take(1)), vec![two]);
     // A pair goes when either player leaves.
@@ -922,9 +918,9 @@ fn hidden_pairs_go_when_a_player_leaves() {
     let mut h = harness();
     h.spawn(2, standing(3.0, 3.0));
     h.spawn(3, standing(5.0, 3.0));
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let (p1, p2, p3) = (player_of(1), player_of(2), player_of(3));
-    assert!(ctx.hide_player(p1, p2) && ctx.hide_player(p2, p1) && ctx.hide_player(p1, p3));
+    assert!(cx.hide_player(p1, p2) && cx.hide_player(p2, p1) && cx.hide_player(p1, p3));
     assert!(h.state.remove(crate::tick::SessionId::new(2)).is_some());
     let left: Vec<_> = h.state.rules.entities.hidden.iter().copied().collect();
     assert_eq!(left, vec![(p1.session(), p3.session())]);
@@ -935,12 +931,12 @@ fn hidden_pairs_go_when_a_player_leaves() {
 #[test]
 fn damage_not_finite_or_above_the_limit_is_refused() {
     let mut h = harness();
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let stick = stack("minecraft:stick", 1);
-    let item = ctx
+    let item = cx
         .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
         .unwrap();
-    let mut e = ctx.entity_mut(item).unwrap();
+    let mut e = cx.entity_mut(item).unwrap();
     let health = e.health();
     for amount in [f64::INFINITY, f64::MAX, 1e18] {
         assert!(!e.attack(amount), "{amount}");
@@ -957,9 +953,9 @@ fn a_player_hides_at_most_its_bound() {
     for s in 0..u64::try_from(MAX_HIDDEN_PER_PLAYER).unwrap() {
         hidden.insert((viewer, crate::tick::SessionId::new(1000 + s)));
     }
-    let mut ctx = context(&mut h);
-    assert!(!ctx.hide_player(player_of(1), player_of(2)));
-    assert!(ctx.hide_player(player_of(2), player_of(1)));
+    let mut cx = context(&mut h);
+    assert!(!cx.hide_player(player_of(1), player_of(2)));
+    assert!(cx.hide_player(player_of(2), player_of(1)));
 }
 
 // pmmp: AreaEffectCloud::__construct, AreaEffectCloud::getEffects, AreaEffectCloud::getAge,
@@ -974,15 +970,15 @@ fn a_player_hides_at_most_its_bound() {
 fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     let mut h = harness();
     let effects = Potion::Poison.effects();
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     let too_many = vec![effects[0]; 33];
     let place = at(1.5, -60.0, 1.5);
     assert!(
-        ctx.spawn_area_effect_cloud(WORLD, place, &too_many)
+        cx.spawn_area_effect_cloud(WORLD, place, &too_many)
             .is_none()
     );
-    let id = ctx.spawn_area_effect_cloud(WORLD, place, effects).unwrap();
-    let e = ctx.entity(id).unwrap();
+    let id = cx.spawn_area_effect_cloud(WORLD, place, effects).unwrap();
+    let e = cx.entity(id).unwrap();
     assert_eq!(e.entity_type(), Type::AreaEffectCloud);
     assert_eq!(e.cloud_effects(), Some(effects));
     assert_eq!(e.cloud_age_ticks(), Some(0));
@@ -994,7 +990,7 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     assert_eq!(e.cloud_radius_change_on_pickup(), Some(-0.5));
     assert_eq!(e.cloud_radius_change_on_use(), Some(-0.5));
     assert_eq!(e.cloud_radius_change_per_tick(), Some(-0.005));
-    let mut e = ctx.entity_mut(id).unwrap();
+    let mut e = cx.entity_mut(id).unwrap();
     assert!(e.set_cloud_max_age_ticks(1200));
     assert!(!e.set_cloud_max_age_ticks(-1) && !e.set_cloud_max_age_ticks(24_001));
     assert!(e.set_cloud_max_age_change_on_use_ticks(-20));
@@ -1024,8 +1020,8 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     let tnt = context(&mut h)
         .spawn_tnt(WORLD, at(-2.5, -60.0, 2.5), 100)
         .unwrap();
-    let mut ctx = context(&mut h);
-    let mut e = ctx.entity_mut(tnt).unwrap();
+    let mut cx = context(&mut h);
+    let mut e = cx.entity_mut(tnt).unwrap();
     assert!(e.cloud_effects().is_none() && e.cloud_max_age_ticks().is_none());
     assert!(!e.set_cloud_max_age_ticks(10) && !e.set_cloud_radius_change_on_use(0.0));
 }
@@ -1044,8 +1040,8 @@ fn a_cloud_shows_a_changed_duration_and_pickup_radius_change() {
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
     {
-        let mut ctx = context(&mut h);
-        let mut e = ctx.entity_mut(id).unwrap();
+        let mut cx = context(&mut h);
+        let mut e = cx.entity_mut(id).unwrap();
         assert!(e.set_cloud_max_age_ticks(1200));
         assert!(e.set_cloud_radius_change_on_pickup(-1.0));
     }
@@ -1071,8 +1067,8 @@ fn a_rocket_shows_the_flight_multiplier_of_a_changed_flight_time() {
     h.entities();
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let mut ctx = context(&mut h);
-    assert!(ctx.entity_mut(id).unwrap().set_max_flight_time_ticks(50));
+    let mut cx = context(&mut h);
+    assert!(cx.entity_mut(id).unwrap().set_max_flight_time_ticks(50));
     h.entities();
     let flight = data_of(&h.take(1), runtime_id).iter().find_map(|m| {
         let Some(MetadataValue::CompoundTag(item)) =
@@ -1097,9 +1093,9 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
     let mut h = harness();
     let made = every_kind(&mut h);
     let (me, gone) = (player_of(1), player_of(9));
-    let mut ctx = context(&mut h);
+    let mut cx = context(&mut h);
     for (id, kind) in made {
-        let mut e = ctx.entity_mut(id).unwrap();
+        let mut e = cx.entity_mut(id).unwrap();
         let t = e.entity_type();
         let projectile = matches!(kind, Kind::Projectile(_) | Kind::Firework(_));
         assert_eq!(e.gravity(), kind.physics().gravity);
@@ -1139,8 +1135,8 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
     h.entities();
     h.take(1);
     let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
-    let mut ctx = context(&mut h);
-    let mut e = ctx.entity_mut(id).unwrap();
+    let mut cx = context(&mut h);
+    let mut e = cx.entity_mut(id).unwrap();
     assert!(!e.set_stack_size(0) && !e.set_stack_size(65));
     assert!(e.set_stack_size(64));
     assert_eq!(e.item().map(Stack::count), Some(64));

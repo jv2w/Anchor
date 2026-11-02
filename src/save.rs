@@ -57,15 +57,15 @@ use crate::world::{
     World,
 };
 
-/// A world of the server, by its place in the tick's world list (the default world is 0).
-pub(crate) type WorldIndex = usize;
-
 /// Requests the save thread's queue holds. The tick sends at most one load batch per tick and
 /// one snapshot at a time, so it fills only if the thread falls far behind.
 pub(crate) const REQUEST_CAPACITY: usize = 64;
 /// Answers the tick's queue holds: every chunk load in flight and the player loads and commit
 /// answers on top, so the save thread never waits on a full queue in normal running.
 pub(crate) const RESPONSE_CAPACITY: usize = 2048;
+
+/// A world of the server, by its place in the tick's world list (the default world is 0).
+pub(crate) type WorldIndex = usize;
 
 /// What the tick asks the save thread for.
 #[derive(Debug)]
@@ -319,62 +319,6 @@ impl std::fmt::Debug for WorldSpec {
     }
 }
 
-/// The seed of a world whose settings give none: made from its name, so it is the same at every
-/// start (nothing saves it) and differs between worlds.
-pub(crate) fn default_seed(name: &str) -> i64 {
-    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = crate::crypto::sha256(&[name.as_bytes()]);
-    i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
-}
-
-/// The seed a world runs with: its own, else [`default_seed`] of its name.
-pub(crate) fn seed_or_default(name: &str, seed: Option<i64>) -> i64 {
-    seed.unwrap_or_else(|| default_seed(name))
-}
-
-/// The settings the world file of the world `name` is read or written with when the server does
-/// not run (an import, an export): those of the world declared under the name in any letter case,
-/// its name among them, else the generator of the default world (the first of `worlds`) and no
-/// seed of its own. `None` for a world declared temporary, which has no file.
-pub(crate) fn file_world(worlds: &[WorldSpec], name: &str) -> Option<WorldSpec> {
-    let key = storage::world_name_key(name);
-    let declared = worlds
-        .iter()
-        .find(|w| storage::world_name_key(&w.name) == key);
-    if declared.is_some_and(|w| w.kind != Kind::Persistent) {
-        return None;
-    }
-    let base = declared.or(worlds.first())?;
-    Some(WorldSpec {
-        name: declared.map_or(name, |w| w.name.as_str()).to_owned(),
-        kind: Kind::Persistent,
-        generator: Arc::clone(&base.generator),
-        seed: declared.and_then(|w| w.seed),
-        spawn: None,
-    })
-}
-
-/// A world the server runs, as its settings make it: `seed`, else [`default_seed`]; `spawn`,
-/// else the generator's. A stored world goes on from its saved state ([`resume`]), its spawn
-/// among it.
-pub(crate) fn new_world(
-    name: &str,
-    kind: Kind,
-    generator: &dyn Generator,
-    seed: Option<i64>,
-    spawn: Option<BlockPos>,
-) -> World {
-    let seed = seed_or_default(name, seed);
-    let spawn = spawn.unwrap_or_else(|| generator.spawn(seed));
-    World::new(name, kind, seed, spawn)
-}
-
-/// Gives `world` the state its stored `record` keeps: its number, time and spawn.
-pub(crate) fn resume(world: &mut World, record: WorldRecord) {
-    world.set_number(Some(record.number));
-    world.set_time(record.time);
-    world.set_spawn(record.spawn);
-}
-
 /// A world as the save thread sees it.
 struct Plan {
     name: String,
@@ -432,165 +376,6 @@ impl Opener {
             }
         }
     }
-}
-
-/// The plan of a world named `name`, persistent with `number` (the tick's) or temporary without,
-/// before its file opens ([`open_world`]).
-fn plan(name: &str, number: Option<u32>, seed: i64, generator: Arc<dyn Generator>) -> Plan {
-    Plan {
-        name: name.to_owned(),
-        number,
-        seed,
-        generator,
-        file: None,
-        values: None,
-        clear: false,
-    }
-}
-
-/// Opens the file of the persistent world of `plan`, whose record gives its number, time and
-/// spawn; a temporary world has none. On error the plan has no file.
-fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
-    if plan.number.is_none() {
-        return Ok(());
-    }
-    let mut open = opener.open(&plan.name)?;
-    if let Some(record) = world_file(&mut open.storage)? {
-        plan.number = Some(record.number);
-        plan.values = Some(WorldValues {
-            time: record.time,
-            spawn: record.spawn,
-        });
-    }
-    plan.file = Some(open);
-    Ok(())
-}
-
-/// Logs that the file of world `name` did not open while the server runs or replays: its
-/// chunks load damaged, so nothing of it changes or is saved.
-fn log_unopened(name: &str, error: &storage::Error) {
-    error!(
-        world = name,
-        error = error as &(dyn std::error::Error + 'static),
-        "world file did not open; its chunks are quarantined and nothing of it is saved"
-    );
-}
-
-/// The record of the world file `storage`, if it holds one.
-fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Error> {
-    let Some(value) = storage.read(&[Key::World])?.pop() else {
-        return Ok(None);
-    };
-    value?
-        .map(|sealed| unseal::<WorldRecord>(&Key::World.to_bytes(), &sealed))
-        .transpose()
-}
-
-/// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
-/// worlds in order and names each before any request about it), one made again replaces its plan.
-/// The tick's number is the world's: a file kept for a world deleted this run, whose deletion no
-/// commit holds yet, still holds the record of the deleted one.
-fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
-    for world in worlds {
-        let mut plan = plan(
-            &world.name,
-            world.number,
-            world.seed,
-            Arc::clone(&world.generator),
-        );
-        if let Err(e) = open_world(&mut plan, opener) {
-            log_unopened(&world.name, &e);
-        }
-        if plan.number != world.number {
-            plan.number = world.number;
-            plan.values = None;
-        }
-        match plans.get_mut(world.index) {
-            Some(slot) => *slot = plan,
-            None => plans.push(plan),
-        }
-    }
-}
-
-/// Forgets the worlds the tick deleted: closes the file of the plan at the index the tick had
-/// each at, if any (Windows cannot remove an open file), and saves nothing more of it.
-fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
-    for world in worlds {
-        if let Some(plan) = world.index.and_then(|i| plans.get_mut(i)) {
-            plan.file = None;
-            plan.number = None;
-        }
-    }
-}
-
-/// Removes the files of the worlds `names` of the data folder `data_dir`, deleted before the save
-/// just committed: the main file's commit holds their deletion marks. Returns the names whose
-/// files are gone, and those whose files could not be removed, logged, which stay marked.
-fn remove_world_files(
-    data_dir: &std::path::Path,
-    names: Vec<String>,
-) -> (Vec<String>, Vec<String>) {
-    let mut removed = Vec::with_capacity(names.len());
-    let mut failed = Vec::new();
-    for name in names {
-        match remove_world_file(data_dir, &name) {
-            Ok(()) => removed.push(name),
-            Err(e) => {
-                error!(
-                    world = name,
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "could not delete the world file"
-                );
-                failed.push(name);
-            }
-        }
-    }
-    (removed, failed)
-}
-
-/// Removes the file of the world `name` of the data folder `data_dir`, if there is one, and
-/// flushes the folder.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread and the start delete a world's file"
-)]
-fn remove_world_file(data_dir: &std::path::Path, name: &str) -> Result<(), storage::Error> {
-    let Some(file) = world_file_name(data_dir, name)? else {
-        return Ok(());
-    };
-    let file = Place::world(data_dir, &file).file;
-    match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
-        Ok(()) => {
-            info!(world = name, file = %file.display(), "world file deleted");
-            Ok(())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(storage::Error::Io(e)),
-    }
-}
-
-/// Removes the files of the worlds the main file's last save deleted (its deletion marks,
-/// [`Key::Deleted`]), which a stop right after that save's commit left, then the marks, in one
-/// commit of the main file: a start stopped in between finds the marks again and ends the same.
-/// A file that cannot be removed refuses the start, as the world would come back.
-fn finish_deletions(data_dir: &std::path::Path, main: &mut Storage) -> Result<(), storage::Error> {
-    let names = main.deleted_worlds()?;
-    if names.is_empty() {
-        return Ok(());
-    }
-    let mut marks = Batch::with_capacity(names.len());
-    for name in names {
-        if let Err(e) = remove_world_file(data_dir, &name) {
-            error!(
-                world = name,
-                error = &e as &(dyn std::error::Error + 'static),
-                "could not delete the world file"
-            );
-            return Err(e);
-        }
-        marks.delete(Key::Deleted(name));
-    }
-    main.commit(&marks)
 }
 
 /// What the tick needs to make and load worlds while it runs.
@@ -811,6 +596,41 @@ impl Thread {
     }
 }
 
+/// What a load does on the CPU pool to the chunks it decoded or generated.
+#[derive(Clone, Copy)]
+enum Prepare<'a> {
+    /// What the tick takes: lit when `lighting`, and the extras read into the rule modules' form
+    /// ([`Stored::rules`]) with the server's custom entity types.
+    Tick {
+        lighting: bool,
+        entity_types: &'a EntityTypes,
+    },
+    /// Nothing: a replay's start takes the light and typed state from its checkpoint.
+    Stored,
+}
+
+/// The sub-chunk records of a chunk's terrain values, `None` for a sub-chunk without a value.
+pub(crate) type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
+
+/// What a commit does to a key: writes these sealed bytes, or with `None` removes its value.
+pub(crate) type Write = (Key, Option<Vec<u8>>);
+
+/// [`open_with`] a start backup and a check, as the tests open data files.
+#[cfg(test)]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "consistency: a test helper fails by panicking when its pool does not stop"
+)]
+pub(crate) fn open(
+    data_dir: &std::path::Path,
+    specs: Vec<WorldSpec>,
+) -> Result<Opened, crate::Error> {
+    let pool = crate::runtime::cpu_pool(2).unwrap();
+    let opened = open_with(data_dir, specs, Start::checked(StartBackup::Make), &pool);
+    assert!(pool.shutdown());
+    opened
+}
+
 /// Opens the data files (backup and integrity check as `start` says) and resolves the worlds:
 /// each gets the settings of its spec ([`new_world`]); a persistent world whose file
 /// `data/worlds/` holds keeps its time and number, a new one starts at time 0 with the next free
@@ -986,71 +806,9 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(),
     refused.map_or(Ok(()), Err)
 }
 
-/// The names of the world files in `data/worlds/`, in name order: each file `<name>.redb` whose
-/// name is a world name ([`storage::is_world_file_name`]); of names that differ only in letter
-/// case, the first. Others are left out with a warning.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the data files open before the threads start"
-)]
-fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
-    let dir = data_dir.join(storage::WORLD_DIR);
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(storage::Error::Io(e)),
-    };
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(storage::Error::Io)?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some(storage::EXTENSION) {
-            continue;
-        }
-        match path.file_stem().and_then(|s| s.to_str()) {
-            Some(name) if storage::is_world_file_name(name) => names.push(name.to_owned()),
-            _ => {
-                warn!(file = %path.display(), "a file of the world folder is not named as a world; it is left out");
-            }
-        }
-    }
-    names.sort_unstable();
-    let mut seen = std::collections::BTreeSet::new();
-    names.retain(|name| {
-        let new = seen.insert(storage::world_name_key(name));
-        if !new {
-            warn!(
-                world = name,
-                "a world file differs from another only in letter case; it is left out"
-            );
-        }
-        new
-    });
-    if names.len() > MAX_WORLDS {
-        return Err(storage::Error::TooManyWorlds);
-    }
-    Ok(names)
-}
-
 /// The names of the world files of `data/worlds/`, in name order ([`world_names`]).
 pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
     world_names(data_dir)
-}
-
-/// The name of the world file of `data/worlds/` that is the world `name`'s: the one whose name
-/// differs from `name` at most in letter case ([`world_names`]), if any.
-pub(crate) fn world_file_name(
-    data_dir: &std::path::Path,
-    name: &str,
-) -> Result<Option<String>, storage::Error> {
-    Ok(file_of(&world_names(data_dir)?, name).cloned())
-}
-
-/// Of the world file names `names`, the one whose name differs from `name` at most in letter
-/// case, if any.
-fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
-    let key = storage::world_name_key(name);
-    names.iter().find(|n| storage::world_name_key(n) == key)
 }
 
 /// The place of a new file of the world `name`: `None` if `data/worlds/` holds the file of the
@@ -1089,22 +847,6 @@ fn new_place(
     } else {
         Err(storage::Error::TooManyWorlds)
     }
-}
-
-/// [`open_with`] a start backup and a check, as the tests open data files.
-#[cfg(test)]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "consistency: a test helper fails by panicking when its pool does not stop"
-)]
-pub(crate) fn open(
-    data_dir: &std::path::Path,
-    specs: Vec<WorldSpec>,
-) -> Result<Opened, crate::Error> {
-    let pool = crate::runtime::cpu_pool(2).unwrap();
-    let opened = open_with(data_dir, specs, Start::checked(StartBackup::Make), &pool);
-    assert!(pool.shutdown());
-    opened
 }
 
 /// Opens the data files `files` read-only for a replay ([`Storage::open_replica`]) and resolves
@@ -1655,28 +1397,6 @@ fn stored_meta(storage: &mut Storage) -> Result<Meta, storage::Error> {
     }
 }
 
-/// The chunk at `pos` of world `number` in the `chunks` table.
-pub(crate) fn chunk_id(number: u32, pos: ChunkPos) -> ChunkId {
-    ChunkId {
-        world: number,
-        x: pos.x,
-        z: pos.z,
-    }
-}
-
-/// What a load does on the CPU pool to the chunks it decoded or generated.
-#[derive(Clone, Copy)]
-enum Prepare<'a> {
-    /// What the tick takes: lit when `lighting`, and the extras read into the rule modules' form
-    /// ([`Stored::rules`]) with the server's custom entity types.
-    Tick {
-        lighting: bool,
-        entity_types: &'a EntityTypes,
-    },
-    /// Nothing: a replay's start takes the light and typed state from its checkpoint.
-    Stored,
-}
-
 /// Loads a batch: reads every value of the persistent worlds' chunks, in one read transaction per
 /// world file ([`Storage::read_chunks`] retries a failed read on the reopened file), then decodes
 /// or generates every chunk on the CPU pool, resolves its saved custom blocks and prepares it as
@@ -1800,9 +1520,6 @@ fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &
         }
     }
 }
-
-/// The sub-chunk records of a chunk's terrain values, `None` for a sub-chunk without a value.
-pub(crate) type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
 
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
 /// terrain if none was saved ([`read_values`]); any damaged value makes the chunk damaged.
@@ -2104,6 +1821,15 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
     Ok(())
 }
 
+/// The chunk at `pos` of world `number` in the `chunks` table.
+pub(crate) fn chunk_id(number: u32, pos: ChunkPos) -> ChunkId {
+    ChunkId {
+        world: number,
+        x: pos.x,
+        z: pos.z,
+    }
+}
+
 /// The record of a world with `values`, if `plan` is of a persistent world and its file does not
 /// hold these values already.
 fn world_record(plan: &Plan, values: WorldValues) -> Option<WorldRecord> {
@@ -2117,9 +1843,6 @@ fn world_record(plan: &Plan, values: WorldValues) -> Option<WorldRecord> {
         spawn,
     })
 }
-
-/// What a commit does to a key: writes these sealed bytes, or with `None` removes its value.
-pub(crate) type Write = (Key, Option<Vec<u8>>);
 
 /// The sub-chunk values a commit writes for a changed chunk's terrain, by key: its changed
 /// sub-chunks, or all 24 when the file does not hold it yet. An empty sub-chunk of
@@ -2156,18 +1879,6 @@ pub(crate) fn stored_terrain(terrain: Terrain) -> Option<ChunkRecord> {
     Some(ChunkRecord {
         sub_chunks: Box::new(terrain.map(|s| s.unwrap_or_else(empty_sub_chunk))),
     })
-}
-
-/// The terrain a sub-chunk without a value has: no blocks, all plains.
-pub(crate) fn empty_sub_chunk() -> SubChunkRecord {
-    SubChunkRecord {
-        layers: Vec::new(),
-        biomes: Biomes {
-            bits: 0,
-            words: Vec::new(),
-            palette: vec![PLAINS],
-        },
-    }
 }
 
 /// The sealed pages of a chunk's extras list, in order; none for an empty list.
@@ -2223,6 +1934,18 @@ pub(crate) fn biome_record(chunk: &Chunk, i: usize) -> Biomes {
     )
 }
 
+/// The terrain a sub-chunk without a value has: no blocks, all plains.
+pub(crate) fn empty_sub_chunk() -> SubChunkRecord {
+    SubChunkRecord {
+        layers: Vec::new(),
+        biomes: Biomes {
+            bits: 0,
+            words: Vec::new(),
+            palette: vec![PLAINS],
+        },
+    }
+}
+
 /// The stored form of a block layer of a chunk: its palette as disk-palette NBT, unknown states
 /// as they were read.
 #[expect(
@@ -2273,32 +1996,6 @@ pub(crate) fn palette_entry(name: String, states: nbt::Compound) -> nbt::Compoun
     ])
 }
 
-/// The block state a disk palette entry names, if Anchor knows it or PMMP reads it as one of its
-/// states ([`State::read`]).
-pub(crate) fn find_state(entry: &nbt::Compound) -> Option<State> {
-    let Some(Value::String(name)) = entry.get("name") else {
-        return None;
-    };
-    let states = match entry.get("states") {
-        Some(Value::Compound(states)) => states,
-        None => &nbt::Compound::new(),
-        Some(_) => return None,
-    };
-    let mut properties = Vec::with_capacity(states.len());
-    for (key, value) in states {
-        properties.push((
-            key.as_str(),
-            match value {
-                Value::Byte(b) => PropertyValue::Byte(*b),
-                Value::Int(i) => PropertyValue::Int(*i),
-                Value::String(s) => PropertyValue::String(s),
-                _ => return None,
-            },
-        ));
-    }
-    State::read(name, &properties)
-}
-
 /// The chunk of a stored record, or `None` if its parts are invalid (damage: the record decoded
 /// but does not describe a chunk). A state Anchor does not know is one of `custom`'s blocks if it
 /// names one, else inert if clients know it or unknown, keeping its NBT either way:
@@ -2340,6 +2037,309 @@ pub(crate) fn to_chunk(record: ChunkRecord, custom: &Registry) -> Option<Chunk> 
     }
     let biomes = biomes.map(|b| b.unwrap_or_else(|| Paletted::uniform(PLAINS)));
     Chunk::from_parts(sub_chunks, biomes, unknown).ok()
+}
+
+/// The block state a disk palette entry names, if Anchor knows it or PMMP reads it as one of its
+/// states ([`State::read`]).
+pub(crate) fn find_state(entry: &nbt::Compound) -> Option<State> {
+    let Some(Value::String(name)) = entry.get("name") else {
+        return None;
+    };
+    let states = match entry.get("states") {
+        Some(Value::Compound(states)) => states,
+        None => &nbt::Compound::new(),
+        Some(_) => return None,
+    };
+    let mut properties = Vec::with_capacity(states.len());
+    for (key, value) in states {
+        properties.push((
+            key.as_str(),
+            match value {
+                Value::Byte(b) => PropertyValue::Byte(*b),
+                Value::Int(i) => PropertyValue::Int(*i),
+                Value::String(s) => PropertyValue::String(s),
+                _ => return None,
+            },
+        ));
+    }
+    State::read(name, &properties)
+}
+
+/// The settings the world file of the world `name` is read or written with when the server does
+/// not run (an import, an export): those of the world declared under the name in any letter case,
+/// its name among them, else the generator of the default world (the first of `worlds`) and no
+/// seed of its own. `None` for a world declared temporary, which has no file.
+pub(crate) fn file_world(worlds: &[WorldSpec], name: &str) -> Option<WorldSpec> {
+    let key = storage::world_name_key(name);
+    let declared = worlds
+        .iter()
+        .find(|w| storage::world_name_key(&w.name) == key);
+    if declared.is_some_and(|w| w.kind != Kind::Persistent) {
+        return None;
+    }
+    let base = declared.or(worlds.first())?;
+    Some(WorldSpec {
+        name: declared.map_or(name, |w| w.name.as_str()).to_owned(),
+        kind: Kind::Persistent,
+        generator: Arc::clone(&base.generator),
+        seed: declared.and_then(|w| w.seed),
+        spawn: None,
+    })
+}
+
+/// A world the server runs, as its settings make it: `seed`, else [`default_seed`]; `spawn`,
+/// else the generator's. A stored world goes on from its saved state ([`resume`]), its spawn
+/// among it.
+pub(crate) fn new_world(
+    name: &str,
+    kind: Kind,
+    generator: &dyn Generator,
+    seed: Option<i64>,
+    spawn: Option<BlockPos>,
+) -> World {
+    let seed = seed_or_default(name, seed);
+    let spawn = spawn.unwrap_or_else(|| generator.spawn(seed));
+    World::new(name, kind, seed, spawn)
+}
+
+/// The seed a world runs with: its own, else [`default_seed`] of its name.
+pub(crate) fn seed_or_default(name: &str, seed: Option<i64>) -> i64 {
+    seed.unwrap_or_else(|| default_seed(name))
+}
+
+/// The seed of a world whose settings give none: made from its name, so it is the same at every
+/// start (nothing saves it) and differs between worlds.
+pub(crate) fn default_seed(name: &str) -> i64 {
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = crate::crypto::sha256(&[name.as_bytes()]);
+    i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
+}
+
+/// Gives `world` the state its stored `record` keeps: its number, time and spawn.
+pub(crate) fn resume(world: &mut World, record: WorldRecord) {
+    world.set_number(Some(record.number));
+    world.set_time(record.time);
+    world.set_spawn(record.spawn);
+}
+
+/// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
+/// worlds in order and names each before any request about it), one made again replaces its plan.
+/// The tick's number is the world's: a file kept for a world deleted this run, whose deletion no
+/// commit holds yet, still holds the record of the deleted one.
+fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
+    for world in worlds {
+        let mut plan = plan(
+            &world.name,
+            world.number,
+            world.seed,
+            Arc::clone(&world.generator),
+        );
+        if let Err(e) = open_world(&mut plan, opener) {
+            log_unopened(&world.name, &e);
+        }
+        if plan.number != world.number {
+            plan.number = world.number;
+            plan.values = None;
+        }
+        match plans.get_mut(world.index) {
+            Some(slot) => *slot = plan,
+            None => plans.push(plan),
+        }
+    }
+}
+
+/// The plan of a world named `name`, persistent with `number` (the tick's) or temporary without,
+/// before its file opens ([`open_world`]).
+fn plan(name: &str, number: Option<u32>, seed: i64, generator: Arc<dyn Generator>) -> Plan {
+    Plan {
+        name: name.to_owned(),
+        number,
+        seed,
+        generator,
+        file: None,
+        values: None,
+        clear: false,
+    }
+}
+
+/// Opens the file of the persistent world of `plan`, whose record gives its number, time and
+/// spawn; a temporary world has none. On error the plan has no file.
+fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
+    if plan.number.is_none() {
+        return Ok(());
+    }
+    let mut open = opener.open(&plan.name)?;
+    if let Some(record) = world_file(&mut open.storage)? {
+        plan.number = Some(record.number);
+        plan.values = Some(WorldValues {
+            time: record.time,
+            spawn: record.spawn,
+        });
+    }
+    plan.file = Some(open);
+    Ok(())
+}
+
+/// Logs that the file of world `name` did not open while the server runs or replays: its
+/// chunks load damaged, so nothing of it changes or is saved.
+fn log_unopened(name: &str, error: &storage::Error) {
+    error!(
+        world = name,
+        error = error as &(dyn std::error::Error + 'static),
+        "world file did not open; its chunks are quarantined and nothing of it is saved"
+    );
+}
+
+/// The record of the world file `storage`, if it holds one.
+fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Error> {
+    let Some(value) = storage.read(&[Key::World])?.pop() else {
+        return Ok(None);
+    };
+    value?
+        .map(|sealed| unseal::<WorldRecord>(&Key::World.to_bytes(), &sealed))
+        .transpose()
+}
+
+/// Forgets the worlds the tick deleted: closes the file of the plan at the index the tick had
+/// each at, if any (Windows cannot remove an open file), and saves nothing more of it.
+fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
+    for world in worlds {
+        if let Some(plan) = world.index.and_then(|i| plans.get_mut(i)) {
+            plan.file = None;
+            plan.number = None;
+        }
+    }
+}
+
+/// Removes the files of the worlds the main file's last save deleted (its deletion marks,
+/// [`Key::Deleted`]), which a stop right after that save's commit left, then the marks, in one
+/// commit of the main file: a start stopped in between finds the marks again and ends the same.
+/// A file that cannot be removed refuses the start, as the world would come back.
+fn finish_deletions(data_dir: &std::path::Path, main: &mut Storage) -> Result<(), storage::Error> {
+    let names = main.deleted_worlds()?;
+    if names.is_empty() {
+        return Ok(());
+    }
+    let mut marks = Batch::with_capacity(names.len());
+    for name in names {
+        if let Err(e) = remove_world_file(data_dir, &name) {
+            error!(
+                world = name,
+                error = &e as &(dyn std::error::Error + 'static),
+                "could not delete the world file"
+            );
+            return Err(e);
+        }
+        marks.delete(Key::Deleted(name));
+    }
+    main.commit(&marks)
+}
+
+/// Removes the files of the worlds `names` of the data folder `data_dir`, deleted before the save
+/// just committed: the main file's commit holds their deletion marks. Returns the names whose
+/// files are gone, and those whose files could not be removed, logged, which stay marked.
+fn remove_world_files(
+    data_dir: &std::path::Path,
+    names: Vec<String>,
+) -> (Vec<String>, Vec<String>) {
+    let mut removed = Vec::with_capacity(names.len());
+    let mut failed = Vec::new();
+    for name in names {
+        match remove_world_file(data_dir, &name) {
+            Ok(()) => removed.push(name),
+            Err(e) => {
+                error!(
+                    world = name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "could not delete the world file"
+                );
+                failed.push(name);
+            }
+        }
+    }
+    (removed, failed)
+}
+
+/// Removes the file of the world `name` of the data folder `data_dir`, if there is one, and
+/// flushes the folder.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread and the start delete a world's file"
+)]
+fn remove_world_file(data_dir: &std::path::Path, name: &str) -> Result<(), storage::Error> {
+    let Some(file) = world_file_name(data_dir, name)? else {
+        return Ok(());
+    };
+    let file = Place::world(data_dir, &file).file;
+    match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
+        Ok(()) => {
+            info!(world = name, file = %file.display(), "world file deleted");
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(storage::Error::Io(e)),
+    }
+}
+
+/// The name of the world file of `data/worlds/` that is the world `name`'s: the one whose name
+/// differs from `name` at most in letter case ([`world_names`]), if any.
+pub(crate) fn world_file_name(
+    data_dir: &std::path::Path,
+    name: &str,
+) -> Result<Option<String>, storage::Error> {
+    Ok(file_of(&world_names(data_dir)?, name).cloned())
+}
+
+/// The names of the world files in `data/worlds/`, in name order: each file `<name>.redb` whose
+/// name is a world name ([`storage::is_world_file_name`]); of names that differ only in letter
+/// case, the first. Others are left out with a warning.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the data files open before the threads start"
+)]
+fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
+    let dir = data_dir.join(storage::WORLD_DIR);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(storage::Error::Io(e)),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(storage::Error::Io)?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some(storage::EXTENSION) {
+            continue;
+        }
+        match path.file_stem().and_then(|s| s.to_str()) {
+            Some(name) if storage::is_world_file_name(name) => names.push(name.to_owned()),
+            _ => {
+                warn!(file = %path.display(), "a file of the world folder is not named as a world; it is left out");
+            }
+        }
+    }
+    names.sort_unstable();
+    let mut seen = std::collections::BTreeSet::new();
+    names.retain(|name| {
+        let new = seen.insert(storage::world_name_key(name));
+        if !new {
+            warn!(
+                world = name,
+                "a world file differs from another only in letter case; it is left out"
+            );
+        }
+        new
+    });
+    if names.len() > MAX_WORLDS {
+        return Err(storage::Error::TooManyWorlds);
+    }
+    Ok(names)
+}
+
+/// Of the world file names `names`, the one whose name differs from `name` at most in letter
+/// case, if any.
+fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
+    let key = storage::world_name_key(name);
+    names.iter().find(|n| storage::world_name_key(n) == key)
 }
 
 #[cfg(test)]

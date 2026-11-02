@@ -163,7 +163,11 @@ fn entries(writes: &[(u64, Write)], newest_only: bool) -> Vec<(Vec<u8>, Vec<u8>)
     sorted
         .into_iter()
         .map(|(sequence, (key, value))| {
-            let kind = if value.is_some() { VALUE } else { DELETION };
+            let kind = if value.is_some() {
+                KIND_VALUE
+            } else {
+                KIND_DELETION
+            };
             (
                 internal(key, *sequence, kind),
                 value.clone().unwrap_or_default(),
@@ -470,7 +474,7 @@ fn small_entries() -> Vec<(Vec<u8>, Vec<u8>)> {
     (0..30)
         .map(|i| {
             (
-                internal(format!("key{i:02}").as_bytes(), 10 + i, VALUE),
+                internal(format!("key{i:02}").as_bytes(), 10 + i, KIND_VALUE),
                 vec![1; usize::try_from(i).unwrap()],
             )
         })
@@ -657,7 +661,7 @@ fn a_block_over_16_mib_is_refused_before_reading() {
     let mut handle = Vec::new();
     put_varint(&mut handle, 0);
     put_varint(&mut handle, 1 << 30);
-    let index = table::tests::encode_block(&[(internal(b"z", 1, VALUE), handle)], 1);
+    let index = table::tests::encode_block(&[(internal(b"z", 1, KIND_VALUE), handle)], 1);
     let mut bytes = Vec::new();
     let meta = table::tests::seal_block(&mut bytes, &table::tests::encode_block(&[], 1), 0);
     let index_handle = table::tests::seal_block(&mut bytes, &index, 0);
@@ -671,8 +675,8 @@ fn a_block_over_16_mib_is_refused_before_reading() {
     let file = TableFile {
         number,
         size: bytes.len() as u64,
-        smallest: internal(b"a", 1, VALUE),
-        largest: internal(b"z", 1, VALUE),
+        smallest: internal(b"a", 1, KIND_VALUE),
+        largest: internal(b"z", 1, KIND_VALUE),
     };
     w.files.insert(format!("{number:06}.ldb"), bytes);
     w.edits.push(Writer::add(1, &file));
@@ -695,10 +699,10 @@ fn a_block_over_16_mib_is_refused_before_reading() {
 fn a_malformed_entry_in_a_table_names_the_table() {
     // One data block whose second key is before its first.
     let entries = [
-        (internal(b"b", 1, VALUE), b"b".to_vec()),
-        (internal(b"a", 1, VALUE), b"a".to_vec()),
+        (internal(b"b", 1, KIND_VALUE), b"b".to_vec()),
+        (internal(b"a", 1, KIND_VALUE), b"a".to_vec()),
     ];
-    let mut kinds = || table::NONE;
+    let mut kinds = || table::COMPRESSION_NONE;
     let bytes = encode_table(&entries, 4096, 16, &mut kinds);
     let mut w = Writer::new();
     let number = w.number();
@@ -706,8 +710,8 @@ fn a_malformed_entry_in_a_table_names_the_table() {
     let file = TableFile {
         number,
         size: bytes.len() as u64,
-        smallest: internal(b"a", 1, VALUE),
-        largest: internal(b"b", 1, VALUE),
+        smallest: internal(b"a", 1, KIND_VALUE),
+        largest: internal(b"b", 1, KIND_VALUE),
     };
     w.files.insert(name.clone(), bytes);
     w.edits.push(Writer::add(1, &file));
@@ -740,8 +744,11 @@ fn held_blocks_are_bounded() {
 fn held_blocks_are_bounded_while_level_0_tables_open() {
     // Each table holds one data block of almost 16 MiB that compresses to a few KiB, so the
     // first 17 overlapping level 0 tables hold more than 256 MiB together.
-    let entry = (internal(b"k", 1, VALUE), vec![0; table::MAX_BLOCK - 64]);
-    let mut kinds = || table::RAW_DEFLATE;
+    let entry = (
+        internal(b"k", 1, KIND_VALUE),
+        vec![0; table::MAX_BLOCK - 64],
+    );
+    let mut kinds = || table::COMPRESSION_RAW_DEFLATE;
     let bytes = encode_table(&[entry], table::MAX_BLOCK, 1, &mut kinds);
     let over = MAX_HELD / table::MAX_BLOCK + 1;
     let mut w = Writer::new();
@@ -756,8 +763,8 @@ fn held_blocks_are_bounded_while_level_0_tables_open() {
         let file = TableFile {
             number,
             size: table.len() as u64,
-            smallest: internal(b"k", 1, VALUE),
-            largest: internal(b"k", 1, VALUE),
+            smallest: internal(b"k", 1, KIND_VALUE),
+            largest: internal(b"k", 1, KIND_VALUE),
         };
         w.files.insert(format!("{number:06}.ldb"), table);
         w.edits.push(Writer::add(0, &file));
@@ -964,7 +971,7 @@ fn tables_on_disk_are_read_through_at_most_64_open_files() {
     let mut model = BTreeMap::new();
     for i in 0..100_u64 {
         let key = format!("key{i:03}").into_bytes();
-        let entry = vec![(internal(&key, i + 1, VALUE), vec![1; 3])];
+        let entry = vec![(internal(&key, i + 1, KIND_VALUE), vec![1; 3])];
         let file = w.table(&entry, &mut rng, false);
         w.edits.push(Writer::add(0, &file));
         model.insert(key, vec![1; 3]);

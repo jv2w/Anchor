@@ -104,7 +104,7 @@ const RANDOM_LEVEL_EVENTS: [i64; 1] = [1051];
 const START_LEVEL: &str = "0";
 
 /// One step of a trace.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub(crate) struct Step {
     /// The bot's name for the step.
     pub(crate) name: String,
@@ -116,155 +116,6 @@ pub(crate) struct Step {
     pub(crate) setup: bool,
     /// The bot marked the step as random.
     pub(crate) random: bool,
-}
-
-/// Turns a capture into its trace. `items` maps item network IDs to names, `blocks` block
-/// network IDs to states.
-pub(crate) fn trace(
-    capture: &str,
-    items: &BTreeMap<i64, String>,
-    blocks: &BTreeMap<u32, String>,
-) -> Result<Vec<Step>, String> {
-    let mut t = Tracer {
-        items,
-        blocks,
-        steps: Vec::new(),
-        current: None,
-        player: None,
-        area: None,
-        stacks: BTreeMap::new(),
-        windows: BTreeMap::new(),
-        runtime: BTreeMap::new(),
-        unique: BTreeMap::new(),
-        data: BTreeMap::new(),
-        keys: BTreeMap::new(),
-        placed: BTreeMap::new(),
-        known: BTreeMap::new(),
-        level: None,
-        known_level: START_LEVEL.to_owned(),
-        state: None,
-        counted: BTreeMap::new(),
-    };
-    for (i, line) in capture.lines().enumerate() {
-        let value: Value =
-            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
-        t.line(&value);
-    }
-    t.end_step();
-    let mut steps = collapse(t.steps);
-    if !t.keys.is_empty() {
-        steps.push(Step {
-            name: "ContainerSetData".to_owned(),
-            fixed: t
-                .keys
-                .iter()
-                .map(|(window, keys)| format!("ContainerSetData window {window} keys {keys:?}"))
-                .collect(),
-            ..Step::default()
-        });
-    }
-    Ok(steps)
-}
-
-/// The flat world's block at a position written as `[x,y,z]`.
-fn flat(position: &str) -> &'static str {
-    let y = position
-        .trim_matches(['[', ']'])
-        .split(',')
-        .nth(1)
-        .and_then(|y| y.trim().parse::<i64>().ok());
-    FLAT.iter()
-        .find(|(height, _)| Some(*height) == y)
-        .map_or("minecraft:air[]", |(_, state)| state)
-}
-
-/// Merges each run of random steps into its first step, with the distinct shapes of their fixed
-/// lines.
-fn collapse(steps: Vec<Step>) -> Vec<Step> {
-    let mut out: Vec<Step> = Vec::with_capacity(steps.len());
-    for mut step in steps {
-        if step.random {
-            let fixed = std::mem::take(&mut step.fixed);
-            let (commands, others): (Vec<String>, Vec<String>) =
-                fixed.into_iter().partition(|l| l.starts_with("command "));
-            step.shown.splice(0..0, commands);
-            step.fixed = others.iter().map(|l| shape(l)).collect();
-            if let Some(last) = out.last_mut().filter(|s| s.random) {
-                last.fixed.append(&mut step.fixed);
-                last.shown.push(format!("(step {})", step.name));
-                last.shown.append(&mut step.shown);
-                last.fixed.sort();
-                last.fixed.dedup();
-                continue;
-            }
-            step.fixed.sort();
-            step.fixed.dedup();
-        }
-        out.push(step);
-    }
-    out
-}
-
-/// The shape of a line: item names and block states (`minecraft:...`), counts (`x12`), stack IDs
-/// (`#3`) and the slots of response slots (`12:0`) replaced by `?`; item states and inventory
-/// packets by their first word alone (which slot a random item lands in is random too).
-fn shape(line: &str) -> String {
-    if line.starts_with("Inventory") || line.starts_with("items ") {
-        return line.split(' ').next().unwrap_or_default().to_owned();
-    }
-    line.split(' ')
-        .map(|token| {
-            if token.starts_with("minecraft:") {
-                return "minecraft:?".to_owned();
-            }
-            if let Some((container, slot)) = token.trim_start_matches('[').split_once(':')
-                && !container.is_empty()
-                && container.bytes().all(|b| b.is_ascii_digit())
-                && !slot.is_empty()
-                && slot.bytes().all(|b| b.is_ascii_digit())
-            {
-                let open = if token.starts_with('[') { "[" } else { "" };
-                return format!("{open}{container}:?");
-            }
-            for prefix in ['x', '#'] {
-                if let Some(rest) = token.strip_prefix(prefix) {
-                    let digits =
-                        rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-                    if digits > 0 {
-                        let tail = rest.get(digits..).unwrap_or_default();
-                        return format!("{prefix}?{tail}");
-                    }
-                }
-            }
-            token.to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// The item names of a full item capture's `ItemRegistry`.
-pub(crate) fn item_names(items_capture: &str) -> Result<BTreeMap<i64, String>, String> {
-    for (i, line) in items_capture.lines().enumerate() {
-        let value: Value =
-            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
-        if field(&value, "name").as_str() != Some("ItemRegistry") {
-            continue;
-        }
-        let entries = field(field(&value, "fields"), "Items")
-            .as_array()
-            .ok_or("ItemRegistry without Items")?;
-        return entries
-            .iter()
-            .map(|e| {
-                let id = field(e, "RuntimeID")
-                    .as_i64()
-                    .ok_or("item without RuntimeID")?;
-                let name = field(e, "Name").as_str().ok_or("item without Name")?;
-                Ok((id, name.to_owned()))
-            })
-            .collect();
-    }
-    Err("no ItemRegistry".to_owned())
 }
 
 /// The state of a trace in the making.
@@ -798,6 +649,155 @@ impl Tracer<'_> {
             ));
         }
     }
+}
+
+/// Turns a capture into its trace. `items` maps item network IDs to names, `blocks` block
+/// network IDs to states.
+pub(crate) fn trace(
+    capture: &str,
+    items: &BTreeMap<i64, String>,
+    blocks: &BTreeMap<u32, String>,
+) -> Result<Vec<Step>, String> {
+    let mut t = Tracer {
+        items,
+        blocks,
+        steps: Vec::new(),
+        current: None,
+        player: None,
+        area: None,
+        stacks: BTreeMap::new(),
+        windows: BTreeMap::new(),
+        runtime: BTreeMap::new(),
+        unique: BTreeMap::new(),
+        data: BTreeMap::new(),
+        keys: BTreeMap::new(),
+        placed: BTreeMap::new(),
+        known: BTreeMap::new(),
+        level: None,
+        known_level: START_LEVEL.to_owned(),
+        state: None,
+        counted: BTreeMap::new(),
+    };
+    for (i, line) in capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        t.line(&value);
+    }
+    t.end_step();
+    let mut steps = collapse(t.steps);
+    if !t.keys.is_empty() {
+        steps.push(Step {
+            name: "ContainerSetData".to_owned(),
+            fixed: t
+                .keys
+                .iter()
+                .map(|(window, keys)| format!("ContainerSetData window {window} keys {keys:?}"))
+                .collect(),
+            ..Step::default()
+        });
+    }
+    Ok(steps)
+}
+
+/// The flat world's block at a position written as `[x,y,z]`.
+fn flat(position: &str) -> &'static str {
+    let y = position
+        .trim_matches(['[', ']'])
+        .split(',')
+        .nth(1)
+        .and_then(|y| y.trim().parse::<i64>().ok());
+    FLAT.iter()
+        .find(|(height, _)| Some(*height) == y)
+        .map_or("minecraft:air[]", |(_, state)| state)
+}
+
+/// Merges each run of random steps into its first step, with the distinct shapes of their fixed
+/// lines.
+fn collapse(steps: Vec<Step>) -> Vec<Step> {
+    let mut out: Vec<Step> = Vec::with_capacity(steps.len());
+    for mut step in steps {
+        if step.random {
+            let fixed = std::mem::take(&mut step.fixed);
+            let (commands, others): (Vec<String>, Vec<String>) =
+                fixed.into_iter().partition(|l| l.starts_with("command "));
+            step.shown.splice(0..0, commands);
+            step.fixed = others.iter().map(|l| shape(l)).collect();
+            if let Some(last) = out.last_mut().filter(|s| s.random) {
+                last.fixed.append(&mut step.fixed);
+                last.shown.push(format!("(step {})", step.name));
+                last.shown.append(&mut step.shown);
+                last.fixed.sort();
+                last.fixed.dedup();
+                continue;
+            }
+            step.fixed.sort();
+            step.fixed.dedup();
+        }
+        out.push(step);
+    }
+    out
+}
+
+/// The shape of a line: item names and block states (`minecraft:...`), counts (`x12`), stack IDs
+/// (`#3`) and the slots of response slots (`12:0`) replaced by `?`; item states and inventory
+/// packets by their first word alone (which slot a random item lands in is random too).
+fn shape(line: &str) -> String {
+    if line.starts_with("Inventory") || line.starts_with("items ") {
+        return line.split(' ').next().unwrap_or_default().to_owned();
+    }
+    line.split(' ')
+        .map(|token| {
+            if token.starts_with("minecraft:") {
+                return "minecraft:?".to_owned();
+            }
+            if let Some((container, slot)) = token.trim_start_matches('[').split_once(':')
+                && !container.is_empty()
+                && container.bytes().all(|b| b.is_ascii_digit())
+                && !slot.is_empty()
+                && slot.bytes().all(|b| b.is_ascii_digit())
+            {
+                let open = if token.starts_with('[') { "[" } else { "" };
+                return format!("{open}{container}:?");
+            }
+            for prefix in ['x', '#'] {
+                if let Some(rest) = token.strip_prefix(prefix) {
+                    let digits =
+                        rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+                    if digits > 0 {
+                        let tail = rest.get(digits..).unwrap_or_default();
+                        return format!("{prefix}?{tail}");
+                    }
+                }
+            }
+            token.to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The item names of a full item capture's `ItemRegistry`.
+pub(crate) fn item_names(items_capture: &str) -> Result<BTreeMap<i64, String>, String> {
+    for (i, line) in items_capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        if field(&value, "name").as_str() != Some("ItemRegistry") {
+            continue;
+        }
+        let entries = field(field(&value, "fields"), "Items")
+            .as_array()
+            .ok_or("ItemRegistry without Items")?;
+        return entries
+            .iter()
+            .map(|e| {
+                let id = field(e, "RuntimeID")
+                    .as_i64()
+                    .ok_or("item without RuntimeID")?;
+                let name = field(e, "Name").as_str().ok_or("item without Name")?;
+                Ok((id, name.to_owned()))
+            })
+            .collect();
+    }
+    Err("no ItemRegistry".to_owned())
 }
 
 /// A JSON string without quotes, other values as JSON.

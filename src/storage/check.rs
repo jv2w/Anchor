@@ -26,62 +26,6 @@ use super::backup::{self, STEP_BYTES, Source};
 use super::{Error, Result, check_format, check_integrity, seal};
 use crate::config::IntegrityCheck;
 
-/// Checks the closed data file `world` as a start with `integrity-check = check` does, without
-/// writing to it: redb's recovery of a crash, redb's integrity check if `check` asks for it (a
-/// repair, `Ok(false)`, is damage), and on every start the format of its last commit
-/// ([`check_format`]). A missing or empty file passes: it holds nothing to check. redb's lock
-/// keeps other processes out ([`Error::InUse`]) until the check ends; the caller opens the file
-/// for the run afterwards.
-pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
-    // Before the open below: reading the mark opens the file read-only, which its lock refuses.
-    let checked = super::checks(world, check);
-    if !checked && check == IntegrityCheck::AfterUncleanShutdown {
-        debug!(file = %world.display(), "data file closed normally; its integrity is not checked");
-    }
-    let Some(mut db) = open_overlay(world)? else {
-        return Ok(());
-    };
-    if checked {
-        check_integrity(&mut db)?;
-    }
-    check_format(&db)
-}
-
-/// redb opened on an [`Overlay`] over the closed data file `world`, so nothing done through it
-/// reaches the file; `None` for a missing or empty file, which holds nothing. redb's lock keeps
-/// other processes out until it is dropped.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: the start reads a closed data file before it opens it"
-)]
-pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
-    // Opened for writing too: on Unix redb's lock is a write lock, which a read-only handle
-    // cannot take. Nothing is written through it.
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(world);
-    let handle = match opened {
-        Ok(handle) => handle,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(Error::Io(e)),
-    };
-    if handle.metadata().map_err(Error::Io)?.len() == 0 {
-        return Ok(None);
-    }
-    let overlay = Overlay::new(FileBackend::new(handle).map_err(Error::from_open)?)?;
-    let mut builder = Builder::new();
-    // No page cache: each pass of the check reads a page once, and the overlay's read-ahead
-    // holds the pages around it. On a 368 MiB world the check took 333 to 517 ms without one
-    // and 545 to 630 ms with the run's 64 MiB, whose evictions cost more than they spare.
-    builder.set_cache_size(0);
-    builder
-        .create_with_backend(overlay)
-        .map(Some)
-        .map_err(Error::from_open)
-}
-
 /// The unit [`Overlay`] keeps writes in: redb's page.
 const BLOCK: u64 = 4096;
 /// Most bytes of writes [`Overlay`] keeps for one check. A check writes redb's header and, as
@@ -111,27 +55,6 @@ struct Overlay {
     state: std::sync::Mutex<State>,
 }
 
-#[derive(Debug)]
-struct State {
-    /// The length redb sees.
-    len: u64,
-    /// The end of the file's bytes: from here on, what was not written reads as zeros. The file's
-    /// length, or less once redb cut the length below it.
-    file_end: u64,
-    /// The written blocks of [`BLOCK`] bytes, by their index in the file.
-    written: BTreeMap<u64, Box<[u8]>>,
-    /// Read-ahead blocks of the file: their offset and bytes, the most recently used last.
-    ahead: Vec<(u64, Box<[u8]>)>,
-}
-
-impl std::fmt::Debug for Overlay {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Overlay")
-            .field("file", &self.file)
-            .finish_non_exhaustive()
-    }
-}
-
 impl Overlay {
     #[expect(
         clippy::disallowed_types,
@@ -158,162 +81,11 @@ impl Overlay {
     }
 }
 
-/// `offset + len`, failing past `u64`.
-fn end_of(offset: u64, len: usize) -> io::Result<u64> {
-    u64::try_from(len)
-        .ok()
-        .and_then(|len| offset.checked_add(len))
-        .ok_or_else(|| io::ErrorKind::InvalidInput.into())
-}
-
-/// A distance within one read or write as an index: it is at most the length of a slice.
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: distances within a slice fit usize"
-)]
-fn index(bytes: u64) -> usize {
-    usize::try_from(bytes).expect("a distance within a slice fits usize")
-}
-
-impl State {
-    /// Reads `out` at `offset` from the file's bytes before [`file_end`](Self::file_end) and zeros
-    /// after it, through the read-ahead blocks.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the copied ranges lie within `bytes` and the block, which covers `at`"
-    )]
-    fn read_file(&mut self, file: &FileBackend, offset: u64, out: &mut [u8]) -> io::Result<()> {
-        let end = end_of(offset, out.len())?;
-        let in_file = index(end.min(self.file_end).saturating_sub(offset));
-        let (bytes, zeros) = out.split_at_mut(in_file);
-        zeros.fill(0);
-        if bytes.len() >= index(READ_AHEAD_BYTES) {
-            return file.read(offset, bytes);
-        }
-        let mut at = offset;
-        let mut done = 0;
-        while done < bytes.len() {
-            let start = at - at % READ_AHEAD_BYTES;
-            if let Some(i) = self.ahead.iter().position(|(s, _)| *s == start) {
-                let used = self.ahead.remove(i);
-                self.ahead.push(used);
-            } else {
-                let len = (start + READ_AHEAD_BYTES).min(self.file_end) - start;
-                let mut block = vec![0; index(len)].into_boxed_slice();
-                file.read(start, &mut block)?;
-                if self.ahead.len() == READ_AHEAD_BLOCKS {
-                    self.ahead.remove(0);
-                }
-                self.ahead.push((start, block));
-            }
-            let block = &self.ahead[self.ahead.len() - 1].1;
-            let from = index(at - start);
-            let n = (block.len() - from).min(bytes.len() - done);
-            bytes[done..done + n].copy_from_slice(&block[from..from + n]);
-            done += n;
-            at += n as u64;
-        }
-        Ok(())
-    }
-
-    /// Reads `out` at `offset` as redb wrote it: written blocks over the file's bytes.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the copied ranges lie within `out` and the written block"
-    )]
-    fn read(&mut self, file: &FileBackend, offset: u64, out: &mut [u8]) -> io::Result<()> {
-        let end = end_of(offset, out.len())?;
-        if end > self.len {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        if out.is_empty() {
-            return Ok(());
-        }
-        let mut at = offset;
-        let mut next = offset / BLOCK;
-        let last = (end - 1) / BLOCK;
-        while next <= last {
-            let Some(block) = self.written.range(next..=last).next().map(|(&b, _)| b) else {
-                break;
-            };
-            let start = block * BLOCK;
-            let from = start.max(offset);
-            let to = (start + BLOCK).min(end);
-            if from > at {
-                let gap = &mut out[index(at - offset)..index(from - offset)];
-                self.read_file(file, at, gap)?;
-            }
-            let bytes = &self.written[&block][index(from - start)..index(to - start)];
-            out[index(from - offset)..index(to - offset)].copy_from_slice(bytes);
-            at = to;
-            next = block + 1;
-        }
-        if at < end {
-            self.read_file(file, at, &mut out[index(at - offset)..])?;
-        }
-        Ok(())
-    }
-
-    /// Writes `data` at `offset` into the written blocks.
-    #[expect(
-        clippy::indexing_slicing,
-        clippy::expect_used,
-        reason = "invariant: each block written to is kept, and the copied ranges lie within `data` \
-                  and the block"
-    )]
-    fn write(&mut self, file: &FileBackend, offset: u64, data: &[u8]) -> io::Result<()> {
-        let end = end_of(offset, data.len())?;
-        if end > self.len {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        let mut at = offset;
-        while at < end {
-            let block = at / BLOCK;
-            let start = block * BLOCK;
-            if !self.written.contains_key(&block) {
-                if self.written.len() >= MAX_WRITTEN_BYTES / index(BLOCK) {
-                    return Err(io::Error::other(
-                        "the start check's writes exceed what it keeps in memory",
-                    ));
-                }
-                let mut bytes = vec![0; index(BLOCK)].into_boxed_slice();
-                let whole = index((start + BLOCK).min(self.len) - start);
-                self.read(file, start, &mut bytes[..whole])?;
-                self.written.insert(block, bytes);
-                #[cfg(test)]
-                tests::WRITTEN_PEAK.set(
-                    tests::WRITTEN_PEAK
-                        .get()
-                        .max(self.written.len() * index(BLOCK)),
-                );
-            }
-            let to = (start + BLOCK).min(end);
-            let bytes = self
-                .written
-                .get_mut(&block)
-                .expect("the block is written above");
-            bytes[index(at - start)..index(to - start)]
-                .copy_from_slice(&data[index(at - offset)..index(to - offset)]);
-            at = to;
-        }
-        Ok(())
-    }
-
-    /// Sets the length: a cut drops what was written past it, and the bytes a later growth adds
-    /// read as zeros.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: `len % BLOCK` is within a block"
-    )]
-    fn set_len(&mut self, len: u64) {
-        if len < self.len {
-            drop(self.written.split_off(&len.div_ceil(BLOCK)));
-            if let Some(bytes) = self.written.get_mut(&(len / BLOCK)) {
-                bytes[index(len % BLOCK)..].fill(0);
-            }
-            self.file_end = self.file_end.min(len);
-        }
-        self.len = len;
+impl std::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Overlay")
+            .field("file", &self.file)
+            .finish_non_exhaustive()
     }
 }
 
@@ -369,6 +141,161 @@ impl StorageBackend for Overlay {
 
     fn query_lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<bool, BackendError> {
         self.file.query_lock_range(start, end)
+    }
+}
+
+#[derive(Debug)]
+struct State {
+    /// The length redb sees.
+    len: u64,
+    /// The end of the file's bytes: from here on, what was not written reads as zeros. The file's
+    /// length, or less once redb cut the length below it.
+    file_end: u64,
+    /// The written blocks of [`BLOCK`] bytes, by their index in the file.
+    written: BTreeMap<u64, Box<[u8]>>,
+    /// Read-ahead blocks of the file: their offset and bytes, the most recently used last.
+    ahead: Vec<(u64, Box<[u8]>)>,
+}
+
+impl State {
+    /// Sets the length: a cut drops what was written past it, and the bytes a later growth adds
+    /// read as zeros.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: `len % BLOCK` is within a block"
+    )]
+    fn set_len(&mut self, len: u64) {
+        if len < self.len {
+            drop(self.written.split_off(&len.div_ceil(BLOCK)));
+            if let Some(bytes) = self.written.get_mut(&(len / BLOCK)) {
+                bytes[index(len % BLOCK)..].fill(0);
+            }
+            self.file_end = self.file_end.min(len);
+        }
+        self.len = len;
+    }
+
+    /// Writes `data` at `offset` into the written blocks.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::expect_used,
+        reason = "invariant: each block written to is kept, and the copied ranges lie within `data` \
+                  and the block"
+    )]
+    fn write(&mut self, file: &FileBackend, offset: u64, data: &[u8]) -> io::Result<()> {
+        let end = end_of(offset, data.len())?;
+        if end > self.len {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        let mut at = offset;
+        while at < end {
+            let block = at / BLOCK;
+            let start = block * BLOCK;
+            if !self.written.contains_key(&block) {
+                if self.written.len() >= MAX_WRITTEN_BYTES / index(BLOCK) {
+                    return Err(io::Error::other(
+                        "the start check's writes exceed what it keeps in memory",
+                    ));
+                }
+                let mut bytes = vec![0; index(BLOCK)].into_boxed_slice();
+                let whole = index((start + BLOCK).min(self.len) - start);
+                self.read(file, start, &mut bytes[..whole])?;
+                self.written.insert(block, bytes);
+                #[cfg(test)]
+                tests::WRITTEN_PEAK.set(
+                    tests::WRITTEN_PEAK
+                        .get()
+                        .max(self.written.len() * index(BLOCK)),
+                );
+            }
+            let to = (start + BLOCK).min(end);
+            let bytes = self
+                .written
+                .get_mut(&block)
+                .expect("the block is written above");
+            bytes[index(at - start)..index(to - start)]
+                .copy_from_slice(&data[index(at - offset)..index(to - offset)]);
+            at = to;
+        }
+        Ok(())
+    }
+
+    /// Reads `out` at `offset` as redb wrote it: written blocks over the file's bytes.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the copied ranges lie within `out` and the written block"
+    )]
+    fn read(&mut self, file: &FileBackend, offset: u64, out: &mut [u8]) -> io::Result<()> {
+        let end = end_of(offset, out.len())?;
+        if end > self.len {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        if out.is_empty() {
+            return Ok(());
+        }
+        let mut at = offset;
+        let mut next = offset / BLOCK;
+        let last = (end - 1) / BLOCK;
+        while next <= last {
+            let Some(block) = self.written.range(next..=last).next().map(|(&b, _)| b) else {
+                break;
+            };
+            let start = block * BLOCK;
+            let from = start.max(offset);
+            let to = (start + BLOCK).min(end);
+            if from > at {
+                let gap = &mut out[index(at - offset)..index(from - offset)];
+                self.read_file(file, at, gap)?;
+            }
+            let bytes = &self.written[&block][index(from - start)..index(to - start)];
+            out[index(from - offset)..index(to - offset)].copy_from_slice(bytes);
+            at = to;
+            next = block + 1;
+        }
+        if at < end {
+            self.read_file(file, at, &mut out[index(at - offset)..])?;
+        }
+        Ok(())
+    }
+
+    /// Reads `out` at `offset` from the file's bytes before [`file_end`](Self::file_end) and zeros
+    /// after it, through the read-ahead blocks.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the copied ranges lie within `bytes` and the block, which covers `at`"
+    )]
+    fn read_file(&mut self, file: &FileBackend, offset: u64, out: &mut [u8]) -> io::Result<()> {
+        let end = end_of(offset, out.len())?;
+        let in_file = index(end.min(self.file_end).saturating_sub(offset));
+        let (bytes, zeros) = out.split_at_mut(in_file);
+        zeros.fill(0);
+        if bytes.len() >= index(READ_AHEAD_BYTES) {
+            return file.read(offset, bytes);
+        }
+        let mut at = offset;
+        let mut done = 0;
+        while done < bytes.len() {
+            let start = at - at % READ_AHEAD_BYTES;
+            if let Some(i) = self.ahead.iter().position(|(s, _)| *s == start) {
+                let used = self.ahead.remove(i);
+                self.ahead.push(used);
+            } else {
+                let len = (start + READ_AHEAD_BYTES).min(self.file_end) - start;
+                let mut block = vec![0; index(len)].into_boxed_slice();
+                file.read(start, &mut block)?;
+                if self.ahead.len() == READ_AHEAD_BLOCKS {
+                    self.ahead.remove(0);
+                }
+                self.ahead.push((start, block));
+            }
+            let block = &self.ahead[self.ahead.len() - 1].1;
+            let from = index(at - start);
+            let n = (block.len() - from).min(bytes.len() - done);
+            bytes[done..done + n].copy_from_slice(&block[from..from + n]);
+            done += n;
+            at += n as u64;
+        }
+        Ok(())
     }
 }
 
@@ -435,16 +362,6 @@ pub(crate) struct Check {
     first: Option<String>,
     /// Why the check ended early.
     failure: Option<String>,
-}
-
-impl std::fmt::Debug for Check {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Check")
-            .field("tables_left", &self.tables.len())
-            .field("values", &self.values)
-            .field("damaged", &self.damaged)
-            .finish_non_exhaustive()
-    }
 }
 
 impl Check {
@@ -529,6 +446,89 @@ impl Check {
             }
         }
     }
+}
+
+impl std::fmt::Debug for Check {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Check")
+            .field("tables_left", &self.tables.len())
+            .field("values", &self.values)
+            .field("damaged", &self.damaged)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Checks the closed data file `world` as a start with `integrity-check = check` does, without
+/// writing to it: redb's recovery of a crash, redb's integrity check if `check` asks for it (a
+/// repair, `Ok(false)`, is damage), and on every start the format of its last commit
+/// ([`check_format`]). A missing or empty file passes: it holds nothing to check. redb's lock
+/// keeps other processes out ([`Error::InUse`]) until the check ends; the caller opens the file
+/// for the run afterwards.
+pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
+    // Before the open below: reading the mark opens the file read-only, which its lock refuses.
+    let checked = super::checks(world, check);
+    if !checked && check == IntegrityCheck::AfterUncleanShutdown {
+        debug!(file = %world.display(), "data file closed normally; its integrity is not checked");
+    }
+    let Some(mut db) = open_overlay(world)? else {
+        return Ok(());
+    };
+    if checked {
+        check_integrity(&mut db)?;
+    }
+    check_format(&db)
+}
+
+/// redb opened on an [`Overlay`] over the closed data file `world`, so nothing done through it
+/// reaches the file; `None` for a missing or empty file, which holds nothing. redb's lock keeps
+/// other processes out until it is dropped.
+#[expect(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "off-tick: the start reads a closed data file before it opens it"
+)]
+pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
+    // Opened for writing too: on Unix redb's lock is a write lock, which a read-only handle
+    // cannot take. Nothing is written through it.
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(world);
+    let handle = match opened {
+        Ok(handle) => handle,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(Error::Io(e)),
+    };
+    if handle.metadata().map_err(Error::Io)?.len() == 0 {
+        return Ok(None);
+    }
+    let overlay = Overlay::new(FileBackend::new(handle).map_err(Error::from_open)?)?;
+    let mut builder = Builder::new();
+    // No page cache: each pass of the check reads a page once, and the overlay's read-ahead
+    // holds the pages around it. On a 368 MiB world the check took 333 to 517 ms without one
+    // and 545 to 630 ms with the run's 64 MiB, whose evictions cost more than they spare.
+    builder.set_cache_size(0);
+    builder
+        .create_with_backend(overlay)
+        .map(Some)
+        .map_err(Error::from_open)
+}
+
+/// `offset + len`, failing past `u64`.
+fn end_of(offset: u64, len: usize) -> io::Result<u64> {
+    u64::try_from(len)
+        .ok()
+        .and_then(|len| offset.checked_add(len))
+        .ok_or_else(|| io::ErrorKind::InvalidInput.into())
+}
+
+/// A distance within one read or write as an index: it is at most the length of a slice.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: distances within a slice fit usize"
+)]
+fn index(bytes: u64) -> usize {
+    usize::try_from(bytes).expect("a distance within a slice fits usize")
 }
 
 #[cfg(test)]

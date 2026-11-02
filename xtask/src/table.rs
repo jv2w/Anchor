@@ -49,7 +49,7 @@ pub(crate) struct Report {
 }
 
 /// Rows per status.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Counts {
     pub(crate) implemented: usize,
     pub(crate) differs: usize,
@@ -138,119 +138,11 @@ struct Location {
     item: String,
 }
 
-/// Runs `table`; with `check`, compares instead of writing.
-pub(crate) fn run(root: &Path, check: bool) -> Result<Report, String> {
-    let api_path = root.join(API_PATH);
-    let api: Vec<Class> =
-        serde_json::from_slice(&read(&api_path)?).map_err(|e| format!("{API_PATH}: {e}"))?;
-    let index = Index::new(&api);
-    let mut report = Report::default();
-
-    let mut code: BTreeMap<String, Vec<Location>> = BTreeMap::new();
-    for (path, text) in sources(root, ALIAS_DIRS)? {
-        let (found, errors) = scan::aliases(&text);
-        push_errors(&mut report.errors, &path, errors);
-        for alias in found {
-            match index.check(&alias.name) {
-                Ok(()) => code.entry(alias.name).or_default().push(Location {
-                    path: path.clone(),
-                    line: alias.line,
-                    item: alias.item,
-                }),
-                Err(e) => report.errors.push(format!("{path}:{}: {e}", alias.line)),
-            }
-        }
-    }
-
-    let mut tests: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (path, text) in sources(root, TEST_DIRS)? {
-        let (found, errors) = scan::covered(&text);
-        push_errors(&mut report.errors, &path, errors);
-        for covered in found {
-            for alias in covered.aliases {
-                if code.contains_key(&alias) {
-                    tests
-                        .entry(alias)
-                        .or_default()
-                        .push(format!("{path}::{}", covered.test));
-                } else {
-                    report.errors.push(format!(
-                        "{path}:{}: `{alias}` is not an alias of any item in src/",
-                        covered.line
-                    ));
-                }
-            }
-        }
-    }
-    for list in tests.values_mut() {
-        list.dedup();
-    }
-
-    let status_text = String::from_utf8(read(&root.join(STATUS_PATH))?)
-        .map_err(|e| format!("{STATUS_PATH}: {e}"))?;
-    let (rules, errors) = status::parse(&status_text);
-    push_errors(&mut report.errors, STATUS_PATH, errors);
-    // One error per missing target, at its first rule: a target the code has not got yet is one
-    // thing to add however many rules name it.
-    let mut missing: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
-    for rule in &rules {
-        if let Kind::Merged(target) = &rule.kind
-            && !code.contains_key(target)
-        {
-            missing.entry(target).or_insert((rule.line, 0)).1 += 1;
-        }
-    }
-    let mut missing: Vec<_> = missing.into_iter().collect();
-    missing.sort_unstable_by_key(|(_, (line, _))| *line);
-    for (target, (line, count)) in missing {
-        let others = match count {
-            1 => String::new(),
-            2 => " (and 1 more rule)".to_owned(),
-            n => format!(" (and {} more rules)", n - 1),
-        };
-        report.errors.push(format!(
-            "{STATUS_PATH}:{line}: merge target `{target}` is not an alias of any item in \
-             src/{others}"
-        ));
-    }
-
-    let mut used = vec![false; rules.len()];
-    let mut sections: BTreeMap<&str, Section> = BTreeMap::new();
-    let rows = index.rows();
-    for row in &rows {
-        let line = judge(row, &rules, &mut used, &code, &tests);
-        report.counts.add(line.status);
-        sections
-            .entry(namespace(&row.fqn))
-            .or_default()
-            .push(row, &line)
-            .map_err(|e| e.to_string())?;
-    }
-    for (rule, used) in rules.iter().zip(used) {
-        if !used {
-            report.errors.push(format!(
-                "{STATUS_PATH}:{}: `{}` decides no row",
-                rule.line, rule.pattern
-            ));
-        }
-    }
-
-    let table = render(report.counts, &sections).map_err(|e| e.to_string())?;
-    let table_path = root.join(TABLE_PATH);
-    if check {
-        report.stale = read_if_exists(&table_path)?.as_deref() != Some(table.as_bytes());
-    } else {
-        write(&table_path, table.as_bytes())?;
-    }
-    Ok(report)
-}
-
-fn push_errors(out: &mut Vec<String>, path: &str, errors: Vec<(usize, String)>) {
-    out.extend(
-        errors
-            .into_iter()
-            .map(|(line, e)| format!("{path}:{line}: {e}")),
-    );
+/// One table row.
+struct Row {
+    fqn: String,
+    /// The alias that names it in Anchor.
+    alias: String,
 }
 
 /// The PMMP class-likes by name.
@@ -259,13 +151,6 @@ struct Index<'a> {
     /// Non-`@internal` class-likes by short name.
     by_short: BTreeMap<&'a str, Vec<&'a Class>>,
     api: &'a [Class],
-}
-
-/// One table row.
-struct Row {
-    fqn: String,
-    /// The alias that names it in Anchor.
-    alias: String,
 }
 
 impl<'a> Index<'a> {
@@ -395,6 +280,151 @@ impl<'a> Index<'a> {
     }
 }
 
+/// A row's cells after its status is decided.
+struct Judged {
+    status: Status,
+    locations: String,
+    tests: String,
+    note: String,
+}
+
+/// The rows of one namespace, rendered.
+#[derive(Default)]
+struct Section {
+    counts: Counts,
+    lines: String,
+}
+
+impl Section {
+    fn push(&mut self, row: &Row, judged: &Judged) -> fmt::Result {
+        self.counts.add(judged.status);
+        writeln!(
+            self.lines,
+            "| `{}` | {} | {} | {} | {} |",
+            row.fqn,
+            judged.status.name(),
+            cell(&judged.locations),
+            cell(&judged.tests),
+            cell(&judged.note)
+        )
+    }
+}
+
+/// Runs `table`; with `check`, compares instead of writing.
+pub(crate) fn run(root: &Path, check: bool) -> Result<Report, String> {
+    let api_path = root.join(API_PATH);
+    let api: Vec<Class> =
+        serde_json::from_slice(&read(&api_path)?).map_err(|e| format!("{API_PATH}: {e}"))?;
+    let index = Index::new(&api);
+    let mut report = Report::default();
+
+    let mut code: BTreeMap<String, Vec<Location>> = BTreeMap::new();
+    for (path, text) in sources(root, ALIAS_DIRS)? {
+        let (found, errors) = scan::aliases(&text);
+        push_errors(&mut report.errors, &path, errors);
+        for alias in found {
+            match index.check(&alias.name) {
+                Ok(()) => code.entry(alias.name).or_default().push(Location {
+                    path: path.clone(),
+                    line: alias.line,
+                    item: alias.item,
+                }),
+                Err(e) => report.errors.push(format!("{path}:{}: {e}", alias.line)),
+            }
+        }
+    }
+
+    let mut tests: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (path, text) in sources(root, TEST_DIRS)? {
+        let (found, errors) = scan::covered(&text);
+        push_errors(&mut report.errors, &path, errors);
+        for covered in found {
+            for alias in covered.aliases {
+                if code.contains_key(&alias) {
+                    tests
+                        .entry(alias)
+                        .or_default()
+                        .push(format!("{path}::{}", covered.test));
+                } else {
+                    report.errors.push(format!(
+                        "{path}:{}: `{alias}` is not an alias of any item in src/",
+                        covered.line
+                    ));
+                }
+            }
+        }
+    }
+    for list in tests.values_mut() {
+        list.dedup();
+    }
+
+    let status_text = String::from_utf8(read(&root.join(STATUS_PATH))?)
+        .map_err(|e| format!("{STATUS_PATH}: {e}"))?;
+    let (rules, errors) = status::parse(&status_text);
+    push_errors(&mut report.errors, STATUS_PATH, errors);
+    // One error per missing target, at its first rule: a target the code has not got yet is one
+    // thing to add however many rules name it.
+    let mut missing: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for rule in &rules {
+        if let Kind::Merged(target) = &rule.kind
+            && !code.contains_key(target)
+        {
+            missing.entry(target).or_insert((rule.line, 0)).1 += 1;
+        }
+    }
+    let mut missing: Vec<_> = missing.into_iter().collect();
+    missing.sort_unstable_by_key(|(_, (line, _))| *line);
+    for (target, (line, count)) in missing {
+        let others = match count {
+            1 => String::new(),
+            2 => " (and 1 more rule)".to_owned(),
+            n => format!(" (and {} more rules)", n - 1),
+        };
+        report.errors.push(format!(
+            "{STATUS_PATH}:{line}: merge target `{target}` is not an alias of any item in \
+             src/{others}"
+        ));
+    }
+
+    let mut used = vec![false; rules.len()];
+    let mut sections: BTreeMap<&str, Section> = BTreeMap::new();
+    let rows = index.rows();
+    for row in &rows {
+        let line = judge(row, &rules, &mut used, &code, &tests);
+        report.counts.add(line.status);
+        sections
+            .entry(namespace(&row.fqn))
+            .or_default()
+            .push(row, &line)
+            .map_err(|e| e.to_string())?;
+    }
+    for (rule, used) in rules.iter().zip(used) {
+        if !used {
+            report.errors.push(format!(
+                "{STATUS_PATH}:{}: `{}` decides no row",
+                rule.line, rule.pattern
+            ));
+        }
+    }
+
+    let table = render(report.counts, &sections).map_err(|e| e.to_string())?;
+    let table_path = root.join(TABLE_PATH);
+    if check {
+        report.stale = read_if_exists(&table_path)?.as_deref() != Some(table.as_bytes());
+    } else {
+        write(&table_path, table.as_bytes())?;
+    }
+    Ok(report)
+}
+
+fn push_errors(out: &mut Vec<String>, path: &str, errors: Vec<(usize, String)>) {
+    out.extend(
+        errors
+            .into_iter()
+            .map(|(line, e)| format!("{path}:{line}: {e}")),
+    );
+}
+
 /// The last segment of a class-like name.
 fn short(name: &str) -> &str {
     name.rsplit('\\').next().unwrap_or(name)
@@ -409,14 +439,6 @@ fn namespace(fqn: &str) -> &str {
         Some(end) => class.get(..ROOT.len() + end).unwrap_or(class),
         None => "pocketmine",
     }
-}
-
-/// A row's cells after its status is decided.
-struct Judged {
-    status: Status,
-    locations: String,
-    tests: String,
-    note: String,
 }
 
 /// Decides a row's status: its alias in code makes it implemented (or differs, by the first
@@ -495,28 +517,6 @@ fn judge(
         locations: locations.join("<br>"),
         tests: covering.join("<br>"),
         note,
-    }
-}
-
-/// The rows of one namespace, rendered.
-#[derive(Default)]
-struct Section {
-    counts: Counts,
-    lines: String,
-}
-
-impl Section {
-    fn push(&mut self, row: &Row, judged: &Judged) -> fmt::Result {
-        self.counts.add(judged.status);
-        writeln!(
-            self.lines,
-            "| `{}` | {} | {} | {} | {} |",
-            row.fqn,
-            judged.status.name(),
-            cell(&judged.locations),
-            cell(&judged.tests),
-            cell(&judged.note)
-        )
     }
 }
 

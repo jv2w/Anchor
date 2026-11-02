@@ -125,15 +125,15 @@ fn log_child() {
     }
     let mut start = None;
     builder
-        .every(std::num::NonZeroU32::MIN, move |ctx| {
+        .every(std::num::NonZeroU32::MIN, move |cx| {
             let start = *start.get_or_insert_with(|| {
                 overrun_tick();
-                ctx.tick()
+                cx.tick()
             });
-            if ctx.tick() > start + CHILD_TICKS
-                || ctx.default_world().is_chunk_loaded(ChunkPos::new(0, 0))
+            if cx.tick() > start + CHILD_TICKS
+                || cx.default_world().is_chunk_loaded(ChunkPos::new(0, 0))
             {
-                ctx.shutdown();
+                cx.shutdown();
             }
         })
         .build()

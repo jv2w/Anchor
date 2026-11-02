@@ -977,7 +977,7 @@ pocketmine\scheduler\Task::setHandler merged Task::getHandler
 pocketmine\scheduler\TaskHandler::getTask skipped a scheduled closure is owned by the scheduler; its `task::Handle` names it
 pocketmine\scheduler\TaskHandler::getTaskName skipped a scheduled closure has no name
 pocketmine\scheduler\TaskHandler::__construct skipped handles are made by `Context::schedule*`
-pocketmine\scheduler\CancelTaskException skipped PHP exception: a repeating closure cancels itself with `Context::cancel_task(ctx.current_task())`
+pocketmine\scheduler\CancelTaskException skipped PHP exception: a repeating closure cancels itself with `Context::cancel_task(cx.current_task())`
 
 # ===== Commands and permissions =====
 

@@ -121,10 +121,10 @@ impl Mover {
         std::io::stdout().flush().unwrap();
     }
 
-    fn tick(&mut self, ctx: &mut Context<'_>) {
-        let start = *self.start.get_or_insert(ctx.tick());
-        if ctx.tick() > start + CHILD_TICKS {
-            ctx.shutdown();
+    fn tick(&mut self, cx: &mut Context<'_>) {
+        let start = *self.start.get_or_insert(cx.tick());
+        if cx.tick() > start + CHILD_TICKS {
+            cx.shutdown();
             return;
         }
         if self.idle {
@@ -133,7 +133,7 @@ impl Mover {
         }
         if !self.checked {
             // Wait until every spawn chunk is loaded, then report what the commit holds.
-            let world = ctx.default_world();
+            let world = cx.default_world();
             let loaded =
                 (-1..=1).all(|x| (-1..=1).all(|z| world.is_chunk_loaded(ChunkPos::new(x, z))));
             if !loaded {
@@ -143,10 +143,10 @@ impl Mover {
                 return;
             };
             let list: Vec<String> = found.iter().map(|p| format!("{},{}", p.x, p.z)).collect();
-            if ctx.is_world_generated(EXTRA) {
-                let id = ctx.load_world(EXTRA, &Options::new()).unwrap();
+            if cx.is_world_generated(EXTRA) {
+                let id = cx.load_world(EXTRA, &Options::new()).unwrap();
                 self.extra = Some(id);
-                self.extra_x = ctx.world(id).map(|w| w.spawn().x);
+                self.extra_x = cx.world(id).map(|w| w.spawn().x);
             }
             Self::report(&format!(
                 "start={start} golds={} extra={}",
@@ -156,17 +156,17 @@ impl Mover {
             self.at = found.first().copied();
             self.checked = true;
             if !self.moves {
-                ctx.shutdown();
+                cx.shutdown();
             }
             return;
         }
         if !self.moves {
             return;
         }
-        self.cycle(ctx);
+        self.cycle(cx);
         // One tick moves the block: both writes land in the same commit or neither does.
-        let next = path(ctx.tick());
-        let world = ctx.default_world_mut();
+        let next = path(cx.tick());
+        let world = cx.default_world_mut();
         if let Some(old) = self.at {
             world
                 .set_block(old, State::find("minecraft:air", &[]).unwrap())
@@ -176,30 +176,30 @@ impl Mover {
         self.at = Some(next);
         Self::report(&format!(
             "tick={} extra={}",
-            ctx.tick(),
+            cx.tick(),
             extra_text(self.extra_x)
         ));
-        if ctx.tick().is_multiple_of(3) {
-            ctx.save();
+        if cx.tick().is_multiple_of(3) {
+            cx.save();
         }
     }
 
     /// Makes the second world at the start of a cycle, unloads it and deletes it later in the
     /// cycle, and moves its spawn every tick it is loaded (inside one chunk, so no load follows).
-    fn cycle(&mut self, ctx: &mut Context<'_>) {
-        let tick = ctx.tick();
+    fn cycle(&mut self, cx: &mut Context<'_>) {
+        let tick = cx.tick();
         match (tick % CYCLE, self.extra) {
-            (0, None) => self.extra = Some(ctx.create_world(EXTRA, &Options::new()).unwrap()),
-            (8, Some(id)) if ctx.is_world_loaded(EXTRA) => ctx.unload_world(id).unwrap(),
-            (10, Some(_)) if !ctx.is_world_loaded(EXTRA) => {
-                ctx.delete_world(EXTRA).unwrap();
+            (0, None) => self.extra = Some(cx.create_world(EXTRA, &Options::new()).unwrap()),
+            (8, Some(id)) if cx.is_world_loaded(EXTRA) => cx.unload_world(id).unwrap(),
+            (10, Some(_)) if !cx.is_world_loaded(EXTRA) => {
+                cx.delete_world(EXTRA).unwrap();
                 self.extra = None;
                 self.extra_x = None;
             }
             _ => {}
         }
         if let Some(id) = self.extra
-            && let Some(world) = ctx.world_mut(id)
+            && let Some(world) = cx.world_mut(id)
         {
             let x = i32::try_from(tick % 16).unwrap();
             world.set_spawn(BlockPos::new(x, -60, 0));
@@ -228,7 +228,7 @@ fn crash_child() {
     Server::builder()
         .config(local_config())
         .data_dir(&data)
-        .every(NonZeroU32::MIN, move |ctx| mover.tick(ctx))
+        .every(NonZeroU32::MIN, move |cx| mover.tick(cx))
         // The parent times its kill from the commits.
         .monitor(|_: &WorldSave, _| Mover::report("committed"))
         .build()

@@ -74,13 +74,13 @@ fn shutdown_child() {
     Server::builder()
         .config(local_config())
         .data_dir(&data)
-        .every(NonZeroU32::MIN, move |ctx| {
-            let start = *start.get_or_insert(ctx.tick());
-            if ctx.tick() > start + CHILD_TICKS {
-                ctx.shutdown();
+        .every(NonZeroU32::MIN, move |cx| {
+            let start = *start.get_or_insert(cx.tick());
+            if cx.tick() > start + CHILD_TICKS {
+                cx.shutdown();
                 return;
             }
-            let world = ctx.default_world_mut();
+            let world = cx.default_world_mut();
             if reported || !world.is_chunk_loaded(ChunkPos::new(0, 0)) {
                 return;
             }
@@ -90,7 +90,7 @@ fn shutdown_child() {
                 println!("{REPORT} placed");
             } else {
                 println!("{REPORT} gold={}", world.block(MARKER) == Some(gold()));
-                ctx.shutdown();
+                cx.shutdown();
             }
             std::io::stdout().flush().unwrap();
         })

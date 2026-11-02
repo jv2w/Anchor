@@ -294,7 +294,7 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
 /// The effects must be allowed for the beacon's pyramid, the secondary only at level 4. The
 /// payment item is checked in [`finish`], on what the request consumed.
 fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Craft> {
-    let level = exec.ctx.beacon_level;
+    let level = exec.outside.beacon_level;
     if !block_entity::beacon_effect_allowed(primary, level)
         || !block_entity::beacon_effect_allowed(secondary, level)
         || (level < block_entity::BEACON_MAX_LEVEL && secondary != 0)
@@ -322,7 +322,7 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     if input.is_empty() || input != window.station.input {
         return Err(Error::Recipe);
     }
-    if !exec.creative && exec.ctx.level < u32::from(choice.level) {
+    if !exec.creative && exec.outside.level < u32::from(choice.level) {
         return Err(Error::Recipe);
     }
     let cost = u8::try_from(index + 1).map_err(|_| Error::Recipe)?;
@@ -350,7 +350,7 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
 fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let (input, material, template) = (ui(exec, 0)?, ui(exec, 1)?, ui(exec, 2)?);
     let one = input.with_count(1);
-    let result = match exec.ctx.custom.recipe(id) {
+    let result = match exec.outside.custom.recipe(id) {
         Some(Recipe::SmithingTransform(r))
             if r.input.accepts(&input)
                 && r.addition.accepts(&material)
@@ -405,7 +405,7 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
 /// Begins `CraftRecipe` on a stonecutter (dragonfly `handleStonecutting`).
 /// A stonecutter recipe is cut `times` times from the input slot; PMMP crafts it as any recipe.
 fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
-    let Some(Recipe::Shapeless(r)) = exec.ctx.custom.recipe(id) else {
+    let Some(Recipe::Shapeless(r)) = exec.outside.custom.recipe(id) else {
         return Err(Error::Recipe);
     };
     let (ShapelessType::Stonecutter, [ingredient], [result]) = (r.kind, r.ingredients, r.results)
@@ -429,7 +429,7 @@ fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
 /// `payments` says.
 fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) -> Result<Craft> {
     let offer = exec
-        .ctx
+        .outside
         .offers
         .iter()
         .find_map(|(id, o)| (*id == net_id).then(|| o.clone()))
@@ -463,14 +463,20 @@ fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) 
 /// The request's filter string at the action's index is the new name.
 fn begin_anvil(exec: &mut Exec<'_>, filter_index: i32) -> Result<Craft> {
     let (input, material) = (ui(exec, 0)?, ui(exec, 1)?);
-    let rename = if exec.ctx.filter.is_empty() {
+    let rename = if exec.outside.filter.is_empty() {
         None
     } else {
         let index = usize::try_from(filter_index).map_err(|_| Error::Recipe)?;
-        Some(exec.ctx.filter.get(index).ok_or(Error::Recipe)?.as_str())
+        Some(
+            exec.outside
+                .filter
+                .get(index)
+                .ok_or(Error::Recipe)?
+                .as_str(),
+        )
     };
     let out = anvil::craft(&input, &material, rename, exec.creative).map_err(|_| Error::Recipe)?;
-    if !exec.creative && exec.ctx.level < out.cost {
+    if !exec.creative && exec.outside.level < out.cost {
         return Err(Error::Recipe);
     }
     exec.set_created(Some(Created::of(&out.result, 1)))?;

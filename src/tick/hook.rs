@@ -442,8 +442,8 @@ mod tests {
     #[test]
     fn receive_hooks_change_or_drop_a_players_packets() {
         let builder = Server::builder()
-            .on_receive(|ctx, player, packet| {
-                assert_eq!(ctx.tick(), 1);
+            .on_receive(|cx, player, packet| {
+                assert_eq!(cx.tick(), 1);
                 if matches!(packet.get(), Packet::RequestChunkRadius(_))
                     && let Packet::RequestChunkRadius(p) = packet.get_mut()
                 {
@@ -628,11 +628,11 @@ mod tests {
 
     fn hooks() -> ServerBuilder {
         Server::builder()
-            .on_receive(|ctx, player, packet| {
+            .on_receive(|cx, player, packet| {
                 if matches!(packet.get(), Packet::RequestChunkRadius(_))
                     && let Packet::RequestChunkRadius(p) = packet.get_mut()
                 {
-                    p.chunk_radius = 3 + i32::try_from(ctx.tick()).unwrap();
+                    p.chunk_radius = 3 + i32::try_from(cx.tick()).unwrap();
                 }
                 player != id(3)
             })

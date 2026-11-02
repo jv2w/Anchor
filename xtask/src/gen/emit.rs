@@ -27,8 +27,6 @@ const SEND_LIMITS: &[&str] = &[
     "protocol.Command.Description",
 ];
 
-type R<T> = Result<T, String>;
-
 /// Generated file contents.
 #[derive(Debug)]
 pub(crate) struct Output {
@@ -39,7 +37,7 @@ pub(crate) struct Output {
 }
 
 /// Generates both files.
-pub(crate) fn generate(m: &Model<'_>) -> R<Output> {
+pub(crate) fn generate(m: &Model<'_>) -> Result<Output, String> {
     let sums = summaries(m)?;
     let enums = consts::enum_names()?;
     let mut helpers = BTreeSet::new();
@@ -155,7 +153,7 @@ fn imports(m: &Model<'_>, text: &str, module: Module) -> String {
 
 /// Computes what each function looks like to callers; fallibility comes from lowering the
 /// bodies until it no longer changes.
-fn summaries(m: &Model<'_>) -> R<Summaries> {
+fn summaries(m: &Model<'_>) -> Result<Summaries, String> {
     let mut sums = Summaries::new();
     for f in &m.ir.functions {
         if Model::hand_function(&f.name).is_some() {
@@ -401,7 +399,7 @@ fn name_doc(go: &str) -> String {
 }
 
 /// The doc of a named type: the packet's ID and sender for a packet, else the Go name.
-fn type_doc(m: &Model<'_>, t: &TypeDef) -> R<String> {
+fn type_doc(m: &Model<'_>, t: &TypeDef) -> Result<String, String> {
     let Some(p) = m.ir.packets.iter().find(|p| p.ty == t.name) else {
         return Ok(format!("gophertunnel `{}`.", t.name));
     };
@@ -543,7 +541,7 @@ fn type_items(
     module: Module,
     out: &mut String,
     helpers: &mut BTreeSet<String>,
-) -> R<()> {
+) -> Result<(), String> {
     let rust = m.named(&t.name, module)?;
     let type_doc = doc(&type_doc(m, t)?, "");
     match t.kind.as_str() {
@@ -557,7 +555,7 @@ fn type_items(
                     body::field_rust_name(&t.name, &f.name)
                         .map(|n| n.trim_start_matches("r#").to_owned())
                 })
-                .collect::<R<Vec<_>>>()?;
+                .collect::<Result<Vec<_>, String>>()?;
             if struct_field_names_fires(&rust, &field_names) {
                 out.push_str("#[expect(clippy::struct_field_names, reason = \"consistency: field names mirror gophertunnel\")]\n");
             }
@@ -718,7 +716,7 @@ fn mentions(code: &str, name: &str) -> bool {
 }
 
 /// The union lookups of an interface.
-fn union_fns<'a>(m: &Model<'a>, names: &[String]) -> R<Vec<&'a Union>> {
+fn union_fns<'a>(m: &Model<'a>, names: &[String]) -> Result<Vec<&'a Union>, String> {
     names
         .iter()
         .map(|n| {
@@ -734,7 +732,7 @@ fn union_fns<'a>(m: &Model<'a>, names: &[String]) -> R<Vec<&'a Union>> {
     clippy::too_many_lines,
     reason = "consistency: one union enum and its impl in one place"
 )]
-fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
+fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> Result<(), String> {
     let info = m.interfaces.get(&t.name).ok_or("interface without union")?;
     let by_id = union_fns(m, std::slice::from_ref(&info.by_id))?;
     let by_id = by_id.first().ok_or("no id lookup")?;
@@ -759,7 +757,7 @@ fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
     }
     out.push_str("}\n\n");
     let (first_go, first) = info.variants.first().ok_or("union without variants")?;
-    let new = |go: &str, variant: &str| -> R<String> {
+    let new = |go: &str, variant: &str| -> Result<String, String> {
         Ok(if m.is_boxed(go) {
             format!("Self::{variant}(Box::default())")
         } else {
@@ -791,7 +789,11 @@ fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
             .find(|(g, _)| g == go)
             .ok_or("unknown variant")?
             .1;
-        let ids = entry.ids.iter().map(id_value).collect::<R<Vec<_>>>()?;
+        let ids = entry
+            .ids
+            .iter()
+            .map(id_value)
+            .collect::<Result<Vec<_>, String>>()?;
         put!(out, "{} => {},\n", body::compress(&ids), new(go, variant)?);
     }
     out.push_str("_ => return None,\n})\n}\n\n");
@@ -923,7 +925,7 @@ fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
     Ok(())
 }
 
-fn id_value(e: &Expr) -> R<String> {
+fn id_value(e: &Expr) -> Result<String, String> {
     e.value
         .as_deref()
         .map(body::int_lit)
@@ -936,7 +938,7 @@ fn function_items(
     f: &Function,
     out: &mut String,
     helpers: &mut BTreeSet<String>,
-) -> R<()> {
+) -> Result<(), String> {
     let dirs: &[(bool, Dir)] = if f.io {
         &[(true, Dir::Decode), (false, Dir::Encode)]
     } else {
@@ -1021,7 +1023,7 @@ fn vis(go: &str) -> &'static str {
     }
 }
 
-fn enum_fn(m: &Model<'_>, e: &Enum, out: &mut String) -> R<()> {
+fn enum_fn(m: &Model<'_>, e: &Enum, out: &mut String) -> Result<(), String> {
     let name = body::fn_name(&e.name, "")?;
     let on = e
         .params
@@ -1052,7 +1054,11 @@ fn enum_fn(m: &Model<'_>, e: &Enum, out: &mut String) -> R<()> {
             model::local(&e.name)
         );
         for c in &e.cases {
-            let pats = c.values.iter().map(id_value).collect::<R<Vec<_>>>()?;
+            let pats = c
+                .values
+                .iter()
+                .map(id_value)
+                .collect::<Result<Vec<_>, String>>()?;
             let value = c
                 .results
                 .first()
@@ -1120,7 +1126,7 @@ fn enum_fn(m: &Model<'_>, e: &Enum, out: &mut String) -> R<()> {
     Ok(())
 }
 
-fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
+fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
     let mut rows = Vec::new();
     for p in &m.ir.packets {
         let rust = m.named(&p.ty, Module::Packet)?;
@@ -1217,7 +1223,7 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
 
 /// Checks that the decoders apply every limit in `Model::limits`, and returns the constants of
 /// the limits of hand-written types, which their hand codecs use, and of [`SEND_LIMITS`].
-fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> R<String> {
+fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> Result<String, String> {
     if let Some(key) = SEND_LIMITS.iter().find(|k| !m.limits.contains_key(**k)) {
         return Err(format!("send limit {key} is not a protocol limit"));
     }

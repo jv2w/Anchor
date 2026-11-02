@@ -14,21 +14,25 @@
 //! (length-prefixed key and value), 0 = delete (length-prefixed key). Record `i` has sequence
 //! number `sequence + i`.
 
-use super::{Bytes, DELETION, MAX_KEY, VALUE, masked_crc};
+use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY, masked_crc};
 use crate::import::{Error, Result};
 
 /// A write batch header: sequence number and count.
 const BATCH_HEADER: usize = 12;
 /// Log files are cut into blocks of this many bytes.
 pub(crate) const BLOCK: usize = 32 * 1024;
-/// Physical record types.
-pub(crate) const FIRST: u8 = 2;
-pub(crate) const FULL: u8 = 1;
 /// The physical record header: checksum, length, type.
 pub(crate) const HEADER: usize = 7;
-pub(crate) const LAST: u8 = 4;
-pub(crate) const MIDDLE: u8 = 3;
-const ZERO: u8 = 0;
+/// The type of preallocated space.
+const RECORD_ZERO: u8 = 0;
+/// The type of a whole record.
+pub(crate) const RECORD_FULL: u8 = 1;
+/// The type of a record's first fragment.
+pub(crate) const RECORD_FIRST: u8 = 2;
+/// The type of a middle fragment.
+pub(crate) const RECORD_MIDDLE: u8 = 3;
+/// The type of a record's last fragment.
+pub(crate) const RECORD_LAST: u8 = 4;
 
 /// Calls `f` with each whole record of the log `data`, in order.
 pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
@@ -48,7 +52,7 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
         };
         let stored = u32::from_le_bytes([c0, c1, c2, c3]);
         let len = usize::from(u16::from_le_bytes([l0, l1]));
-        if kind == ZERO && len == 0 {
+        if kind == RECORD_ZERO && len == 0 {
             at = at.saturating_add(block_left);
             continue;
         }
@@ -66,22 +70,22 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
         }
         at = at.saturating_add(end);
         match (kind, fragmented) {
-            (FULL, false) => f(payload)?,
-            (FIRST, false) => {
+            (RECORD_FULL, false) => f(payload)?,
+            (RECORD_FIRST, false) => {
                 assembled.clear();
                 assembled.extend_from_slice(payload);
                 fragmented = true;
             }
-            (MIDDLE, true) => assembled.extend_from_slice(payload),
-            (LAST, true) => {
+            (RECORD_MIDDLE, true) => assembled.extend_from_slice(payload),
+            (RECORD_LAST, true) => {
                 assembled.extend_from_slice(payload);
                 fragmented = false;
                 f(&assembled)?;
             }
-            (FULL | FIRST, true) => {
+            (RECORD_FULL | RECORD_FIRST, true) => {
                 return Err(Error::Malformed("log record starts inside another"));
             }
-            (MIDDLE | LAST, false) => {
+            (RECORD_MIDDLE | RECORD_LAST, false) => {
                 return Err(Error::Malformed("log fragment without a first fragment"));
             }
             _ => return Err(Error::Malformed("unknown log record type")),
@@ -121,8 +125,8 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
             });
         }
         let value = match kind {
-            VALUE => Some(body.prefixed()?),
-            DELETION => None,
+            KIND_VALUE => Some(body.prefixed()?),
+            KIND_DELETION => None,
             _ => return Err(Error::Malformed("unknown write batch record")),
         };
         f(Write {
@@ -163,10 +167,10 @@ pub(super) mod tests {
                 let take = rest.len().min(room);
                 let last = take == rest.len();
                 let kind = match (first, last) {
-                    (true, true) => FULL,
-                    (true, false) => FIRST,
-                    (false, false) => MIDDLE,
-                    (false, true) => LAST,
+                    (true, true) => RECORD_FULL,
+                    (true, false) => RECORD_FIRST,
+                    (false, false) => RECORD_MIDDLE,
+                    (false, true) => RECORD_LAST,
                 };
                 physical(&mut out, kind, &rest[..take]);
                 rest = &rest[take..];
@@ -192,7 +196,11 @@ pub(super) mod tests {
         let mut out = sequence.to_le_bytes().to_vec();
         out.extend_from_slice(&u32::try_from(writes.len()).unwrap().to_le_bytes());
         for (key, value) in writes {
-            out.push(if value.is_some() { VALUE } else { DELETION });
+            out.push(if value.is_some() {
+                KIND_VALUE
+            } else {
+                KIND_DELETION
+            });
             put_prefixed(&mut out, key);
             if let Some(value) = value {
                 put_prefixed(&mut out, value);
@@ -262,12 +270,12 @@ pub(super) mod tests {
         assert!(matches!(read_all(&data), Err(Error::Checksum)));
 
         let mut orphan = Vec::new();
-        physical(&mut orphan, LAST, b"x");
+        physical(&mut orphan, RECORD_LAST, b"x");
         assert!(matches!(read_all(&orphan), Err(Error::Malformed(_))));
 
         let mut nested = Vec::new();
-        physical(&mut nested, FIRST, b"x");
-        physical(&mut nested, FULL, b"y");
+        physical(&mut nested, RECORD_FIRST, b"x");
+        physical(&mut nested, RECORD_FULL, b"y");
         assert!(matches!(read_all(&nested), Err(Error::Malformed(_))));
 
         let mut unknown = Vec::new();
@@ -276,7 +284,7 @@ pub(super) mod tests {
 
         // A length past the block end is not a truncated write.
         let mut long = Vec::new();
-        physical(&mut long, FULL, &[0; 100]);
+        physical(&mut long, RECORD_FULL, &[0; 100]);
         long[4..6].copy_from_slice(&u16::MAX.to_le_bytes());
         long.resize(2 * BLOCK, 0);
         assert!(matches!(read_all(&long), Err(Error::Malformed(_))));

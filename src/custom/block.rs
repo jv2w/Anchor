@@ -952,13 +952,13 @@ pub trait Behaviour: Send + Sync {
     /// `Block::onBreak`). Its drops have been spawned and the tool's wear applied.
     fn on_break(
         &self,
-        ctx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         player: Option<player::Id>,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) {
-        let _ = (ctx, player, world, pos, state);
+        let _ = (cx, player, world, pos, state);
     }
 
     /// The block was placed at `pos` by `player`, whose held item is already used up (PMMP
@@ -966,13 +966,13 @@ pub trait Behaviour: Send + Sync {
     /// not.
     fn on_place(
         &self,
-        ctx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         player: player::Id,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) {
-        let _ = (ctx, player, world, pos, state);
+        let _ = (cx, player, world, pos, state);
     }
 
     /// A random tick reached the block at `pos` (PMMP `Block::onRandomTick`). Only a block whose
@@ -980,12 +980,12 @@ pub trait Behaviour: Send + Sync {
     /// pass, in the same order and at the same rate (`random-tick-speed`) as vanilla blocks.
     fn on_random_tick(
         &self,
-        ctx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) {
-        let _ = (ctx, world, pos, state);
+        let _ = (cx, world, pos, state);
     }
 
     /// The player used (right-clicked) the block at `pos`. True if the block did something:
@@ -995,13 +995,13 @@ pub trait Behaviour: Send + Sync {
     /// least 2 ticks after its last run.
     fn on_use(
         &self,
-        ctx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         player: player::Id,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) -> bool {
-        let _ = (ctx, player, world, pos, state);
+        let _ = (cx, player, world, pos, state);
         false
     }
 }

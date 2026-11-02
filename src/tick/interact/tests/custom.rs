@@ -31,20 +31,20 @@ struct Switch;
 impl Behaviour for Switch {
     fn on_use(
         &self,
-        ctx: &mut Ctx<'_>,
+        cx: &mut Ctx<'_>,
         _player: crate::player::Id,
         world: world::Id,
         pos: BlockPos,
         state: block::State,
     ) -> bool {
         let lit = state.with("lit", block::PropertyValue::Byte(1)).unwrap();
-        ctx.world_mut(world).unwrap().set_block(pos, lit).unwrap();
+        cx.world_mut(world).unwrap().set_block(pos, lit).unwrap();
         true
     }
 
     fn on_place(
         &self,
-        ctx: &mut Ctx<'_>,
+        cx: &mut Ctx<'_>,
         player: crate::player::Id,
         world: world::Id,
         pos: BlockPos,
@@ -52,10 +52,10 @@ impl Behaviour for Switch {
     ) {
         let session = player.session();
         assert_eq!(state.value("lit"), Some(block::PropertyValue::Byte(0)));
-        let held = ctx.state.players[&session].inventory.held().count();
+        let held = cx.state.players[&session].inventory.held().count();
         note(SEEN, ("placed", held));
         let stone = Kind::Stone.default_state();
-        ctx.world_mut(world)
+        cx.world_mut(world)
             .unwrap()
             .set_block(above(pos), stone)
             .unwrap();
@@ -63,14 +63,14 @@ impl Behaviour for Switch {
 
     fn on_break(
         &self,
-        ctx: &mut Ctx<'_>,
+        cx: &mut Ctx<'_>,
         _player: Option<crate::player::Id>,
         world: world::Id,
         pos: BlockPos,
         _state: block::State,
     ) {
-        note(SEEN, ("broken", ctx.state.rules.entities.count(0)));
-        let w = ctx.world_mut(world).unwrap();
+        note(SEEN, ("broken", cx.state.rules.entities.count(0)));
+        let w = cx.world_mut(world).unwrap();
         assert_eq!(w.block(pos), Some(block::AIR));
         w.set_block(above(pos), Kind::Dirt.default_state()).unwrap();
     }
@@ -114,7 +114,7 @@ fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
 #[test]
 fn a_saved_stack_reads_back_through_the_context_custom_ones_too() {
     let (mut h, r) = harness();
-    let ctx = Ctx {
+    let cx = Ctx {
         state: &mut h.state,
     };
     let switch = r.resolve(ItemRef::CustomBlock(&SWITCH)).unwrap();
@@ -130,9 +130,9 @@ fn a_saved_stack_reads_back_through_the_context_custom_ones_too() {
         named,
         Stack::EMPTY,
     ] {
-        assert_eq!(ctx.stack_from_nbt(&stack.to_nbt()), Some(stack));
+        assert_eq!(cx.stack_from_nbt(&stack.to_nbt()), Some(stack));
     }
-    assert_eq!(ctx.stack_from_nbt(&crate::nbt::Compound::new()), None);
+    assert_eq!(cx.stack_from_nbt(&crate::nbt::Compound::new()), None);
 }
 
 /// In creative mode a block breaks with a ruby in the hand but not with `SWORD`, made
@@ -165,15 +165,15 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     let item = r
         .resolve(crate::custom::ItemRef::CustomBlock(&SWITCH))
         .unwrap();
-    let ctx = Ctx {
+    let cx = Ctx {
         state: &mut h.state,
     };
     assert_eq!(
-        ctx.item_of(crate::custom::ItemRef::CustomBlock(&SWITCH)),
+        cx.item_of(crate::custom::ItemRef::CustomBlock(&SWITCH)),
         Some(item)
     );
-    assert_eq!(ctx.custom_item(&RUBY), r.item_type(&RUBY));
-    let switch = ctx.custom_block(&SWITCH).unwrap();
+    assert_eq!(cx.custom_item(&RUBY), r.item_type(&RUBY));
+    let switch = cx.custom_block(&SWITCH).unwrap();
     h.hold(Stack::new(item, 3));
     let at = place_on_grass(&mut h, &Stack::new(item, 3));
     assert_eq!(h.block(at), switch);
@@ -270,10 +270,10 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     let emerald = Stack::new(crate::item::Kind::Emerald.default_type(), 3);
     let bread = Stack::new(crate::item::Kind::Bread.default_type(), 6);
     let wheat = Stack::new(crate::item::Kind::Wheat.default_type(), 20);
-    let mut ctx = Ctx {
+    let mut cx = Ctx {
         state: &mut h.state,
     };
-    let id = ctx
+    let id = cx
         .spawn_villager(
             crate::world::Id::DEFAULT,
             Vec3::new(4.5, -60.0, 4.5),
@@ -281,7 +281,7 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
             &[],
         )
         .expect("a villager spawns");
-    assert_eq!(ctx.trade_offers(id), Some(Vec::new()));
+    assert_eq!(cx.trade_offers(id), Some(Vec::new()));
     let first = Offer::new(wheat.clone(), emerald.clone(), 16)
         .with_trader_experience(2)
         .with_any_damage();
@@ -291,56 +291,56 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
         .without_reward_experience()
         .with_price_multipliers(0.2, 0.1)
         .with_demand(-3);
-    ctx.set_trade_offers(id, &[first.clone(), second.clone()])
+    cx.set_trade_offers(id, &[first.clone(), second.clone()])
         .unwrap();
     assert_eq!(
-        ctx.trade_offers(id),
+        cx.trade_offers(id),
         Some(vec![first.clone(), second.clone()])
     );
     assert_eq!(second.second_payment(), &wheat);
     assert!(first.takes_any_damage() && !second.rewards_experience());
     // Refused changes change nothing.
     let free = Offer::new(Stack::EMPTY, bread.clone(), 1);
-    let refused = ctx.add_trade_offer(id, &free).unwrap_err();
+    let refused = cx.add_trade_offer(id, &free).unwrap_err();
     assert_eq!(
         refused,
         crate::custom::Error::Offer {
             reason: "the offer has no payment"
         }
     );
-    assert!(ctx.set_trade_tier(id, 5).is_err());
-    assert!(ctx.remove_trade_offer(id, 2).is_err());
-    assert_eq!(ctx.trade_offers(id).map(|o| o.len()), Some(2));
+    assert!(cx.set_trade_tier(id, 5).is_err());
+    assert!(cx.remove_trade_offer(id, 2).is_err());
+    assert_eq!(cx.trade_offers(id).map(|o| o.len()), Some(2));
     // The other changes.
-    let removed = ctx.remove_trade_offer(id, 0).unwrap();
+    let removed = cx.remove_trade_offer(id, 0).unwrap();
     assert_eq!(removed, first);
-    ctx.replace_trade_offer(id, 0, &first.clone().with_uses(4))
+    cx.replace_trade_offer(id, 0, &first.clone().with_uses(4))
         .unwrap();
-    assert_eq!(ctx.trade_offers(id).unwrap()[0].uses(), 4);
-    ctx.reset_trade_uses(id).unwrap();
-    assert_eq!(ctx.trade_offers(id).unwrap()[0].uses(), 0);
-    assert_eq!(ctx.trade_tier_experience(id), Some([0, 10, 70, 150, 250]));
-    assert_eq!(ctx.trade_experience(id), Some(0));
-    ctx.set_trade_tier_experience(id, [0, 5, 20, 40, 80])
+    assert_eq!(cx.trade_offers(id).unwrap()[0].uses(), 4);
+    cx.reset_trade_uses(id).unwrap();
+    assert_eq!(cx.trade_offers(id).unwrap()[0].uses(), 0);
+    assert_eq!(cx.trade_tier_experience(id), Some([0, 10, 70, 150, 250]));
+    assert_eq!(cx.trade_experience(id), Some(0));
+    cx.set_trade_tier_experience(id, [0, 5, 20, 40, 80])
         .unwrap();
-    ctx.set_trade_tier(id, 3).unwrap();
-    assert_eq!(ctx.trade_tier(id), Some(3));
-    assert_eq!(ctx.trade_tier_experience(id), Some([0, 5, 20, 40, 80]));
-    assert_eq!(ctx.trade_experience(id), Some(40), "the tier's requirement");
-    ctx.set_trade_experience(id, 7).unwrap();
-    assert_eq!(ctx.trade_experience(id), Some(7));
-    assert_eq!(ctx.trade_tier(id), Some(3), "the tier stays");
-    assert!(ctx.set_trade_experience(id, u32::MAX).is_err());
-    assert_eq!(ctx.trade_experience(id), Some(7));
-    ctx.add_trade_offer(id, &second).unwrap();
-    assert_eq!(ctx.trade_offers(id).map(|o| o.len()), Some(2));
+    cx.set_trade_tier(id, 3).unwrap();
+    assert_eq!(cx.trade_tier(id), Some(3));
+    assert_eq!(cx.trade_tier_experience(id), Some([0, 5, 20, 40, 80]));
+    assert_eq!(cx.trade_experience(id), Some(40), "the tier's requirement");
+    cx.set_trade_experience(id, 7).unwrap();
+    assert_eq!(cx.trade_experience(id), Some(7));
+    assert_eq!(cx.trade_tier(id), Some(3), "the tier stays");
+    assert!(cx.set_trade_experience(id, u32::MAX).is_err());
+    assert_eq!(cx.trade_experience(id), Some(7));
+    cx.add_trade_offer(id, &second).unwrap();
+    assert_eq!(cx.trade_offers(id).map(|o| o.len()), Some(2));
     // Not a villager.
     let gone = crate::entity::Id::new(4_000_000, 7);
-    assert_eq!(ctx.trade_offers(gone), None);
-    assert_eq!(ctx.trade_experience(gone), None);
-    assert_eq!(ctx.trade_tier_experience(gone), None);
+    assert_eq!(cx.trade_offers(gone), None);
+    assert_eq!(cx.trade_experience(gone), None);
+    assert_eq!(cx.trade_tier_experience(gone), None);
     assert_eq!(
-        ctx.set_trade_offers(gone, &[]),
+        cx.set_trade_offers(gone, &[]),
         Err(crate::custom::Error::NotVillager)
     );
 }
@@ -359,11 +359,11 @@ fn an_offer_list_check_refuses_what_spawning_a_villager_refuses() {
         vec![good.clone().with_price_multipliers(0.0, f32::NAN)],
         vec![good; crate::custom::MAX_OFFERS + 1],
     ];
-    let mut ctx = Ctx {
+    let mut cx = Ctx {
         state: &mut h.state,
     };
     for offers in &lists {
-        let spawned = ctx
+        let spawned = cx
             .spawn_villager(
                 crate::world::Id::DEFAULT,
                 Vec3::new(4.5, -60.0, 4.5),
@@ -401,10 +401,10 @@ fn diamonds(h: &mut Harness) -> u32 {
     };
     let main = h.player().inventory(crate::inventory::Kind::Main);
     let held: u32 = main.iter().map(count).sum();
-    let ctx = Ctx {
+    let cx = Ctx {
         state: &mut h.state,
     };
-    let ground: u32 = ctx
+    let ground: u32 = cx
         .entities(world::Id::DEFAULT)
         .filter_map(|(_, e)| e.item())
         .map(count)
@@ -414,10 +414,10 @@ fn diamonds(h: &mut Harness) -> u32 {
 
 /// Puts `input` and one coal into the furnace-like block at [`TARGET`].
 fn load_furnace(h: &mut Harness, input: Stack) {
-    let mut ctx = Ctx {
+    let mut cx = Ctx {
         state: &mut h.state,
     };
-    let mut slots = ctx.block_inventory_mut(world::Id::DEFAULT, TARGET).unwrap();
+    let mut slots = cx.block_inventory_mut(world::Id::DEFAULT, TARGET).unwrap();
     slots.set(0, input).unwrap();
     let coal = Stack::new(crate::item::Kind::Coal.default_type(), 1);
     slots.set(1, coal).unwrap();
@@ -625,26 +625,26 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
     place_with_entity(&mut h, frame_at, frame);
     let unlit = props::with_flag(Kind::Campfire.default_state(), "extinguished", true).unwrap();
     place_with_entity(&mut h, campfire_at, unlit);
-    let mut ctx = Ctx {
+    let mut cx = Ctx {
         state: &mut h.state,
     };
-    ctx.player_mut(player)
+    cx.player_mut(player)
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
         .set(4, ruby.clone())
         .unwrap();
-    ctx.block_inventory_mut(world::Id::DEFAULT, TARGET)
+    cx.block_inventory_mut(world::Id::DEFAULT, TARGET)
         .unwrap()
         .set(3, ruby.clone())
         .unwrap();
-    ctx.drop_item(
+    cx.drop_item(
         world::Id::DEFAULT,
         Vec3::new(6.5, -60.0, 6.5),
         ruby.clone(),
         Some(Vec3::ZERO),
     )
     .unwrap();
-    let villager = ctx
+    let villager = cx
         .spawn_villager(
             crate::world::Id::DEFAULT,
             Vec3::new(-4.5, -60.0, 4.5),
@@ -652,7 +652,7 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
             std::slice::from_ref(&offer),
         )
         .unwrap();
-    assert_eq!(ctx.trade_offers(villager), Some(vec![offer.clone()]));
+    assert_eq!(cx.trade_offers(villager), Some(vec![offer.clone()]));
     let entities = &mut h.state.rules.block_entities;
     match &mut entities.get_mut(0, frame_at).unwrap().kind {
         Entity::ItemFrame(f) => f.item = rubies(&r, 1),
@@ -679,18 +679,18 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
     }
     let campfire = &entities.get(0, campfire_at).unwrap().items[0];
     assert_eq!(*campfire, rubies(&r, 1), "the campfire");
-    let ctx = Ctx {
+    let cx = Ctx {
         state: &mut h.state,
     };
-    let ground: Vec<Stack> = ctx
+    let ground: Vec<Stack> = cx
         .entities(world::Id::DEFAULT)
         .filter_map(|(_, e)| e.item().cloned())
         .collect();
     assert_eq!(ground, [ruby], "the dropped item");
-    let villagers: Vec<_> = ctx
+    let villagers: Vec<_> = cx
         .entities(world::Id::DEFAULT)
         .filter(|(_, e)| e.profession().is_some())
-        .map(|(id, _)| ctx.trade_offers(id))
+        .map(|(id, _)| cx.trade_offers(id))
         .collect();
     assert_eq!(villagers, [Some(vec![offer])], "the villager's offers");
 }

@@ -585,84 +585,84 @@ mod tests {
     #[test]
     fn players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox() {
         let (mut state, _rx) = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         assert_eq!(
-            ctx.player_exact("PLAYER1"),
+            cx.player_exact("PLAYER1"),
             Some(PlayerId::new(SessionId::new(1)))
         );
         assert_eq!(
-            ctx.player_exact("offline"),
+            cx.player_exact("offline"),
             Some(PlayerId::new(SessionId::new(2)))
         );
-        assert_eq!(ctx.player_exact("player"), None);
-        assert_eq!(ctx.player_exact(""), None);
+        assert_eq!(cx.player_exact("player"), None);
+        assert_eq!(cx.player_exact(""), None);
     }
 
     // pmmp: Server::getOnlinePlayers
     #[test]
     fn players_are_lent_in_id_order_while_in_the_game() {
         let (mut state, _rx) = state();
-        let ctx = Context { state: &mut state };
-        let ids: Vec<PlayerId> = ctx.players().map(Player::id).collect();
+        let cx = Context { state: &mut state };
+        let ids: Vec<PlayerId> = cx.players().map(Player::id).collect();
         assert_eq!(ids, [1, 2].map(|s| PlayerId::new(SessionId::new(s))));
-        assert_eq!(ctx.player_count(), 2);
-        assert_eq!(ctx.player(ids[1]).map(Player::name), Some("Offline"));
+        assert_eq!(cx.player_count(), 2);
+        assert_eq!(cx.player(ids[1]).map(Player::name), Some("Offline"));
         // A player whose data is still loading is not in the game yet.
         state.players.get_mut(&SessionId::new(2)).unwrap().phase = Phase::Loading;
-        let mut ctx = Context { state: &mut state };
-        assert_eq!(ctx.player_count(), 1);
-        assert!(ctx.player(ids[1]).is_none());
-        assert!(ctx.player_mut(ids[1]).is_none());
-        assert_eq!(ctx.player_exact("offline"), None);
-        assert!(ctx.player_mut(ids[0]).is_some());
+        let mut cx = Context { state: &mut state };
+        assert_eq!(cx.player_count(), 1);
+        assert!(cx.player(ids[1]).is_none());
+        assert!(cx.player_mut(ids[1]).is_none());
+        assert_eq!(cx.player_exact("offline"), None);
+        assert!(cx.player_mut(ids[0]).is_some());
     }
 
     // pmmp: Server::getPlayerByUUID
     #[test]
     fn players_are_found_by_uuid_while_in_the_game() {
         let (mut state, _rx) = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         let second = PlayerId::new(SessionId::new(2));
-        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([9; 16])), Some(second));
-        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([7; 16])), None);
+        assert_eq!(cx.player_by_uuid(Uuid::from_bytes([9; 16])), Some(second));
+        assert_eq!(cx.player_by_uuid(Uuid::from_bytes([7; 16])), None);
         state.players.get_mut(&SessionId::new(2)).unwrap().phase = Phase::Loading;
-        let ctx = Context { state: &mut state };
-        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([9; 16])), None);
+        let cx = Context { state: &mut state };
+        assert_eq!(cx.player_by_uuid(Uuid::from_bytes([9; 16])), None);
     }
 
     // pmmp: Server::getPlayerByPrefix
     #[test]
     fn the_shortest_name_with_the_prefix_wins() {
         let (mut state, _rx) = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         let first = Some(PlayerId::new(SessionId::new(1)));
         let second = Some(PlayerId::new(SessionId::new(2)));
-        assert_eq!(ctx.player_by_prefix("PL"), first);
-        assert_eq!(ctx.player_by_prefix("off"), second);
-        assert_eq!(ctx.player_by_prefix("offline"), second);
-        assert_eq!(ctx.player_by_prefix("offlinex"), None);
+        assert_eq!(cx.player_by_prefix("PL"), first);
+        assert_eq!(cx.player_by_prefix("off"), second);
+        assert_eq!(cx.player_by_prefix("offline"), second);
+        assert_eq!(cx.player_by_prefix("offlinex"), None);
         // "Offline" and "player1" are as long: the first in ID order wins.
-        assert_eq!(ctx.player_by_prefix(""), first);
+        assert_eq!(cx.player_by_prefix(""), first);
     }
 
     // pmmp: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion, Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode, Server::getForceGamemode, Server::isHardcore, Server::getViewDistance, Server::shouldSavePlayerData
     #[test]
     fn the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins() {
         let (mut state, _rx) = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         assert_eq!(Context::NAME, "Anchor");
         assert_eq!(Context::VERSION, GAME_VERSION);
         assert_eq!(Context::ANCHOR_VERSION, env!("CARGO_PKG_VERSION"));
         let config = crate::config::Config::default();
-        assert_eq!(ctx.motd(), config.general.motd);
-        assert_eq!(ctx.max_players(), config.general.max_players);
-        assert_eq!(ctx.difficulty(), config.general.difficulty);
-        assert_eq!(ctx.default_game_mode(), config.general.gamemode);
-        assert_eq!(ctx.is_game_mode_forced(), config.general.force_gamemode);
-        assert_eq!(ctx.is_hardcore(), config.general.hardcore);
-        assert_eq!(ctx.view_distance(), config.general.view_distance);
-        assert!(!ctx.should_save_player_data());
-        assert_eq!(ctx.tick(), state.tick);
+        assert_eq!(cx.motd(), config.general.motd);
+        assert_eq!(cx.max_players(), config.general.max_players);
+        assert_eq!(cx.difficulty(), config.general.difficulty);
+        assert_eq!(cx.default_game_mode(), config.general.gamemode);
+        assert_eq!(cx.is_game_mode_forced(), config.general.force_gamemode);
+        assert_eq!(cx.is_hardcore(), config.general.hardcore);
+        assert_eq!(cx.view_distance(), config.general.view_distance);
+        assert!(!cx.should_save_player_data());
+        assert_eq!(cx.tick(), state.tick);
         Context { state: &mut state }.set_max_players(2);
         let (third, mut rx3) = join(3, 0);
         tick(&mut state, &mut vec![third], &mut Output::default());
@@ -677,11 +677,11 @@ mod tests {
         for r in &mut rx {
             received(r);
         }
-        let mut ctx = Context { state: &mut state };
+        let mut cx = Context { state: &mut state };
         let tip = Message::Tip("hi".to_owned());
-        assert_eq!(ctx.broadcast(tip), Ok(2));
+        assert_eq!(cx.broadcast(tip), Ok(2));
         let long = Message::Popup("x".repeat(70_000));
-        assert_eq!(ctx.broadcast(long), Err(crate::player::Error::TooLong));
+        assert_eq!(cx.broadcast(long), Err(crate::player::Error::TooLong));
         tick(&mut state, &mut Vec::new(), &mut Output::default());
         for r in &mut rx {
             let tips = received(r)
@@ -698,9 +698,9 @@ mod tests {
         let (mut state, _rx) = state();
         let before = state.hash();
         let gone = PlayerId::new(SessionId::new(99));
-        let mut ctx = Context { state: &mut state };
-        assert!(ctx.player(gone).is_none());
-        assert!(ctx.player_mut(gone).is_none());
+        let mut cx = Context { state: &mut state };
+        assert!(cx.player(gone).is_none());
+        assert!(cx.player_mut(gone).is_none());
         assert_eq!(state.hash(), before);
     }
 
@@ -708,7 +708,7 @@ mod tests {
     fn villagers_outside_the_world_or_not_finite_are_refused() {
         let (mut state, _rx) = state();
         let before = state.hash();
-        let mut ctx = Context { state: &mut state };
+        let mut cx = Context { state: &mut state };
         for feet in [
             Vec3::new(f64::NAN, 0.0, 0.0),
             Vec3::new(0.0, f64::INFINITY, 0.0),
@@ -718,14 +718,14 @@ mod tests {
             Vec3::new(0.0, -30_000_001.0, 0.0),
         ] {
             assert_eq!(
-                ctx.spawn_villager(WorldId::DEFAULT, feet, FARMER, &[]),
+                cx.spawn_villager(WorldId::DEFAULT, feet, FARMER, &[]),
                 Err(crate::custom::Error::NotSpawned)
             );
         }
         let elsewhere = WorldId::new(7).unwrap();
         let at = Vec3::new(0.5, -60.0, 0.5);
         assert_eq!(
-            ctx.spawn_villager(elsewhere, at, FARMER, &[]),
+            cx.spawn_villager(elsewhere, at, FARMER, &[]),
             Err(crate::custom::Error::NotSpawned),
             "a world the server does not have"
         );
@@ -735,10 +735,10 @@ mod tests {
     #[test]
     fn the_random_tick_speed_changes_up_to_the_setting_limit_and_joined_players_hear_it() {
         let (mut state, [mut rx1, mut rx2]) = state();
-        let mut ctx = Context { state: &mut state };
-        assert!(!ctx.set_random_tick_speed(4097));
-        assert!(ctx.set_random_tick_speed(0));
-        assert!(ctx.set_random_tick_speed(4096));
+        let mut cx = Context { state: &mut state };
+        assert!(!cx.set_random_tick_speed(4097));
+        assert!(cx.set_random_tick_speed(0));
+        assert!(cx.set_random_tick_speed(4096));
         assert_eq!(state.settings.random_tick_speed, 4096);
         while rx1.try_recv().is_ok() {}
         while rx2.try_recv().is_ok() {}
@@ -768,13 +768,13 @@ mod tests {
     fn save_marks_the_tick_for_a_commit_and_the_context_reads_the_state() {
         let (mut state, _rx) = state();
         let tick_now = state.tick;
-        let mut ctx = Context { state: &mut state };
-        assert_eq!(ctx.tick(), tick_now);
-        assert_eq!(ctx.default_world().name(), "world");
-        assert!(ctx.world_named("world").is_some());
-        assert!(ctx.world_named_mut("nether").is_none());
-        ctx.save();
-        assert!(format!("{ctx:?}").contains("save: true"));
+        let mut cx = Context { state: &mut state };
+        assert_eq!(cx.tick(), tick_now);
+        assert_eq!(cx.default_world().name(), "world");
+        assert!(cx.world_named("world").is_some());
+        assert!(cx.world_named_mut("nether").is_none());
+        cx.save();
+        assert!(format!("{cx:?}").contains("save: true"));
         assert!(state.saving.requested);
     }
 
@@ -782,11 +782,11 @@ mod tests {
     fn tasks_run_on_their_period_with_the_whole_state_and_stay_registered() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut tasks = Tasks::default();
-        tasks.push(NonZeroU32::new(2).unwrap(), |ctx| {
+        tasks.push(NonZeroU32::new(2).unwrap(), |cx| {
             let at = crate::world::BlockPos::new(0, -50, 0);
             let stone = crate::block::State::find("minecraft:stone", &[]).unwrap();
-            ctx.default_world_mut().set_block(at, stone).unwrap();
-            ctx.save();
+            cx.default_world_mut().set_block(at, stone).unwrap();
+            cx.save();
         });
         state.tasks = tasks;
         state.tick = 1;
@@ -831,18 +831,18 @@ mod tests {
         let (mut state, _rx) = state();
         let before = state.hash();
         let offer = crate::custom::Offer::new(stick(4), stick(1), 12).with_tier(2);
-        let mut ctx = Context { state: &mut state };
+        let mut cx = Context { state: &mut state };
         let at = Vec3::new(0.5, -60.0, 0.5);
         let free = crate::custom::Offer::new(Stack::EMPTY, stick(1), 1);
         assert!(matches!(
-            ctx.spawn_villager(WorldId::DEFAULT, at, FARMER, &[offer.clone(), free]),
+            cx.spawn_villager(WorldId::DEFAULT, at, FARMER, &[offer.clone(), free]),
             Err(crate::custom::Error::Offer { .. })
         ));
         assert_eq!(state.hash(), before, "a refused offer spawns nothing");
-        let mut ctx = Context { state: &mut state };
-        let id = ctx
+        let mut cx = Context { state: &mut state };
+        let id = cx
             .spawn_villager(WorldId::DEFAULT, at, FARMER, std::slice::from_ref(&offer))
             .unwrap();
-        assert_eq!(ctx.trade_offers(id), Some(vec![offer]));
+        assert_eq!(cx.trade_offers(id), Some(vec![offer]));
     }
 }

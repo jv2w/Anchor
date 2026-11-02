@@ -7,7 +7,9 @@
 //! [`FINISHED`]. The height map is left at zero; BDS loads such chunks and sends their blocks as
 //! stored (`cargo xtask p6 import`).
 
-use crate::import::chunk::{BLOCK_ENTITIES, SUB_CHUNK, VERSION, prefix};
+use crate::import::chunk::{
+    CHUNK_TAG_BLOCK_ENTITIES, CHUNK_TAG_SUB_CHUNK, CHUNK_TAG_VERSION, prefix,
+};
 use crate::nbt::{Compound, Encoding};
 use crate::protocol::{Result, Writer, length};
 use crate::storage::codec::{Biomes, BlockLayer, ChunkRecord};
@@ -42,7 +44,7 @@ pub(super) fn values(
         key
     };
     let mut values = vec![
-        (key(VERSION, &[]), vec![CHUNK_VERSION]),
+        (key(CHUNK_TAG_VERSION, &[]), vec![CHUNK_VERSION]),
         (key(DATA_3D, &[]), data_3d(record)?),
         (key(FINALIZED_STATE, &[]), FINISHED.to_le_bytes().to_vec()),
     ];
@@ -59,14 +61,14 @@ pub(super) fn values(
         for layer in &sub.layers {
             write_layer(&mut w, layer)?;
         }
-        values.push((key(SUB_CHUNK, &[y]), w.into_inner()));
+        values.push((key(CHUNK_TAG_SUB_CHUNK, &[y]), w.into_inner()));
     }
     if !block_entities.is_empty() {
         let mut w = Writer::new(Vec::new(), 0);
         for compound in block_entities {
             w.nbt(compound, Encoding::LittleEndian)?;
         }
-        values.push((key(BLOCK_ENTITIES, &[]), w.into_inner()));
+        values.push((key(CHUNK_TAG_BLOCK_ENTITIES, &[]), w.into_inner()));
     }
     values.sort_unstable();
     Ok(values)

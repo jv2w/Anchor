@@ -189,6 +189,54 @@ const SCRIPT: &str = "xtask/data/p6/script.txt";
 /// permissions after `op` must reach the client the same way.
 const SETUP_COMPARED: &[&str] = &["UpdateAbilities"];
 
+/// The intended differences (`INTENDED`): per API scenario, the exact difference texts with their
+/// reasons, and the block names of the import scenario.
+#[derive(Debug, PartialEq, Default)]
+pub(crate) struct Intended {
+    differences: Vec<(String, String, String)>,
+    blocks: BTreeSet<String>,
+}
+
+impl Intended {
+    /// The block names `p6 import` accepts as intended differences.
+    pub(crate) fn blocks(&self) -> &BTreeSet<String> {
+        &self.blocks
+    }
+
+    /// The reason `difference` of `scenario` is intended, if it is listed.
+    fn reason(&self, scenario: &str, difference: &str) -> Option<&str> {
+        self.differences
+            .iter()
+            .find(|(s, d, _)| s == scenario && d == difference)
+            .map(|(_, _, reason)| reason.as_str())
+    }
+
+    /// The listed differences of `scenario` that are not among `found`.
+    fn unseen<'a>(
+        &'a self,
+        scenario: &'a str,
+        found: &'a [String],
+    ) -> impl Iterator<Item = &'a str> {
+        self.differences
+            .iter()
+            .filter(move |(s, d, _)| s == scenario && !found.contains(d))
+            .map(|(_, d, _)| d.as_str())
+    }
+}
+
+/// One step of an API capture: the bot's step line and what came until the next one.
+#[derive(Debug, PartialEq, Default)]
+struct Step {
+    /// The step's name and its command line, argument or form kind.
+    label: String,
+    /// A step that only prepares the world with console commands.
+    setup: bool,
+    /// The packets received during the step.
+    packets: Vec<Received>,
+    /// The bot's `output`, `check`, `form` and `available` lines of the step.
+    records: Vec<Value>,
+}
+
 /// `p6 api bds [scenario]...`: [`session`] alone.
 pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let scenarios = super::pick_scenarios(args, &SCENARIOS, "API")?;
@@ -427,41 +475,6 @@ fn compare_scenarios(
     Ok(same)
 }
 
-/// The intended differences (`INTENDED`): per API scenario, the exact difference texts with their
-/// reasons, and the block names of the import scenario.
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct Intended {
-    differences: Vec<(String, String, String)>,
-    blocks: BTreeSet<String>,
-}
-
-impl Intended {
-    /// The block names `p6 import` accepts as intended differences.
-    pub(crate) fn blocks(&self) -> &BTreeSet<String> {
-        &self.blocks
-    }
-
-    /// The reason `difference` of `scenario` is intended, if it is listed.
-    fn reason(&self, scenario: &str, difference: &str) -> Option<&str> {
-        self.differences
-            .iter()
-            .find(|(s, d, _)| s == scenario && d == difference)
-            .map(|(_, _, reason)| reason.as_str())
-    }
-
-    /// The listed differences of `scenario` that are not among `found`.
-    fn unseen<'a>(
-        &'a self,
-        scenario: &'a str,
-        found: &'a [String],
-    ) -> impl Iterator<Item = &'a str> {
-        self.differences
-            .iter()
-            .filter(move |(s, d, _)| s == scenario && !found.contains(d))
-            .map(|(_, d, _)| d.as_str())
-    }
-}
-
 /// Parses the intended-difference file: `#` comments, blank lines, and lines
 /// `<scenario> | <difference> | <reason>`, the difference exactly as the comparison prints it
 /// after `DIFFERENT <scenario>: ` (it may hold ` | `; the reason may not). A scenario must be an API
@@ -508,19 +521,6 @@ pub(crate) fn parse_intended(text: &str) -> Result<Intended, String> {
         ));
     }
     Ok(list)
-}
-
-/// One step of an API capture: the bot's step line and what came until the next one.
-#[derive(Debug, Default, PartialEq)]
-struct Step {
-    /// The step's name and its command line, argument or form kind.
-    label: String,
-    /// A step that only prepares the world with console commands.
-    setup: bool,
-    /// The packets received during the step.
-    packets: Vec<Received>,
-    /// The bot's `output`, `check`, `form` and `available` lines of the step.
-    records: Vec<Value>,
 }
 
 /// The steps of a capture; the first holds everything before the bot's first step.

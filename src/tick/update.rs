@@ -1241,13 +1241,13 @@ mod tests {
     impl crate::custom::Behaviour for Glow {
         fn on_random_tick(
             &self,
-            ctx: &mut Context<'_>,
+            cx: &mut Context<'_>,
             world: world::Id,
             pos: BlockPos,
             state: block::State,
         ) {
             let lit = state.with("lit", PropertyValue::Byte(1)).unwrap();
-            ctx.world_mut(world).unwrap().set_block(pos, lit).unwrap();
+            cx.world_mut(world).unwrap().set_block(pos, lit).unwrap();
         }
     }
 

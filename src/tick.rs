@@ -3287,13 +3287,13 @@ mod tests {
         let mut tasks = Tasks::default();
         tasks.push(
             std::num::NonZeroU32::MIN,
-            move |ctx: &mut task::Context<'_>| {
-                let tick = ctx.tick();
+            move |cx: &mut task::Context<'_>| {
+                let tick = cx.tick();
                 let t = i32::try_from(tick % 1000).unwrap();
                 if t % 2 == 0 {
                     let at = BlockPos::new((t * 7) % 48 - 16, -60 + t % 3, (t * 13) % 48 - 16);
                     let state = if t % 3 == 0 { crate::block::AIR } else { stone };
-                    assert!(ctx.default_world_mut().set_block(at, state).is_ok());
+                    assert!(cx.default_world_mut().set_block(at, state).is_ok());
                 }
                 // A gift a tick; 15 gifts and 64 players, so every player meets most gifts.
                 let name = if tick.is_multiple_of(8) {
@@ -3302,7 +3302,7 @@ mod tests {
                     format!("p{}", tick % 64)
                 };
                 let gift = gifts[usize::try_from(tick).unwrap() % gifts.len()].clone();
-                if let Some(player) = ctx.player_exact(&name).and_then(|id| ctx.player_mut(id)) {
+                if let Some(player) = cx.player_exact(&name).and_then(|id| cx.player_mut(id)) {
                     player
                         .inventory_mut(crate::inventory::Kind::Main)
                         .add(&gift);
@@ -3311,25 +3311,25 @@ mod tests {
                     let x = 2.5 + f64::from(u32::try_from(tick / 150).unwrap()) * 2.0;
                     let at = crate::math::Vec3::new(x, -60.0, 3.5);
                     villagers.extend(
-                        ctx.spawn_villager(crate::world::Id::DEFAULT, at, 1, &offers)
+                        cx.spawn_villager(crate::world::Id::DEFAULT, at, 1, &offers)
                             .ok(),
                     );
                 }
                 if tick == 260
                     && let Some(&first) = villagers.first()
                 {
-                    ctx.entity_mut(first).unwrap().flag_for_despawn();
+                    cx.entity_mut(first).unwrap().flag_for_despawn();
                 }
                 // The runs leave commits unanswered, so the first snapshot is the only one: it
                 // comes after the first villager and gifts.
                 if tick % 50 == 49 {
-                    ctx.save();
+                    cx.save();
                 }
                 // Network controls: a new server name, and a block that ends.
                 if tick % 100 == 40 {
-                    assert!(ctx.set_motd(format!("Anchor {tick}")));
+                    assert!(cx.set_motd(format!("Anchor {tick}")));
                     let ip = std::net::IpAddr::from([192, 0, 2, 1]);
-                    assert!(ctx.block_address(ip, Duration::from_secs(5)));
+                    assert!(cx.block_address(ip, Duration::from_secs(5)));
                 }
             },
         );
@@ -3991,14 +3991,14 @@ mod tests {
         let mut tasks = Tasks::default();
         tasks.push(
             std::num::NonZeroU32::MIN,
-            move |ctx: &mut task::Context<'_>| {
+            move |cx: &mut task::Context<'_>| {
                 for &(at, pos, state) in &script {
-                    if at == ctx.tick() {
-                        ctx.default_world_mut().set_block(pos, state).unwrap();
+                    if at == cx.tick() {
+                        cx.default_world_mut().set_block(pos, state).unwrap();
                     }
                 }
-                if save_at.contains(&ctx.tick()) {
-                    ctx.save();
+                if save_at.contains(&cx.tick()) {
+                    cx.save();
                 }
             },
         );

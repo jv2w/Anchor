@@ -2691,19 +2691,19 @@ mod tests {
         let pearl = ItemKind::EnderPearl.default_type();
         let bread = ItemKind::Bread.default_type();
         let tick = state.tick;
-        let mut ctx = Context { state: &mut state };
-        assert!(!ctx.has_item_cooldown(id, pearl));
-        assert!(ctx.reset_item_cooldown(id, pearl, None));
-        assert!(ctx.has_item_cooldown(id, pearl));
-        assert_eq!(ctx.item_cooldown_expiry(id, pearl), Some(tick + 20));
-        assert!(!ctx.reset_item_cooldown(id, bread, None), "bread has none");
-        assert!(!ctx.reset_item_cooldown(id, bread, Some(0)));
-        assert!(ctx.reset_item_cooldown(id, bread, Some(5)));
-        assert_eq!(ctx.item_cooldown_expiry(id, bread), Some(tick + 5));
-        assert!(!ctx.reset_item_cooldown(gone, pearl, None));
-        assert!(!ctx.has_item_cooldown(gone, pearl));
-        assert_eq!(ctx.item_use_duration_ticks(id), None);
-        ctx.state
+        let mut cx = Context { state: &mut state };
+        assert!(!cx.has_item_cooldown(id, pearl));
+        assert!(cx.reset_item_cooldown(id, pearl, None));
+        assert!(cx.has_item_cooldown(id, pearl));
+        assert_eq!(cx.item_cooldown_expiry(id, pearl), Some(tick + 20));
+        assert!(!cx.reset_item_cooldown(id, bread, None), "bread has none");
+        assert!(!cx.reset_item_cooldown(id, bread, Some(0)));
+        assert!(cx.reset_item_cooldown(id, bread, Some(5)));
+        assert_eq!(cx.item_cooldown_expiry(id, bread), Some(tick + 5));
+        assert!(!cx.reset_item_cooldown(gone, pearl, None));
+        assert!(!cx.has_item_cooldown(gone, pearl));
+        assert_eq!(cx.item_use_duration_ticks(id), None);
+        cx.state
             .players
             .get_mut(&id.session())
             .unwrap()
@@ -2712,14 +2712,14 @@ mod tests {
             since: tick,
             item: bread,
         });
-        assert_eq!(ctx.item_use_duration_ticks(id), Some(0));
-        assert_eq!(ctx.item_use_duration_ticks(gone), None);
+        assert_eq!(cx.item_use_duration_ticks(id), Some(0));
+        assert_eq!(cx.item_use_duration_ticks(gone), None);
         for _ in 0..5 {
             run(&mut state, Vec::new());
         }
-        let ctx = Context { state: &mut state };
-        assert!(!ctx.has_item_cooldown(id, bread), "ended");
-        assert!(ctx.has_item_cooldown(id, pearl));
+        let cx = Context { state: &mut state };
+        assert!(!cx.has_item_cooldown(id, bread), "ended");
+        assert!(cx.has_item_cooldown(id, pearl));
         let started = received(&mut rx1)
             .0
             .iter()
@@ -2743,20 +2743,20 @@ mod tests {
         let entities = Context { state: &mut state }
             .entities(crate::world::Id::DEFAULT)
             .count();
-        let mut ctx = Context { state: &mut state };
-        assert!(!ctx.is_player_underwater(id) && !ctx.is_player_inside_solid(id));
-        assert!(!ctx.is_player_underwater(gone) && !ctx.is_player_inside_solid(gone));
-        let line = ctx.line_of_sight(id, 10, 0);
+        let mut cx = Context { state: &mut state };
+        assert!(!cx.is_player_underwater(id) && !cx.is_player_inside_solid(id));
+        assert!(!cx.is_player_underwater(gone) && !cx.is_player_inside_solid(gone));
+        let line = cx.line_of_sight(id, 10, 0);
         assert_eq!(line.last(), Some(&below), "{line:?}");
         assert!(line.iter().all(|b| b.x == below.x && b.z == below.z));
-        assert_eq!(ctx.target_block(id, 10), Some(below));
-        assert_eq!(ctx.line_of_sight(id, 10, 1), [below]);
-        assert_eq!(ctx.target_block(gone, 10), None);
+        assert_eq!(cx.target_block(id, 10), Some(below));
+        assert_eq!(cx.line_of_sight(id, 10, 1), [below]);
+        assert_eq!(cx.target_block(gone, 10), None);
         let empty = Stack::new(ItemKind::Bread.default_type(), 0);
-        assert!(ctx.drop_from(id, empty).is_err());
+        assert!(cx.drop_from(id, empty).is_err());
         let bread = Stack::new(ItemKind::Bread.default_type(), 3);
-        assert_eq!(ctx.drop_from(gone, bread.clone()), Err(bread.clone()));
-        assert_eq!(ctx.drop_from(id, bread), Ok(()));
+        assert_eq!(cx.drop_from(gone, bread.clone()), Err(bread.clone()));
+        assert_eq!(cx.drop_from(id, bread), Ok(()));
         assert_eq!(
             Context { state: &mut state }
                 .entities(crate::world::Id::DEFAULT)
@@ -2781,13 +2781,9 @@ mod tests {
                 ("version".to_owned(), Value::Int(18_168_865)),
             ]);
             state.worlds[0].put_unknown(at_feet, stored).unwrap();
-            let ctx = Context { state: &mut state };
-            assert_eq!(ctx.target_block(id, 10), Some(at_feet), "{name}");
-            assert_eq!(
-                ctx.line_of_sight(id, 10, 0).last(),
-                Some(&at_feet),
-                "{name}"
-            );
+            let cx = Context { state: &mut state };
+            assert_eq!(cx.target_block(id, 10), Some(at_feet), "{name}");
+            assert_eq!(cx.line_of_sight(id, 10, 0).last(), Some(&at_feet), "{name}");
         }
     }
 
@@ -2798,16 +2794,16 @@ mod tests {
         let (mut state, [_rx1, mut rx2]) = two();
         let id = Id::new(crate::tick::SessionId::new(1));
         let gone = Id::new(crate::tick::SessionId::new(9));
-        let mut ctx = Context { state: &mut state };
-        assert!(!ctx.attack_player(id, f64::NAN));
-        assert!(!ctx.attack_player(id, -1.0));
-        assert!(!ctx.attack_player(gone, 1.0));
-        assert!(ctx.attack_player(id, 5.0));
-        assert_eq!(ctx.player(id).map(Player::health), Some(15.0));
+        let mut cx = Context { state: &mut state };
+        assert!(!cx.attack_player(id, f64::NAN));
+        assert!(!cx.attack_player(id, -1.0));
+        assert!(!cx.attack_player(gone, 1.0));
+        assert!(cx.attack_player(id, 5.0));
+        assert_eq!(cx.player(id).map(Player::health), Some(15.0));
         // Within the cooldown only a stronger hit counts its difference.
-        assert!(!ctx.attack_player(id, 4.0));
-        assert!(ctx.attack_player(id, 7.0));
-        assert_eq!(ctx.player(id).map(Player::health), Some(13.0));
+        assert!(!cx.attack_player(id, 4.0));
+        assert!(cx.attack_player(id, 7.0));
+        assert_eq!(cx.player(id).map(Player::health), Some(13.0));
         run(&mut state, Vec::new());
         let hurts = received(&mut rx2)
             .0

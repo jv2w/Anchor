@@ -30,14 +30,14 @@ use crate::player;
 pub trait Behaviour: Send {
     /// One tick of the custom entity `entity`, every `tick_period` ticks of its age.
     #[doc(alias = "Entity::onUpdate")]
-    fn on_tick(&mut self, ctx: &mut Context<'_>, entity: Id) {
-        let _ = (ctx, entity);
+    fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
+        let _ = (cx, entity);
     }
 
     /// The player `player` interacts with the custom entity `entity` (a right click within reach).
     #[doc(alias = "Entity::onInteract")]
-    fn on_interact(&mut self, ctx: &mut Context<'_>, entity: Id, player: player::Id) {
-        let _ = (ctx, entity, player);
+    fn on_interact(&mut self, cx: &mut Context<'_>, entity: Id, player: player::Id) {
+        let _ = (cx, entity, player);
     }
 }
 

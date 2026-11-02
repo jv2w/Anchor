@@ -1859,8 +1859,8 @@ pub(super) mod tests {
         assert_eq!(p.transfer("a".repeat(254), 1), Err(Error::InvalidAddress));
         p.transfer("play.example.com", 19133).unwrap();
         // The leaving player gets no broadcast.
-        let mut ctx = Context { state: &mut state };
-        assert_eq!(ctx.broadcast(Message::Tip("t".to_owned())), Ok(1));
+        let mut cx = Context { state: &mut state };
+        assert_eq!(cx.broadcast(Message::Tip("t".to_owned())), Ok(1));
         run(&mut state, Vec::new());
         let (_, close, _) = received(&mut rx1);
         assert!(matches!(
@@ -1892,14 +1892,14 @@ pub(super) mod tests {
         );
         let (mut state, _rx) = two_with(listeners);
         let id = Id::new(SessionId::new(1));
-        let mut ctx = Context { state: &mut state };
-        ctx.kick_player(id, "x".repeat(MAX_TEXT + 1), None, None);
-        ctx.transfer_player(id, String::new(), 19_132, None);
+        let mut cx = Context { state: &mut state };
+        cx.kick_player(id, "x".repeat(MAX_TEXT + 1), None, None);
+        cx.transfer_player(id, String::new(), 19_132, None);
         let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
-        ctx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);
+        cx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);
         let unloaded = world::Id::of(7);
         let feet = Vec3::new(0.5, -60.0, 0.5);
-        ctx.teleport_player(id, unloaded, feet, TeleportCause::Action);
+        cx.teleport_player(id, unloaded, feet, TeleportCause::Action);
         assert!(events.try_recv().is_err(), "no listener was asked");
         let p = &state.players[&SessionId::new(1)];
         assert!(p.is_online() && p.marks.teleport.is_none());

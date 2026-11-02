@@ -388,14 +388,14 @@ impl Mover {
         }
     }
 
-    fn tick(&mut self, ctx: &mut task::Context<'_>) {
-        let tick = ctx.tick();
+    fn tick(&mut self, cx: &mut task::Context<'_>) {
+        let tick = cx.tick();
         let start = *self.start.get_or_insert(tick);
         if tick > start + CHILD_TICKS {
             self.stop_server();
             return;
         }
-        let state = &mut *ctx.state;
+        let state = &mut *cx.state;
         if !self.ready {
             self.ready = self.check(state, start);
             if self.ready && !self.moves {
@@ -457,7 +457,7 @@ impl Mover {
             }
         };
         if save {
-            ctx.save();
+            cx.save();
         }
     }
 
@@ -569,7 +569,7 @@ fn item_crash_child() {
         marker: None,
     };
     let mut tasks = Tasks::default();
-    tasks.push(NonZeroU32::MIN, move |ctx| mover.tick(ctx));
+    tasks.push(NonZeroU32::MIN, move |cx| mover.tick(cx));
     // The parent times its kill from the commits.
     let mut listeners = Listeners::default();
     listeners.push(

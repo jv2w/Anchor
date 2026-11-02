@@ -18,9 +18,13 @@ use std::io;
 use std::path::PathBuf;
 
 use super::{Error, write_new, written};
-use crate::import::leveldb::log::{BLOCK, FIRST, FULL, HEADER, LAST, MIDDLE};
-use crate::import::leveldb::table::{FOOTER, MAGIC, NONE, RAW_DEFLATE, TRAILER};
-use crate::import::leveldb::{COMPARATOR, LEVELS, TAG, VALUE, masked_crc};
+use crate::import::leveldb::log::{
+    BLOCK, HEADER, RECORD_FIRST, RECORD_FULL, RECORD_LAST, RECORD_MIDDLE,
+};
+use crate::import::leveldb::table::{
+    COMPRESSION_NONE, COMPRESSION_RAW_DEFLATE, FOOTER, MAGIC, TRAILER,
+};
+use crate::import::leveldb::{COMPARATOR, KIND_VALUE, LEVELS, TAG, masked_crc};
 use crate::protocol::compression::zlib::Encoder;
 
 /// The size a data block is closed at, before compression. BDS 1.26.52 writes blocks of over
@@ -28,14 +32,18 @@ use crate::protocol::compression::zlib::Encoder;
 pub(super) const BLOCK_BYTES: usize = 128 << 10;
 /// The DEFLATE level blocks are compressed at: zlib's default.
 const DEFLATE_LEVEL: u8 = 6;
-/// Version edit tags (google/leveldb `db/version_edit.cc`).
+/// The version edit tag of the comparator (google/leveldb `db/version_edit.cc`).
 const EDIT_COMPARATOR: u8 = 1;
+/// The version edit tag of the log number.
 const EDIT_LOG_NUMBER: u8 = 2;
+/// The version edit tag of the next file number.
 const EDIT_NEXT_FILE: u8 = 3;
+/// The version edit tag of the last sequence number.
 const EDIT_LAST_SEQUENCE: u8 = 4;
+/// The version edit tag of a new table.
 const EDIT_NEW_TABLE: u8 = 7;
 /// The tag of every key, little-endian `sequence << 8 | kind`: sequence 0, a value.
-const KEY_TAG: [u8; TAG] = [VALUE, 0, 0, 0, 0, 0, 0, 0];
+const KEY_TAG: [u8; TAG] = [KIND_VALUE, 0, 0, 0, 0, 0, 0, 0];
 /// The level every table goes in: the last.
 const LEVEL: usize = LEVELS - 1;
 /// Keys between two restarts of a data block; index blocks restart at every key.
@@ -52,56 +60,6 @@ pub(super) struct Block {
     last: Vec<u8>,
     /// The stored block and its trailer.
     stored: Vec<u8>,
-}
-
-/// Returns the data blocks of the keys and values `entries` (in strictly increasing key order).
-pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
-    let mut blocks = Vec::new();
-    let mut builder = BlockBuilder::default();
-    let mut first = Vec::new();
-    // One buffer for every internal key: each is copied into the block as it is added.
-    let mut internal = Vec::new();
-    let mut deflate = None;
-    for (i, (key, value)) in entries.iter().enumerate() {
-        internal.clear();
-        internal.extend_from_slice(key);
-        internal.extend_from_slice(&KEY_TAG);
-        if builder.entries == 0 {
-            first.clone_from(&internal);
-        }
-        builder.add(&internal, value, RESTART_INTERVAL)?;
-        if builder.data.len() >= BLOCK_BYTES || i + 1 == entries.len() {
-            // Taken, not copied: finishing the block empties the builder.
-            let last = std::mem::take(&mut builder.last);
-            let raw = builder.finish()?;
-            let encoder = deflate.get_or_insert_with(|| Encoder::new(DEFLATE_LEVEL));
-            blocks.push(Block {
-                first: std::mem::take(&mut first),
-                last,
-                stored: seal(&raw, Some(encoder)),
-            });
-        }
-    }
-    Ok(blocks)
-}
-
-/// Returns `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is
-/// without, then the compression byte and the masked CRC-32C of the stored block and that byte.
-fn seal(raw: &[u8], deflate: Option<&mut Encoder>) -> Vec<u8> {
-    // Sized once: compressing first grows the output to the compressor's worst-case bound.
-    let (mut stored, kind) = if let Some(encoder) = deflate {
-        let mut stored = Vec::with_capacity(encoder.max_compressed_len(raw.len()) + TRAILER);
-        encoder.compress(raw, &mut stored);
-        (stored, RAW_DEFLATE)
-    } else {
-        let mut stored = Vec::with_capacity(raw.len() + TRAILER);
-        stored.extend_from_slice(raw);
-        (stored, NONE)
-    };
-    let crc = masked_crc(&[&stored, &[kind]]);
-    stored.push(kind);
-    stored.extend_from_slice(&crc.to_le_bytes());
-    stored
 }
 
 /// A block being built: entries whose keys share prefixes with the key before, and the offsets
@@ -153,30 +111,6 @@ impl BlockBuilder {
         *self = Self::default();
         Ok(data)
     }
-}
-
-/// Converts a block offset or count to the `u32` blocks store.
-fn offset(n: usize) -> io::Result<u32> {
-    u32::try_from(n).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a block over 4 GiB"))
-}
-
-/// Appends `value` as a LevelDB varint.
-fn put_varint(out: &mut Vec<u8>, mut value: u64) {
-    loop {
-        let [low, ..] = value.to_le_bytes();
-        value >>= 7;
-        if value == 0 {
-            out.push(low);
-            return;
-        }
-        out.push(low | 0x80);
-    }
-}
-
-/// Appends `bytes` with a varint length before them.
-fn put_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
-    put_varint(out, bytes.len() as u64);
-    out.extend_from_slice(bytes);
 }
 
 /// A table written: what the `MANIFEST` lists of it.
@@ -231,6 +165,31 @@ impl Writer {
         Ok(())
     }
 
+    /// Ends the database: the last table, the `MANIFEST` and `CURRENT`.
+    pub(super) fn finish(mut self) -> Result<(), Error> {
+        self.finish_table()?;
+        let manifest = self.tables.len() as u64 + 1;
+        let mut edit = vec![EDIT_COMPARATOR];
+        put_prefixed(&mut edit, COMPARATOR);
+        edit.push(EDIT_LOG_NUMBER);
+        put_varint(&mut edit, 0);
+        edit.push(EDIT_NEXT_FILE);
+        put_varint(&mut edit, manifest + 1);
+        edit.push(EDIT_LAST_SEQUENCE);
+        put_varint(&mut edit, 0);
+        for table in &self.tables {
+            edit.push(EDIT_NEW_TABLE);
+            put_varint(&mut edit, LEVEL as u64);
+            put_varint(&mut edit, table.number);
+            put_varint(&mut edit, table.size);
+            put_prefixed(&mut edit, &table.smallest);
+            put_prefixed(&mut edit, &table.largest);
+        }
+        let name = format!("MANIFEST-{manifest:06}");
+        write_new(&self.dir.join(&name), &log_record(&edit))?;
+        write_new(&self.dir.join("CURRENT"), format!("{name}\n").as_bytes())
+    }
+
     /// Ends the table being written, if it has blocks: an empty metaindex block, the index block
     /// and the footer, written to its file.
     fn finish_table(&mut self) -> Result<(), Error> {
@@ -277,30 +236,79 @@ impl Writer {
         self.index.clear();
         Ok(())
     }
+}
 
-    /// Ends the database: the last table, the `MANIFEST` and `CURRENT`.
-    pub(super) fn finish(mut self) -> Result<(), Error> {
-        self.finish_table()?;
-        let manifest = self.tables.len() as u64 + 1;
-        let mut edit = vec![EDIT_COMPARATOR];
-        put_prefixed(&mut edit, COMPARATOR);
-        edit.push(EDIT_LOG_NUMBER);
-        put_varint(&mut edit, 0);
-        edit.push(EDIT_NEXT_FILE);
-        put_varint(&mut edit, manifest + 1);
-        edit.push(EDIT_LAST_SEQUENCE);
-        put_varint(&mut edit, 0);
-        for table in &self.tables {
-            edit.push(EDIT_NEW_TABLE);
-            put_varint(&mut edit, LEVEL as u64);
-            put_varint(&mut edit, table.number);
-            put_varint(&mut edit, table.size);
-            put_prefixed(&mut edit, &table.smallest);
-            put_prefixed(&mut edit, &table.largest);
+/// Returns the data blocks of the keys and values `entries` (in strictly increasing key order).
+pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
+    let mut blocks = Vec::new();
+    let mut builder = BlockBuilder::default();
+    let mut first = Vec::new();
+    // One buffer for every internal key: each is copied into the block as it is added.
+    let mut internal = Vec::new();
+    let mut deflate = None;
+    for (i, (key, value)) in entries.iter().enumerate() {
+        internal.clear();
+        internal.extend_from_slice(key);
+        internal.extend_from_slice(&KEY_TAG);
+        if builder.entries == 0 {
+            first.clone_from(&internal);
         }
-        let name = format!("MANIFEST-{manifest:06}");
-        write_new(&self.dir.join(&name), &log_record(&edit))?;
-        write_new(&self.dir.join("CURRENT"), format!("{name}\n").as_bytes())
+        builder.add(&internal, value, RESTART_INTERVAL)?;
+        if builder.data.len() >= BLOCK_BYTES || i + 1 == entries.len() {
+            // Taken, not copied: finishing the block empties the builder.
+            let last = std::mem::take(&mut builder.last);
+            let raw = builder.finish()?;
+            let encoder = deflate.get_or_insert_with(|| Encoder::new(DEFLATE_LEVEL));
+            blocks.push(Block {
+                first: std::mem::take(&mut first),
+                last,
+                stored: seal(&raw, Some(encoder)),
+            });
+        }
+    }
+    Ok(blocks)
+}
+
+/// Returns `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is
+/// without, then the compression byte and the masked CRC-32C of the stored block and that byte.
+fn seal(raw: &[u8], deflate: Option<&mut Encoder>) -> Vec<u8> {
+    // Sized once: compressing first grows the output to the compressor's worst-case bound.
+    let (mut stored, kind) = if let Some(encoder) = deflate {
+        let mut stored = Vec::with_capacity(encoder.max_compressed_len(raw.len()) + TRAILER);
+        encoder.compress(raw, &mut stored);
+        (stored, COMPRESSION_RAW_DEFLATE)
+    } else {
+        let mut stored = Vec::with_capacity(raw.len() + TRAILER);
+        stored.extend_from_slice(raw);
+        (stored, COMPRESSION_NONE)
+    };
+    let crc = masked_crc(&[&stored, &[kind]]);
+    stored.push(kind);
+    stored.extend_from_slice(&crc.to_le_bytes());
+    stored
+}
+
+/// Converts a block offset or count to the `u32` blocks store.
+fn offset(n: usize) -> io::Result<u32> {
+    u32::try_from(n).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a block over 4 GiB"))
+}
+
+/// Appends `bytes` with a varint length before them.
+fn put_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
+    put_varint(out, bytes.len() as u64);
+    out.extend_from_slice(bytes);
+}
+
+/// Appends `value` as a LevelDB varint.
+fn put_varint(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let [low, ..] = value.to_le_bytes();
+        value >>= 7;
+        if value == 0 {
+            out.push(low);
+            return;
+        }
+        out.push(low | 0x80);
     }
 }
 
@@ -318,10 +326,10 @@ fn log_record(record: &[u8]) -> Vec<u8> {
         }
         let (fragment, after) = rest.split_at(rest.len().min(left - HEADER));
         let kind = match (first, after.is_empty()) {
-            (true, true) => FULL,
-            (true, false) => FIRST,
-            (false, false) => MIDDLE,
-            (false, true) => LAST,
+            (true, true) => RECORD_FULL,
+            (true, false) => RECORD_FIRST,
+            (false, false) => RECORD_MIDDLE,
+            (false, true) => RECORD_LAST,
         };
         out.extend_from_slice(&masked_crc(&[&[kind], fragment]).to_le_bytes());
         // A fragment is at most a block less its header: its length fits the two low bytes.

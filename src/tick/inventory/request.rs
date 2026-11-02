@@ -85,7 +85,7 @@ pub(super) struct Exec<'a> {
     request: i32,
     pub(super) creative: bool,
     /// What the stations read from outside the inventory.
-    pub(super) ctx: &'a station::Context,
+    pub(super) outside: &'a station::Context,
     /// The slots changed so far, in their new state.
     overlay: BTreeMap<SlotRef, Slot>,
     /// The request containers and slots named, in first-seen order (the response's order).
@@ -117,7 +117,7 @@ impl<'a> Exec<'a> {
         blocks: &'a block_entity::BlockEntities,
         request: i32,
         creative: bool,
-        ctx: &'a station::Context,
+        outside: &'a station::Context,
     ) -> Self {
         let window = inv.window.as_ref().filter(|w| w.id != 0);
         let mut halves: [&[Stack]; 2] = [&[], &[]];
@@ -136,7 +136,7 @@ impl<'a> Exec<'a> {
             halves,
             request,
             creative,
-            ctx,
+            outside,
             overlay: BTreeMap::new(),
             touched: Vec::new(),
             seen: BTreeSet::new(),
@@ -405,9 +405,9 @@ impl<'a> Exec<'a> {
                     return Err(Error::NotCreative);
                 }
                 let stack = self
-                    .ctx
+                    .outside
                     .custom
-                    .creative_stack(self.ctx.creative, a.creative_item_network_id)
+                    .creative_stack(self.outside.creative, a.creative_item_network_id)
                     .ok_or(Error::Recipe)?;
                 self.set_created(Some(Created {
                     stack,
@@ -422,7 +422,7 @@ impl<'a> Exec<'a> {
             StackRequestAction::AutoCraftRecipe(_) if station::takes_auto_craft(self) => {
                 station::action(self, action)
             }
-            StackRequestAction::AutoCraftRecipe(_) if !self.ctx.custom.has_recipe_book() => {
+            StackRequestAction::AutoCraftRecipe(_) if !self.outside.custom.has_recipe_book() => {
                 Err(Error::Recipe)
             }
             StackRequestAction::AutoCraftRecipe(a) => {
@@ -590,7 +590,7 @@ impl<'a> Exec<'a> {
         if self.craft.is_some() || times == 0 {
             return Err(Error::Crafting);
         }
-        let recipe = self.ctx.custom.recipe(id).ok_or(Error::Recipe)?;
+        let recipe = self.outside.custom.recipe(id).ok_or(Error::Recipe)?;
         let workbench = self.window.is_some_and(|w| w.kind.is_workbench());
         let side = if workbench { 3 } else { 2 };
         let results = match recipe {
@@ -1065,14 +1065,14 @@ fn check(
     describe: Describe,
 ) -> Result<Plan> {
     let creative = player_creative(state, session);
-    let ctx = station::context(state, session, request);
+    let outside = station::context(state, session, request);
     let player = state.players.get(&session).ok_or(Error::NoSlot)?;
     let mut exec = Exec::new(
         &player.inventory,
         &state.rules.block_entities,
         request.request_id,
         creative,
-        &ctx,
+        &outside,
     );
     exec.describe = describe != Describe::Nothing;
     exec.records_before = describe == Describe::Slots;

@@ -3039,14 +3039,14 @@ mod tests {
         world.set_block(foot, bed(false, false)).unwrap();
         world.set_block(head, bed(true, false)).unwrap();
         let (one, two) = (Id::new(sid(1)), Id::new(sid(2)));
-        let mut ctx = Context {
+        let mut cx = Context {
             state: &mut server.state,
         };
-        assert!(!ctx.sleep_on(one, spawn), "not a bed");
-        assert!(ctx.sleep_on(one, foot), "day, 10 blocks away");
-        assert!(!ctx.sleep_on(one, foot), "already asleep");
-        assert!(!ctx.sleep_on(two, head), "occupied");
-        assert!(!ctx.sleep_on(Id::new(sid(9)), head), "gone");
+        assert!(!cx.sleep_on(one, spawn), "not a bed");
+        assert!(cx.sleep_on(one, foot), "day, 10 blocks away");
+        assert!(!cx.sleep_on(one, foot), "already asleep");
+        assert!(!cx.sleep_on(two, head), "occupied");
+        assert!(!cx.sleep_on(Id::new(sid(9)), head), "gone");
         assert_eq!(server.survival(1).sleeping, Some(head));
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
         assert_eq!(server.survival(1).spawn.clone().map(|p| p.pos), Some(head));

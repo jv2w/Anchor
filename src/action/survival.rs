@@ -31,8 +31,8 @@ impl Chat {
 impl Action for Chat {}
 
 impl Sealed for Chat {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.chat_as(self.player, &self.message);
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.chat_as(self.player, &self.message);
     }
 }
 
@@ -77,8 +77,8 @@ impl Damage {
 impl Action for Damage {}
 
 impl Sealed for Damage {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.hurt_player(self.player, self.amount, self.cause, self.source);
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.hurt_player(self.player, self.amount, self.cause, self.source);
     }
 }
 
@@ -130,8 +130,8 @@ impl Kick {
 impl Action for Kick {}
 
 impl Sealed for Kick {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.kick_player(
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.kick_player(
             self.player,
             self.reason,
             self.screen_message,
@@ -160,8 +160,8 @@ impl SetGameMode {
 impl Action for SetGameMode {}
 
 impl Sealed for SetGameMode {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.change_game_mode(self.player, self.mode);
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.change_game_mode(self.player, self.mode);
     }
 }
 
@@ -202,8 +202,8 @@ impl Teleport {
 impl Action for Teleport {}
 
 impl Sealed for Teleport {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.teleport_player(self.player, self.world, self.feet, self.cause);
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.teleport_player(self.player, self.world, self.feet, self.cause);
     }
 }
 
@@ -246,7 +246,7 @@ impl Transfer {
 impl Action for Transfer {}
 
 impl Sealed for Transfer {
-    fn perform(self, ctx: &mut Context<'_>) {
-        ctx.transfer_player(self.player, self.address, self.port, self.message);
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.transfer_player(self.player, self.address, self.port, self.message);
     }
 }

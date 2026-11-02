@@ -9,7 +9,7 @@
 //! use anchor::form::{Button, Custom, Image, Menu, Response, Value};
 //! use anchor::player;
 //!
-//! fn open_menu(ctx: &mut Context<'_>, player: player::Id) {
+//! fn open_menu(cx:&mut Context<'_>, player: player::Id) {
 //!     let menu = Menu::new("Lobby")
 //!         .with_content("Pick a game")
 //!         .button(
@@ -17,12 +17,12 @@
 //!                 .with_image(Image::Path("textures/items/iron_sword".to_owned())),
 //!         )
 //!         .button("Settings");
-//!     let sent = ctx.send_form(player, menu, |ctx, player, response| {
+//!     let sent = cx.send_form(player, menu, |cx, player, response| {
 //!         if response == Response::Menu(1) {
 //!             let settings = Custom::new("Settings")
 //!                 .toggle("Music", true)
 //!                 .slider("Volume", 0.0, 100.0, 5.0, 50.0);
-//!             let _ = ctx.send_form(player, settings, |_, _, response| {
+//!             let _ = cx.send_form(player, settings, |_, _, response| {
 //!                 if let Response::Custom(values) = response {
 //!                     let _ = matches!(values.first(), Some(Value::Bool(true)));
 //!                 }

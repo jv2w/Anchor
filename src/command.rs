@@ -12,8 +12,8 @@
 //! const HEAL: Permission = Permission::new("lobby.heal", Default::Op);
 //! let heal = Command::new("heal", "Heals players")
 //!     .permission(HEAL)
-//!     .overload(&[Param::target("player").optional()], |ctx, sender, args| {
-//!         let _ = (ctx, sender, args.targets("player"));
+//!     .overload(&[Param::target("player").optional()], |cx, sender, args| {
+//!         let _ = (cx, sender, args.targets("player"));
 //!         Ok(Output::from("Healed"))
 //!     });
 //! # let _ = heal;

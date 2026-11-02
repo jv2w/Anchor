@@ -28,6 +28,14 @@ use crate::protocol::compression::{Compression, Decompressor};
 
 /// Decompressed blocks kept for later reads, in bytes.
 const CACHE_BYTES: usize = 64 << 20;
+/// The block compression id of no compression.
+pub(crate) const COMPRESSION_NONE: u8 = 0;
+/// The block compression id of Snappy.
+const COMPRESSION_SNAPPY: u8 = 1;
+/// The block compression id of zlib with its header.
+const COMPRESSION_ZLIB: u8 = 2;
+/// The block compression id of raw DEFLATE.
+pub(crate) const COMPRESSION_RAW_DEFLATE: u8 = 4;
 /// The footer at the end of every table.
 pub(crate) const FOOTER: usize = 48;
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
@@ -37,16 +45,8 @@ pub(super) const MAX_BLOCK: usize = 16 << 20;
 const MAX_INTERNAL_KEY: usize = MAX_KEY + TAG;
 /// Table files kept open between reads.
 pub(super) const MAX_OPEN: usize = 64;
-/// The block compression id of no compression.
-pub(crate) const NONE: u8 = 0;
-/// The block compression id of raw DEFLATE.
-pub(crate) const RAW_DEFLATE: u8 = 4;
-/// The block compression id of Snappy.
-const SNAPPY: u8 = 1;
 /// The compression byte and checksum after each block.
 pub(crate) const TRAILER: usize = 5;
-/// The block compression id of zlib with its header.
-const ZLIB: u8 = 2;
 
 /// A table of the current version, from the `MANIFEST`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +155,12 @@ impl Tables {
         }
     }
 
+    /// `error` located in the table `file`.
+    fn fault(&self, file: &TableFile, error: Error) -> Error {
+        let name = self.names.get(&file.number).map_or("", String::as_str);
+        self.files.fault(name, error)
+    }
+
     fn name(&self, file: &TableFile) -> Result<&str> {
         self.names
             .get(&file.number)
@@ -212,12 +218,6 @@ impl Tables {
         let block = Arc::new(unsealed?.map_err(|e| self.fault(file, e))?);
         self.cache.insert(key, Arc::clone(&block));
         Ok(block)
-    }
-
-    /// `error` located in the table `file`.
-    fn fault(&self, file: &TableFile, error: Error) -> Error {
-        let name = self.names.get(&file.number).map_or("", String::as_str);
-        self.files.fault(name, error)
     }
 }
 
@@ -299,11 +299,6 @@ impl BlockCursor {
         ))
     }
 
-    /// Moves to the first entry.
-    pub(super) fn seek_first(&mut self) -> Result<()> {
-        self.start_at(0)
-    }
-
     /// Moves to the first entry at or after `target` (an internal key).
     pub(super) fn seek(&mut self, target: &[u8]) -> Result<()> {
         // The first restart whose key is at or after the target; the entry sought is in the
@@ -348,6 +343,11 @@ impl BlockCursor {
         self.next = next;
         self.valid = true;
         Ok(())
+    }
+
+    /// Moves to the first entry.
+    pub(super) fn seek_first(&mut self) -> Result<()> {
+        self.start_at(0)
     }
 
     fn start_at(&mut self, offset: usize) -> Result<()> {
@@ -395,21 +395,6 @@ impl Block {
         self.data.capacity()
     }
 
-    fn restart(&self, i: usize) -> Result<usize> {
-        let at = self.restarts.saturating_add(i.saturating_mul(4));
-        let offset = self
-            .data
-            .get(at..)
-            .and_then(<[u8]>::first_chunk::<4>)
-            .map(|c| u32::from_le_bytes(*c))
-            .ok_or(Error::Malformed("block restart index"))?;
-        let offset = usize::try_from(offset).map_err(|_| Error::Malformed("block restart"))?;
-        if offset >= self.restarts {
-            return Err(Error::Malformed("block restart outside the entries"));
-        }
-        Ok(offset)
-    }
-
     /// Decodes the entry at `offset` whose key shares a prefix with `previous`: writes its key
     /// into `key` and returns the value range and the next entry's offset.
     fn entry(
@@ -445,6 +430,21 @@ impl Block {
         bytes.take(value_len)?;
         Ok((value, self.restarts - bytes.0.len()))
     }
+
+    fn restart(&self, i: usize) -> Result<usize> {
+        let at = self.restarts.saturating_add(i.saturating_mul(4));
+        let offset = self
+            .data
+            .get(at..)
+            .and_then(<[u8]>::first_chunk::<4>)
+            .map(|c| u32::from_le_bytes(*c))
+            .ok_or(Error::Malformed("block restart index"))?;
+        let offset = usize::try_from(offset).map_err(|_| Error::Malformed("block restart"))?;
+        if offset >= self.restarts {
+            return Err(Error::Malformed("block restart outside the entries"));
+        }
+        Ok(offset)
+    }
 }
 
 /// Where a block is in its file.
@@ -455,13 +455,6 @@ pub(super) struct Handle {
 }
 
 impl Handle {
-    fn read(bytes: &mut Bytes<'_>) -> Result<Self> {
-        Ok(Self {
-            offset: bytes.varint64()?,
-            size: bytes.varint64()?,
-        })
-    }
-
     /// A handle that is a whole index entry value.
     fn decode(value: &[u8]) -> Result<Self> {
         let mut bytes = Bytes(value);
@@ -470,6 +463,13 @@ impl Handle {
             return Err(Error::Malformed("block handle has trailing bytes"));
         }
         Ok(handle)
+    }
+
+    fn read(bytes: &mut Bytes<'_>) -> Result<Self> {
+        Ok(Self {
+            offset: bytes.varint64()?,
+            size: bytes.varint64()?,
+        })
     }
 }
 
@@ -499,13 +499,17 @@ pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
         .ok_or(Error::Malformed("block shorter than its trailer"))?;
     let mut out = Vec::new();
     let decoded = match kind {
-        NONE => {
+        COMPRESSION_NONE => {
             out.extend_from_slice(body);
             Ok(())
         }
-        SNAPPY => Decompressor::new(Compression::Snappy).decompress(body, MAX_BLOCK, &mut out),
-        ZLIB => inflate.decompress_whole(body, MAX_BLOCK, Framing::Zlib, &mut out),
-        RAW_DEFLATE => inflate.decompress_whole(body, MAX_BLOCK, Framing::Raw, &mut out),
+        COMPRESSION_SNAPPY => {
+            Decompressor::new(Compression::Snappy).decompress(body, MAX_BLOCK, &mut out)
+        }
+        COMPRESSION_ZLIB => inflate.decompress_whole(body, MAX_BLOCK, Framing::Zlib, &mut out),
+        COMPRESSION_RAW_DEFLATE => {
+            inflate.decompress_whole(body, MAX_BLOCK, Framing::Raw, &mut out)
+        }
         _ => return Err(Error::UnknownCompression(kind)),
     };
     decoded.map_err(Error::Compression)?;
@@ -560,14 +564,14 @@ pub(super) mod tests {
     pub(crate) fn seal_block(out: &mut Vec<u8>, block: &[u8], kind: u8) -> Vec<u8> {
         let start = out.len();
         let body = match kind {
-            NONE => block.to_vec(),
-            SNAPPY => {
+            COMPRESSION_NONE => block.to_vec(),
+            COMPRESSION_SNAPPY => {
                 let mut body = Vec::new();
                 crate::protocol::compression::Compressor::new(Compression::Snappy, 6)
                     .compress(block, &mut body);
                 body
             }
-            ZLIB => {
+            COMPRESSION_ZLIB => {
                 let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::default());
                 let mut body = vec![0; c.zlib_compress_bound(block.len())];
                 let n = c.zlib_compress(block, &mut body).unwrap();
@@ -619,7 +623,7 @@ pub(super) mod tests {
             }
         }
         flush(&mut out, &mut pending);
-        let meta = seal_block(&mut out, &encode_block(&[], 1), NONE);
+        let meta = seal_block(&mut out, &encode_block(&[], 1), COMPRESSION_NONE);
         let index_handle = seal_block(&mut out, &encode_block(&index, 1), kinds());
         let mut footer = meta;
         footer.extend_from_slice(&index_handle);
@@ -729,7 +733,12 @@ pub(super) mod tests {
     fn every_compression_unseals_and_zstd_is_refused() {
         let block = encode_block(&entries(50), 16);
         let mut inflate = Decoder::new();
-        for kind in [NONE, SNAPPY, ZLIB, RAW_DEFLATE] {
+        for kind in [
+            COMPRESSION_NONE,
+            COMPRESSION_SNAPPY,
+            COMPRESSION_ZLIB,
+            COMPRESSION_RAW_DEFLATE,
+        ] {
             let mut out = Vec::new();
             seal_block(&mut out, &block, kind);
             let unsealed = unseal(&out, &mut inflate).unwrap();
@@ -752,7 +761,7 @@ pub(super) mod tests {
         // An empty block: the decompressor's buffer, sized from the input, outgrows its 8 bytes.
         let block = encode_block(&[], 1);
         let mut out = Vec::new();
-        seal_block(&mut out, &block, RAW_DEFLATE);
+        seal_block(&mut out, &block, COMPRESSION_RAW_DEFLATE);
         let unsealed = unseal(&out, &mut Decoder::new()).unwrap();
         assert_eq!(unsealed.data, block);
         assert_eq!(unsealed.held(), unsealed.data.capacity());
@@ -784,7 +793,7 @@ pub(super) mod tests {
 
     #[test]
     fn footers_name_the_index_block() {
-        let mut kinds = || RAW_DEFLATE;
+        let mut kinds = || COMPRESSION_RAW_DEFLATE;
         let table = encode_table(&entries(40), 256, 4, &mut kinds);
         let handle = footer(&table[table.len() - FOOTER..]).unwrap();
         assert!(handle.offset > 0 && handle.offset + handle.size < table.len() as u64);

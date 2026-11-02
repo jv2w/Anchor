@@ -63,12 +63,12 @@ fn local_config(backups: bool) -> Config {
 
 /// What the task does at every tick, from the game state alone: a block a tick, a save and a
 /// panic as `plan` says; a run without a panic stops at [`STOP_AT`].
-fn step(ctx: &mut Context<'_>, plan: Plan) {
-    let tick = ctx.tick();
+fn step(cx: &mut Context<'_>, plan: Plan) {
+    let tick = cx.tick();
     let t = i32::try_from(tick % 32).unwrap();
     let stone = anchor::block::State::find("minecraft:stone", &[]).unwrap();
     // The spawn chunks load in the first ticks; until then the block is not set.
-    match ctx
+    match cx
         .default_world_mut()
         .set_block(BlockPos::new(t - 16, -60, 3), stone)
     {
@@ -76,11 +76,11 @@ fn step(ctx: &mut Context<'_>, plan: Plan) {
         Err(e) => panic!("{e}"),
     }
     if tick == plan.save_at {
-        ctx.save();
+        cx.save();
     }
     match plan.panic_at {
         Some(at) => assert!(at != tick, "child panic at {tick}"),
-        None if tick >= STOP_AT => ctx.shutdown(),
+        None if tick >= STOP_AT => cx.shutdown(),
         None => {}
     }
 }
@@ -91,7 +91,7 @@ fn builder(data: &Path, plan: Plan, backups: bool) -> ServerBuilder {
     Server::builder()
         .config(local_config(backups))
         .data_dir(data)
-        .every(NonZeroU32::MIN, move |ctx| step(ctx, plan))
+        .every(NonZeroU32::MIN, move |cx| step(cx, plan))
 }
 
 /// The server process the parent tests start. Without the parent's environment it does nothing.

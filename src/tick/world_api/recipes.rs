@@ -155,8 +155,8 @@ mod tests {
     #[test]
     fn crafting_grids_make_what_their_recipe_makes() {
         let mut state = state();
-        let ctx = Context { state: &mut state };
-        let made = |grid: &[Stack]| ctx.crafting_result(grid);
+        let cx = Context { state: &mut state };
+        let made = |grid: &[Stack]| cx.crafting_result(grid);
         let e = || Stack::EMPTY;
         let log = || one(block(crate::block::Kind::OakLog));
         let planks = || one(block(crate::block::Kind::OakPlanks));
@@ -184,8 +184,8 @@ mod tests {
             Some(vec![Stack::new(named("minecraft:fire_charge"), 3)])
         );
         // The server's own recipes, after PMMP's.
-        let ruby = || one(ctx.custom_item(&RUBY).unwrap());
-        let sword = Some(vec![one(ctx.custom_item(&SWORD).unwrap())]);
+        let ruby = || one(cx.custom_item(&RUBY).unwrap());
+        let sword = Some(vec![one(cx.custom_item(&SWORD).unwrap())]);
         assert_eq!(made(&[ruby(), e(), ruby(), s()]), sword);
         assert_eq!(made(&[e(), ruby(), s(), ruby()]), sword, "mirrored");
         assert_eq!(
@@ -203,40 +203,37 @@ mod tests {
     #[test]
     fn furnaces_cook_by_their_kind_and_the_servers_own_recipes() {
         let mut state = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         let raw = one(Kind::RawIron.default_type());
         let ingot = Some(one(Kind::IronIngot.default_type()));
-        assert_eq!(ctx.furnace_result(FurnaceType::Furnace, &raw), ingot);
-        assert_eq!(ctx.furnace_result(FurnaceType::BlastFurnace, &raw), ingot);
-        assert_eq!(ctx.furnace_result(FurnaceType::Smoker, &raw), None);
-        assert_eq!(
-            ctx.furnace_result(FurnaceType::Furnace, &Stack::EMPTY),
-            None
-        );
-        let ore = one(ctx.item_of(ItemRef::CustomBlock(&ORE)).unwrap());
-        let rubies = Some(Stack::new(ctx.custom_item(&RUBY).unwrap(), 3));
-        assert_eq!(ctx.furnace_result(FurnaceType::BlastFurnace, &ore), rubies);
-        assert_eq!(ctx.furnace_result(FurnaceType::Furnace, &ore), None);
+        assert_eq!(cx.furnace_result(FurnaceType::Furnace, &raw), ingot);
+        assert_eq!(cx.furnace_result(FurnaceType::BlastFurnace, &raw), ingot);
+        assert_eq!(cx.furnace_result(FurnaceType::Smoker, &raw), None);
+        assert_eq!(cx.furnace_result(FurnaceType::Furnace, &Stack::EMPTY), None);
+        let ore = one(cx.item_of(ItemRef::CustomBlock(&ORE)).unwrap());
+        let rubies = Some(Stack::new(cx.custom_item(&RUBY).unwrap(), 3));
+        assert_eq!(cx.furnace_result(FurnaceType::BlastFurnace, &ore), rubies);
+        assert_eq!(cx.furnace_result(FurnaceType::Furnace, &ore), None);
     }
 
     // pmmp: CraftingManager::matchBrewingRecipe
     #[test]
     fn brewing_makes_what_the_reagent_makes_of_the_potion() {
         let mut state = state();
-        let ctx = Context { state: &mut state };
+        let cx = Context { state: &mut state };
         let water = one(Kind::Potion.default_type());
         let wart = one(named("minecraft:nether_wart"));
-        let awkward = ctx.brewing_result(&water, &wart).unwrap();
+        let awkward = cx.brewing_result(&water, &wart).unwrap();
         assert_ne!(awkward, water);
         let gunpowder = one(named("minecraft:gunpowder"));
-        let splash = ctx.brewing_result(&awkward, &gunpowder).unwrap();
+        let splash = cx.brewing_result(&awkward, &gunpowder).unwrap();
         assert_eq!(
             splash.item().map(Type::name),
             Some("minecraft:splash_potion")
         );
         assert_eq!(splash.meta(), awkward.meta());
         let stick = one(Kind::Stick.default_type());
-        assert_eq!(ctx.brewing_result(&water, &stick), None);
-        assert_eq!(ctx.brewing_result(&Stack::EMPTY, &wart), None);
+        assert_eq!(cx.brewing_result(&water, &stick), None);
+        assert_eq!(cx.brewing_result(&Stack::EMPTY, &wart), None);
     }
 }

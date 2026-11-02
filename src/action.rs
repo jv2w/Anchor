@@ -13,7 +13,7 @@ mod sealed {
     /// Does the action.
     pub trait Sealed {
         /// Does the action now, through the game rules, raising its events.
-        fn perform(self, ctx: &mut Context<'_>);
+        fn perform(self, cx: &mut Context<'_>);
     }
 }
 mod survival;

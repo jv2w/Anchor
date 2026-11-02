@@ -44,12 +44,20 @@ use crate::storage::codec::{BlockLayer, MAX_EXTRA_ENTRIES, check_indices};
 use crate::storage::seal::DECODE_BUDGET;
 use crate::world::LOWEST_SUB_CHUNK;
 
-/// The chunk tag of block entities.
-pub(crate) const BLOCK_ENTITIES: u8 = 0x31;
 /// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
 const CAVES_CLIFFS_OFFSET: i8 = 4;
+/// The chunk tag of the version.
+pub(crate) const CHUNK_TAG_VERSION: u8 = 0x2c;
+/// The chunk tag of sub-chunks.
+pub(crate) const CHUNK_TAG_SUB_CHUNK: u8 = 0x2f;
+/// The chunk tag of legacy terrain.
+const CHUNK_TAG_LEGACY_TERRAIN: u8 = 0x30;
+/// The chunk tag of block entities.
+pub(crate) const CHUNK_TAG_BLOCK_ENTITIES: u8 = 0x31;
 /// The chunk tag of legacy block extra data.
-const LEGACY_EXTRA: u8 = 0x34;
+const CHUNK_TAG_LEGACY_EXTRA: u8 = 0x34;
+/// The chunk tag of the version in old worlds.
+const CHUNK_TAG_OLD_VERSION: u8 = 0x76;
 /// The ids of legacy terrain.
 const LEGACY_IDS: usize = 32_768;
 /// The light of legacy terrain.
@@ -60,8 +68,6 @@ const LEGACY_META: usize = 16_384;
 const LEGACY_SECTION: usize = 4096 + 2048;
 /// A legacy sub-chunk with light after its ids and meta nibbles.
 const LEGACY_SECTION_LIGHT: usize = LEGACY_SECTION + 4096;
-/// The chunk tag of legacy terrain.
-const LEGACY_TERRAIN: u8 = 0x30;
 /// Legacy terrain: ids, meta, light, height map, biome colours.
 const LEGACY_TERRAIN_LEN: usize = LEGACY_IDS + LEGACY_META + LEGACY_LIGHT + 256 + 1024;
 /// The most value bytes kept for one chunk.
@@ -72,23 +78,17 @@ const MAX_CHUNK_VERSION: u8 = 42;
 const MAX_SUB_CHUNK_VERSION: u8 = 9;
 /// The highest sub-chunk y imported: Anchor's world height.
 const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
-/// The chunk tag of the version in old worlds.
-const OLD_VERSION: u8 = 0x76;
 /// The tags whose values are kept for decoding, with their names in Mojang's LevelDB
 /// documentation for errors.
 const READ_TAGS: [(u8, &str); 5] = [
-    (VERSION, "Version"),
-    (LEGACY_TERRAIN, "LegacyTerrain"),
-    (BLOCK_ENTITIES, "BlockEntity"),
-    (LEGACY_EXTRA, "LegacyBlockExtraData"),
-    (OLD_VERSION, "LegacyVersion"),
+    (CHUNK_TAG_VERSION, "Version"),
+    (CHUNK_TAG_LEGACY_TERRAIN, "LegacyTerrain"),
+    (CHUNK_TAG_BLOCK_ENTITIES, "BlockEntity"),
+    (CHUNK_TAG_LEGACY_EXTRA, "LegacyBlockExtraData"),
+    (CHUNK_TAG_OLD_VERSION, "LegacyVersion"),
 ];
-/// The chunk tag of sub-chunks.
-pub(crate) const SUB_CHUNK: u8 = 0x2f;
-/// The name of [`SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
+/// The name of [`CHUNK_TAG_SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
 const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
-/// The chunk tag of the version.
-pub(crate) const VERSION: u8 = 0x2c;
 
 /// What a database key is, for [`super::Catalog`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,21 +139,21 @@ impl Entries {
     }
 
     /// Adds the value of `key`, a key starting with this chunk's 8-byte prefix. Only the chunk's
-    /// own keys count, as [`classify`] tells them: a tag byte, or [`SUB_CHUNK`] and a y.
+    /// own keys count, as [`classify`] tells them: a tag byte, or [`CHUNK_TAG_SUB_CHUNK`] and a y.
     pub(crate) fn add(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         match *key.get(8..).unwrap_or_default() {
             [tag] if READ_TAGS.iter().any(|&(t, _)| t == tag) => {
                 self.count(value.len())?;
                 self.tags.insert(tag, value.to_vec());
             }
-            [SUB_CHUNK, y] => {
+            [CHUNK_TAG_SUB_CHUNK, y] => {
                 let y = i8::from_le_bytes([y]);
                 let range = LOWEST_SUB_CHUNK..=MAX_SUB_CHUNK_Y + i32::from(CAVES_CLIFFS_OFFSET);
                 if range.contains(&i32::from(y)) {
                     self.count(value.len())?;
                     self.sub_chunks.insert(y, value.to_vec());
                 } else {
-                    self.ignored.insert(SUB_CHUNK);
+                    self.ignored.insert(CHUNK_TAG_SUB_CHUNK);
                 }
             }
             [tag] if is_chunk_tag(tag) => {
@@ -169,7 +169,7 @@ impl Entries {
     /// Names the key of this chunk ending in `suffix` (a tag, and a sub-chunk's y) in `error`.
     fn at_key(&self, suffix: &[u8], error: Error) -> Error {
         let kind = match suffix.first() {
-            Some(&SUB_CHUNK) => SUB_CHUNK_NAME,
+            Some(&CHUNK_TAG_SUB_CHUNK) => SUB_CHUNK_NAME,
             Some(tag) => READ_TAGS
                 .iter()
                 .find(|(t, _)| t == tag)
@@ -288,14 +288,14 @@ pub(crate) fn classify(key: &[u8]) -> Key {
         return Key::Player;
     }
     let tag = |at: usize| key.get(at).copied().unwrap_or(0);
-    let is_version = |t: u8| t == VERSION || t == OLD_VERSION;
+    let is_version = |t: u8| t == CHUNK_TAG_VERSION || t == CHUNK_TAG_OLD_VERSION;
     match (key.len(), le_i32(key, 0), le_i32(key, 4), le_i32(key, 8)) {
         (9, Some(x), Some(z), _) if is_chunk_tag(tag(8)) => Key::Overworld {
             x,
             z,
             version: is_version(tag(8)),
         },
-        (10, Some(x), Some(z), _) if tag(8) == SUB_CHUNK => Key::Overworld {
+        (10, Some(x), Some(z), _) if tag(8) == CHUNK_TAG_SUB_CHUNK => Key::Overworld {
             x,
             z,
             version: false,
@@ -304,7 +304,7 @@ pub(crate) fn classify(key: &[u8]) -> Key {
             dimension,
             version: is_version(tag(12)),
         },
-        (14, _, _, Some(dimension)) if tag(12) == SUB_CHUNK => Key::Dimension {
+        (14, _, _, Some(dimension)) if tag(12) == CHUNK_TAG_SUB_CHUNK => Key::Dimension {
             dimension,
             version: false,
         },
@@ -354,29 +354,27 @@ pub(crate) fn decode(entries: &Entries) -> Result<Raw> {
 fn decode_unlocated(entries: &Entries) -> Result<Raw> {
     let mut ignored = entries.ignored.clone();
     let tag = |t: u8| entries.tags.get(&t).map(Vec::as_slice);
-    let (version_tag, version_bytes) = match (tag(VERSION), tag(OLD_VERSION)) {
+    let (version_tag, version_bytes) = match (tag(CHUNK_TAG_VERSION), tag(CHUNK_TAG_OLD_VERSION)) {
         (Some(version), old) => {
             if old.is_some() {
-                ignored.insert(OLD_VERSION);
+                ignored.insert(CHUNK_TAG_OLD_VERSION);
             }
-            (VERSION, version)
+            (CHUNK_TAG_VERSION, version)
         }
-        (None, Some(old)) => (OLD_VERSION, old),
+        (None, Some(old)) => (CHUNK_TAG_OLD_VERSION, old),
         (None, None) => return Err(Error::Malformed("chunk has no version")),
     };
     let version = chunk_version(version_bytes).map_err(|e| entries.at_key(&[version_tag], e))?;
     let mut budget = DECODE_BUDGET;
     let sections = terrain(entries, version, &mut ignored, &mut budget)?;
-    let block_entities = match tag(BLOCK_ENTITIES) {
-        Some(value) => {
-            nbt_list(value, &mut budget).map_err(|e| entries.at_key(&[BLOCK_ENTITIES], e))?
-        }
+    let block_entities = match tag(CHUNK_TAG_BLOCK_ENTITIES) {
+        Some(value) => nbt_list(value, &mut budget)
+            .map_err(|e| entries.at_key(&[CHUNK_TAG_BLOCK_ENTITIES], e))?,
         None => Vec::new(),
     };
-    let legacy_blocks = match tag(LEGACY_EXTRA) {
-        Some(value) => {
-            legacy_extra(value, version).map_err(|e| entries.at_key(&[LEGACY_EXTRA], e))?
-        }
+    let legacy_blocks = match tag(CHUNK_TAG_LEGACY_EXTRA) {
+        Some(value) => legacy_extra(value, version)
+            .map_err(|e| entries.at_key(&[CHUNK_TAG_LEGACY_EXTRA], e))?,
         None => Vec::new(),
     };
     Ok(Raw {
@@ -413,13 +411,14 @@ fn terrain(
     let tag = |t: u8| entries.tags.get(&t).map(Vec::as_slice);
     if version <= 2 {
         if !entries.sub_chunks.is_empty() {
-            ignored.insert(SUB_CHUNK);
+            ignored.insert(CHUNK_TAG_SUB_CHUNK);
         }
-        let terrain = tag(LEGACY_TERRAIN).ok_or(Error::Malformed("chunk has no legacy terrain"))?;
-        return legacy_terrain(terrain).map_err(|e| entries.at_key(&[LEGACY_TERRAIN], e));
+        let terrain =
+            tag(CHUNK_TAG_LEGACY_TERRAIN).ok_or(Error::Malformed("chunk has no legacy terrain"))?;
+        return legacy_terrain(terrain).map_err(|e| entries.at_key(&[CHUNK_TAG_LEGACY_TERRAIN], e));
     }
-    if tag(LEGACY_TERRAIN).is_some() {
-        ignored.insert(LEGACY_TERRAIN);
+    if tag(CHUNK_TAG_LEGACY_TERRAIN).is_some() {
+        ignored.insert(CHUNK_TAG_LEGACY_TERRAIN);
     }
     let offset = if (24..=26).contains(&version) {
         CAVES_CLIFFS_OFFSET
@@ -431,10 +430,10 @@ fn terrain(
         let y = key_y - offset;
         if (LOWEST_SUB_CHUNK..=MAX_SUB_CHUNK_Y).contains(&i32::from(y)) {
             let section = section(value, key_y, y, budget)
-                .map_err(|e| entries.at_key(&[SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
+                .map_err(|e| entries.at_key(&[CHUNK_TAG_SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
             sections.push(section);
         } else {
-            ignored.insert(SUB_CHUNK);
+            ignored.insert(CHUNK_TAG_SUB_CHUNK);
         }
     }
     Ok(sections)

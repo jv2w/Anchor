@@ -64,7 +64,8 @@ fn key(x: i32, z: i32, suffix: &[u8]) -> Vec<u8> {
 
 fn entries(version: u8, values: &[(&[u8], Vec<u8>)]) -> Entries {
     let mut e = Entries::new(3, -2);
-    e.add(&key(3, -2, &[VERSION]), &[version]).unwrap();
+    e.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[version])
+        .unwrap();
     for (suffix, value) in values {
         e.add(&key(3, -2, suffix), value).unwrap();
     }
@@ -101,7 +102,7 @@ fn faulty_key(result: Result<Raw>) -> (&'static str, String) {
 fn keys_are_classified_by_their_layout() {
     let overworld = |suffix: &[u8]| classify(&key(-1, 2, suffix));
     assert_eq!(
-        overworld(&[VERSION]),
+        overworld(&[CHUNK_TAG_VERSION]),
         Key::Overworld {
             x: -1,
             z: 2,
@@ -109,7 +110,7 @@ fn keys_are_classified_by_their_layout() {
         }
     );
     assert_eq!(
-        overworld(&[OLD_VERSION]),
+        overworld(&[CHUNK_TAG_OLD_VERSION]),
         Key::Overworld {
             x: -1,
             z: 2,
@@ -125,7 +126,7 @@ fn keys_are_classified_by_their_layout() {
         }
     );
     assert_eq!(
-        overworld(&[SUB_CHUNK, 0xfc]),
+        overworld(&[CHUNK_TAG_SUB_CHUNK, 0xfc]),
         Key::Overworld {
             x: -1,
             z: 2,
@@ -133,14 +134,14 @@ fn keys_are_classified_by_their_layout() {
         }
     );
     assert_eq!(
-        overworld(&[1, 0, 0, 0, VERSION]),
+        overworld(&[1, 0, 0, 0, CHUNK_TAG_VERSION]),
         Key::Dimension {
             dimension: 1,
             version: true
         }
     );
     assert_eq!(
-        overworld(&[2, 0, 0, 0, SUB_CHUNK, 3]),
+        overworld(&[2, 0, 0, 0, CHUNK_TAG_SUB_CHUNK, 3]),
         Key::Dimension {
             dimension: 2,
             version: false
@@ -187,13 +188,16 @@ fn prefix_ranges_end_after_every_key_of_the_chunk() {
 fn entries_keep_what_is_decoded_and_note_other_tags() {
     let mut e = Entries::new(3, -2);
     e.add(&key(3, -2, &[0x36]), &[2, 0, 0, 0]).unwrap();
-    e.add(&key(3, -2, &[SUB_CHUNK, 24]), &[9]).unwrap();
-    e.add(&key(3, -2, &[SUB_CHUNK, 0xfb]), &[9]).unwrap();
-    e.add(&key(3, -2, &[1, 0, 0, 0, VERSION]), &[42]).unwrap();
+    e.add(&key(3, -2, &[CHUNK_TAG_SUB_CHUNK, 24]), &[9])
+        .unwrap();
+    e.add(&key(3, -2, &[CHUNK_TAG_SUB_CHUNK, 0xfb]), &[9])
+        .unwrap();
+    e.add(&key(3, -2, &[1, 0, 0, 0, CHUNK_TAG_VERSION]), &[42])
+        .unwrap();
     e.add(&key(3, -2, &[0x3f]), &[]).unwrap();
-    e.add(&key(3, -2, &[VERSION]), &[42]).unwrap();
+    e.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[42]).unwrap();
     let raw = decode(&e).unwrap();
-    assert_eq!(raw.ignored, vec![SUB_CHUNK, 0x36, 0x3f]);
+    assert_eq!(raw.ignored, vec![CHUNK_TAG_SUB_CHUNK, 0x36, 0x3f]);
     assert!(raw.sections.is_empty());
 }
 
@@ -206,7 +210,7 @@ fn entries_note_only_keys_the_catalog_counts_as_the_chunks() {
         assert_eq!(classify(&key(3, -2, suffix)), Key::Other, "{suffix:?}");
     }
     let mut e = Entries::new(3, -2);
-    e.add(&key(3, -2, &[VERSION]), &[42]).unwrap();
+    e.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[42]).unwrap();
     for suffix in suffixes {
         e.add(&key(3, -2, suffix), &[]).unwrap();
     }
@@ -216,11 +220,14 @@ fn entries_note_only_keys_the_catalog_counts_as_the_chunks() {
 #[test]
 fn chunk_data_over_64_mib_is_refused() {
     let mut e = Entries::new(0, 0);
-    e.add(&key(0, 0, &[BLOCK_ENTITIES]), &vec![0; MAX_CHUNK_BYTES / 2])
-        .unwrap();
+    e.add(
+        &key(0, 0, &[CHUNK_TAG_BLOCK_ENTITIES]),
+        &vec![0; MAX_CHUNK_BYTES / 2],
+    )
+    .unwrap();
     let error = e
         .add(
-            &key(0, 0, &[SUB_CHUNK, 0]),
+            &key(0, 0, &[CHUNK_TAG_SUB_CHUNK, 0]),
             &vec![0; MAX_CHUNK_BYTES / 2 + 1],
         )
         .unwrap_err();
@@ -235,26 +242,30 @@ fn chunk_data_over_64_mib_is_refused() {
 
 #[test]
 fn versions_are_checked() {
-    let both = entries(40, &[(&[OLD_VERSION], vec![3])]);
+    let both = entries(40, &[(&[CHUNK_TAG_OLD_VERSION], vec![3])]);
     let raw = decode(&both).unwrap();
     assert_eq!(raw.version, 40);
-    assert_eq!(raw.ignored, vec![OLD_VERSION]);
+    assert_eq!(raw.ignored, vec![CHUNK_TAG_OLD_VERSION]);
     let mut old = Entries::new(3, -2);
-    old.add(&key(3, -2, &[OLD_VERSION]), &[7]).unwrap();
+    old.add(&key(3, -2, &[CHUNK_TAG_OLD_VERSION]), &[7])
+        .unwrap();
     assert_eq!(decode(&old).unwrap().version, 7);
     assert!(matches!(
         inner(decode(&Entries::new(3, -2))),
         Error::Malformed("chunk has no version")
     ));
     let mut long = Entries::new(3, -2);
-    long.add(&key(3, -2, &[VERSION]), &[42, 0]).unwrap();
+    long.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[42, 0])
+        .unwrap();
     assert!(matches!(inner(decode(&long)), Error::Malformed(_)));
     assert_eq!(
         faulty_key(decode(&long)),
         ("Version", "03000000feffffff2c".to_owned())
     );
     let mut old_long = Entries::new(3, -2);
-    old_long.add(&key(3, -2, &[OLD_VERSION]), &[]).unwrap();
+    old_long
+        .add(&key(3, -2, &[CHUNK_TAG_OLD_VERSION]), &[])
+        .unwrap();
     assert_eq!(faulty_key(decode(&old_long)).0, "LegacyVersion");
     assert!(matches!(
         inner(decode(&entries(43, &[]))),
@@ -278,9 +289,9 @@ fn paletted_sub_chunks_decode_as_stored() {
     let e = entries(
         42,
         &[
-            (&[SUB_CHUNK, 0xfc], v9),
-            (&[SUB_CHUNK, 0], v8),
-            (&[SUB_CHUNK, 19], v1),
+            (&[CHUNK_TAG_SUB_CHUNK, 0xfc], v9),
+            (&[CHUNK_TAG_SUB_CHUNK, 0], v8),
+            (&[CHUNK_TAG_SUB_CHUNK, 19], v1),
         ],
     );
     let raw = decode(&e).unwrap();
@@ -315,9 +326,9 @@ fn legacy_sub_chunks_keep_ids_and_meta() {
     let e = entries(
         10,
         &[
-            (&[SUB_CHUNK, 0], body.clone()),
-            (&[SUB_CHUNK, 1], with_light),
-            (&[SUB_CHUNK, 2], v3),
+            (&[CHUNK_TAG_SUB_CHUNK, 0], body.clone()),
+            (&[CHUNK_TAG_SUB_CHUNK, 1], with_light),
+            (&[CHUNK_TAG_SUB_CHUNK, 2], v3),
         ],
     );
     let raw = decode(&e).unwrap();
@@ -334,7 +345,7 @@ fn legacy_sub_chunks_keep_ids_and_meta() {
     let mut short = body;
     short.pop();
     assert!(matches!(
-        inner(decode(&entries(10, &[(&[SUB_CHUNK, 0], short)]))),
+        inner(decode(&entries(10, &[(&[CHUNK_TAG_SUB_CHUNK, 0], short)]))),
         Error::Malformed(_)
     ));
 }
@@ -345,8 +356,11 @@ fn caves_and_cliffs_chunk_versions_shift_sub_chunk_keys() {
         let e = entries(
             version,
             &[
-                (&[SUB_CHUNK, 0], sub_chunk_v9(0, &[stone_layer()])),
-                (&[SUB_CHUNK, 23], sub_chunk_v9(23, &[stone_layer()])),
+                (&[CHUNK_TAG_SUB_CHUNK, 0], sub_chunk_v9(0, &[stone_layer()])),
+                (
+                    &[CHUNK_TAG_SUB_CHUNK, 23],
+                    sub_chunk_v9(23, &[stone_layer()]),
+                ),
             ],
         );
         let raw = decode(&e).unwrap();
@@ -355,16 +369,19 @@ fn caves_and_cliffs_chunk_versions_shift_sub_chunk_keys() {
     }
     let e = entries(
         27,
-        &[(&[SUB_CHUNK, 23], sub_chunk_v9(23, &[stone_layer()]))],
+        &[(
+            &[CHUNK_TAG_SUB_CHUNK, 23],
+            sub_chunk_v9(23, &[stone_layer()]),
+        )],
     );
     let raw = decode(&e).unwrap();
     assert!(raw.sections.is_empty());
-    assert_eq!(raw.ignored, vec![SUB_CHUNK]);
+    assert_eq!(raw.ignored, vec![CHUNK_TAG_SUB_CHUNK]);
 }
 
 #[test]
 fn malformed_sub_chunks_are_errors() {
-    let bad = |value: Vec<u8>| inner(decode(&entries(42, &[(&[SUB_CHUNK, 1], value)])));
+    let bad = |value: Vec<u8>| inner(decode(&entries(42, &[(&[CHUNK_TAG_SUB_CHUNK, 1], value)])));
     assert!(matches!(
         bad(Vec::new()),
         Error::Malformed("empty sub-chunk")
@@ -416,7 +433,10 @@ fn malformed_sub_chunks_are_errors() {
     assert!(bad(huge_count).to_string().contains("ends early"));
     // The error names the key, with the sub-chunk's y.
     assert_eq!(
-        faulty_key(decode(&entries(42, &[(&[SUB_CHUNK, 0xfd], Vec::new())]))),
+        faulty_key(decode(&entries(
+            42,
+            &[(&[CHUNK_TAG_SUB_CHUNK, 0xfd], Vec::new())]
+        ))),
         ("SubChunkPrefix", "03000000feffffff2ffd".to_owned())
     );
 }
@@ -460,14 +480,14 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
     let e = entries(
         2,
         &[
-            (&[LEGACY_TERRAIN], terrain.clone()),
-            (&[SUB_CHUNK, 0], vec![0]),
+            (&[CHUNK_TAG_LEGACY_TERRAIN], terrain.clone()),
+            (&[CHUNK_TAG_SUB_CHUNK, 0], vec![0]),
             (&[0x2d], Vec::new()),
         ],
     );
     let raw = decode(&e).unwrap();
     assert_eq!(raw.sections.len(), 8);
-    assert_eq!(raw.ignored, vec![0x2d, SUB_CHUNK]);
+    assert_eq!(raw.ignored, vec![0x2d, CHUNK_TAG_SUB_CHUNK]);
     let Layer::Legacy(layer) = &raw.sections[3].layers[0] else {
         panic!("not legacy")
     };
@@ -477,7 +497,10 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
     }
     terrain.pop();
     assert!(matches!(
-        inner(decode(&entries(2, &[(&[LEGACY_TERRAIN], terrain)]))),
+        inner(decode(&entries(
+            2,
+            &[(&[CHUNK_TAG_LEGACY_TERRAIN], terrain)]
+        ))),
         Error::Malformed(_)
     ));
     assert!(matches!(
@@ -501,7 +524,7 @@ fn legacy_sub_chunks_index_blocks_like_pmmp() {
     let mut value = vec![0];
     value.extend((0..4096_usize).map(|i| byte(i * 7 + 3)));
     value.extend((0..2048_usize).map(|i| byte(i * 13 + 5)));
-    let raw = decode(&entries(5, &[(&[SUB_CHUNK, 0], value)])).unwrap();
+    let raw = decode(&entries(5, &[(&[CHUNK_TAG_SUB_CHUNK, 0], value)])).unwrap();
     let Layer::Legacy(layer) = &raw.sections[0].layers[0] else {
         panic!("not legacy")
     };
@@ -518,7 +541,7 @@ fn legacy_extra_data_unpacks_positions_by_chunk_version() {
     value.extend_from_slice(&(31_u16 | 2 << 8).to_le_bytes());
     value.extend_from_slice(&(3 << 11 | 5 << 7 | 0x64_u32).to_le_bytes());
     value.extend_from_slice(&(0xaf_u16 | 0x1f << 8).to_le_bytes());
-    let new = decode(&entries(3, &[(&[LEGACY_EXTRA], value.clone())])).unwrap();
+    let new = decode(&entries(3, &[(&[CHUNK_TAG_LEGACY_EXTRA], value.clone())])).unwrap();
     assert_eq!(
         new.legacy_blocks[0],
         LegacyBlock {
@@ -534,8 +557,8 @@ fn legacy_extra_data_unpacks_positions_by_chunk_version() {
     let old = decode(&entries(
         2,
         &[
-            (&[LEGACY_EXTRA], value.clone()),
-            (&[LEGACY_TERRAIN], terrain),
+            (&[CHUNK_TAG_LEGACY_EXTRA], value.clone()),
+            (&[CHUNK_TAG_LEGACY_TERRAIN], terrain),
         ],
     ))
     .unwrap();
@@ -550,7 +573,7 @@ fn legacy_extra_data_unpacks_positions_by_chunk_version() {
         }
     );
     assert!(
-        decode(&entries(3, &[(&[LEGACY_EXTRA], Vec::new())]))
+        decode(&entries(3, &[(&[CHUNK_TAG_LEGACY_EXTRA], Vec::new())]))
             .unwrap()
             .legacy_blocks
             .is_empty()
@@ -558,12 +581,15 @@ fn legacy_extra_data_unpacks_positions_by_chunk_version() {
     let mut long = value;
     long.push(0);
     assert!(matches!(
-        inner(decode(&entries(3, &[(&[LEGACY_EXTRA], long)]))),
+        inner(decode(&entries(3, &[(&[CHUNK_TAG_LEGACY_EXTRA], long)]))),
         Error::Malformed(_)
     ));
     let negative = (-1_i32).to_le_bytes().to_vec();
     assert!(matches!(
-        inner(decode(&entries(3, &[(&[LEGACY_EXTRA], negative)]))),
+        inner(decode(&entries(
+            3,
+            &[(&[CHUNK_TAG_LEGACY_EXTRA], negative)]
+        ))),
         Error::Malformed(_)
     ));
 }
@@ -576,18 +602,18 @@ fn compound(id: &str) -> Compound {
 fn block_entities_are_nbt() {
     let mut chests = nbt(&compound("Chest"));
     chests.extend(nbt(&compound("Sign")));
-    let raw = decode(&entries(42, &[(&[BLOCK_ENTITIES], chests)])).unwrap();
+    let raw = decode(&entries(42, &[(&[CHUNK_TAG_BLOCK_ENTITIES], chests)])).unwrap();
     assert_eq!(
         raw.block_entities,
         vec![compound("Chest"), compound("Sign")]
     );
     assert!(
-        decode(&entries(42, &[(&[BLOCK_ENTITIES], Vec::new())]))
+        decode(&entries(42, &[(&[CHUNK_TAG_BLOCK_ENTITIES], Vec::new())]))
             .unwrap()
             .block_entities
             .is_empty()
     );
-    let bad = entries(42, &[(&[BLOCK_ENTITIES], vec![10, 0])]);
+    let bad = entries(42, &[(&[CHUNK_TAG_BLOCK_ENTITIES], vec![10, 0])]);
     assert!(matches!(inner(decode(&bad)), Error::Nbt(_)));
     assert_eq!(faulty_key(decode(&bad)).0, "BlockEntity");
 }
@@ -597,7 +623,7 @@ fn lists_over_the_extra_entry_cap_are_refused() {
     let one = nbt(&Compound::new());
     let many = one.repeat(MAX_EXTRA_ENTRIES + 1);
     assert!(matches!(
-        inner(decode(&entries(42, &[(&[BLOCK_ENTITIES], many)]))),
+        inner(decode(&entries(42, &[(&[CHUNK_TAG_BLOCK_ENTITIES], many)]))),
         Error::TooLarge { .. }
     ));
 }
@@ -615,7 +641,7 @@ fn fuzz_value(suffix: &'static [u8], seed: &[u8]) {
 fn mutated_sub_chunks_and_nbt_never_panic() {
     let water = block("minecraft:water", &[("liquid_depth", Value::Int(0))]);
     fuzz_value(
-        &[SUB_CHUNK, 1],
+        &[CHUNK_TAG_SUB_CHUNK, 1],
         &sub_chunk_v9(1, &[stone_layer(), layer(0, &[], &[water])]),
     );
     let mut list = nbt(&Compound::from([
@@ -630,5 +656,5 @@ fn mutated_sub_chunks_and_nbt_never_panic() {
         ("x".to_owned(), Value::Int(4)),
     ]));
     list.extend(nbt(&compound("Sign")));
-    fuzz_value(&[BLOCK_ENTITIES], &list);
+    fuzz_value(&[CHUNK_TAG_BLOCK_ENTITIES], &list);
 }

@@ -287,9 +287,9 @@ impl Scenario {
 
     /// Gives the player `stack` through the task API.
     fn give(&mut self, stack: &Stack) {
-        let mut ctx = self.context_mut();
-        let player = ctx.player_exact("player1").unwrap();
-        let left = ctx
+        let mut cx = self.context_mut();
+        let player = cx.player_exact("player1").unwrap();
+        let left = cx
             .player_mut(player)
             .unwrap()
             .inventory_mut(crate::inventory::Kind::Main)
@@ -803,9 +803,9 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     s.set_block(ENCHANTING, BlockKind::EnchantingTable);
     s.give(&Stack::new(item(ItemKind::LapisLazuli), 3));
     {
-        let mut ctx = s.context_mut();
-        let player = ctx.player_exact("player1").unwrap();
-        ctx.player_mut(player).unwrap().add_xp(300);
+        let mut cx = s.context_mut();
+        let player = cx.player_exact("player1").unwrap();
+        cx.player_mut(player).unwrap().add_xp(300);
     }
     let levels = survival::xp_level(s.player());
     let window = s.open(ENCHANTING);

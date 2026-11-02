@@ -181,53 +181,6 @@ pub(crate) struct Console {
     answers: Receiver<String>,
 }
 
-/// The console and the task for `ServerBuilder::every(EVERY_TICK, ..)`.
-pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
-    let (commands, received) = channel(MAX_PENDING);
-    let (reported, reports) = channel(MAX_PENDING);
-    let (answered, answers) = channel(MAX_PENDING);
-    let mut pending: VecDeque<(String, Command, u32)> = VecDeque::with_capacity(MAX_PENDING);
-    let mut villagers: Vec<Id> = Vec::new();
-    let task = move |ctx: &mut Context<'_>| {
-        while pending.len() < MAX_PENDING {
-            let Ok((line, command)) = received.try_recv() else {
-                break;
-            };
-            pending.push_back((line, command, 0));
-        }
-        while let Some((line, command, waited)) = pending.front_mut() {
-            let result = match execute(ctx, command, &mut villagers, &answered) {
-                Outcome::Wait(_) if *waited < MAX_WAIT_TICKS => {
-                    *waited += 1;
-                    break;
-                }
-                Outcome::Wait(why) => Err(format!("gave up waiting: {why}")),
-                Outcome::Done(note) => Ok(note),
-                Outcome::Failed(why) => Err(why),
-            };
-            let report = Report {
-                line: std::mem::take(line),
-                result,
-            };
-            pending.pop_front();
-            // The harness drains the reports after each scenario; a full queue loses the report,
-            // and `settle` then times out naming the missing count.
-            if let Err(TrySendError::Disconnected(_)) = reported.try_send(report) {
-                return;
-            }
-        }
-    };
-    let console = Console {
-        commands,
-        reports,
-        outstanding: 0,
-        owed: 0,
-        refused: Vec::new(),
-        answers,
-    };
-    (console, task)
-}
-
 impl Console {
     /// Hands `line` to Anchor's task, or keeps the reason it does not parse for [`Self::settle`].
     pub(crate) fn send(&mut self, line: &str) -> Result<(), String> {
@@ -297,6 +250,53 @@ impl Console {
         }
         Ok(ran)
     }
+}
+
+/// The console and the task for `ServerBuilder::every(EVERY_TICK, ..)`.
+pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
+    let (commands, received) = channel(MAX_PENDING);
+    let (reported, reports) = channel(MAX_PENDING);
+    let (answered, answers) = channel(MAX_PENDING);
+    let mut pending: VecDeque<(String, Command, u32)> = VecDeque::with_capacity(MAX_PENDING);
+    let mut villagers: Vec<Id> = Vec::new();
+    let task = move |cx: &mut Context<'_>| {
+        while pending.len() < MAX_PENDING {
+            let Ok((line, command)) = received.try_recv() else {
+                break;
+            };
+            pending.push_back((line, command, 0));
+        }
+        while let Some((line, command, waited)) = pending.front_mut() {
+            let result = match execute(cx, command, &mut villagers, &answered) {
+                Outcome::Wait(_) if *waited < MAX_WAIT_TICKS => {
+                    *waited += 1;
+                    break;
+                }
+                Outcome::Wait(why) => Err(format!("gave up waiting: {why}")),
+                Outcome::Done(note) => Ok(note),
+                Outcome::Failed(why) => Err(why),
+            };
+            let report = Report {
+                line: std::mem::take(line),
+                result,
+            };
+            pending.pop_front();
+            // The harness drains the reports after each scenario; a full queue loses the report,
+            // and `settle` then times out naming the missing count.
+            if let Err(TrySendError::Disconnected(_)) = reported.try_send(report) {
+                return;
+            }
+        }
+    };
+    let console = Console {
+        commands,
+        reports,
+        outstanding: 0,
+        owed: 0,
+        refused: Vec::new(),
+        answers,
+    };
+    (console, task)
 }
 
 /// A bounded channel between the harness and Anchor's task.
@@ -596,26 +596,26 @@ fn farmer_offers() -> Result<Vec<Offer>, String> {
 
 /// Runs `command` once on Anchor; the answers to the forms it sends go to `answers`.
 fn execute(
-    ctx: &mut Context<'_>,
+    cx: &mut Context<'_>,
     command: &Command,
     villagers: &mut Vec<Id>,
     answers: &SyncSender<String>,
 ) -> Outcome {
     match command {
         Command::Teleport { player, feet } => {
-            let Some((id, world)) = ctx
+            let Some((id, world)) = cx
                 .player_exact(player)
-                .and_then(|id| Some((id, ctx.player(id)?.world())))
+                .and_then(|id| Some((id, cx.player(id)?.world())))
             else {
                 return not_joined(player);
             };
-            match ctx.teleport(id, world, *feet) {
+            match cx.teleport(id, world, *feet) {
                 Ok(()) => Outcome::Done(None),
                 Err(e) => Outcome::Failed(e.to_string()),
             }
         }
         Command::Give { player, stacks } => {
-            let Some(p) = joined(ctx, player) else {
+            let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
             let mut main = p.inventory_mut(inventory::Kind::Main);
@@ -623,7 +623,7 @@ fn execute(
             Outcome::Done((left > 0).then(|| format!("{left} did not fit")))
         }
         Command::Experience { player, amount } => {
-            let Some(p) = joined(ctx, player) else {
+            let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
             match *amount {
@@ -637,7 +637,7 @@ fn execute(
                 },
             }
         }
-        Command::Fill { from, to, state } => fill(ctx, *from, *to, *state),
+        Command::Fill { from, to, state } => fill(cx, *from, *to, *state),
         Command::Villager { pos } => {
             #[expect(
                 clippy::cast_possible_truncation,
@@ -648,14 +648,14 @@ fn execute(
                 pos.y.floor() as i32,
                 pos.z.floor() as i32,
             );
-            if !ctx.default_world().is_chunk_loaded(at.chunk()) {
+            if !cx.default_world().is_chunk_loaded(at.chunk()) {
                 return Outcome::Wait("the villager's chunk is not loaded".to_owned());
             }
             let offers = match farmer_offers() {
                 Ok(offers) => offers,
                 Err(e) => return Outcome::Failed(e),
             };
-            match ctx.spawn_villager(world::Id::DEFAULT, *pos, FARMER, &offers) {
+            match cx.spawn_villager(world::Id::DEFAULT, *pos, FARMER, &offers) {
                 Ok(id) => {
                     villagers.push(id);
                     Outcome::Done(None)
@@ -664,7 +664,7 @@ fn execute(
             }
         }
         Command::Effect { player, effect } => {
-            let Some(p) = joined(ctx, player) else {
+            let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
             // As on BDS, 0 seconds takes the effect away.
@@ -678,14 +678,14 @@ fn execute(
         Command::KillNonPlayers => {
             let removed = villagers
                 .drain(..)
-                .filter_map(|id| ctx.entity_mut(id).map(|mut e| e.flag_for_despawn()))
+                .filter_map(|id| cx.entity_mut(id).map(|mut e| e.flag_for_despawn()))
                 .count();
             Outcome::Done(Some(format!(
                 "removed {removed} villagers (the harness removes only the villagers it summoned)"
             )))
         }
         Command::RandomTickSpeed(speed) => {
-            if ctx.set_random_tick_speed(*speed) {
+            if cx.set_random_tick_speed(*speed) {
                 Outcome::Done(None)
             } else {
                 Outcome::Failed(format!("random tick speed {speed} is above the limit"))
@@ -700,30 +700,30 @@ fn execute(
         | Command::EndCrystal { .. }
         | Command::Weather(_)
         | Command::Difficulty(_)
-        | Command::Lightning { .. } => execute_api(ctx, command, answers),
+        | Command::Lightning { .. } => execute_api(cx, command, answers),
     }
 }
 
 /// Runs a command of the API scenarios (`p6 api`) once on Anchor.
-fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<String>) -> Outcome {
+fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<String>) -> Outcome {
     let done = |result: Result<(), String>| match result {
         Ok(()) => Outcome::Done(None),
         Err(e) => Outcome::Failed(e),
     };
     match command {
-        Command::Op(player) => done(ctx.op(player).map_err(|e| e.to_string())),
+        Command::Op(player) => done(cx.op(player).map_err(|e| e.to_string())),
         Command::Kick { player, reason } => {
-            let Some(p) = joined(ctx, player) else {
+            let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
             done(p.kick(reason.as_str()).map_err(|e| e.to_string()))
         }
         Command::Form(kind) => {
             let kind = *kind;
-            let players: Vec<_> = ctx.players().map(Player::id).collect();
+            let players: Vec<_> = cx.players().map(Player::id).collect();
             for player in players {
                 let answers = answers.clone();
-                let sent = ctx.send_form(player, p6_form(kind), move |_, _, response| {
+                let sent = cx.send_form(player, p6_form(kind), move |_, _, response| {
                     match answers.try_send(format!("{} answered {response:?}", kind.name())) {
                         // A full or closed queue loses the note only.
                         Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
@@ -736,7 +736,7 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
             Outcome::Done(None)
         }
         Command::Kill(player) => {
-            let Some(p) = joined(ctx, player) else {
+            let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
             if p.kill() {
@@ -745,23 +745,23 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
                 Outcome::Failed(format!("{player} is already dead"))
             }
         }
-        Command::EndCrystal { pos } => match ctx.spawn_end_crystal(world::Id::DEFAULT, *pos) {
+        Command::EndCrystal { pos } => match cx.spawn_end_crystal(world::Id::DEFAULT, *pos) {
             Some(_) => Outcome::Done(None),
             None => Outcome::Failed("no end crystal was spawned".to_owned()),
         },
         Command::Projectile { projectile, pos } => {
-            match ctx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
+            match cx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
                 Some(_) => Outcome::Done(None),
                 None => Outcome::Failed("no projectile was spawned".to_owned()),
             }
         }
         Command::Weather(weather) => done(
-            ctx.set_weather(world::Id::DEFAULT, *weather)
+            cx.set_weather(world::Id::DEFAULT, *weather)
                 .then_some(())
                 .ok_or_else(|| "the default world is not loaded".to_owned()),
         ),
         Command::Difficulty(difficulty) => done(
-            ctx.set_difficulty(*difficulty)
+            cx.set_difficulty(*difficulty)
                 .then_some(())
                 .ok_or_else(|| "a hardcore server keeps hard".to_owned()),
         ),
@@ -771,7 +771,7 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
                 fire: true,
             };
             done(
-                ctx.strike_lightning(world::Id::DEFAULT, *pos, bds)
+                cx.strike_lightning(world::Id::DEFAULT, *pos, bds)
                     .then_some(())
                     .ok_or_else(|| "no bolt was struck".to_owned()),
             )
@@ -781,9 +781,9 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
 }
 
 /// The player named `name` who has joined, to change.
-fn joined<'c>(ctx: &'c mut Context<'_>, name: &str) -> Option<&'c mut Player> {
-    let id = ctx.player_exact(name)?;
-    ctx.player_mut(id)
+fn joined<'c>(cx: &'c mut Context<'_>, name: &str) -> Option<&'c mut Player> {
+    let id = cx.player_exact(name)?;
+    cx.player_mut(id)
 }
 
 /// The outcome of a command whose player has not joined yet.
@@ -821,12 +821,12 @@ fn p6_form(kind: FormKind) -> Form {
 
 /// Sets every block of the box from `from` to `to`; waits while a chunk is not loaded (setting a
 /// block again is harmless, so the whole box runs again).
-fn fill(ctx: &mut Context<'_>, from: BlockPos, to: BlockPos, state: State) -> Outcome {
+fn fill(cx: &mut Context<'_>, from: BlockPos, to: BlockPos, state: State) -> Outcome {
     let range = |a: i32, b: i32| a.min(b)..=a.max(b);
     for x in range(from.x, to.x) {
         for y in range(from.y, to.y) {
             for z in range(from.z, to.z) {
-                match ctx
+                match cx
                     .default_world_mut()
                     .set_block(BlockPos::new(x, y, z), state)
                 {

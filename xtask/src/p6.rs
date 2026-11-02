@@ -233,6 +233,258 @@ pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtas
                                 | cargo xtask p6 api compare DIR_A DIR_B \
                                 | cargo xtask p6 import";
 
+/// What a BDS session runs with besides the test settings.
+struct BdsSession<'a> {
+    transport: &'a str,
+    compression: &'a str,
+    /// Settings that override the test settings.
+    settings: &'a [(&'a str, &'a str)],
+}
+
+/// The ports an Anchor server of this process opened.
+#[derive(Debug, Clone, Copy)]
+struct Ports {
+    /// The RakNet and server list ping port (UDP).
+    raknet: u16,
+    /// The NetherNet signaling port (TCP).
+    signaling: u16,
+}
+
+/// The global log of this process: Anchor runs here without its console log, so its events come
+/// here. Each event of level info and above is written on standard error, as the console log
+/// would, and the addresses of the `listening` lines go to [`LISTENED`].
+struct AnchorLog;
+
+impl tracing::Subscriber for AnchorLog {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        metadata.is_event() && *metadata.level() <= tracing::Level::INFO
+    }
+
+    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        Some(tracing::level_filters::LevelFilter::INFO)
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: xtask is a development tool"
+    )]
+    fn event(&self, event: &tracing::Event<'_>) {
+        let mut line = LogLine::default();
+        event.record(&mut line);
+        let metadata = event.metadata();
+        let text = format!(
+            "{} {}: {}{}\n",
+            metadata.level(),
+            metadata.target(),
+            line.message,
+            line.fields
+        );
+        // Standard error is the log's only way out: a failed write has nowhere to be reported.
+        match std::io::stderr().write_all(text.as_bytes()) {
+            Ok(()) | Err(_) => {}
+        }
+        if let Some(addr) = line.addr
+            && line.message.starts_with("listening")
+        {
+            lock(&LISTENED).push((line.message, addr));
+        }
+    }
+
+    fn enter(&self, _: &tracing::span::Id) {}
+
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+/// The message, the `addr` field and every field as ` name=value` of one event.
+#[derive(Default)]
+struct LogLine {
+    message: String,
+    addr: Option<SocketAddr>,
+    fields: String,
+}
+
+impl tracing::field::Visit for LogLine {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}");
+            return;
+        }
+        let value = format!("{value:?}");
+        if field.name() == "addr" {
+            self.addr = value.parse().ok();
+        }
+        for part in [" ", field.name(), "=", &value] {
+            self.fields.push_str(part);
+        }
+    }
+}
+
+/// What changes the blocks of the blocks scenario on a server.
+enum Placer<'a> {
+    /// BDS console commands.
+    Bds(&'a mut Bds),
+    /// Anchor's scheduled task from [`anchor_steps`], started by sending it the base position.
+    Anchor(std::sync::mpsc::SyncSender<[i32; 3]>),
+}
+
+/// How a bot run ended (exit code 0 or 1; 2 is an error).
+#[derive(Debug)]
+struct Outcome {
+    passed: bool,
+    stderr: String,
+}
+
+impl Outcome {
+    /// The bot's failure message, or nothing when it passed.
+    fn failure(&self) -> String {
+        if self.passed {
+            String::new()
+        } else {
+            format!(": {}", self.stderr.trim())
+        }
+    }
+}
+
+/// A running BDS process. Its output goes to a log file, which is polled for the start line.
+#[derive(Debug)]
+struct Bds {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    log: PathBuf,
+}
+
+impl Bds {
+    fn start(exe: &Path, dir: &Path, log: &Path) -> Result<Self, String> {
+        let file = create_file(log)?;
+        let stderr = file.try_clone().map_err(|e| e.to_string())?;
+        let mut child = Command::new(exe)
+            .current_dir(dir)
+            // The Linux BDS loads the libraries in its folder, as its how-to starts it
+            // (`LD_LIBRARY_PATH=. ./bedrock_server`); Windows ignores the variable.
+            .env("LD_LIBRARY_PATH", dir)
+            .stdin(Stdio::piped())
+            .stdout(file)
+            .stderr(stderr)
+            .spawn()
+            .map_err(|e| format!("cannot start {}: {e}", exe.display()))?;
+        let stdin = child.stdin.take();
+        Ok(Self {
+            child,
+            stdin,
+            log: log.to_path_buf(),
+        })
+    }
+
+    /// Waits for BDS's "Server started." line.
+    fn wait_started(&mut self) -> Result<(), String> {
+        let deadline = now() + START_TIMEOUT;
+        loop {
+            if read_text(&self.log)?.contains("Server started.") {
+                return Ok(());
+            }
+            if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+                return Err(format!(
+                    "BDS exited ({status}) before starting; see {}",
+                    self.log.display()
+                ));
+            }
+            if now() > deadline {
+                return Err(format!(
+                    "BDS did not start within {START_TIMEOUT:?}; see {}",
+                    self.log.display()
+                ));
+            }
+            pause();
+        }
+    }
+
+    /// Sends one console command.
+    fn command(&mut self, line: &str) -> Result<(), String> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "BDS has no console input".to_owned())?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .and_then(|()| stdin.flush())
+            .map_err(|e| format!("BDS console: {e}"))
+    }
+
+    /// Sends one console command and waits until BDS logs `done` once more, so the next command
+    /// runs in a later tick. A pause between commands does not ensure that: BDS sometimes runs
+    /// commands that came a few hundred milliseconds apart in one tick, and then sends their block
+    /// changes grouped by sub-chunk, not in command order.
+    fn command_done(&mut self, line: &str, done: &str) -> Result<(), String> {
+        let log = self.log.clone();
+        let logged = || read_text(&log).map(|text| text.matches(done).count());
+        let before = logged()?;
+        self.command(line)?;
+        let deadline = now() + COMMAND_TIMEOUT;
+        while logged()? == before {
+            if now() > deadline {
+                return Err(format!(
+                    "BDS did not log {done:?} for `{line}` within {COMMAND_TIMEOUT:?}; see {}",
+                    self.log.display()
+                ));
+            }
+            pause();
+        }
+        Ok(())
+    }
+
+    /// Sets the game rule and waits until BDS confirms it.
+    fn set_game_rule(&mut self, rule: &str, value: &str) -> Result<(), String> {
+        self.command_done(
+            &format!("gamerule {rule} {value}"),
+            &format!("Game rule {rule} has been updated to {value}"),
+        )
+    }
+
+    /// Sends `stop` and waits for the exit; kills BDS, and says why, if `stop` could not be sent
+    /// or did not end it in time.
+    fn stop(mut self) -> Result<(), String> {
+        let sent = self
+            .stdin
+            .take()
+            .map(|mut stdin| stdin.write_all(b"stop\n").and_then(|()| stdin.flush()));
+        let reason = match sent {
+            Some(Ok(())) => {
+                let deadline = now() + STOP_TIMEOUT;
+                loop {
+                    if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                        return Ok(());
+                    }
+                    if now() >= deadline {
+                        break format!("BDS did not stop on `stop` within {STOP_TIMEOUT:?}");
+                    }
+                    pause();
+                }
+            }
+            Some(Err(e)) => format!("BDS console: {e}"),
+            None => "BDS has no console input".to_owned(),
+        };
+        if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!(
+                "{reason}; BDS had exited ({status}); see {}",
+                self.log.display()
+            ));
+        }
+        self.child.kill().map_err(|e| format!("kill BDS: {e}"))?;
+        self.child
+            .wait()
+            .map_err(|e| format!("wait for BDS: {e}"))?;
+        Err(format!("{reason}; killed it"))
+    }
+}
+
 /// Runs `cargo xtask p6 <args>`.
 pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     match args {
@@ -478,14 +730,6 @@ fn bds_session<W: Write>(
     bds_session_with(exe, out_dir, &session, |_| Ok(()), out, run)
 }
 
-/// What a BDS session runs with besides the test settings.
-struct BdsSession<'a> {
-    transport: &'a str,
-    compression: &'a str,
-    /// Settings that override the test settings.
-    settings: &'a [(&'a str, &'a str)],
-}
-
 /// [`bds_session`] with more settings, and `prepare` called with the copy's folder once its
 /// `worlds` folder is gone, before BDS starts (to install a pack into the new world).
 fn bds_session_with<W: Write>(
@@ -660,15 +904,6 @@ fn anchor_config() -> anchor::Config {
     config
 }
 
-/// The ports an Anchor server of this process opened.
-#[derive(Debug, Clone, Copy)]
-struct Ports {
-    /// The RakNet and server list ping port (UDP).
-    raknet: u16,
-    /// The NetherNet signaling port (TCP).
-    signaling: u16,
-}
-
 /// Runs `server` (built from [`anchor_config`] with `without_console_log`) on a thread of this
 /// process, calls `run` with the ports it opened once it answers pings, and shuts it down.
 fn run_anchor<T>(
@@ -738,91 +973,6 @@ fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// The global log of this process: Anchor runs here without its console log, so its events come
-/// here. Each event of level info and above is written on standard error, as the console log
-/// would, and the addresses of the `listening` lines go to [`LISTENED`].
-struct AnchorLog;
-
-impl tracing::Subscriber for AnchorLog {
-    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
-        metadata.is_event() && *metadata.level() <= tracing::Level::INFO
-    }
-
-    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
-        Some(tracing::level_filters::LevelFilter::INFO)
-    }
-
-    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-
-    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-
-    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: xtask is a development tool"
-    )]
-    fn event(&self, event: &tracing::Event<'_>) {
-        let mut line = LogLine::default();
-        event.record(&mut line);
-        let metadata = event.metadata();
-        let text = format!(
-            "{} {}: {}{}\n",
-            metadata.level(),
-            metadata.target(),
-            line.message,
-            line.fields
-        );
-        // Standard error is the log's only way out: a failed write has nowhere to be reported.
-        match std::io::stderr().write_all(text.as_bytes()) {
-            Ok(()) | Err(_) => {}
-        }
-        if let Some(addr) = line.addr
-            && line.message.starts_with("listening")
-        {
-            lock(&LISTENED).push((line.message, addr));
-        }
-    }
-
-    fn enter(&self, _: &tracing::span::Id) {}
-
-    fn exit(&self, _: &tracing::span::Id) {}
-}
-
-/// The message, the `addr` field and every field as ` name=value` of one event.
-#[derive(Default)]
-struct LogLine {
-    message: String,
-    addr: Option<SocketAddr>,
-    fields: String,
-}
-
-impl tracing::field::Visit for LogLine {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = format!("{value:?}");
-            return;
-        }
-        let value = format!("{value:?}");
-        if field.name() == "addr" {
-            self.addr = value.parse().ok();
-        }
-        for part in [" ", field.name(), "=", &value] {
-            self.fields.push_str(part);
-        }
-    }
-}
-
-/// What changes the blocks of the blocks scenario on a server.
-enum Placer<'a> {
-    /// BDS console commands.
-    Bds(&'a mut Bds),
-    /// Anchor's scheduled task from [`anchor_steps`], started by sending it the base position.
-    Anchor(std::sync::mpsc::SyncSender<[i32; 3]>),
 }
 
 /// The channel that hands Anchor's steps task the base position.
@@ -903,14 +1053,14 @@ fn anchor_steps(
     let mut base: Option<[i32; 3]> = None;
     // Even actions place a step's block, odd ones its marker; past the steps, the end marker.
     let mut action = 0_usize;
-    let task = move |ctx: &mut anchor::Context<'_>| {
+    let task = move |cx: &mut anchor::Context<'_>| {
         if base.is_none() {
             // Random ticks go off before the first step, as on BDS (`blocks`). Speed 0 is within
             // the limit; were it refused, no step would run and the bot would fail.
             base = bases
                 .try_recv()
                 .ok()
-                .filter(|_| ctx.set_random_tick_speed(0));
+                .filter(|_| cx.set_random_tick_speed(0));
         }
         let Some([bx, by, bz]) = base else {
             return;
@@ -932,7 +1082,7 @@ fn anchor_steps(
         };
         // A change that fails (its chunk is not loaded yet) is tried again on the next call.
         if let Some((pos, state)) = change
-            && ctx.default_world_mut().set_block(pos, state).is_ok()
+            && cx.default_world_mut().set_block(pos, state).is_ok()
         {
             action += 1;
         }
@@ -1703,24 +1853,6 @@ fn build_bot(root: &Path) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-/// How a bot run ended (exit code 0 or 1; 2 is an error).
-#[derive(Debug)]
-struct Outcome {
-    passed: bool,
-    stderr: String,
-}
-
-impl Outcome {
-    /// The bot's failure message, or nothing when it passed.
-    fn failure(&self) -> String {
-        if self.passed {
-            String::new()
-        } else {
-            format!(": {}", self.stderr.trim())
-        }
-    }
-}
-
 /// Runs the bot with `args` and `-out capture`.
 fn run_bot(bot: &Path, args: &[&str], capture: &Path) -> Result<Outcome, String> {
     let output = Command::new(bot)
@@ -1849,138 +1981,6 @@ fn report_segments(capture: &Path, out: &mut impl Write) -> Result<(), String> {
             f("sent_segmented_messages"),
         ),
     )
-}
-
-/// A running BDS process. Its output goes to a log file, which is polled for the start line.
-#[derive(Debug)]
-struct Bds {
-    child: Child,
-    stdin: Option<ChildStdin>,
-    log: PathBuf,
-}
-
-impl Bds {
-    fn start(exe: &Path, dir: &Path, log: &Path) -> Result<Self, String> {
-        let file = create_file(log)?;
-        let stderr = file.try_clone().map_err(|e| e.to_string())?;
-        let mut child = Command::new(exe)
-            .current_dir(dir)
-            // The Linux BDS loads the libraries in its folder, as its how-to starts it
-            // (`LD_LIBRARY_PATH=. ./bedrock_server`); Windows ignores the variable.
-            .env("LD_LIBRARY_PATH", dir)
-            .stdin(Stdio::piped())
-            .stdout(file)
-            .stderr(stderr)
-            .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", exe.display()))?;
-        let stdin = child.stdin.take();
-        Ok(Self {
-            child,
-            stdin,
-            log: log.to_path_buf(),
-        })
-    }
-
-    /// Waits for BDS's "Server started." line.
-    fn wait_started(&mut self) -> Result<(), String> {
-        let deadline = now() + START_TIMEOUT;
-        loop {
-            if read_text(&self.log)?.contains("Server started.") {
-                return Ok(());
-            }
-            if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
-                return Err(format!(
-                    "BDS exited ({status}) before starting; see {}",
-                    self.log.display()
-                ));
-            }
-            if now() > deadline {
-                return Err(format!(
-                    "BDS did not start within {START_TIMEOUT:?}; see {}",
-                    self.log.display()
-                ));
-            }
-            pause();
-        }
-    }
-
-    /// Sends one console command.
-    fn command(&mut self, line: &str) -> Result<(), String> {
-        let stdin = self
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "BDS has no console input".to_owned())?;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .and_then(|()| stdin.flush())
-            .map_err(|e| format!("BDS console: {e}"))
-    }
-
-    /// Sends one console command and waits until BDS logs `done` once more, so the next command
-    /// runs in a later tick. A pause between commands does not ensure that: BDS sometimes runs
-    /// commands that came a few hundred milliseconds apart in one tick, and then sends their block
-    /// changes grouped by sub-chunk, not in command order.
-    fn command_done(&mut self, line: &str, done: &str) -> Result<(), String> {
-        let log = self.log.clone();
-        let logged = || read_text(&log).map(|text| text.matches(done).count());
-        let before = logged()?;
-        self.command(line)?;
-        let deadline = now() + COMMAND_TIMEOUT;
-        while logged()? == before {
-            if now() > deadline {
-                return Err(format!(
-                    "BDS did not log {done:?} for `{line}` within {COMMAND_TIMEOUT:?}; see {}",
-                    self.log.display()
-                ));
-            }
-            pause();
-        }
-        Ok(())
-    }
-
-    /// Sets the game rule and waits until BDS confirms it.
-    fn set_game_rule(&mut self, rule: &str, value: &str) -> Result<(), String> {
-        self.command_done(
-            &format!("gamerule {rule} {value}"),
-            &format!("Game rule {rule} has been updated to {value}"),
-        )
-    }
-
-    /// Sends `stop` and waits for the exit; kills BDS, and says why, if `stop` could not be sent
-    /// or did not end it in time.
-    fn stop(mut self) -> Result<(), String> {
-        let sent = self
-            .stdin
-            .take()
-            .map(|mut stdin| stdin.write_all(b"stop\n").and_then(|()| stdin.flush()));
-        let reason = match sent {
-            Some(Ok(())) => {
-                let deadline = now() + STOP_TIMEOUT;
-                loop {
-                    if self.child.try_wait().map_err(|e| e.to_string())?.is_some() {
-                        return Ok(());
-                    }
-                    if now() >= deadline {
-                        break format!("BDS did not stop on `stop` within {STOP_TIMEOUT:?}");
-                    }
-                    pause();
-                }
-            }
-            Some(Err(e)) => format!("BDS console: {e}"),
-            None => "BDS has no console input".to_owned(),
-        };
-        if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!(
-                "{reason}; BDS had exited ({status}); see {}",
-                self.log.display()
-            ));
-        }
-        self.child.kill().map_err(|e| format!("kill BDS: {e}"))?;
-        self.child
-            .wait()
-            .map_err(|e| format!("wait for BDS: {e}"))?;
-        Err(format!("{reason}; killed it"))
-    }
 }
 
 /// Sets `key=value` lines in a properties file, replacing existing keys and appending new ones.

@@ -39,18 +39,18 @@ fn worlds_are_found_by_their_id_in_list_order() {
         worlds,
         0,
     );
-    let mut ctx = context(&mut state);
-    let names: Vec<(&str, world::Id)> = ctx.worlds().map(|w| (w.name(), w.id())).collect();
+    let mut cx = context(&mut state);
+    let names: Vec<(&str, world::Id)> = cx.worlds().map(|w| (w.name(), w.id())).collect();
     assert_eq!(
         names,
         vec![("lobby", world::Id::DEFAULT), ("arena", world::Id::of(1))]
     );
-    assert_eq!(ctx.world(world::Id::of(1)).unwrap().name(), "arena");
-    assert!(ctx.world(world::Id::of(2)).is_none());
-    assert!(ctx.world_mut(world::Id::of(7)).is_none());
-    let arena = ctx.world_mut(world::Id::of(1)).unwrap();
+    assert_eq!(cx.world(world::Id::of(1)).unwrap().name(), "arena");
+    assert!(cx.world(world::Id::of(2)).is_none());
+    assert!(cx.world_mut(world::Id::of(7)).is_none());
+    let arena = cx.world_mut(world::Id::of(1)).unwrap();
     assert_eq!(arena.id(), world::Id::of(1));
-    assert_eq!(ctx.worlds().count(), 2);
+    assert_eq!(cx.worlds().count(), 2);
 }
 
 // pmmp: World::setSpawnLocation, World::getSpawnLocation, World::isSpawnChunk
@@ -135,13 +135,13 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     let far = Vec3::new(5000.0, -60.0, 5000.0);
     received(&mut rx1);
     received(&mut rx2);
-    let mut ctx = context(&mut state);
-    assert!(ctx.add_sound(WORLD, here, Sound::AnvilFall));
-    assert!(ctx.add_particle(WORLD, here, Particle::Flame));
-    assert!(ctx.add_particle(WORLD, far, Particle::Heart(1)));
-    assert!(!ctx.add_sound(world::Id::of(1), here, Sound::AnvilFall));
-    assert!(!ctx.add_particle(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Particle::Flame));
-    assert!(!ctx.broadcast_packet(WORLD, Vec3::new(4e7, 0.0, 0.0), &Sound::Burp.packet(here)));
+    let mut cx = context(&mut state);
+    assert!(cx.add_sound(WORLD, here, Sound::AnvilFall));
+    assert!(cx.add_particle(WORLD, here, Particle::Flame));
+    assert!(cx.add_particle(WORLD, far, Particle::Heart(1)));
+    assert!(!cx.add_sound(world::Id::of(1), here, Sound::AnvilFall));
+    assert!(!cx.add_particle(WORLD, Vec3::new(f64::NAN, 0.0, 0.0), Particle::Flame));
+    assert!(!cx.broadcast_packet(WORLD, Vec3::new(4e7, 0.0, 0.0), &Sound::Burp.packet(here)));
     tick(&mut state, &mut Vec::new(), &mut Output::default());
     let seen = level_events(&mut rx1);
     let anvil = i32::from(crate::protocol::consts::LevelEvent::SoundAnvilLand);
@@ -154,9 +154,9 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
     assert_eq!(seen[1].position, here.to_f32());
     assert!(level_events(&mut rx2).is_empty(), "no view, nothing seen");
     // A flood of effects stops before the outbox would disconnect the player.
-    let mut ctx = context(&mut state);
+    let mut cx = context(&mut state);
     for _ in 0..MAX_OUTBOX {
-        ctx.add_particle(WORLD, here, Particle::Flame);
+        cx.add_particle(WORLD, here, Particle::Flame);
     }
     assert_eq!(
         state.players[&SessionId::new(1)].outbox.len(),
@@ -172,11 +172,11 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
     let (mut state, [mut rx1, mut rx2]) = state();
     received(&mut rx1);
     received(&mut rx2);
-    let mut ctx = context(&mut state);
-    assert!(ctx.set_time(WORLD, 18_000));
-    assert!(!ctx.set_time(world::Id::of(1), 5));
-    assert_eq!(ctx.world(WORLD).unwrap().time_ticks(), 18_000);
-    let players: Vec<player::Id> = ctx.players_in(WORLD).collect();
+    let mut cx = context(&mut state);
+    assert!(cx.set_time(WORLD, 18_000));
+    assert!(!cx.set_time(world::Id::of(1), 5));
+    assert_eq!(cx.world(WORLD).unwrap().time_ticks(), 18_000);
+    let players: Vec<player::Id> = cx.players_in(WORLD).collect();
     assert_eq!(
         players,
         vec![
@@ -184,7 +184,7 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
             player::Id::new(SessionId::new(2))
         ]
     );
-    assert_eq!(ctx.players_in(world::Id::of(1)).count(), 0);
+    assert_eq!(cx.players_in(world::Id::of(1)).count(), 0);
     tick(&mut state, &mut Vec::new(), &mut Output::default());
     let clocks = |rx: &mut mpsc::Receiver<Outbound>| {
         received(rx)
@@ -209,16 +209,16 @@ fn setting_the_time_tells_the_players_of_the_world_at_once() {
 fn chunk_viewers_are_the_players_sent_the_chunk() {
     let (mut state, _rx) = state();
     let spawn = state.worlds[0].spawn().chunk();
-    let ctx = context(&mut state);
-    let viewers: Vec<player::Id> = ctx.chunk_viewers(WORLD, spawn).collect();
+    let cx = context(&mut state);
+    let viewers: Vec<player::Id> = cx.chunk_viewers(WORLD, spawn).collect();
     assert_eq!(
         viewers,
         vec![player::Id::new(SessionId::new(1))],
         "session 2 has no view"
     );
     let far = ChunkPos::new(spawn.x + 40, spawn.z);
-    assert_eq!(ctx.chunk_viewers(WORLD, far).count(), 0);
-    assert_eq!(ctx.chunk_viewers(world::Id::of(1), spawn).count(), 0);
+    assert_eq!(cx.chunk_viewers(WORLD, far).count(), 0);
+    assert_eq!(cx.chunk_viewers(world::Id::of(1), spawn).count(), 0);
 }
 
 // pmmp: World::getSafeSpawn
@@ -329,12 +329,12 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
         f64::from(below.z) + 0.5,
     );
     let before = state.worlds[0].block(below);
-    let mut ctx = context(&mut state);
-    assert!(!ctx.explode(world::Id::of(1), center, 4.0));
-    assert!(!ctx.explode(WORLD, center, 0.0));
-    assert!(!ctx.explode(WORLD, center, f64::NAN));
-    assert!(!ctx.explode_with_fire(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0));
-    assert!(ctx.explode(WORLD, center, 4.0));
+    let mut cx = context(&mut state);
+    assert!(!cx.explode(world::Id::of(1), center, 4.0));
+    assert!(!cx.explode(WORLD, center, 0.0));
+    assert!(!cx.explode(WORLD, center, f64::NAN));
+    assert!(!cx.explode_with_fire(WORLD, Vec3::new(f64::INFINITY, 0.0, 0.0), 4.0));
+    assert!(cx.explode(WORLD, center, 4.0));
     assert_ne!(state.worlds[0].block(below), before, "the block is gone");
     assert!(context(&mut state).explode_with_fire(WORLD, center, 3.0));
 }
@@ -350,14 +350,14 @@ fn a_player_teleported_this_tick_is_in_its_new_world_for_every_query() {
         tick(&mut state, &mut Vec::new(), &mut Output::default());
     }
     let id = player::Id::new(SessionId::new(1));
-    let in_world = |ctx: &Context<'_>, w: world::Id| ctx.players_in(w).any(|p| p == id);
-    let mut ctx = context(&mut state);
-    ctx.teleport(id, arena, Vec3::new(0.5, -60.0, 0.5)).unwrap();
-    assert_eq!(ctx.player(id).unwrap().world(), arena);
-    assert!(in_world(&ctx, arena), "in the arena");
-    assert!(!in_world(&ctx, WORLD), "not in the old world");
+    let in_world = |cx: &Context<'_>, w: world::Id| cx.players_in(w).any(|p| p == id);
+    let mut cx = context(&mut state);
+    cx.teleport(id, arena, Vec3::new(0.5, -60.0, 0.5)).unwrap();
+    assert_eq!(cx.player(id).unwrap().world(), arena);
+    assert!(in_world(&cx, arena), "in the arena");
+    assert!(!in_world(&cx, WORLD), "not in the old world");
     tick(&mut state, &mut Vec::new(), &mut Output::default());
-    let ctx = context(&mut state);
-    assert_eq!(ctx.player(id).unwrap().world(), arena);
-    assert!(in_world(&ctx, arena) && !in_world(&ctx, WORLD));
+    let cx = context(&mut state);
+    assert_eq!(cx.player(id).unwrap().world(), arena);
+    assert!(in_world(&cx, arena) && !in_world(&cx, WORLD));
 }

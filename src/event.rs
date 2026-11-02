@@ -355,10 +355,10 @@ mod sealed {
         }
 
         /// Calls every listener on `event` in order.
-        pub(crate) fn call(&mut self, event: &mut E, ctx: &mut Context<'_>) {
+        pub(crate) fn call(&mut self, event: &mut E, cx: &mut Context<'_>) {
             if let Some(r) = &mut self.body {
                 for (_, listener) in &mut r.listeners {
-                    listener(event, ctx);
+                    listener(event, cx);
                 }
             }
         }
@@ -375,10 +375,10 @@ mod sealed {
         }
 
         /// Calls every monitor on `event` in order.
-        pub(crate) fn watch(&mut self, event: &E, ctx: &Context<'_>) {
+        pub(crate) fn watch(&mut self, event: &E, cx: &Context<'_>) {
             if let Some(r) = &mut self.body {
                 for monitor in &mut r.monitors {
-                    monitor(event, ctx);
+                    monitor(event, cx);
                 }
             }
         }

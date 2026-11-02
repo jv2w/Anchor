@@ -69,6 +69,363 @@ impl Fields {
     }
 }
 
+/// The full item packets of a capture (the bot's `<capture>.items.jsonl`): the first
+/// `ItemRegistry`, `CreativeContent` and `CraftingData`, each as its fields.
+#[derive(Debug, Default)]
+pub(crate) struct Items {
+    registry: Option<Value>,
+    creative: Option<Value>,
+    crafting: Option<Value>,
+}
+
+/// The item representations a capture uses in its creative and crafting data, by kind: `stack`
+/// (`NetworkID:MetadataValue:BlockRuntimeID` of an item stack), `item` (`Name:MetadataValue` of a
+/// name descriptor), `tag`, `molang`, `potion` (`ID:metadata` of a potion recipe item) and
+/// `potion-id` (an item ID of a potion container change recipe). A name descriptor, potion item
+/// or potion ID also matches any stack of the same item (and metadata); names come from the
+/// capture's `ItemRegistry`.
+#[derive(Debug, Default)]
+struct Representations(BTreeSet<(&'static str, String)>);
+
+impl Representations {
+    fn of(items: &Items) -> Self {
+        let mut set = BTreeSet::new();
+        let mut add = |kind: &'static str, key: String| {
+            set.insert((kind, key));
+        };
+        for value in [&items.creative, &items.crafting].into_iter().flatten() {
+            Self::walk(value, &mut add);
+        }
+        // Stacks also stand for name descriptors and potion items of the same item and metadata.
+        let names: BTreeMap<i64, &str> = items
+            .registry
+            .as_ref()
+            .map(|r| array(r, "Items"))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|e| Some((field(e, "RuntimeID").as_i64()?, field(e, "Name").as_str()?)))
+            .collect();
+        let stacks: Vec<(i64, String)> = set
+            .iter()
+            .filter(|(kind, _)| *kind == "stack")
+            .filter_map(|(_, key)| {
+                let mut parts = key.split(':');
+                let id = parts.next()?.parse().ok()?;
+                Some((id, parts.next()?.to_owned()))
+            })
+            .collect();
+        for (id, meta) in stacks {
+            if let Some(name) = names.get(&id) {
+                set.insert(("item", format!("{name}:{meta}")));
+            }
+            set.insert(("potion", format!("{id}:{meta}")));
+            set.insert(("potion-id", id.to_string()));
+        }
+        Self(set)
+    }
+
+    fn has(&self, kind: &'static str, key: &str) -> bool {
+        self.0.contains(&(kind, key.to_owned()))
+    }
+
+    /// Calls `f` with every item representation in a JSON tree: objects with `ItemType` and
+    /// `BlockRuntimeID` are stacks, `Descriptor` objects are ingredient descriptors,
+    /// `PotionRecipes` entries give their three items and `PotionContainerChangeRecipes` entries
+    /// their three item IDs.
+    fn walk(value: &Value, f: &mut impl FnMut(&'static str, String)) {
+        match value {
+            Value::Array(list) => {
+                for v in list {
+                    Self::walk(v, f);
+                }
+            }
+            Value::Object(map) => {
+                // Air (network ID 0) is an empty slot, not an item.
+                if let Some(key) = stack_key(value).filter(|k| !k.starts_with("0:")) {
+                    f("stack", key);
+                }
+                if let Some(descriptor) = map.get("Descriptor") {
+                    Self::descriptor(descriptor, f);
+                }
+                for recipe in map
+                    .get("PotionRecipes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    for (id, meta) in [
+                        ("InputPotionID", "InputPotionMetadata"),
+                        ("ReagentItemID", "ReagentItemMetadata"),
+                        ("OutputPotionID", "OutputPotionMetadata"),
+                    ] {
+                        f(
+                            "potion",
+                            format!("{}:{}", field(recipe, id), field(recipe, meta)),
+                        );
+                    }
+                }
+                let changes = map
+                    .get("PotionContainerChangeRecipes")
+                    .and_then(Value::as_array);
+                for recipe in changes.into_iter().flatten() {
+                    for id in ["InputItemID", "ReagentItemID", "OutputItemID"] {
+                        f("potion-id", field(recipe, id).to_string());
+                    }
+                }
+                for (key, v) in map {
+                    if !matches!(
+                        key.as_str(),
+                        "Descriptor" | "PotionRecipes" | "PotionContainerChangeRecipes"
+                    ) {
+                        Self::walk(v, f);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Calls `f` with one ingredient descriptor; the invalid (empty) descriptor has no fields.
+    fn descriptor(descriptor: &Value, f: &mut impl FnMut(&'static str, String)) {
+        if let Some(name) = field(descriptor, "Name").as_str() {
+            f(
+                "item",
+                format!("{name}:{}", field(descriptor, "MetadataValue")),
+            );
+        } else if let Some(tag) = field(descriptor, "Tag").as_str() {
+            f("tag", tag.to_owned());
+        } else if let Some(expression) = field(descriptor, "Expression").as_str() {
+            f(
+                "molang",
+                format!("{expression} v{}", field(descriptor, "Version")),
+            );
+        }
+    }
+}
+
+/// The chunk packets of a capture, made independent of where the player spawned: chunk positions
+/// are relative to the spawn chunk (the player position of `StartGame`) and publisher positions relative
+/// to the player's block column.
+#[derive(Debug, PartialEq, Default)]
+pub(crate) struct Chunks {
+    /// Each `LevelChunk` in order: its relative position and its fields without the position.
+    pub(crate) level: Vec<([i64; 2], String)>,
+    /// How many `LevelChunk`s came before `PlayStatus(PlayerSpawn)`.
+    pub(crate) before_spawn: usize,
+    /// The `SubChunk` entries by relative request centre and offset: the entry's fields without the
+    /// offset, the packet's `CacheEnabled` and `Dimension`, and the bot's strict payload check
+    /// (`strict` and each layer's `content_sha256`). A key answered twice has two values.
+    pub(crate) sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
+    /// Payloads that broke Anchor's strict sub-chunk rules: key and reason.
+    pub(crate) not_strict: Vec<String>,
+    /// Each `NetworkChunkPublisherUpdate`: relative x and z, radius, saved chunk count, and whether
+    /// it came after `ChunkRadiusUpdated`.
+    pub(crate) publisher: Vec<([i64; 2], u64, usize, bool)>,
+    /// The radius of the first `ChunkRadiusUpdated`.
+    pub(crate) radius: Option<u64>,
+}
+
+/// The entries of one `SubChunk` packet, waiting for the bot's check line of it.
+#[derive(Debug)]
+struct SubChunkPacket {
+    index: u64,
+    centre: [i64; 3],
+    /// Each entry's offset and its other fields.
+    entries: Vec<(Value, Value)>,
+}
+
+/// The state of `chunks` between capture lines.
+#[derive(Debug, Default)]
+struct ChunkReader {
+    out: Chunks,
+    /// The spawn chunk and the player's block column (x, z).
+    origin: Option<([i64; 2], [i64; 2])>,
+    spawned: bool,
+    pending: Option<SubChunkPacket>,
+}
+
+impl ChunkReader {
+    fn line(&mut self, value: &Value) -> Result<(), String> {
+        let fields = field(value, "fields");
+        let kind = field(value, "type").as_str();
+        let name = field(value, "name").as_str().unwrap_or_default();
+        if kind == Some("subchunk") {
+            self.flush(Some(value));
+            return Ok(());
+        }
+        if kind != Some("packet") {
+            return Ok(());
+        }
+        match name {
+            "StartGame" => {
+                let column = block_column(fields)?.map(i64::from);
+                self.origin = Some((column.map(|c| c.div_euclid(16)), column));
+            }
+            name if CHUNK_PACKETS.contains(&name) => {
+                let (chunk, column) = self
+                    .origin
+                    .ok_or_else(|| format!("{name} before StartGame"))?;
+                let position = field(fields, "Position");
+                match name {
+                    "LevelChunk" => {
+                        let at = [at(position, 0)? - chunk[0], at(position, 1)? - chunk[1]];
+                        let mut rest = fields.clone();
+                        if let Some(map) = rest.as_object_mut() {
+                            map.remove("Position");
+                        }
+                        self.out.level.push((at, rest.to_string()));
+                        if !self.spawned {
+                            self.out.before_spawn += 1;
+                        }
+                    }
+                    "SubChunk" => {
+                        let centre = [
+                            at(position, 0)? - chunk[0],
+                            at(position, 1)?,
+                            at(position, 2)? - chunk[1],
+                        ];
+                        self.flush(None);
+                        self.pending = Some(SubChunkPacket {
+                            index: field(value, "index").as_u64().unwrap_or(u64::MAX),
+                            centre,
+                            entries: sub_chunk_entries(fields),
+                        });
+                    }
+                    "NetworkChunkPublisherUpdate" => self.out.publisher.push((
+                        [at(position, 0)? - column[0], at(position, 2)? - column[1]],
+                        field(fields, "Radius").as_u64().unwrap_or(u64::MAX),
+                        array(fields, "SavedChunks").len(),
+                        self.out.radius.is_some(),
+                    )),
+                    _ => return Err(format!("{name} is in CHUNK_PACKETS but is not read")),
+                }
+            }
+            "ChunkRadiusUpdated" => {
+                self.out.radius = self
+                    .out
+                    .radius
+                    .or_else(|| field(fields, "ChunkRadius").as_u64());
+            }
+            // 3 is PlayerSpawn.
+            "PlayStatus" => self.spawned |= field(fields, "Status").as_u64() == Some(3),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Stores the pending `SubChunk` packet with the bot's check line of it, if `check` is one.
+    fn flush(&mut self, check: Option<&Value>) {
+        let Some(packet) = self.pending.take() else {
+            return;
+        };
+        let checks = check
+            .filter(|c| field(c, "index").as_u64() == Some(packet.index))
+            .map_or(&[][..], |c| array(c, "entries"));
+        for (n, (offset, mut entry)) in packet.entries.into_iter().enumerate() {
+            let offset =
+                [0, 1, 2].map(|i| offset.get(i).and_then(Value::as_i64).unwrap_or(i64::MAX));
+            let payload = checks
+                .get(n)
+                .map(|c| field(c, "payload"))
+                .filter(|p| !p.is_null());
+            if let (Some(payload), Some(map)) = (payload, entry.as_object_mut()) {
+                let strict = field(payload, "strict").clone();
+                if strict.as_str() != Some("ok") {
+                    self.out
+                        .not_strict
+                        .push(format!("{:?} {offset:?}: {strict}", packet.centre));
+                }
+                let content: Vec<Value> = array(payload, "layers")
+                    .iter()
+                    .map(|l| field(l, "content_sha256").clone())
+                    .collect();
+                map.insert("strict".to_owned(), strict);
+                map.insert("content".to_owned(), Value::Array(content));
+            }
+            self.out
+                .sub
+                .entry((packet.centre, offset))
+                .or_default()
+                .push(entry.to_string());
+        }
+    }
+}
+
+/// The marker of the blocks scenario: its position relative to the base position and the states
+/// (as `p6::block_states` writes them) that end a step (alternating) and the scenario; and the
+/// positions the steps can change (each step position and its 8 horizontal neighbours). Changes
+/// elsewhere are the server's own (BDS turns grass under placed blocks into dirt on random ticks)
+/// and are only counted.
+#[derive(Debug)]
+pub(crate) struct Markers {
+    pub(crate) position: [i64; 3],
+    pub(crate) steps: [String; 2],
+    pub(crate) end: String,
+    pub(crate) near: BTreeSet<[i64; 3]>,
+}
+
+/// One block change entry of a blocks capture.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Change {
+    /// `UpdateBlock` or `UpdateSubChunkBlocks`.
+    pub(crate) kind: &'static str,
+    /// The capture index of the packet that carried it.
+    pub(crate) packet: u64,
+    /// Relative to the base position.
+    pub(crate) position: [i64; 3],
+    pub(crate) layer: u64,
+    pub(crate) flags: u64,
+    pub(crate) state: String,
+}
+
+/// The block packets of one step of the blocks scenario.
+#[derive(Debug, PartialEq, Default)]
+pub(crate) struct Step {
+    pub(crate) changes: Vec<Change>,
+    /// The names of the other block packets (`BlockActorData`, `UpdateBlockSynced`), in order.
+    pub(crate) others: Vec<String>,
+    /// Changes away from the step positions (`Markers::near`), not compared.
+    pub(crate) ignored: Vec<Change>,
+}
+
+/// What one step changed: per (layer, position) the last state and flags, and the packet kinds that
+/// carried the changes.
+#[derive(Debug, PartialEq)]
+pub(crate) struct StepSummary {
+    pub(crate) last: BTreeMap<(u64, [i64; 3]), (String, u64)>,
+    pub(crate) kinds: BTreeSet<&'static str>,
+    pub(crate) packets: usize,
+    pub(crate) others: BTreeSet<String>,
+}
+
+impl StepSummary {
+    pub(crate) fn of(step: &Step) -> Self {
+        let mut last = BTreeMap::new();
+        for c in &step.changes {
+            last.insert((c.layer, c.position), (c.state.clone(), c.flags));
+        }
+        let packets: BTreeSet<u64> = step.changes.iter().map(|c| c.packet).collect();
+        Self {
+            last,
+            kinds: step.changes.iter().map(|c| c.kind).collect(),
+            packets: packets.len(),
+            others: step.others.iter().cloned().collect(),
+        }
+    }
+
+    /// The packet kind Anchor sends for this step: `UpdateBlock` when one position
+    /// changed, else `UpdateSubChunkBlocks`. BDS repeats a position in one `UpdateSubChunkBlocks`
+    /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
+    /// updates in two packets of consecutive ticks; neither is followed.
+    fn normalized_kinds(&self) -> BTreeSet<&'static str> {
+        match self.last.len() {
+            0 => BTreeSet::new(),
+            1 => BTreeSet::from(["UpdateBlock"]),
+            _ => BTreeSet::from(["UpdateSubChunkBlocks"]),
+        }
+    }
+}
+
 /// Reads the deferral table: one `<packet> <status> <reason>` per line, `#` starts a comment.
 pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
     let mut names = BTreeSet::new();
@@ -414,15 +771,6 @@ pub(crate) fn sequence(window: &[Received], deferred: &Deferred) -> Vec<String> 
         .collect()
 }
 
-/// The full item packets of a capture (the bot's `<capture>.items.jsonl`): the first
-/// `ItemRegistry`, `CreativeContent` and `CraftingData`, each as its fields.
-#[derive(Debug, Default)]
-pub(crate) struct Items {
-    registry: Option<Value>,
-    creative: Option<Value>,
-    crafting: Option<Value>,
-}
-
 /// Reads a full item packet file.
 pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
     let mut items = Items::default();
@@ -675,131 +1023,6 @@ fn group_problems(creative: &Value) -> Vec<String> {
     problems
 }
 
-/// The item representations a capture uses in its creative and crafting data, by kind: `stack`
-/// (`NetworkID:MetadataValue:BlockRuntimeID` of an item stack), `item` (`Name:MetadataValue` of a
-/// name descriptor), `tag`, `molang`, `potion` (`ID:metadata` of a potion recipe item) and
-/// `potion-id` (an item ID of a potion container change recipe). A name descriptor, potion item
-/// or potion ID also matches any stack of the same item (and metadata); names come from the
-/// capture's `ItemRegistry`.
-#[derive(Debug, Default)]
-struct Representations(BTreeSet<(&'static str, String)>);
-
-impl Representations {
-    fn of(items: &Items) -> Self {
-        let mut set = BTreeSet::new();
-        let mut add = |kind: &'static str, key: String| {
-            set.insert((kind, key));
-        };
-        for value in [&items.creative, &items.crafting].into_iter().flatten() {
-            Self::walk(value, &mut add);
-        }
-        // Stacks also stand for name descriptors and potion items of the same item and metadata.
-        let names: BTreeMap<i64, &str> = items
-            .registry
-            .as_ref()
-            .map(|r| array(r, "Items"))
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|e| Some((field(e, "RuntimeID").as_i64()?, field(e, "Name").as_str()?)))
-            .collect();
-        let stacks: Vec<(i64, String)> = set
-            .iter()
-            .filter(|(kind, _)| *kind == "stack")
-            .filter_map(|(_, key)| {
-                let mut parts = key.split(':');
-                let id = parts.next()?.parse().ok()?;
-                Some((id, parts.next()?.to_owned()))
-            })
-            .collect();
-        for (id, meta) in stacks {
-            if let Some(name) = names.get(&id) {
-                set.insert(("item", format!("{name}:{meta}")));
-            }
-            set.insert(("potion", format!("{id}:{meta}")));
-            set.insert(("potion-id", id.to_string()));
-        }
-        Self(set)
-    }
-
-    fn has(&self, kind: &'static str, key: &str) -> bool {
-        self.0.contains(&(kind, key.to_owned()))
-    }
-
-    /// Calls `f` with every item representation in a JSON tree: objects with `ItemType` and
-    /// `BlockRuntimeID` are stacks, `Descriptor` objects are ingredient descriptors,
-    /// `PotionRecipes` entries give their three items and `PotionContainerChangeRecipes` entries
-    /// their three item IDs.
-    fn walk(value: &Value, f: &mut impl FnMut(&'static str, String)) {
-        match value {
-            Value::Array(list) => {
-                for v in list {
-                    Self::walk(v, f);
-                }
-            }
-            Value::Object(map) => {
-                // Air (network ID 0) is an empty slot, not an item.
-                if let Some(key) = stack_key(value).filter(|k| !k.starts_with("0:")) {
-                    f("stack", key);
-                }
-                if let Some(descriptor) = map.get("Descriptor") {
-                    Self::descriptor(descriptor, f);
-                }
-                for recipe in map
-                    .get("PotionRecipes")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    for (id, meta) in [
-                        ("InputPotionID", "InputPotionMetadata"),
-                        ("ReagentItemID", "ReagentItemMetadata"),
-                        ("OutputPotionID", "OutputPotionMetadata"),
-                    ] {
-                        f(
-                            "potion",
-                            format!("{}:{}", field(recipe, id), field(recipe, meta)),
-                        );
-                    }
-                }
-                let changes = map
-                    .get("PotionContainerChangeRecipes")
-                    .and_then(Value::as_array);
-                for recipe in changes.into_iter().flatten() {
-                    for id in ["InputItemID", "ReagentItemID", "OutputItemID"] {
-                        f("potion-id", field(recipe, id).to_string());
-                    }
-                }
-                for (key, v) in map {
-                    if !matches!(
-                        key.as_str(),
-                        "Descriptor" | "PotionRecipes" | "PotionContainerChangeRecipes"
-                    ) {
-                        Self::walk(v, f);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Calls `f` with one ingredient descriptor; the invalid (empty) descriptor has no fields.
-    fn descriptor(descriptor: &Value, f: &mut impl FnMut(&'static str, String)) {
-        if let Some(name) = field(descriptor, "Name").as_str() {
-            f(
-                "item",
-                format!("{name}:{}", field(descriptor, "MetadataValue")),
-            );
-        } else if let Some(tag) = field(descriptor, "Tag").as_str() {
-            f("tag", tag.to_owned());
-        } else if let Some(expression) = field(descriptor, "Expression").as_str() {
-            f(
-                "molang",
-                format!("{expression} v{}", field(descriptor, "Version")),
-            );
-        }
-    }
-}
-
 /// Notes on recipe content: per recipe list of `CraftingData`, how many recipes only one side has,
 /// compared without their network IDs and UUIDs (BDS makes new recipe UUIDs on every start; only
 /// `MultiRecipes` keep theirs, which name the recipe kind), and the first few recipe IDs of each.
@@ -867,28 +1090,6 @@ fn recipe_notes(a: &Value, b: &Value) -> Vec<String> {
     notes
 }
 
-/// The chunk packets of a capture, made independent of where the player spawned: chunk positions
-/// are relative to the spawn chunk (the player position of `StartGame`) and publisher positions relative
-/// to the player's block column.
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct Chunks {
-    /// Each `LevelChunk` in order: its relative position and its fields without the position.
-    pub(crate) level: Vec<([i64; 2], String)>,
-    /// How many `LevelChunk`s came before `PlayStatus(PlayerSpawn)`.
-    pub(crate) before_spawn: usize,
-    /// The `SubChunk` entries by relative request centre and offset: the entry's fields without the
-    /// offset, the packet's `CacheEnabled` and `Dimension`, and the bot's strict payload check
-    /// (`strict` and each layer's `content_sha256`). A key answered twice has two values.
-    pub(crate) sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
-    /// Payloads that broke Anchor's strict sub-chunk rules: key and reason.
-    pub(crate) not_strict: Vec<String>,
-    /// Each `NetworkChunkPublisherUpdate`: relative x and z, radius, saved chunk count, and whether
-    /// it came after `ChunkRadiusUpdated`.
-    pub(crate) publisher: Vec<([i64; 2], u64, usize, bool)>,
-    /// The radius of the first `ChunkRadiusUpdated`.
-    pub(crate) radius: Option<u64>,
-}
-
 /// Reads the chunk packets of a capture (the whole capture, not only the spawn window).
 pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
     let mut reader = ChunkReader::default();
@@ -901,132 +1102,6 @@ pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
     }
     reader.flush(None);
     Ok(reader.out)
-}
-
-/// The entries of one `SubChunk` packet, waiting for the bot's check line of it.
-#[derive(Debug)]
-struct SubChunkPacket {
-    index: u64,
-    centre: [i64; 3],
-    /// Each entry's offset and its other fields.
-    entries: Vec<(Value, Value)>,
-}
-
-/// The state of `chunks` between capture lines.
-#[derive(Debug, Default)]
-struct ChunkReader {
-    out: Chunks,
-    /// The spawn chunk and the player's block column (x, z).
-    origin: Option<([i64; 2], [i64; 2])>,
-    spawned: bool,
-    pending: Option<SubChunkPacket>,
-}
-
-impl ChunkReader {
-    fn line(&mut self, value: &Value) -> Result<(), String> {
-        let fields = field(value, "fields");
-        let kind = field(value, "type").as_str();
-        let name = field(value, "name").as_str().unwrap_or_default();
-        if kind == Some("subchunk") {
-            self.flush(Some(value));
-            return Ok(());
-        }
-        if kind != Some("packet") {
-            return Ok(());
-        }
-        match name {
-            "StartGame" => {
-                let column = block_column(fields)?.map(i64::from);
-                self.origin = Some((column.map(|c| c.div_euclid(16)), column));
-            }
-            name if CHUNK_PACKETS.contains(&name) => {
-                let (chunk, column) = self
-                    .origin
-                    .ok_or_else(|| format!("{name} before StartGame"))?;
-                let position = field(fields, "Position");
-                match name {
-                    "LevelChunk" => {
-                        let at = [at(position, 0)? - chunk[0], at(position, 1)? - chunk[1]];
-                        let mut rest = fields.clone();
-                        if let Some(map) = rest.as_object_mut() {
-                            map.remove("Position");
-                        }
-                        self.out.level.push((at, rest.to_string()));
-                        if !self.spawned {
-                            self.out.before_spawn += 1;
-                        }
-                    }
-                    "SubChunk" => {
-                        let centre = [
-                            at(position, 0)? - chunk[0],
-                            at(position, 1)?,
-                            at(position, 2)? - chunk[1],
-                        ];
-                        self.flush(None);
-                        self.pending = Some(SubChunkPacket {
-                            index: field(value, "index").as_u64().unwrap_or(u64::MAX),
-                            centre,
-                            entries: sub_chunk_entries(fields),
-                        });
-                    }
-                    "NetworkChunkPublisherUpdate" => self.out.publisher.push((
-                        [at(position, 0)? - column[0], at(position, 2)? - column[1]],
-                        field(fields, "Radius").as_u64().unwrap_or(u64::MAX),
-                        array(fields, "SavedChunks").len(),
-                        self.out.radius.is_some(),
-                    )),
-                    _ => return Err(format!("{name} is in CHUNK_PACKETS but is not read")),
-                }
-            }
-            "ChunkRadiusUpdated" => {
-                self.out.radius = self
-                    .out
-                    .radius
-                    .or_else(|| field(fields, "ChunkRadius").as_u64());
-            }
-            // 3 is PlayerSpawn.
-            "PlayStatus" => self.spawned |= field(fields, "Status").as_u64() == Some(3),
-            _ => {}
-        }
-        Ok(())
-    }
-
-    /// Stores the pending `SubChunk` packet with the bot's check line of it, if `check` is one.
-    fn flush(&mut self, check: Option<&Value>) {
-        let Some(packet) = self.pending.take() else {
-            return;
-        };
-        let checks = check
-            .filter(|c| field(c, "index").as_u64() == Some(packet.index))
-            .map_or(&[][..], |c| array(c, "entries"));
-        for (n, (offset, mut entry)) in packet.entries.into_iter().enumerate() {
-            let offset =
-                [0, 1, 2].map(|i| offset.get(i).and_then(Value::as_i64).unwrap_or(i64::MAX));
-            let payload = checks
-                .get(n)
-                .map(|c| field(c, "payload"))
-                .filter(|p| !p.is_null());
-            if let (Some(payload), Some(map)) = (payload, entry.as_object_mut()) {
-                let strict = field(payload, "strict").clone();
-                if strict.as_str() != Some("ok") {
-                    self.out
-                        .not_strict
-                        .push(format!("{:?} {offset:?}: {strict}", packet.centre));
-                }
-                let content: Vec<Value> = array(payload, "layers")
-                    .iter()
-                    .map(|l| field(l, "content_sha256").clone())
-                    .collect();
-                map.insert("strict".to_owned(), strict);
-                map.insert("content".to_owned(), Value::Array(content));
-            }
-            self.out
-                .sub
-                .entry((packet.centre, offset))
-                .or_default()
-                .push(entry.to_string());
-        }
-    }
 }
 
 /// The block column (x, z) of the player's position in the fields of a `StartGame` packet.
@@ -1185,43 +1260,6 @@ pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
     (differences, notes)
 }
 
-/// The marker of the blocks scenario: its position relative to the base position and the states
-/// (as `p6::block_states` writes them) that end a step (alternating) and the scenario; and the
-/// positions the steps can change (each step position and its 8 horizontal neighbours). Changes
-/// elsewhere are the server's own (BDS turns grass under placed blocks into dirt on random ticks)
-/// and are only counted.
-#[derive(Debug)]
-pub(crate) struct Markers {
-    pub(crate) position: [i64; 3],
-    pub(crate) steps: [String; 2],
-    pub(crate) end: String,
-    pub(crate) near: BTreeSet<[i64; 3]>,
-}
-
-/// One block change entry of a blocks capture.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Change {
-    /// `UpdateBlock` or `UpdateSubChunkBlocks`.
-    pub(crate) kind: &'static str,
-    /// The capture index of the packet that carried it.
-    pub(crate) packet: u64,
-    /// Relative to the base position.
-    pub(crate) position: [i64; 3],
-    pub(crate) layer: u64,
-    pub(crate) flags: u64,
-    pub(crate) state: String,
-}
-
-/// The block packets of one step of the blocks scenario.
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct Step {
-    pub(crate) changes: Vec<Change>,
-    /// The names of the other block packets (`BlockActorData`, `UpdateBlockSynced`), in order.
-    pub(crate) others: Vec<String>,
-    /// Changes away from the step positions (`Markers::near`), not compared.
-    pub(crate) ignored: Vec<Change>,
-}
-
 /// Splits the block changes of a blocks capture into steps. A step ends with the change that sets
 /// the marker position to the step's marker state; the end marker ends the scenario. Changes before
 /// the first step's block (none are expected) belong to step 0. Returns the steps and whether the
@@ -1314,44 +1352,6 @@ pub(crate) fn block_steps(
         }
     }
     Ok((steps, false))
-}
-
-/// What one step changed: per (layer, position) the last state and flags, and the packet kinds that
-/// carried the changes.
-#[derive(Debug, PartialEq)]
-pub(crate) struct StepSummary {
-    pub(crate) last: BTreeMap<(u64, [i64; 3]), (String, u64)>,
-    pub(crate) kinds: BTreeSet<&'static str>,
-    pub(crate) packets: usize,
-    pub(crate) others: BTreeSet<String>,
-}
-
-impl StepSummary {
-    pub(crate) fn of(step: &Step) -> Self {
-        let mut last = BTreeMap::new();
-        for c in &step.changes {
-            last.insert((c.layer, c.position), (c.state.clone(), c.flags));
-        }
-        let packets: BTreeSet<u64> = step.changes.iter().map(|c| c.packet).collect();
-        Self {
-            last,
-            kinds: step.changes.iter().map(|c| c.kind).collect(),
-            packets: packets.len(),
-            others: step.others.iter().cloned().collect(),
-        }
-    }
-
-    /// The packet kind Anchor sends for this step: `UpdateBlock` when one position
-    /// changed, else `UpdateSubChunkBlocks`. BDS repeats a position in one `UpdateSubChunkBlocks`
-    /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
-    /// updates in two packets of consecutive ticks; neither is followed.
-    fn normalized_kinds(&self) -> BTreeSet<&'static str> {
-        match self.last.len() {
-            0 => BTreeSet::new(),
-            1 => BTreeSet::from(["UpdateBlock"]),
-            _ => BTreeSet::from(["UpdateSubChunkBlocks"]),
-        }
-    }
 }
 
 /// Compares the steps of two blocks captures, A (BDS) and B: per step, the last state and flags of

@@ -9,15 +9,15 @@
 //! use anchor::display::{BossBar, Colour, Scoreboard, Slot};
 //! use anchor::player;
 //!
-//! fn show(ctx: &mut Context<'_>, player: player::Id, online: i32) {
+//! fn show(cx:&mut Context<'_>, player: player::Id, online: i32) {
 //!     let board = Scoreboard::new(Slot::Sidebar, "Lobby")
 //!         .line("Online:", 0)
 //!         .line(format!("{online} players"), 1);
-//!     let _ = ctx.set_scoreboard(player, board);
+//!     let _ = cx.set_scoreboard(player, board);
 //!     let bar = BossBar::new("Next game")
 //!         .with_progress(0.5)
 //!         .with_colour(Colour::Blue);
-//!     let _ = ctx.set_boss_bar(player, bar);
+//!     let _ = cx.set_boss_bar(player, bar);
 //! }
 //! ```
 
