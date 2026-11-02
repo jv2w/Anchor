@@ -1,4 +1,4 @@
-//! `/check`: checks the data files while the server runs (Anchor's own, PMMP has none).
+//! `/check`: checks the data files while the server runs.
 
 use super::Msg;
 use crate::command::{Args, Command, Output, Result, Sender};
@@ -22,7 +22,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
 
 /// Saves everything at the end of the tick, then has the save thread read every stored value of
 /// that commit back and check it against its checksum, in steps between its other work, so the
-/// tick does not wait for it (`/check`, Anchor's own). The result goes to the sender when the
+/// tick does not wait for it (`/check`). The result goes to the sender when the
 /// check ends (a player who has left is told nothing) and to the log. One check at a time.
 fn check(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
     if !save::ask_check(cx.state, *sender) {

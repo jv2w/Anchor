@@ -248,12 +248,6 @@ impl Param {
         Self::new(name, Kind::Bool)
     }
 
-    /// One word as typed ([`Args::string`]): a time marker of a world clock, which the handler
-    /// looks up (BDS's `ClockTimeMarker`).
-    pub(crate) fn clock_time_marker(name: impl Into<String>) -> Self {
-        Self::new(name, Kind::ClockTimeMarker)
-    }
-
     /// An effect name such as `speed` ([`Args::effect`]).
     pub fn effect(name: impl Into<String>) -> Self {
         Self::new(name, Kind::Effect)
@@ -431,7 +425,6 @@ impl Param {
                 return;
             }
             Kind::Enum { name, .. } | Kind::SoftEnum { name } => name,
-            Kind::ClockTimeMarker => "ClockTimeMarker",
             Kind::Item => ITEM_ENUM,
             Kind::Block => BLOCK_ENUM,
             Kind::Effect => EFFECT_ENUM,
@@ -479,8 +472,6 @@ pub(crate) enum Kind {
     Enum { name: String, values: Vec<String> },
     /// Any word; the client suggests the values the server last set for the type `name`.
     SoftEnum { name: String },
-    /// Any word, as a time marker of a world clock such as `noon` (BDS's `/time set`).
-    ClockTimeMarker,
     /// An item name.
     Item,
     /// A block name.

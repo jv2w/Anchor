@@ -35,7 +35,7 @@ pub(crate) struct Access {
 }
 
 impl Access {
-    /// Builds the lists the server file held, with the whitelist on or off as the settings say.
+    /// The lists the server file held, with the whitelist on or off as the settings say.
     pub(crate) fn new(data: AccessData, whitelist_enabled: bool) -> Self {
         let AccessData {
             ops,
@@ -67,15 +67,16 @@ impl Access {
         access
     }
 
+    /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is
+    /// on it or an operator.
+    pub(super) fn can_join(&self, name: &str) -> bool {
+        !self.whitelist_enabled || self.is_op(name) || self.is_listed(name)
+    }
+
     /// Whether `name` (any ASCII case) is an operator. Asked for every permission check, so it
     /// does not allocate ([`folded`]).
     pub(super) fn is_op(&self, name: &str) -> bool {
         folded(name, |n| self.ops.contains(n)).unwrap_or(false)
-    }
-
-    /// The operators, ASCII lowercase, in name order.
-    pub(super) fn ops(&self) -> impl Iterator<Item = &str> {
-        self.ops.iter().map(String::as_str)
     }
 
     /// Whether `name` (any ASCII case) is on the whitelist.
@@ -83,10 +84,9 @@ impl Access {
         folded(name, |n| self.whitelist.contains(n)).unwrap_or(false)
     }
 
-    /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is
-    /// on it or an operator.
-    pub(super) fn can_join(&self, name: &str) -> bool {
-        !self.whitelist_enabled || self.is_op(name) || self.is_listed(name)
+    /// The operators, ASCII lowercase, in name order.
+    pub(super) fn ops(&self) -> impl Iterator<Item = &str> {
+        self.ops.iter().map(String::as_str)
     }
 
     /// The whitelisted names, ASCII lowercase, in name order.
@@ -106,9 +106,12 @@ impl Access {
             .filter(|e| !e.has_expired(tick))
     }
 
-    /// The ban of `ip` in force at `tick`.
+    /// The ban of `ip` in force at `tick`; an IPv4 address written as IPv6 is the IPv4 address,
+    /// the form [`BanEntry::ip`] keeps.
     pub(super) fn ip_ban_entry(&self, ip: IpAddr, tick: u64) -> Option<&BanEntry> {
-        self.ip_bans.get(&ip).filter(|e| !e.has_expired(tick))
+        self.ip_bans
+            .get(&ip.to_canonical())
+            .filter(|e| !e.has_expired(tick))
     }
 
     /// The name bans in force at `tick`, in name order.
@@ -200,7 +203,7 @@ impl Access {
     }
 
     /// Adds or replaces a ban made at engine tick `tick`, after dropping the bans of its list
-    /// that have ended (as PMMP does when a ban list changes).
+    /// that have ended.
     pub(super) fn ban(&mut self, entry: BanEntry, tick: u64) -> permission::Result<()> {
         let entry = entry.checked(tick)?;
         self.drop_expired(tick);
@@ -245,7 +248,7 @@ impl Access {
     }
 
     /// Lifts the ban of `name`; true if there was one, ended or not.
-    pub(super) fn pardon(&mut self, name: &str) -> bool {
+    pub(super) fn unban(&mut self, name: &str) -> bool {
         let name = name.to_ascii_lowercase();
         let Some(entry) = self.bans.remove(&name) else {
             return false;
@@ -257,8 +260,10 @@ impl Access {
         true
     }
 
-    /// Lifts the ban of `ip`; true if there was one, ended or not.
-    pub(super) fn pardon_ip(&mut self, ip: IpAddr) -> bool {
+    /// Lifts the ban of `ip` (an IPv4 address written as IPv6 is the IPv4 address); true if there
+    /// was one, ended or not.
+    pub(super) fn unban_ip(&mut self, ip: IpAddr) -> bool {
+        let ip = ip.to_canonical();
         let Some(entry) = self.ip_bans.remove(&ip) else {
             return false;
         };
@@ -324,7 +329,7 @@ impl Access {
             .map(|(_, name)| name.clone())
             .collect();
         for name in ended {
-            self.pardon(&name);
+            self.unban(&name);
         }
         let ended: Vec<IpAddr> = self
             .ip_ban_ends
@@ -333,7 +338,7 @@ impl Access {
             .map(|&(_, ip)| ip)
             .collect();
         for ip in ended {
-            self.pardon_ip(ip);
+            self.unban_ip(ip);
         }
     }
 
@@ -459,7 +464,7 @@ mod tests {
         let names: Vec<&str> = access.bans(10).map(BanEntry::name).collect();
         assert_eq!(names, ["forever", "late", "mv", "new"]);
         assert_eq!(access.ban_ends.len(), 2, "late and mv end");
-        assert!(access.pardon("late"));
+        assert!(access.unban("late"));
         assert_eq!(access.ban_ends.len(), 1);
     }
 }

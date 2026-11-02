@@ -21,7 +21,6 @@ mod anvil;
 mod enchant;
 
 pub(super) use enchant::Choice;
-pub(in crate::tick) use enchant::enchant as enchant_item;
 
 use tracing::warn;
 

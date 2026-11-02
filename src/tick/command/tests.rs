@@ -214,8 +214,8 @@ fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
         echo("n", &[Param::int("a")]),
         echo("t", &[Param::target("who")]),
     ]);
-    // BDS's syntax error (P6 `syntax`): the word where the line stops fitting, empty where words
-    // are missing, with up to 10 characters of the line before and after it.
+    // The official server's syntax error (P6 `syntax`): the word where the line stops fitting,
+    // empty where words are missing, with up to 10 characters of the line before and after it.
     let syntax = |before: &str, word: &str, after: &str| Error::Syntax {
         before: before.to_owned(),
         word: word.to_owned(),
@@ -274,7 +274,7 @@ fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
             text: "commands.generic.unknown".to_owned(),
             params: vec!["nope".to_owned()],
         },
-        "BDS's translation"
+        "the official server's translation"
     );
     assert_eq!(
         usage.line(),
@@ -292,12 +292,12 @@ fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
             text: "commands.generic.error.permissions".to_owned(),
             params: vec!["fly".to_owned()],
         },
-        "BDS's translation"
+        "the official server's translation"
     );
 }
 
 /// Syntax errors name the word where the line stops fitting the overload that fits furthest, as
-/// BDS does (P6 `syntax`).
+/// the official server does (P6 `syntax`).
 #[test]
 fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
     let syntax = |before: &str, word: &str, after: &str| Error::Syntax {
@@ -315,7 +315,7 @@ fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
                 " 3 and mor".to_owned()
             ],
         },
-        "BDS's translation"
+        "the official server's translation"
     );
     let (mut state, _rx) = server(vec![
         echo("p", &[Param::position("at")]),
@@ -469,15 +469,15 @@ fn a_permission_nothing_registered_is_not_granted() {
     assert!(state.commands.grants.is_empty() && state.commands.resend.is_empty());
 }
 
-/// A default the builder sets replaces the permission's own wherever it is checked: `/kill` for
-/// operators only, by its command and by its constant; the console counts as an operator, a
+/// A default the builder sets replaces the permission's own wherever it is checked: `/version`
+/// for operators only, by its command and by its constant; the console counts as an operator, a
 /// grant still wins, and the other permissions keep theirs.
 #[test]
 fn a_permission_default_set_at_build_replaces_its_own() {
-    let kill = permission::COMMAND_KILL_SELF;
+    let version = permission::COMMAND_VERSION;
     let mut commands = crate::Server::builder()
-        .permission_default(kill, By::False)
-        .permission_default(kill, By::Op)
+        .permission_default(version, By::False)
+        .permission_default(version, By::Op)
         .setup
         .commands;
     commands.finish().unwrap();
@@ -486,26 +486,23 @@ fn a_permission_default_set_at_build_replaces_its_own() {
     let (a, _rx) = join(1, 0);
     tick(&mut state, &mut vec![a], &mut TickOutput::default());
     let mut cx = Context { state: &mut state };
-    let op_only = Permission::new(kill.name(), By::Op);
+    let op_only = Permission::new(version.name(), By::Op);
     assert_eq!(
-        cx.permission(kill.name()),
+        cx.permission(version.name()),
         Some(op_only),
         "the last default"
     );
-    assert_eq!(
-        cx.command("kill").unwrap().permissions(),
-        [op_only, permission::COMMAND_KILL_OTHER]
-    );
-    assert!(!cx.has_permission(id(1), kill));
-    assert!(cx.has_permission(Sender::Console, kill));
+    assert_eq!(cx.command("version").unwrap().permissions(), [op_only]);
+    assert!(!cx.has_permission(id(1), version));
+    assert!(cx.has_permission(Sender::Console, version));
     assert!(cx.has_permission(id(1), permission::COMMAND_CLEAR_SELF));
     assert!(matches!(
-        execute(cx.state, id(1), "kill"),
+        execute(cx.state, id(1), "version"),
         Err(Error::Permission { .. })
     ));
     let player1 = player::Id::new(SessionId::new(1));
-    assert!(cx.set_permission(player1, kill, true));
-    assert!(cx.has_permission(id(1), kill), "a grant wins");
+    assert!(cx.set_permission(player1, version, true));
+    assert!(cx.has_permission(id(1), version), "a grant wins");
 }
 
 #[test]
@@ -536,9 +533,9 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
             .alias("hub")
             .alias("lobby")))
         .permission(FLY)
-        .without_command("me");
+        .without_command("zap");
     let mut commands = builder.setup.commands;
-    commands.register(ok(Command::new("me", "builtin")), Origin::Builtin);
+    commands.register(ok(Command::new("zap", "builtin")), Origin::Builtin);
     commands.register(ok(Command::new("spawn", "builtin")), Origin::Builtin);
     commands.register(
         ok(Command::new("list", "builtin").alias("hub").alias("who")),
@@ -556,7 +553,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     assert_eq!(spawn.aliases(), ["hub", "lobby"]);
     assert!(spawn.permissions().is_empty());
     assert_eq!(spawn.usage_text(), "/spawn");
-    assert!(cx.command("me").is_none(), "dropped with without_command");
+    assert!(cx.command("zap").is_none(), "dropped with without_command");
     let list = cx.command("who").unwrap();
     assert_eq!(
         (list.name(), list.aliases()),
@@ -846,7 +843,7 @@ fn available_commands_list_what_each_player_may_use() {
     assert_eq!(
         commands["shout"][0].1,
         valid | u32::from(CommandArgType::MessageRoot),
-        "68 as BDS and PMMP send it, not gophertunnel's 67"
+        "68 as the official server sends it, not gophertunnel's 67"
     );
     assert_eq!(enums["Mode"], ["a", "b"]);
     assert!(enums["Item"].contains(&"stick".to_owned()));
@@ -863,7 +860,7 @@ fn available_commands_list_what_each_player_may_use() {
     assert_eq!(
         enums["flyCommandAliases"],
         ["fly", "f"],
-        "BDS puts the name first"
+        "the official server puts the name first"
     );
     assert_eq!(enums["Boolean"], ["true", "false"]);
     assert!(
@@ -903,7 +900,7 @@ fn a_permission_change_resends_the_command_list_after_the_spawn_window() {
 
 // api: Server::addOp, Server::removeOp
 #[test]
-fn op_and_deop_send_the_abilities_bds_sends() {
+fn op_and_deop_send_the_abilities_the_official_server_sends() {
     use crate::protocol::consts::Ability;
     let (mut state, mut rx) = server(Vec::new());
     let mut output = TickOutput::default();
@@ -934,8 +931,16 @@ fn op_and_deop_send_the_abilities_bds_sends() {
     tick(&mut state, &mut Vec::new(), &mut output);
     let got = abilities(&mut rx[0]);
     assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!((got[0].0, got[0].1), (1, 2), "BDS: operator");
-    assert_eq!(got[0].2, 63 | operator, "BDS: survival values 255");
+    assert_eq!(
+        (got[0].0, got[0].1),
+        (1, 2),
+        "the official server: operator"
+    );
+    assert_eq!(
+        got[0].2,
+        63 | operator,
+        "the official server: survival values 255"
+    );
     Context { state: &mut state }.op("player1").unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
     assert!(abilities(&mut rx[0]).is_empty(), "already an operator");
@@ -1404,8 +1409,8 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     assert!(!commit, "the change asked for a commit");
     // The snapshot carried every changed entry once; later changes go to the next one.
     let mut cx = Context { state: &mut once };
-    assert!(cx.pardon("griefer") && !cx.pardon("griefer"));
-    assert!(cx.pardon_ip(ip) && cx.remove_from_whitelist("alex") && cx.deop("steve"));
+    assert!(cx.unban("griefer") && !cx.unban("griefer"));
+    assert!(cx.unban_ip(ip) && cx.remove_from_whitelist("alex") && cx.deop("steve"));
     let changes = once.commands.take_access_changes();
     assert_eq!(changes.len(), 4);
     assert!(changes.iter().all(|(_, w)| *w == AccessWrite::Delete));
@@ -1425,6 +1430,19 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     assert_eq!(names, [("new".to_owned(), false), ("old".to_owned(), true)]);
 }
 
+/// An IPv4 address written as IPv6 is the IPv4 address in every lookup, as in the ban itself.
+#[test]
+fn an_ip_ban_is_found_and_lifted_by_either_spelling_of_an_ipv4_address() {
+    let v4 = IpAddr::from([1, 2, 3, 4]);
+    let mapped: IpAddr = "::ffff:1.2.3.4".parse().unwrap();
+    let (mut state, _rx) = server(Vec::new());
+    let mut cx = Context { state: &mut state };
+    cx.ban(BanEntry::ip(v4)).unwrap();
+    assert!(cx.is_ip_banned(mapped) && cx.ip_ban_entry(mapped).is_some());
+    assert!(cx.unban_ip(mapped));
+    assert!(!cx.is_ip_banned(v4));
+}
+
 #[test]
 fn a_snapshot_holds_the_list_changes() {
     let (mut state, _rx) = server(Vec::new());
@@ -1441,7 +1459,7 @@ fn a_snapshot_holds_the_list_changes() {
 }
 
 #[test]
-fn joins_are_refused_in_pmmp_order_with_the_clients_or_anchors_messages() {
+fn joins_are_refused_in_priority_order_with_the_clients_or_anchors_messages() {
     let (mut state, _rx) = server(Vec::new());
     let mut someone = state.players[&SessionId::new(1)].identity.clone();
     // Another player: not the online one of the same XUID, whose own slot would count as free.
@@ -1637,26 +1655,25 @@ fn available_commands_carry_only_the_enums_of_the_commands_a_player_may_use() {
 }
 
 #[test]
-fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
+fn every_name_and_alias_reaches_the_client_as_the_official_server_lists_them() {
     let (mut state, _rx) = server(Vec::new());
     let s1 = SessionId::new(1);
     let packet =
         |state: &State| available_commands(state.commands.listing(), s1, &state.players[&s1]);
-    let (commands, enums) = listed(&packet(&state));
+    let (_, enums) = listed(&packet(&state));
     let typed = &enums["CommandName"];
-    for name in ["tell", "w", "msg", "kill", "suicide", "me", "help", "?"] {
+    for name in ["version", "ver", "about"] {
         assert!(typed.contains(&name.to_owned()), "{name}");
     }
     assert!(!typed.contains(&"op".to_owned()), "a member may not use op");
     assert!(
-        !commands.contains_key("help"),
-        "the client has its own help"
+        !typed.contains(&"kill".to_owned()),
+        "a member may not use kill"
     );
-    assert_eq!(enums["tellCommandAliases"], ["tell", "w", "msg"]);
-    assert_eq!(enums["killCommandAliases"], ["kill", "suicide"]);
+    assert_eq!(enums["versionCommandAliases"], ["version", "ver", "about"]);
     Context { state: &mut state }.op("player1").unwrap();
     let sent = packet(&state);
-    let (commands, enums) = listed(&sent);
+    let (_, enums) = listed(&sent);
     let Packet::AvailableCommands(p) = &sent else {
         panic!();
     };
@@ -1667,9 +1684,6 @@ fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
     for c in &usable {
         names.push(c.name().to_owned());
         names.extend(c.aliases().iter().cloned());
-        if c.name() == "help" {
-            continue;
-        }
         let net = p
             .commands
             .iter()
@@ -1686,12 +1700,84 @@ fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
         expected.extend(c.aliases().iter().cloned());
         assert_eq!(enums[&enum_name], expected);
     }
-    assert!(!commands.contains_key("help"));
     assert_eq!(
         enums["CommandName"], names,
         "every name the operator may type, once"
     );
-    assert_eq!(p.commands.len(), usable.len() - 1, "all but help");
+    assert_eq!(p.commands.len(), usable.len());
+}
+
+/// The commands Anchor dropped, with their aliases and permissions, are not registered; `kill` is
+/// for operators only with one permission, and `unban` and `unban-ip` replace `pardon` and
+/// `pardon-ip`.
+#[test]
+fn removed_commands_and_their_permissions_are_not_registered() {
+    let (mut state, _rx) = server(Vec::new());
+    let cx = Context { state: &mut state };
+    for name in [
+        "help",
+        "?",
+        "me",
+        "say",
+        "seed",
+        "setworldspawn",
+        "defaultgamemode",
+        "difficulty",
+        "time",
+        "particle",
+        "effect",
+        "enchant",
+        "spawnpoint",
+        "xp",
+        "title",
+        "tell",
+        "w",
+        "msg",
+        "transferserver",
+        "suicide",
+        "pardon",
+        "pardon-ip",
+    ] {
+        assert!(cx.command(name).is_none(), "{name}");
+    }
+    for name in [
+        "anchor.command.help",
+        "anchor.command.me",
+        "anchor.command.say",
+        "anchor.command.seed",
+        "anchor.command.setworldspawn",
+        "anchor.command.defaultgamemode",
+        "anchor.command.difficulty",
+        "anchor.command.time.add",
+        "anchor.command.time.query",
+        "anchor.command.time.set",
+        "anchor.command.time.start",
+        "anchor.command.time.stop",
+        "anchor.command.particle",
+        "anchor.command.effect.other",
+        "anchor.command.effect.self",
+        "anchor.command.enchant.other",
+        "anchor.command.enchant.self",
+        "anchor.command.spawnpoint.other",
+        "anchor.command.spawnpoint.self",
+        "anchor.command.xp.other",
+        "anchor.command.xp.self",
+        "anchor.command.title.other",
+        "anchor.command.title.self",
+        "anchor.command.tell",
+        "anchor.command.transferserver",
+        "anchor.command.kill.self",
+        "anchor.command.kill.other",
+    ] {
+        assert!(cx.permission(name).is_none(), "{name}");
+    }
+    for name in ["unban", "unban-ip"] {
+        assert!(cx.command(name).is_some(), "{name}");
+    }
+    let kill = cx.command("kill").unwrap();
+    assert_eq!(kill.permissions(), [permission::COMMAND_KILL]);
+    assert!(kill.aliases().is_empty());
+    assert_eq!(permission::COMMAND_KILL.default(), By::Op);
 }
 
 #[test]
@@ -1845,6 +1931,10 @@ fn a_soft_enum_may_not_take_an_enum_type_name() {
     let mut commands = Commands::default();
     commands.register(
         Command::new("a", "").overload(&[Param::soft_enumeration("x", "Boolean")], handler),
+        Origin::User,
+    );
+    commands.register(
+        Command::new("b", "").overload(&[Param::bool("y")], handler),
         Origin::User,
     );
     assert_eq!(

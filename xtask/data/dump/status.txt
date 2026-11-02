@@ -156,6 +156,22 @@ command\defaults\DumpMemoryCommand** skipped PHP memory dump tooling
 command\defaults\GarbageCollectorCommand** skipped PHP garbage collector control
 command\defaults\PluginsCommand** skipped no plugins: Anchor is a library used from the user's binary
 command\defaults\TimingsCommand** skipped PHP timings profiler
+command\defaults\HelpCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\MeCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\SayCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\SeedCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\SetWorldSpawnCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\DefaultGamemodeCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\DifficultyCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\TimeCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\ParticleCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\EffectCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\EnchantCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\SpawnpointCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\XpCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\TitleCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\TellCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
+command\defaults\TransferServerCommand** skipped no built-in command: a server registers its own with `ServerBuilder::command`
 command\defaults\** merged SimpleCommandMap::register
 
 # ===== Shared PHP and PMMP plumbing (every namespace) =====

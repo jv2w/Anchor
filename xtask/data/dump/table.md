@@ -7,8 +7,8 @@ Rows: the non-`@internal` class-likes of `xtask/data/dump/api.json` and the publ
 |---|---:|
 | implemented | 1824 |
 | differs | 21 |
-| merged | 3565 |
-| skipped | 4804 |
+| merged | 3517 |
+| skipped | 4852 |
 | blank | 3 |
 | total | 10217 |
 
@@ -3359,7 +3359,7 @@ implemented 158, differs 0, merged 2062, skipped 1116, blank 2 (of 3338 rows)
 
 ## `command`
 
-implemented 24, differs 0, merged 130, skipped 26, blank 0 (of 180 rows)
+implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -3369,7 +3369,7 @@ implemented 24, differs 0, merged 130, skipped 26, blank 0 (of 180 rows)
 | `command\Command` | implemented | src/command.rs:87 `Command` | tests/server.rs::a_server_builds_with_a_command_of_the_users |  |
 | `command\Command::__construct` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\Command::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:1241 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:793 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\Command::execute` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\Command::getAliases` | implemented | src/command.rs:163 `aliases` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\Command::getDescription` | implemented | src/command.rs:169 `description` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
@@ -3387,162 +3387,162 @@ implemented 24, differs 0, merged 130, skipped 26, blank 0 (of 180 rows)
 | `command\Command::setPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
 | `command\Command::setPermissions` | implemented | src/command.rs:153 `permission` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads |  |
 | `command\Command::setUsage` | implemented | src/command.rs:116 `with_usage` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::testPermission` | merged | src/tick/command.rs:1310 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
-| `command\Command::testPermissionSilent` | implemented | src/tick/command.rs:1310 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `command\Command::testPermission` | merged | src/tick/command.rs:574 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
+| `command\Command::testPermissionSilent` | implemented | src/tick/command.rs:574 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\Command::unregister` | skipped |  |  | commands are fixed at `build()` |
 | `command\CommandExecutor` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\CommandExecutor::onCommand` | merged | src/command.rs:86 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\CommandMap` | merged | src/tick/command.rs:518 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `CommandMap::register` |
+| `command\CommandMap` | merged | src/tick/command.rs:507 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `CommandMap::register` |
 | `command\CommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `command\CommandMap::dispatch` | implemented | src/tick/command.rs:1187 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `command\CommandMap::getCommand` | implemented | src/tick/command.rs:1318 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\CommandMap::register` | implemented | src/tick/command.rs:518 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\CommandMap::registerAll` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\CommandSender` | implemented | src/command.rs:495 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `command\CommandMap::dispatch` | implemented | src/tick/command.rs:749 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `command\CommandMap::getCommand` | implemented | src/tick/command.rs:582 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\CommandMap::register` | implemented | src/tick/command.rs:507 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\CommandMap::registerAll` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\CommandSender` | implemented | src/command.rs:486 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\CommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `command\CommandSender::getName` | implemented | src/tick/command.rs:1210 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\CommandSender::getName` | implemented | src/tick/command.rs:563 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:222 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:1222 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:774 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:275 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
-| `command\SimpleCommandMap` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:1188 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:1319 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:1330 `commands` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\SimpleCommandMap::register` | implemented | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:750 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:583 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:594 `commands` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\SimpleCommandMap::register` | implemented | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::registerServerAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
-| `command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:528 `without_command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\defaults\BanCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DefaultGamemodeCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DefaultGamemodeCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DefaultGamemodeCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DeopCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DifficultyCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DifficultyCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\DifficultyCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:518 `without_command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `command\defaults\BanCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\DefaultGamemodeCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\DefaultGamemodeCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\DefaultGamemodeCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\DeopCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\DifficultyCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\DifficultyCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\DifficultyCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\DumpMemoryCommand` | skipped |  |  | PHP memory dump tooling |
 | `command\defaults\DumpMemoryCommand::__construct` | skipped |  |  | PHP memory dump tooling |
 | `command\defaults\DumpMemoryCommand::execute` | skipped |  |  | PHP memory dump tooling |
-| `command\defaults\EffectCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\EffectCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\EffectCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\EnchantCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\EnchantCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\EnchantCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\GamemodeCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\EffectCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\EffectCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\EffectCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\EnchantCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\EnchantCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\EnchantCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\GamemodeCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
 | `command\defaults\GarbageCollectorCommand` | skipped |  |  | PHP garbage collector control |
 | `command\defaults\GarbageCollectorCommand::__construct` | skipped |  |  | PHP garbage collector control |
 | `command\defaults\GarbageCollectorCommand::execute` | skipped |  |  | PHP garbage collector control |
-| `command\defaults\GiveCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\HelpCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\HelpCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\HelpCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KickCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KickCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\MeCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\MeCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\MeCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\OpCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\OpCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ParticleCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ParticleCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\ParticleCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\HelpCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\HelpCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\HelpCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\KickCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\KickCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\MeCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\MeCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\MeCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\OpCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\OpCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\ParticleCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\ParticleCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\ParticleCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\PluginsCommand` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `command\defaults\PluginsCommand::__construct` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `command\defaults\PluginsCommand::execute` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `command\defaults\SaveCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SayCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SayCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SayCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SeedCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SeedCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SeedCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SetWorldSpawnCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SetWorldSpawnCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SetWorldSpawnCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SpawnpointCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SpawnpointCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\SpawnpointCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StatusCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TellCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TellCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TellCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TimeCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TimeCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TimeCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\SayCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SayCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SayCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SeedCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SeedCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SeedCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SetWorldSpawnCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SetWorldSpawnCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SetWorldSpawnCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SpawnpointCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SpawnpointCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\SpawnpointCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\StatusCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\TellCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TellCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TellCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TimeCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TimeCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TimeCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\TimingsCommand` | skipped |  |  | PHP timings profiler |
 | `command\defaults\TimingsCommand::__construct` | skipped |  |  | PHP timings profiler |
 | `command\defaults\TimingsCommand::execute` | skipped |  |  | PHP timings profiler |
-| `command\defaults\TitleCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TitleCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TitleCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TransferServerCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TransferServerCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\TransferServerCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\VanillaCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\XpCommand` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\XpCommand::__construct` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\defaults\XpCommand::execute` | merged | src/tick/command.rs:519 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
-| `command\utils\CommandException` | merged | src/tick/command.rs:1187 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `command\defaults\TitleCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TitleCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TitleCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TransferServerCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TransferServerCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\TransferServerCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\VanillaCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:508 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::register` |
+| `command\defaults\XpCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\XpCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\defaults\XpCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
+| `command\utils\CommandException` | merged | src/tick/command.rs:749 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 | `command\utils\CommandStringHelper` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
 | `command\utils\CommandStringHelper::parseQuoteAware` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
-| `command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:1187 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:749 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 
 ## `console`
 
@@ -3550,20 +3550,20 @@ implemented 3, differs 0, merged 5, skipped 20, blank 0 (of 28 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `console\ConsoleCommandSender` | implemented | src/command.rs:501 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
+| `console\ConsoleCommandSender` | implemented | src/command.rs:492 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
 | `console\ConsoleCommandSender::__construct` | skipped |  |  | the console sender is `command::Sender`'s console case |
-| `console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `console\ConsoleCommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:1211 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:564 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `console\ConsoleCommandSender::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `console\ConsoleCommandSender::getScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `console\ConsoleCommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:1397 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:622 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `console\ConsoleCommandSender::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:1223 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:775 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `console\ConsoleCommandSender::setBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
 | `console\ConsoleCommandSender::setScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `console\ConsoleCommandSender::unsetBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
@@ -4419,8 +4419,8 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `entity\Ageable` | implemented | src/tick/entity/api.rs:1248 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
-| `entity\Ageable::isBaby` | implemented | src/tick/entity/api.rs:1249 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Ageable` | implemented | src/tick/entity/api.rs:1247 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Ageable::isBaby` | implemented | src/tick/entity/api.rs:1248 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
 | `entity\Attribute` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Attribute::__construct` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Attribute::getDefaultValue` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
@@ -4458,15 +4458,15 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Entity::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::addMotion` | differs | src/tick/entity/api.rs:86 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index | `Mut::set_motion` replaces the motion; it does not add to it |
 | `entity\Entity::attack` | implemented | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:275 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
-| `entity\Entity::broadcastAnimation` | implemented | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
+| `entity\Entity::broadcastAnimation` | implemented | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\Entity::broadcastSound` | merged | src/tick/world_api.rs:149 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::canBeMovedByCurrents` | skipped |  |  | entity rule code |
 | `entity\Entity::canBeRenamed` | skipped |  |  | name tag item rule code |
 | `entity\Entity::canClimb` | implemented | src/tick/survival/api.rs:578 `can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `entity\Entity::canClimbWalls` | implemented | src/tick/survival/api.rs:584 `can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `entity\Entity::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\Entity::canSaveWithChunk` | implemented | src/tick/entity/api.rs:999 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
+| `entity\Entity::canSaveWithChunk` | implemented | src/tick/entity/api.rs:998 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
 | `entity\Entity::close` | implemented | src/tick/entity/api.rs:328 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::despawnFrom` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::despawnFromAll` | skipped |  |  | viewers follow the chunks each player sees |
@@ -4474,50 +4474,50 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:327 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:502 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:908 `direction`<br>src/tick/survival/api.rs:501 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
-| `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:908 `direction`<br>src/tick/survival/api.rs:501 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:888 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
-| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:902 `eye_position`<br>src/tick/player.rs:258 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:951 `fall_distance`<br>src/tick/survival/api.rs:471 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:933 `fire_ticks`<br>src/tick/survival/api.rs:445 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1258 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Entity::getHealth` | implemented | src/tick/entity/api.rs:914 `health`<br>src/tick/survival/api.rs:308 `health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:907 `direction`<br>src/tick/survival/api.rs:501 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
+| `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:907 `direction`<br>src/tick/survival/api.rs:501 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:887 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
+| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:901 `eye_position`<br>src/tick/player.rs:258 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:950 `fall_distance`<br>src/tick/survival/api.rs:471 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:932 `fire_ticks`<br>src/tick/survival/api.rs:445 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1257 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::getHealth` | implemented | src/tick/entity/api.rs:913 `health`<br>src/tick/survival/api.rs:308 `health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:507 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `entity\Entity::getId` | implemented | src/tick/entity/api.rs:836 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getId` | implemented | src/tick/entity/api.rs:835 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:572 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
-| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:862 `position`<br>src/tick/player.rs:252 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:920 `max_health`<br>src/tick/survival/api.rs:315 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:880 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:963 `name_tag`<br>src/tick/survival/api.rs:667 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:861 `position`<br>src/tick/player.rs:252 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:919 `max_health`<br>src/tick/survival/api.rs:315 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:879 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:962 `name_tag`<br>src/tick/survival/api.rs:667 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::getNetworkProperties` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
-| `entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1145 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1146 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1099 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
-| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:861 `position`<br>src/tick/player.rs:251 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
-| `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:981 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1144 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1145 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1098 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:860 `position`<br>src/tick/player.rs:251 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
+| `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:980 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:677 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::getSize` | merged | src/tick/entity.rs:502 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
-| `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1264 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1263 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
-| `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1019 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:854 `world`<br>src/tick/player.rs:242 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:993 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1018 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:853 `world`<br>src/tick/player.rs:242 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:992 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:699 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::heal` | implemented | src/tick/entity/api.rs:265 `heal`<br>src/tick/survival/api.rs:776 `heal` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:927 `is_alive`<br>src/tick/survival/api.rs:322 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
+| `entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:926 `is_alive`<br>src/tick/survival/api.rs:322 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `entity\Entity::isClosed` | skipped |  |  | a removed entity's Id finds nothing (`Context::entity` is `None`) |
-| `entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:957 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:956 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::isFlaggedForDespawn` | skipped |  |  | a flagged entity is gone from the API at once: `Context::entity` is `None` |
 | `entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1453 `is_player_inside_solid` | src/tick/entity/custom/tests.rs::a_custom_entity_suffocates_with_its_eyes_in_a_solid_block<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_suffocates_at_its_scaled_eyes<br>src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:987 `is_invisible`<br>src/tick/survival/api.rs:683 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:975 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:969 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:939 `is_on_fire`<br>src/tick/survival/api.rs:439 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:945 `is_on_ground`<br>src/tick/survival/api.rs:523 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:986 `is_invisible`<br>src/tick/survival/api.rs:683 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:974 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:968 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
+| `entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:938 `is_on_fire`<br>src/tick/survival/api.rs:439 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:944 `is_on_ground`<br>src/tick/survival/api.rs:523 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:693 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1443 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Entity::kill` | implemented | src/tick/entity/api.rs:289 `kill`<br>src/tick/survival/api.rs:784 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
@@ -4550,7 +4550,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:173 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1408 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:227 `set_on_fire`<br>src/tick/survival/api.rs:1085 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:538 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:537 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:99 `set_rotation`<br>src/tick/survival/api.rs:1166 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/survival/api.rs::a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick |  |
 | `entity\Entity::setScale` | implemented | src/tick/entity/api.rs:187 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1382 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4559,7 +4559,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::spawnToAll` | implemented | src/tick/entity/custom.rs:304 `spawn_custom_entity` | src/tick/entity/custom/tests.rs::custom_entities_are_shown_with_their_identifier_health_and_box_and_removed |  |
-| `entity\Entity::teleport` | implemented | src/action/survival.rs:171 `Teleport`<br>src/tick/entity/api.rs:133 `teleport`<br>src/tick/player.rs:421 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::teleport` | implemented | src/action/survival.rs:171 `Teleport`<br>src/tick/entity/api.rs:133 `teleport`<br>src/tick/player.rs:421 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\EntityDataHelper` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseLocation` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseVec3` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4574,7 +4574,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\EntityFactory::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `entity\EntitySizeInfo` | merged | src/tick/entity.rs:502 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::__construct` | skipped |  |  | entity sizes are fixed per type |
-| `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:888 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
+| `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:887 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
 | `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:502 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:502 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:187 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
@@ -4607,7 +4607,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\FoodSource::getSaturationRestore` | implemented | src/item.rs:879 `saturation_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data |  |
 | `entity\FoodSource::requiresHunger` | implemented | src/item.rs:885 `requires_food` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data |  |
 | `entity\Human` | implemented | src/entity.rs:88 `Human` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1673 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1672 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
 | `entity\Human::canEat` | skipped |  |  | hunger rule code |
 | `entity\Human::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
@@ -4618,7 +4618,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:334 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:35 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getName` | merged | src/tick/player.rs:52 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
-| `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\Human::getOffHandInventory` | implemented | src/tick/inventory/api.rs:37 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
 | `entity\Human::getSkin` | implemented | src/tick/player.rs:86 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
@@ -4672,7 +4672,7 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Living::getJumpVelocity` | skipped |  |  | movement rule code |
 | `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1467 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:459 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:921 `max_health`<br>src/tick/survival/api.rs:316 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
+| `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:920 `max_health`<br>src/tick/survival/api.rs:316 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:548 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Living::getName` | merged | src/tick/player.rs:52 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
@@ -4700,15 +4700,15 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1179 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1187 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1194 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Location` | merged | src/tick/entity/api.rs:868 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
+| `entity\Location` | merged | src/tick/entity/api.rs:867 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
 | `entity\Location::__construct` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Location::asLocation` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::equals` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
 | `entity\Location::fromObject` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values |
-| `entity\Location::getPitch` | implemented | src/tick/entity/api.rs:874 `pitch` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Location::getYaw` | implemented | src/tick/entity/api.rs:868 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\NeverSavedWithChunkEntity` | merged | src/tick/entity/api.rs:999 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
+| `entity\Location::getPitch` | implemented | src/tick/entity/api.rs:873 `pitch` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Location::getYaw` | implemented | src/tick/entity/api.rs:867 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\NeverSavedWithChunkEntity` | merged | src/tick/entity/api.rs:998 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
 | `entity\Skin` | implemented | src/entity/skin.rs:41 `Skin` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::__construct` | implemented | src/entity/skin.rs:54 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Skin::getCapeData` | implemented | src/entity/skin.rs:97 `cape` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
@@ -4724,61 +4724,61 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\Squid::getPickedItem` | skipped |  |  | mob AI: PMMP's squid swims on its own |
 | `entity\Squid::initEntity` | skipped |  |  | mob AI: PMMP's squid swims on its own |
 | `entity\Villager` | implemented | src/entity.rs:85 `Villager` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\Villager::getName` | implemented | src/tick/entity/api.rs:1232 `name` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\Villager::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\Villager::getPickedItem` | implemented | src/tick/entity/api.rs:1104 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
-| `entity\Villager::getProfession` | implemented | src/tick/entity/api.rs:1207 `profession` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\Villager::isBaby` | implemented | src/tick/entity/api.rs:1250 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
+| `entity\Villager::getName` | implemented | src/tick/entity/api.rs:1231 `name` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\Villager::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\Villager::getPickedItem` | implemented | src/tick/entity/api.rs:1103 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\Villager::getProfession` | implemented | src/tick/entity/api.rs:1206 `profession` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Villager::isBaby` | implemented | src/tick/entity/api.rs:1249 `is_baby` | src/tick/entity/npc/tests.rs::villagers_and_zombies_can_be_babies_and_viewers_see_it |  |
 | `entity\Villager::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\Villager::setProfession` | implemented | src/tick/entity/api.rs:521 `set_profession` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\Villager::setProfession` | implemented | src/tick/entity/api.rs:520 `set_profession` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\WaterAnimal` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
 | `entity\WaterAnimal::canBreathe` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
 | `entity\WaterAnimal::isBaby` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
 | `entity\WaterAnimal::onAirExpired` | skipped |  |  | mob AI: PMMP's water animals are its swimming squid |
 | `entity\Zombie` | implemented | src/entity.rs:92 `Zombie` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
 | `entity\Zombie::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
-| `entity\Zombie::getName` | implemented | src/tick/entity/api.rs:1233 `name` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
-| `entity\Zombie::getNetworkTypeId` | implemented | src/tick/entity/api.rs:848 `network_type` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
-| `entity\Zombie::getPickedItem` | implemented | src/tick/entity/api.rs:1105 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\Zombie::getName` | implemented | src/tick/entity/api.rs:1232 `name` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
+| `entity\Zombie::getNetworkTypeId` | implemented | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/npc/tests.rs::a_zombie_is_an_ai_less_living_mob_that_takes_damage |  |
+| `entity\Zombie::getPickedItem` | implemented | src/tick/entity/api.rs:1104 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `entity\Zombie::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
 | `entity\animation\Animation` | implemented | src/entity/animation.rs:11 `Animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\Animation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\Animation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ArmSwingAnimation` | implemented | src/entity/animation.rs:14 `ArmSwing` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\ArmSwingAnimation::__construct` | implemented | src/entity/animation.rs:15 `ArmSwing` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\ArmSwingAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ArmSwingAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ArrowShakeAnimation` | implemented | src/entity/animation.rs:18 `ArrowShake` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\ArrowShakeAnimation::__construct` | implemented | src/entity/animation.rs:19 `ArrowShake` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\ArrowShakeAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ArrowShakeAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ConsumingItemAnimation` | implemented | src/entity/animation.rs:25 `ConsumingItem` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\ConsumingItemAnimation::__construct` | implemented | src/entity/animation.rs:26 `ConsumingItem` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\ConsumingItemAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ConsumingItemAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\CriticalHitAnimation` | implemented | src/entity/animation.rs:29 `CriticalHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\CriticalHitAnimation::__construct` | implemented | src/entity/animation.rs:30 `CriticalHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\CriticalHitAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\CriticalHitAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\DeathAnimation` | implemented | src/entity/animation.rs:36 `Death` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\DeathAnimation::__construct` | implemented | src/entity/animation.rs:37 `Death` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\DeathAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\DeathAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\FireworkParticlesAnimation` | implemented | src/entity/animation.rs:40 `FireworkParticles` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\FireworkParticlesAnimation::__construct` | implemented | src/entity/animation.rs:41 `FireworkParticles` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\FireworkParticlesAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\FireworkParticlesAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\HurtAnimation` | implemented | src/entity/animation.rs:44 `Hurt` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\HurtAnimation::__construct` | implemented | src/entity/animation.rs:45 `Hurt` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\HurtAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\HurtAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\ItemEntityStackSizeChangeAnimation` | implemented | src/entity/animation.rs:48 `ItemStackSize` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\ItemEntityStackSizeChangeAnimation::__construct` | implemented | src/entity/animation.rs:49 `ItemStackSize` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\ItemEntityStackSizeChangeAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\ItemEntityStackSizeChangeAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\MagicHitAnimation` | implemented | src/entity/animation.rs:55 `MagicHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\MagicHitAnimation::__construct` | implemented | src/entity/animation.rs:56 `MagicHit` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\MagicHitAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\MagicHitAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\RespawnAnimation` | implemented | src/entity/animation.rs:62 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\RespawnAnimation::__construct` | implemented | src/entity/animation.rs:63 `Respawn` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\RespawnAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\RespawnAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\animation\SquidInkCloudAnimation` | skipped |  |  | mob AI: PMMP's squid swims on its own |
 | `entity\animation\SquidInkCloudAnimation::__construct` | skipped |  |  | mob AI: PMMP's squid swims on its own |
 | `entity\animation\SquidInkCloudAnimation::encode` | skipped |  |  | mob AI: PMMP's squid swims on its own |
 | `entity\animation\TotemUseAnimation` | implemented | src/entity/animation.rs:66 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `entity\animation\TotemUseAnimation::__construct` | implemented | src/entity/animation.rs:67 `TotemUse` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
-| `entity\animation\TotemUseAnimation::encode` | merged | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
+| `entity\animation\TotemUseAnimation::encode` | merged | src/tick/entity/api.rs:1814 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values | into `Entity::broadcastAnimation` |
 | `entity\effect\AbsorptionEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
 | `entity\effect\AbsorptionEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
 | `entity\effect\AbsorptionEffect::remove` | skipped |  |  | effect rule code: listeners see EntityEffectRemove |
@@ -4829,10 +4829,10 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\effect\EffectInstance::setColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved |
 | `entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:102 `with_duration_ticks` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
 | `entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:121 `with_visible` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
-| `entity\effect\EffectManager` | merged | src/tick/survival/api.rs:1038 `add_effect` | src/tick/command/builtin/tests.rs::effect_raises_the_effect_events_and_their_listeners_decide<br>src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectManager::add` |
+| `entity\effect\EffectManager` | merged | src/tick/survival/api.rs:1038 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectManager::add` |
 | `entity\effect\EffectManager::__construct` | skipped |  |  | every player and living entity has its effects |
-| `entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:1038 `add_effect` | src/tick/command/builtin/tests.rs::effect_raises_the_effect_events_and_their_listeners_decide<br>src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
-| `entity\effect\EffectManager::remove` | implemented | src/tick/survival/api.rs:1047 `remove_effect` | src/tick/command/builtin/tests.rs::effect_raises_the_effect_events_and_their_listeners_decide<br>src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:1038 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `entity\effect\EffectManager::remove` | implemented | src/tick/survival/api.rs:1047 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `entity\effect\EffectManager::tick` | skipped |  |  | effect rule code |
 | `entity\effect\HealthBoostEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
 | `entity\effect\HealthBoostEffect::add` | skipped |  |  | effect rule code: listeners see EntityEffectAdd |
@@ -4908,102 +4908,102 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\effect\WitherEffect::applyEffect` | skipped |  |  | effect rule code |
 | `entity\effect\WitherEffect::getApplyInterval` | skipped |  |  | effect rule code |
 | `entity\object\AreaEffectCloud` | implemented | src/entity.rs:82 `AreaEffectCloud` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\AreaEffectCloud::__construct` | implemented | src/tick/entity/api.rs:1701 `spawn_area_effect_cloud` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\AreaEffectCloud::getAge` | implemented | src/tick/entity/api.rs:1342 `cloud_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getEffects` | implemented | src/tick/entity/api.rs:1336 `cloud_effects` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getInitialRadius` | implemented | src/tick/entity/api.rs:1366 `cloud_initial_radius` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getMaxAge` | implemented | src/tick/entity/api.rs:1348 `cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:1354 `cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\AreaEffectCloud::getRadius` | implemented | src/tick/entity/api.rs:1198 `cloud_radius` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\AreaEffectCloud::getRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:1373 `cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:1379 `cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getRadiusChangePerTick` | implemented | src/tick/entity/api.rs:1385 `cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::getReapplicationDelay` | implemented | src/tick/entity/api.rs:1360 `cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::isFireProof` | merged | src/tick/entity/api.rs:957 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\AreaEffectCloud::__construct` | implemented | src/tick/entity/api.rs:1700 `spawn_area_effect_cloud` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\AreaEffectCloud::getAge` | implemented | src/tick/entity/api.rs:1341 `cloud_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getEffects` | implemented | src/tick/entity/api.rs:1335 `cloud_effects` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getInitialRadius` | implemented | src/tick/entity/api.rs:1365 `cloud_initial_radius` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getMaxAge` | implemented | src/tick/entity/api.rs:1347 `cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:1353 `cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\AreaEffectCloud::getRadius` | implemented | src/tick/entity/api.rs:1197 `cloud_radius` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\AreaEffectCloud::getRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:1372 `cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:1378 `cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getRadiusChangePerTick` | implemented | src/tick/entity/api.rs:1384 `cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::getReapplicationDelay` | implemented | src/tick/entity/api.rs:1359 `cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::isFireProof` | merged | src/tick/entity/api.rs:956 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\AreaEffectCloud::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\object\AreaEffectCloud::setMaxAge` | implemented | src/tick/entity/api.rs:704 `set_cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::setMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:710 `set_cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::setRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:724 `set_cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::setRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:731 `set_cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::setRadiusChangePerTick` | implemented | src/tick/entity/api.rs:738 `set_cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
-| `entity\object\AreaEffectCloud::setReapplicationDelay` | implemented | src/tick/entity/api.rs:717 `set_cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setMaxAge` | implemented | src/tick/entity/api.rs:703 `set_cloud_max_age_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setMaxAgeChangeOnUse` | implemented | src/tick/entity/api.rs:709 `set_cloud_max_age_change_on_use_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setRadiusChangeOnPickup` | implemented | src/tick/entity/api.rs:723 `set_cloud_radius_change_on_pickup` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setRadiusChangeOnUse` | implemented | src/tick/entity/api.rs:730 `set_cloud_radius_change_on_use` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setRadiusChangePerTick` | implemented | src/tick/entity/api.rs:737 `set_cloud_radius_change_per_tick` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
+| `entity\object\AreaEffectCloud::setReapplicationDelay` | implemented | src/tick/entity/api.rs:716 `set_cloud_reapplication_delay_ticks` | src/tick/entity/api/tests.rs::clouds_spawn_with_pmmp_defaults_and_take_bounded_values |  |
 | `entity\object\EndCrystal` | implemented | src/entity.rs:100 `EndCrystal` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\EndCrystal::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:275 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\EndCrystal::explode` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:189 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\object\EndCrystal::getBeamTarget` | implemented | src/tick/entity/api.rs:1305 `beam_target` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\EndCrystal::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\EndCrystal::getPickedItem` | implemented | src/tick/entity/api.rs:1100 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
-| `entity\object\EndCrystal::isFireProof` | merged | src/tick/entity/api.rs:957 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\EndCrystal::getBeamTarget` | implemented | src/tick/entity/api.rs:1304 `beam_target` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\EndCrystal::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\EndCrystal::getPickedItem` | implemented | src/tick/entity/api.rs:1099 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\object\EndCrystal::isFireProof` | merged | src/tick/entity/api.rs:956 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\EndCrystal::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\object\EndCrystal::setBeamTarget` | implemented | src/tick/entity/api.rs:634 `set_beam_target` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
-| `entity\object\EndCrystal::setShowBase` | implemented | src/tick/entity/api.rs:622 `set_show_base` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
-| `entity\object\EndCrystal::showBase` | implemented | src/tick/entity/api.rs:1299 `shows_base` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\EndCrystal::setBeamTarget` | implemented | src/tick/entity/api.rs:633 `set_beam_target` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
+| `entity\object\EndCrystal::setShowBase` | implemented | src/tick/entity/api.rs:621 `set_show_base` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
+| `entity\object\EndCrystal::showBase` | implemented | src/tick/entity/api.rs:1298 `shows_base` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb` | implemented | src/entity.rs:55 `XpOrb` | src/tick/entity.rs::orbs_follow_the_nearest_player_and_give_it_their_xp<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:1572 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `entity\object\ExperienceOrb::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\ExperienceOrb::getDespawnDelay` | implemented | src/tick/entity/api.rs:1050 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:1571 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\object\ExperienceOrb::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\ExperienceOrb::getDespawnDelay` | implemented | src/tick/entity/api.rs:1049 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb::getMaxOrbSize` | skipped |  |  | entity rule code |
-| `entity\object\ExperienceOrb::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\ExperienceOrb::getTargetPlayer` | implemented | src/tick/entity/api.rs:1087 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\object\ExperienceOrb::getXpValue` | implemented | src/tick/entity/api.rs:1078 `xp_value` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ExperienceOrb::hasTargetPlayer` | implemented | src/tick/entity/api.rs:1088 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\object\ExperienceOrb::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\ExperienceOrb::getTargetPlayer` | implemented | src/tick/entity/api.rs:1086 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
+| `entity\object\ExperienceOrb::getXpValue` | implemented | src/tick/entity/api.rs:1077 `xp_value` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ExperienceOrb::hasTargetPlayer` | implemented | src/tick/entity/api.rs:1087 `target_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\object\ExperienceOrb::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\ExperienceOrb::setDespawnDelay` | implemented | src/tick/entity/api.rs:361 `set_despawn_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ExperienceOrb::setTargetPlayer` | implemented | src/tick/entity/api.rs:564 `set_target_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\object\ExperienceOrb::setXpValue` | implemented | src/tick/entity/api.rs:411 `set_xp_value` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ExperienceOrb::setTargetPlayer` | implemented | src/tick/entity/api.rs:563 `set_target_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\object\ExperienceOrb::setXpValue` | implemented | src/tick/entity/api.rs:410 `set_xp_value` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\object\ExperienceOrb::splitIntoOrbSizes` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock` | implemented | src/entity.rs:58 `FallingBlock` | src/tick/entity.rs::falling_blocks_land_as_blocks_or_drop_their_item<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\FallingBlock::__construct` | implemented | src/tick/entity/api.rs:1589 `spawn_falling_block` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\object\FallingBlock::__construct` | implemented | src/tick/entity/api.rs:1588 `spawn_falling_block` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\object\FallingBlock::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:275 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\FallingBlock::canBeMovedByCurrents` | skipped |  |  | entity rule code |
 | `entity\object\FallingBlock::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\object\FallingBlock::getBlock` | implemented | src/tick/entity/api.rs:1111 `falling_block` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FallingBlock::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\FallingBlock::getBlock` | implemented | src/tick/entity/api.rs:1110 `falling_block` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FallingBlock::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\FallingBlock::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\FallingBlock::getPickedItem` | implemented | src/tick/entity/api.rs:1101 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\object\FallingBlock::getPickedItem` | implemented | src/tick/entity/api.rs:1100 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `entity\object\FallingBlock::parseBlockNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\FallingBlock::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\FireworkRocket` | implemented | src/entity.rs:103 `FireworkRocket` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::__construct` | implemented | src/tick/entity/api.rs:1745 `spawn_firework_rocket` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
-| `entity\object\FireworkRocket::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\FireworkRocket::__construct` | implemented | src/tick/entity/api.rs:1744 `spawn_firework_rocket` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
+| `entity\object\FireworkRocket::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\object\FireworkRocket::explode` | skipped |  |  | entity rule code: a rocket bursts when its flight time is up, and `Mut::set_max_flight_time_ticks` with an age it reached bursts it at its next tick |
-| `entity\object\FireworkRocket::getExplosions` | implemented | src/tick/entity/api.rs:1316 `firework_explosions` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::getMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:1325 `max_flight_time_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\FireworkRocket::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\FireworkRocket::setExplosions` | implemented | src/tick/entity/api.rs:650 `set_firework_explosions` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
-| `entity\object\FireworkRocket::setMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:667 `set_max_flight_time_ticks` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
+| `entity\object\FireworkRocket::getExplosions` | implemented | src/tick/entity/api.rs:1315 `firework_explosions` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FireworkRocket::getMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:1324 `max_flight_time_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\FireworkRocket::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\FireworkRocket::setExplosions` | implemented | src/tick/entity/api.rs:649 `set_firework_explosions` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
+| `entity\object\FireworkRocket::setMaxFlightTimeTicks` | implemented | src/tick/entity/api.rs:666 `set_max_flight_time_ticks` | src/tick/entity/object/tests.rs::a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near |  |
 | `entity\object\ItemEntity` | implemented | src/entity.rs:52 `Item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::__construct` | merged | src/tick/entity/api.rs:1537 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `World::dropItem` |
-| `entity\object\ItemEntity::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\ItemEntity::__construct` | merged | src/tick/entity/api.rs:1536 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `World::dropItem` |
+| `entity\object\ItemEntity::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\object\ItemEntity::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\object\ItemEntity::canSaveWithChunk` | merged | src/tick/entity/api.rs:999 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
-| `entity\object\ItemEntity::getDespawnDelay` | implemented | src/tick/entity/api.rs:1049 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getItem` | implemented | src/tick/entity/api.rs:1026 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\ItemEntity::canSaveWithChunk` | merged | src/tick/entity/api.rs:998 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
+| `entity\object\ItemEntity::getDespawnDelay` | implemented | src/tick/entity/api.rs:1048 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getItem` | implemented | src/tick/entity/api.rs:1025 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\ItemEntity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\ItemEntity::getOwner` | implemented | src/tick/entity/api.rs:1060 `owner` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getPickupDelay` | implemented | src/tick/entity/api.rs:1040 `pickup_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::getThrower` | implemented | src/tick/entity/api.rs:1069 `thrower` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\ItemEntity::isFireProof` | merged | src/tick/entity/api.rs:957 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
+| `entity\object\ItemEntity::getOwner` | implemented | src/tick/entity/api.rs:1059 `owner` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getPickupDelay` | implemented | src/tick/entity/api.rs:1039 `pickup_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::getThrower` | implemented | src/tick/entity/api.rs:1068 `thrower` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\ItemEntity::isFireProof` | merged | src/tick/entity/api.rs:956 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::isFireProof` |
 | `entity\object\ItemEntity::isMergeable` | skipped |  |  | entity rule code: listeners see ItemMerge |
 | `entity\object\ItemEntity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\object\ItemEntity::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\object\ItemEntity::setDespawnDelay` | implemented | src/tick/entity/api.rs:360 `set_despawn_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ItemEntity::setOwner` | implemented | src/tick/entity/api.rs:381 `set_owner` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ItemEntity::setOwner` | implemented | src/tick/entity/api.rs:380 `set_owner` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\object\ItemEntity::setPickupDelay` | implemented | src/tick/entity/api.rs:346 `set_pickup_delay_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\ItemEntity::setStackSize` | implemented | src/tick/entity/api.rs:585 `set_stack_size` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\object\ItemEntity::setThrower` | implemented | src/tick/entity/api.rs:396 `set_thrower` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\ItemEntity::setStackSize` | implemented | src/tick/entity/api.rs:584 `set_stack_size` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\object\ItemEntity::setThrower` | implemented | src/tick/entity/api.rs:395 `set_thrower` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\object\ItemEntity::tryMergeInto` | skipped |  |  | entity rule code: listeners see ItemMerge |
 | `entity\object\Painting` | implemented | src/entity.rs:97 `Painting` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::__construct` | implemented | src/tick/entity/api.rs:1719 `spawn_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
-| `entity\object\Painting::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
-| `entity\object\Painting::canFit` | implemented | src/tick/entity/api.rs:1490 `can_hang_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
-| `entity\object\Painting::getFacing` | implemented | src/tick/entity/api.rs:1290 `painting_facing` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::getMotive` | implemented | src/tick/entity/api.rs:1280 `painting_motive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\Painting::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\object\Painting::getPickedItem` | implemented | src/tick/entity/api.rs:1102 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\object\Painting::__construct` | implemented | src/tick/entity/api.rs:1718 `spawn_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
+| `entity\object\Painting::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\object\Painting::canFit` | implemented | src/tick/entity/api.rs:1489 `can_hang_painting` | src/tick/entity/object/tests.rs::paintings_from_the_api_fit_break_by_hits_and_save_their_wall |  |
+| `entity\object\Painting::getFacing` | implemented | src/tick/entity/api.rs:1289 `painting_facing` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\Painting::getMotive` | implemented | src/tick/entity/api.rs:1279 `painting_motive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\Painting::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\Painting::getPickedItem` | implemented | src/tick/entity/api.rs:1101 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `entity\object\Painting::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\object\Painting::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\object\Painting::onRandomUpdate` | skipped |  |  | entity rule code |
@@ -5022,70 +5022,70 @@ implemented 330, differs 1, merged 122, skipped 218, blank 0 (of 671 rows)
 | `entity\object\PrimedTNT::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:275 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
 | `entity\object\PrimedTNT::canCollideWith` | skipped |  |  | entity rule code |
 | `entity\object\PrimedTNT::explode` | merged | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:189 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\object\PrimedTNT::getFuse` | implemented | src/tick/entity/api.rs:1120 `fuse_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\object\PrimedTNT::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\object\PrimedTNT::getFuse` | implemented | src/tick/entity/api.rs:1119 `fuse_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\PrimedTNT::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\object\PrimedTNT::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\object\PrimedTNT::getPickedItem` | implemented | src/tick/entity/api.rs:1103 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
+| `entity\object\PrimedTNT::getPickedItem` | implemented | src/tick/entity/api.rs:1102 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `entity\object\PrimedTNT::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\object\PrimedTNT::setFuse` | implemented | src/tick/entity/api.rs:426 `set_fuse_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\PrimedTNT::setWorksUnderwater` | implemented | src/tick/entity/api.rs:441 `set_works_underwater` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\object\PrimedTNT::worksUnderwater` | implemented | src/tick/entity/api.rs:1129 `works_underwater` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\object\PrimedTNT::setFuse` | implemented | src/tick/entity/api.rs:425 `set_fuse_ticks` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\PrimedTNT::setWorksUnderwater` | implemented | src/tick/entity/api.rs:440 `set_works_underwater` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\object\PrimedTNT::worksUnderwater` | implemented | src/tick/entity/api.rs:1128 `works_underwater` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow` | implemented | src/entity.rs:64 `Arrow` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Arrow::__construct` | merged | src/tick/entity/api.rs:1616 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\Arrow::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\projectile\Arrow::getPickupMode` | implemented | src/tick/entity/api.rs:1162 `pickup_mode` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Arrow::getPunchKnockback` | implemented | src/tick/entity/api.rs:1168 `punch_knockback` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::__construct` | merged | src/tick/entity/api.rs:1615 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\Arrow::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Arrow::getPickupMode` | implemented | src/tick/entity/api.rs:1161 `pickup_mode` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::getPunchKnockback` | implemented | src/tick/entity/api.rs:1167 `punch_knockback` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
-| `entity\projectile\Arrow::isCritical` | implemented | src/tick/entity/api.rs:1156 `is_critical` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Arrow::isCritical` | implemented | src/tick/entity/api.rs:1155 `is_critical` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Arrow::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\projectile\Arrow::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\projectile\Arrow::setCritical` | implemented | src/tick/entity/api.rs:472 `set_critical` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\Arrow::setPickupMode` | implemented | src/tick/entity/api.rs:478 `set_pickup_mode` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\Arrow::setPunchKnockback` | implemented | src/tick/entity/api.rs:484 `set_punch_knockback` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\Arrow::setCritical` | implemented | src/tick/entity/api.rs:471 `set_critical` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\Arrow::setPickupMode` | implemented | src/tick/entity/api.rs:477 `set_pickup_mode` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\Arrow::setPunchKnockback` | implemented | src/tick/entity/api.rs:483 `set_punch_knockback` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
 | `entity\projectile\Egg` | implemented | src/entity.rs:70 `Egg` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Egg::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Egg::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\EnderPearl` | implemented | src/entity.rs:73 `EnderPearl` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\EnderPearl::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\EnderPearl::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\ExperienceBottle` | implemented | src/entity.rs:79 `XpBottle` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\ExperienceBottle::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\ExperienceBottle::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\ExperienceBottle::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\ExperienceBottle::onHit` | skipped |  |  | projectile rule code: listeners see ProjectileHitBlock and ProjectileHitEntity |
 | `entity\projectile\IceBomb` | implemented | src/entity.rs:109 `IceBomb` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\IceBomb::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\IceBomb::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\IceBomb::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
-| `entity\projectile\Projectile` | merged | src/tick/entity/api.rs:1616 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\Projectile::__construct` | implemented | src/tick/entity/api.rs:1616 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\projectile\Projectile` | merged | src/tick/entity/api.rs:1615 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\Projectile::__construct` | implemented | src/tick/entity/api.rs:1615 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\projectile\Projectile::attack` | merged | src/action/survival.rs:46 `Damage`<br>src/tick/entity/api.rs:275 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules | into `Entity::attack` |
-| `entity\projectile\Projectile::canBeCollidedWith` | merged | src/tick/entity/api.rs:1006 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
+| `entity\projectile\Projectile::canBeCollidedWith` | merged | src/tick/entity/api.rs:1005 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\projectile\Projectile::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\projectile\Projectile::getBaseDamage` | implemented | src/tick/entity/api.rs:1135 `base_damage` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Projectile::getBaseDamage` | implemented | src/tick/entity/api.rs:1134 `base_damage` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Projectile::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\Projectile::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\projectile\Projectile::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\projectile\Projectile::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\projectile\Projectile::setBaseDamage` | implemented | src/tick/entity/api.rs:457 `set_base_damage` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\ProjectileSource` | merged | src/tick/entity/api.rs:1145 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players | into `Entity::getOwningEntity` |
+| `entity\projectile\Projectile::setBaseDamage` | implemented | src/tick/entity/api.rs:456 `set_base_damage` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\ProjectileSource` | merged | src/tick/entity/api.rs:1144 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players | into `Entity::getOwningEntity` |
 | `entity\projectile\Snowball` | implemented | src/entity.rs:67 `Snowball` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Snowball::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Snowball::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\SplashPotion` | implemented | src/entity.rs:76 `SplashPotion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\SplashPotion::__construct` | merged | src/tick/entity/api.rs:1616 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
-| `entity\projectile\SplashPotion::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
-| `entity\projectile\SplashPotion::getPotionEffects` | implemented | src/tick/entity/api.rs:1274 `potion_effects` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::getPotionType` | implemented | src/tick/entity/api.rs:1174 `potion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\SplashPotion::__construct` | merged | src/tick/entity/api.rs:1615 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\SplashPotion::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\SplashPotion::getPotionEffects` | implemented | src/tick/entity/api.rs:1273 `potion_effects` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\projectile\SplashPotion::getPotionType` | implemented | src/tick/entity/api.rs:1173 `potion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\SplashPotion::getResultDamage` | skipped |  |  | projectile rule code: listeners see EntityDamage |
 | `entity\projectile\SplashPotion::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\projectile\SplashPotion::setLinger` | implemented | src/tick/entity/api.rs:490 `set_linger` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::setPotionType` | implemented | src/tick/entity/api.rs:607 `set_potion` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
-| `entity\projectile\SplashPotion::willLinger` | implemented | src/tick/entity/api.rs:1186 `will_linger` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Throwable` | merged | src/tick/entity/api.rs:1616 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
+| `entity\projectile\SplashPotion::setLinger` | implemented | src/tick/entity/api.rs:489 `set_linger` | src/tick/entity/api/tests.rs::kind_setters_change_their_kind_only |  |
+| `entity\projectile\SplashPotion::setPotionType` | implemented | src/tick/entity/api.rs:606 `set_potion` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
+| `entity\projectile\SplashPotion::willLinger` | implemented | src/tick/entity/api.rs:1185 `will_linger` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Throwable` | merged | src/tick/entity/api.rs:1615 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
 | `entity\projectile\Trident` | implemented | src/entity.rs:106 `Trident` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:1785 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
+| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:1784 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
 | `entity\projectile\Trident::canCollideWith` | skipped |  |  | entity rule code |
-| `entity\projectile\Trident::getItem` | implemented | src/tick/entity/api.rs:1027 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Trident::getNetworkTypeId` | merged | src/tick/entity/api.rs:847 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
+| `entity\projectile\Trident::getItem` | implemented | src/tick/entity/api.rs:1026 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\projectile\Trident::getNetworkTypeId` | merged | src/tick/entity/api.rs:846 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\projectile\Trident::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
 | `entity\projectile\Trident::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\projectile\Trident::setItem` | implemented | src/tick/entity/api.rs:681 `set_item` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
+| `entity\projectile\Trident::setItem` | implemented | src/tick/entity/api.rs:680 `set_item` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
 | `entity\utils\ExperienceUtils` | implemented | src/player.rs:376 `xp_to_reach_level` | src/player.rs::level_thresholds_follow_pmmp |  |
 | `entity\utils\ExperienceUtils::getLevelFromXp` | implemented | src/player.rs:334 `level_from_xp` | src/player.rs::level_thresholds_follow_pmmp |  |
 | `entity\utils\ExperienceUtils::getXpToCompleteLevel` | implemented | src/player.rs:362 `xp_to_complete_level` | src/player.rs::level_thresholds_follow_pmmp |  |
@@ -7538,7 +7538,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:969 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:966 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7556,7 +7556,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::syncWorldSpawnPoint` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::syncWorldTime` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
+| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
 | `network\mcpe\PacketBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketBroadcaster::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketRateLimiter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8131,108 +8131,108 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `permission\BanEntry` | implemented | src/permission.rs:116 `BanEntry` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::__construct` | merged | src/tick/command.rs:1580 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `permission\BanEntry` | implemented | src/permission.rs:114 `BanEntry` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::__construct` | merged | src/tick/command.rs:961 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `permission\BanEntry::fromString` | skipped |  |  | PMMP's banned-players.txt line format: bans live in redb |
-| `permission\BanEntry::getCreated` | implemented | src/permission.rs:197 `created` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::getExpires` | implemented | src/permission.rs:203 `expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::getName` | implemented | src/permission.rs:220 `name` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::getReason` | implemented | src/permission.rs:226 `reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::getSource` | implemented | src/permission.rs:232 `source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::getCreated` | implemented | src/permission.rs:195 `created` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::getExpires` | implemented | src/permission.rs:201 `expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::getName` | implemented | src/permission.rs:218 `name` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::getReason` | implemented | src/permission.rs:224 `reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::getSource` | implemented | src/permission.rs:230 `source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getString` | skipped |  |  | PMMP's banned-players.txt line format: bans live in redb |
-| `permission\BanEntry::hasExpired` | implemented | src/permission.rs:209 `has_expired` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::hasExpired` | implemented | src/permission.rs:207 `has_expired` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::setCreated` | skipped |  |  | a ban's creation time is the engine tick `Context::ban` adds it at |
-| `permission\BanEntry::setExpires` | implemented | src/permission.rs:143 `with_expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::setReason` | implemented | src/permission.rs:151 `with_reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::setSource` | implemented | src/permission.rs:159 `with_source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanList` | merged | src/tick/command.rs:1580 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `permission\BanEntry::setExpires` | implemented | src/permission.rs:152 `with_expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::setReason` | implemented | src/permission.rs:160 `with_reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanEntry::setSource` | implemented | src/permission.rs:168 `with_source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
+| `permission\BanList` | merged | src/tick/command.rs:961 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `permission\BanList::__construct` | skipped |  |  | bans live in redb and commit with the world |
-| `permission\BanList::add` | implemented | src/tick/command.rs:1581 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::addBan` | implemented | src/tick/command.rs:1580 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::getEntries` | implemented | src/tick/command.rs:1627 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::getEntry` | implemented | src/tick/command.rs:1616 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::isBanned` | implemented | src/tick/command.rs:1605 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::add` | implemented | src/tick/command.rs:962 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::addBan` | implemented | src/tick/command.rs:961 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::getEntries` | implemented | src/tick/command.rs:708 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::getEntry` | implemented | src/tick/command.rs:697 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::isBanned` | implemented | src/tick/command.rs:685 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::isEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
 | `permission\BanList::load` | skipped |  |  | bans live in redb and commit with the world |
-| `permission\BanList::remove` | implemented | src/tick/command.rs:1590 `pardon` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::remove` | implemented | src/tick/command.rs:971 `unban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::removeExpired` | skipped |  |  | ended bans never apply, and `Context::ban` drops them |
 | `permission\BanList::save` | skipped |  |  | bans live in redb and commit with the world |
 | `permission\BanList::setEnabled` | skipped |  |  | bans always apply: nothing in PMMP turns a ban list off either |
-| `permission\DefaultPermissionNames` | implemented | src/permission.rs:299 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor |  |
-| `permission\DefaultPermissions` | merged | src/permission.rs:299 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor | into `DefaultPermissionNames` |
+| `permission\DefaultPermissionNames` | implemented | src/permission.rs:296 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
+| `permission\DefaultPermissions` | merged | src/permission.rs:296 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor | into `DefaultPermissionNames` |
 | `permission\DefaultPermissions::registerCorePermissions` | skipped |  |  | the default permissions are registered by `build()` |
-| `permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:542 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
-| `permission\Permissible` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\Permissible::addAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:532 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
+| `permission\Permissible` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\Permissible::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\Permissible::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\Permissible::hasPermission` | implemented | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:1397 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\Permissible::hasPermission` | implemented | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:622 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `permission\Permissible::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\Permissible::removeAttachment` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleBase` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\Permissible::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleBase` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
 | `permission\PermissibleBase::__construct` | skipped |  |  | permission holders are players and the console (`command::Sender`) |
 | `permission\PermissibleBase::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissibleBase::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:1397 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:622 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `permission\PermissibleBase::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissibleDelegateTrait::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:1390 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:1397 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:615 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:622 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `permission\PermissibleDelegateTrait::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\Permission` | implemented | src/permission.rs:41 `Permission` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor |  |
-| `permission\Permission::__construct` | implemented | src/permission.rs:49 `new` | src/permission.rs::defaults_parse_pmmp_spellings_and_decide_by_operator_status |  |
+| `permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\Permission` | implemented | src/permission.rs:39 `Permission` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
+| `permission\Permission::__construct` | implemented | src/permission.rs:47 `new` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
 | `permission\Permission::addChild` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::getChildren` | skipped |  |  | no child permissions: a command takes any of up to 16 permissions |
 | `permission\Permission::getDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
-| `permission\Permission::getName` | implemented | src/permission.rs:73 `name` | src/permission.rs::builtin_names_are_unique_and_follow_pmmp_under_anchor |  |
+| `permission\Permission::getName` | implemented | src/permission.rs:71 `name` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
 | `permission\Permission::getPermissibles` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\Permission::recalculatePermissibles` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::removeChild` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::setDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
-| `permission\PermissionAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:1460 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:1473 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\PermissionAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:920 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:633 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\PermissionAttachment::getPlugin` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `permission\PermissionAttachment::getSubscribers` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissionAttachmentInfo::getAttachment` | skipped |  |  | grants are entries of a per-player table, not attachment objects |
 | `permission\PermissionAttachmentInfo::getGroupPermissionInfo` | skipped |  |  | no permission groups or child permissions |
-| `permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:1490 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionManager` | merged | src/tick/command.rs:542 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
-| `permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:542 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:649 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionManager` | merged | src/tick/command.rs:532 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `PermissionManager::addPermission` |
+| `permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:532 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `permission\PermissionManager::clearPermissions` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\PermissionManager::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:1375 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:600 `permission` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `permission\PermissionManager::getPermissionSubscriptions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:1381 `permissions` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
+| `permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:606 `permissions` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `permission\PermissionManager::removePermission` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\PermissionManager::subscribeToPermission` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionManager::unsubscribeFromAllPermissions` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionManager::unsubscribeFromPermission` | skipped |  |  | permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionParser` | implemented | src/permission.rs:80 `Default` | src/permission.rs::defaults_parse_pmmp_spellings_and_decide_by_operator_status |  |
-| `permission\PermissionParser::defaultFromString` | implemented | src/permission.rs:96 `from_name` | src/permission.rs::defaults_parse_pmmp_spellings_and_decide_by_operator_status |  |
+| `permission\PermissionParser` | implemented | src/permission.rs:78 `Default` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
+| `permission\PermissionParser::defaultFromString` | implemented | src/permission.rs:94 `from_name` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
 | `permission\PermissionParser::loadPermissions` | skipped |  |  | PMMP's plugin.yml permissions: permissions are given in code (`Permission::new`) |
-| `permission\PermissionParserException` | merged | src/permission.rs:96 `from_name` | src/permission.rs::defaults_parse_pmmp_spellings_and_decide_by_operator_status | into `PermissionParser::defaultFromString` |
+| `permission\PermissionParserException` | merged | src/permission.rs:94 `from_name` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status | into `PermissionParser::defaultFromString` |
 
 ## `player`
 
@@ -8269,16 +8269,16 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getName` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `player\Player` | implemented | src/tick.rs:907 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player` | implemented | src/tick.rs:904 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `player\Player::addAttachment` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `player\Player::addAttachment` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:48 `Damage`<br>src/tick/survival/api.rs:1553 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:16 `AttackBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::attackEntity` | implemented | src/action/entity.rs:16 `Attack`<br>src/tick/entity.rs:4379 `attack` | src/tick/entity/npc/tests.rs::hits_on_npcs_follow_pmmps_living_rules<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:39 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
-| `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1816 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
+| `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1815 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `player\Player::broadcastSound` | merged | src/tick/world_api.rs:149 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `player\Player::canBeCollidedWith` | skipped |  |  | player rule code |
 | `player\Player::canBeMovedByCurrents` | skipped |  |  | player rule code |
@@ -8288,7 +8288,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::canEat` | skipped |  |  | hunger rule code |
 | `player\Player::canInteract` | implemented | src/tick/survival/api.rs:515 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
-| `player\Player::canSee` | implemented | src/tick/entity/api.rs:1504 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::canSee` | implemented | src/tick/entity/api.rs:1503 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::changeSkin` | merged | src/tick/survival/api.rs:1280 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
 | `player\Player::chat` | implemented | src/action/survival.rs:14 `Chat` | src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `player\Player::closeAllForms` | implemented | src/tick/form.rs:156 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
@@ -8307,7 +8307,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:657 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::getDisplayName` | implemented | src/tick/player.rs:59 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
-| `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:1491 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:650 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `player\Player::getFirstPlayed` | differs | src/tick/player.rs:186 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:627 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:270 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8337,11 +8337,11 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:633 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:302 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1420 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::hasPermission` | implemented | src/tick/command.rs:1391 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `player\Player::hasPermission` | implemented | src/tick/command.rs:616 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:203 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:648 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1839 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1838 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::interactBlock` | implemented | src/action/interact.rs:105 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
 | `player\Player::interactEntity` | implemented | src/action/interact.rs:60 `InteractEntity`<br>src/tick/entity.rs:4387 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:290 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8350,7 +8350,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::isCreative` | implemented | src/tick/survival/api.rs:284 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isFlying` | implemented | src/tick/survival/api.rs:614 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::isOnline` | implemented | src/tick/player.rs:229 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
-| `player\Player::isPermissionSet` | implemented | src/tick/command.rs:1398 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `player\Player::isPermissionSet` | implemented | src/tick/command.rs:623 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::isSleeping` | implemented | src/tick/survival/api.rs:639 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
 | `player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:535 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isSpectator` | implemented | src/tick/survival/api.rs:296 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8359,7 +8359,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:608 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
-| `player\Player::kick` | implemented | src/action/survival.rs:90 `Kick`<br>src/tick/player.rs:373 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `player\Player::kick` | implemented | src/action/survival.rs:90 `Kick`<br>src/tick/player.rs:373 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `player\Player::missSwing` | skipped |  |  | player rule code: listeners see PlayerMissSwing |
 | `player\Player::onBlockChanged` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkChanged` | skipped |  |  | chunk sending is the engine's |
@@ -8373,7 +8373,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::pickEntity` | skipped |  |  | player rule code: listeners see PlayerEntityPick |
 | `player\Player::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
 | `player\Player::releaseHeldItem` | merged | src/action/interact.rs:85 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
-| `player\Player::removeAttachment` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `player\Player::removeAttachment` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:226 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::removeTitles` | implemented | src/tick/player.rs:295 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1154 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
@@ -8395,7 +8395,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::sendToastNotification` | implemented | src/tick/player.rs:298 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1304 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1241 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `player\Player::setBasePermission` | merged | src/tick/command.rs:1411 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `player\Player::setBasePermission` | merged | src/tick/command.rs:871 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:201 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:208 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
@@ -8403,7 +8403,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::setDisplayName` | implemented | src/tick/player.rs:265 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
 | `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1315 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1293 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::setGamemode` | implemented | src/action/survival.rs:146 `SetGameMode`<br>src/tick/survival/api.rs:708 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
+| `player\Player::setGamemode` | implemented | src/action/survival.rs:146 `SetGameMode`<br>src/tick/survival/api.rs:708 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1330 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1254 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:275 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
@@ -8412,7 +8412,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::setTitleDuration` | implemented | src/tick/player.rs:297 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:422 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
-| `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1861 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
+| `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1860 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::sleepOn` | implemented | src/tick/survival/api.rs:1541 `sleep_on` | src/tick/survival.rs::sleep_on_lies_down_by_day_and_from_afar_without_an_event |  |
 | `player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -8423,8 +8423,8 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `player\Player::toggleSneak` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
-| `player\Player::transfer` | implemented | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
-| `player\Player::unsetBasePermission` | merged | src/tick/command.rs:1440 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `player\Player::transfer` | implemented | src/action/survival.rs:216 `Transfer`<br>src/tick/player.rs:392 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `player\Player::unsetBasePermission` | merged | src/tick/command.rs:900 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::useHeldItem` | implemented | src/action/interact.rs:85 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
 | `player\PlayerDataProvider` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
@@ -8697,24 +8697,24 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `Server::__serialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `Server::__unserialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `Server::addOp` | implemented | src/tick/command.rs:1542 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
-| `Server::addWhitelist` | implemented | src/tick/command.rs:1640 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::addOp` | implemented | src/tick/command.rs:935 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
+| `Server::addWhitelist` | implemented | src/tick/command.rs:987 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::broadcastMessage` | implemented | src/tick/task.rs:311 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastPopup` | implemented | src/tick/task.rs:313 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastTip` | implemented | src/tick/task.rs:312 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastTitle` | implemented | src/tick/task.rs:314 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::crashDump` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
 | `Server::createPlayer` | skipped |  |  | players join through the login flow |
-| `Server::dispatchCommand` | implemented | src/tick/command.rs:1186 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `Server::dispatchCommand` | implemented | src/tick/command.rs:748 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead |
-| `Server::forceShutdown` | merged | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1694 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `Server::forceShutdown` | merged | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `Server::getAllowedViewDistance` | merged | src/tick/task.rs:159 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getAsyncPool` | merged | src/tick/task/job.rs:172 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `Server::getBroadcastChannelSubscribers` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::getCommandAliases` | skipped |  |  | PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`) |
-| `Server::getCommandMap` | merged | src/tick/command.rs:1319 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::getCommand` |
+| `Server::getCommandMap` | merged | src/tick/command.rs:583 `command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `SimpleCommandMap::getCommand` |
 | `Server::getConfigGroup` | skipped |  |  | PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start |
 | `Server::getCraftingManager` | merged | src/tick/world_api/recipes.rs:22 `crafting_result` | src/tick/world_api/recipes.rs::crafting_grids_make_what_their_recipe_makes | into `CraftingManager::matchRecipe` |
 | `Server::getDataPath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
@@ -8722,7 +8722,7 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `Server::getFilePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `Server::getForceGamemode` | implemented | src/tick/task.rs:146 `is_game_mode_forced` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getGamemode` | implemented | src/tick/task.rs:139 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getIPBans` | implemented | src/tick/command.rs:1634 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getIPBans` | implemented | src/tick/command.rs:715 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `Server::getIp` | implemented | src/config.rs:591 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getIpV6` | implemented | src/config.rs:594 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
@@ -8733,13 +8733,13 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `Server::getMemoryManager` | skipped |  |  | PHP memory management |
 | `Server::getMotd` | implemented | src/tick/task.rs:78 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound<br>src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getName` | implemented | src/tick/task.rs:58 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getNameBans` | implemented | src/tick/command.rs:1628 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getNameBans` | implemented | src/tick/command.rs:709 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getNetwork` | skipped |  |  | protocol internals |
 | `Server::getOfflinePlayer` | skipped |  |  | PMMP's offline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:274 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `Server::getOnlineMode` | implemented | src/config.rs:609 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getOnlinePlayers` | implemented | src/tick/task.rs:174 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_in_the_game |  |
-| `Server::getOps` | implemented | src/tick/command.rs:1570 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `Server::getOps` | implemented | src/tick/command.rs:679 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `Server::getPlayerByPrefix` | implemented | src/tick/task.rs:207 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
 | `Server::getPlayerByRawUUID` | merged | src/tick/task.rs:226 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game | into `Server::getPlayerByUUID` |
 | `Server::getPlayerByUUID` | implemented | src/tick/task.rs:226 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game |  |
@@ -8764,23 +8764,23 @@ implemented 43, differs 3, merged 9, skipped 74, blank 0 (of 129 rows)
 | `Server::getUpdater` | skipped |  |  | PMMP update checker |
 | `Server::getVersion` | implemented | src/tick/task.rs:62 `VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getViewDistance` | implemented | src/tick/task.rs:159 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getWhitelisted` | implemented | src/tick/command.rs:1666 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getWhitelisted` | implemented | src/tick/command.rs:728 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getWorldManager` | merged | src/tick/world_api.rs:48 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:274 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
-| `Server::hasWhitelist` | implemented | src/tick/command.rs:1672 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::hasWhitelist` | implemented | src/tick/command.rs:734 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::isHardcore` | implemented | src/tick/task.rs:152 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `Server::isOp` | implemented | src/tick/command.rs:1564 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `Server::isOp` | implemented | src/tick/command.rs:673 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `Server::isRunning` | skipped |  |  | a `Context` exists only while the server runs |
-| `Server::isWhitelisted` | implemented | src/tick/command.rs:1660 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::isWhitelisted` | implemented | src/tick/command.rs:722 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `Server::removeOp` | implemented | src/tick/command.rs:1553 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
-| `Server::removeWhitelist` | implemented | src/tick/command.rs:1651 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::removeOp` | implemented | src/tick/command.rs:946 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
+| `Server::removeWhitelist` | implemented | src/tick/command.rs:998 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::requiresAuthentication` | implemented | src/config.rs:610 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:315 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:165 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::shutdown` | implemented | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1694 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `Server::shutdown` | implemented | src/server.rs:683 `shutdown`<br>src/tick/command.rs:1018 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -9385,14 +9385,14 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\Explosion::explodeA` | implemented | src/action/entity.rs:39 `Explode`<br>src/tick/world_api.rs:189 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
 | `world\Explosion::explodeB` | implemented | src/action/entity.rs:40 `Explode`<br>src/tick/world_api.rs:190 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/interact/tests/events.rs::a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
 | `world\Explosion::setFireChance` | implemented | src/action/entity.rs:62 `fire`<br>src/tick/world_api.rs:197 `explode_with_fire` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode |  |
-| `world\Position` | merged | src/tick/entity/api.rs:855 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Position::getWorld` |
+| `world\Position` | merged | src/tick/entity/api.rs:854 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Position::getWorld` |
 | `world\Position::__construct` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\Position::asPosition` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::equals` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::fromObject` | skipped |  |  | a position is `world::Id` plus a `BlockPos` or `Vec3` value |
 | `world\Position::getSide` | implemented | src/world.rs:91 `step` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
-| `world\Position::getWorld` | implemented | src/tick/entity/api.rs:855 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `world\Position::getWorld` | implemented | src/tick/entity/api.rs:854 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `world\Position::isValid` | implemented | src/tick/world_api.rs:49 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\SimpleChunkManager` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::__construct` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
@@ -9423,10 +9423,10 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\World::computeSunAnglePercentage` | skipped |  |  | sky light rule code |
 | `world\World::createBlockUpdatePackets` | implemented | src/tick/view.rs:894 `send_fake_block` | src/tick/inventory/tests/menu.rs::a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block |  |
 | `world\World::doChunkGarbageCollection` | skipped |  |  | chunk store internals |
-| `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1561 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `world\World::dropItem` | implemented | src/tick/entity/api.rs:1537 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1560 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `world\World::dropItem` | implemented | src/tick/entity/api.rs:1536 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `world\World::getAdjacentChunks` | merged | src/world.rs:828 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
-| `world\World::getAutoSave` | merged | src/tick/command.rs:1716 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::getAutoSave` |
+| `world\World::getAutoSave` | merged | src/tick/command.rs:740 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::getAutoSave` |
 | `world\World::getBiome` | implemented | src/world.rs:758 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getBiomeId` | implemented | src/world.rs:757 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getBlock` | implemented | src/world.rs:713 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9435,19 +9435,19 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\World::getBlockLightAt` | implemented | src/world.rs:774 `block_light` | src/world/light.rs::block_light_follows_pmmp_rules |  |
 | `world\World::getBlockXYZ` | skipped |  |  | chunk store internals |
 | `world\World::getChunk` | implemented | src/world.rs:828 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
-| `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1422 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1421 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::getChunkLoaders` | implemented | src/tick/view.rs:1033 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::getChunkPlayers` | implemented | src/tick/world_api.rs:89 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
-| `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1442 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1441 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getCollisionBlocks` | merged | src/tick/world_api.rs:252 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
 | `world\World::getCollisionBoxes` | merged | src/tick/world_api.rs:252 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
 | `world\World::getDifficulty` | implemented | src/world.rs:689 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::getDifficultyFromString` | skipped |  |  | settings are typed `Config` fields |
 | `world\World::getDisplayName` | implemented | src/world.rs:615 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getEntities` | implemented | src/tick/entity/api.rs:1415 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getEntity` | implemented | src/tick/entity/api.rs:1407 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getEntities` | implemented | src/tick/entity/api.rs:1414 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getEntity` | implemented | src/tick/entity/api.rs:1406 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getFolderName` | implemented | src/world.rs:614 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\World::getFullLight` | merged | src/world.rs:797 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
 | `world\World::getFullLightAt` | implemented | src/world.rs:797 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
@@ -9462,8 +9462,8 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\World::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `world\World::getMaxY` | implemented | src/world.rs:45 `MAX_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getMinY` | implemented | src/world.rs:50 `MIN_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getNearbyEntities` | implemented | src/tick/entity/api.rs:1441 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1455 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getNearbyEntities` | implemented | src/tick/entity/api.rs:1440 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1454 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getOrLoadChunkAtPosition` | skipped |  |  | chunks load off the tick and arrive as a later tick's input: a block of a chunk that is not loaded reads as `None` |
 | `world\World::getPlayers` | implemented | src/tick/world_api.rs:75 `players_in` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
 | `world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:782 `sky_light` | src/world/light.rs::sky_light_follows_pmmp_rules |  |
@@ -9513,7 +9513,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\World::save` | implemented | src/tick/task.rs:340 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `world\World::scheduleDelayedBlockUpdate` | implemented | src/tick/update.rs:663 `schedule_block_update` | src/tick/update.rs::the_api_schedules_one_update_per_position_and_it_runs_when_due |  |
-| `world\World::setAutoSave` | merged | src/tick/command.rs:1707 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
+| `world\World::setAutoSave` | merged | src/tick/command.rs:1031 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
 | `world\World::setBiomeId` | implemented | src/world.rs:1080 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::setBlock` | implemented | src/world.rs:1019 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setBlockAt` | implemented | src/world.rs:1018 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9553,9 +9553,9 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\WorldException` | skipped |  |  | PHP exception: Anchor returns `Result` with module `Error` enums |
 | `world\WorldManager` | merged | src/tick/world_api.rs:48 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
-| `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1406 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
+| `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1405 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\WorldManager::generateWorld` | implemented | src/server.rs:572 `world`<br>src/tick/world_api/lifecycle.rs:331 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
-| `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1716 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
+| `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:740 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:238 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
@@ -9565,7 +9565,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:440 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:490 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\WorldManager::loadWorld` | implemented | src/tick/world_api/lifecycle.rs:385 `load_world` | src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
-| `world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:1707 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
+| `world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:1031 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `world\WorldManager::setAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:500 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::tick` | skipped |  |  | the tick loop ticks every world |

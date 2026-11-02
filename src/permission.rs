@@ -1,19 +1,17 @@
-//! Permissions: what a player may do, with PMMP's defaults (op, not op, everyone, nobody).
+//! Permissions: what a player may do, with the defaults op, not op, everyone and nobody.
 //!
 //! A [`Permission`] is a name and a [`Default`](enum@Default): who has it unless the server says
 //! otherwise. Register yours with
 //! [`ServerBuilder::permission`](crate::ServerBuilder::permission); a command's permission is
 //! registered with the command. Whether someone has a permission comes from its default and the
 //! operator list, unless a grant made while the player is online
-//! ([`Context::set_permission`](crate::Context::set_permission), PMMP's permission attachments)
-//! says otherwise. Grants are not saved; the operator list, the ban lists and the whitelist are
-//! saved in the data files with everything else.
+//! ([`Context::set_permission`](crate::Context::set_permission)) says otherwise. Grants are not
+//! saved; the operator list, the ban lists and the whitelist are saved in the data files with
+//! everything else.
 //!
-//! Anchor's own permissions are the constants of this module. Their names follow PMMP's
-//! `DefaultPermissionNames` with `anchor` in place of `pocketmine`: `pocketmine.command.give.self`
-//! is `anchor.command.give.self`. Their defaults are PMMP's;
+//! Anchor's own permissions are the constants of this module, such as `anchor.command.give.self`.
 //! [`ServerBuilder::permission_default`](crate::ServerBuilder::permission_default) gives one
-//! another for the whole server.
+//! another default for the whole server.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -26,7 +24,7 @@ pub(crate) const MAX_NAME: usize = 64;
 pub(crate) const MAX_REASON: usize = 256;
 /// The longest ban source, in bytes.
 pub(crate) const MAX_SOURCE: usize = 64;
-/// The source of a ban nobody named (PMMP `BanEntry`'s default).
+/// The source of a ban nobody named.
 const UNKNOWN_SOURCE: &str = "(Unknown)";
 
 /// A permission: a name, unique on the server, and who has it by default.
@@ -76,7 +74,7 @@ impl Permission {
     }
 }
 
-/// Who has a permission by default (PMMP's `PermissionParser` defaults).
+/// Who has a permission by default.
 #[doc(alias = "PermissionParser")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Default {
@@ -91,7 +89,7 @@ pub enum Default {
 }
 
 impl Default {
-    /// The default a PMMP permission file names: `op`, `notop`, `true`, `false` and PMMP's other
+    /// The default a permission file names: `op`, `notop`, `true`, `false` and the other
     /// spellings (`isop`, `admin`, `!op`, `notadmin`, ...), ignoring ASCII case.
     #[doc(alias = "PermissionParser::defaultFromString")]
     pub fn from_name(name: &str) -> Option<Self> {
@@ -138,6 +136,17 @@ impl BanEntry {
         }
     }
 
+    /// A ban of the IP address `ip`, without reason or end. An IPv4 address written as IPv6
+    /// (`::ffff:1.2.3.4`) is the IPv4 address.
+    pub fn ip(ip: IpAddr) -> Self {
+        let ip = ip.to_canonical();
+        Self {
+            name: ip.to_string(),
+            ip: Some(ip),
+            ..Self::new("")
+        }
+    }
+
     /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
     /// that has passed when the ban is added refuses it ([`Error::Expired`]).
     #[doc(alias = "BanEntry::setExpires")]
@@ -179,17 +188,6 @@ impl BanEntry {
             source,
             created,
             expires,
-        }
-    }
-
-    /// A ban of the IP address `ip`, without reason or end. An IPv4 address written as IPv6
-    /// (`::ffff:1.2.3.4`) is the IPv4 address.
-    pub fn ip(ip: IpAddr) -> Self {
-        let ip = ip.to_canonical();
-        Self {
-            name: ip.to_string(),
-            ip: Some(ip),
-            ..Self::new("")
         }
     }
 
@@ -294,11 +292,10 @@ macro_rules! builtin {
 }
 
 builtin! {
-    /// Get a copy of what operators' commands did, such as `[Steve: Opped Alex]` (PMMP's
-    /// administrative broadcast channel).
+    /// Get a copy of what operators' commands did, such as `[Steve: Opped Alex]`.
     #[doc(alias = "DefaultPermissionNames")]
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
-    /// Back up the data files while the server runs (`/backup`; Anchor's own, PMMP has none).
+    /// Back up the data files while the server runs (`/backup`).
     COMMAND_BACKUP = "anchor.command.backup", Op;
     /// Ban IP addresses (`/ban-ip`).
     COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
@@ -306,24 +303,12 @@ builtin! {
     COMMAND_BAN_LIST = "anchor.command.ban.list", Op;
     /// Ban players (`/ban`).
     COMMAND_BAN_PLAYER = "anchor.command.ban.player", Op;
-    /// Check the data files while the server runs (`/check`; Anchor's own, PMMP has none).
+    /// Check the data files while the server runs (`/check`).
     COMMAND_CHECK = "anchor.command.check", Op;
     /// Clear another player's inventory (`/clear`).
     COMMAND_CLEAR_OTHER = "anchor.command.clear.other", Op;
     /// Clear one's own inventory (`/clear`).
     COMMAND_CLEAR_SELF = "anchor.command.clear.self", True;
-    /// Change the default game mode (`/defaultgamemode`).
-    COMMAND_DEFAULTGAMEMODE = "anchor.command.defaultgamemode", Op;
-    /// Change the difficulty (`/difficulty`).
-    COMMAND_DIFFICULTY = "anchor.command.difficulty", Op;
-    /// Change another player's effects (`/effect`).
-    COMMAND_EFFECT_OTHER = "anchor.command.effect.other", Op;
-    /// Change one's own effects (`/effect`).
-    COMMAND_EFFECT_SELF = "anchor.command.effect.self", Op;
-    /// Enchant another player's held item (`/enchant`).
-    COMMAND_ENCHANT_OTHER = "anchor.command.enchant.other", Op;
-    /// Enchant one's own held item (`/enchant`).
-    COMMAND_ENCHANT_SELF = "anchor.command.enchant.self", Op;
     /// Change another player's game mode (`/gamemode`).
     COMMAND_GAMEMODE_OTHER = "anchor.command.gamemode.other", Op;
     /// Change one's own game mode (`/gamemode`).
@@ -332,40 +317,22 @@ builtin! {
     COMMAND_GIVE_OTHER = "anchor.command.give.other", Op;
     /// Give items to oneself (`/give`).
     COMMAND_GIVE_SELF = "anchor.command.give.self", Op;
-    /// List the commands (`/help`).
-    COMMAND_HELP = "anchor.command.help", True;
     /// Kick players (`/kick`).
     COMMAND_KICK = "anchor.command.kick", Op;
-    /// Kill another player (`/kill`).
-    COMMAND_KILL_OTHER = "anchor.command.kill.other", Op;
-    /// Kill oneself (`/kill`).
-    COMMAND_KILL_SELF = "anchor.command.kill.self", True;
+    /// Kill players (`/kill`).
+    COMMAND_KILL = "anchor.command.kill", Op;
     /// List the players online (`/list`).
     COMMAND_LIST = "anchor.command.list", Op;
-    /// Describe an action in chat (`/me`).
-    COMMAND_ME = "anchor.command.me", True;
     /// Make players operators (`/op`).
     COMMAND_OP_GIVE = "anchor.command.op.give", Op;
     /// Take operator status away (`/deop`).
     COMMAND_OP_TAKE = "anchor.command.op.take", Op;
-    /// Show particles (`/particle`).
-    COMMAND_PARTICLE = "anchor.command.particle", Op;
     /// Turn periodic saving off (`/save-off`).
     COMMAND_SAVE_DISABLE = "anchor.command.save.disable", Op;
     /// Turn periodic saving on (`/save-on`).
     COMMAND_SAVE_ENABLE = "anchor.command.save.enable", Op;
     /// Save now (`/save-all`).
     COMMAND_SAVE_PERFORM = "anchor.command.save.perform", Op;
-    /// Broadcast a message (`/say`).
-    COMMAND_SAY = "anchor.command.say", Op;
-    /// Show the world seed (`/seed`).
-    COMMAND_SEED = "anchor.command.seed", Op;
-    /// Move the world spawn (`/setworldspawn`).
-    COMMAND_SETWORLDSPAWN = "anchor.command.setworldspawn", Op;
-    /// Set another player's spawn point (`/spawnpoint`).
-    COMMAND_SPAWNPOINT_OTHER = "anchor.command.spawnpoint.other", Op;
-    /// Set one's own spawn point (`/spawnpoint`).
-    COMMAND_SPAWNPOINT_SELF = "anchor.command.spawnpoint.self", Op;
     /// Show the server's uptime and load (`/status`).
     COMMAND_STATUS = "anchor.command.status", Op;
     /// Stop the server (`/stop`).
@@ -374,27 +341,9 @@ builtin! {
     COMMAND_TELEPORT_OTHER = "anchor.command.teleport.other", Op;
     /// Teleport oneself (`/tp`).
     COMMAND_TELEPORT_SELF = "anchor.command.teleport.self", Op;
-    /// Send a private message (`/tell`).
-    COMMAND_TELL = "anchor.command.tell", True;
-    /// Add to the world time (`/time add`).
-    COMMAND_TIME_ADD = "anchor.command.time.add", Op;
-    /// Read the world time (`/time query`).
-    COMMAND_TIME_QUERY = "anchor.command.time.query", Op;
-    /// Set the world time (`/time set`).
-    COMMAND_TIME_SET = "anchor.command.time.set", Op;
-    /// Start the day cycle again (`/time resume`, PMMP's `/time start`).
-    COMMAND_TIME_START = "anchor.command.time.start", Op;
-    /// Stop the day cycle (`/time pause`, PMMP's `/time stop`).
-    COMMAND_TIME_STOP = "anchor.command.time.stop", Op;
-    /// Show titles to other players (`/title`).
-    COMMAND_TITLE_OTHER = "anchor.command.title.other", Op;
-    /// Show titles to oneself (`/title`).
-    COMMAND_TITLE_SELF = "anchor.command.title.self", Op;
-    /// Send players to another server (`/transferserver`).
-    COMMAND_TRANSFERSERVER = "anchor.command.transferserver", Op;
-    /// Lift IP bans (`/pardon-ip`).
+    /// Lift IP bans (`/unban-ip`).
     COMMAND_UNBAN_IP = "anchor.command.unban.ip", Op;
-    /// Lift player bans (`/pardon`).
+    /// Lift player bans (`/unban`).
     COMMAND_UNBAN_PLAYER = "anchor.command.unban.player", Op;
     /// Show the server version (`/version`).
     COMMAND_VERSION = "anchor.command.version", True;
@@ -408,10 +357,6 @@ builtin! {
     COMMAND_WHITELIST_LIST = "anchor.command.whitelist.list", Op;
     /// Remove players from the whitelist (`/whitelist remove`).
     COMMAND_WHITELIST_REMOVE = "anchor.command.whitelist.remove", Op;
-    /// Give XP to another player (`/xp`).
-    COMMAND_XP_OTHER = "anchor.command.xp.other", Op;
-    /// Give XP to oneself (`/xp`).
-    COMMAND_XP_SELF = "anchor.command.xp.self", Op;
 }
 
 /// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
@@ -437,7 +382,7 @@ mod tests {
 
     // api: PermissionParser::defaultFromString, PermissionParser, Permission::__construct
     #[test]
-    fn defaults_parse_pmmp_spellings_and_decide_by_operator_status() {
+    fn defaults_parse_their_spellings_and_decide_by_operator_status() {
         assert_eq!(Default::from_name("IsOp"), Some(Default::Op));
         assert_eq!(Default::from_name("!admin"), Some(Default::NotOp));
         assert_eq!(Default::from_name("TRUE"), Some(Default::True));
@@ -457,14 +402,14 @@ mod tests {
 
     // api: Permission::getName, DefaultPermissionNames, Permission
     #[test]
-    fn builtin_names_are_unique_and_follow_pmmp_under_anchor() {
+    fn builtin_names_are_unique_and_start_with_anchor() {
         let mut names: Vec<&str> = BUILTIN.iter().map(|p| p.name()).collect();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), BUILTIN.len());
         assert!(names.iter().all(|n| n.starts_with("anchor.")));
         assert_eq!(COMMAND_GIVE_SELF.name(), "anchor.command.give.self");
-        assert_eq!(COMMAND_ME.default(), Default::True);
+        assert_eq!(COMMAND_VERSION.default(), Default::True);
     }
 
     // api: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource,

@@ -653,9 +653,9 @@ impl World {
         self.time
     }
 
-    /// Ticks the world has run since it was made or loaded, its clock stopped or not: BDS's game
-    /// time (`/time query gametime`), which moving the clock does not change. Not saved, so it
-    /// starts at 0 at every load.
+    /// Ticks the world has run since it was made or loaded, its clock stopped or not, which
+    /// moving the clock does not change. Not saved, so it starts at 0 at every load.
+    #[cfg(test)]
     pub(crate) fn age_ticks(&self) -> u64 {
         self.age_ticks
     }

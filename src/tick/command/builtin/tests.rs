@@ -8,10 +8,8 @@ use tokio::sync::mpsc;
 use super::*;
 use crate::command::{self, Command};
 use crate::config::{Difficulty, GameMode};
-use crate::effect;
 use crate::event::{
-    EntityEffectAdd, EntityEffectRemove, EntityTeleport, Listeners, PlayerGameModeChange,
-    PlayerKick, PlayerTransfer, Priority, TeleportCause,
+    EntityTeleport, Listeners, PlayerGameModeChange, PlayerKick, Priority, TeleportCause,
 };
 use crate::item::{self, Stack};
 use crate::math::Vec3;
@@ -23,163 +21,39 @@ use crate::tick::command::tests::{id, lines, server, server_with};
 use crate::tick::command::{available_commands, execute};
 use crate::tick::log::InputLog;
 use crate::tick::queue::{Measure, Outbound, SessionId};
-use crate::tick::tests::{initialised, radius, received, tick};
+use crate::tick::tests::{received, tick};
 use crate::tick::{Context, Output as TickOutput, State, save};
 use crate::world::BlockPos;
 
-/// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
-const BDS_ENUMS: [(&str, &[&str]); 20] = [
-    ("AddInfiniteEffect", &["infinite"]),
-    ("Boolean", &["true", "false"]),
-    ("ClearEffects", &["clear"]),
-    ("ClockTimeQuery", &["time"]),
-    (
-        "Difficulty",
-        &["normal", "peaceful", "easy", "hard", "p", "e", "n", "h"],
-    ),
-    (
-        "Effect",
-        &[
-            "wither",
-            "freezing",
-            "speed",
-            "slowness",
-            "haste",
-            "mining_fatigue",
-            "strength",
-            "instant_health",
-            "instant_damage",
-            "jump_boost",
-            "nausea",
-            "regeneration",
-            "resistance",
-            "fire_resistance",
-            "water_breathing",
-            "invisibility",
-            "blindness",
-            "night_vision",
-            "hunger",
-            "weakness",
-            "poison",
-            "health_boost",
-            "absorption",
-            "saturation",
-            "levitation",
-            "fatal_poison",
-            "conduit_power",
-            "slow_falling",
-            "bad_omen",
-            "village_hero",
-            "darkness",
-            "trial_omen",
-            "wind_charged",
-            "weaving",
-            "oozing",
-            "infested",
-            "raid_omen",
-            "breath_of_the_nautilus",
-        ],
-    ),
-    (
-        "Enchant",
-        &[
-            "protection",
-            "fire_protection",
-            "feather_falling",
-            "blast_protection",
-            "projectile_protection",
-            "thorns",
-            "respiration",
-            "depth_strider",
-            "aqua_affinity",
-            "sharpness",
-            "smite",
-            "bane_of_arthropods",
-            "knockback",
-            "fire_aspect",
-            "looting",
-            "efficiency",
-            "silk_touch",
-            "unbreaking",
-            "fortune",
-            "power",
-            "punch",
-            "flame",
-            "infinity",
-            "luck_of_the_sea",
-            "lure",
-            "frost_walker",
-            "mending",
-            "binding",
-            "vanishing",
-            "impaling",
-            "riptide",
-            "loyalty",
-            "channeling",
-            "multishot",
-            "piercing",
-            "quick_charge",
-            "soul_speed",
-            "swift_sneak",
-            "wind_burst",
-            "density",
-            "breach",
-            "lunge",
-        ],
-    ),
-    (
-        "GameMode",
-        &[
-            "default",
-            "creative",
-            "spectator",
-            "survival",
-            "adventure",
-            "d",
-            "c",
-            "s",
-            "a",
-        ],
-    ),
-    ("TimeMarkerOccurrence", &["next", "previous", "stay"]),
-    ("TimeModeAdd", &["add"]),
-    ("TimeModePause", &["pause"]),
-    ("TimeModeQuery", &["query"]),
-    ("TimeModeResume", &["resume"]),
-    ("TimeModeSet", &["set"]),
-    ("TimeOfCommand", &["of"]),
-    ("TimeQuery2", &["time", "daytime", "gametime", "day"]),
-    ("TitleClear", &["clear"]),
-    ("TitleReset", &["reset"]),
-    ("TitleSet", &["title", "subtitle", "actionbar"]),
-    ("TitleTimes", &["times"]),
-];
-/// BDS 1.26.60's overloads of the commands Anchor shares with it, from the `AvailableCommands`
-/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
-/// optional parameter, `soft:` for a soft enum.
-const BDS_OVERLOADS: [&str; 50] = [
+/// The official server's values of the enums of [`OFFICIAL_OVERLOADS`] (but `Item`).
+const OFFICIAL_ENUMS: [(&str, &[&str]); 1] = [(
+    "GameMode",
+    &[
+        "default",
+        "creative",
+        "spectator",
+        "survival",
+        "adventure",
+        "d",
+        "c",
+        "s",
+        "a",
+    ],
+)];
+/// The official server's overloads of the commands Anchor shares with it, from the
+/// `AvailableCommands` the P6 bot received (`p6 api official`, scenario `commands`):
+/// `command name=type ...`, `?` for an optional parameter.
+const OFFICIAL_OVERLOADS: [&str; 20] = [
     "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
     "deop player=target",
-    "difficulty difficulty=enum:Difficulty",
-    "difficulty difficulty=int",
-    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
-    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
-    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
-    "enchant player=target enchantmentName=enum:Enchant level=int?",
-    "enchant player=target enchantmentId=int level=int?",
     "gamemode gameMode=enum:GameMode player=target?",
     "gamemode gameMode=int player=target?",
     "give player=target itemName=enum:Item amount=int? data=int? components=json?",
     "kick name=target reason=message",
     "kill target=target?",
     "list",
-    "me message=message",
     "op player=target",
-    "say message=message",
-    "setworldspawn spawnPoint=position?",
-    "spawnpoint player=target? spawnPos=position?",
     "stop",
-    "tell target=target message=message",
     "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
     "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
     "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
@@ -190,37 +64,35 @@ const BDS_OVERLOADS: [&str; 50] = [
     "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
     "teleport destination=target",
     "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
-    "time mode=enum:TimeModeAdd amount=int",
-    "time mode=enum:TimeModeSet amount=int",
-    "time mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time mode=enum:TimeModeQuery time=enum:TimeQuery2",
-    "time mode=enum:TimeModePause",
-    "time mode=enum:TimeModeResume",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeAdd amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet amount=int",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeSet timeMarkerName=clock_time_marker timeMarkerOccurrence=enum:TimeMarkerOccurrence?",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeQuery clockQuery=enum:ClockTimeQuery",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModePause",
-    "time command=enum:TimeOfCommand clockName=soft:WorldClocks mode=enum:TimeModeResume",
-    "title player=target clear=enum:TitleClear",
-    "title player=target reset=enum:TitleReset",
-    "title player=target titleLocation=enum:TitleSet titleText=message",
-    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
-    "xp amount=int player=target?",
-    "xp amount=suffix:l player=target?",
 ];
-/// BDS's values of the soft enums of [`BDS_OVERLOADS`] when a player joins, from the same packet.
-const BDS_SOFT_ENUMS: [(&str, &[&str]); 1] = [("WorldClocks", &["minecraft:overworld"])];
-/// The clock `/time` names: every world's.
-const CLOCK: &str = "minecraft:overworld";
-/// `/time`'s answer when a clock would go below 0.
-const CLOCK_TOO_SMALL: &str = "commands.time.clock.num.tooSmall";
-
-/// A key and its parameters.
-type Said = (String, Vec<String>);
+/// The commands that no longer exist, with the names they had.
+const REMOVED_COMMANDS: [&str; 22] = [
+    "help",
+    "?",
+    "me",
+    "say",
+    "seed",
+    "setworldspawn",
+    "defaultgamemode",
+    "difficulty",
+    "time",
+    "particle",
+    "effect",
+    "enchant",
+    "spawnpoint",
+    "xp",
+    "title",
+    "tell",
+    "w",
+    "msg",
+    "transferserver",
+    "suicide",
+    "pardon",
+    "pardon-ip",
+];
 
 #[test]
-fn pmmp_texts_fill_each_parameter_once() {
+fn own_texts_fill_each_parameter_once() {
     let msg = Msg::own("a {%0} b {%1} {%2}");
     assert_eq!(msg.render(&["{%1}", "x"]).unwrap(), "a {%1} b x {%2}");
     assert_eq!(Msg::client("k").render(&[]), None);
@@ -246,19 +118,14 @@ fn ok(state: &mut State, sender: Sender, line: &str) -> Vec<String> {
 fn every_builtin_registers_and_users_replace_or_drop_them() {
     let (state, _rx) = server(Vec::new());
     let mut names: Vec<&str> = state.commands.list.iter().map(Command::name).collect();
-    assert_eq!(
-        names.len(),
-        39,
-        "PMMP's 41 commands but 4, backup and check"
-    );
+    assert_eq!(names.len(), 23);
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 39);
-    for skipped in ["dumpmemory", "gc", "plugins", "timings"] {
-        assert!(!names.contains(&skipped));
-    }
+    assert_eq!(names.len(), 23);
     let mut commands = crate::Server::builder()
-        .command(Command::new("me", "mine").overload(&[], |_, _, _| Ok(Output::from("user's me"))))
+        .command(
+            Command::new("list", "mine").overload(&[], |_, _, _| Ok(Output::from("user's list"))),
+        )
         .without_command("STOP")
         .setup
         .commands;
@@ -268,11 +135,23 @@ fn every_builtin_registers_and_users_replace_or_drop_them() {
         crate::event::Listeners::default(),
     );
     state.commands = commands;
-    assert_eq!(ok(&mut state, Sender::Console, "me"), ["user's me"]);
+    assert_eq!(ok(&mut state, Sender::Console, "list"), ["user's list"]);
     assert!(matches!(
         run(&mut state, Sender::Console, "stop"),
         Err(Error::Unknown { .. })
     ));
+}
+
+#[test]
+fn removed_commands_and_their_names_are_not_registered() {
+    let (mut state, _rx) = server(Vec::new());
+    let cx = Context { state: &mut state };
+    for name in REMOVED_COMMANDS {
+        assert!(cx.command(name).is_none(), "{name}");
+    }
+    for name in ["unban", "unban-ip", "kill", "tp", "teleport"] {
+        assert!(cx.command(name).is_some(), "{name}");
+    }
 }
 
 // api: Command::setPermissions, Command::getPermissions
@@ -288,15 +167,15 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     names.sort_unstable();
     assert_eq!(
         names,
-        ["clear", "kill", "me", "tell", "version"],
-        "PMMP's defaults for players who are not operators, but help (the client has its own)"
+        ["clear", "version"],
+        "the defaults for players who are not operators"
     );
     Context { state: &mut state }.op("player2").unwrap();
     let packet = available_commands(state.commands.listing(), s2, &state.players[&s2]);
     let Packet::AvailableCommands(p) = &packet else {
         panic!("{packet:?}");
     };
-    assert_eq!(p.commands.len(), 38, "all but help");
+    assert_eq!(p.commands.len(), 23, "all");
     let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
     assert_eq!(tp.overloads.len(), 4);
     let shapes: Vec<Vec<&str>> = tp
@@ -312,22 +191,26 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
             vec!["destination"],
             vec!["victim", "destination"]
         ],
-        "a position, then a player, as BDS"
+        "a position, then a player, as the official server"
     );
     let gamemode = p.commands.iter().find(|c| c.name == "gamemode").unwrap();
     let mode = &gamemode.overloads[0].parameters[0];
     assert_ne!(mode.r#type & u32::from(CommandArg::Enum), 0);
     let index = usize::try_from(mode.r#type & 0xffff).unwrap();
     assert_eq!(p.enums[index].r#type, "GameMode");
-    assert_eq!(p.enums[index].value_indices.len(), 9, "BDS's names");
-    let tell = p.commands.iter().find(|c| c.name == "tell").unwrap();
-    let aliases = &p.enums[usize::try_from(tell.aliases_offset).unwrap()];
+    assert_eq!(
+        p.enums[index].value_indices.len(),
+        9,
+        "the official server's names"
+    );
+    let version = p.commands.iter().find(|c| c.name == "version").unwrap();
+    let aliases = &p.enums[usize::try_from(version.aliases_offset).unwrap()];
     let aliases: Vec<&str> = aliases
         .value_indices
         .iter()
         .map(|&i| p.enum_values[usize::try_from(i).unwrap()].as_str())
         .collect();
-    assert_eq!(aliases, ["tell", "w", "msg"]);
+    assert_eq!(aliases, ["version", "ver", "about"]);
     let give = state
         .commands
         .list
@@ -447,7 +330,7 @@ fn kicked_with(last: Option<Packet>) -> String {
 }
 
 #[test]
-fn ban_and_pardon_keep_the_list_and_kick_the_online_player() {
+fn ban_and_unban_keep_the_list_and_kick_the_online_player() {
     let (mut state, mut rx) = with_op();
     assert!(is_refused(&run(&mut state, id(2), "ban player1")));
     assert!(is_usage(&run(&mut state, id(1), "ban")));
@@ -468,7 +351,7 @@ fn ban_and_pardon_keep_the_list_and_kick_the_online_player() {
         ["commands.banlist.players", "player2"]
     );
     assert_eq!(
-        ok(&mut state, Sender::Console, "pardon PLAYER2"),
+        ok(&mut state, Sender::Console, "unban PLAYER2"),
         ["commands.unban.success"]
     );
     assert!(!Context { state: &mut state }.is_banned("player2"));
@@ -484,7 +367,7 @@ fn fails(state: &mut State, sender: Sender, line: &str) -> String {
 }
 
 #[test]
-fn ban_ip_takes_an_address_or_an_online_players_and_pardon_ip_lifts_it() {
+fn ban_ip_takes_an_address_or_an_online_players_and_unban_ip_lifts_it() {
     let (mut state, mut rx) = with_op();
     let ip = IpAddr::from([10, 0, 0, 2]);
     state
@@ -513,15 +396,34 @@ fn ban_ip_takes_an_address_or_an_online_players_and_pardon_ip_lifts_it() {
         ["commands.banlist.ips", "10.0.0.2, ::1"]
     );
     assert_eq!(
-        fails(&mut state, Sender::Console, "pardon-ip x"),
+        fails(&mut state, Sender::Console, "unban-ip x"),
         "commands.unbanip.invalid"
     );
     assert_eq!(
-        ok(&mut state, Sender::Console, "pardon-ip 10.0.0.2"),
+        ok(&mut state, Sender::Console, "unban-ip 10.0.0.2"),
         ["commands.unbanip.success"]
     );
     assert!(!Context { state: &mut state }.is_ip_banned(ip));
-    assert!(is_refused(&run(&mut state, id(2), "pardon-ip ::1")));
+    assert!(is_refused(&run(&mut state, id(2), "unban-ip ::1")));
+}
+
+/// An IPv4 address written as IPv6 names the IPv4 address, as a connection's address does.
+#[test]
+fn ban_ip_and_unban_ip_take_an_ipv4_address_written_as_ipv6() {
+    let (mut state, mut rx) = with_op();
+    let ip = IpAddr::from([10, 0, 0, 2]);
+    state
+        .players
+        .get_mut(&SessionId::new(2))
+        .unwrap()
+        .identity
+        .address = Some(ip);
+    ok(&mut state, Sender::Console, "ban-ip ::ffff:10.0.0.2 bye");
+    assert!(Context { state: &mut state }.is_ip_banned(ip));
+    let (_, last) = chat(&mut state, &mut rx[1]);
+    assert_eq!(kicked_with(last), "This server has banned you: bye");
+    ok(&mut state, Sender::Console, "unban-ip ::ffff:10.0.0.2");
+    assert!(!Context { state: &mut state }.is_ip_banned(ip));
 }
 
 #[test]
@@ -588,9 +490,9 @@ fn player(state: &State, session: u64) -> &crate::player::Player {
     &state.players[&SessionId::new(session)]
 }
 
-// api: Player::kick, Player::setGamemode, Entity::teleport, Player::transfer
+// api: Player::kick, Player::setGamemode, Entity::teleport
 #[test]
-fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
+fn builtin_kick_gamemode_and_teleport_raise_their_events() {
     let mut listeners = Listeners::default();
     listeners.push(
         Priority::Normal,
@@ -614,16 +516,10 @@ fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
             }
         },
     );
-    listeners.push(
-        Priority::Normal,
-        |e: &mut PlayerTransfer, _: &mut Context<'_>| {
-            e.cancel();
-        },
-    );
     let (mut state, _rx) = server_with(Vec::new(), listeners);
     Context { state: &mut state }.op("player2").unwrap();
     let start = player(&state, 2).position();
-    // PMMP's success lines come before the listeners decide.
+    // The success lines come before the listeners decide.
     assert_eq!(
         ok(&mut state, Sender::Console, "kick player2"),
         ["commands.kick.success"]
@@ -636,8 +532,6 @@ fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
     assert_eq!(player(&state, 2).position(), start);
     ok(&mut state, Sender::Console, "tp player2 player1");
     assert_eq!(player(&state, 2).position(), Vec3::new(1.0, 80.0, 1.0));
-    ok(&mut state, id(2), "transferserver example.com");
-    assert!(player(&state, 2).is_online(), "the transfer was cancelled");
 }
 
 /// A full deferred queue fails a command on several players before it acts on any of them.
@@ -694,7 +588,7 @@ fn gamemode_changes_players_and_needs_the_permission_for_others() {
         to2.contains(&(format!("{changed}\n"), Vec::new())),
         "{to2:?}"
     );
-    // BDS tells the sender too.
+    // The sender is told too.
     let (to1, _) = chat(&mut state, &mut rx[0]);
     assert!(
         to1.iter()
@@ -704,7 +598,7 @@ fn gamemode_changes_players_and_needs_the_permission_for_others() {
 }
 
 #[test]
-fn messages_to_the_players_acted_on_are_bds_raw_text() {
+fn messages_to_the_players_acted_on_are_raw_text() {
     let (mut state, mut rx) = with_op();
     chat(&mut state, &mut rx[0]);
     ok(&mut state, id(1), "give @s stone 3");
@@ -731,31 +625,15 @@ fn messages_to_the_players_acted_on_are_bds_raw_text() {
 }
 
 #[test]
-fn defaultgamemode_and_difficulty_change_the_running_settings() {
+fn a_hardcore_server_stays_hard() {
     let (mut state, _rx) = with_op();
-    assert!(is_refused(&run(&mut state, id(2), "difficulty hard")));
-    assert_eq!(
-        ok(&mut state, Sender::Console, "defaultgamemode a"),
-        ["commands.defaultgamemode.success"]
-    );
-    assert_eq!(
-        Context { state: &mut state }.default_game_mode(),
-        GameMode::Adventure
-    );
-    assert_eq!(
-        ok(&mut state, id(1), "difficulty P"),
-        ["commands.difficulty.success"]
-    );
+    assert!(Context { state: &mut state }.set_difficulty(Difficulty::Peaceful));
+    state.settings.hardcore = true;
+    assert!(!Context { state: &mut state }.set_difficulty(Difficulty::Easy));
     assert_eq!(
         Context { state: &mut state }.difficulty(),
         Difficulty::Peaceful
     );
-    assert!(is_usage(&run(&mut state, id(1), "difficulty 4")));
-    // A hardcore server stays hard.
-    state.settings.hardcore = true;
-    ok(&mut state, id(1), "difficulty easy");
-    assert_eq!(Context { state: &mut state }.difficulty(), Difficulty::Hard);
-    assert!(!Context { state: &mut state }.set_difficulty(Difficulty::Easy));
 }
 
 #[test]
@@ -841,210 +719,17 @@ fn clear_counts_and_takes_items_from_every_slot() {
 }
 
 #[test]
-fn effect_gives_takes_and_clears_with_pmmp_bounds() {
+fn kill_is_for_operators_and_kills_oneself_by_default() {
     let (mut state, _rx) = with_op();
-    assert!(is_refused(&run(&mut state, id(2), "effect @s speed")));
-    assert_eq!(
-        ok(&mut state, id(1), "effect @s speed 10 2"),
-        ["commands.effect.success"]
-    );
-    let speed = player(&state, 1).effect(effect::Type::Speed).unwrap();
-    assert_eq!((speed.duration_ticks(), speed.amplifier()), (200, 2));
-    assert_eq!(
-        fails(&mut state, id(1), "effect @s speed 1 256"),
-        "commands.generic.num.tooBig"
-    );
-    assert_eq!(
-        fails(&mut state, id(1), "effect @s speed -1"),
-        "commands.generic.num.tooSmall"
-    );
-    assert_eq!(
-        fails(&mut state, id(1), "effect @s haste 0"),
-        "commands.effect.failure.notActive"
-    );
-    assert_eq!(
-        ok(&mut state, id(1), "effect @s speed 0"),
-        ["commands.effect.success.removed"]
-    );
-    assert_eq!(
-        fails(&mut state, id(1), "effect player1 speed 0"),
-        "commands.effect.failure.notActive.all"
-    );
-    ok(&mut state, Sender::Console, "effect player2 regeneration");
-    let regeneration = player(&state, 2)
-        .effect(effect::Type::Regeneration)
-        .unwrap();
-    assert_eq!(
-        regeneration.duration_ticks(),
-        effect::Type::Regeneration.default_duration_ticks()
-    );
-    assert_eq!(
-        ok(&mut state, Sender::Console, "effect player2 clear"),
-        ["commands.effect.success.removed.all"]
-    );
-    assert!(player(&state, 2).effects().next().is_none());
-    // BDS's `hideParticles` and `infinite`.
-    ok(&mut state, id(1), "effect @s resistance 600 255 true");
-    let resistance = player(&state, 1).effect(effect::Type::Resistance).unwrap();
-    assert!(!resistance.is_visible() && !resistance.is_infinite());
-    assert_eq!(
-        (resistance.duration_ticks(), resistance.amplifier()),
-        (12_000, 255)
-    );
-    ok(&mut state, id(1), "effect @s speed 5 0 false");
-    let speed = player(&state, 1).effect(effect::Type::Speed).unwrap();
-    assert!(speed.is_visible());
-    assert_eq!(
-        ok(&mut state, id(1), "effect @s haste infinite 1 true"),
-        ["commands.effect.success.infinite"]
-    );
-    let haste = player(&state, 1).effect(effect::Type::Haste).unwrap();
-    assert!(haste.is_infinite() && !haste.is_visible());
-    assert_eq!(haste.amplifier(), 1);
-    ok(&mut state, id(1), "effect @s jump_boost infinite");
-    let jump = player(&state, 1).effect(effect::Type::JumpBoost).unwrap();
-    assert!(jump.is_infinite() && jump.is_visible());
-}
-
-// api: EffectManager::add, EffectManager::remove
-/// PMMP `EffectCommand` goes through `EffectManager`, so its listeners decide: a cancelled add
-/// gives nothing and a cancelled removal keeps the effect, `clear` included.
-#[test]
-fn effect_raises_the_effect_events_and_their_listeners_decide() {
-    let mut listeners = Listeners::default();
-    listeners.push(
-        Priority::Normal,
-        |e: &mut EntityEffectAdd, _: &mut Context<'_>| {
-            if e.effect().effect() == effect::Type::Speed {
-                e.cancel();
-            }
-        },
-    );
-    listeners.push(
-        Priority::Normal,
-        |e: &mut EntityEffectRemove, _: &mut Context<'_>| {
-            if e.effect().effect() == effect::Type::Haste {
-                e.cancel();
-            }
-        },
-    );
-    let (mut state, _rx) = server_with(Vec::new(), listeners);
-    let has = |state: &State, t: effect::Type| player(state, 1).has_effect(t);
-    ok(&mut state, Sender::Console, "effect player1 speed 10");
-    assert!(!has(&state, effect::Type::Speed), "the add was cancelled");
-    ok(&mut state, Sender::Console, "effect player1 haste 10");
-    ok(
-        &mut state,
-        Sender::Console,
-        "effect player1 regeneration 10",
-    );
-    ok(&mut state, Sender::Console, "effect player1 haste 0");
-    assert!(
-        has(&state, effect::Type::Haste),
-        "the removal was cancelled"
-    );
-    ok(&mut state, Sender::Console, "effect player1 clear");
-    assert!(has(&state, effect::Type::Haste));
-    assert!(!has(&state, effect::Type::Regeneration));
-}
-
-#[test]
-fn enchant_enchants_the_held_item_up_to_the_highest_level() {
-    let (mut state, _rx) = with_op();
-    assert_eq!(
-        fails(&mut state, id(1), "enchant @s sharpness"),
-        "commands.enchant.noItem"
-    );
-    let sword = crate::command::parse::Names::item("diamond_sword").unwrap();
-    let book = crate::command::parse::Names::item("book").unwrap();
-    let p1 = crate::player::Id::new(SessionId::new(1));
-    let _left = Context { state: &mut state }
-        .player_mut(p1)
-        .unwrap()
-        .inventory_mut(crate::inventory::Kind::Main)
-        .add(&Stack::new(sword, 1));
-    assert_eq!(
-        fails(&mut state, id(1), "enchant @s sharpness 6"),
-        "commands.generic.num.tooBig"
-    );
-    assert_eq!(
-        ok(&mut state, id(1), "enchant @s sharpness 5"),
-        ["commands.enchant.success"]
-    );
-    let held = player(&state, 1).inventory.held().clone();
-    assert_eq!(
-        held.extra().unwrap().enchantments,
-        [(item::Enchantment::Sharpness, 5)]
-    );
-    assert!(is_refused(&run(&mut state, id(2), "enchant @s sharpness")));
-    let p2 = crate::player::Id::new(SessionId::new(2));
-    let _left = Context { state: &mut state }
-        .player_mut(p2)
-        .unwrap()
-        .inventory_mut(crate::inventory::Kind::Main)
-        .add(&Stack::new(book, 1));
-    ok(&mut state, Sender::Console, "enchant player2 unbreaking");
-    let held = player(&state, 2).inventory.held();
-    assert_eq!(
-        held.item().and_then(item::Type::kind),
-        Some(item::Kind::EnchantedBook),
-        "a book becomes an enchanted book"
-    );
-}
-
-#[test]
-fn kill_kills_oneself_by_default_and_others_with_permission() {
-    let (mut state, _rx) = with_op();
+    assert_eq!(permission::COMMAND_KILL.default(), permission::Default::Op);
+    assert!(is_refused(&run(&mut state, id(2), "kill")));
     assert!(is_refused(&run(&mut state, id(2), "kill player1")));
-    assert_eq!(
-        ok(&mut state, id(2), "suicide"),
-        ["commands.kill.successful"]
-    );
-    assert!(!player(&state, 2).is_alive());
-    assert!(is_usage(&run(&mut state, Sender::Console, "kill")));
-    ok(&mut state, Sender::Console, "kill player1");
+    assert!(player(&state, 1).is_alive() && player(&state, 2).is_alive());
+    assert_eq!(ok(&mut state, id(1), "kill"), ["commands.kill.successful"]);
     assert!(!player(&state, 1).is_alive());
-}
-
-#[test]
-fn xp_adds_points_and_levels_and_takes_levels() {
-    let (mut state, _rx) = with_op();
-    assert!(is_refused(&run(&mut state, id(2), "xp 5")));
-    assert_eq!(
-        ok(&mut state, id(1), "xp 5L"),
-        ["commands.xp.success.levels"]
-    );
-    assert_eq!(player(&state, 1).xp_level(), 5);
-    assert_eq!(
-        ok(&mut state, id(1), "xp -2L"),
-        ["commands.xp.success.negative.levels"]
-    );
-    assert_eq!(player(&state, 1).xp_level(), 3);
-    ok(&mut state, id(1), "xp -100L");
-    assert_eq!(player(&state, 1).xp_level(), 0, "not below 0");
-    assert_eq!(
-        ok(&mut state, Sender::Console, "xp 7 player2"),
-        ["commands.xp.success"]
-    );
-    assert_eq!(player(&state, 2).current_total_xp(), 7);
-    assert_eq!(
-        fails(&mut state, id(1), "xp -1"),
-        "commands.xp.failure.widthdrawXp"
-    );
-    assert!(is_usage(&run(&mut state, id(1), "xp lots")));
-    assert!(is_usage(&run(&mut state, Sender::Console, "xp 1")));
-}
-
-/// `xp = false`: `/xp` fails and changes nothing.
-#[test]
-fn xp_fails_without_xp() {
-    let (mut state, _rx) = with_op();
-    state.settings.xp = false;
-    let off = crate::player::Error::Disabled.to_string();
-    assert_eq!(fails(&mut state, id(1), "xp 5L"), off);
-    assert_eq!(fails(&mut state, Sender::Console, "xp 7 player2"), off);
-    assert_eq!(player(&state, 1).xp_level(), 0);
-    assert_eq!(player(&state, 2).current_total_xp(), 0);
+    assert!(is_usage(&run(&mut state, Sender::Console, "kill")));
+    ok(&mut state, Sender::Console, "kill player2");
+    assert!(!player(&state, 2).is_alive());
 }
 
 #[test]
@@ -1077,210 +762,26 @@ fn tp_moves_players_to_players_and_positions() {
     assert!(is_usage(&run(&mut state, Sender::Console, "tp 0 0 0")));
     assert!(is_usage(&run(&mut state, id(1), "tp player2 @a")));
     assert_eq!(two_decimals(-3.256), "-3.26");
-    assert_eq!(two_decimals(70.0), "70.00", "BDS's coordinates");
-}
-
-#[test]
-fn spawnpoint_and_setworldspawn_take_the_senders_block_or_a_position() {
-    let (mut state, _rx) = with_op();
-    ok(&mut state, id(1), "tp 5.7 70.5 -0.5");
-    let out = run(&mut state, id(1), "spawnpoint").unwrap();
     assert_eq!(
-        (out.lines[0].text.as_str(), out.lines[0].params.as_slice()),
-        (
-            "commands.spawnpoint.success.single",
-            ["player1", "5", "70", "-1"].map(str::to_owned).as_slice()
-        )
+        two_decimals(70.0),
+        "70.00",
+        "the official server's coordinates"
     );
-    assert_eq!(
-        player(&state, 1).spawn(),
-        Some(("world", BlockPos::new(5, 70, -1)))
-    );
-    ok(&mut state, Sender::Console, "spawnpoint player2 1 2 3");
-    assert_eq!(
-        player(&state, 2).spawn(),
-        Some(("world", BlockPos::new(1, 2, 3)))
-    );
-    assert!(is_usage(&run(
-        &mut state,
-        Sender::Console,
-        "spawnpoint player2"
-    )));
-    assert!(is_refused(&run(&mut state, id(2), "spawnpoint")));
-    assert_eq!(
-        ok(&mut state, id(1), "setworldspawn"),
-        ["commands.setworldspawn.success"]
-    );
-    assert_eq!(state.worlds[0].spawn(), BlockPos::new(5, 70, -1));
-    ok(&mut state, Sender::Console, "setworldspawn 8 64 8");
-    assert_eq!(state.worlds[0].spawn(), BlockPos::new(8, 64, 8));
-    assert_eq!(
-        fails(&mut state, Sender::Console, "setworldspawn"),
-        "commands.generic.invalidOrigin"
-    );
-}
-
-/// Runs the console's `line` and reads the key and parameters of its first line, or of its
-/// failure.
-fn answer(state: &mut State, line: &str) -> Result<Said, Said> {
-    match run(state, Sender::Console, line) {
-        Ok(out) => Ok((out.lines[0].text.clone(), out.lines[0].params.clone())),
-        Err(e) => {
-            let line = e.line();
-            Err((line.text, line.params))
-        }
-    }
-}
-
-/// Pairs `key` and `params` as [`answer`] gives them.
-fn said(key: &str, params: &[&str]) -> Said {
-    (
-        key.to_owned(),
-        params.iter().map(|p| (*p).to_owned()).collect(),
-    )
-}
-
-/// BDS 1.26.60's `/time set <n>` and `/time add <n>` (P6 `clocks`): the clock takes 0 to
-/// 2,147,483,647, counts on past a day and never goes below 0, which a failure names.
-#[test]
-fn time_set_and_add_move_the_clock_as_bds_does() {
-    let (mut state, _rx) = with_op();
-    let set = "commands.time.clock.set";
-    assert_eq!(
-        answer(&mut state, "time set 1000"),
-        Ok(said(set, &[CLOCK, "1000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time add 500"),
-        Ok(said("commands.time.clock.added", &["500", CLOCK, "1500"]))
-    );
-    assert_eq!(state.worlds[0].time_ticks(), 1500);
-    assert_eq!(
-        answer(&mut state, "time add -2000"),
-        Err(said(CLOCK_TOO_SMALL, &["-1500"])),
-        "the smallest amount allowed"
-    );
-    assert_eq!(
-        state.worlds[0].time_ticks(),
-        1500,
-        "a failure changes nothing"
-    );
-    assert_eq!(
-        answer(&mut state, "time set -5"),
-        Err(said(CLOCK_TOO_SMALL, &["0"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time set 30000"),
-        Ok(said(set, &[CLOCK, "30000"]))
-    );
-    assert_eq!(state.worlds[0].time_ticks(), 30_000, "no wrap at a day");
-    assert_eq!(
-        answer(&mut state, "time set 2147483647"),
-        Ok(said(set, &[CLOCK, "2147483647"]))
-    );
-    assert_eq!(state.worlds[0].time_ticks(), i64::from(i32::MAX));
-    answer(&mut state, "time set 0").unwrap();
-    assert_eq!(
-        answer(&mut state, "time add -1"),
-        Err(said(CLOCK_TOO_SMALL, &["0"]))
-    );
-}
-
-/// BDS 1.26.60's `/time set <marker> [next|previous|stay]` (P6 `clocks`): `next` (the default)
-/// is the first marker time at or after the clock, `previous` the last at or before it, `stay`
-/// the one of the clock's day; a marker is named with or without `minecraft:`, in its case.
-#[test]
-fn time_set_takes_a_time_marker_as_bds_does() {
-    let (mut state, _rx) = with_op();
-    for (from, line, to) in [
-        (6000, "time set noon", 6000),
-        (1500, "time set day", 25_000),
-        (25_000, "time set minecraft:noon", 30_000),
-        (30_000, "time set sunset next", 36_000),
-        (36_000, "time set midnight previous", 18_000),
-        (6000, "time set noon previous", 6000),
-        (18_000, "time set night stay", 13_000),
-        (6000, "time set noon stay", 6000),
-    ] {
-        answer(&mut state, &format!("time set {from}")).unwrap();
-        let shown = to.to_string();
-        assert_eq!(
-            answer(&mut state, line),
-            Ok(said("commands.time.clock.set", &[CLOCK, &shown])),
-            "{line} at {from}"
-        );
-        assert_eq!(state.worlds[0].time_ticks(), to, "{line} at {from}");
-    }
-    for marker in ["abc", "Noon"] {
-        assert_eq!(
-            answer(&mut state, &format!("time set {marker}")),
-            Err(said(
-                "commands.time.clock.timemarker.failed",
-                &[marker, CLOCK]
-            ))
-        );
-    }
-    assert_eq!(
-        state.worlds[0].time_ticks(),
-        6000,
-        "a failure changes nothing"
-    );
-}
-
-/// BDS 1.26.60's `/time query` (P6 `clocks`): the clock, the time of day, the world's age (not
-/// the clock) and the clock's days.
-#[test]
-fn time_query_reads_the_clock_and_the_age_as_bds_does() {
-    let (mut state, _rx) = with_op();
-    answer(&mut state, "time set 13000").unwrap();
-    assert_eq!(
-        answer(&mut state, "time query time"),
-        Ok(said("commands.time.clock.query.time", &[CLOCK, "13000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time query daytime"),
-        Ok(said("commands.time.query.daytime", &["13000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time query day"),
-        Ok(said("commands.time.query.day", &["0"]))
-    );
-    answer(&mut state, "time set 30000").unwrap();
-    assert_eq!(
-        answer(&mut state, "time query daytime"),
-        Ok(said("commands.time.query.daytime", &["6000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time query day"),
-        Ok(said("commands.time.query.day", &["1"]))
-    );
-    let age = state.worlds[0].age_ticks().to_string();
-    assert_ne!(age, "30000");
-    assert_eq!(
-        answer(&mut state, "time query gametime"),
-        Ok(said("commands.time.query.gametime", &[&age]))
-    );
-    assert!(is_usage(&run(&mut state, Sender::Console, "time query")));
 }
 
 /// The world's age counts every tick the world runs, its clock paused or moved.
 #[test]
 fn the_world_age_goes_on_while_the_clock_is_paused_or_moved() {
     let (mut state, _rx) = with_op();
-    answer(&mut state, "time pause").unwrap();
+    assert!(Context { state: &mut state }.stop_time(crate::world::Id::DEFAULT));
     let (time, age) = (state.worlds[0].time_ticks(), state.worlds[0].age_ticks());
     for _ in 0..3 {
         tick(&mut state, &mut Vec::new(), &mut TickOutput::default());
     }
     assert_eq!(state.worlds[0].time_ticks(), time);
     assert_eq!(state.worlds[0].age_ticks(), age + 3);
-    answer(&mut state, "time set 50000").unwrap();
+    assert!(Context { state: &mut state }.set_time(crate::world::Id::DEFAULT, 50_000));
     assert_eq!(state.worlds[0].age_ticks(), age + 3);
-    let age = (age + 3).to_string();
-    assert_eq!(
-        answer(&mut state, "time query gametime"),
-        Ok(said("commands.time.query.gametime", &[&age]))
-    );
 }
 
 /// Adds the world `arena` to the server and returns its ID.
@@ -1309,172 +810,26 @@ fn clock_syncs(state: &mut State, rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<
         .collect()
 }
 
-/// BDS 1.26.60's `/time pause` and `/time resume` (P6 `clocks`) stop and start the clock of every
-/// world and tell its players; they take PMMP's `/time stop` and `/time start` permissions.
+/// Each change of the clock is told with one `SyncWorldClocks` state.
 #[test]
-fn time_pause_and_resume_stop_and_start_every_worlds_clock() {
+fn the_players_are_told_each_change_of_the_clock() {
     let (mut state, mut rx) = with_op();
-    add_arena(&mut state);
-    let stopped = |state: &mut State| {
-        Context { state }
-            .worlds()
-            .map(crate::world::World::is_time_stopped)
-            .collect::<Vec<_>>()
-    };
-    answer(&mut state, "time set 13000").unwrap();
-    clock_syncs(&mut state, &mut rx[0]);
-    assert_eq!(
-        answer(&mut state, "time pause"),
-        Ok(said("commands.time.clock.paused", &[CLOCK, "13001"]))
-    );
-    assert_eq!(stopped(&mut state), [true, true]);
-    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(13_001, true)]]);
-    assert_eq!(
-        answer(&mut state, "time resume"),
-        Ok(said("commands.time.clock.resumed", &[CLOCK, "13001"]))
-    );
-    assert_eq!(stopped(&mut state), [false, false]);
-    assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(13_001, false)]]);
-    assert!(is_refused(&run(&mut state, id(2), "time pause")));
-    let player2 = crate::player::Id::new(SessionId::new(2));
-    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_STOP, true);
-    run(&mut state, id(2), "time pause").unwrap();
-    assert_eq!(stopped(&mut state), [true, true]);
-    assert!(is_refused(&run(&mut state, id(2), "time resume")));
-    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_START, true);
-    run(&mut state, id(2), "time resume").unwrap();
-    assert_eq!(stopped(&mut state), [false, false]);
-}
-
-/// Each of `/time`'s actions has its own permission.
-#[test]
-fn time_set_add_and_query_need_a_permission_each() {
-    let (mut state, _rx) = with_op();
-    let player2 = crate::player::Id::new(SessionId::new(2));
-    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_QUERY, true);
-    assert_eq!(
-        ok(&mut state, id(2), "time query day"),
-        ["commands.time.query.day"]
-    );
-    assert!(is_refused(&run(&mut state, id(2), "time set day")));
-    assert!(is_refused(&run(&mut state, id(2), "time add 5")));
-    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_ADD, true);
-    assert_eq!(
-        ok(&mut state, id(2), "time add 5"),
-        ["commands.time.clock.added"]
-    );
-}
-
-/// BDS 1.26.60's `/time of <clock> ...` (P6 `clocks`): the same forms on the clock named with or
-/// without `minecraft:`, in its case; `query` reads the time only.
-#[test]
-fn time_of_names_the_clock_as_bds_does() {
-    let (mut state, _rx) = with_op();
-    assert_eq!(
-        answer(&mut state, "time of minecraft:overworld set 3000"),
-        Ok(said("commands.time.clock.set", &[CLOCK, "3000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time of minecraft:overworld add 100"),
-        Ok(said("commands.time.clock.added", &["100", CLOCK, "3100"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time of minecraft:overworld set noon"),
-        Ok(said("commands.time.clock.set", &[CLOCK, "6000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time of overworld query time"),
-        Ok(said("commands.time.clock.query.time", &[CLOCK, "6000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time of minecraft:overworld pause"),
-        Ok(said("commands.time.clock.paused", &[CLOCK, "6000"]))
-    );
-    assert_eq!(
-        answer(&mut state, "time of minecraft:overworld resume"),
-        Ok(said("commands.time.clock.resumed", &[CLOCK, "6000"]))
-    );
-    for clock in ["no_such_clock", "MINECRAFT:OVERWORLD"] {
-        assert_eq!(
-            answer(&mut state, &format!("time of {clock} set 1")),
-            Err(said("commands.time.clock.failed", &[clock]))
-        );
-    }
-    assert_eq!(
-        state.worlds[0].time_ticks(),
-        6000,
-        "a failure changes nothing"
-    );
-    assert!(is_usage(&run(
-        &mut state,
-        Sender::Console,
-        "time of overworld query daytime"
-    )));
-}
-
-/// Each change of the clock is told with one `SyncWorldClocks` state; a `/time set` to the time
-/// the clock has sends none (P6 `clocks`).
-#[test]
-fn time_tells_the_players_each_change_of_the_clock() {
-    let (mut state, mut rx) = with_op();
+    let world = crate::world::Id::DEFAULT;
     // Paused, so the ticks between leave the clock where it is.
-    answer(&mut state, "time pause").unwrap();
+    assert!(Context { state: &mut state }.stop_time(world));
     clock_syncs(&mut state, &mut rx[0]);
-    answer(&mut state, "time set 6000").unwrap();
+    assert!(Context { state: &mut state }.set_time(world, 6000));
     assert_eq!(clock_syncs(&mut state, &mut rx[0]), [[(6000, true)]]);
-    answer(&mut state, "time set 7000").unwrap();
-    answer(&mut state, "time set noon stay").unwrap();
+    assert!(Context { state: &mut state }.set_time(world, 7000));
+    assert!(Context { state: &mut state }.set_time(world, 6000));
     assert_eq!(
         clock_syncs(&mut state, &mut rx[0]),
         [[(7000, true)], [(6000, true)]]
     );
-    answer(&mut state, "time set 6000").unwrap();
-    answer(&mut state, "time set noon").unwrap();
-    assert_eq!(
-        clock_syncs(&mut state, &mut rx[0]),
-        Vec::<Vec<_>>::new(),
-        "no change"
-    );
 }
 
-/// `/time` moves every world's clock, each from its own time, and answers and queries with the
-/// sender's world's.
-#[test]
-fn time_acts_on_every_world_and_answers_with_the_senders() {
-    let (mut state, _rx) = with_op();
-    let arena = add_arena(&mut state);
-    answer(&mut state, "time set 5000").unwrap();
-    assert!(Context { state: &mut state }.set_time(arena, 1000));
-    assert_eq!(
-        answer(&mut state, "time add -2000"),
-        Err(said(CLOCK_TOO_SMALL, &["-1000"])),
-        "no clock goes below 0"
-    );
-    assert_eq!(
-        answer(&mut state, "time add -1000"),
-        Ok(said("commands.time.clock.added", &["-1000", CLOCK, "4000"]))
-    );
-    assert_eq!(
-        (state.worlds[0].time_ticks(), state.worlds[1].time_ticks()),
-        (4000, 0)
-    );
-    assert!(Context { state: &mut state }.set_time(arena, 30_000));
-    assert_eq!(
-        answer(&mut state, "time set noon"),
-        Ok(said("commands.time.clock.set", &[CLOCK, "6000"]))
-    );
-    assert_eq!(
-        (state.worlds[0].time_ticks(), state.worlds[1].time_ticks()),
-        (6000, 30_000)
-    );
-    assert_eq!(
-        answer(&mut state, "time query time"),
-        Ok(said("commands.time.clock.query.time", &[CLOCK, "6000"]))
-    );
-}
-
-/// Coordinates count from the sender, so they are a place in the sender's world: `/spawnpoint`
-/// and `/tp` with coordinates bring a player of another world there.
+/// Coordinates count from the sender, so they are a place in the sender's world: `/tp` with
+/// coordinates brings a player of another world there.
 #[test]
 fn coordinates_name_a_place_in_the_senders_world() {
     let (mut state, _rx) = with_op();
@@ -1483,136 +838,30 @@ fn coordinates_name_a_place_in_the_senders_world() {
     Context { state: &mut state }
         .teleport(two, arena, Vec3::new(0.5, 64.0, 0.5))
         .unwrap();
-    ok(&mut state, id(1), "spawnpoint player2 ~ ~ ~");
-    assert_eq!(
-        player(&state, 2).spawn().map(|(world, _)| world),
-        Some("world")
-    );
     ok(&mut state, id(1), "tp player2 ~ ~ ~");
     assert_eq!(player(&state, 2).world(), crate::world::Id::DEFAULT);
 }
 
-/// The console's world is the default world, also after `set_default_world` named another
-/// (PMMP's `/seed` and `/setworldspawn` use `getDefaultWorld` for a sender that is no player).
+/// The console's world is the default world, also after `set_default_world` named another.
 #[test]
 fn the_consoles_world_is_the_default_world_set_at_run_time() {
     let (mut state, _rx) = with_op();
-    state.add_world(crate::world::World::new(
-        "arena",
-        crate::world::Kind::Temporary,
-        77,
-        BlockPos::new(0, 0, 0),
-    ));
-    let arena = state.worlds[1].id();
+    let arena = add_arena(&mut state);
     Context { state: &mut state }
         .set_default_world(arena)
         .unwrap();
-    let before = state.worlds[0].spawn();
-    ok(&mut state, Sender::Console, "setworldspawn 1 2 3");
-    assert_eq!(state.worlds[1].spawn(), BlockPos::new(1, 2, 3));
-    assert_eq!(state.worlds[0].spawn(), before);
-    let out = run(&mut state, Sender::Console, "seed").unwrap();
-    assert_eq!(out.lines[0].params, ["77"]);
+    ok(&mut state, Sender::Console, "tp player2 1 70 3");
+    assert_eq!(player(&state, 2).world(), arena);
 }
 
 #[test]
-fn title_shows_each_kind_and_needs_the_permission_for_others() {
-    let (mut state, mut rx) = with_op();
-    assert!(is_refused(&run(&mut state, id(2), "title @s title hi")));
-    for line in [
-        "title player2 title Hello there",
-        "title player2 subtitle sub",
-        "title player2 actionbar bar",
-        "title player2 times 10 40 10",
-        "title player2 clear",
-        "title player2 reset",
-    ] {
-        assert_eq!(
-            ok(&mut state, id(1), line),
-            ["commands.title.success"],
-            "{line}"
-        );
-    }
-    let mut output = TickOutput::default();
-    tick(&mut state, &mut Vec::new(), &mut output);
-    let titles: Vec<(i32, String, i32)> = received(&mut rx[1])
-        .0
-        .into_iter()
-        .filter_map(|p| match p {
-            Packet::SetTitle(t) => Some((t.action_type, t.text, t.remain_duration)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(titles.len(), 6);
-    assert_eq!(titles[0].1, "Hello there");
-    assert_eq!(titles[3].2, 40, "ticks");
-    assert!(is_usage(&run(&mut state, id(1), "title player2 bogus")));
-}
-
-#[test]
-fn tell_whispers_to_others_and_not_to_oneself() {
-    let (mut state, mut rx) = with_op();
-    assert_eq!(
-        fails(&mut state, id(2), "tell player2 hi"),
-        "commands.message.sameTarget"
-    );
-    assert_eq!(
-        ok(&mut state, id(2), "msg player1 hello you"),
-        ["commands.message.display.outgoing"]
-    );
-    let (to1, _) = chat(&mut state, &mut rx[0]);
-    assert_eq!(
-        to1,
-        [
-            (
-                "§b§o%commands.message.display.incoming".to_owned(),
-                vec!["player2".to_owned(), "hello you".to_owned()]
-            ),
-            (
-                "§7§o[player2: %commands.message.display.outgoing]".to_owned(),
-                vec!["player1".to_owned(), "hello you".to_owned()]
-            )
-        ],
-        "the whisper, and the operator's copy"
-    );
-    assert_eq!(
-        ok(&mut state, Sender::Console, "w @a psst"),
-        ["commands.message.display.outgoing"; 2]
-    );
-}
-
-#[test]
-fn me_and_say_broadcast_pmmp_chat_lines() {
-    let (mut state, mut rx) = with_op();
-    assert!(lines(run(&mut state, id(2), "me waves")).is_empty());
-    assert!(is_refused(&run(&mut state, id(2), "say hi")));
-    assert!(lines(run(&mut state, Sender::Console, "say hello all")).is_empty());
-    let (to1, _) = chat(&mut state, &mut rx[0]);
-    assert_eq!(
-        to1,
-        [
-            (
-                "chat.type.emote".to_owned(),
-                vec!["player2".to_owned(), "§rwaves".to_owned()]
-            ),
-            (
-                "§d%chat.type.announcement".to_owned(),
-                vec!["Server".to_owned(), "hello all".to_owned()]
-            )
-        ]
-    );
-    assert!(is_usage(&run(&mut state, id(2), "me")));
-}
-
-#[test]
-fn list_seed_status_and_version_report_the_server() {
+fn list_status_and_version_report_the_server() {
     let (mut state, _rx) = with_op();
     assert!(is_refused(&run(&mut state, id(2), "list")));
     assert_eq!(
         ok(&mut state, id(1), "list"),
         ["commands.players.list", "player1, player2"]
     );
-    assert_eq!(ok(&mut state, id(1), "seed"), ["commands.seed.success"]);
     let version = ok(&mut state, id(2), "ver");
     assert_eq!(version.len(), 1);
     assert!(version[0].starts_with(&format!(
@@ -1701,135 +950,6 @@ fn status_memory_rounds_to_a_tenth_of_a_mib() {
 }
 
 #[test]
-fn help_pages_the_usable_commands_and_describes_one() {
-    let (mut state, _rx) = with_op();
-    let page = ok(&mut state, id(2), "help");
-    assert_eq!(page[0], "commands.help.header");
-    let names: Vec<&str> = page[1..]
-        .iter()
-        .map(|l| l.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(
-        names,
-        [
-            "§2/clear",
-            "§2/help",
-            "§2/kill",
-            "§2/me",
-            "§2/tell",
-            "§2/version"
-        ],
-        "each command's first usage line"
-    );
-    assert_eq!(page[5], "§2/tell <target: target> <message: message>");
-    assert_eq!(ok(&mut state, id(1), "? 2").len(), 8, "7 a page");
-    assert_eq!(
-        ok(&mut state, id(1), "help 99").len(),
-        5,
-        "the last page: 39 = 5 * 7 + 4"
-    );
-    assert_eq!(
-        ok(&mut state, Sender::Console, "help").len(),
-        40,
-        "one page"
-    );
-    assert_eq!(
-        ok(&mut state, id(2), "help tell"),
-        [
-            "§e/tell",
-            "commands.tell.description",
-            "/tell <target: target> <message: message>",
-            "§7Also: msg, w",
-        ]
-    );
-    assert_eq!(
-        ok(&mut state, id(2), "help kill").len(),
-        4,
-        "kill has suicide"
-    );
-    assert_eq!(ok(&mut state, id(2), "help me").len(), 3, "no other names");
-    assert_eq!(
-        fails(&mut state, id(2), "help stop"),
-        "commands.generic.unknown"
-    );
-}
-
-#[test]
-fn particle_shows_a_bounded_number_of_known_particles() {
-    let (mut state, _rx) = with_op();
-    assert!(is_refused(&run(
-        &mut state,
-        id(2),
-        "particle heart ~ ~ ~ 1 1 1"
-    )));
-    assert_eq!(
-        ok(&mut state, id(1), "particle heart ~ ~2 ~ 1 1 1 5"),
-        ["commands.particle.success"]
-    );
-    ok(
-        &mut state,
-        Sender::Console,
-        "particle blockdust 0 70 0 0 0 0 1 255_0_0",
-    );
-    ok(
-        &mut state,
-        Sender::Console,
-        "particle terrain 0 70 0 0 0 0 1 stone",
-    );
-    assert!(is_usage(&run(
-        &mut state,
-        id(1),
-        "particle nope ~ ~ ~ 0 0 0"
-    )));
-    assert!(is_usage(&run(
-        &mut state,
-        id(1),
-        "particle terrain ~ ~ ~ 0 0 0 1 air"
-    )));
-    assert_eq!(
-        fails(&mut state, id(1), "particle flame ~ ~ ~ 0 0 0 5000"),
-        "commands.generic.num.tooBig"
-    );
-    // PMMP's `sonicexplosion` is offered and shown.
-    assert_eq!(
-        ok(&mut state, id(1), "particle sonicexplosion ~ ~ ~ 0 0 0"),
-        ["commands.particle.success"]
-    );
-}
-
-/// Each `/particle` run spreads its particles from a random stream of its own, so two runs of
-/// one player in one tick spread apart.
-#[test]
-fn two_particle_runs_in_one_tick_spread_apart() {
-    let (mut state, _rx) = with_op();
-    let mut output = TickOutput::default();
-    tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
-    let runtime_id = player(&state, 1).runtime_id;
-    tick(
-        &mut state,
-        &mut vec![initialised(1, 2, runtime_id)],
-        &mut output,
-    );
-    for _ in 0..3 {
-        tick(&mut state, &mut Vec::new(), &mut output);
-    }
-    let spread = |state: &mut State| {
-        let before = player(state, 1).outbox.len();
-        ok(state, id(1), "particle flame ~ ~ ~ 1 1 1");
-        player(state, 1).outbox[before..]
-            .iter()
-            .filter_map(|p| match p {
-                Packet::LevelEvent(e) => Some(e.position),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-    let first = spread(&mut state);
-    assert_eq!(first.len(), 1, "the player sees it");
-    assert_ne!(first, spread(&mut state));
-}
-
-#[test]
 fn long_ban_and_white_lists_show_the_first_hundred_names_and_count_the_rest() {
     let (mut state, _rx) = with_op();
     let mut cx = Context { state: &mut state };
@@ -1858,23 +978,6 @@ fn long_ban_and_white_lists_show_the_first_hundred_names_and_count_the_rest() {
         ["150", "150"],
         "the count is every name"
     );
-}
-
-#[test]
-fn difficulty_names_and_numbers_come_from_one_table() {
-    let (mut state, _rx) = with_op();
-    for (name, expected, number) in [
-        ("p", Difficulty::Peaceful, "0"),
-        ("1", Difficulty::Easy, "1"),
-        ("normal", Difficulty::Normal, "2"),
-        ("h", Difficulty::Hard, "3"),
-    ] {
-        let Ok(out) = run(&mut state, id(1), &format!("difficulty {name}")) else {
-            panic!("difficulty {name} failed");
-        };
-        assert_eq!(out.lines[0].params, [number]);
-        assert_eq!(Context { state: &mut state }.difficulty(), expected);
-    }
 }
 
 // api: Server::shutdown
@@ -2023,39 +1126,15 @@ fn backup_is_refused_without_backups() {
     assert!(!state.saving.backup && !state.saving.requested);
 }
 
-#[test]
-fn transferserver_sends_the_sending_player_only() {
-    let (mut state, mut rx) = with_op();
-    Context { state: &mut state }.op("player2").unwrap();
-    assert_eq!(
-        fails(&mut state, Sender::Console, "transferserver example.com"),
-        "commands.generic.invalidOrigin"
-    );
-    assert_eq!(
-        fails(&mut state, id(2), "transferserver example.com 70000"),
-        "commands.generic.num.tooBig"
-    );
-    assert!(lines(run(&mut state, id(2), "transferserver example.com")).is_empty());
-    let (_, last) = chat(&mut state, &mut rx[1]);
-    let Some(Packet::Transfer(t)) = last else {
-        panic!("{last:?}");
-    };
-    assert_eq!((t.address.as_str(), t.port), ("example.com", 19_132));
-}
-
 /// Writes the record form of the overloads of an `AvailableCommands`: `command name=type ...`.
 fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
     use crate::protocol::consts::CommandArgType as T;
     let basic = [
         (T::Int, "int"),
-        (T::Float, "float"),
         (T::Target, "target"),
         (T::String, "string"),
         (T::Position, "position"),
         (T::MessageRoot, "message"),
-        (T::RawText, "raw_text"),
-        (T::Json, "json"),
-        (T::ClockTimeMarker, "clock_time_marker"),
     ];
     let mut out = Vec::new();
     for c in &p.commands {
@@ -2065,11 +1144,7 @@ fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
             for param in &o.parameters {
                 let t = param.r#type;
                 let index = usize::try_from(t & 0xffff).unwrap();
-                let ty = if t & u32::from(CommandArg::Suffixed) != 0 {
-                    format!("suffix:{}", p.suffixes[index])
-                } else if t & u32::from(CommandArg::SoftEnum) != 0 {
-                    format!("soft:{}", p.dynamic_enums[index].r#type)
-                } else if t & u32::from(CommandArg::Enum) != 0 {
+                let ty = if t & u32::from(CommandArg::Enum) != 0 {
                     format!("enum:{}", p.enums[index].r#type)
                 } else {
                     let (_, ty) = basic
@@ -2093,7 +1168,7 @@ fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
 }
 
 #[test]
-fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
+fn shared_commands_take_the_argument_types_and_enums_the_official_server_sends() {
     let (mut state, _rx) = server(Vec::new());
     let s1 = SessionId::new(1);
     Context { state: &mut state }.op("player1").unwrap();
@@ -2103,8 +1178,8 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
     };
     let ours = overloads_of(p);
     let words = |line: &str| -> Vec<String> { line.split(' ').map(str::to_owned).collect() };
-    for bds in BDS_OVERLOADS {
-        let command = bds.split(' ').next().unwrap();
+    for official in OFFICIAL_OVERLOADS {
+        let command = official.split(' ').next().unwrap();
         assert!(
             ours.iter().any(|o| o.split(' ').next() == Some(command)),
             "{command} is shared"
@@ -2112,17 +1187,17 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
     }
     for line in &ours {
         let command = line.split(' ').next().unwrap();
-        let bds: Vec<&&str> = BDS_OVERLOADS
+        let official: Vec<&&str> = OFFICIAL_OVERLOADS
             .iter()
             .filter(|b| b.split(' ').next() == Some(command))
             .collect();
-        if bds.is_empty() {
+        if official.is_empty() {
             continue;
         }
-        // Each overload is one of BDS's, perhaps without optional parameters at the end. A
-        // parameter BDS requires may be optional here (PMMP's `/kick` reason).
+        // Each overload is one of the official server's, perhaps without optional parameters at
+        // the end. A parameter it requires may be optional here (the `/kick` reason).
         let ours = words(line);
-        let fits = bds.iter().any(|b| {
+        let fits = official.iter().any(|b| {
             let theirs = words(b);
             ours.len() <= theirs.len()
                 && ours
@@ -2131,7 +1206,10 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
                     .all(|(o, t)| o.trim_end_matches('?') == t.trim_end_matches('?'))
                 && theirs[ours.len()..].iter().all(|t| t.ends_with('?'))
         });
-        assert!(fits, "{line} is not one of BDS's {bds:?}");
+        assert!(
+            fits,
+            "{line} is not one of the official server's {official:?}"
+        );
     }
     let enums: std::collections::BTreeMap<&str, Vec<&str>> = p
         .enums
@@ -2145,22 +1223,8 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
             (e.r#type.as_str(), values)
         })
         .collect();
-    for (name, values) in &BDS_ENUMS {
-        let ours = &enums[name];
-        if matches!(*name, "Effect" | "Enchant") {
-            // Anchor has PMMP's effects and enchantments, each under BDS's name.
-            assert!(ours.iter().all(|v| values.contains(v)), "{name}: {ours:?}");
-        } else {
-            assert_eq!(ours, values, "{name}");
-        }
-    }
-    for (name, values) in &BDS_SOFT_ENUMS {
-        let ours: Option<Vec<&str>> = p
-            .dynamic_enums
-            .iter()
-            .find(|e| e.r#type == *name)
-            .map(|e| e.values.iter().map(String::as_str).collect());
-        assert_eq!(ours.as_deref(), Some(*values), "{name}");
+    for (name, values) in &OFFICIAL_ENUMS {
+        assert_eq!(&enums[name], values, "{name}");
     }
     let item = &enums["Item"];
     for name in [
@@ -2175,12 +1239,12 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
     assert_eq!(
         give.overloads[0].parameters[1].options,
         u8::from(crate::protocol::consts::ParamOption::HasSemanticConstraint),
-        "BDS's item parameters"
+        "the official server's item parameters"
     );
 }
 
 #[test]
-fn bds_forms_of_the_shared_commands_run() {
+fn official_forms_of_the_shared_commands_run() {
     let (mut state, _rx) = with_op();
     let me = id(1);
     assert_eq!(
@@ -2193,22 +1257,6 @@ fn bds_forms_of_the_shared_commands_run() {
         "the default mode, survival"
     );
     assert!(is_usage(&run(&mut state, me, "gamemode 4")));
-    assert_eq!(
-        ok(&mut state, me, "difficulty 3"),
-        ["commands.difficulty.success"]
-    );
-    assert_eq!(Context { state: &mut state }.difficulty(), Difficulty::Hard);
-    assert_eq!(ok(&mut state, me, "xp 3L"), ["commands.xp.success.levels"]);
-    assert_eq!(
-        ok(&mut state, me, "xp 3l @s"),
-        ["commands.xp.success.levels"]
-    );
-    assert_eq!(ok(&mut state, me, "xp 5"), ["commands.xp.success"]);
-    assert!(run(&mut state, me, "xp 3x").is_err());
-    assert_eq!(
-        ok(&mut state, me, "time set sunrise"),
-        ["commands.time.clock.set"]
-    );
     assert_eq!(
         ok(&mut state, Sender::Console, "op player2"),
         ["commands.op.success"]

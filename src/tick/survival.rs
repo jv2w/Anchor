@@ -31,8 +31,7 @@ pub(super) use attributes::{
     random_tick_speed_changed, update_abilities,
 };
 pub(super) use clock::{
-    Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
-    sleeping_players,
+    Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
 };
 pub(super) use damage::{Damage, bds_cause, heals, highest_armor_level, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
@@ -647,38 +646,6 @@ impl Context<'_> {
             .is_some_and(|p| p.set_game_mode(mode));
         watch(self.state, event.as_ref());
         changed
-    }
-
-    /// Gives `player` `effect` through the game rules, with its
-    /// [`EntityEffectAdd`](crate::event::EntityEffectAdd) event (`/effect`, PMMP
-    /// `EffectManager::add`), unless a stronger or longer one is active or a listener cancels it.
-    pub(in crate::tick) fn add_player_effect(&mut self, player: Id, effect: effect::Instance) {
-        add_effect(self.state, player.session(), effect);
-        self.touch_player(player);
-    }
-
-    /// Ends `player`'s effect of type `effect` through the game rules, with its
-    /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event (`/effect`, PMMP
-    /// `EffectManager::remove`).
-    pub(in crate::tick) fn remove_player_effect(&mut self, player: Id, effect: effect::Type) {
-        effects::remove(self.state, player.session(), effect);
-        self.touch_player(player);
-    }
-
-    /// Ends every effect of `player` through the game rules, with an
-    /// [`EntityEffectRemove`](crate::event::EntityEffectRemove) event each (`/effect clear`, PMMP
-    /// `EffectManager::clear`).
-    pub(in crate::tick) fn clear_player_effects(&mut self, player: Id) {
-        effects::clear(self.state, player.session());
-        self.touch_player(player);
-    }
-
-    /// Sends what an effect changed (attributes) by the end of the tick, as the direct API does:
-    /// a command may run after the rules' flush.
-    fn touch_player(&mut self, player: Id) {
-        if let Some(p) = self.state.players.get_mut(&player.session()) {
-            p.survival.touch(0);
-        }
     }
 }
 

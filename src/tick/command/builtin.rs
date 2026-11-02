@@ -1,33 +1,25 @@
-//! Anchor's own commands: PMMP's default commands that are in scope, one per PMMP class in
-//! `command\defaults`, registered through the same [`Command`] API as the user's.
+//! Anchor's own commands, registered through the same [`Command`] API as the user's.
 //!
-//! Each follows its PMMP class: names, aliases, permissions (PMMP's names under `anchor`),
-//! arguments and behaviour. A message the client knows (`commands.*`, `chat.*`, `gameMode.*`,
-//! descriptions as BDS sends them) goes as its translation key and parameters; a message the client
-//! has no key for is Anchor's own text (no other server's sentences). Where Anchor differs, the
-//! command's function says why. Game mode names and coordinates are written as BDS writes them, and
-//! the player a command acted on is told as BDS tells it ([`tell_object`]). Results that PMMP
-//! broadcasts to operators (`Command::broadcastCommandMessage`) go to the players with
+//! A message the client knows (`commands.*`, `chat.*`, `gameMode.*`, descriptions as the official
+//! server sends them) goes as its translation key and parameters; a message the client has no key
+//! for is Anchor's own text. Game mode names and coordinates are written as the official server
+//! writes them, and the player a command acted on is told as it tells them ([`tell_object`]).
+//! Results that go to operators go to the players with
 //! [`BROADCAST_ADMIN`](crate::permission::BROADCAST_ADMIN) as `[sender: result]`.
 //!
 //! Arguments are Bedrock's typed parameters, so the client autocompletes them: players are target
-//! parameters (exact names and `@s`, `@a`, `@p`, `@r`, where PMMP takes a name prefix), and a
-//! command on several players does its work for each. A command that queues one action for each
-//! player checks first that the deferred queue has room for all of them, so it acts on all or
-//! none.
-//!
-//! Left out: `dumpmemory`, `gc`, `plugins` and `timings` (PHP and plugins).
+//! parameters (exact names and `@s`, `@a`, `@p`, `@r`), and a command on several players does its
+//! work for each. A command that queues one action for each player checks first that the deferred
+//! queue has room for all of them, so it acts on all or none.
 
 mod check;
 mod lists;
 mod players;
 mod server;
 
-pub(super) use server::WORLD_CLOCKS;
-
 use serde_json::{Value as Json, json};
 
-use super::{ADMIN_PREFIX, CONSOLE_NAME};
+use super::ADMIN_PREFIX;
 use crate::action::{self, Action};
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::config::GameMode;
@@ -41,8 +33,8 @@ use crate::tick::Context;
 use crate::tick::dispatch::MAX_DEFERRED;
 use crate::world::{self, MAX_Y, MIN_Y};
 
-/// BDS's `GameMode` enum (P6): the names, their letters and `default` (`d`), the server's default
-/// game mode.
+/// The official server's `GameMode` enum: the names, their letters and `default` (`d`), the
+/// server's default game mode.
 const GAME_MODE_NAMES: [&str; 9] = [
     "default",
     "creative",
@@ -54,15 +46,10 @@ const GAME_MODE_NAMES: [&str; 9] = [
     "s",
     "a",
 ];
-/// The cap PMMP's commands put on counts and amounts (PMMP `VanillaCommand::MAX_COORD`); the
-/// positions they take stop at the world border instead ([`in_world`]).
-const MAX_COORD: i32 = 30_000_000;
 /// `commands.generic.num.tooBig`: a number above its bound.
 const NUM_TOO_BIG: Msg = Msg::client("commands.generic.num.tooBig");
 /// `commands.generic.num.tooSmall`: a number below its bound.
 const NUM_TOO_SMALL: Msg = Msg::client("commands.generic.num.tooSmall");
-/// A syntax only a player may use, run by the console: the client's "invalid origin" text.
-const PLAYER_USER_ONLY: Msg = Msg::client("commands.generic.invalidOrigin");
 
 /// A command message: a key the client translates, or Anchor's own text.
 #[derive(Debug, Clone, Copy)]
@@ -111,8 +98,7 @@ impl Msg {
     }
 
     /// Turns the message into a chat line with `prefix` (format codes) before it. A client key
-    /// goes as `<prefix>%<key>`, which the client translates in place (PMMP
-    /// `Translatable::prefix`).
+    /// goes as `<prefix>%<key>`, which the client translates in place.
     fn chat(self, prefix: &str, params: &[&str]) -> Message {
         match self.render(params) {
             Some(text) => Message::Raw(format!("{prefix}{text}")),
@@ -129,7 +115,7 @@ impl Msg {
 }
 
 /// What a command on several players did: the lines of those it acted on, or, if it acted on
-/// none, why it could not act on the last (PMMP acts on one player and fails for it).
+/// none, why it could not act on the last.
 #[derive(Debug, Default)]
 struct Results {
     out: Output,
@@ -184,11 +170,10 @@ fn tell(cx: &mut Context<'_>, player: player::Id, message: Message) {
     }
 }
 
-/// Shows `player` the client's translation of `msg` (a client key) with `params`, as BDS tells
-/// the player a command acted on: an object `Text` holding raw-text JSON
+/// Shows `player` the client's translation of `msg` (a client key) with `params`, as the official
+/// server tells the player a command acted on: an object `Text` holding raw-text JSON
 /// (`{"rawtext":[{"translate":key,"with":{"rawtext":[{"text":param},...]}}]}` and a line break).
-/// PMMP sends no such message; the parameters come from a command line, so the text stays far
-/// below what a client decodes.
+/// The parameters come from a command line, so the text stays far below what a client decodes.
 fn tell_object(cx: &mut Context<'_>, player: player::Id, msg: Msg, params: &[&str]) {
     let with: Vec<Json> = params.iter().map(|p| json!({ "text": p })).collect();
     let with = if with.is_empty() {
@@ -222,14 +207,13 @@ fn perform(cx: &mut Context<'_>, action: impl Action) -> Result<()> {
     cx.perform(action).map_err(|e| Error::failed(e.to_string()))
 }
 
-/// Kicks `player` with `reason` (PMMP `Player::kick`): the [`PlayerKick`](crate::event::PlayerKick)
-/// listeners decide after the command has returned; a player already leaving stays as it is.
+/// Kicks `player` with `reason`: the [`PlayerKick`](crate::event::PlayerKick) listeners decide
+/// after the command has returned; a player already leaving stays as it is.
 fn kick(cx: &mut Context<'_>, player: player::Id, reason: &str) -> Result<()> {
     perform(cx, action::Kick::new(player, reason))
 }
 
-/// Copies the result `msg` for the operators ([`notify`]; PMMP
-/// `Command::broadcastCommandMessage`) and returns it for `sender`.
+/// Copies the result `msg` for the operators ([`notify`]) and returns it for `sender`.
 fn announce(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) -> Output {
     notify(cx, sender, msg, params);
     msg.output(params)
@@ -265,16 +249,6 @@ fn name_of(cx: &Context<'_>, sender: Sender) -> String {
     cx.sender_name(sender).unwrap_or_default().to_owned()
 }
 
-/// Finds the name a player shows (PMMP `Player::getDisplayName`); the console's name.
-fn display_name_of(cx: &Context<'_>, sender: Sender) -> String {
-    match sender {
-        Sender::Player(id) => cx
-            .player(id)
-            .map_or_else(String::new, |p| p.display_name().to_owned()),
-        Sender::Console => CONSOLE_NAME.to_owned(),
-    }
-}
-
 /// Finds the name of player `id`; empty once it has left.
 fn player_name(cx: &Context<'_>, id: player::Id) -> String {
     name_of(cx, Sender::Player(id))
@@ -290,8 +264,7 @@ fn sender_world(cx: &Context<'_>, sender: Sender) -> world::Id {
     }
 }
 
-/// Builds the failure of a line that fits none of `command`'s forms after all (PMMP
-/// `InvalidCommandSyntaxException`).
+/// Builds the failure of a line that fits none of `command`'s forms after all.
 fn usage(cx: &Context<'_>, command: &str) -> Error {
     #[expect(
         clippy::expect_used,
@@ -305,8 +278,7 @@ fn usage(cx: &Context<'_>, command: &str) -> Error {
     }
 }
 
-/// Finds the players a command acts on (PMMP `VanillaCommand::fetchPermittedPlayerTarget`):
-/// those the target parameter `param` named, or the sender itself when the line left it out (a
+/// Finds the players a command acts on: those the target parameter `param` named, or the sender itself when the line left it out (a
 /// usage failure for the console). The sender needs `own` to act on itself and `other` to act on
 /// anyone else, for every player, before anything changes.
 fn permitted_targets(
@@ -338,7 +310,7 @@ fn permitted_targets(
 }
 
 /// Checks that `sender` has `permission`, failing with the permission failure of `command` if
-/// not (PMMP `Command::testPermission`).
+/// not.
 fn require(cx: &Context<'_>, sender: Sender, permission: Permission, command: &str) -> Result<()> {
     if cx.has_permission(sender, permission) {
         Ok(())
@@ -349,29 +321,18 @@ fn require(cx: &Context<'_>, sender: Sender, permission: Permission, command: &s
     }
 }
 
-/// Converts `value` to a `T` if it is from `min` to `max`, otherwise fails as PMMP does
-/// (`getBoundedInt`).
-fn bounded<T>(value: i32, min: T, max: T) -> Result<T>
-where
-    T: Copy + Into<i32> + TryFrom<i32>,
-    <T as TryFrom<i32>>::Error: std::fmt::Debug,
-{
-    let (low, high) = (min.into(), max.into());
-    if value > high {
-        return Err(NUM_TOO_BIG.error(&[&value.to_string(), &high.to_string()]));
+/// Returns `value` if it is from `min` to `max`, otherwise fails naming the bound it passes.
+fn bounded(value: i32, min: i32, max: i32) -> Result<i32> {
+    if value > max {
+        return Err(NUM_TOO_BIG.error(&[&value.to_string(), &max.to_string()]));
     }
-    if value < low {
-        return Err(NUM_TOO_SMALL.error(&[&value.to_string(), &low.to_string()]));
+    if value < min {
+        return Err(NUM_TOO_SMALL.error(&[&value.to_string(), &min.to_string()]));
     }
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a value from `min` to `max` fits their type"
-    )]
-    Ok(T::try_from(value).expect("a value between two of a type's values fits the type"))
+    Ok(value)
 }
 
-/// Keeps a position a command takes inside the world border and height (PMMP
-/// `VanillaCommand::getRelativeDouble`'s bounds).
+/// Keeps a position a command takes inside the world border and height.
 fn in_world(v: Vec3) -> Vec3 {
     let border = f64::from(world::BORDER);
     Vec3::new(
@@ -381,8 +342,8 @@ fn in_world(v: Vec3) -> Vec3 {
     )
 }
 
-/// Writes `v` with two decimals, as BDS prints coordinates: `1.50`, `-3.00`, `0.33` (PMMP prints
-/// `round($v, 2)`: `1.5`).
+/// Writes `v` with two decimals, as the official server prints coordinates: `1.50`, `-3.00`,
+/// `0.33`.
 fn two_decimals(v: f64) -> String {
     format!("{v:.2}")
 }
@@ -394,18 +355,18 @@ fn game_mode_param() -> Param {
 
 /// Reads the game mode a `gameMode` argument names: a name or letter, or a Bedrock game type
 /// number (0 survival, 1 creative, 2 adventure, 6 spectator); `default` (`d`, 5) gives `default`.
-fn game_mode_arg(args: &Args, default: Option<GameMode>) -> Option<GameMode> {
+fn game_mode_arg(args: &Args, default: GameMode) -> Option<GameMode> {
     let game_type = args.int("gameMode").map(GameType::try_from);
     match (args.string("gameMode"), game_type) {
-        (Some("default" | "d"), _) | (_, Some(Ok(GameType::Default))) => default,
+        (Some("default" | "d"), _) | (_, Some(Ok(GameType::Default))) => Some(default),
         (Some(name), _) => GameMode::from_name(name),
         (_, Some(Ok(game_type))) => GameMode::from_game_type(game_type),
         _ => None,
     }
 }
 
-/// Names the game mode for the client to translate, as BDS sends it (P6:
-/// `createWorldScreen.gameMode.*`; PMMP `GameMode::getTranslatableName` sends `gameMode.*`).
+/// Names the game mode for the client to translate, as the official server sends it
+/// (`createWorldScreen.gameMode.*`).
 fn game_mode_name(mode: GameMode) -> &'static str {
     match mode {
         GameMode::Survival => "%createWorldScreen.gameMode.survival",

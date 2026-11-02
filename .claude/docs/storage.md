@@ -210,5 +210,5 @@ Every start's settings come only from `anchor.toml` and the code (`ServerBuilder
 - A setting changed through the API while running (server or world difficulty, game rules, `motd`, `max-players`, the whitelist switch, and the like) is back to the settings' value after a restart. The per-world time stop (`Context::stop_time`), which has no setting key, starts off.
 - With `level-seed` empty, a world's seed is the first 8 bytes of the SHA-256 of its name: the same at every start and different between worlds.
 - A world file keeps only state: the number, time, spawn and chunks. The time goes on, and the day cycle continues from it.
-- The world spawn is state, not a setting: a spawn moved with `/setworldspawn` or `World::set_spawn` stays after a restart. The settings' `spawn` and `world::Options::with_spawn` place only a new world's first spawn, one without a record.
+- The world spawn is state, not a setting: a spawn moved with `World::set_spawn` stays after a restart. The settings' `spawn` and `world::Options::with_spawn` place only a new world's first spawn, one without a record.
 - With `save-player-data = false`, no player data is saved.

@@ -1665,7 +1665,7 @@ mod tests {
             };
             assert_eq!(d.message, "This server has banned you");
             assert_eq!(state.players.len(), 1);
-            Context { state: &mut state }.pardon("banned");
+            Context { state: &mut state }.unban("banned");
             let (j, mut rx) = join_as(3, identity("Banned", address));
             run(&mut state, vec![j]);
             assert_eq!(logged(), ["Banned 192.0.2.7 0 [ServerFull]"]);

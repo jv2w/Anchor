@@ -1,21 +1,20 @@
 //! `AvailableCommands`: the commands a player may use, with their overloads, for the client to
-//! list and autocomplete (PMMP `NetworkSession::syncAvailableCommands` and its packet assembler,
-//! with typed overloads as dragonfly builds them).
+//! list and autocomplete.
 //!
 //! The network form of every command is built once, when the server is built ([`Catalog`]):
 //! its enums (aliases, enum parameters and the item, block, effect and enchantment names) and
 //! their values sit in shared tables, each once. A player's packet only picks the commands it
 //! may use and renumbers the enums and values they use, in first-use order, copying their texts.
 //!
-//! Soft enums (BDS's dynamic enums) are named in the catalog; their values are the commands' state
-//! ([`Listing::soft_values`]), set while the server runs, so each packet copies them.
+//! Soft enums (the official server's dynamic enums) are named in the catalog; their values are the
+//! commands' state ([`Listing::soft_values`]), set while the server runs, so each packet copies
+//! them.
 //!
-//! The names take BDS's shape (P6): a command's aliases enum is `<name>CommandAliases` with the
-//! name first, and a `CommandName` enum lists every name and alias the player may type. `help` is
-//! listed there but not sent as a command: the client has its own `/help`, and neither BDS nor PMMP
-//! sends one. The catalog holds no handler, so it is `Sync`: the spawn window builds the packet in
-//! the parallel output phase ([`Listing`]); a resend after a permission change is built at the end
-//! of the tick's serial phases.
+//! The names take the official server's shape (P6): a command's aliases enum is
+//! `<name>CommandAliases` with the name first, and a `CommandName` enum lists every name and alias
+//! the player may type. The catalog holds no handler, so it is `Sync`: the spawn window builds the
+//! packet in the parallel output phase ([`Listing`]); a resend after a permission change is built
+//! at the end of the tick's serial phases.
 
 use std::collections::BTreeMap;
 
@@ -33,13 +32,11 @@ use crate::protocol::{
 use crate::tick::Player;
 use crate::tick::queue::SessionId;
 
-/// The suffix of a command's aliases enum after its name (BDS: `tellCommandAliases`).
+/// The suffix of a command's aliases enum after its name, as the official server names it.
 const ALIASES_SUFFIX: &str = "CommandAliases";
-/// The command the client runs itself: listed in [`COMMAND_NAME_ENUM`], never sent.
-const CLIENT_COMMAND: &str = "help";
-/// The enum of every command name and alias a player may type (BDS).
+/// The enum of every command name and alias a player may type.
 pub(crate) const COMMAND_NAME_ENUM: &str = "CommandName";
-/// The alias offset of a command without aliases (PMMP and dragonfly send -1 as a u32).
+/// The alias offset of a command without aliases: -1 as a u32.
 const NO_ALIASES: u32 = u32::MAX;
 /// A table position not given yet in a player's packet.
 const UNSET: u32 = u32::MAX;
@@ -53,7 +50,8 @@ pub(crate) struct Catalog {
     enums: Vec<Enum>,
     /// The commands in registration order.
     commands: Vec<Entry>,
-    /// The number suffixes (`/xp`'s `l`), each once; few, so every packet carries them all.
+    /// The number suffixes ([`Param::suffixed_int`]'s), each once; few, so every packet carries
+    /// them all.
     suffixes: Vec<String>,
     /// Every soft enum's type name once, in first-use order over all commands.
     soft: Vec<String>,
@@ -119,7 +117,6 @@ impl Catalog {
                 description: command.description.clone(),
                 permissions: command.permissions.clone(),
                 names: typed,
-                sent: command.name != CLIENT_COMMAND,
                 aliases,
                 overloads,
                 enums: used,
@@ -174,8 +171,6 @@ struct Entry {
     permissions: Vec<Permission>,
     /// The name and the aliases, as positions in [`Catalog::values`].
     names: Vec<u32>,
-    /// Whether the command is sent; the client's own command is only named.
-    sent: bool,
     /// The aliases enum (the name and the aliases), if the command has aliases.
     aliases: Option<u32>,
     overloads: Vec<Vec<Parameter>>,
@@ -192,7 +187,8 @@ struct Parameter {
     name: String,
     r#type: Type,
     optional: bool,
-    /// `ParamOption` bits: BDS marks its item and block names as checked by the server.
+    /// `ParamOption` bits: the official server marks its item and block names as checked by the
+    /// server.
     options: u8,
 }
 
@@ -203,7 +199,7 @@ enum Type {
     Basic(CommandArgType),
     /// `VALID | ENUM | index`, the index the enum's in the catalog.
     Enum(u32),
-    /// `SUFFIXED | index`, the suffix's index (BDS sets no `VALID` bit).
+    /// `SUFFIXED | index`, the suffix's index (the official server sets no `VALID` bit).
     Suffixed(u32),
     /// `VALID | SOFT_ENUM | index`, the index the soft enum's in the catalog.
     Soft(u32),
@@ -232,6 +228,43 @@ struct Builder {
 }
 
 impl Builder {
+    /// Finds the network type of `param` as the official server sends it (P6): a basic type, an
+    /// enum (`VALID | type` or `VALID | ENUM | index`) or a suffixed number. Item and block names
+    /// come with and without `minecraft:`.
+    fn parameter(&mut self, names: &Names, param: &Param) -> Type {
+        match &param.kind {
+            Kind::Int => Type::Basic(CommandArgType::Int),
+            Kind::Suffixed { suffix } => Type::Suffixed(self.suffix(suffix)),
+            Kind::Float => Type::Basic(CommandArgType::Float),
+            Kind::String => Type::Basic(CommandArgType::String),
+            Kind::Target | Kind::Name => Type::Basic(CommandArgType::Target),
+            Kind::Position => Type::Basic(CommandArgType::Position),
+            // The official server sends 68; gophertunnel's `Message` is 67.
+            Kind::Message => Type::Basic(CommandArgType::MessageRoot),
+            Kind::RawText => Type::Basic(CommandArgType::RawText),
+            Kind::Json => Type::Basic(CommandArgType::Json),
+            Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
+            Kind::Enum { name, values } => {
+                Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
+            }
+            Kind::Item => {
+                let values = namespaced(names.item_names().iter().copied());
+                Type::Enum(self.enumeration(command::ITEM_ENUM, values.iter().map(String::as_str)))
+            }
+            Kind::Block => {
+                let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
+                Type::Enum(self.enumeration(command::BLOCK_ENUM, values.iter().map(String::as_str)))
+            }
+            Kind::Effect => {
+                Type::Enum(self.enumeration(command::EFFECT_ENUM, names.effect_names()))
+            }
+            Kind::Enchantment => {
+                Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
+            }
+            Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
+        }
+    }
+
     /// Finds the index of the enum `name` with `values`, adding it on first use. An enum of the
     /// name with other values is an error.
     fn enumeration<'v>(&mut self, name: &str, values: impl IntoIterator<Item = &'v str>) -> u32 {
@@ -259,14 +292,14 @@ impl Builder {
         index
     }
 
-    /// Finds the index of `value` among the catalog's values, adding it on first use.
-    fn value(&mut self, value: &str) -> u32 {
-        if let Some(&index) = self.value_index.get(value) {
+    /// Finds the index of the soft enum `name`, adding it on first use.
+    fn soft(&mut self, name: &str) -> u32 {
+        if let Some(&index) = self.catalog.soft_index.get(name) {
             return index;
         }
-        let index = index_of(self.catalog.values.len());
-        self.catalog.values.push(value.to_owned());
-        self.value_index.insert(value.to_owned(), index);
+        let index = index_of(self.catalog.soft.len());
+        self.catalog.soft.push(name.to_owned());
+        self.catalog.soft_index.insert(name.to_owned(), index);
         index
     }
 
@@ -280,53 +313,15 @@ impl Builder {
         index_of(suffixes.len() - 1)
     }
 
-    /// Finds the index of the soft enum `name`, adding it on first use.
-    fn soft(&mut self, name: &str) -> u32 {
-        if let Some(&index) = self.catalog.soft_index.get(name) {
+    /// Finds the index of `value` among the catalog's values, adding it on first use.
+    fn value(&mut self, value: &str) -> u32 {
+        if let Some(&index) = self.value_index.get(value) {
             return index;
         }
-        let index = index_of(self.catalog.soft.len());
-        self.catalog.soft.push(name.to_owned());
-        self.catalog.soft_index.insert(name.to_owned(), index);
+        let index = index_of(self.catalog.values.len());
+        self.catalog.values.push(value.to_owned());
+        self.value_index.insert(value.to_owned(), index);
         index
-    }
-
-    /// Finds the network type of `param` as BDS sends it (P6): a basic type, an enum
-    /// (`VALID | type` or `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number. Item
-    /// and block names come with and without `minecraft:`.
-    fn parameter(&mut self, names: &Names, param: &Param) -> Type {
-        match &param.kind {
-            Kind::Int => Type::Basic(CommandArgType::Int),
-            Kind::Suffixed { suffix } => Type::Suffixed(self.suffix(suffix)),
-            Kind::Float => Type::Basic(CommandArgType::Float),
-            Kind::String => Type::Basic(CommandArgType::String),
-            Kind::Target | Kind::Name => Type::Basic(CommandArgType::Target),
-            Kind::Position => Type::Basic(CommandArgType::Position),
-            // BDS and PMMP (`ARG_TYPE_MESSAGE`) send 68, gophertunnel's `Message` is 67.
-            Kind::Message => Type::Basic(CommandArgType::MessageRoot),
-            Kind::RawText => Type::Basic(CommandArgType::RawText),
-            Kind::Json => Type::Basic(CommandArgType::Json),
-            Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
-            Kind::Enum { name, values } => {
-                Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
-            }
-            Kind::Item => {
-                let values = namespaced(names.item_names().iter().copied());
-                Type::Enum(self.enumeration(command::ITEM_ENUM, values.iter().map(String::as_str)))
-            }
-            Kind::Block => {
-                let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
-                Type::Enum(self.enumeration(command::BLOCK_ENUM, values.iter().map(String::as_str)))
-            }
-            Kind::Effect => {
-                Type::Enum(self.enumeration(command::EFFECT_ENUM, names.effect_names()))
-            }
-            Kind::Enchantment => {
-                Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
-            }
-            Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
-            Kind::ClockTimeMarker => Type::Basic(CommandArgType::ClockTimeMarker),
-        }
     }
 }
 
@@ -359,9 +354,6 @@ pub(crate) fn available_commands(
             continue;
         }
         names.extend(&entry.names);
-        if !entry.sent {
-            continue;
-        }
         for &index in &entry.enums {
             let at = slice_index(index);
             #[expect(
@@ -514,7 +506,7 @@ fn slice_index(index: u32) -> usize {
     usize::try_from(index).expect("a u32 fits a usize")
 }
 
-/// Lists each of `names` as `minecraft:<name>` and as itself, BDS's order.
+/// Lists each of `names` as `minecraft:<name>` and as itself, the official server's order.
 fn namespaced<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
     names
         .flat_map(|n| [format!("{NAMESPACE}{n}"), n.to_owned()])

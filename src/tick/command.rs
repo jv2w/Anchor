@@ -48,7 +48,7 @@ const ADMIN_KEY: &str = "chat.type.admin";
 /// The prefix of a copy of a command result for operators: grey italics, as the client shows
 /// its own `chat.type.admin` lines.
 const ADMIN_PREFIX: &str = "§7§o";
-/// What the console is called in messages (PMMP `ConsoleCommandSender::getName`).
+/// What the console is called in messages.
 const CONSOLE_NAME: &str = "Console";
 /// Permissions one player may be granted or denied while online.
 const MAX_GRANTS: usize = 1024;
@@ -60,7 +60,7 @@ const MAX_OUTPUT_PARAMS: usize = 32;
 /// The random stream of `@r`.
 const RANDOM_TARGET: u64 = random::tag("command-random-target");
 
-/// The grants and denials of online players by session (PMMP permission attachments).
+/// The grants and denials of online players by session.
 pub(crate) type Grants = BTreeMap<SessionId, BTreeMap<&'static str, bool>>;
 
 /// Where a registered command comes from.
@@ -107,8 +107,7 @@ pub(crate) struct Commands {
     names: Names,
     /// The network form of the commands, built by [`finish`](Self::finish).
     catalog: available::Catalog,
-    /// Grants and denials of online players (PMMP permission attachments), not saved; a player's
-    /// go when it leaves ([`left`]).
+    /// Grants and denials of online players, not saved; a player's go when it leaves ([`left`]).
     grants: Grants,
     /// Players whose permissions changed this tick: they get `AvailableCommands` again.
     resend: BTreeSet<SessionId>,
@@ -116,7 +115,7 @@ pub(crate) struct Commands {
     soft_values: Vec<Vec<String>>,
     /// Soft enums set this tick: every player gets their values again.
     soft_changed: BTreeSet<usize>,
-    /// Commands run since start: the key of `@r`'s and `/particle`'s random streams.
+    /// Commands run since start: the key of `@r`'s random streams.
     runs: u64,
     /// The operator list, the bans and the whitelist.
     access: Access,
@@ -146,7 +145,7 @@ impl Commands {
     }
 
     /// Whether periodic saves are on: the save snapshot due every `save-interval-minutes` is
-    /// taken only then (PMMP `WorldManager::getAutoSave`).
+    /// taken only then.
     pub(super) fn is_auto_save_on(&self) -> bool {
         self.auto_save
     }
@@ -303,14 +302,6 @@ impl Commands {
         }
         self.catalog = available::Catalog::new(&self.list, &self.names)?;
         self.soft_values = vec![Vec::new(); self.catalog.soft_count()];
-        // BDS lists its one clock from the start.
-        if let Some(clocks) = self
-            .catalog
-            .soft_enum(builtin::WORLD_CLOCKS)
-            .and_then(|index| self.soft_values.get_mut(index))
-        {
-            *clocks = vec![super::survival::OVERWORLD_CLOCK_NAME.to_owned()];
-        }
         Ok(())
     }
 
@@ -463,7 +454,7 @@ enum Resolve {
     Unfit,
 }
 
-/// Why a join is refused (PMMP `PlayerPreLoginEvent` kick flags, in their priority order).
+/// Why a join is refused, in their priority order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Refusal {
     /// `max-players` players have joined or are joining.
@@ -512,9 +503,7 @@ impl ServerBuilder {
     /// whose name a command of the user's takes, as its name or an alias, is left out with its
     /// aliases, and an alias of Anchor's that the user's take is dropped. Two of the user's
     /// commands may not share a name or alias, and [`build`](Self::build) fails with
-    /// [`command::Error`] if they do or if a command breaks a rule of [`Command::overload`]. A
-    /// command named `help` is offered for typing but not listed with its overloads: the client
-    /// runs its own `/help`.
+    /// [`command::Error`] if they do or if a command breaks a rule of [`Command::overload`].
     #[doc(alias = "CommandMap::register")]
     #[doc(alias = "SimpleCommandMap::register")]
     #[must_use]
@@ -523,8 +512,9 @@ impl ServerBuilder {
         self
     }
 
-    /// Drops Anchor's own command named `name` (ASCII case does not matter), such as `"me"`. An
-    /// alias, or a name none of Anchor's commands has, drops nothing.
+    /// Drops Anchor's own command named `name` (ASCII case does not matter), such as `"list"`. An
+    /// alias, or a name none of Anchor's commands has, drops nothing and the build still
+    /// succeeds.
     #[doc(alias = "SimpleCommandMap::unregister")]
     #[must_use]
     pub fn without_command(mut self, name: &str) -> Self {
@@ -548,8 +538,8 @@ impl ServerBuilder {
 
     /// Makes `default` who has `permission` unless a grant says otherwise, in place of the
     /// default it was made with: how one of Anchor's own permissions (the
-    /// [`permission`] constants) gets another default, such as `/kill` for
-    /// operators only, `.permission_default(permission::COMMAND_KILL_SELF, Default::Op)`. Every
+    /// [`permission`] constants) gets another default, such as `/version` for
+    /// operators only, `.permission_default(permission::COMMAND_VERSION, Default::Op)`. Every
     /// check of the permission follows it, a check with the constant included, and
     /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
     /// A permission no command and no [`permission`](Self::permission) registers makes
@@ -565,6 +555,576 @@ impl ServerBuilder {
             .defaults
             .insert(permission.name(), default);
         self
+    }
+}
+
+impl Context<'_> {
+    /// The name of `sender`: the player's name, or `Console`; `None` for a player who has left.
+    #[doc(alias = "CommandSender::getName")]
+    #[doc(alias = "ConsoleCommandSender::getName")]
+    pub fn sender_name(&self, sender: Sender) -> Option<&str> {
+        match sender {
+            Sender::Player(id) => self.player(id).map(player::Player::name),
+            Sender::Console => Some(CONSOLE_NAME),
+        }
+    }
+
+    /// Whether `sender` may use `command`: it has one of the command's permissions, or the
+    /// command needs none.
+    #[doc(alias = "Command::testPermissionSilent")]
+    pub fn can_use(&self, sender: Sender, command: &Command) -> bool {
+        allowed(&command.permissions, |p| {
+            has_permission(self.state, sender, p)
+        })
+    }
+
+    /// The command named or aliased `name` (ASCII case does not matter).
+    #[doc(alias = "CommandMap::getCommand")]
+    #[doc(alias = "SimpleCommandMap::getCommand")]
+    pub fn command(&self, name: &str) -> Option<&Command> {
+        let index = *self
+            .state
+            .commands
+            .by_name
+            .get(&name.to_ascii_lowercase())?;
+        Some(command_at(self.state, index))
+    }
+
+    /// Every command, the user's first, in registration order.
+    #[doc(alias = "SimpleCommandMap::getCommands")]
+    pub fn commands(&self) -> impl Iterator<Item = &Command> {
+        self.state.commands.list.iter()
+    }
+
+    /// The registered permission named `name`.
+    #[doc(alias = "PermissionManager::getPermission")]
+    pub fn permission(&self, name: &str) -> Option<Permission> {
+        self.state.commands.permissions.get(name).copied()
+    }
+
+    /// Every registered permission, in name order.
+    #[doc(alias = "PermissionManager::getPermissions")]
+    pub fn permissions(&self) -> impl Iterator<Item = Permission> {
+        self.state.commands.permissions.values().copied()
+    }
+
+    /// Whether `sender` has `permission`: a player's grant or denial if it has one, otherwise the
+    /// permission's default for its operator status (the registered default of its name, which
+    /// [`ServerBuilder::permission_default`] may have set). The console counts as an operator. A
+    /// player who has left has no permission.
+    #[doc(alias = "Permissible::hasPermission")]
+    #[doc(alias = "Player::hasPermission")]
+    pub fn has_permission(&self, sender: Sender, permission: Permission) -> bool {
+        has_permission(self.state, sender, permission)
+    }
+
+    /// Whether `player` has a grant or denial of `permission`.
+    #[doc(alias = "Permissible::isPermissionSet")]
+    #[doc(alias = "Player::isPermissionSet")]
+    pub fn is_permission_set(&self, player: player::Id, permission: Permission) -> bool {
+        self.state
+            .commands
+            .grants
+            .get(&player.session())
+            .is_some_and(|g| g.contains_key(permission.name()))
+    }
+
+    /// The grants (`true`) and denials (`false`) of `player`, by permission name in name order.
+    #[doc(alias = "PermissionAttachment::getPermissions")]
+    pub fn permission_grants(
+        &self,
+        player: player::Id,
+    ) -> impl Iterator<Item = (&'static str, bool)> {
+        self.state
+            .commands
+            .grants
+            .get(&player.session())
+            .into_iter()
+            .flat_map(|g| g.iter().map(|(&name, &value)| (name, value)))
+    }
+
+    /// Every registered permission in name order, with whether `sender` has it now: its grant or
+    /// denial, otherwise the default for its operator status (Anchor has no child permissions to
+    /// expand). A player who has left has none.
+    #[doc(alias = "Permissible::getEffectivePermissions")]
+    #[doc(alias = "Player::getEffectivePermissions")]
+    pub fn effective_permissions(
+        &self,
+        sender: Sender,
+    ) -> impl Iterator<Item = (Permission, bool)> {
+        let commands = &self.state.commands;
+        // The session and operator status once, not per permission; `None` for a player gone.
+        let holder = match sender {
+            Sender::Console => Some((None, true)),
+            Sender::Player(id) => self
+                .state
+                .players
+                .get(&id.session())
+                .map(|p| (Some(id.session()), commands.access.is_op(&p.identity.name))),
+        };
+        commands.permissions.values().map(move |&p| {
+            let has = holder
+                .is_some_and(|(session, op)| has_permission_of(&commands.grants, session, op, p));
+            (p, has)
+        })
+    }
+
+    /// Whether `name` (any ASCII case) is an operator.
+    #[doc(alias = "Server::isOp")]
+    pub fn is_op(&self, name: &str) -> bool {
+        self.state.commands.access.is_op(name)
+    }
+
+    /// The operators' names in ASCII lowercase, in name order.
+    #[doc(alias = "Server::getOps")]
+    pub fn ops(&self) -> impl Iterator<Item = &str> {
+        self.state.commands.access.ops()
+    }
+
+    /// Whether `name` (any ASCII case) is banned now.
+    #[doc(alias = "BanList::isBanned")]
+    pub fn is_banned(&self, name: &str) -> bool {
+        self.ban_entry(name).is_some()
+    }
+
+    /// Whether `ip` is banned now. An IPv4 address written as IPv6 (`::ffff:1.2.3.4`) is the
+    /// IPv4 address.
+    pub fn is_ip_banned(&self, ip: IpAddr) -> bool {
+        self.ip_ban_entry(ip).is_some()
+    }
+
+    /// The ban of `name` (any ASCII case) in force now.
+    #[doc(alias = "BanList::getEntry")]
+    pub fn ban_entry(&self, name: &str) -> Option<&BanEntry> {
+        self.state.commands.access.ban_entry(name, self.state.tick)
+    }
+
+    /// The ban of `ip` in force now. An IPv4 address written as IPv6 is the IPv4 address.
+    pub fn ip_ban_entry(&self, ip: IpAddr) -> Option<&BanEntry> {
+        self.state.commands.access.ip_ban_entry(ip, self.state.tick)
+    }
+
+    /// The name bans in force now, in name order.
+    #[doc(alias = "BanList::getEntries")]
+    #[doc(alias = "Server::getNameBans")]
+    pub fn bans(&self) -> impl Iterator<Item = &BanEntry> {
+        self.state.commands.access.bans(self.state.tick)
+    }
+
+    /// The IP bans in force now, in address order.
+    #[doc(alias = "Server::getIPBans")]
+    pub fn ip_bans(&self) -> impl Iterator<Item = &BanEntry> {
+        self.state.commands.access.ip_bans(self.state.tick)
+    }
+
+    /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is on
+    /// it or an operator.
+    #[doc(alias = "Server::isWhitelisted")]
+    pub fn is_whitelisted(&self, name: &str) -> bool {
+        self.state.commands.access.can_join(name)
+    }
+
+    /// The whitelisted names in ASCII lowercase, in name order.
+    #[doc(alias = "Server::getWhitelisted")]
+    pub fn whitelist(&self) -> impl Iterator<Item = &str> {
+        self.state.commands.access.whitelisted()
+    }
+
+    /// Whether the whitelist is on (`white-list`).
+    #[doc(alias = "Server::hasWhitelist")]
+    pub fn whitelist_enabled(&self) -> bool {
+        self.state.commands.access.is_whitelist_enabled()
+    }
+
+    /// Whether the periodic save is on.
+    #[doc(alias = "WorldManager::getAutoSave")]
+    pub fn auto_save_enabled(&self) -> bool {
+        self.state.commands.auto_save
+    }
+
+    /// Runs `line` (without `/`) as `sender` would type it, checking `sender`'s permission, and
+    /// returns what the sender would see; nothing is sent. A command cannot run itself again
+    /// while it runs, through any of its overloads: that fails.
+    #[doc(alias = "Server::dispatchCommand")]
+    #[doc(alias = "CommandMap::dispatch")]
+    #[doc(alias = "SimpleCommandMap::dispatch")]
+    pub fn dispatch_command(&mut self, sender: Sender, line: &str) -> command::Result<Output> {
+        execute(self.state, sender, line)
+    }
+
+    /// Runs `line` (without `/`) as `player` would type it (`@s` and relative positions are the
+    /// player's), but as if it had every permission, and returns what it would see; nothing is
+    /// sent, and no operator gets a copy of the result (the Script API's `Player::runCommand`).
+    /// A player who has left runs nothing: [`Error::NoTargets`], as there is nobody to run it
+    /// as. A command cannot run itself again while it runs, through any of its overloads: that
+    /// fails.
+    pub fn run_command(&mut self, player: player::Id, line: &str) -> command::Result<Output> {
+        if !self.state.players.contains_key(&player.session()) {
+            return Err(Error::NoTargets);
+        }
+        let outer = self.state.commands.unrestricted.replace(player);
+        let result = execute(self.state, Sender::Player(player), line);
+        self.state.commands.unrestricted = outer;
+        result
+    }
+
+    /// Shows `sender` `message`: a player as [`Player::send`](player::Player::send) shows it, the
+    /// console in the log. Fails as `Player::send` does; for a player who has left it sends
+    /// nothing.
+    #[doc(alias = "CommandSender::sendMessage")]
+    #[doc(alias = "ConsoleCommandSender::sendMessage")]
+    pub fn send_to(&mut self, sender: Sender, message: player::Message) -> player::Result<()> {
+        match sender {
+            Sender::Player(id) => self.player_mut(id).map_or(Ok(()), |p| p.send(message)),
+            Sender::Console => {
+                let message = text::message(&message);
+                info!(%message, "console message");
+                Ok(())
+            }
+        }
+    }
+
+    /// Shows what `sender`'s command did, `message`, to every other online player with
+    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as the client's `[sender: message]`
+    /// (`chat.type.admin`) in grey italics, and logs it when a player sent the command (the
+    /// console logs its own results). The sender itself sees what its handler returns. Nothing
+    /// during a [`Self::run_command`]. Fails, sending nothing, for a message a client does not
+    /// decode (over 65,536 bytes).
+    #[doc(alias = "Command::broadcastCommandMessage")]
+    pub fn broadcast_command_message(
+        &mut self,
+        sender: Sender,
+        message: &str,
+    ) -> player::Result<()> {
+        let source = self.sender_name(sender).unwrap_or_default().to_owned();
+        let copy = player::Message::Translation {
+            key: format!("{ADMIN_PREFIX}%{ADMIN_KEY}"),
+            parameters: vec![source, message.to_owned()],
+        };
+        self.copy_result(sender, copy, message)
+    }
+
+    /// Shows `copy`, the copy of what `sender`'s command did, to every other online player with
+    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), and logs `result` when a player sent the
+    /// command (the console logs its own results). Nothing during a [`Self::run_command`]. Fails,
+    /// sending nothing, for a copy a client does not decode.
+    pub(crate) fn copy_result(
+        &mut self,
+        sender: Sender,
+        copy: player::Message,
+        result: &str,
+    ) -> player::Result<()> {
+        if self.state.commands.unrestricted.is_some() {
+            return Ok(());
+        }
+        let packets = copy.into_packets()?;
+        self.tell_admins(sender, &packets);
+        if let Sender::Player(_) = sender {
+            let source = self.sender_name(sender).unwrap_or_default();
+            info!(player = %source, %result, "command result");
+        }
+        Ok(())
+    }
+
+    /// Sets the values the client suggests for the soft enum type `name` of a
+    /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
+    /// list follows at the end of the tick. Not saved: none at start. Fails with
+    /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
+    /// value is empty, or there are more than 4,096 or more than 65,536 bytes of them in all. A
+    /// value may hold spaces: the parameter takes it typed in double quotes.
+    pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
+        let commands = &mut self.state.commands;
+        let invalid = || Error::InvalidSoftEnum {
+            name: name.to_owned(),
+        };
+        let index = commands.catalog.soft_enum(name).ok_or_else(invalid)?;
+        if values.len() > MAX_ENUM_VALUES
+            || values
+                .iter()
+                .map(|v| v.len())
+                .fold(0, usize::saturating_add)
+                > MAX_TEXT
+            || values.iter().any(|v| v.is_empty())
+        {
+            return Err(invalid());
+        }
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the catalog's soft enum positions are those of `soft_values`"
+        )]
+        let current = &mut commands.soft_values[index];
+        if current
+            .iter()
+            .map(String::as_str)
+            .ne(values.iter().copied())
+        {
+            *current = values.iter().map(|v| (*v).to_owned()).collect();
+            commands.soft_changed.insert(index);
+        }
+        Ok(())
+    }
+
+    /// Grants (`value` true) or denies `permission` to `player` until it leaves, whatever its
+    /// default says; its command list follows at the end of the tick. Not saved. False, changing
+    /// nothing, if no command and no [`ServerBuilder::permission`] registered a permission of its
+    /// name, the player has left or it has 1,024 grants.
+    #[doc(alias = "PermissionAttachment::setPermission")]
+    pub fn set_permission(
+        &mut self,
+        player: player::Id,
+        permission: Permission,
+        value: bool,
+    ) -> bool {
+        let session = player.session();
+        if !self.state.players.contains_key(&session) {
+            return false;
+        }
+        let commands = &mut self.state.commands;
+        // A checkpoint names a grant by its permission, and a replay finds only registered ones.
+        if !commands.permissions.contains_key(permission.name()) {
+            return false;
+        }
+        let grants = commands.grants.entry(session).or_default();
+        if !grants.contains_key(permission.name()) && grants.len() >= MAX_GRANTS {
+            return false;
+        }
+        if grants.insert(permission.name(), value) != Some(value) {
+            commands.resend.insert(session);
+            commands.forget_admins();
+        }
+        true
+    }
+
+    /// Removes `player`'s grant or denial of `permission`, so its default applies again; false
+    /// if it had none.
+    #[doc(alias = "PermissionAttachment::unsetPermission")]
+    pub fn unset_permission(&mut self, player: player::Id, permission: Permission) -> bool {
+        let session = player.session();
+        let commands = &mut self.state.commands;
+        let Some(grants) = commands.grants.get_mut(&session) else {
+            return false;
+        };
+        if grants.remove(permission.name()).is_none() {
+            return false;
+        }
+        if grants.is_empty() {
+            commands.grants.remove(&session);
+        }
+        commands.resend.insert(session);
+        commands.forget_admins();
+        true
+    }
+
+    /// Removes every grant and denial of `player`, so the defaults apply again; false if it had
+    /// none.
+    #[doc(alias = "PermissionAttachment::clearPermissions")]
+    pub fn clear_permissions(&mut self, player: player::Id) -> bool {
+        let session = player.session();
+        let commands = &mut self.state.commands;
+        if commands.grants.remove(&session).is_none() {
+            return false;
+        }
+        commands.resend.insert(session);
+        commands.forget_admins();
+        true
+    }
+
+    /// Makes `name` (any ASCII case) an operator, saved at the next tick boundary; an online
+    /// player of that name gets its new command list and operator abilities at the end of the
+    /// tick.
+    #[doc(alias = "Server::addOp")]
+    pub fn op(&mut self, name: &str) -> permission::Result<()> {
+        if self.state.commands.access.op(name)? {
+            self.state.saving.requested = true;
+            self.operator_changed(name, true);
+        }
+        Ok(())
+    }
+
+    /// Takes operator status from `name`; false if it was not an operator. An online player of
+    /// that name gets its new command list and a member's abilities at the end of the tick.
+    #[doc(alias = "Server::removeOp")]
+    pub fn deop(&mut self, name: &str) -> bool {
+        if !self.state.commands.access.deop(name) {
+            return false;
+        }
+        self.state.saving.requested = true;
+        self.operator_changed(name, false);
+        true
+    }
+
+    /// Adds `entry` to the name bans, or to the IP bans for [`BanEntry::ip`], replacing a ban of
+    /// the same name or address, saved at the next tick boundary. Its creation time is now. Bans
+    /// that have ended are dropped from the list first. A banned player who is online stays
+    /// until kicked; the ban refuses its next join, and the join of a player whose saved data
+    /// is still loading when its data arrives.
+    #[doc(alias = "BanList::addBan")]
+    #[doc(alias = "BanList::add")]
+    pub fn ban(&mut self, entry: BanEntry) -> permission::Result<()> {
+        let tick = self.state.tick;
+        self.state.commands.access.ban(entry, tick)?;
+        self.state.saving.requested = true;
+        Ok(())
+    }
+
+    /// Lifts the ban of `name` (any ASCII case); false if there was none.
+    #[doc(alias = "BanList::remove")]
+    pub fn unban(&mut self, name: &str) -> bool {
+        let lifted = self.state.commands.access.unban(name);
+        self.state.saving.requested |= lifted;
+        lifted
+    }
+
+    /// Lifts the ban of `ip`; false if there was none. An IPv4 address written as IPv6 is the
+    /// IPv4 address.
+    pub fn unban_ip(&mut self, ip: IpAddr) -> bool {
+        let lifted = self.state.commands.access.unban_ip(ip);
+        self.state.saving.requested |= lifted;
+        lifted
+    }
+
+    /// Puts `name` (any ASCII case) on the whitelist, saved at the next tick boundary.
+    #[doc(alias = "Server::addWhitelist")]
+    pub fn add_to_whitelist(&mut self, name: &str) -> permission::Result<()> {
+        if self.state.commands.access.whitelist_add(name)? {
+            self.state.saving.requested = true;
+        }
+        Ok(())
+    }
+
+    /// Takes `name` off the whitelist; false if it was not on it. A player who is online stays
+    /// until kicked; one whose saved data is still loading is refused when its data arrives, if
+    /// the whitelist then keeps it out.
+    #[doc(alias = "Server::removeWhitelist")]
+    pub fn remove_from_whitelist(&mut self, name: &str) -> bool {
+        let removed = self.state.commands.access.whitelist_remove(name);
+        self.state.saving.requested |= removed;
+        removed
+    }
+
+    /// Turns the whitelist on or off until the server stops (`white-list` decides at start:
+    /// Anchor never writes the settings file). Players already online stay; one whose saved data
+    /// is still loading is refused when its data arrives, if the whitelist then keeps it out.
+    pub fn set_whitelist_enabled(&mut self, enabled: bool) {
+        if self.state.commands.access.is_whitelist_enabled() != enabled {
+            info!(enabled, "whitelist switched until the server stops");
+        }
+        self.state.commands.access.set_whitelist_enabled(enabled);
+    }
+
+    /// Stops the server after this tick, as a [`ShutdownHandle`](crate::ShutdownHandle) does:
+    /// every player sees `shutdown-message`, the last state is saved, then
+    /// [`Server::run`](crate::Server::run) returns. Calling it again changes nothing.
+    #[doc(alias = "Server::shutdown")]
+    pub fn shutdown(&mut self) {
+        if !self.state.commands.stopping {
+            info!("stop asked for by a command or callback");
+        }
+        self.state.commands.stopping = true;
+    }
+
+    /// Turns the periodic save (every `save-interval-minutes`) off or on until the server
+    /// stops. Only the periodic save stops: a save something asks for ([`save`](Self::save),
+    /// [`backup`](Self::backup), a change of the operator, ban or whitelist lists, a world
+    /// created or deleted), a save that memory or the input log waiting for one makes due, and
+    /// the save at shutdown still happen. A crash replays from the last save.
+    #[doc(alias = "WorldManager::setAutoSave")]
+    pub fn set_auto_save(&mut self, enabled: bool) {
+        if self.state.commands.auto_save != enabled {
+            info!(enabled, "periodic save switched until the server stops");
+        }
+        self.state.commands.auto_save = enabled;
+    }
+
+    /// Sets the difficulty until the server stops and tells the players. Every loaded world
+    /// follows it from now on: a difficulty of its own
+    /// ([`set_world_difficulty`](Self::set_world_difficulty)) is dropped. On a `hardcore` server
+    /// only [`Difficulty::Hard`] is allowed: false, changing nothing, for another.
+    pub fn set_difficulty(&mut self, difficulty: Difficulty) -> bool {
+        if self.state.settings.hardcore && difficulty != Difficulty::Hard {
+            return false;
+        }
+        self.state.settings.difficulty = difficulty;
+        for (i, world) in self.state.worlds.iter_mut().enumerate() {
+            if self.state.catalog.is_loaded(i) {
+                world.set_difficulty(None);
+            }
+        }
+        let packet = Packet::SetDifficulty(SetDifficulty {
+            difficulty: spawn::difficulty_id(difficulty).cast_unsigned(),
+        });
+        // Every player past its start-game packets, as `world_api::send_to_world` tells one
+        // world's.
+        for p in self.state.players.values_mut() {
+            if p.phase != Phase::Loading {
+                p.send_packet(packet.clone());
+            }
+        }
+        true
+    }
+
+    /// Sets the game mode new players get (`gamemode`) until the server stops; with
+    /// `force-gamemode` every join gets it. The server list keeps the mode the server started
+    /// with.
+    pub fn set_default_game_mode(&mut self, mode: GameMode) {
+        self.state.settings.game_mode = mode;
+    }
+
+    /// Sends `packets` to every online player with
+    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN) but `sender`, as a viewer: a command on
+    /// many players makes a copy for each, so one whose outbox is nearly full is skipped. While a
+    /// command runs, the players are looked up once ([`Admins`]).
+    fn tell_admins(&mut self, sender: Sender, packets: &player::Packets) {
+        let running = !matches!(self.state.commands.admins, Admins::Idle);
+        let admins = match std::mem::replace(&mut self.state.commands.admins, Admins::Idle) {
+            Admins::Idle | Admins::Unknown => self
+                .players()
+                .map(player::Player::id)
+                .filter(|&id| self.has_permission(Sender::Player(id), permission::BROADCAST_ADMIN))
+                .collect(),
+            Admins::Known(admins) => admins,
+        };
+        for &id in &admins {
+            if Sender::Player(id) == sender {
+                continue;
+            }
+            if let Some(p) = self.player_mut(id)
+                && p.has_viewer_room()
+            {
+                for packet in packets.iter().flatten() {
+                    p.send_packet(packet.clone());
+                }
+            }
+        }
+        if running {
+            self.state.commands.admins = Admins::Known(admins);
+        }
+    }
+
+    /// Makes the joined player named `name` (ASCII case), loading or not, follow a change of
+    /// operator status to `op` with its command list and abilities. Without Xbox sign-in the name
+    /// is the player's key and the lookup is an index search; with it, the players' keys are
+    /// their XUIDs, and the players (at most `max-players`) are compared one by one, only when
+    /// the operator list changes.
+    fn operator_changed(&mut self, name: &str, op: bool) {
+        let state = &mut *self.state;
+        state.commands.forget_admins();
+        let key = PlayerKey::Name(name.to_ascii_lowercase());
+        let session = state.index.get(&key).copied().or_else(|| {
+            state
+                .players
+                .iter()
+                .find(|(_, p)| {
+                    p.identity.xuid.is_some() && p.identity.name.eq_ignore_ascii_case(name)
+                })
+                .map(|(&session, _)| session)
+        });
+        if let Some(session) = session
+            && let Some(p) = state.players.get_mut(&session)
+        {
+            state.commands.resend.insert(session);
+            p.survival.set_operator(op);
+        }
     }
 }
 
@@ -652,9 +1212,9 @@ fn check(command: &Command) -> command::Result<()> {
 }
 
 /// Handles a `CommandRequest` of `session`: a `/` line from a joined player. Each spends one line
-/// of the player's chat limit ([`chat::spend_line`]: PMMP runs a command request as a chat
-/// line), so chat lines and commands together pass 2 per tick. The player gets a
-/// `CommandOutput` that answers the request's origin.
+/// of the player's chat limit ([`chat::spend_line`]: a command request counts as a chat line), so
+/// chat lines and commands together pass 2 per tick. The player gets a `CommandOutput` that
+/// answers the request's origin.
 pub(super) fn on_request(state: &mut State, session: SessionId, packet: &CommandRequest) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -712,7 +1272,7 @@ pub(super) fn console(state: &mut State, line: &str) {
 }
 
 /// Runs a command line a player or the console typed (without its `/`) after asking the
-/// [`crate::event::Command`] listeners (PMMP `CommandEvent`), which may cancel it or change the
+/// [`crate::event::Command`] listeners, which may cancel it or change the
 /// line; `None` if a listener cancelled it or, after a listener ran, the player who typed it is
 /// leaving. The monitors see the line that ran, after it ran. A command run through
 /// [`Context::dispatch_command`] raises nothing (no re-entry).
@@ -841,7 +1401,7 @@ fn handler_slot_mut(
     &mut state.commands.list[index].overloads[overload].handler
 }
 
-/// Tells whether `sender` has `permission`, with the registered default of its name (one set at
+/// Whether `sender` has `permission`, with the registered default of its name (one set at
 /// build, [`ServerBuilder::permission_default`]); a player who has left has none, and the player
 /// a [`Context::run_command`] runs as has every one.
 fn has_permission(state: &State, sender: Sender, permission: Permission) -> bool {
@@ -861,13 +1421,13 @@ fn has_permission(state: &State, sender: Sender, permission: Permission) -> bool
     }
 }
 
-/// Tells whether a sender may use a command needing one of `permissions` (none: everyone), `has`
+/// Whether a sender may use a command needing one of `permissions` (none: everyone), `has`
 /// telling whether it has one.
 fn allowed(permissions: &[Permission], has: impl Fn(Permission) -> bool) -> bool {
     permissions.is_empty() || permissions.iter().any(|&p| has(p))
 }
 
-/// Tells whether the sender with `session` (`None`: the console) and operator status `op` has
+/// Whether the sender with `session` (`None`: the console) and operator status `op` has
 /// `permission`: its grant if it has one, otherwise the permission's default.
 fn has_permission_of(
     grants: &Grants,
@@ -1145,10 +1705,9 @@ pub(super) fn left(state: &mut State, session: SessionId) {
     state.commands.resend.remove(&session);
 }
 
-/// Checks whether `identity` may join now (PMMP `LoginPacketHandler`'s checks, first refusal in
-/// PMMP's priority order): the server is not full, the whitelist lets it in, and neither its name
-/// nor its address is banned. The slot of the same player online counts as free: its join
-/// replaces that player once admitted.
+/// Checks whether `identity` may join now (first refusal in priority order): the server is not
+/// full, the whitelist lets it in, and neither its name nor its address is banned. The slot of
+/// the same player online counts as free: its join replaces that player once admitted.
 pub(crate) fn admit(state: &State, identity: &Identity) -> Result<(), Refusal> {
     refusals(state, identity)
         .into_iter()
@@ -1157,7 +1716,7 @@ pub(crate) fn admit(state: &State, identity: &Identity) -> Result<(), Refusal> {
         .map_or(Ok(()), Err)
 }
 
-/// Lists every refusal of `identity` now, one per PMMP kick flag in priority order: the server
+/// Lists every refusal of `identity` now, one per kick flag in priority order: the server
 /// is full, the whitelist keeps it out, its name is banned (else its address). `PlayerLogin`
 /// carries them all, so that a listener clearing one does not let in a player another refuses.
 pub(crate) fn refusals(state: &State, identity: &Identity) -> [Option<Refusal>; 3] {
@@ -1177,579 +1736,6 @@ pub(crate) fn refusals(state: &State, identity: &Identity) -> [Option<Refusal>; 
                 .map(|ban| Refusal::IpBanned(ban.reason().to_owned()))
         });
     [full, whitelisted, banned]
-}
-
-impl Context<'_> {
-    /// Runs `line` (without `/`) as `sender` would type it, checking `sender`'s permission, and
-    /// returns what the sender would see; nothing is sent. A command cannot run itself again
-    /// while it runs, through any of its overloads: that fails.
-    #[doc(alias = "Server::dispatchCommand")]
-    #[doc(alias = "CommandMap::dispatch")]
-    #[doc(alias = "SimpleCommandMap::dispatch")]
-    pub fn dispatch_command(&mut self, sender: Sender, line: &str) -> command::Result<Output> {
-        execute(self.state, sender, line)
-    }
-
-    /// Runs `line` (without `/`) as `player` would type it (`@s` and relative positions are the
-    /// player's), but as if it had every permission, and returns what it would see; nothing is
-    /// sent, and no operator gets a copy of the result (the Script API's `Player::runCommand`).
-    /// A player who has left runs nothing: [`Error::NoTargets`], as there is nobody to run it
-    /// as. A command cannot run itself again while it runs, through any of its overloads: that
-    /// fails.
-    pub fn run_command(&mut self, player: player::Id, line: &str) -> command::Result<Output> {
-        if !self.state.players.contains_key(&player.session()) {
-            return Err(Error::NoTargets);
-        }
-        let outer = self.state.commands.unrestricted.replace(player);
-        let result = execute(self.state, Sender::Player(player), line);
-        self.state.commands.unrestricted = outer;
-        result
-    }
-
-    /// The name of `sender`: the player's name, or `Console`; `None` for a player who has left.
-    #[doc(alias = "CommandSender::getName")]
-    #[doc(alias = "ConsoleCommandSender::getName")]
-    pub fn sender_name(&self, sender: Sender) -> Option<&str> {
-        match sender {
-            Sender::Player(id) => self.player(id).map(player::Player::name),
-            Sender::Console => Some(CONSOLE_NAME),
-        }
-    }
-
-    /// Shows `sender` `message`: a player as [`Player::send`](player::Player::send) shows it, the
-    /// console in the log. Fails as `Player::send` does; for a player who has left it sends
-    /// nothing.
-    #[doc(alias = "CommandSender::sendMessage")]
-    #[doc(alias = "ConsoleCommandSender::sendMessage")]
-    pub fn send_to(&mut self, sender: Sender, message: player::Message) -> player::Result<()> {
-        match sender {
-            Sender::Player(id) => self.player_mut(id).map_or(Ok(()), |p| p.send(message)),
-            Sender::Console => {
-                let message = text::message(&message);
-                info!(%message, "console message");
-                Ok(())
-            }
-        }
-    }
-
-    /// Shows what `sender`'s command did, `message`, to every other online player with
-    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as the client's `[sender: message]`
-    /// (`chat.type.admin`) in grey italics, and logs it when a player sent the command (the
-    /// console logs its own results). The sender itself sees what its handler returns. Nothing
-    /// during a [`Self::run_command`]. Fails, sending nothing, for a message a client does not
-    /// decode (over 65,536 bytes).
-    #[doc(alias = "Command::broadcastCommandMessage")]
-    pub fn broadcast_command_message(
-        &mut self,
-        sender: Sender,
-        message: &str,
-    ) -> player::Result<()> {
-        let source = self.sender_name(sender).unwrap_or_default().to_owned();
-        let copy = player::Message::Translation {
-            key: format!("{ADMIN_PREFIX}%{ADMIN_KEY}"),
-            parameters: vec![source, message.to_owned()],
-        };
-        self.copy_result(sender, copy, message)
-    }
-
-    /// Shows `copy`, the copy of what `sender`'s command did, to every other online player with
-    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), and logs `result` when a player sent the
-    /// command (the console logs its own results). Nothing during a [`Self::run_command`]. Fails,
-    /// sending nothing, for a copy a client does not decode.
-    pub(crate) fn copy_result(
-        &mut self,
-        sender: Sender,
-        copy: player::Message,
-        result: &str,
-    ) -> player::Result<()> {
-        if self.state.commands.unrestricted.is_some() {
-            return Ok(());
-        }
-        let packets = copy.into_packets()?;
-        self.tell_admins(sender, &packets);
-        if let Sender::Player(_) = sender {
-            let source = self.sender_name(sender).unwrap_or_default();
-            info!(player = %source, %result, "command result");
-        }
-        Ok(())
-    }
-
-    /// Sends `packets` to every online player with
-    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN) but `sender`, as a viewer: a command on
-    /// many players makes a copy for each, so one whose outbox is nearly full is skipped. While a
-    /// command runs, the players are looked up once ([`Admins`]).
-    fn tell_admins(&mut self, sender: Sender, packets: &player::Packets) {
-        let running = !matches!(self.state.commands.admins, Admins::Idle);
-        let admins = match std::mem::replace(&mut self.state.commands.admins, Admins::Idle) {
-            Admins::Idle | Admins::Unknown => self
-                .players()
-                .map(player::Player::id)
-                .filter(|&id| self.has_permission(Sender::Player(id), permission::BROADCAST_ADMIN))
-                .collect(),
-            Admins::Known(admins) => admins,
-        };
-        for &id in &admins {
-            if Sender::Player(id) == sender {
-                continue;
-            }
-            if let Some(p) = self.player_mut(id)
-                && p.has_viewer_room()
-            {
-                for packet in packets.iter().flatten() {
-                    p.send_packet(packet.clone());
-                }
-            }
-        }
-        if running {
-            self.state.commands.admins = Admins::Known(admins);
-        }
-    }
-
-    /// Whether `sender` may use `command`: it has one of the command's permissions, or the
-    /// command needs none.
-    #[doc(alias = "Command::testPermissionSilent")]
-    pub fn can_use(&self, sender: Sender, command: &Command) -> bool {
-        allowed(&command.permissions, |p| {
-            has_permission(self.state, sender, p)
-        })
-    }
-
-    /// The command named or aliased `name` (ASCII case does not matter).
-    #[doc(alias = "CommandMap::getCommand")]
-    #[doc(alias = "SimpleCommandMap::getCommand")]
-    pub fn command(&self, name: &str) -> Option<&Command> {
-        let index = *self
-            .state
-            .commands
-            .by_name
-            .get(&name.to_ascii_lowercase())?;
-        Some(command_at(self.state, index))
-    }
-
-    /// Every command, the user's first, in registration order.
-    #[doc(alias = "SimpleCommandMap::getCommands")]
-    pub fn commands(&self) -> impl Iterator<Item = &Command> {
-        self.state.commands.list.iter()
-    }
-
-    /// Sets the values the client suggests for the soft enum type `name` of a
-    /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
-    /// list follows at the end of the tick. Not saved: none at start (`WorldClocks`:
-    /// `minecraft:overworld`). Fails with
-    /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
-    /// value is empty, or there are more than 4,096 or more than 65,536 bytes of them in all. A
-    /// value may hold spaces: the parameter takes it typed in double quotes.
-    pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
-        let commands = &mut self.state.commands;
-        let invalid = || Error::InvalidSoftEnum {
-            name: name.to_owned(),
-        };
-        let index = commands.catalog.soft_enum(name).ok_or_else(invalid)?;
-        if values.len() > MAX_ENUM_VALUES
-            || values
-                .iter()
-                .map(|v| v.len())
-                .fold(0, usize::saturating_add)
-                > MAX_TEXT
-            || values.iter().any(|v| v.is_empty())
-        {
-            return Err(invalid());
-        }
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the catalog's soft enum positions are those of `soft_values`"
-        )]
-        let current = &mut commands.soft_values[index];
-        if current
-            .iter()
-            .map(String::as_str)
-            .ne(values.iter().copied())
-        {
-            *current = values.iter().map(|v| (*v).to_owned()).collect();
-            commands.soft_changed.insert(index);
-        }
-        Ok(())
-    }
-
-    /// The registered permission named `name`.
-    #[doc(alias = "PermissionManager::getPermission")]
-    pub fn permission(&self, name: &str) -> Option<Permission> {
-        self.state.commands.permissions.get(name).copied()
-    }
-
-    /// Every registered permission, in name order.
-    #[doc(alias = "PermissionManager::getPermissions")]
-    pub fn permissions(&self) -> impl Iterator<Item = Permission> {
-        self.state.commands.permissions.values().copied()
-    }
-
-    /// Whether `sender` has `permission`: a player's grant or denial if it has one, otherwise the
-    /// permission's default for its operator status (the registered default of its name, which
-    /// [`ServerBuilder::permission_default`] may have set). The console counts as an operator. A
-    /// player who has left has no permission.
-    #[doc(alias = "Permissible::hasPermission")]
-    #[doc(alias = "Player::hasPermission")]
-    pub fn has_permission(&self, sender: Sender, permission: Permission) -> bool {
-        has_permission(self.state, sender, permission)
-    }
-
-    /// Whether `player` has a grant or denial of `permission`.
-    #[doc(alias = "Permissible::isPermissionSet")]
-    #[doc(alias = "Player::isPermissionSet")]
-    pub fn is_permission_set(&self, player: player::Id, permission: Permission) -> bool {
-        self.state
-            .commands
-            .grants
-            .get(&player.session())
-            .is_some_and(|g| g.contains_key(permission.name()))
-    }
-
-    /// Grants (`value` true) or denies `permission` to `player` until it leaves, whatever its
-    /// default says; its command list follows at the end of the tick. Not saved. False, changing
-    /// nothing, if no command and no [`ServerBuilder::permission`] registered a permission of its
-    /// name, the player has left or it has 1,024 grants.
-    #[doc(alias = "PermissionAttachment::setPermission")]
-    pub fn set_permission(
-        &mut self,
-        player: player::Id,
-        permission: Permission,
-        value: bool,
-    ) -> bool {
-        let session = player.session();
-        if !self.state.players.contains_key(&session) {
-            return false;
-        }
-        let commands = &mut self.state.commands;
-        // A checkpoint names a grant by its permission, and a replay finds only registered ones.
-        if !commands.permissions.contains_key(permission.name()) {
-            return false;
-        }
-        let grants = commands.grants.entry(session).or_default();
-        if !grants.contains_key(permission.name()) && grants.len() >= MAX_GRANTS {
-            return false;
-        }
-        if grants.insert(permission.name(), value) != Some(value) {
-            commands.resend.insert(session);
-            commands.forget_admins();
-        }
-        true
-    }
-
-    /// Removes `player`'s grant or denial of `permission`, so its default applies again; false
-    /// if it had none.
-    #[doc(alias = "PermissionAttachment::unsetPermission")]
-    pub fn unset_permission(&mut self, player: player::Id, permission: Permission) -> bool {
-        let session = player.session();
-        let commands = &mut self.state.commands;
-        let Some(grants) = commands.grants.get_mut(&session) else {
-            return false;
-        };
-        if grants.remove(permission.name()).is_none() {
-            return false;
-        }
-        if grants.is_empty() {
-            commands.grants.remove(&session);
-        }
-        commands.resend.insert(session);
-        commands.forget_admins();
-        true
-    }
-
-    /// Removes every grant and denial of `player`, so the defaults apply again; false if it had
-    /// none.
-    #[doc(alias = "PermissionAttachment::clearPermissions")]
-    pub fn clear_permissions(&mut self, player: player::Id) -> bool {
-        let session = player.session();
-        let commands = &mut self.state.commands;
-        if commands.grants.remove(&session).is_none() {
-            return false;
-        }
-        commands.resend.insert(session);
-        commands.forget_admins();
-        true
-    }
-
-    /// The grants (`true`) and denials (`false`) of `player`, by permission name in name order.
-    #[doc(alias = "PermissionAttachment::getPermissions")]
-    pub fn permission_grants(
-        &self,
-        player: player::Id,
-    ) -> impl Iterator<Item = (&'static str, bool)> {
-        self.state
-            .commands
-            .grants
-            .get(&player.session())
-            .into_iter()
-            .flat_map(|g| g.iter().map(|(&name, &value)| (name, value)))
-    }
-
-    /// Every registered permission in name order, with whether `sender` has it now: its grant or
-    /// denial, otherwise the default for its operator status (PMMP lists the permissions set on
-    /// the sender with their values; Anchor has no child permissions to expand). A player who
-    /// has left has none.
-    #[doc(alias = "Permissible::getEffectivePermissions")]
-    #[doc(alias = "Player::getEffectivePermissions")]
-    pub fn effective_permissions(
-        &self,
-        sender: Sender,
-    ) -> impl Iterator<Item = (Permission, bool)> {
-        let commands = &self.state.commands;
-        // The session and operator status once, not per permission; `None` for a player gone.
-        let holder = match sender {
-            Sender::Console => Some((None, true)),
-            Sender::Player(id) => self
-                .state
-                .players
-                .get(&id.session())
-                .map(|p| (Some(id.session()), commands.access.is_op(&p.identity.name))),
-        };
-        commands.permissions.values().map(move |&p| {
-            let has = holder
-                .is_some_and(|(session, op)| has_permission_of(&commands.grants, session, op, p));
-            (p, has)
-        })
-    }
-
-    /// Makes the joined player named `name` (ASCII case), loading or not, follow a change of
-    /// operator status to `op` with its command list and abilities. Without Xbox sign-in the name
-    /// is the player's key and the lookup is an index search; with it, the players' keys are
-    /// their XUIDs, and the players (at most `max-players`) are compared one by one, only when
-    /// the operator list changes.
-    fn operator_changed(&mut self, name: &str, op: bool) {
-        let state = &mut *self.state;
-        state.commands.forget_admins();
-        let key = PlayerKey::Name(name.to_ascii_lowercase());
-        let session = state.index.get(&key).copied().or_else(|| {
-            state
-                .players
-                .iter()
-                .find(|(_, p)| {
-                    p.identity.xuid.is_some() && p.identity.name.eq_ignore_ascii_case(name)
-                })
-                .map(|(&session, _)| session)
-        });
-        if let Some(session) = session
-            && let Some(p) = state.players.get_mut(&session)
-        {
-            state.commands.resend.insert(session);
-            p.survival.set_operator(op);
-        }
-    }
-
-    /// Makes `name` (any ASCII case) an operator, saved at the next tick boundary; an online
-    /// player of that name gets its new command list and operator abilities at the end of the
-    /// tick.
-    #[doc(alias = "Server::addOp")]
-    pub fn op(&mut self, name: &str) -> permission::Result<()> {
-        if self.state.commands.access.op(name)? {
-            self.state.saving.requested = true;
-            self.operator_changed(name, true);
-        }
-        Ok(())
-    }
-
-    /// Takes operator status from `name`; false if it was not an operator. An online player of
-    /// that name gets its new command list and a member's abilities at the end of the tick.
-    #[doc(alias = "Server::removeOp")]
-    pub fn deop(&mut self, name: &str) -> bool {
-        if !self.state.commands.access.deop(name) {
-            return false;
-        }
-        self.state.saving.requested = true;
-        self.operator_changed(name, false);
-        true
-    }
-
-    /// Whether `name` (any ASCII case) is an operator.
-    #[doc(alias = "Server::isOp")]
-    pub fn is_op(&self, name: &str) -> bool {
-        self.state.commands.access.is_op(name)
-    }
-
-    /// The operators' names in ASCII lowercase, in name order.
-    #[doc(alias = "Server::getOps")]
-    pub fn ops(&self) -> impl Iterator<Item = &str> {
-        self.state.commands.access.ops()
-    }
-
-    /// Adds `entry` to the name bans, or to the IP bans for [`BanEntry::ip`], replacing a ban of
-    /// the same name or address, saved at the next tick boundary. Its creation time is now. Bans
-    /// that have ended are dropped from the list first. A banned player who is online stays
-    /// until kicked; the ban refuses its next join, and the join of a player whose saved data
-    /// is still loading when its data arrives.
-    #[doc(alias = "BanList::addBan")]
-    #[doc(alias = "BanList::add")]
-    pub fn ban(&mut self, entry: BanEntry) -> permission::Result<()> {
-        let tick = self.state.tick;
-        self.state.commands.access.ban(entry, tick)?;
-        self.state.saving.requested = true;
-        Ok(())
-    }
-
-    /// Lifts the ban of `name` (any ASCII case); false if there was none.
-    #[doc(alias = "BanList::remove")]
-    pub fn pardon(&mut self, name: &str) -> bool {
-        let lifted = self.state.commands.access.pardon(name);
-        self.state.saving.requested |= lifted;
-        lifted
-    }
-
-    /// Lifts the ban of `ip`; false if there was none.
-    pub fn pardon_ip(&mut self, ip: IpAddr) -> bool {
-        let lifted = self.state.commands.access.pardon_ip(ip);
-        self.state.saving.requested |= lifted;
-        lifted
-    }
-
-    /// Whether `name` (any ASCII case) is banned now.
-    #[doc(alias = "BanList::isBanned")]
-    pub fn is_banned(&self, name: &str) -> bool {
-        self.ban_entry(name).is_some()
-    }
-
-    /// Whether `ip` is banned now.
-    pub fn is_ip_banned(&self, ip: IpAddr) -> bool {
-        self.ip_ban_entry(ip).is_some()
-    }
-
-    /// The ban of `name` (any ASCII case) in force now.
-    #[doc(alias = "BanList::getEntry")]
-    pub fn ban_entry(&self, name: &str) -> Option<&BanEntry> {
-        self.state.commands.access.ban_entry(name, self.state.tick)
-    }
-
-    /// The ban of `ip` in force now.
-    pub fn ip_ban_entry(&self, ip: IpAddr) -> Option<&BanEntry> {
-        self.state.commands.access.ip_ban_entry(ip, self.state.tick)
-    }
-
-    /// The name bans in force now, in name order.
-    #[doc(alias = "BanList::getEntries")]
-    #[doc(alias = "Server::getNameBans")]
-    pub fn bans(&self) -> impl Iterator<Item = &BanEntry> {
-        self.state.commands.access.bans(self.state.tick)
-    }
-
-    /// The IP bans in force now, in address order.
-    #[doc(alias = "Server::getIPBans")]
-    pub fn ip_bans(&self) -> impl Iterator<Item = &BanEntry> {
-        self.state.commands.access.ip_bans(self.state.tick)
-    }
-
-    /// Puts `name` (any ASCII case) on the whitelist, saved at the next tick boundary.
-    #[doc(alias = "Server::addWhitelist")]
-    pub fn add_to_whitelist(&mut self, name: &str) -> permission::Result<()> {
-        if self.state.commands.access.whitelist_add(name)? {
-            self.state.saving.requested = true;
-        }
-        Ok(())
-    }
-
-    /// Takes `name` off the whitelist; false if it was not on it. A player who is online stays
-    /// until kicked; one whose saved data is still loading is refused when its data arrives, if
-    /// the whitelist then keeps it out.
-    #[doc(alias = "Server::removeWhitelist")]
-    pub fn remove_from_whitelist(&mut self, name: &str) -> bool {
-        let removed = self.state.commands.access.whitelist_remove(name);
-        self.state.saving.requested |= removed;
-        removed
-    }
-
-    /// Whether `name` may join as far as the whitelist goes (PMMP): the whitelist is off, or
-    /// `name` is on it or an operator.
-    #[doc(alias = "Server::isWhitelisted")]
-    pub fn is_whitelisted(&self, name: &str) -> bool {
-        self.state.commands.access.can_join(name)
-    }
-
-    /// The whitelisted names in ASCII lowercase, in name order.
-    #[doc(alias = "Server::getWhitelisted")]
-    pub fn whitelist(&self) -> impl Iterator<Item = &str> {
-        self.state.commands.access.whitelisted()
-    }
-
-    /// Whether the whitelist is on (`white-list`).
-    #[doc(alias = "Server::hasWhitelist")]
-    pub fn whitelist_enabled(&self) -> bool {
-        self.state.commands.access.is_whitelist_enabled()
-    }
-
-    /// Turns the whitelist on or off until the server stops (`white-list` decides at start:
-    /// Anchor never writes the settings file). Players already online stay; one whose saved data
-    /// is still loading is refused when its data arrives, if the whitelist then keeps it out.
-    pub fn set_whitelist_enabled(&mut self, enabled: bool) {
-        if self.state.commands.access.is_whitelist_enabled() != enabled {
-            info!(enabled, "whitelist switched until the server stops");
-        }
-        self.state.commands.access.set_whitelist_enabled(enabled);
-    }
-}
-
-/// Server control the built-in commands use: stopping, periodic saves and the settings that may
-/// change while the server runs (until it stops, never written to the file).
-impl Context<'_> {
-    /// Stops the server after this tick, as a [`ShutdownHandle`](crate::ShutdownHandle) does:
-    /// every player sees `shutdown-message`, the last state is saved, then
-    /// [`Server::run`](crate::Server::run) returns. Calling it again changes nothing.
-    #[doc(alias = "Server::shutdown")]
-    pub fn shutdown(&mut self) {
-        if !self.state.commands.stopping {
-            info!("stop asked for by a command or callback");
-        }
-        self.state.commands.stopping = true;
-    }
-
-    /// Turns the periodic save (every `save-interval-minutes`) off or on until the server
-    /// stops. Only the periodic save stops: a save something asks for ([`save`](Self::save),
-    /// [`backup`](Self::backup), a change of the operator, ban or whitelist lists, a world
-    /// created or deleted), a save that memory or the input log waiting for one makes due, and
-    /// the save at shutdown still happen. A crash replays from the last save.
-    #[doc(alias = "WorldManager::setAutoSave")]
-    pub fn set_auto_save(&mut self, enabled: bool) {
-        if self.state.commands.auto_save != enabled {
-            info!(enabled, "periodic save switched until the server stops");
-        }
-        self.state.commands.auto_save = enabled;
-    }
-
-    /// Whether the periodic save is on.
-    #[doc(alias = "WorldManager::getAutoSave")]
-    pub fn auto_save_enabled(&self) -> bool {
-        self.state.commands.auto_save
-    }
-
-    /// Sets the difficulty until the server stops and tells the players. Every loaded world
-    /// follows it from now on, as PMMP's `/difficulty` sets each world's: a difficulty of its own
-    /// ([`set_world_difficulty`](Self::set_world_difficulty)) is dropped. On a `hardcore` server
-    /// only [`Difficulty::Hard`] is allowed: false, changing nothing, for another.
-    pub fn set_difficulty(&mut self, difficulty: Difficulty) -> bool {
-        if self.state.settings.hardcore && difficulty != Difficulty::Hard {
-            return false;
-        }
-        self.state.settings.difficulty = difficulty;
-        for (i, world) in self.state.worlds.iter_mut().enumerate() {
-            if self.state.catalog.is_loaded(i) {
-                world.set_difficulty(None);
-            }
-        }
-        let packet = Packet::SetDifficulty(SetDifficulty {
-            difficulty: spawn::difficulty_id(difficulty).cast_unsigned(),
-        });
-        // Every player past its start-game packets, as `world_api::send_to_world` tells one
-        // world's.
-        for p in self.state.players.values_mut() {
-            if p.phase != Phase::Loading {
-                p.send_packet(packet.clone());
-            }
-        }
-        true
-    }
-
-    /// Sets the game mode new players get (`gamemode`) until the server stops; with
-    /// `force-gamemode` every join gets it.
-    pub fn set_default_game_mode(&mut self, mode: GameMode) {
-        self.state.settings.game_mode = mode;
-    }
 }
 
 #[cfg(test)]

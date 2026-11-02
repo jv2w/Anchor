@@ -38,7 +38,6 @@ mod station;
 
 pub(super) use menu::{Handlers as Menus, tick as tick_menus};
 pub(super) use request::on_item_stack_request;
-pub(super) use station::enchant_item;
 
 use std::collections::{BTreeSet, VecDeque};
 

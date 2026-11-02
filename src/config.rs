@@ -1248,14 +1248,6 @@ impl Difficulty {
             Self::Hard => 3,
         }
     }
-
-    /// The difficulty of a protocol ID ([`id`](Self::id) reversed).
-    pub(crate) fn from_id(id: u8) -> Option<Self> {
-        Self::NAMES
-            .into_iter()
-            .map(|(_, difficulty)| difficulty)
-            .find(|difficulty| difficulty.id() == id)
-    }
 }
 
 /// The generator of a new world.

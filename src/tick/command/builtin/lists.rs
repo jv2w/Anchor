@@ -1,6 +1,5 @@
 //! The operator list, the bans, the whitelist and kicks: `/op`, `/deop`, `/ban`, `/ban-ip`,
-//! `/banlist`, `/pardon`, `/pardon-ip`, `/whitelist` and `/kick` (PMMP's classes of the same
-//! names).
+//! `/banlist`, `/unban`, `/unban-ip`, `/whitelist` and `/kick`.
 
 use std::net::IpAddr;
 
@@ -34,8 +33,8 @@ const KICK_SUCCESS: Msg = Msg::client("commands.kick.success");
 const KICK_SUCCESS_REASON: Msg = Msg::client("commands.kick.success.reason");
 /// What a player kicked without a reason sees: the client's "kicked" text.
 const KICKED: &str = "disconnect.kicked";
-/// The most names `/banlist` and `/whitelist list` show (PMMP shows every one, and a list may
-/// hold 262,144); the others are counted in a last line.
+/// The most names `/banlist` and `/whitelist list` show (a list may hold 262,144); the others
+/// are counted in a last line.
 const MAX_LISTED: usize = 100;
 /// What an operator sees when its status changes: aqua.
 const OP_CHANGE_PREFIX: &str = "§b";
@@ -43,11 +42,11 @@ const OP_CHANGE_PREFIX: &str = "§b";
 const OP_MESSAGE: Msg = Msg::client("commands.op.message");
 /// The success line of `/op`.
 const OP_SUCCESS: Msg = Msg::client("commands.op.success");
-/// The success line of `/pardon`.
+/// The success line of `/unban`.
 const UNBAN_SUCCESS: Msg = Msg::client("commands.unban.success");
-/// The failure line of `/pardon-ip` for a value that is no address.
+/// The failure line of `/unban-ip` for a value that is no address.
 const UNBANIP_INVALID: Msg = Msg::client("commands.unbanip.invalid");
-/// The success line of `/pardon-ip`.
+/// The success line of `/unban-ip`.
 const UNBANIP_SUCCESS: Msg = Msg::client("commands.unbanip.success");
 // The client names the whitelist "allowlist": it has no `commands.whitelist.*` keys.
 /// The success line of `/whitelist add`.
@@ -88,14 +87,12 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 &[Param::enumeration("type", "BanListType", &["ips", "players"]).optional()],
                 infallible(banlist),
             ),
-        Command::new("pardon", "Lifts the ban on a name")
-            .alias("unban")
+        Command::new("unban", "Lifts the ban on a name")
             .permission(permission::COMMAND_UNBAN_PLAYER)
-            .overload(&[Param::player_name("name")], infallible(pardon)),
-        Command::new("pardon-ip", "Lifts the ban on an IP address")
-            .alias("unban-ip")
+            .overload(&[Param::player_name("name")], infallible(unban)),
+        Command::new("unban-ip", "Lifts the ban on an IP address")
             .permission(permission::COMMAND_UNBAN_IP)
-            .overload(&[Param::string("address")], pardon_ip),
+            .overload(&[Param::string("address")], unban_ip),
         Command::new("op", "commands.op.description")
             .permission(permission::COMMAND_OP_GIVE)
             .overload(&[Param::player_name("player")], op),
@@ -138,7 +135,7 @@ fn list_error(e: permission::Error) -> Error {
 }
 
 /// Bans the name, with the sender as the source, and kicks the player of that name if online
-/// (`/ban <name> [reason]`, PMMP `BanCommand`).
+/// (`/ban <name> [reason]`).
 fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = args.string("name").unwrap_or_default();
     let reason = args.string("reason").unwrap_or_default();
@@ -158,11 +155,11 @@ fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 }
 
 /// Bans the address, or the address of the online player of that name, and kicks every player
-/// at it (`/ban-ip <address|player> [reason]`, PMMP `BanIpCommand`; PMMP takes a name prefix).
+/// at it (`/ban-ip <address|player> [reason]`).
 fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let value = args.string("address").unwrap_or_default();
     let reason = args.string("reason").unwrap_or_default();
-    let (ip, owner) = if let Ok(ip) = value.parse::<IpAddr>() {
+    let (ip, owner) = if let Some(ip) = parse_ip(value) {
         (ip, None)
     } else {
         let address = cx.player_exact(value).and_then(|id| {
@@ -214,8 +211,7 @@ fn listed<'a>(out: Output, count: usize, names: impl Iterator<Item = &'a str>) -
 }
 
 /// Shows how many bans are in force and the banned names in text order or the banned addresses
-/// in address order, at most [`MAX_LISTED`] of them (`/banlist [ips|players]`, PMMP
-/// `BanListCommand`, which sorts the addresses as text: address order needs no sort).
+/// in address order, at most [`MAX_LISTED`] of them (`/banlist [ips|players]`).
 fn banlist(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Output {
     if args.string("type") == Some("ips") {
         let count = cx.ip_bans().count();
@@ -234,25 +230,31 @@ fn banlist(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Output {
     }
 }
 
-/// Lifts the ban of the name (`/pardon <name>`, PMMP `PardonCommand`).
-fn pardon(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
+/// Lifts the ban of the name (`/unban <name>`).
+fn unban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
     let name = args.string("name").unwrap_or_default();
-    cx.pardon(name);
+    cx.unban(name);
     announce(cx, *sender, UNBAN_SUCCESS, &[name])
 }
 
-/// Lifts the ban of the address (`/pardon-ip <address>`, PMMP `PardonIpCommand`).
-fn pardon_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
+/// Lifts the ban of the address (`/unban-ip <address>`).
+fn unban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let value = args.string("address").unwrap_or_default();
-    let Ok(ip) = value.parse::<IpAddr>() else {
+    let Some(ip) = parse_ip(value) else {
         return Err(UNBANIP_INVALID.error(&[]));
     };
-    cx.pardon_ip(ip);
+    cx.unban_ip(ip);
     Ok(announce(cx, *sender, UNBANIP_SUCCESS, &[value]))
 }
 
-/// Reads the name argument of `/op`, `/deop` and `/whitelist`, if it can be a player's name
-/// (PMMP `Player::isValidUserName`, a usage failure otherwise).
+/// Reads an IP address the way a connection's is: an IPv4 address written as IPv6
+/// (`::ffff:1.2.3.4`) is the IPv4 address.
+fn parse_ip(text: &str) -> Option<IpAddr> {
+    text.parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
+}
+
+/// Reads the name argument of `/op`, `/deop` and `/whitelist`, if it can be a player's name (a
+/// usage failure otherwise).
 fn listed_name<'a>(cx: &Context<'_>, args: &'a Args, command: &str) -> Result<&'a str> {
     match args.string("player") {
         Some(name) if crate::login::check_user_name(name).is_ok() => Ok(name),
@@ -260,8 +262,7 @@ fn listed_name<'a>(cx: &Context<'_>, args: &'a Args, command: &str) -> Result<&'
     }
 }
 
-/// Makes the name an operator and tells the player if online (`/op <player>`, PMMP
-/// `OpCommand`).
+/// Makes the name an operator and tells the player if online (`/op <player>`).
 fn op(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = listed_name(cx, args, "op")?;
     cx.op(name).map_err(list_error)?;
@@ -271,8 +272,7 @@ fn op(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     Ok(announce(cx, *sender, OP_SUCCESS, &[name]))
 }
 
-/// Takes operator status from the name and tells the player if online (`/deop <player>`, PMMP
-/// `DeopCommand`).
+/// Takes operator status from the name and tells the player if online (`/deop <player>`).
 fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = listed_name(cx, args, "deop")?;
     cx.deop(name);
@@ -283,10 +283,10 @@ fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 }
 
 /// Turns the whitelist on or off, lists it, or adds or removes a name (`/whitelist
-/// on|off|list` and `/whitelist add|remove <player>`, PMMP `WhitelistCommand`). Turning it on
+/// on|off|list` and `/whitelist add|remove <player>`). Turning it on
 /// kicks the online players it leaves out; removing a player kicks it unless it is an operator.
-/// Each action has its own permission. PMMP's `reload` is left out: the whitelist is kept in the
-/// server file, not reread from a text file. `on` and `off` last until the server stops
+/// Each action has its own permission. The whitelist is kept in the server file, so there is no
+/// `reload`. `on` and `off` last until the server stops
 /// (`white-list` decides at start). `list` shows at most [`MAX_LISTED`] names.
 fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let action = args.string("action").unwrap_or_default();
@@ -346,9 +346,9 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
     }
 }
 
-/// Disconnects the players, showing the reason as it is, as BDS's kick does, or the client's
-/// "kicked" text without one (`/kick <player> [reason]`, PMMP `KickCommand`). The success line
-/// comes before the [`PlayerKick`](crate::event::PlayerKick) listeners decide, as in PMMP.
+/// Disconnects the players, showing the reason as it is, or the client's "kicked" text without
+/// one (`/kick <player> [reason]`). The success line comes before the
+/// [`PlayerKick`](crate::event::PlayerKick) listeners decide.
 fn kick_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let reason = args.string("reason").unwrap_or_default().trim();
     let text = if reason.is_empty() { KICKED } else { reason };
