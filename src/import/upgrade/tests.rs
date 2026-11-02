@@ -6,6 +6,22 @@ use serde_json::Value as Json;
 use super::apply::{self, Flatten, Kind, NewName, Remap, Rules, Schema, Tag};
 use super::*;
 
+/// A schema whose one block is flattened by a signed byte property.
+static FLATTEN_BLOCKS: [(&str, Rules<'static>); 1] = [(
+    "old",
+    Rules {
+        flattened: Some(Flatten {
+            prefix: "minecraft:",
+            property: "kind",
+            suffix: "_block",
+            kind: Kind::Byte,
+            remaps: &FLATTEN_REMAPS,
+        }),
+        ..NONE
+    },
+)];
+/// The flattened property's value remaps.
+static FLATTEN_REMAPS: [(&str, &str); 1] = [("-1", "minus_one")];
 /// PMMP's own upgrader over the 5.3.0 schemas (`xtask/php/upgrade.php`, `cargo xtask dump`).
 const GOLDEN_LEGACY: &str = include_str!("../../../xtask/data/upgrade/golden/legacy.jsonl");
 /// The upgrader's result for each reference state.
@@ -22,6 +38,68 @@ const NONE: Rules<'static> = Rules {
     remapped_values: &[],
     remapped_states: &[],
 };
+/// A schema whose one block has every property rule.
+static PROPERTY_BLOCKS: [(&str, Rules<'static>); 1] = [(
+    "a",
+    Rules {
+        added: &[("kept", Tag::Int(9)), ("new", Tag::Int(5))],
+        removed: &["gone"],
+        renamed_properties: &[("old", "renamed")],
+        remapped_values: &[
+            ("old", &PROPERTY_OLD_VALUES),
+            ("other", &PROPERTY_OTHER_VALUES),
+        ],
+        ..NONE
+    },
+)];
+/// The value remaps of the property `old`, whose first match wins.
+static PROPERTY_OLD_VALUES: [(Tag<'static>, Tag<'static>); 2] = [
+    (Tag::Int(0), Tag::String("zero")),
+    (Tag::Int(0), Tag::String("second match")),
+];
+/// The value remaps of the property `other`.
+static PROPERTY_OTHER_VALUES: [(Tag<'static>, Tag<'static>); 1] = [(Tag::Byte(1), Tag::Byte(0))];
+/// A schema that renames the block `a` to `b`.
+static RENAME_A_TO_B_BLOCKS: [(&str, Rules<'static>); 1] = [(
+    "a",
+    Rules {
+        renamed: Some("b"),
+        ..NONE
+    },
+)];
+/// A schema that renames the block `b` to `c`.
+static RENAME_B_TO_C_BLOCKS: [(&str, Rules<'static>); 1] = [(
+    "b",
+    Rules {
+        renamed: Some("c"),
+        ..NONE
+    },
+)];
+/// A schema whose one block has state remaps, a rename and an added property.
+static STATE_RULE_BLOCKS: [(&str, Rules<'static>); 1] = [(
+    "a",
+    Rules {
+        renamed: Some("renamed"),
+        added: &[("added", Tag::Byte(0))],
+        remapped_states: &STATE_RULE_REMAPS,
+        ..NONE
+    },
+)];
+/// Two state remaps, the more specific first.
+static STATE_RULE_REMAPS: [Remap<'static>; 2] = [
+    Remap {
+        old: &[("x", Tag::Int(1)), ("y", Tag::Byte(1))],
+        new_name: NewName::Name("specific"),
+        new: &[("n", Tag::String("v"))],
+        copied: &["z", "missing"],
+    },
+    Remap {
+        old: &[("x", Tag::Int(1))],
+        new_name: NewName::Name("general"),
+        new: &[],
+        copied: &[],
+    },
+];
 
 /// A golden state or input object as NBT: `name` and `val` plain, `states` typed.
 fn compound(json: &Json) -> Compound {
@@ -423,32 +501,18 @@ fn vs(s: &str) -> apply::Value {
 
 #[test]
 fn schemas_apply_above_the_state_version_and_after_the_first_of_its_own() {
-    static RENAME: [(&str, Rules<'static>); 1] = [(
-        "a",
-        Rules {
-            renamed: Some("b"),
-            ..NONE
-        },
-    )];
-    static RENAME_B: [(&str, Rules<'static>); 1] = [(
-        "b",
-        Rules {
-            renamed: Some("c"),
-            ..NONE
-        },
-    )];
     let schemas = [
         Schema {
             version: 10,
-            blocks: &RENAME,
+            blocks: &RENAME_A_TO_B_BLOCKS,
         },
         Schema {
             version: 20,
-            blocks: &RENAME_B,
+            blocks: &RENAME_B_TO_C_BLOCKS,
         },
         Schema {
             version: 20,
-            blocks: &RENAME,
+            blocks: &RENAME_A_TO_B_BLOCKS,
         },
     ];
     assert_eq!(run(&schemas, 0, "a", &[]).0, "c");
@@ -463,32 +527,9 @@ fn schemas_apply_above_the_state_version_and_after_the_first_of_its_own() {
 
 #[test]
 fn a_matching_state_rule_replaces_every_other_rule_and_the_first_match_wins() {
-    static REMAPS: [Remap<'static>; 2] = [
-        Remap {
-            old: &[("x", Tag::Int(1)), ("y", Tag::Byte(1))],
-            new_name: NewName::Name("specific"),
-            new: &[("n", Tag::String("v"))],
-            copied: &["z", "missing"],
-        },
-        Remap {
-            old: &[("x", Tag::Int(1))],
-            new_name: NewName::Name("general"),
-            new: &[],
-            copied: &[],
-        },
-    ];
-    static BLOCKS: [(&str, Rules<'static>); 1] = [(
-        "a",
-        Rules {
-            renamed: Some("renamed"),
-            added: &[("added", Tag::Byte(0))],
-            remapped_states: &REMAPS,
-            ..NONE
-        },
-    )];
     let schemas = [Schema {
         version: 1,
-        blocks: &BLOCKS,
+        blocks: &STATE_RULE_BLOCKS,
     }];
     let int = apply::Value::Int;
     let byte = apply::Value::Byte;
@@ -517,24 +558,9 @@ fn a_matching_state_rule_replaces_every_other_rule_and_the_first_match_wins() {
 
 #[test]
 fn properties_are_added_removed_renamed_and_remapped_by_their_old_names() {
-    static VALUES: [(Tag<'static>, Tag<'static>); 2] = [
-        (Tag::Int(0), Tag::String("zero")),
-        (Tag::Int(0), Tag::String("second match")),
-    ];
-    static OTHER: [(Tag<'static>, Tag<'static>); 1] = [(Tag::Byte(1), Tag::Byte(0))];
-    static BLOCKS: [(&str, Rules<'static>); 1] = [(
-        "a",
-        Rules {
-            added: &[("kept", Tag::Int(9)), ("new", Tag::Int(5))],
-            removed: &["gone"],
-            renamed_properties: &[("old", "renamed")],
-            remapped_values: &[("old", &VALUES), ("other", &OTHER)],
-            ..NONE
-        },
-    )];
     let schemas = [Schema {
         version: 1,
-        blocks: &BLOCKS,
+        blocks: &PROPERTY_BLOCKS,
     }];
     let int = apply::Value::Int;
     let byte = apply::Value::Byte;
@@ -569,23 +595,9 @@ fn properties_are_added_removed_renamed_and_remapped_by_their_old_names() {
 
 #[test]
 fn a_flattened_property_names_the_block_only_with_its_expected_type() {
-    static REMAPS: [(&str, &str); 1] = [("-1", "minus_one")];
-    static BLOCKS: [(&str, Rules<'static>); 1] = [(
-        "old",
-        Rules {
-            flattened: Some(Flatten {
-                prefix: "minecraft:",
-                property: "kind",
-                suffix: "_block",
-                kind: Kind::Byte,
-                remaps: &REMAPS,
-            }),
-            ..NONE
-        },
-    )];
     let schemas = [Schema {
         version: 1,
-        blocks: &BLOCKS,
+        blocks: &FLATTEN_BLOCKS,
     }];
     let byte = apply::Value::Byte;
     assert_eq!(

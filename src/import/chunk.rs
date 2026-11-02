@@ -59,17 +59,18 @@ const CHUNK_TAG_LEGACY_EXTRA: u8 = 0x34;
 /// The chunk tag of the version in old worlds.
 const CHUNK_TAG_OLD_VERSION: u8 = 0x76;
 /// The ids of legacy terrain.
-const LEGACY_IDS: usize = 32_768;
+const LEGACY_IDS_BYTES: usize = 32_768;
 /// The light of legacy terrain.
-const LEGACY_LIGHT: usize = 32_768;
+const LEGACY_LIGHT_BYTES: usize = 32_768;
 /// The meta nibbles of legacy terrain.
-const LEGACY_META: usize = 16_384;
+const LEGACY_META_BYTES: usize = 16_384;
 /// A legacy sub-chunk: ids and meta nibbles, and optionally light after.
-const LEGACY_SECTION: usize = 4096 + 2048;
+const LEGACY_SECTION_BYTES: usize = 4096 + 2048;
 /// A legacy sub-chunk with light after its ids and meta nibbles.
-const LEGACY_SECTION_LIGHT: usize = LEGACY_SECTION + 4096;
+const LEGACY_SECTION_LIGHT_BYTES: usize = LEGACY_SECTION_BYTES + 4096;
 /// Legacy terrain: ids, meta, light, height map, biome colours.
-const LEGACY_TERRAIN_LEN: usize = LEGACY_IDS + LEGACY_META + LEGACY_LIGHT + 256 + 1024;
+const LEGACY_TERRAIN_BYTES: usize =
+    LEGACY_IDS_BYTES + LEGACY_META_BYTES + LEGACY_LIGHT_BYTES + 256 + 1024;
 /// The most value bytes kept for one chunk.
 const MAX_CHUNK_BYTES: usize = 64 << 20;
 /// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
@@ -445,11 +446,11 @@ fn terrain(
     reason = "invariant: the length is checked first and every index is below its array's length"
 )]
 fn legacy_terrain(value: &[u8]) -> Result<Vec<Section>> {
-    if value.len() != LEGACY_TERRAIN_LEN {
+    if value.len() != LEGACY_TERRAIN_BYTES {
         return Err(Error::Malformed("legacy terrain length"));
     }
-    let ids = &value[..LEGACY_IDS];
-    let meta = &value[LEGACY_IDS..LEGACY_IDS + LEGACY_META];
+    let ids = &value[..LEGACY_IDS_BYTES];
+    let meta = &value[LEGACY_IDS_BYTES..LEGACY_IDS_BYTES + LEGACY_META_BYTES];
     let mut sections = Vec::with_capacity(8);
     for (sy, section_y) in (0..8_usize).zip(0_i8..) {
         let mut layer = LegacyLayer {
@@ -483,7 +484,7 @@ fn section(value: &[u8], key_y: i8, y: i8, budget: &mut usize) -> Result<Section
         .ok_or(Error::Malformed("empty sub-chunk"))?;
     let layers = match version {
         0 | 2..=7 => {
-            if body.len() != LEGACY_SECTION && body.len() != LEGACY_SECTION_LIGHT {
+            if body.len() != LEGACY_SECTION_BYTES && body.len() != LEGACY_SECTION_LIGHT_BYTES {
                 return Err(Error::Malformed("legacy sub-chunk length"));
             }
             vec![Layer::Legacy(legacy_layer(body)?)]
@@ -529,7 +530,7 @@ fn legacy_layer(body: &[u8]) -> Result<LegacyLayer> {
         .and_then(|b| <[u8; 4096]>::try_from(b).ok())
         .ok_or(Error::Malformed("legacy sub-chunk length"))?;
     let meta = body
-        .get(4096..LEGACY_SECTION)
+        .get(4096..LEGACY_SECTION_BYTES)
         .and_then(|b| <[u8; 2048]>::try_from(b).ok())
         .ok_or(Error::Malformed("legacy sub-chunk length"))?;
     Ok(LegacyLayer {

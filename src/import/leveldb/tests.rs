@@ -336,7 +336,7 @@ fn random_database(seed: u64) -> (Files, BTreeMap<Vec<u8>, Vec<u8>>, Layouts) {
             .collect();
         let cut = end == live.len() && rng.below(3) == 0;
         layouts.cut_tail |= cut;
-        layouts.fragmented |= records.iter().any(|r| r.len() > log::BLOCK);
+        layouts.fragmented |= records.iter().any(|r| r.len() > log::BLOCK_BYTES);
         if cut {
             records.push(log::tests::encode_batch(1 << 52, &garbage(&mut rng)));
         }

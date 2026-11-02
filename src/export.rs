@@ -41,7 +41,7 @@ use crate::world::{Chunk, ChunkPos, Generator};
 
 /// Value bytes after which a run of a step's values, made into data blocks on one pool item,
 /// ends: a few blocks, so few blocks end short at the end of a run.
-const RUN_BYTES: usize = 4 * leveldb::BLOCK_BYTES;
+const RUN_BYTES: usize = 4 * leveldb::DATA_BLOCK_BYTES;
 /// Most chunks read, then converted, per step: with [`STEP_BYTES`], bounds the chunk data
 /// held at once.
 const STEP: usize = 256;

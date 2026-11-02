@@ -1541,270 +1541,6 @@ fn start_game(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// Reads the `CloudburstMC` data copy, when the external sources are there (`.cache`).
-    fn cache(name: &str) -> Option<Vec<u8>> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(".cache/cloudburst-data")
-            .join(name);
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "off-tick: a test reads the external data copy"
-        )]
-        let bytes = std::fs::read(path).ok();
-        bytes
-    }
-
-    /// Encodes the packet's payload: the bytes after its header.
-    pub(super) fn payload(packet: &Packet) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes, 0).unwrap();
-        bytes
-    }
-
-    #[test]
-    fn the_entity_types_are_the_cloudburst_bytes_bds_sends() {
-        assert_eq!(
-            ENTITY_IDENTIFIERS.len(),
-            8971,
-            "the CloudburstMC 1.26.60 file is 8,971 bytes"
-        );
-        if let Some(copy) = cache("entity_identifiers.dat") {
-            assert_eq!(ENTITY_IDENTIFIERS, copy.as_slice());
-        }
-        let packet = Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
-            serialised_entity_identifiers: ENTITY_IDENTIFIERS.to_vec(),
-        });
-        assert_eq!(payload(&packet), ENTITY_IDENTIFIERS);
-    }
-
-    #[test]
-    fn voxel_shapes_match_bds_counts_order_and_size() {
-        if let Some(copy) = cache("voxel_shapes.json") {
-            assert_eq!(VOXEL_SHAPES.as_bytes(), copy.as_slice());
-        }
-        let shapes = voxel_shapes();
-        assert_eq!((shapes.shapes.len(), shapes.name_map.len()), (287, 220));
-        // BDS's first names, in its order (P6 capture).
-        let first: Vec<(&str, u16)> = shapes
-            .name_map
-            .iter()
-            .take(3)
-            .map(|e| (e.name.as_str(), e.id))
-            .collect();
-        assert_eq!(
-            first,
-            [
-                (
-                    "minecraft:wall_east_low_north_low_south_low_up_west_tall",
-                    60
-                ),
-                ("minecraft:wall_east_low_north_low_south_low_up", 58),
-                ("minecraft:wall_south_low_up_west_tall", 206),
-            ]
-        );
-        let packet = Packet::VoxelShapes(shapes);
-        let bytes = payload(&packet);
-        assert_eq!(bytes.len(), 23_178, "BDS's VoxelShapes payload (P6)");
-        let mut budget = usize::MAX;
-        assert_eq!(
-            Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
-            packet
-        );
-    }
-
-    #[test]
-    fn trim_data_has_the_bds_patterns_and_materials() {
-        let trims = trim_data();
-        assert_eq!((trims.patterns.len(), trims.materials.len()), (18, 11));
-        assert_eq!(
-            trims.patterns[0].item_name,
-            "minecraft:ward_armor_trim_smithing_template"
-        );
-        assert_eq!(trims.materials[10].colour, "\u{a7}v");
-        // BDS: 1,271 bytes with the two-byte header of packet 302 (P6).
-        assert_eq!(payload(&Packet::TrimData(trims)).len(), 1269);
-    }
-
-    /// The trim tables are the BDS `TrimData` the P6 run recorded, in its order.
-    #[test]
-    fn trim_data_equals_the_bds_record() {
-        let facts = include_str!("../../xtask/data/p6/facts.md");
-        let line = facts
-            .lines()
-            .find(|l| l.starts_with("- TrimData:"))
-            .expect("the TrimData fact");
-        let list = |after: &str| {
-            let rest = line.split_once(after).expect(after).1;
-            rest.split_once(';')
-                .expect("list end")
-                .0
-                .split(", ")
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        };
-        let trims = trim_data();
-        let patterns: Vec<String> = trims
-            .patterns
-            .iter()
-            .map(|p| p.pattern_id.clone())
-            .collect();
-        assert_eq!(patterns, list("무늬 18개("));
-        for p in &trims.patterns {
-            assert_eq!(
-                p.item_name,
-                format!("minecraft:{}_armor_trim_smithing_template", p.pattern_id)
-            );
-        }
-        let materials: Vec<String> = trims
-            .materials
-            .iter()
-            .map(|m| format!("{} {}", m.material_id, m.colour))
-            .collect();
-        assert_eq!(materials, list("재료 11개("));
-    }
-
-    #[test]
-    fn the_plain_skin_is_a_valid_classic_skin() {
-        let skin = crate::tick::queue::Skin::default();
-        let skin = skin.get();
-        let pixels = usize::try_from(skin.skin_image_width * skin.skin_image_height).unwrap();
-        assert_eq!(skin.skin_data.len(), pixels * 4);
-        assert_eq!(crate::protocol::skin_validate(skin), None);
-    }
-
-    /// The Education items are never offered, so the client gets no Education features.
-    #[test]
-    fn start_game_leaves_education_features_off() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, received, settings, tick};
-
-        let mut state = new_state(settings(|_| {}), Listeners::default());
-        let mut output = Output::default();
-        let (j, mut rx) = join(1, 0);
-        tick(&mut state, &mut vec![j], &mut output);
-        let sent = received(&mut rx).0.into_iter().find_map(|p| match p {
-            Packet::StartGame(s) => Some(s.education_features_enabled),
-            _ => None,
-        });
-        assert_eq!(sent, Some(false));
-    }
-
-    #[test]
-    fn a_player_list_longer_than_a_client_takes_goes_in_several_packets() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
-
-        let count = PLAYER_LIST_ENTRIES_MAX_LEN + 1;
-        let players = u32::try_from(count).unwrap();
-        let mut state = new_state(
-            settings(|c| c.general.max_players = players),
-            Listeners::default(),
-        );
-        let mut output = Output::default();
-        let (mut joins, mut queues): (Vec<_>, Vec<_>) = (1..=u64::try_from(count).unwrap())
-            .map(|s| join(s, 0))
-            .unzip();
-        tick(&mut state, &mut joins, &mut output);
-        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
-        let lists: Vec<usize> = received(&mut queues[0])
-            .0
-            .into_iter()
-            .filter_map(|p| match p {
-                Packet::PlayerList(l) => Some(l.entries.len()),
-                _ => None,
-            })
-            .collect();
-        // The start-game list and the spawn window's, each of every placed player.
-        assert_eq!(
-            lists,
-            [
-                PLAYER_LIST_ENTRIES_MAX_LEN,
-                1,
-                PLAYER_LIST_ENTRIES_MAX_LEN,
-                1
-            ]
-        );
-    }
-
-    /// A player list goes in packets of at most the batch bytes a session sends, an entry alone
-    /// whatever its size.
-    #[test]
-    fn a_player_list_larger_than_a_batch_goes_in_several_packets() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, settings, tick};
-
-        let mut state = new_state(settings(|_| {}), Listeners::default());
-        let (mut joins, _queues): (Vec<_>, Vec<_>) = (1..=5).map(|s| join(s, 0)).unzip();
-        tick(&mut state, &mut joins, &mut Output::default());
-        let placed: Vec<&Player> = state.players.values().collect();
-        let entries = |max_batch_bytes: usize| -> Vec<usize> {
-            list_packets(&placed, max_batch_bytes)
-                .iter()
-                .map(|p| match p.get() {
-                    Packet::PlayerList(l) => l.entries.len(),
-                    other => panic!("{other:?}"),
-                })
-                .collect()
-        };
-        assert_eq!(entries(usize::MAX), [5]);
-        assert_eq!(entries(1), [1, 1, 1, 1, 1]);
-    }
-
-    #[test]
-    fn a_player_placed_and_gone_in_one_tick_leaves_the_other_lists() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, leave, new_state, received, settings, tick};
-
-        let mut state = new_state(settings(|_| {}), Listeners::default());
-        let mut output = Output::default();
-        let (first, mut rx) = join(1, 0);
-        tick(&mut state, &mut vec![first], &mut output);
-        received(&mut rx);
-        let (second, _rx2) = join(2, 0);
-        tick(&mut state, &mut vec![second, leave(2, 1)], &mut output);
-        let actions: Vec<u8> = received(&mut rx)
-            .0
-            .into_iter()
-            .filter_map(|p| match p {
-                Packet::PlayerList(l) => Some(l.entries),
-                _ => None,
-            })
-            .flatten()
-            .map(|e| e.action_type)
-            .collect();
-        assert_eq!(actions, [0, 1], "added, then removed");
-    }
-
-    #[test]
-    fn the_player_list_carries_the_identity_playfab_id() {
-        use crate::event::Listeners;
-        use crate::tick::queue::InputKind;
-        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
-
-        let mut state = new_state(settings(|_| {}), Listeners::default());
-        let mut output = Output::default();
-        let (mut first, mut rx) = join(1, 0);
-        if let InputKind::Join { identity, .. } = &mut first.kind {
-            identity.client.playfab_id = "0123456789abcdef".to_owned();
-        }
-        tick(&mut state, &mut vec![first], &mut output);
-        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
-        let ids: Vec<String> = received(&mut rx)
-            .0
-            .into_iter()
-            .filter_map(|p| match p {
-                Packet::PlayerList(l) => Some(l.entries),
-                _ => None,
-            })
-            .flatten()
-            .map(|e| e.playfab_id)
-            .collect();
-        assert!(!ids.is_empty());
-        assert!(ids.iter().all(|id| id == "0123456789abcdef"));
-    }
-
     /// The login, join, duplicate login and view distance events.
     mod events {
         use std::cell::Cell;
@@ -2323,5 +2059,269 @@ mod tests {
             assert_eq!(told(&mut rx), [1]);
             assert!(logged().is_empty(), "a direct call raises no event");
         }
+    }
+
+    use super::*;
+
+    /// Reads the `CloudburstMC` data copy, when the external sources are there (`.cache`).
+    fn cache(name: &str) -> Option<Vec<u8>> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".cache/cloudburst-data")
+            .join(name);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "off-tick: a test reads the external data copy"
+        )]
+        let bytes = std::fs::read(path).ok();
+        bytes
+    }
+
+    /// Encodes the packet's payload: the bytes after its header.
+    pub(super) fn payload(packet: &Packet) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes, 0).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn the_entity_types_are_the_cloudburst_bytes_bds_sends() {
+        assert_eq!(
+            ENTITY_IDENTIFIERS.len(),
+            8971,
+            "the CloudburstMC 1.26.60 file is 8,971 bytes"
+        );
+        if let Some(copy) = cache("entity_identifiers.dat") {
+            assert_eq!(ENTITY_IDENTIFIERS, copy.as_slice());
+        }
+        let packet = Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
+            serialised_entity_identifiers: ENTITY_IDENTIFIERS.to_vec(),
+        });
+        assert_eq!(payload(&packet), ENTITY_IDENTIFIERS);
+    }
+
+    #[test]
+    fn voxel_shapes_match_bds_counts_order_and_size() {
+        if let Some(copy) = cache("voxel_shapes.json") {
+            assert_eq!(VOXEL_SHAPES.as_bytes(), copy.as_slice());
+        }
+        let shapes = voxel_shapes();
+        assert_eq!((shapes.shapes.len(), shapes.name_map.len()), (287, 220));
+        // BDS's first names, in its order (P6 capture).
+        let first: Vec<(&str, u16)> = shapes
+            .name_map
+            .iter()
+            .take(3)
+            .map(|e| (e.name.as_str(), e.id))
+            .collect();
+        assert_eq!(
+            first,
+            [
+                (
+                    "minecraft:wall_east_low_north_low_south_low_up_west_tall",
+                    60
+                ),
+                ("minecraft:wall_east_low_north_low_south_low_up", 58),
+                ("minecraft:wall_south_low_up_west_tall", 206),
+            ]
+        );
+        let packet = Packet::VoxelShapes(shapes);
+        let bytes = payload(&packet);
+        assert_eq!(bytes.len(), 23_178, "BDS's VoxelShapes payload (P6)");
+        let mut budget = usize::MAX;
+        assert_eq!(
+            Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
+            packet
+        );
+    }
+
+    #[test]
+    fn trim_data_has_the_bds_patterns_and_materials() {
+        let trims = trim_data();
+        assert_eq!((trims.patterns.len(), trims.materials.len()), (18, 11));
+        assert_eq!(
+            trims.patterns[0].item_name,
+            "minecraft:ward_armor_trim_smithing_template"
+        );
+        assert_eq!(trims.materials[10].colour, "\u{a7}v");
+        // BDS: 1,271 bytes with the two-byte header of packet 302 (P6).
+        assert_eq!(payload(&Packet::TrimData(trims)).len(), 1269);
+    }
+
+    /// The trim tables are the BDS `TrimData` the P6 run recorded, in its order.
+    #[test]
+    fn trim_data_equals_the_bds_record() {
+        let facts = include_str!("../../xtask/data/p6/facts.md");
+        let line = facts
+            .lines()
+            .find(|l| l.starts_with("- TrimData:"))
+            .expect("the TrimData fact");
+        let list = |after: &str| {
+            let rest = line.split_once(after).expect(after).1;
+            rest.split_once(';')
+                .expect("list end")
+                .0
+                .split(", ")
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let trims = trim_data();
+        let patterns: Vec<String> = trims
+            .patterns
+            .iter()
+            .map(|p| p.pattern_id.clone())
+            .collect();
+        assert_eq!(patterns, list("무늬 18개("));
+        for p in &trims.patterns {
+            assert_eq!(
+                p.item_name,
+                format!("minecraft:{}_armor_trim_smithing_template", p.pattern_id)
+            );
+        }
+        let materials: Vec<String> = trims
+            .materials
+            .iter()
+            .map(|m| format!("{} {}", m.material_id, m.colour))
+            .collect();
+        assert_eq!(materials, list("재료 11개("));
+    }
+
+    #[test]
+    fn the_plain_skin_is_a_valid_classic_skin() {
+        let skin = crate::tick::queue::Skin::default();
+        let skin = skin.get();
+        let pixels = usize::try_from(skin.skin_image_width * skin.skin_image_height).unwrap();
+        assert_eq!(skin.skin_data.len(), pixels * 4);
+        assert_eq!(crate::protocol::skin_validate(skin), None);
+    }
+
+    /// The Education items are never offered, so the client gets no Education features.
+    #[test]
+    fn start_game_leaves_education_features_off() {
+        use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, received, settings, tick};
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        let sent = received(&mut rx).0.into_iter().find_map(|p| match p {
+            Packet::StartGame(s) => Some(s.education_features_enabled),
+            _ => None,
+        });
+        assert_eq!(sent, Some(false));
+    }
+
+    #[test]
+    fn a_player_list_longer_than_a_client_takes_goes_in_several_packets() {
+        use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
+
+        let count = PLAYER_LIST_ENTRIES_MAX_LEN + 1;
+        let players = u32::try_from(count).unwrap();
+        let mut state = new_state(
+            settings(|c| c.general.max_players = players),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (mut joins, mut queues): (Vec<_>, Vec<_>) = (1..=u64::try_from(count).unwrap())
+            .map(|s| join(s, 0))
+            .unzip();
+        tick(&mut state, &mut joins, &mut output);
+        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
+        let lists: Vec<usize> = received(&mut queues[0])
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries.len()),
+                _ => None,
+            })
+            .collect();
+        // The start-game list and the spawn window's, each of every placed player.
+        assert_eq!(
+            lists,
+            [
+                PLAYER_LIST_ENTRIES_MAX_LEN,
+                1,
+                PLAYER_LIST_ENTRIES_MAX_LEN,
+                1
+            ]
+        );
+    }
+
+    /// A player list goes in packets of at most the batch bytes a session sends, an entry alone
+    /// whatever its size.
+    #[test]
+    fn a_player_list_larger_than_a_batch_goes_in_several_packets() {
+        use crate::event::Listeners;
+        use crate::tick::tests::{join, new_state, settings, tick};
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let (mut joins, _queues): (Vec<_>, Vec<_>) = (1..=5).map(|s| join(s, 0)).unzip();
+        tick(&mut state, &mut joins, &mut Output::default());
+        let placed: Vec<&Player> = state.players.values().collect();
+        let entries = |max_batch_bytes: usize| -> Vec<usize> {
+            list_packets(&placed, max_batch_bytes)
+                .iter()
+                .map(|p| match p.get() {
+                    Packet::PlayerList(l) => l.entries.len(),
+                    other => panic!("{other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(entries(usize::MAX), [5]);
+        assert_eq!(entries(1), [1, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn a_player_placed_and_gone_in_one_tick_leaves_the_other_lists() {
+        use crate::event::Listeners;
+        use crate::tick::tests::{join, leave, new_state, received, settings, tick};
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (first, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![first], &mut output);
+        received(&mut rx);
+        let (second, _rx2) = join(2, 0);
+        tick(&mut state, &mut vec![second, leave(2, 1)], &mut output);
+        let actions: Vec<u8> = received(&mut rx)
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries),
+                _ => None,
+            })
+            .flatten()
+            .map(|e| e.action_type)
+            .collect();
+        assert_eq!(actions, [0, 1], "added, then removed");
+    }
+
+    #[test]
+    fn the_player_list_carries_the_identity_playfab_id() {
+        use crate::event::Listeners;
+        use crate::tick::queue::InputKind;
+        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (mut first, mut rx) = join(1, 0);
+        if let InputKind::Join { identity, .. } = &mut first.kind {
+            identity.client.playfab_id = "0123456789abcdef".to_owned();
+        }
+        tick(&mut state, &mut vec![first], &mut output);
+        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
+        let ids: Vec<String> = received(&mut rx)
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries),
+                _ => None,
+            })
+            .flatten()
+            .map(|e| e.playfab_id)
+            .collect();
+        assert!(!ids.is_empty());
+        assert!(ids.iter().all(|id| id == "0123456789abcdef"));
     }
 }

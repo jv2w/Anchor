@@ -98,7 +98,7 @@ fn server(listeners: Listeners) -> (State, Output, mpsc::Receiver<Outbound>) {
     (state, output, rx)
 }
 
-fn cx(state: &mut State) -> Context<'_> {
+fn context(state: &mut State) -> Context<'_> {
     Context { state }
 }
 
@@ -127,14 +127,14 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
         (Some(9), Some(spawn), "void")
     );
     assert_eq!(options.difficulty(), Some(Difficulty::Hard));
-    let mut c = cx(&mut state);
-    let id = c.create_world("arena", &options).unwrap();
+    let mut cx = context(&mut state);
+    let id = cx.create_world("arena", &options).unwrap();
     assert_eq!(id, world::Id::of(1));
-    assert!(c.is_world_generated("arena") && c.is_world_loaded("arena"));
-    let w = c.world(id).unwrap();
+    assert!(cx.is_world_generated("arena") && cx.is_world_loaded("arena"));
+    let w = cx.world(id).unwrap();
     assert_eq!((w.seed(), w.spawn(), w.kind()), (9, spawn, Kind::Temporary));
     assert_eq!(w.difficulty(), Some(Difficulty::Hard));
-    assert_eq!(c.world_named("arena").unwrap().id(), id);
+    assert_eq!(cx.world_named("arena").unwrap().id(), id);
     assert!(logged().is_empty(), "the events come in the view phase");
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["init 1", "load 1"]);
@@ -144,35 +144,35 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
         state.worlds[1].is_chunk_loaded(spawn.chunk()),
         "loads like any chunk"
     );
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     assert_eq!(
-        c.create_world("arena", &arena(1)),
+        cx.create_world("arena", &arena(1)),
         Err(world::Error::WorldExists)
     );
     assert_eq!(
-        c.create_world("", &arena(1)),
+        cx.create_world("", &arena(1)),
         Err(world::Error::InvalidName)
     );
     assert_eq!(
-        c.create_world(&"n".repeat(257), &arena(1)),
+        cx.create_world(&"n".repeat(257), &arena(1)),
         Err(world::Error::InvalidName)
     );
     assert_eq!(
-        c.create_world("x", &arena(1).with_generator("normal")),
+        cx.create_world("x", &arena(1).with_generator("normal")),
         Err(world::Error::UnknownGenerator)
     );
     // A player at the spawn would stand outside the world border.
     let past = BlockPos::new(world::BORDER, -60, 0);
     assert_eq!(
-        c.create_world("x", &arena(1).with_spawn(past)),
+        cx.create_world("x", &arena(1).with_spawn(past)),
         Err(world::Error::OutOfRange)
     );
     assert_eq!(
-        c.load_world("nowhere", &Options::new()),
+        cx.load_world("nowhere", &Options::new()),
         Err(world::Error::NotGenerated)
     );
-    assert!(!c.is_world_generated("nowhere") && !c.is_world_loaded("nowhere"));
-    assert!(!c.is_world_generated("x"), "nothing made");
+    assert!(!cx.is_world_generated("nowhere") && !cx.is_world_loaded("nowhere"));
+    assert!(!cx.is_world_generated("x"), "nothing made");
 }
 
 fn ticks(state: &mut State, output: &mut Output, n: usize) {
@@ -198,23 +198,25 @@ fn on_spawn(state: &State, w: WorldIndex) -> Vec3 {
 #[test]
 fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world() {
     let (mut state, mut output, mut rx) = server(world_listeners());
-    let id = cx(&mut state).create_world("arena", &arena(3)).unwrap();
+    let id = context(&mut state)
+        .create_world("arena", &arena(3))
+        .unwrap();
     ticks(&mut state, &mut output, 2);
     logged();
     let eye = on_spawn(&state, 1);
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     let player = crate::player::Id::new(SessionId::new(1));
-    c.teleport(player, id, eye).unwrap();
+    cx.teleport(player, id, eye).unwrap();
     ticks(&mut state, &mut output, 2);
     assert_eq!(state.players[&SessionId::new(1)].world, 1);
     received(&mut rx);
 
     // Cancelled, nothing happens and the monitors see nothing.
     CANCEL.set(true);
-    assert_eq!(cx(&mut state).unload_world(id), Ok(()));
+    assert_eq!(context(&mut state).unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["unload 1"]);
-    assert!(cx(&mut state).world(id).is_some());
+    assert!(context(&mut state).world(id).is_some());
     assert_eq!(
         state.players[&SessionId::new(1)].world,
         1,
@@ -223,12 +225,12 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
 
     // Forced, the listeners are asked all the same, their cancel is ignored, and the monitors see
     // the unload not cancelled.
-    assert_eq!(cx(&mut state).force_unload_world(id), Ok(()));
+    assert_eq!(context(&mut state).force_unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["unload 1", "monitor false false"]);
-    let c = cx(&mut state);
-    assert!(c.world(id).is_none() && c.world_named("arena").is_none());
-    assert!(!c.is_world_loaded("arena") && !c.is_world_generated("arena"));
+    let cx = context(&mut state);
+    assert!(cx.world(id).is_none() && cx.world_named("arena").is_none());
+    assert!(!cx.is_world_loaded("arena") && !cx.is_world_generated("arena"));
     let p = &state.players[&SessionId::new(1)];
     assert_eq!(p.world, 0, "moved to the default world");
     let spawn = state.worlds[0].spawn();
@@ -244,36 +246,39 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
             .any(|p| matches!(p, P::MovePlayer(_)))
     );
     // A temporary world unloaded is gone; one made again takes its place.
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     assert_eq!(
-        c.load_world("arena", &Options::new()),
+        cx.load_world("arena", &Options::new()),
         Err(world::Error::NotGenerated)
     );
-    assert_eq!(c.unload_world(id), Err(world::Error::WorldNotLoaded));
+    assert_eq!(cx.unload_world(id), Err(world::Error::WorldNotLoaded));
     assert_eq!(
-        c.unload_world(world::Id::DEFAULT),
+        cx.unload_world(world::Id::DEFAULT),
         Err(world::Error::DefaultWorld)
     );
-    assert_eq!(c.create_world("arena", &arena(4)), Ok(id));
+    assert_eq!(cx.create_world("arena", &arena(4)), Ok(id));
     // The default world moves; the settings' world may unload then.
     CANCEL.set(false);
-    assert_eq!(c.set_default_world(id), Ok(()));
-    assert_eq!(c.default_world().id(), id);
-    assert_eq!(c.unload_world(id), Err(world::Error::DefaultWorld));
-    assert_eq!(c.unload_world(world::Id::DEFAULT), Ok(()));
+    assert_eq!(cx.set_default_world(id), Ok(()));
+    assert_eq!(cx.default_world().id(), id);
+    assert_eq!(cx.unload_world(id), Err(world::Error::DefaultWorld));
+    assert_eq!(cx.unload_world(world::Id::DEFAULT), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(state.players[&SessionId::new(1)].world, 1);
     assert!(!state.catalog.is_loaded(0));
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     assert_eq!(
-        c.set_default_world(world::Id::DEFAULT),
+        cx.set_default_world(world::Id::DEFAULT),
         Err(world::Error::WorldNotLoaded)
     );
     assert_eq!(
-        c.load_world("world", &Options::new()),
+        cx.load_world("world", &Options::new()),
         Ok(world::Id::DEFAULT)
     );
-    assert!(c.world(world::Id::DEFAULT).is_some(), "loaded in its place");
+    assert!(
+        cx.world(world::Id::DEFAULT).is_some(),
+        "loaded in its place"
+    );
 }
 
 // pmmp: Player::teleport
@@ -287,22 +292,24 @@ fn a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload(
         cx.teleport(player, e.world(), Vec3::new(0.5, -60.0, 0.5))
             .unwrap();
     }));
-    let id = cx(&mut state).create_world("arena", &arena(3)).unwrap();
+    let id = context(&mut state)
+        .create_world("arena", &arena(3))
+        .unwrap();
     ticks(&mut state, &mut output, 2);
     let aside = on_spawn(&state, 0) + Vec3::new(3.0, 0.0, 3.0);
-    cx(&mut state)
+    context(&mut state)
         .teleport(player, world::Id::DEFAULT, aside)
         .unwrap();
     ticks(&mut state, &mut output, 2);
-    assert_eq!(cx(&mut state).unload_world(id), Ok(()));
+    assert_eq!(context(&mut state).unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
     let home = state.worlds[0].safe_spawn(state.worlds[0].spawn());
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     assert_eq!(
-        c.teleport(player, id, Vec3::new(0.5, -60.0, 0.5)),
+        cx.teleport(player, id, Vec3::new(0.5, -60.0, 0.5)),
         Err(crate::player::Error::WorldNotLoaded)
     );
-    let p = c.player(player).unwrap();
+    let p = cx.player(player).unwrap();
     assert_eq!(p.world(), world::Id::DEFAULT);
     assert_eq!(BlockPos::containing(p.position()), home);
     tick(&mut state, &mut Vec::new(), &mut output);
@@ -322,15 +329,17 @@ fn a_listener_that_makes_the_world_the_default_one_keeps_it() {
         },
     );
     let (mut state, mut output, _rx) = server(listeners);
-    let id = cx(&mut state).create_world("arena", &arena(3)).unwrap();
+    let id = context(&mut state)
+        .create_world("arena", &arena(3))
+        .unwrap();
     ticks(&mut state, &mut output, 2);
     logged();
-    assert_eq!(cx(&mut state).force_unload_world(id), Ok(()));
+    assert_eq!(context(&mut state).force_unload_world(id), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(logged(), ["unload 1"]);
-    let c = cx(&mut state);
-    assert!(c.world(id).is_some());
-    assert_eq!(c.default_world().id(), id);
+    let cx = context(&mut state);
+    assert!(cx.world(id).is_some());
+    assert_eq!(cx.default_world().id(), id);
 }
 
 // pmmp: World::stopTime, World::startTime
@@ -339,10 +348,10 @@ fn a_stopped_time_stands_still_for_the_world_and_its_players() {
     let (mut state, mut output, mut rx) = server(Listeners::default());
     received(&mut rx);
     let before = state.worlds[0].time_ticks();
-    let mut c = cx(&mut state);
-    assert!(c.stop_time(world::Id::DEFAULT));
-    assert!(c.default_world().is_time_stopped());
-    assert!(!c.stop_time(world::Id::of(5)), "no such world");
+    let mut cx = context(&mut state);
+    assert!(cx.stop_time(world::Id::DEFAULT));
+    assert!(cx.default_world().is_time_stopped());
+    assert!(!cx.stop_time(world::Id::of(5)), "no such world");
     ticks(&mut state, &mut output, 30);
     assert_eq!(state.worlds[0].time_ticks(), before);
     let paused = |rx: &mut mpsc::Receiver<Outbound>| -> Vec<bool> {
@@ -356,7 +365,7 @@ fn a_stopped_time_stands_still_for_the_world_and_its_players() {
             .collect()
     };
     assert_eq!(paused(&mut rx), [true], "the players' clocks pause at once");
-    assert!(cx(&mut state).start_time(world::Id::DEFAULT));
+    assert!(context(&mut state).start_time(world::Id::DEFAULT));
     ticks(&mut state, &mut output, 3);
     assert_eq!(paused(&mut rx), [false]);
     assert_eq!(state.worlds[0].time_ticks(), before + 3);
@@ -382,11 +391,11 @@ fn a_made_world_uses_the_view_values_of_its_options() {
         tick_radius: Some(6),
         ..crate::config::WorldSettings::default()
     };
-    let w = cx(&mut state)
+    let w = context(&mut state)
         .create_world("small", &arena(1).with_settings(own))
         .unwrap()
         .index();
-    let plain = cx(&mut state)
+    let plain = context(&mut state)
         .create_world("plain", &arena(2))
         .unwrap()
         .index();
@@ -398,12 +407,12 @@ fn a_made_world_uses_the_view_values_of_its_options() {
         ..crate::config::WorldSettings::default()
     };
     assert_eq!(
-        cx(&mut state).create_world("far", &arena(3).with_settings(far)),
+        context(&mut state).create_world("far", &arena(3).with_settings(far)),
         Err(world::Error::InvalidSettings)
     );
     settle(&mut state, &mut output);
     let player = crate::player::Id::new(SessionId::new(1));
-    assert_eq!(cx(&mut state).set_view_distance(player, 8), Some(8));
+    assert_eq!(context(&mut state).set_view_distance(player, 8), Some(8));
     let eye = on_spawn(&state, w);
     survival::teleport(&mut state, SessionId::new(1), w, eye);
     assert_eq!(state.players[&SessionId::new(1)].chunk_radius, Some(3));
@@ -418,10 +427,10 @@ fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     assert_eq!(state.worlds[0].difficulty(), None);
     assert_eq!(difficulty(&state, 0), server_difficulty);
     received(&mut rx);
-    let mut c = cx(&mut state);
-    assert!(c.set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Peaceful)));
-    assert!(!c.set_world_difficulty(world::Id::of(3), Some(Difficulty::Hard)));
-    assert_eq!(c.default_world().difficulty(), Some(Difficulty::Peaceful));
+    let mut cx = context(&mut state);
+    assert!(cx.set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Peaceful)));
+    assert!(!cx.set_world_difficulty(world::Id::of(3), Some(Difficulty::Hard)));
+    assert_eq!(cx.default_world().difficulty(), Some(Difficulty::Peaceful));
     assert_eq!(difficulty(&state, 0), Difficulty::Peaceful);
     tick(&mut state, &mut Vec::new(), &mut output);
     let sent: Vec<i32> = received(&mut rx)
@@ -435,23 +444,27 @@ fn a_world_follows_the_server_difficulty_until_it_has_its_own() {
     assert_eq!(sent, [0]);
     // Peaceful feeds a hungry player of this world, whatever the server's difficulty.
     let player = crate::player::Id::new(SessionId::new(1));
-    cx(&mut state)
+    context(&mut state)
         .player_mut(player)
         .unwrap()
         .set_food(10.0)
         .unwrap();
     ticks(&mut state, &mut output, 25);
-    assert!(cx(&mut state).player(player).unwrap().food() > 10.0);
+    assert!(context(&mut state).player(player).unwrap().food() > 10.0);
     // The server's difficulty set again replaces the worlds' own (PMMP `/difficulty`).
-    assert!(cx(&mut state).set_difficulty(Difficulty::Hard));
+    assert!(context(&mut state).set_difficulty(Difficulty::Hard));
     assert_eq!(state.worlds[0].difficulty(), None);
     assert_eq!(difficulty(&state, 0), Difficulty::Hard);
     let mut hardcore = new_state(
         settings(|c| c.general.hardcore = true),
         Listeners::default(),
     );
-    assert!(!cx(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy)));
-    assert!(cx(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Hard)));
+    assert!(
+        !context(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy))
+    );
+    assert!(
+        context(&mut hardcore).set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Hard))
+    );
 }
 
 // pmmp: World::registerChunkLoader, World::unregisterChunkLoader, World::getChunkLoaders
@@ -464,17 +477,17 @@ fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
     });
     let (mut state, mut output, _rx) = server(loads);
     logged();
-    let mut c = cx(&mut state);
-    let ticket = c.hold_chunks(world::Id::DEFAULT, FAR, 1).unwrap();
-    let held: Vec<Ticket> = c.chunk_tickets(world::Id::DEFAULT, FAR).collect();
+    let mut cx = context(&mut state);
+    let ticket = cx.hold_chunks(world::Id::DEFAULT, FAR, 1).unwrap();
+    let held: Vec<Ticket> = cx.chunk_tickets(world::Id::DEFAULT, FAR).collect();
     assert_eq!(held, [ticket]);
     assert_eq!(
-        c.chunk_tickets(world::Id::DEFAULT, ChunkPos::new(32, -30))
+        cx.chunk_tickets(world::Id::DEFAULT, ChunkPos::new(32, -30))
             .count(),
         0
     );
     assert!(
-        !c.default_world().is_chunk_loaded(FAR),
+        !cx.default_world().is_chunk_loaded(FAR),
         "loads in the view phase"
     );
     ticks(&mut state, &mut output, 2);
@@ -488,57 +501,57 @@ fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
             .count()
     };
     assert_eq!(around(&state), 9);
-    assert!(cx(&mut state).release_chunks(ticket));
-    assert!(!cx(&mut state).release_chunks(ticket), "released once");
+    assert!(context(&mut state).release_chunks(ticket));
+    assert!(!context(&mut state).release_chunks(ticket), "released once");
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(around(&state), 0);
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     assert_eq!(
-        c.hold_chunks(world::Id::DEFAULT, FAR, 9),
+        cx.hold_chunks(world::Id::DEFAULT, FAR, 9),
         Err(world::Error::Full)
     );
     assert_eq!(
-        c.hold_chunks(world::Id::of(4), FAR, 1),
+        cx.hold_chunks(world::Id::of(4), FAR, 1),
         Err(world::Error::WorldNotLoaded)
     );
     assert_eq!(
-        c.hold_chunks(world::Id::DEFAULT, ChunkPos::new(2_000_000, 0), 0),
+        cx.hold_chunks(world::Id::DEFAULT, ChunkPos::new(2_000_000, 0), 0),
         Err(world::Error::OutOfRange)
     );
     // The far ends of a public `ChunkPos` are refused too, holding nothing.
-    let held = c.state.chunks.held();
+    let held = cx.state.chunks.held();
     for center in [ChunkPos::new(i32::MIN, 0), ChunkPos::new(0, i32::MIN)] {
         assert_eq!(
-            c.hold_chunks(world::Id::DEFAULT, center, 0),
+            cx.hold_chunks(world::Id::DEFAULT, center, 0),
             Err(world::Error::OutOfRange)
         );
     }
-    assert_eq!(c.state.chunks.held(), held);
+    assert_eq!(cx.state.chunks.held(), held);
     // 14 tickets of 17 × 17 hold 4,046 chunks: no room for another such one.
     for i in 0..14 {
-        let _ticket = c
+        let _ticket = cx
             .hold_chunks(world::Id::DEFAULT, ChunkPos::new(100 * i, 0), 8)
             .unwrap();
     }
     assert_eq!(
-        c.hold_chunks(world::Id::DEFAULT, FAR, 8),
+        cx.hold_chunks(world::Id::DEFAULT, FAR, 8),
         Err(world::Error::Full),
         "at most 4,096 chunks are held"
     );
     // A world that unloads drops its tickets.
-    let id = c.create_world("arena", &arena(1)).unwrap();
-    let ticket = c.hold_chunks(id, FAR, 0).unwrap();
-    c.unload_world(id).unwrap();
+    let id = cx.create_world("arena", &arena(1)).unwrap();
+    let ticket = cx.hold_chunks(id, FAR, 0).unwrap();
+    cx.unload_world(id).unwrap();
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert!(!cx(&mut state).release_chunks(ticket));
+    assert!(!context(&mut state).release_chunks(ticket));
 }
 
 /// The tickets of each chunk in `chunks` of the default world.
 fn tickets_at(state: &mut State, chunks: &[ChunkPos]) -> Vec<Vec<Ticket>> {
-    let c = cx(state);
+    let cx = context(state);
     chunks
         .iter()
-        .map(|&p| c.chunk_tickets(world::Id::DEFAULT, p).collect())
+        .map(|&p| cx.chunk_tickets(world::Id::DEFAULT, p).collect())
         .collect()
 }
 
@@ -568,10 +581,10 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     let (mut state, mut output, _rx) = server(Listeners::default());
     let at = |dx: i32| ChunkPos::new(FAR.x + dx, FAR.z);
     let probes = [at(-3), at(-2), at(2), at(4), at(5)];
-    let mut c = cx(&mut state);
-    let a = c.hold_chunks(world::Id::DEFAULT, FAR, 2).unwrap();
-    let b = c.hold_chunks(world::Id::DEFAULT, at(3), 1).unwrap();
-    let d = c.hold_chunks(world::Id::DEFAULT, at(2), 0).unwrap();
+    let mut cx = context(&mut state);
+    let a = cx.hold_chunks(world::Id::DEFAULT, FAR, 2).unwrap();
+    let b = cx.hold_chunks(world::Id::DEFAULT, at(3), 1).unwrap();
+    let d = cx.hold_chunks(world::Id::DEFAULT, at(2), 0).unwrap();
     // In the order they were given, wherever they overlap.
     let want = vec![Vec::new(), vec![a], vec![a, b, d], vec![b], Vec::new()];
     assert_eq!(tickets_at(&mut state, &probes), want);
@@ -593,32 +606,32 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
     let mut big = Vec::new();
     for s in [&mut state, &mut restored] {
         // 25 + 9 + 1 chunks held: 14 more tickets of 17 × 17 fit, and no 15th.
-        let mut c = cx(s);
+        let mut cx = context(s);
         big = (0..14)
             .map(|i| {
-                c.hold_chunks(world::Id::DEFAULT, ChunkPos::new(100 * i, 0), 8)
+                cx.hold_chunks(world::Id::DEFAULT, ChunkPos::new(100 * i, 0), 8)
                     .unwrap()
             })
             .collect();
         assert_eq!(
-            c.hold_chunks(world::Id::DEFAULT, ChunkPos::new(-100, 0), 8),
+            cx.hold_chunks(world::Id::DEFAULT, ChunkPos::new(-100, 0), 8),
             Err(world::Error::Full)
         );
     }
     assert!(pool.shutdown());
-    let mut c = cx(&mut state);
-    assert!(c.release_chunks(b));
+    let mut cx = context(&mut state);
+    assert!(cx.release_chunks(b));
     let want = vec![Vec::new(), vec![a], vec![a, d], Vec::new(), Vec::new()];
     assert_eq!(tickets_at(&mut state, &probes), want);
     // Released or dropped by their world's unload, tickets leave nothing behind.
-    let mut c = cx(&mut state);
+    let mut cx = context(&mut state);
     for t in big.into_iter().chain([a, d]) {
-        assert!(c.release_chunks(t));
+        assert!(cx.release_chunks(t));
     }
-    let id = c.create_world("arena", &arena(1)).unwrap();
-    let _first = c.hold_chunks(id, FAR, 3).unwrap();
-    let _second = c.hold_chunks(id, FAR, 1).unwrap();
-    c.unload_world(id).unwrap();
+    let id = cx.create_world("arena", &arena(1)).unwrap();
+    let _first = cx.hold_chunks(id, FAR, 3).unwrap();
+    let _second = cx.hold_chunks(id, FAR, 1).unwrap();
+    cx.unload_world(id).unwrap();
     ticks(&mut state, &mut output, 4);
     settle(&mut state, &mut output);
     assert_eq!(tickets_at(&mut state, &probes), vec![Vec::new(); 5]);
@@ -634,7 +647,7 @@ fn a_hardcore_server_plays_every_world_on_hard() {
     });
     let mut state = new_state(hardcore, Listeners::default());
     let mut output = Output::default();
-    let calm = cx(&mut state)
+    let calm = context(&mut state)
         .create_world("calm", &arena(1).with_difficulty(Difficulty::Peaceful))
         .unwrap();
     state.catalog.stored.insert(
@@ -648,7 +661,7 @@ fn a_hardcore_server_plays_every_world_on_hard() {
             },
         ),
     );
-    let old = cx(&mut state)
+    let old = context(&mut state)
         .load_world("old", &Options::new().with_difficulty(Difficulty::Easy))
         .unwrap();
     for id in [calm, old] {
@@ -665,7 +678,7 @@ fn a_hardcore_server_plays_every_world_on_hard() {
     ticks(&mut state, &mut output, 4);
     // A player who joins either is told hard by `StartGame` and the spawn window.
     for (session, id) in [(1, calm), (2, old)] {
-        cx(&mut state).set_default_world(id).unwrap();
+        context(&mut state).set_default_world(id).unwrap();
         let (j, mut rx) = join(session, 0);
         tick(&mut state, &mut vec![j], &mut output);
         tick(&mut state, &mut vec![radius(session, 1, 2)], &mut output);
@@ -690,17 +703,17 @@ fn a_hardcore_server_plays_every_world_on_hard() {
 #[test]
 fn a_load_after_an_unload_in_the_same_call_keeps_the_world() {
     let (mut state, mut output, _rx) = server(world_listeners());
-    let lobby = cx(&mut state)
+    let lobby = context(&mut state)
         .create_world("lobby", &Options::new().with_seed(2))
         .unwrap();
     ticks(&mut state, &mut output, 2);
     logged();
-    let mut c = cx(&mut state);
-    c.unload_world(lobby).unwrap();
-    assert_eq!(c.load_world("lobby", &Options::new()), Ok(lobby));
+    let mut cx = context(&mut state);
+    cx.unload_world(lobby).unwrap();
+    assert_eq!(cx.load_world("lobby", &Options::new()), Ok(lobby));
     ticks(&mut state, &mut output, 2);
     assert!(state.catalog.is_loaded(lobby.index()));
-    assert!(cx(&mut state).world(lobby).is_some());
+    assert!(context(&mut state).world(lobby).is_some());
     assert_eq!(logged(), Vec::<String>::new(), "the unload was dropped");
 }
 
@@ -710,13 +723,15 @@ fn a_load_after_an_unload_in_the_same_call_keeps_the_world() {
 fn a_spawn_moved_in_the_tick_of_its_worlds_unload_holds_nothing() {
     let (mut state, mut output, _rx) = server(Listeners::default());
     let base = state.chunks.held();
-    let id = cx(&mut state).create_world("arena", &arena(1)).unwrap();
+    let id = context(&mut state)
+        .create_world("arena", &arena(1))
+        .unwrap();
     ticks(&mut state, &mut output, 3);
-    let mut c = cx(&mut state);
-    c.world_mut(id)
+    let mut cx = context(&mut state);
+    cx.world_mut(id)
         .unwrap()
         .set_spawn(BlockPos::new(800, -60, 800));
-    c.unload_world(id).unwrap();
+    cx.unload_world(id).unwrap();
     ticks(&mut state, &mut output, 4);
     assert_eq!(state.worlds[1].loaded_chunks().len(), 0);
     assert_eq!(state.chunks.held(), base);
@@ -743,11 +758,11 @@ fn in_spawn_window() -> (State, Output, mpsc::Receiver<Outbound>) {
 #[test]
 fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() {
     let (mut state, mut output, mut rx) = in_spawn_window();
-    let mut c = cx(&mut state);
-    assert!(c.stop_time(world::Id::DEFAULT));
-    assert!(c.set_time(world::Id::DEFAULT, 1000));
-    assert!(c.set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy)));
-    assert!(c.set_difficulty(Difficulty::Hard));
+    let mut cx = context(&mut state);
+    assert!(cx.stop_time(world::Id::DEFAULT));
+    assert!(cx.set_time(world::Id::DEFAULT, 1000));
+    assert!(cx.set_world_difficulty(world::Id::DEFAULT, Some(Difficulty::Easy)));
+    assert!(cx.set_difficulty(Difficulty::Hard));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Joined);
     let packets = received(&mut rx).0;
@@ -773,7 +788,7 @@ fn a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes() 
 #[test]
 fn a_player_waiting_for_its_spawn_chunks_hears_of_a_random_tick_speed_change() {
     let (mut state, mut output, mut rx) = in_spawn_window();
-    assert!(cx(&mut state).set_random_tick_speed(100));
+    assert!(context(&mut state).set_random_tick_speed(100));
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Joined);
     let speeds: Vec<_> = received(&mut rx)
@@ -824,40 +839,42 @@ fn stone() -> crate::block::State {
 fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
     let (mut state, mut output, _rx) = server(world_listeners());
     // The places a temporary and a persistent world take, made once.
-    let id = cx(&mut state).create_world("arena", &arena(1)).unwrap();
-    let lobby = cx(&mut state)
+    let id = context(&mut state)
+        .create_world("arena", &arena(1))
+        .unwrap();
+    let lobby = context(&mut state)
         .create_world("lobby", &Options::new().with_seed(2))
         .unwrap();
     let player = crate::player::Id::new(SessionId::new(1));
     let home = on_spawn(&state, 0);
     for round in 0..12 {
-        let mut c = cx(&mut state);
-        c.unload_world(id).unwrap();
-        c.unload_world(lobby).unwrap();
+        let mut cx = context(&mut state);
+        cx.unload_world(id).unwrap();
+        cx.unload_world(lobby).unwrap();
         ticks(&mut state, &mut output, 3);
         settle(&mut state, &mut output);
         logged();
         let start = tables(&state);
-        let mut c = cx(&mut state);
-        assert_eq!(c.create_world("arena", &arena(round)), Ok(id));
-        assert_eq!(c.load_world("lobby", &Options::new()), Ok(lobby));
-        let ticket = c.hold_chunks(lobby, FAR, 1).unwrap();
+        let mut cx = context(&mut state);
+        assert_eq!(cx.create_world("arena", &arena(round)), Ok(id));
+        assert_eq!(cx.load_world("lobby", &Options::new()), Ok(lobby));
+        let ticket = cx.hold_chunks(lobby, FAR, 1).unwrap();
         ticks(&mut state, &mut output, 2);
         let eye = on_spawn(&state, 1);
-        let mut c = cx(&mut state);
-        c.teleport(player, id, eye).unwrap();
-        c.world_mut(lobby)
+        let mut cx = context(&mut state);
+        cx.teleport(player, id, eye).unwrap();
+        cx.world_mut(lobby)
             .unwrap()
             .set_block(BlockPos::new(30 * 16, -60, -30 * 16), stone())
             .unwrap();
         ticks(&mut state, &mut output, 3);
-        let mut c = cx(&mut state);
-        c.teleport(player, world::Id::DEFAULT, home).unwrap();
+        let mut cx = context(&mut state);
+        cx.teleport(player, world::Id::DEFAULT, home).unwrap();
         if round % 2 == 0 {
-            c.release_chunks(ticket);
+            cx.release_chunks(ticket);
         }
-        c.unload_world(id).unwrap();
-        c.unload_world(lobby).unwrap();
+        cx.unload_world(id).unwrap();
+        cx.unload_world(lobby).unwrap();
         // The commit the unload asked for lets the lobby's changes go.
         ticks(&mut state, &mut output, 4);
         settle(&mut state, &mut output);
@@ -875,8 +892,12 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
                 "monitor false false"
             ]
         );
-        cx(&mut state).create_world("arena", &arena(round)).unwrap();
-        cx(&mut state).load_world("lobby", &Options::new()).unwrap();
+        context(&mut state)
+            .create_world("arena", &arena(round))
+            .unwrap();
+        context(&mut state)
+            .load_world("lobby", &Options::new())
+            .unwrap();
         ticks(&mut state, &mut output, 1);
     }
 }
@@ -884,7 +905,9 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
 #[test]
 fn a_load_in_flight_when_its_world_unloads_is_dropped_on_arrival() {
     let (mut state, mut output, _rx) = server(Listeners::default());
-    let id = cx(&mut state).create_world("arena", &arena(1)).unwrap();
+    let id = context(&mut state)
+        .create_world("arena", &arena(1))
+        .unwrap();
     let spawn = state.worlds[1].spawn().chunk();
     // The view phase asks for the spawn chunks; the unload comes before the answers.
     let pool = crate::runtime::cpu_pool(1).unwrap();
@@ -904,10 +927,12 @@ fn a_load_in_flight_when_its_world_unloads_is_dropped_on_arrival() {
         late.iter()
             .any(|a| matches!(a, Response::Chunk { world: 1, .. }))
     );
-    cx(&mut state).unload_world(id).unwrap();
+    context(&mut state).unload_world(id).unwrap();
     // Made again with another seed before the old answers come: they are dropped.
     tick(&mut state, &mut Vec::new(), &mut output);
-    cx(&mut state).create_world("arena", &arena(77)).unwrap();
+    context(&mut state)
+        .create_world("arena", &arena(77))
+        .unwrap();
     output.answers = late;
     tick(&mut state, &mut Vec::new(), &mut output);
     assert!(!state.worlds[1].is_chunk_loaded(spawn), "the stale answer");
@@ -1025,18 +1050,20 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let at = BlockPos::new(1, -60, 1);
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-        let id = cx(&mut state)
+        let id = context(&mut state)
             .create_world("lobby", &Options::new().with_seed(5))
             .unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
-        let mut c = cx(&mut state);
-        c.world_mut(id).unwrap().set_block(at, stone()).unwrap();
-        assert!(c.stop_time(id));
-        assert!(c.set_world_difficulty(id, Some(Difficulty::Easy)));
-        assert!(c.set_weather(id, Weather::Rain));
-        assert!(c.set_time(id, 4000));
-        c.world_mut(id).unwrap().set_spawn(BlockPos::new(9, -60, 9));
-        c.unload_world(id).unwrap();
+        let mut cx = context(&mut state);
+        cx.world_mut(id).unwrap().set_block(at, stone()).unwrap();
+        assert!(cx.stop_time(id));
+        assert!(cx.set_world_difficulty(id, Some(Difficulty::Easy)));
+        assert!(cx.set_weather(id, Weather::Rain));
+        assert!(cx.set_time(id, 4000));
+        cx.world_mut(id)
+            .unwrap()
+            .set_spawn(BlockPos::new(9, -60, 9));
+        cx.unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         assert!(
             state.saving.is_idle() && state.chunks.unsaved.is_empty(),
@@ -1054,10 +1081,10 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     assert_eq!(lobby.spawn, BlockPos::new(9, -60, 9));
     drop(opened);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    let mut c = cx(&mut state);
-    assert!(c.is_world_generated("lobby") && !c.is_world_loaded("lobby"));
+    let mut cx = context(&mut state);
+    assert!(cx.is_world_generated("lobby") && !cx.is_world_loaded("lobby"));
     assert_eq!(
-        c.create_world("lobby", &Options::new()),
+        cx.create_world("lobby", &Options::new()),
         Err(world::Error::WorldExists)
     );
     // The settings come from the load: its options, else the defaults. The options' spawn only
@@ -1066,10 +1093,10 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
         .with_seed(6)
         .with_spawn(BlockPos::new(2, -60, 3))
         .with_difficulty(Difficulty::Hard);
-    let id = c.load_world("lobby", &options).unwrap();
+    let id = cx.load_world("lobby", &options).unwrap();
     run_saved(&mut state, &mut link, &pool, 3);
-    let c = cx(&mut state);
-    let lobby = c.world(id).unwrap();
+    let cx = context(&mut state);
+    let lobby = cx.world(id).unwrap();
     assert_eq!(lobby.block(at), Some(stone()), "the unload's commit");
     assert!(lobby.time_ticks() >= 4000, "the saved time goes on");
     assert_eq!((lobby.seed(), lobby.spawn()), (6, BlockPos::new(9, -60, 9)));
@@ -1089,50 +1116,50 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
     let files = || crate::save::world_files(&dir.0).unwrap();
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-        let mut c = cx(&mut state);
+        let mut cx = context(&mut state);
         assert_eq!(
-            c.create_world("con", &Options::new()),
+            cx.create_world("con", &Options::new()),
             Err(world::Error::InvalidName)
         );
         assert_eq!(
-            c.create_world("a/b", &Options::new()),
+            cx.create_world("a/b", &Options::new()),
             Err(world::Error::InvalidName)
         );
         assert_eq!(
-            c.create_world("WORLD", &Options::new()),
+            cx.create_world("WORLD", &Options::new()),
             Err(world::Error::WorldExists)
         );
-        let lobby = c.create_world("lobby", &Options::new()).unwrap();
-        c.create_world("arena", &Options::new()).unwrap();
+        let lobby = cx.create_world("lobby", &Options::new()).unwrap();
+        cx.create_world("arena", &Options::new()).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
-        let mut c = cx(&mut state);
-        assert_eq!(c.delete_world("lobby"), Err(world::Error::WorldLoaded));
-        assert_eq!(c.delete_world("world"), Err(world::Error::WorldLoaded));
-        assert_eq!(c.delete_world("nope"), Err(world::Error::NotGenerated));
-        c.world_mut(lobby)
+        let mut cx = context(&mut state);
+        assert_eq!(cx.delete_world("lobby"), Err(world::Error::WorldLoaded));
+        assert_eq!(cx.delete_world("world"), Err(world::Error::WorldLoaded));
+        assert_eq!(cx.delete_world("nope"), Err(world::Error::NotGenerated));
+        cx.world_mut(lobby)
             .unwrap()
             .set_block(BlockPos::new(1, -60, 1), stone())
             .unwrap();
-        c.unload_world(lobby).unwrap();
+        cx.unload_world(lobby).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         assert_eq!(files(), ["arena", "lobby", "world"]);
-        let mut c = cx(&mut state);
-        c.delete_world("lobby").unwrap();
-        assert!(!c.is_world_generated("lobby"));
-        assert_eq!(c.delete_world("lobby"), Err(world::Error::NotGenerated));
+        let mut cx = context(&mut state);
+        cx.delete_world("lobby").unwrap();
+        assert!(!cx.is_world_generated("lobby"));
+        assert_eq!(cx.delete_world("lobby"), Err(world::Error::NotGenerated));
         // The name is free at once, in any letter case. No commit holds the deletion yet, so the
         // world made again takes the deleted world's file, under that file's name.
-        c.create_world("Lobby", &Options::new()).unwrap();
+        cx.create_world("Lobby", &Options::new()).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
     }
     assert_eq!(files(), ["arena", "lobby", "world"]);
     // A world stored and not loaded this run is deleted as well.
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    let mut c = cx(&mut state);
-    c.delete_world("arena").unwrap();
+    let mut cx = context(&mut state);
+    cx.delete_world("arena").unwrap();
     // The file goes once a commit holds the deletion.
-    c.save();
+    cx.save();
     run_saved(&mut state, &mut link, &pool, 1);
     finish(link, handle);
     assert_eq!(files(), ["lobby", "world"]);
@@ -1149,40 +1176,40 @@ fn a_world_is_found_by_its_name_in_any_letter_case() {
     let files = || crate::save::world_files(&dir.0).unwrap();
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-        let id = cx(&mut state)
+        let id = context(&mut state)
             .create_world("lobby", &Options::new())
             .unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
-        let mut c = cx(&mut state);
-        assert!(c.set_time(id, 4000));
-        c.unload_world(id).unwrap();
+        let mut cx = context(&mut state);
+        assert!(cx.set_time(id, 4000));
+        cx.unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
     }
     {
         let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-        let mut c = cx(&mut state);
-        assert!(c.is_world_generated("LOBBY"));
-        let id = c.load_world("Lobby", &Options::new()).unwrap();
-        let lobby = c.world(id).unwrap();
+        let mut cx = context(&mut state);
+        assert!(cx.is_world_generated("LOBBY"));
+        let id = cx.load_world("Lobby", &Options::new()).unwrap();
+        let lobby = cx.world(id).unwrap();
         assert!(lobby.time_ticks() >= 4000);
         assert_eq!(
             (lobby.name(), lobby.seed()),
             ("lobby", save::default_seed("lobby"))
         );
-        assert_eq!(c.load_world("LOBBY", &Options::new()), Ok(id));
-        assert!(c.is_world_loaded("lobby"));
+        assert_eq!(cx.load_world("LOBBY", &Options::new()), Ok(id));
+        assert!(cx.is_world_loaded("lobby"));
         run_saved(&mut state, &mut link, &pool, 3);
-        cx(&mut state).unload_world(id).unwrap();
+        context(&mut state).unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
     }
     assert_eq!(files(), ["lobby", "world"]);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    let mut c = cx(&mut state);
-    c.delete_world("LOBBY").unwrap();
+    let mut cx = context(&mut state);
+    cx.delete_world("LOBBY").unwrap();
     // The file goes once a commit holds the deletion.
-    c.save();
+    cx.save();
     run_saved(&mut state, &mut link, &pool, 1);
     finish(link, handle);
     assert_eq!(files(), ["world"]);
@@ -1205,16 +1232,16 @@ fn a_world_made_again_late_in_the_tick_of_its_deletion_is_saved() {
     });
     {
         let (mut state, mut link, handle) = open_server(&dir, remake);
-        let lobby = cx(&mut state)
+        let lobby = context(&mut state)
             .create_world("lobby", &Options::new())
             .unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
-        cx(&mut state).unload_world(lobby).unwrap();
+        context(&mut state).unload_world(lobby).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
-        let mut c = cx(&mut state);
-        let again = c.worlds().find(|w| w.name() == "lobby").unwrap().id();
-        c.world_mut(again).unwrap().set_block(at, stone()).unwrap();
-        c.save();
+        let mut cx = context(&mut state);
+        let again = cx.worlds().find(|w| w.name() == "lobby").unwrap().id();
+        cx.world_mut(again).unwrap().set_block(at, stone()).unwrap();
+        cx.save();
         run_saved(&mut state, &mut link, &pool, 3);
         finish(link, handle);
     }
@@ -1223,10 +1250,12 @@ fn a_world_made_again_late_in_the_tick_of_its_deletion_is_saved() {
         ["lobby", "world"]
     );
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
-    let lobby = cx(&mut state).load_world("lobby", &Options::new()).unwrap();
+    let lobby = context(&mut state)
+        .load_world("lobby", &Options::new())
+        .unwrap();
     run_saved(&mut state, &mut link, &pool, 3);
     assert_eq!(
-        cx(&mut state).world(lobby).unwrap().block(at),
+        context(&mut state).world(lobby).unwrap().block(at),
         Some(stone())
     );
     finish(link, handle);
@@ -1243,7 +1272,7 @@ fn a_world_made_by_a_load_listener_loads_its_spawn_chunks_from_the_save_thread()
         }
     });
     let (mut state, mut link, handle) = open_server(&dir, listeners);
-    cx(&mut state)
+    context(&mut state)
         .create_world("lobby", &Options::new().with_seed(5))
         .unwrap();
     run_saved(&mut state, &mut link, &pool, 4);
@@ -1462,12 +1491,12 @@ fn a_persistent_world_past_the_files_a_start_left_out_is_full() {
         })
         .unwrap();
     for s in [&mut state, &mut restored] {
-        let mut c = cx(s);
+        let mut cx = context(s);
         assert_eq!(
-            c.create_world("extra", &Options::new()),
+            cx.create_world("extra", &Options::new()),
             Err(world::Error::Full)
         );
-        c.create_world("arena", &arena(1)).unwrap();
+        cx.create_world("arena", &arena(1)).unwrap();
     }
     finish(link, handle);
     assert!(pool.shutdown());

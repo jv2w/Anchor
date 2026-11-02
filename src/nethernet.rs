@@ -74,7 +74,7 @@ pub(crate) struct Settings {
     /// The address advertised to clients instead of the one they reached (`public-ip`).
     pub(crate) public_ip: Option<IpAddr>,
     /// The largest game message a client may send.
-    pub(crate) max_message: usize,
+    pub(crate) max_message_bytes: usize,
     /// PEM certificate chain and key for HTTPS signaling.
     pub(crate) tls: Option<(PathBuf, PathBuf)>,
 }
@@ -294,7 +294,7 @@ impl Offers {
             ice_pwd: offer.ice_pwd,
             fingerprint: offer.fingerprint.bytes,
             candidates: offer.candidates,
-            max_message_size: offer.max_message_size,
+            max_message_bytes: offer.max_message_bytes,
         };
         let (reply, answer) = oneshot::channel();
         let open = Command::Open {
@@ -477,7 +477,7 @@ struct Entry {
 pub(crate) struct Driver {
     sockets: Arc<Sockets>,
     certificate: Certificate,
-    max_message: usize,
+    max_message_bytes: usize,
     peers: BTreeMap<u64, Entry>,
     by_ufrag: BTreeMap<String, u64>,
     by_addr: BTreeMap<SocketAddr, u64>,
@@ -500,14 +500,14 @@ impl Driver {
     fn new(
         sockets: Arc<Sockets>,
         certificate: Certificate,
-        max_message: usize,
+        max_message_bytes: usize,
         accepted: mpsc::Sender<Connection>,
     ) -> Self {
         let (commands, pending) = mpsc::channel(COMMAND_QUEUE);
         Self {
             sockets,
             certificate,
-            max_message,
+            max_message_bytes,
             peers: BTreeMap::new(),
             by_ufrag: BTreeMap::new(),
             by_addr: BTreeMap::new(),
@@ -666,7 +666,7 @@ impl Driver {
                 remote.clone(),
                 local,
                 &self.certificate,
-                self.max_message,
+                self.max_message_bytes,
                 now,
             )
             .map_err(Refusal::Peer)?;
@@ -732,7 +732,7 @@ impl Driver {
                         id,
                         addr,
                         entry,
-                        self.max_message,
+                        self.max_message_bytes,
                     );
                     if link.is_none() {
                         self.doomed.push(id);
@@ -881,7 +881,7 @@ pub(crate) async fn start(
         },
         e => crate::Error::Start(io::Error::other(e)),
     })?;
-    let driver = Driver::new(sockets, certificate, settings.max_message, accepted);
+    let driver = Driver::new(sockets, certificate, settings.max_message_bytes, accepted);
     let offers = Offers {
         identity: Arc::new(identity),
         auth,
@@ -982,9 +982,9 @@ fn accept(
     id: u64,
     addr: SocketAddr,
     entry: &mut Entry,
-    max_message: usize,
+    max_message_bytes: usize,
 ) -> Option<Link> {
-    let (inbox, receiver) = Inbox::new(max_message);
+    let (inbox, receiver) = Inbox::new(max_message_bytes);
     let (signal, watcher) = watch::channel(Flags::default());
     let (ping, pings) = watch::channel(None);
     let (undelivered, undelivered_watcher) = watch::channel(0);
@@ -1377,7 +1377,7 @@ pub(crate) mod tests {
                 signaling_v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
                 signaling_v6: None,
                 public_ip: None,
-                max_message: MAX_MESSAGE_BYTES,
+                max_message_bytes: MAX_MESSAGE_BYTES,
                 tls: None,
             };
             let started = start(settings, &dir.0, statuses, None, accepted, sockets).await;

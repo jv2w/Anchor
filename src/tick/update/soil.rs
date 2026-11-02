@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use super::props;
 use super::support::{self, side};
 use super::{Rule, pick};
-use crate::block::{self, Class, CopperOxidation, Face, Kind, Trait};
+use crate::block::{self, Class, CopperOxidation, Face, Kind, Trait, Waxing};
 use crate::event::{Actor, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay};
 use crate::random::Random;
 use crate::world::BlockPos;
@@ -453,7 +453,7 @@ pub(super) fn oxidize(rule: &mut Rule<'_>, pos: BlockPos, block: block::State) {
     let Some((_, _, rest)) = block::copper_parts(block) else {
         return;
     };
-    let name = block::copper_name(next_level, false, rest);
+    let name = block::copper_name(next_level, Waxing::Unwaxed, rest);
     let Some(next) = props::renamed(block, &name) else {
         return;
     };
@@ -475,8 +475,8 @@ fn oxidation(block: block::State) -> Option<CopperOxidation> {
     if !block.has_trait(Trait::Copper) {
         return None;
     }
-    let (stage, waxed, _) = block::copper_parts(block)?;
-    (!waxed).then_some(stage)
+    let (stage, waxing, _) = block::copper_parts(block)?;
+    (waxing == Waxing::Unwaxed).then_some(stage)
 }
 
 /// Runs PMMP's `BaseCoral`/`CoralBlock::onNearbyBlockChange`: coral without support breaks;

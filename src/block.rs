@@ -1533,6 +1533,15 @@ impl CopperOxidation {
     }
 }
 
+/// Whether a copper block is waxed (the `waxed_` prefix of its name).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Waxing {
+    /// Not waxed.
+    Unwaxed,
+    /// Waxed.
+    Waxed,
+}
+
 /// A bottle slot of a brewing stand, named by where the block shows its bottle (PMMP
 /// `BrewingStandSlot`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1823,11 +1832,11 @@ pub(crate) fn is_vanilla_network_id(id: u32) -> bool {
 /// A copper state's name as PMMP `CopperTrait` splits it: the oxidation, whether it is waxed, and
 /// the rest (`cut_copper`; `copper` for the full block, whose new unwaxed name is
 /// `copper_block`). `None` for a name outside `minecraft:`.
-pub(crate) fn copper_parts(state: State) -> Option<(CopperOxidation, bool, &'static str)> {
+pub(crate) fn copper_parts(state: State) -> Option<(CopperOxidation, Waxing, &'static str)> {
     let rest = state.name().strip_prefix("minecraft:")?;
-    let (waxed, rest) = match rest.strip_prefix("waxed_") {
-        Some(r) => (true, r),
-        None => (false, rest),
+    let (waxing, rest) = match rest.strip_prefix("waxed_") {
+        Some(r) => (Waxing::Waxed, r),
+        None => (Waxing::Unwaxed, rest),
     };
     // New copper's prefix is empty, so it comes last.
     let (oxidation, base) = CopperOxidation::ALL
@@ -1839,19 +1848,19 @@ pub(crate) fn copper_parts(state: State) -> Option<(CopperOxidation, bool, &'sta
     } else {
         base
     };
-    Some((oxidation, waxed, base))
+    Some((oxidation, waxing, base))
 }
 
 /// The copper name (with `minecraft:`) of `base`, the rest [`copper_parts`] gives, at
 /// `oxidation`, waxed or not.
-pub(crate) fn copper_name(oxidation: CopperOxidation, waxed: bool, base: &str) -> String {
+pub(crate) fn copper_name(oxidation: CopperOxidation, waxing: Waxing, base: &str) -> String {
     let mut name = String::with_capacity(COPPER_NAME_CAPACITY);
     name.push_str("minecraft:");
-    if waxed {
+    if waxing == Waxing::Waxed {
         name.push_str("waxed_");
     }
     name.push_str(oxidation.prefix());
-    if !waxed && oxidation == CopperOxidation::None && base == "copper" {
+    if waxing == Waxing::Unwaxed && oxidation == CopperOxidation::None && base == "copper" {
         name.push_str("copper_block");
     } else {
         name.push_str(base);
@@ -2660,13 +2669,13 @@ mod tests {
             .collect();
         assert!(copper.contains_key("minecraft:copper_block"));
         for (&name, &state) in &copper {
-            let (oxidation, waxed, base) = copper_parts(state).unwrap();
-            assert_eq!(copper_name(oxidation, waxed, base), name);
+            let (oxidation, waxing, base) = copper_parts(state).unwrap();
+            assert_eq!(copper_name(oxidation, waxing, base), name);
             for oxidation in CopperOxidation::ALL {
-                for waxed in [false, true] {
-                    let other = copper_name(oxidation, waxed, base);
+                for waxing in [Waxing::Unwaxed, Waxing::Waxed] {
+                    let other = copper_name(oxidation, waxing, base);
                     let parts = copper.get(other.as_str()).and_then(|&s| copper_parts(s));
-                    assert_eq!(parts, Some((oxidation, waxed, base)), "{other}");
+                    assert_eq!(parts, Some((oxidation, waxing, base)), "{other}");
                 }
             }
         }

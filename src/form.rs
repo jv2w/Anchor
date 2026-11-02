@@ -58,7 +58,7 @@ const MAX_OPTIONS: usize = 256;
 pub(crate) const MAX_PENDING: usize = 16;
 /// The longest answer accepted, in bytes of JSON; a longer one is dropped before it is parsed.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-/// The `timeout` BDS writes on every slider (P6).
+/// The `timeout` BDS writes on every slider (P6), copied as it is: its unit is not known.
 const SLIDER_TIMEOUT: u32 = 100;
 /// How far, in steps, a slider answer may lie off a step or outside the range and still count:
 /// the client computes the value in 32-bit floats.

@@ -106,7 +106,7 @@ pub(crate) struct Offer {
     /// The client's DTLS certificate fingerprint.
     pub(crate) fingerprint: Fingerprint,
     /// Largest message the client receives.
-    pub(crate) max_message_size: u32,
+    pub(crate) max_message_bytes: u32,
     /// Usable candidates in offer order: UDP, component 1, IP literal addresses.
     pub(crate) candidates: Vec<SocketAddr>,
     /// The session-level `a=identity`, shape-checked but not verified.
@@ -157,7 +157,7 @@ struct Attributes<'a> {
     ice_pwd: Option<&'a str>,
     fingerprint: Option<Fingerprint>,
     setup: Option<()>,
-    max_message_size: Option<u32>,
+    max_message_bytes: Option<u32>,
     sctp_port: Option<()>,
     candidates: Vec<SocketAddr>,
     identity: Option<Assertion>,
@@ -249,8 +249,8 @@ pub(crate) fn parse_offer(text: &str) -> Result<Offer> {
             .to_owned(),
         ice_pwd: found.ice_pwd.ok_or(Error::Missing("ice-pwd"))?.to_owned(),
         fingerprint: found.fingerprint.ok_or(Error::Missing("fingerprint"))?,
-        max_message_size: found
-            .max_message_size
+        max_message_bytes: found
+            .max_message_bytes
             .ok_or(Error::Missing("max-message-size"))?,
         candidates: found.candidates,
         identity: found.identity,
@@ -301,7 +301,7 @@ fn attribute<'a>(
                 .and_then(decimal::<u32>)
                 .filter(|&size| size >= MIN_MESSAGE_BYTES)
                 .ok_or(Error::Invalid("max-message-size"))?;
-            once(&mut found.max_message_size, size, "max-message-size")
+            once(&mut found.max_message_bytes, size, "max-message-size")
         }
         "sctp-port" if value == Some(SCTP_PORT) => once(&mut found.sctp_port, (), "sctp-port"),
         "sctp-port" => Err(Error::Invalid("sctp-port")),
@@ -584,7 +584,7 @@ a=max-message-size:262144
                 fingerprint_text(&offer.fingerprint.bytes),
                 offer.fingerprint.digest.to_ascii_uppercase()
             );
-            assert_eq!(offer.max_message_size, 262_144);
+            assert_eq!(offer.max_message_bytes, 262_144);
             assert_eq!(
                 offer.candidates,
                 ["172.25.96.1:63448".parse::<SocketAddr>().unwrap()]
@@ -1051,7 +1051,7 @@ a=max-message-size:262144\r
             fingerprint_text(&offer.fingerprint.bytes),
             answer().fingerprint
         );
-        assert_eq!(offer.max_message_size, MAX_MESSAGE_BYTES);
+        assert_eq!(offer.max_message_bytes, MAX_MESSAGE_BYTES);
         assert_eq!(offer.candidates, [answer().addr]);
     }
 

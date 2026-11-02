@@ -13,7 +13,7 @@ use super::{
     Actor, Source, USE, adventure_allows, block_vec, breaking, center, drops, level_event, place,
     props, return_items, stream,
 };
-use crate::block::{self, Class, Face, Kind, State as BlockState};
+use crate::block::{self, Class, Face, Kind, State as BlockState, Waxing};
 use crate::config::GameMode;
 use crate::event::{
     BlockPlace, BlockPreExplode, BlockTeleport, InteractAction, PlayerBucketEmpty,
@@ -1247,14 +1247,14 @@ fn cauldron(state: &mut State, u: &mut Use) -> bool {
 /// axe (PMMP `CopperTrait::onInteract`).
 fn copper(state: &mut State, u: &mut Use) -> bool {
     let block = u.block;
-    let Some((oxidation, waxed, base)) = block::copper_parts(block) else {
+    let Some((oxidation, waxing, base)) = block::copper_parts(block) else {
         return false;
     };
     let renamed =
-        |oxidation, waxed| props::renamed(block, &block::copper_name(oxidation, waxed, base));
+        |oxidation, waxing| props::renamed(block, &block::copper_name(oxidation, waxing, base));
     let world = u.actor.world;
-    if !waxed && u.item_kind(item::Kind::Honeycomb) {
-        if let Some(s) = renamed(oxidation, true) {
+    if waxing == Waxing::Unwaxed && u.item_kind(item::Kind::Honeycomb) {
+        if let Some(s) = renamed(oxidation, Waxing::Waxed) {
             set(state, world, u.pos, s);
             u.play(block_vec(u.pos), Sound::CopperWaxApply);
             u.pop();
@@ -1263,13 +1263,13 @@ fn copper(state: &mut State, u: &mut Use) -> bool {
         return false;
     }
     if u.item_is(item::Class::Axe) {
-        let (next, played) = if waxed {
-            (renamed(oxidation, false), Sound::CopperWaxRemove)
+        let (next, played) = if waxing == Waxing::Waxed {
+            (renamed(oxidation, Waxing::Unwaxed), Sound::CopperWaxRemove)
         } else {
             let Some(previous) = oxidation.previous() else {
                 return false;
             };
-            (renamed(previous, false), Sound::Scrape)
+            (renamed(previous, Waxing::Unwaxed), Sound::Scrape)
         };
         if let Some(next) = next {
             set(state, world, u.pos, next);
@@ -1923,11 +1923,12 @@ mod tests {
     #[test]
     fn copper_names_split_and_join_back() {
         for state in BlockState::all().filter(|s| s.has_trait(block::Trait::Copper)) {
-            let (oxidation, waxed, base) = block::copper_parts(state).unwrap();
-            let copper = |waxed| props::renamed(state, &block::copper_name(oxidation, waxed, base));
-            assert_eq!(copper(waxed), Some(state), "{state:?}");
-            if !waxed {
-                assert!(copper(true).is_some(), "{state:?}");
+            let (oxidation, waxing, base) = block::copper_parts(state).unwrap();
+            let copper =
+                |waxing| props::renamed(state, &block::copper_name(oxidation, waxing, base));
+            assert_eq!(copper(waxing), Some(state), "{state:?}");
+            if waxing == Waxing::Unwaxed {
+                assert!(copper(Waxing::Waxed).is_some(), "{state:?}");
             }
         }
     }

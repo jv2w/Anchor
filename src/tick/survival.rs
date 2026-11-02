@@ -34,7 +34,7 @@ pub(super) use clock::{
     Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
     sleeping_players,
 };
-pub(super) use damage::{Damage, bds_cause, highest_armor_level, respawn_joined};
+pub(super) use damage::{Damage, bds_cause, heals, highest_armor_level, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
 use std::collections::BTreeMap;
@@ -214,16 +214,17 @@ impl Survival {
             },
             // Without air the player always breathes.
             breathing: !settings.drowning,
-            ..Self::with_mode(settings.game_mode, settings.force_game_mode)
+            forced_mode: settings.force_game_mode,
+            ..Self::with_mode(settings.game_mode)
         }
     }
 
     /// A new player's state on a server whose game mode is `default_mode`.
-    fn with_mode(default_mode: GameMode, forced_mode: bool) -> Self {
+    fn with_mode(default_mode: GameMode) -> Self {
         Self {
             game_mode: None,
             default_mode,
-            forced_mode,
+            forced_mode: false,
             switches: Switches::ALL,
             health: MAX_HEALTH,
             absorption: 0.0,
@@ -411,7 +412,7 @@ impl Survival {
 #[cfg(test)]
 impl Default for Survival {
     fn default() -> Self {
-        Self::with_mode(GameMode::Survival, false)
+        Self::with_mode(GameMode::Survival)
     }
 }
 
@@ -1256,12 +1257,6 @@ pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
 /// durability per point first; the rest becomes experience, with the collect or level-up sound.
 pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u32) -> bool {
     food::pickup_experience(state, session, amount)
-}
-
-/// Whether `amount` heals a player or an entity at `health` of `max_health`
-/// ([`damage::heals`]).
-pub(super) fn heals(alive: bool, health: f64, max_health: f64, amount: f64) -> bool {
-    damage::heals(alive, health, max_health, amount)
 }
 
 /// What an instant health or damage effect of `amplifier` heals or hurts at full potency, for

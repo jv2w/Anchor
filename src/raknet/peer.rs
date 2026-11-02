@@ -612,10 +612,10 @@ pub(super) struct Limits {
 }
 
 impl Limits {
-    /// Limits for messages of at most `max_message` bytes after their first byte.
-    pub(super) fn new(max_message: usize) -> Result<Self> {
+    /// Limits for messages of at most `max_message_bytes` bytes after their first byte.
+    pub(super) fn new(max_message_bytes: usize) -> Result<Self> {
         let invalid = Error::Limit("max message size");
-        let message = max_message.checked_add(1).ok_or(invalid)?;
+        let message = max_message_bytes.checked_add(1).ok_or(invalid)?;
         let splits = u32::try_from(message.div_ceil(MIN_FRAGMENT_BYTES)).map_err(|_| invalid)?;
         if splits >= MAX_SPAN {
             return Err(invalid);
@@ -924,8 +924,8 @@ pub(super) mod tests {
         buf
     }
 
-    fn peer(max_message: usize) -> Peer {
-        Peer::new(T0, MAX_MTU, Limits::new(max_message).unwrap()).unwrap()
+    fn peer(max_message_bytes: usize) -> Peer {
+        Peer::new(T0, MAX_MTU, Limits::new(max_message_bytes).unwrap()).unwrap()
     }
 
     fn receive(peer: &mut Peer, data: &[u8]) -> Result<Vec<Message>> {

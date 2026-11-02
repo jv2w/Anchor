@@ -177,7 +177,7 @@ pub(crate) struct Remote {
     /// link-local) are skipped.
     pub(crate) candidates: Vec<SocketAddr>,
     /// The remote's `a=max-message-size`.
-    pub(crate) max_message_size: u32,
+    pub(crate) max_message_bytes: u32,
 }
 
 /// What the answer says about this peer.
@@ -250,10 +250,10 @@ pub(crate) struct Peer {
     /// after `Open`. go-nethernet's dialer sends as soon as it has asked for both channels, so
     /// data can overtake the other channel's opening; the messages wait instead of failing.
     early: VecDeque<Vec<u8>>,
-    /// Bytes in `early`, at most `max_message`: before the open only `RequestNetworkSettings`
-    /// is due.
+    /// Bytes in `early`, at most `max_message_bytes`: before the open only
+    /// `RequestNetworkSettings` is due.
     early_bytes: usize,
-    max_message: usize,
+    max_message_bytes: usize,
     /// Outbound segment payload: the smaller message limit of the two sides, minus the header.
     max_payload: usize,
     queue: VecDeque<Pending>,
@@ -274,15 +274,15 @@ pub(crate) struct Peer {
 
 impl Peer {
     /// A peer answering `remote`, reachable at `local_addr` (the advertised host candidate), that
-    /// reassembles messages of at most `max_message` bytes.
+    /// reassembles messages of at most `max_message_bytes` bytes.
     pub(crate) fn new(
         remote: Remote,
         local_addr: SocketAddr,
         cert: &Certificate,
-        max_message: usize,
+        max_message_bytes: usize,
         now: Instant,
     ) -> Result<Self> {
-        let send_limit = usize::try_from(remote.max_message_size)
+        let send_limit = usize::try_from(remote.max_message_bytes)
             .unwrap_or(usize::MAX)
             .min(MAX_SEND_MESSAGE_BYTES);
         let max_payload = send_limit.saturating_sub(1);
@@ -341,10 +341,10 @@ impl Peer {
             state: State::Connecting,
             reliable: None,
             unreliable: None,
-            reassembler: Reassembler::new(max_message),
+            reassembler: Reassembler::new(max_message_bytes),
             early: VecDeque::new(),
             early_bytes: 0,
-            max_message,
+            max_message_bytes,
             max_payload,
             queue: VecDeque::new(),
             queued: 0,
@@ -708,7 +708,7 @@ impl Peer {
             return Some(Output::Message(message));
         }
         let bytes = self.early_bytes.saturating_add(message.len());
-        if bytes > self.max_message {
+        if bytes > self.max_message_bytes {
             self.fail(Error::Limit("data before both channels opened"));
             return None;
         }
@@ -765,7 +765,7 @@ fn str0m_offer(remote: &Remote) -> String {
         remote.ice_ufrag,
         remote.ice_pwd,
         sdp::fingerprint_text(&remote.fingerprint),
-        remote.max_message_size,
+        remote.max_message_bytes,
     )
 }
 
@@ -976,7 +976,7 @@ pub(crate) mod tests {
                 ice_pwd: creds.pass,
                 fingerprint,
                 candidates: vec![addr],
-                max_message_size: 262_144,
+                max_message_bytes: 262_144,
             };
             let client = Self {
                 rtc,
@@ -1017,7 +1017,7 @@ pub(crate) mod tests {
                 ice_pwd: parsed.ice_pwd,
                 fingerprint: parsed.fingerprint.bytes,
                 candidates: parsed.candidates,
-                max_message_size: parsed.max_message_size,
+                max_message_bytes: parsed.max_message_bytes,
             };
             let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE_BYTES, now).unwrap();
             let local = peer.local();
@@ -1647,7 +1647,7 @@ pub(crate) mod tests {
     /// polling recursed once per queued SCTP packet, which overflowed the stack on large sends
     /// (see also `channels_open_and_messages_round_trip_both_ways`).
     #[test]
-    fn a_segment_of_the_remote_max_message_size_is_sent() {
+    fn a_segment_of_the_remote_max_message_bytes_is_sent() {
         let (server, client) = certificates();
         let mut h = Harness::honest(&server, &client);
         h.open();
@@ -1665,7 +1665,7 @@ pub(crate) mod tests {
     /// The `max-message-size` the answer advertises is one str0m receives: a client that sends
     /// a data channel message of that size is heard.
     #[test]
-    fn a_message_of_the_advertised_max_message_size_is_received() {
+    fn a_message_of_the_advertised_max_message_bytes_is_received() {
         let (server, client) = certificates();
         let now = crate::clock::now();
         let (client, peer) = Client::over_sdp(&server, &client, now);

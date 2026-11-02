@@ -18,11 +18,11 @@ use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY, masked_crc};
 use crate::import::{Error, Result};
 
 /// A write batch header: sequence number and count.
-const BATCH_HEADER: usize = 12;
+const BATCH_HEADER_BYTES: usize = 12;
 /// Log files are cut into blocks of this many bytes.
-pub(crate) const BLOCK: usize = 32 * 1024;
+pub(crate) const BLOCK_BYTES: usize = 32 * 1024;
 /// The physical record header: checksum, length, type.
-pub(crate) const HEADER: usize = 7;
+pub(crate) const HEADER_BYTES: usize = 7;
 /// The type of preallocated space.
 const RECORD_ZERO: u8 = 0;
 /// The type of a whole record.
@@ -40,13 +40,14 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
     let mut fragmented = false;
     let mut at = 0;
     while at < data.len() {
-        let block_left = BLOCK - at % BLOCK;
-        if block_left < HEADER {
+        let block_left = BLOCK_BYTES - at % BLOCK_BYTES;
+        if block_left < HEADER_BYTES {
             at = at.saturating_add(block_left);
             continue;
         }
         let rest = data.get(at..).unwrap_or_default();
-        let Some((&[c0, c1, c2, c3, l0, l1, kind], _)) = rest.split_first_chunk::<HEADER>() else {
+        let Some((&[c0, c1, c2, c3, l0, l1, kind], _)) = rest.split_first_chunk::<HEADER_BYTES>()
+        else {
             // A header cut off by the end of the file: an unfinished write.
             return Ok(());
         };
@@ -56,7 +57,7 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
             at = at.saturating_add(block_left);
             continue;
         }
-        let end = HEADER.saturating_add(len);
+        let end = HEADER_BYTES.saturating_add(len);
         if end > rest.len().min(block_left) {
             if rest.len() < block_left {
                 // The last, partial block ends inside the record: an unfinished write.
@@ -64,7 +65,7 @@ pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Re
             }
             return Err(Error::Malformed("log record crosses a block"));
         }
-        let payload = rest.get(HEADER..end).unwrap_or_default();
+        let payload = rest.get(HEADER_BYTES..end).unwrap_or_default();
         if masked_crc(&[&[kind], payload]) != stored {
             return Err(Error::Checksum);
         }
@@ -108,7 +109,7 @@ pub(super) struct Write<'a> {
 /// Calls `f` with each write of the write batch `record`.
 pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -> Result<()> {
     let (header, body) = record
-        .split_at_checked(BATCH_HEADER)
+        .split_at_checked(BATCH_HEADER_BYTES)
         .ok_or(Error::Malformed("write batch shorter than its header"))?;
     let mut header = Bytes(header);
     let first = header.u64()?;
@@ -158,12 +159,12 @@ pub(super) mod tests {
             let mut rest = record.as_slice();
             let mut first = true;
             loop {
-                let left = BLOCK - out.len() % BLOCK;
-                if left < HEADER {
+                let left = BLOCK_BYTES - out.len() % BLOCK_BYTES;
+                if left < HEADER_BYTES {
                     out.resize(out.len() + left, 0);
                     continue;
                 }
-                let room = left - HEADER;
+                let room = left - HEADER_BYTES;
                 let take = rest.len().min(room);
                 let last = take == rest.len();
                 let kind = match (first, last) {
@@ -222,31 +223,31 @@ pub(super) mod tests {
     fn records_spanning_blocks_read_back_whole() {
         let records = vec![
             vec![1; 10],
-            vec![2; BLOCK * 2 + 100],
+            vec![2; BLOCK_BYTES * 2 + 100],
             Vec::new(),
-            vec![3; BLOCK - HEADER - 10 - HEADER],
+            vec![3; BLOCK_BYTES - HEADER_BYTES - 10 - HEADER_BYTES],
             vec![4; 5],
         ];
         let data = write(&records);
-        assert!(data.len() > 3 * BLOCK);
+        assert!(data.len() > 3 * BLOCK_BYTES);
         assert_eq!(read_all(&data).unwrap(), records);
     }
 
     #[test]
     fn padding_at_a_block_end_is_skipped() {
         // The first record leaves 6 bytes in the block, fewer than a header.
-        let records = vec![vec![7; BLOCK - HEADER - 6], vec![8; 3]];
+        let records = vec![vec![7; BLOCK_BYTES - HEADER_BYTES - 6], vec![8; 3]];
         let data = write(&records);
-        assert_eq!(&data[BLOCK - 6..BLOCK], &[0; 6]);
+        assert_eq!(&data[BLOCK_BYTES - 6..BLOCK_BYTES], &[0; 6]);
         assert_eq!(read_all(&data).unwrap(), records);
     }
 
     #[test]
     fn an_unfinished_write_at_the_end_is_dropped() {
-        let records = vec![vec![1; 100], vec![2; BLOCK + 10]];
+        let records = vec![vec![1; 100], vec![2; BLOCK_BYTES + 10]];
         let data = write(&records);
         // Cut inside the second record's first fragment, its second header, and its payload.
-        for cut in [200, BLOCK + 3, data.len() - 1] {
+        for cut in [200, BLOCK_BYTES + 3, data.len() - 1] {
             assert_eq!(
                 read_all(&data[..cut]).unwrap(),
                 vec![vec![1; 100]],
@@ -258,7 +259,7 @@ pub(super) mod tests {
     #[test]
     fn preallocated_zero_space_skips_the_rest_of_the_block() {
         let mut data = write(&[vec![5; 10]]);
-        data.resize(BLOCK, 0);
+        data.resize(BLOCK_BYTES, 0);
         data.extend(write(&[vec![6; 4]]));
         assert_eq!(read_all(&data).unwrap(), vec![vec![5; 10], vec![6; 4]]);
     }
@@ -266,7 +267,7 @@ pub(super) mod tests {
     #[test]
     fn checksum_and_sequence_faults_are_errors() {
         let mut data = write(&[vec![9; 20]]);
-        data[HEADER + 3] ^= 1;
+        data[HEADER_BYTES + 3] ^= 1;
         assert!(matches!(read_all(&data), Err(Error::Checksum)));
 
         let mut orphan = Vec::new();
@@ -286,7 +287,7 @@ pub(super) mod tests {
         let mut long = Vec::new();
         physical(&mut long, RECORD_FULL, &[0; 100]);
         long[4..6].copy_from_slice(&u16::MAX.to_le_bytes());
-        long.resize(2 * BLOCK, 0);
+        long.resize(2 * BLOCK_BYTES, 0);
         assert!(matches!(read_all(&long), Err(Error::Malformed(_))));
     }
 

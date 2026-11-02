@@ -473,9 +473,9 @@ const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
 
 #[test]
 fn legacy_terrain_splits_the_column_like_pmmp() {
-    let mut terrain: Vec<u8> = (0..LEGACY_IDS).map(|i| byte(i * 7 + 3)).collect();
-    terrain.extend((0..LEGACY_META).map(|i| byte(i * 13 + 5)));
-    terrain.extend(vec![0; LEGACY_LIGHT + 256]);
+    let mut terrain: Vec<u8> = (0..LEGACY_IDS_BYTES).map(|i| byte(i * 7 + 3)).collect();
+    terrain.extend((0..LEGACY_META_BYTES).map(|i| byte(i * 13 + 5)));
+    terrain.extend(vec![0; LEGACY_LIGHT_BYTES + 256]);
     terrain.extend(vec![0; 1024]);
     let e = entries(
         2,
@@ -553,7 +553,7 @@ fn legacy_extra_data_unpacks_positions_by_chunk_version() {
         }
     );
     assert_eq!(new.legacy_blocks[1].meta, 0xf);
-    let terrain = vec![0; LEGACY_TERRAIN_LEN];
+    let terrain = vec![0; LEGACY_TERRAIN_BYTES];
     let old = decode(&entries(
         2,
         &[

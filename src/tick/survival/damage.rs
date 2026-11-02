@@ -811,7 +811,7 @@ pub(super) fn heal(state: &mut State, session: SessionId, amount: f64, reason: R
 /// Whether `amount` heals a player or an entity at `health` of `max_health`, the check before
 /// [`EntityRegainHealth`] and again after its listeners: it is alive and below its maximum (PMMP
 /// heals only then), and the amount is positive.
-pub(super) fn heals(alive: bool, health: f64, max_health: f64, amount: f64) -> bool {
+pub(in crate::tick) fn heals(alive: bool, health: f64, max_health: f64, amount: f64) -> bool {
     alive && amount > 0.0 && health < max_health
 }
 

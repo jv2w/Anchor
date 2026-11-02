@@ -23,12 +23,6 @@ use std::mem::size_of;
 use std::str;
 use std::sync::Arc;
 
-/// The most entries a node of a `BTreeMap` holds (std `CAPACITY`).
-const MAP_NODE_ENTRIES: usize = 11;
-/// The fewest entries a node of a `BTreeMap` other than the root holds while the map only grows.
-///
-/// This is std's `MIN_LEN_AFTER_SPLIT`.
-const MAP_NODE_MIN_ENTRIES: usize = 5;
 /// The deepest lists nest, a packet's own lists included.
 ///
 /// Only a type that holds itself (`DataStorePropertyValue`) nests past a few, and its decoder
@@ -37,6 +31,12 @@ const MAP_NODE_MIN_ENTRIES: usize = 5;
 pub(crate) const MAX_LIST_DEPTH: usize = 64;
 /// The largest element count of a protocol list (gophertunnel `maxSliceLength`).
 pub(crate) const MAX_LIST_LEN: usize = 1024;
+/// The most entries a node of a `BTreeMap` holds (std `CAPACITY`).
+const MAX_MAP_NODE_ENTRIES: usize = 11;
+/// The fewest entries a node of a `BTreeMap` other than the root holds while the map only grows.
+///
+/// This is std's `MIN_LEN_AFTER_SPLIT`.
+const MIN_MAP_NODE_ENTRIES: usize = 5;
 
 /// A failure to decode or encode a protocol value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -693,9 +693,9 @@ pub(crate) fn length<T: TryFrom<usize>>(len: usize) -> Result<T> {
 /// links.
 pub(crate) const fn map_charges(entry_size: usize) -> (usize, usize) {
     let node = 2 * size_of::<usize>()
-        + MAP_NODE_ENTRIES * entry_size
-        + (MAP_NODE_ENTRIES + 1) * size_of::<usize>();
-    (node, node.div_ceil(MAP_NODE_MIN_ENTRIES))
+        + MAX_MAP_NODE_ENTRIES * entry_size
+        + (MAX_MAP_NODE_ENTRIES + 1) * size_of::<usize>();
+    (node, node.div_ceil(MIN_MAP_NODE_ENTRIES))
 }
 
 #[cfg(test)]

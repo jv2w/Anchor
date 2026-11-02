@@ -1771,14 +1771,17 @@ mod tests {
         };
         let mut extra = Compound::new();
         crate::tick::survival::saved::save(&creative, &mut extra);
-        let mut forced = Survival::with_mode(GameMode::Adventure, true);
+        let mut forced = Survival {
+            forced_mode: true,
+            ..Survival::with_mode(GameMode::Adventure)
+        };
         crate::tick::survival::saved::load(
             &mut forced,
             &extra,
             &crate::custom::Registry::default(),
         );
         assert_eq!(forced.mode(), GameMode::Adventure);
-        let mut free = Survival::with_mode(GameMode::Adventure, false);
+        let mut free = Survival::with_mode(GameMode::Adventure);
         crate::tick::survival::saved::load(&mut free, &extra, &crate::custom::Registry::default());
         assert_eq!(free.mode(), GameMode::Creative);
         // A change after the join stays, forced or not.

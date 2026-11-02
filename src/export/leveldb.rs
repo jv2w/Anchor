@@ -4,7 +4,7 @@
 //! The database is written as one compacted whole. Every key is written once, with sequence
 //! number 0: older than any write the game makes later, which LevelDB numbers from 1. Data
 //! blocks ([`blocks`]) are made from runs of keys apart, so runs can be built and compressed on
-//! the CPU pool: a run is cut into blocks of about [`BLOCK_BYTES`] with a restart every
+//! the CPU pool: a run is cut into blocks of about [`DATA_BLOCK_BYTES`] with a restart every
 //! [`RESTART_INTERVAL`] keys (LevelDB's default), compressed with raw DEFLATE (id 4, as BDS
 //! writes its blocks). The [`Writer`] puts the blocks, in strictly increasing key
 //! order, into tables of about [`TABLE_BYTES`] (LevelDB's default file size) with no filter.
@@ -19,17 +19,17 @@ use std::path::PathBuf;
 
 use super::{Result, write_new, written};
 use crate::import::leveldb::log::{
-    BLOCK, HEADER, RECORD_FIRST, RECORD_FULL, RECORD_LAST, RECORD_MIDDLE,
+    BLOCK_BYTES, HEADER_BYTES, RECORD_FIRST, RECORD_FULL, RECORD_LAST, RECORD_MIDDLE,
 };
 use crate::import::leveldb::table::{
-    COMPRESSION_NONE, COMPRESSION_RAW_DEFLATE, FOOTER, MAGIC, TRAILER,
+    COMPRESSION_NONE, COMPRESSION_RAW_DEFLATE, FOOTER_BYTES, MAGIC, TRAILER_BYTES,
 };
 use crate::import::leveldb::{COMPARATOR, KIND_VALUE, LEVELS, TAG, masked_crc};
 use crate::protocol::compression::zlib::Encoder;
 
 /// The size a data block is closed at, before compression. BDS 1.26.52 writes blocks of over
 /// 100 KiB (a 106,535-byte one in `xtask/data/import/flat`).
-pub(super) const BLOCK_BYTES: usize = 128 << 10;
+pub(super) const DATA_BLOCK_BYTES: usize = 128 << 10;
 /// The DEFLATE level blocks are compressed at: zlib's default.
 const DEFLATE_LEVEL: u8 = 6;
 /// The version edit tag of the comparator (google/leveldb `db/version_edit.cc`).
@@ -154,7 +154,7 @@ impl Writer {
         // The handle's size leaves out the trailer.
         put_varint(
             &mut handle,
-            block.stored.len().saturating_sub(TRAILER) as u64,
+            block.stored.len().saturating_sub(TRAILER_BYTES) as u64,
         );
         self.table.extend_from_slice(&block.stored);
         self.index.push((block.last, handle));
@@ -204,7 +204,7 @@ impl Writer {
         }
         // Taken, not copied: finishing the index block empties the builder.
         let largest = std::mem::take(&mut index.last);
-        let mut footer = Vec::with_capacity(FOOTER);
+        let mut footer = Vec::with_capacity(FOOTER_BYTES);
         let blocks = [
             seal(
                 &BlockBuilder::default().finish().map_err(written(&path))?,
@@ -217,10 +217,13 @@ impl Writer {
         ];
         for block in blocks {
             put_varint(&mut footer, self.table.len() as u64);
-            put_varint(&mut footer, block.len().saturating_sub(TRAILER) as u64);
+            put_varint(
+                &mut footer,
+                block.len().saturating_sub(TRAILER_BYTES) as u64,
+            );
             self.table.extend_from_slice(&block);
         }
-        footer.resize(FOOTER - 8, 0);
+        footer.resize(FOOTER_BYTES - 8, 0);
         footer.extend_from_slice(&MAGIC.to_le_bytes());
         self.table.extend_from_slice(&footer);
 
@@ -254,7 +257,7 @@ pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
             first.clone_from(&internal);
         }
         builder.add(&internal, value, RESTART_INTERVAL)?;
-        if builder.data.len() >= BLOCK_BYTES || i + 1 == entries.len() {
+        if builder.data.len() >= DATA_BLOCK_BYTES || i + 1 == entries.len() {
             // Taken, not copied: finishing the block empties the builder.
             let last = std::mem::take(&mut builder.last);
             let raw = builder.finish()?;
@@ -274,11 +277,11 @@ pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
 fn seal(raw: &[u8], deflate: Option<&mut Encoder>) -> Vec<u8> {
     // Sized once: compressing first grows the output to the compressor's worst-case bound.
     let (mut stored, kind) = if let Some(encoder) = deflate {
-        let mut stored = Vec::with_capacity(encoder.max_compressed_len(raw.len()) + TRAILER);
+        let mut stored = Vec::with_capacity(encoder.max_compressed_len(raw.len()) + TRAILER_BYTES);
         encoder.compress(raw, &mut stored);
         (stored, COMPRESSION_RAW_DEFLATE)
     } else {
-        let mut stored = Vec::with_capacity(raw.len() + TRAILER);
+        let mut stored = Vec::with_capacity(raw.len() + TRAILER_BYTES);
         stored.extend_from_slice(raw);
         (stored, COMPRESSION_NONE)
     };
@@ -315,16 +318,17 @@ fn put_varint(out: &mut Vec<u8>, mut value: u64) {
 /// Returns `record` as a log file: physical records of at most what is left of each 32 KiB block, a
 /// block's last 6 bytes or fewer zero padding, as LevelDB's `log::Writer` cuts them.
 fn log_record(record: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(record.len() + record.len() / BLOCK * HEADER + HEADER);
+    let mut out =
+        Vec::with_capacity(record.len() + record.len() / BLOCK_BYTES * HEADER_BYTES + HEADER_BYTES);
     let mut rest = record;
     let mut first = true;
     loop {
-        let left = BLOCK - out.len() % BLOCK;
-        if left < HEADER {
+        let left = BLOCK_BYTES - out.len() % BLOCK_BYTES;
+        if left < HEADER_BYTES {
             out.resize(out.len() + left, 0);
             continue;
         }
-        let (fragment, after) = rest.split_at(rest.len().min(left - HEADER));
+        let (fragment, after) = rest.split_at(rest.len().min(left - HEADER_BYTES));
         let kind = match (first, after.is_empty()) {
             (true, true) => RECORD_FULL,
             (true, false) => RECORD_FIRST,
@@ -380,7 +384,7 @@ mod tests {
                 .collect();
             // Some values larger than a block.
             let len = if rng.below(40) == 0 {
-                BLOCK_BYTES + rng.below(BLOCK_BYTES)
+                DATA_BLOCK_BYTES + rng.below(DATA_BLOCK_BYTES)
             } else {
                 rng.below(6000)
             };
@@ -437,10 +441,10 @@ mod tests {
         for len in [
             0,
             1,
-            BLOCK - HEADER,
-            BLOCK - HEADER + 1,
-            BLOCK - 3,
-            3 * BLOCK + 17,
+            BLOCK_BYTES - HEADER_BYTES,
+            BLOCK_BYTES - HEADER_BYTES + 1,
+            BLOCK_BYTES - 3,
+            3 * BLOCK_BYTES + 17,
         ] {
             let record: Vec<u8> = (0..len).map(|i| (i % 251).to_le_bytes()[0]).collect();
             let log = log_record(&record);

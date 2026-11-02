@@ -33,7 +33,7 @@ const DEFLATE_LEVEL: u8 = 6;
 /// whose file may still be there.
 pub(crate) const FORMAT_VERSION: u16 = 12;
 /// The bytes of a sealed value's header.
-const HEADER: usize = 12;
+const HEADER_BYTES: usize = 12;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
@@ -108,7 +108,7 @@ pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     }
     let raw_len =
         u32::try_from(record.len()).map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
-    let mut out = Vec::with_capacity(HEADER + record.len() / 2);
+    let mut out = Vec::with_capacity(HEADER_BYTES + record.len() / 2);
     out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&[METHOD_STORED, 0]);
     out.extend_from_slice(&raw_len.to_le_bytes());
@@ -116,15 +116,15 @@ pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     if record.len() >= MIN_COMPRESSED {
         Compressor::new(Compression::Zlib, DEFLATE_LEVEL).compress(record, &mut out);
     }
-    let compressed = out.len() - HEADER;
+    let compressed = out.len() - HEADER_BYTES;
     if compressed == 0 || compressed >= record.len() {
-        out.truncate(HEADER);
+        out.truncate(HEADER_BYTES);
         out.extend_from_slice(record);
     } else if let Some(method) = out.get_mut(2) {
         *method = METHOD_DEFLATE;
     }
     let crc = checksum(key, &out);
-    if let Some(field) = out.get_mut(8..HEADER) {
+    if let Some(field) = out.get_mut(8..HEADER_BYTES) {
         field.copy_from_slice(&crc.to_le_bytes());
     }
     Ok(out)
@@ -141,7 +141,7 @@ pub(crate) fn unseal<R: Record>(key: &[u8], sealed: &[u8]) -> Result<R> {
 /// than its header. After [`unseal`] succeeded it identifies the stored bytes.
 pub(crate) fn stored_checksum(sealed: &[u8]) -> u32 {
     sealed
-        .get(8..HEADER)
+        .get(8..HEADER_BYTES)
         .and_then(|b| b.try_into().ok())
         .map_or(0, u32::from_le_bytes)
 }
@@ -189,7 +189,7 @@ fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
         return Err(Error::NewerFormat { version });
     }
     let (header, body) = sealed
-        .split_first_chunk::<HEADER>()
+        .split_first_chunk::<HEADER_BYTES>()
         .ok_or(Error::Malformed("shorter than the header"))?;
     let [_, _, method, reserved, l0, l1, l2, l3, c0, c1, c2, c3] = *header;
     if checksum(key, sealed) != u32::from_le_bytes([c0, c1, c2, c3]) {
@@ -219,7 +219,7 @@ fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
     let mut crc = Crc32c::new();
     crc.update(key);
     crc.update(sealed.get(..8).unwrap_or_default());
-    crc.update(sealed.get(HEADER..).unwrap_or_default());
+    crc.update(sealed.get(HEADER_BYTES..).unwrap_or_default());
     crc.finish()
 }
 
@@ -297,8 +297,8 @@ mod tests {
     /// Replaces the checksum of a sealed value so that changed bytes reach the later checks.
     fn reseal(key: &[u8], sealed: &mut [u8]) {
         let crc = checksum(key, sealed);
-        if sealed.len() >= HEADER {
-            sealed[8..HEADER].copy_from_slice(&crc.to_le_bytes());
+        if sealed.len() >= HEADER_BYTES {
+            sealed[8..HEADER_BYTES].copy_from_slice(&crc.to_le_bytes());
         }
     }
 
@@ -334,7 +334,7 @@ mod tests {
         );
         let meta = Meta::at(77);
         let sealed = seal(b"meta", &meta).unwrap();
-        assert_eq!((sealed[2], sealed.len()), (METHOD_STORED, HEADER + 9));
+        assert_eq!((sealed[2], sealed.len()), (METHOD_STORED, HEADER_BYTES + 9));
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
         assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
         // The checksum field is what the seal wrote.

@@ -88,7 +88,7 @@ pub(crate) struct Driver {
 impl Driver {
     /// A driver that sends on `sockets`. `pong` is the whole pong payload; `accepted` receives
     /// connections that finished the handshake (when it is full, the new connection is closed).
-    /// It fails when `settings.max_message` is a limit the reliability layer cannot count
+    /// It fails when `settings.max_message_bytes` is a limit the reliability layer cannot count
     /// fragments for.
     pub(crate) fn new(
         settings: Settings,
@@ -100,7 +100,7 @@ impl Driver {
             guid: settings.guid,
             max_mtu: settings.max_mtu,
             accept: settings.accept,
-            limits: Limits::new(settings.max_message)?,
+            limits: Limits::new(settings.max_message_bytes)?,
         };
         let listener = Listener::new(config, Arc::clone(&pong.borrow()));
         let (outbound, commands) = mpsc::channel(COMMAND_QUEUE);
@@ -111,7 +111,7 @@ impl Driver {
                 accepted,
                 outbound,
                 links: BTreeMap::new(),
-                max_message: settings.max_message,
+                max_message_bytes: settings.max_message_bytes,
             },
             commands,
             pong,
@@ -229,7 +229,7 @@ pub(crate) struct Settings {
     /// Largest MTU to negotiate (`max-mtu-size`, at least 400).
     pub(crate) max_mtu: u16,
     /// Largest game message in bytes, without the 0xfe byte.
-    pub(crate) max_message: usize,
+    pub(crate) max_message_bytes: usize,
     /// Whether to accept connections; `false` (config `raknet = false`) answers pings only.
     pub(crate) accept: bool,
     /// The server GUID in pongs and replies.
@@ -244,7 +244,7 @@ struct Io {
     outbound: mpsc::Sender<Outbound>,
     links: BTreeMap<u64, Link>,
     /// The largest game message delivered, without the 0xfe byte ([`Inbox::new`]).
-    max_message: usize,
+    max_message_bytes: usize,
 }
 
 impl Sink for Io {
@@ -260,7 +260,7 @@ impl Sink for Io {
     }
 
     fn accept(&mut self, id: u64, addr: SocketAddr) -> bool {
-        let (inbox, receiver) = Inbox::new(self.max_message);
+        let (inbox, receiver) = Inbox::new(self.max_message_bytes);
         let (signal, watcher) = watch::channel(Flags::default());
         let (ping, pings) = watch::channel(None);
         let (undelivered, undelivered_watcher) = watch::channel(0);
@@ -407,12 +407,14 @@ pub(crate) struct Inbox {
 }
 
 impl Inbox {
-    /// An inbox whose session may leave two of the largest delivered messages, `max_message`
+    /// An inbox whose session may leave two of the largest delivered messages, `max_message_bytes`
     /// bytes each, untaken, and the session's end. The budget is cut to what a semaphore counts,
     /// far above what any setting asks.
-    pub(crate) fn new(max_message: usize) -> (Self, mpsc::Receiver<Inbound>) {
+    pub(crate) fn new(max_message_bytes: usize) -> (Self, mpsc::Receiver<Inbound>) {
         let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
-        let bytes = max_message.saturating_mul(2).min(Semaphore::MAX_PERMITS);
+        let bytes = max_message_bytes
+            .saturating_mul(2)
+            .min(Semaphore::MAX_PERMITS);
         let budget = Arc::new(Semaphore::new(bytes));
         (Self { inbound, budget }, receiver)
     }
@@ -490,7 +492,7 @@ pub(crate) mod tests {
     fn settings() -> Settings {
         Settings {
             max_mtu: MAX_MTU,
-            max_message: MAX_MESSAGE,
+            max_message_bytes: MAX_MESSAGE,
             accept: true,
             guid: GUID,
         }
@@ -962,7 +964,7 @@ pub(crate) mod tests {
             let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
             let sockets = udp::Sockets::bind(Some(localhost), None).unwrap();
             let bad = Settings {
-                max_message: usize::MAX,
+                max_message_bytes: usize::MAX,
                 ..settings()
             };
             let result = Driver::new(bad, pongs, accepted, sockets);

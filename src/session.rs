@@ -445,7 +445,8 @@ pub(crate) async fn start(
     let settings = raknet::Settings {
         max_mtu: config.developer.max_mtu_size,
         // An encrypted RakNet message adds the checksum to the batch.
-        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM_BYTES),
+        max_message_bytes: max_message_bytes(&batch)
+            .saturating_add(crypto::encryption::CHECKSUM_BYTES),
         accept: config.developer.raknet,
         guid,
     };
@@ -461,7 +462,7 @@ pub(crate) async fn start(
         signaling_v4: v4,
         signaling_v6: v6,
         public_ip: general.public_ip,
-        max_message: max_message(&batch),
+        max_message_bytes: max_message_bytes(&batch),
         tls: config
             .developer
             .nethernet_tls_cert
@@ -549,7 +550,7 @@ pub(crate) async fn start(
 
 /// The largest game message a client may send, without transport framing: the
 /// reassembly bound (the worst Snappy expansion of the largest batch and its header byte).
-fn max_message(batch: &batch::Settings) -> usize {
+fn max_message_bytes(batch: &batch::Settings) -> usize {
     let max = batch.max_batch_bytes();
     max.saturating_add(max / 6).saturating_add(42)
 }

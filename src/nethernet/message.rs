@@ -58,7 +58,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// reused.
 #[derive(Debug)]
 pub(crate) struct Reassembler {
-    max_message: usize,
+    max_message_bytes: usize,
     /// Payloads of the message in progress.
     buffer: Vec<u8>,
     /// The header of the last segment while a message is in progress.
@@ -66,10 +66,10 @@ pub(crate) struct Reassembler {
 }
 
 impl Reassembler {
-    /// A reassembler for messages of at most `max_message` bytes.
-    pub(crate) fn new(max_message: usize) -> Self {
+    /// A reassembler for messages of at most `max_message_bytes` bytes.
+    pub(crate) fn new(max_message_bytes: usize) -> Self {
         Self {
-            max_message,
+            max_message_bytes,
             buffer: Vec::new(),
             remaining: None,
         }
@@ -97,7 +97,7 @@ impl Reassembler {
             .len()
             .checked_add(payload.len())
             .ok_or(Error::TooLarge)?;
-        if total > self.max_message {
+        if total > self.max_message_bytes {
             return Err(Error::TooLarge);
         }
         if self.remaining.is_none() {
@@ -186,9 +186,9 @@ mod tests {
             .collect()
     }
 
-    fn round_trip(len: usize, max_payload: usize, max_message: usize) -> Vec<u8> {
+    fn round_trip(len: usize, max_payload: usize, max_message_bytes: usize) -> Vec<u8> {
         let message = pattern(len);
-        let mut reassembler = Reassembler::new(max_message);
+        let mut reassembler = Reassembler::new(max_message_bytes);
         let framed = framed(&message, max_payload);
         let (last, rest) = framed.split_last().unwrap();
         for segment in rest {

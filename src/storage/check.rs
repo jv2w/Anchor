@@ -27,7 +27,7 @@ use super::{Error, Result, check_format, check_integrity, seal};
 use crate::config::IntegrityCheck;
 
 /// The unit [`Overlay`] keeps writes in: redb's page.
-const BLOCK: u64 = 4096;
+const BLOCK_BYTES: u64 = 4096;
 /// Most bytes of writes [`Overlay`] keeps for one check. A check writes redb's header and, as
 /// redb closes it, its allocator state, which grows with the file: 24 KiB for a 96 KiB file and
 /// 52 KiB for a 368 MiB world, clean or left by a crash. A repair (`Ok(false)`) commits only the
@@ -151,7 +151,7 @@ struct State {
     /// The end of the file's bytes: from here on, what was not written reads as zeros. The file's
     /// length, or less once redb cut the length below it.
     file_end: u64,
-    /// The written blocks of [`BLOCK`] bytes, by their index in the file.
+    /// The written blocks of [`BLOCK_BYTES`] bytes, by their index in the file.
     written: BTreeMap<u64, Box<[u8]>>,
     /// Read-ahead blocks of the file: their offset and bytes, the most recently used last.
     ahead: Vec<(u64, Box<[u8]>)>,
@@ -162,13 +162,13 @@ impl State {
     /// read as zeros.
     #[expect(
         clippy::indexing_slicing,
-        reason = "invariant: `len % BLOCK` is within a block"
+        reason = "invariant: `len % BLOCK_BYTES` is within a block"
     )]
     fn set_len(&mut self, len: u64) {
         if len < self.len {
-            drop(self.written.split_off(&len.div_ceil(BLOCK)));
-            if let Some(bytes) = self.written.get_mut(&(len / BLOCK)) {
-                bytes[index(len % BLOCK)..].fill(0);
+            drop(self.written.split_off(&len.div_ceil(BLOCK_BYTES)));
+            if let Some(bytes) = self.written.get_mut(&(len / BLOCK_BYTES)) {
+                bytes[index(len % BLOCK_BYTES)..].fill(0);
             }
             self.file_end = self.file_end.min(len);
         }
@@ -189,26 +189,26 @@ impl State {
         }
         let mut at = offset;
         while at < end {
-            let block = at / BLOCK;
-            let start = block * BLOCK;
+            let block = at / BLOCK_BYTES;
+            let start = block * BLOCK_BYTES;
             if !self.written.contains_key(&block) {
-                if self.written.len() >= MAX_WRITTEN_BYTES / index(BLOCK) {
+                if self.written.len() >= MAX_WRITTEN_BYTES / index(BLOCK_BYTES) {
                     return Err(io::Error::other(
                         "the start check's writes exceed what it keeps in memory",
                     ));
                 }
-                let mut bytes = vec![0; index(BLOCK)].into_boxed_slice();
-                let whole = index((start + BLOCK).min(self.len) - start);
+                let mut bytes = vec![0; index(BLOCK_BYTES)].into_boxed_slice();
+                let whole = index((start + BLOCK_BYTES).min(self.len) - start);
                 self.read(file, start, &mut bytes[..whole])?;
                 self.written.insert(block, bytes);
                 #[cfg(test)]
                 tests::WRITTEN_PEAK.set(
                     tests::WRITTEN_PEAK
                         .get()
-                        .max(self.written.len() * index(BLOCK)),
+                        .max(self.written.len() * index(BLOCK_BYTES)),
                 );
             }
-            let to = (start + BLOCK).min(end);
+            let to = (start + BLOCK_BYTES).min(end);
             let bytes = self
                 .written
                 .get_mut(&block)
@@ -234,15 +234,15 @@ impl State {
             return Ok(());
         }
         let mut at = offset;
-        let mut next = offset / BLOCK;
-        let last = (end - 1) / BLOCK;
+        let mut next = offset / BLOCK_BYTES;
+        let last = (end - 1) / BLOCK_BYTES;
         while next <= last {
             let Some(block) = self.written.range(next..=last).next().map(|(&b, _)| b) else {
                 break;
             };
-            let start = block * BLOCK;
+            let start = block * BLOCK_BYTES;
             let from = start.max(offset);
-            let to = (start + BLOCK).min(end);
+            let to = (start + BLOCK_BYTES).min(end);
             if from > at {
                 let gap = &mut out[index(at - offset)..index(from - offset)];
                 self.read_file(file, at, gap)?;

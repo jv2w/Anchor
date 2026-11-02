@@ -37,7 +37,7 @@ const COMPRESSION_ZLIB: u8 = 2;
 /// The block compression id of raw DEFLATE.
 pub(crate) const COMPRESSION_RAW_DEFLATE: u8 = 4;
 /// The footer at the end of every table.
-pub(crate) const FOOTER: usize = 48;
+pub(crate) const FOOTER_BYTES: usize = 48;
 /// The number that ends every table's footer.
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
 /// The largest block, stored or decompressed, which bounds the memory one block read takes.
@@ -47,7 +47,7 @@ const MAX_INTERNAL_KEY: usize = MAX_KEY + TAG;
 /// Table files kept open between reads.
 pub(super) const MAX_OPEN: usize = 64;
 /// The compression byte and checksum after each block.
-pub(crate) const TRAILER: usize = 5;
+pub(crate) const TRAILER_BYTES: usize = 5;
 
 /// A table of the current version, from the `MANIFEST`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,9 +176,9 @@ impl Tables {
         }
         let at = file
             .size
-            .checked_sub(FOOTER as u64)
+            .checked_sub(FOOTER_BYTES as u64)
             .ok_or_else(|| self.fault(file, Error::Malformed("table shorter than its footer")))?;
-        let mut tail = [0; FOOTER];
+        let mut tail = [0; FOOTER_BYTES];
         let name = self.name(file)?.to_owned();
         self.files.read_at(&name, at, &mut tail)?;
         let handle = footer(&tail).map_err(|e| self.fault(file, e))?;
@@ -204,7 +204,7 @@ impl Tables {
                     },
                 )
             })?;
-        let len = size + TRAILER;
+        let len = size + TRAILER_BYTES;
         let end = handle.offset.checked_add(len as u64);
         if end.is_none_or(|end| end > file.size) {
             return Err(self.fault(file, Error::Malformed("block outside the table")));
@@ -628,7 +628,7 @@ pub(super) mod tests {
         let index_handle = seal_block(&mut out, &encode_block(&index, 1), kinds());
         let mut footer = meta;
         footer.extend_from_slice(&index_handle);
-        footer.resize(FOOTER - 8, 0);
+        footer.resize(FOOTER_BYTES - 8, 0);
         footer.extend_from_slice(&MAGIC.to_le_bytes());
         out.extend_from_slice(&footer);
         out
@@ -796,10 +796,10 @@ pub(super) mod tests {
     fn footers_name_the_index_block() {
         let mut kinds = || COMPRESSION_RAW_DEFLATE;
         let table = encode_table(&entries(40), 256, 4, &mut kinds);
-        let handle = footer(&table[table.len() - FOOTER..]).unwrap();
+        let handle = footer(&table[table.len() - FOOTER_BYTES..]).unwrap();
         assert!(handle.offset > 0 && handle.offset + handle.size < table.len() as u64);
-        let mut bad = table[table.len() - FOOTER..].to_vec();
-        bad[FOOTER - 1] ^= 1;
+        let mut bad = table[table.len() - FOOTER_BYTES..].to_vec();
+        bad[FOOTER_BYTES - 1] ^= 1;
         assert!(matches!(footer(&bad), Err(Error::Malformed(_))));
     }
 }
