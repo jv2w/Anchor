@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The game scenarios (craft, furnace, enchant, crops, trade) play survival gameplay the way the official
+// The game scenarios (dive, trade) play survival gameplay the way the official
 // client does it: server-authoritative inventories (ItemStackRequest), item use and entity interaction
 // (InventoryTransaction) and server-authoritative block breaking (PlayerAuthInput block actions). A script
 // runs in its own goroutine once the bot is initialised; it reads the packets the connection loop decodes
@@ -26,7 +25,7 @@ import (
 // commands: the bot writes {"type":"command","line":...} records and flushes, the caller (cargo xtask p6)
 // runs each line on the server console, and the bot waits for the effect. Every scenario first teleports the
 // bot to its own area, so the absolute positions are the same on every server with the same flat world.
-// Like the client, the bot first ends its loading screen (ServerBoundLoadingScreen start and end: BDS refuses
+// Like the client, the bot first ends its loading screen (ServerBoundLoadingScreen start and end: the official server refuses
 // block interactions before the end) and then sends a PlayerAuthInput every tick (inputLoop).
 //
 // The script records {"type":"step"} lines (what it is about to do, with the request it sends; "setup" marks
@@ -42,13 +41,9 @@ const feedLimit = 1 << 18
 
 // gameScenarios are the game scenarios and their scripts (scenarios.go), with the API scenarios (api.go).
 var gameScenarios = map[string]func(*game) error{
-	"craft":     playCraft,
-	"furnace":   playFurnace,
-	"enchant":   playEnchant,
-	"crops":     playCrops,
-	"trade":     playTrade,
+	"dive":      (*game).dive,
+	"trade":    playTrade,
 	"commands":  playCommands,
-	"particles": playParticles,
 	"kick":      playKick,
 	"forms":     playForms,
 	"script":    playScript,
@@ -61,13 +56,9 @@ var gameScenarios = map[string]func(*game) error{
 // world whose grass is at y -61, far enough apart that the blocks of one never touch another. The script
 // scenario has none: it does not teleport.
 var gameAreas = map[string]protocol.BlockPos{
-	"craft":     {-12, -60, -12},
-	"furnace":   {-12, -60, -4},
-	"enchant":   {-12, -60, 4},
-	"crops":     {-12, -60, 12},
-	"trade":     {-12, -60, 20},
+	"dive":      {-12, -60, -12},
+	"trade":    {-12, -60, 20},
 	"commands":  {-4, -60, -12},
-	"particles": {-4, -60, -4},
 	"kick":      {-4, -60, 4},
 	"forms":     {-4, -60, 12},
 	"weather":   {4, -60, -12},
@@ -155,8 +146,8 @@ func (s stack) instance() protocol.ItemInstance {
 	return protocol.ItemInstance{StackNetworkID: s.id, Stack: s.item}
 }
 
-// slotRef is a slot of a window: the inventory (0), the UI (124: cursor 0, crafting grid 28-40, enchanting
-// 14-15, grindstone 16-17, trade ingredients 4-5, created output 50) or the opened container (its window ID).
+// slotRef is a slot of a window: the inventory (0), the UI (124: cursor 0, trade ingredients 4-5,
+// created output 50) or the opened container (its window ID).
 type slotRef struct {
 	window uint32
 	slot   byte
@@ -171,7 +162,6 @@ type game struct {
 	closed bool
 
 	names     map[int32]string
-	recipes   []recipe
 	runtimeID uint64
 	pos       mgl32.Vec3 // eye position
 	slots     map[slotRef]stack
@@ -181,7 +171,6 @@ type game struct {
 	items     map[uint64]protocol.ItemInstance
 	positions map[uint64]mgl32.Vec3
 	unique    map[int64]uint64
-	options   []protocol.EnchantmentOption
 	trade     *packet.UpdateTrade
 	attrs     map[string]float32
 	nextReq   int32
@@ -194,27 +183,16 @@ type game struct {
 	// flags is the bot's own entity flags (entity data key 0) as last sent.
 	flags int64
 	// available is the last AvailableCommands, displays the forms, scoreboards and boss bar shown, and
-	// lastOutput the output of the last player command (api.go), and clock the world time the server
-	// last sent.
+	// lastOutput the output of the last player command (api.go).
 	available  *packet.AvailableCommands
 	displays   *displays
 	lastOutput *packet.CommandOutput
-	clock      any
 	// weather is what the weather scenarios saw since their last check (weather.go).
 	weather weatherLog
 	// verify is what the verification scenarios keep (verify.go).
 	verify verifyLog
 	// noSteps leaves step lines out while it is set (a part whose steps differ between servers).
 	noSteps bool
-}
-
-// recipe is a crafting recipe from CraftingData.
-type recipe struct {
-	id        string
-	networkID uint32
-	block     string
-	input     []protocol.ItemDescriptorCount
-	output    []protocol.ItemStack
 }
 
 func newGame(s *session, ctx context.Context) *game {
@@ -444,8 +422,6 @@ func (g *game) observe(pk packet.Packet) {
 		for _, it := range pk.Items {
 			g.names[int32(it.RuntimeID)] = it.Name
 		}
-	case *packet.CraftingData:
-		g.craftingData(pk)
 	case *packet.Respawn:
 		if pk.State == packet.RespawnStateReadyToSpawn {
 			g.pos = pk.Position
@@ -469,7 +445,7 @@ func (g *game) observe(pk packet.Packet) {
 	case *packet.InventorySlot:
 		g.setSlot(slotRef{pk.WindowID, byte(pk.Slot)}, pk.NewItem)
 	case *packet.InventoryTransaction:
-		// BDS tells the client about picked up items with a transaction of container actions.
+		// The official server tells the client about picked up items with a transaction of container actions.
 		for _, a := range pk.Actions {
 			w, ok := a.WindowID.Value()
 			if a.SourceType == protocol.InventoryActionSourceContainer && ok && w >= 0 {
@@ -519,18 +495,8 @@ func (g *game) observe(pk packet.Packet) {
 			delete(g.actors, rid)
 			delete(g.unique, pk.EntityUniqueID)
 		}
-	case *packet.PlayerEnchantOptions:
-		g.options = pk.Options
 	case *packet.UpdateTrade:
 		g.trade = pk
-	case *packet.SetTime:
-		g.clock = pk.Time
-	case *packet.SyncWorldClocks:
-		if len(pk.SyncStates) > 0 {
-			g.clock = pk.SyncStates[0].Time
-		} else if len(pk.Clocks) > 0 {
-			g.clock = pk.Clocks[0].Time
-		}
 	case *packet.SetActorData:
 		if f, ok := pk.EntityMetadata[protocol.EntityDataKeyFlags].(int64); ok && pk.EntityRuntimeID == g.runtimeID {
 			g.flags = f
@@ -547,21 +513,6 @@ func (g *game) observe(pk packet.Packet) {
 // breathing reports the bot's own Breathing entity flag.
 func (g *game) breathing() bool {
 	return g.flags&(1<<protocol.EntityDataFlagBreathing) != 0
-}
-
-// craftingData keeps the shaped and shapeless recipes, in network ID order.
-func (g *game) craftingData(pk *packet.CraftingData) {
-	for _, r := range pk.ShapedRecipes {
-		g.recipes = append(g.recipes, recipe{id: r.RecipeID, networkID: r.RecipeNetworkID, block: r.Block, input: r.Input, output: r.Output})
-	}
-	for _, r := range pk.ShapelessRecipes {
-		g.recipes = append(g.recipes, recipe{id: r.RecipeID, networkID: r.RecipeNetworkID, block: r.Block, input: r.Input, output: r.Output})
-	}
-	for _, r := range pk.SmithingTransformRecipes {
-		input := []protocol.ItemDescriptorCount{r.Base, r.Addition, r.Template}
-		g.recipes = append(g.recipes, recipe{id: r.RecipeID, networkID: r.RecipeNetworkID, block: r.Block, input: input, output: []protocol.ItemStack{r.Result}})
-	}
-	slices.SortFunc(g.recipes, func(a, b recipe) int { return cmp.Compare(a.networkID, b.networkID) })
 }
 
 // setSlot stores a slot the server sent.
@@ -714,15 +665,10 @@ func (g *game) refOf(container, slot byte) (slotRef, bool) {
 	switch container {
 	case protocol.ContainerCombinedHotBarAndInventory, protocol.ContainerHotBar, protocol.ContainerInventory:
 		return slotRef{protocol.WindowIDInventory, slot}, true
-	case protocol.ContainerCursor, protocol.ContainerCraftingInput, protocol.ContainerCreatedOutput,
-		protocol.ContainerEnchantingInput, protocol.ContainerEnchantingMaterial,
+	case protocol.ContainerCursor, protocol.ContainerCreatedOutput,
 		protocol.ContainerTradeTwoIngredientOne, protocol.ContainerTradeTwoIngredientTwo,
 		protocol.ContainerTradeTwoResultPreview, protocol.ContainerTradeIngredientOne,
-		protocol.ContainerTradeIngredientTwo, protocol.ContainerTradeResultPreview,
-		protocol.ContainerGrindstoneInput, protocol.ContainerGrindstoneAdditional, protocol.ContainerGrindstoneResultPreview,
-		protocol.ContainerAnvilInput, protocol.ContainerAnvilMaterial, protocol.ContainerSmithingTableInput,
-		protocol.ContainerSmithingTableMaterial, protocol.ContainerSmithingTableTemplate,
-		protocol.ContainerBeaconPayment:
+		protocol.ContainerTradeIngredientTwo, protocol.ContainerTradeResultPreview:
 		return slotRef{protocol.WindowIDUI, slot}, true
 	case protocol.ContainerOffhand:
 		return slotRef{protocol.WindowIDOffHand, slot}, true
@@ -736,7 +682,7 @@ func (g *game) refOf(container, slot byte) (slotRef, bool) {
 }
 
 // predict applies the actions to a copy of the model the way the client predicts them; the created output
-// item of a craft is result.
+// item of a trade is result.
 func (g *game) predict(actions []protocol.StackRequestAction, result protocol.ItemStack) map[slotRef]stack {
 	slots := make(map[slotRef]stack, len(g.slots))
 	for k, v := range g.slots {
@@ -859,35 +805,6 @@ func (g *game) resultItem(it protocol.ItemStack) protocol.StackRequestItem {
 	}
 }
 
-// recipeFor returns the recipe for the block with the lowest network ID whose one output is the named item
-// and whose every ingredient is one of the allowed item names or tags. Recipe IDs differ between servers
-// (BDS names them, Anchor numbers them like PMMP), so the bot finds recipes by what they make and take.
-func (g *game) recipeFor(block, output string, allowed ...string) (recipe, error) {
-	for _, r := range g.recipes {
-		if r.block != block || len(r.output) != 1 || g.name(r.output[0]) != output {
-			continue
-		}
-		ok := true
-		for _, in := range r.input {
-			if in.Count == 0 {
-				continue
-			}
-			switch d := in.Descriptor.(type) {
-			case *protocol.DefaultItemDescriptor:
-				ok = ok && slices.Contains(allowed, d.Name)
-			case *protocol.ItemTagItemDescriptor:
-				ok = ok && slices.Contains(allowed, "#"+d.Tag)
-			default:
-				ok = false
-			}
-		}
-		if ok {
-			return r, nil
-		}
-	}
-	return recipe{}, fmt.Errorf("CraftingData has no %v recipe making %v from %v", block, output, allowed)
-}
-
 // hold selects the hotbar slot like the client: a MobEquipment with the item in it.
 func (g *game) hold(slot byte) error {
 	g.held = slot
@@ -900,7 +817,7 @@ func (g *game) hold(slot byte) error {
 }
 
 // useOnBlock clicks a block face with the held item (InventoryTransaction UseItem, ClickBlock). When uses
-// is set the click uses one of the held item up (placing it, bone meal), and the transaction carries that
+// is set the click uses one of the held item up (placing it), and the transaction carries that
 // predicted slot change, as the client's does.
 func (g *game) useOnBlock(name string, pos protocol.BlockPos, face int32, uses bool) error {
 	clicked := faceCentre(face)
@@ -1007,20 +924,6 @@ func (g *game) closeWindow(name string) error {
 	}
 	_, err := g.until("ContainerClose", gameWait, func(pk packet.Packet) bool {
 		_, ok := pk.(*packet.ContainerClose)
-		return ok
-	})
-	return err
-}
-
-// openInventory opens the player's own inventory like the client (Interact OpenInventory) and waits for the
-// server's ContainerOpen.
-func (g *game) openInventory() error {
-	g.step("open inventory", nil)
-	if err := g.s.send(&packet.Interact{ActionType: packet.InteractActionOpenInventory, TargetEntityRuntimeID: g.runtimeID}); err != nil {
-		return err
-	}
-	_, err := g.until("ContainerOpen", gameWait, func(pk packet.Packet) bool {
-		_, ok := pk.(*packet.ContainerOpen)
 		return ok
 	})
 	return err

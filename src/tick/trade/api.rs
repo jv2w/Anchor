@@ -211,7 +211,7 @@ impl Context<'_> {
         change(self.state, villager, |o| o.set_xp(xp))
     }
 
-    /// Sets the trade xp each tier needs ([`custom::is_tier_xp`]; BDS's are 0,
+    /// Sets the trade xp each tier needs ([`custom::is_tier_xp`]; the defaults are 0,
     /// 10, 70, 150 and 250) and raises the tier to the highest one the xp reaches; higher
     /// needs keep the tier. Fails, changing nothing, with [`custom::Error::Offer`] for needs
     /// [`custom::is_tier_xp`] refuses, or with [`custom::Error::NotVillager`] as

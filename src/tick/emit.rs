@@ -1,13 +1,12 @@
-//! Sounds and particles the game plays at a place (PMMP `World::addSound`, `World::addParticle`,
-//! `Entity::broadcastSound`): the one way rule code plays a [`Sound`] or a [`Particle`], which
+//! Sounds and particles the game plays at a place: the one way rule code plays a [`Sound`] or a [`Particle`], which
 //! raises [`WorldSound`] or [`WorldParticle`] when something listens. The players who see the
 //! place's chunk hear and see it; a listener may change what plays or narrow who gets it, and those
-//! it names who do not see the place are left out (PMMP `filterViewersForPosition`).
+//! it names who do not see the place are left out.
 //!
 //! A direct API call raises no event: [`Context::add_sound`](crate::Context::add_sound) does not
 //! come here, and a rule that runs for a direct call (an explosion of `Context::explode`) plays
-//! with [`Raise::Quiet`]. Packets BDS sends that no PMMP sound or particle makes (block
-//! cracking, bone meal's growth sparkles, the generic particles of a projectile's hit, an
+//! with [`Raise::Quiet`]. Packets the official server sends that no sound or particle makes (block
+//! cracking, the generic particles of a projectile's hit, an
 //! explosion's level event) and the sounds of an entity (landing, falling: `world::Sound` leaves
 //! them out) are sent where they happen, without an event.
 

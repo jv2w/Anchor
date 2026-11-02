@@ -1,13 +1,13 @@
 //! `cargo xtask dump [--check]`: rebuilds the committed block and item data from
-//! the pinned external checkouts in `.cache/`. It converts the reference lists of dragonfly and
-//! `CloudburstMC` with `xtask/go/reference` into `xtask/data/reference/` first, as the PMMP run
-//! reads every reference block state with PMMP's deserializer; then it runs PMMP's own
-//! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/dump/`. It
-//! also copies `CloudburstMC`'s biome definitions, entity types and block shapes into
+//! the pinned external checkouts in `.cache/`. It converts the reference lists of sources A and B
+//! with `xtask/go/reference` into `xtask/data/reference/` first, as the dump run
+//! reads every reference block state with the dump source's deserializer; then it runs the dump
+//! source's own registries through `xtask/php/dump.php` with the dump PHP binary into
+//! `xtask/data/dump/`. It also copies source B's biome definitions, entity types and block shapes into
 //! `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and entity
 //! property definitions as network NBT and this command writes the per-field decode limits from
 //! Mojang's protocol schemas (`limits`). The block and item upgrade schemas and their golden files
-//! go to `xtask/data/upgrade/` (see `upgrade`); then BDS's per-state block physics of every
+//! go to `xtask/data/upgrade/` (see `upgrade`); then the official server's per-state block physics of every
 //! reference state goes to `block_physics.json` (for the block states Anchor shows but does not
 //! implement), which reads the copied 1.26.60 block schema. With `--check` it writes into
 //! `target/` and fails if a committed file differs. `verify` does not run it: it needs the
@@ -34,58 +34,46 @@ use crate::Mode;
 use crate::r#gen::biomes::{self, Biome, Colour};
 use crate::r#gen::upgrade::SCHEMA_1_26_60;
 
-/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
-/// `biome_definitions.json` holds generation data BDS does not send.
+/// Source B's biome definitions without chunk generation data: the content the official server
+/// sends. `biome_definitions.json` holds generation data the official server does not send.
 const BIOMES: &str = "stripped_biome_definitions.json";
 /// The block physics this command writes from [`REFERENCE_SOURCE_BLOCKS`].
 pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
-/// Blocks new in 1.26.60 that `CloudburstMC`'s per-state data lacks, with the block whose
+/// Blocks new in 1.26.60 that source B's per-state data lacks, with the block whose
 /// physics they take: the closest block of the same shape.
 const BORROWED_1_26_60: [(&str, &str); 3] = [
     ("minecraft:icicle", "minecraft:pointed_dripstone"),
     ("minecraft:ice_crystal", "minecraft:amethyst_cluster"),
     ("minecraft:disc_press", "minecraft:stone"),
 ];
-/// The pinned `CloudburstMC` checkout, relative to the repository root, and its commit.
-pub(crate) const REFERENCE_SOURCE: (&str, &str) = (
-    ".cache/reference-data",
-    "293c848098cc636a2758937fb6610b8bed1f12c5",
-);
-/// `CloudburstMC`'s per-state block data, which BDS dumps.
-const REFERENCE_SOURCE_BLOCKS: &str = "blocks.json";
-/// The pinned dragonfly checkout, relative to the repository root, and its commit.
-const DRAGONFLY: (&str, &str) = (
-    ".cache/dragonfly",
-    "d86aefd9ff9b6a357d6dfadab2093af811545256",
-);
-/// `CloudburstMC` files Anchor sends byte for byte: `AvailableActorIdentifiers`
-/// and the shapes of `VoxelShapes`.
-const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
-/// The PMMP PHP binary (pmmp/PHP-Binaries php-build-524, PHP 8.4 PM5 for Windows): plain PHP
-/// lacks the extensions PMMP's registries load.
-const PHP: &str = ".cache/dump-php/bin/php/php.exe";
-/// The pinned dump source checkout, relative to the repository root, and its commit.
-const DUMP_SOURCE: (&str, &str) = (".cache/dump", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
 /// The dumped blocks.
-pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
+pub(crate) const DUMP_BLOCKS: &str = "blocks.json";
 /// The dumped creative inventory.
-pub(crate) const PMMP_CREATIVE: &str = "creative.json";
+pub(crate) const DUMP_CREATIVE: &str = "creative.json";
 /// The dump source's reading of every reference block state.
-pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
+pub(crate) const DUMP_DESERIALIZED: &str = "deserialized.json";
 /// The dump output directory, relative to the repository root.
 pub(crate) const DUMP_DIR: &str = "xtask/data/dump";
 /// The files of [`DUMP_DIR`] this command writes.
-const PMMP_FILES: &[&str] = &[
-    PMMP_BLOCKS,
-    PMMP_DESERIALIZED,
-    PMMP_ITEMS,
-    PMMP_CREATIVE,
-    PMMP_TABLES,
+const DUMP_FILES: &[&str] = &[
+    DUMP_BLOCKS,
+    DUMP_DESERIALIZED,
+    DUMP_ITEMS,
+    DUMP_CREATIVE,
+    DUMP_TABLES,
 ];
 /// The dumped items.
-pub(crate) const PMMP_ITEMS: &str = "items.json";
+pub(crate) const DUMP_ITEMS: &str = "items.json";
+/// The pinned dump source checkout, relative to the repository root, and its commit.
+const DUMP_SOURCE: (&str, &str) = (".cache/dump", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
 /// The dumped tables of the other registries.
-pub(crate) const PMMP_TABLES: &str = "tables.json";
+pub(crate) const DUMP_TABLES: &str = "tables.json";
+/// Source B files Anchor sends byte for byte: `AvailableActorIdentifiers`
+/// and the shapes of `VoxelShapes`.
+const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
+/// The dump PHP binary (php-build-524, PHP 8.4 PM5 for Windows): plain PHP
+/// lacks the extensions the dump source's registries load.
+const PHP: &str = ".cache/dump-php/bin/php/php.exe";
 /// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
 const PROTOCOL_DOCS: (&str, &str) = (
     ".cache/bedrock-protocol-docs",
@@ -112,7 +100,19 @@ const REFERENCE_FILES: &[&str] = &[
 pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
 /// The reference list's items.
 pub(crate) const REFERENCE_ITEMS: &str = "items.json";
-/// The block shapes copied from `CloudburstMC`.
+/// The pinned reference list source A checkout, relative to the repository root, and its commit.
+const REFERENCE_SOURCE_A: (&str, &str) = (
+    ".cache/reference-a",
+    "d86aefd9ff9b6a357d6dfadab2093af811545256",
+);
+/// The pinned reference list source B checkout, relative to the repository root, and its commit.
+pub(crate) const REFERENCE_SOURCE: (&str, &str) = (
+    ".cache/reference-data",
+    "293c848098cc636a2758937fb6610b8bed1f12c5",
+);
+/// Source B's per-state block data, which holds the official server's block physics.
+const REFERENCE_SOURCE_BLOCKS: &str = "blocks.json";
+/// The block shapes copied from source B.
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
 
 /// Runs `dump`; in check mode, compares instead of writing. Returns the differing files on a
@@ -120,7 +120,7 @@ const VOXEL_SHAPES: &str = "voxel_shapes.json";
 pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     for (dir, commit) in [
         DUMP_SOURCE,
-        DRAGONFLY,
+        REFERENCE_SOURCE_A,
         REFERENCE_SOURCE,
         PROTOCOL_DOCS,
         upgrade::BLOCKS,
@@ -134,7 +134,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
             DUMP_SOURCE.0
         ));
     }
-    let (pmmp_out, reference_out, upgrade_out) = if mode == Mode::Check {
+    let (dump_out, reference_out, upgrade_out) = if mode == Mode::Check {
         let dir = root.join("target").join("xtask-dump");
         (dir.join("dump"), dir.join("reference"), dir.join("upgrade"))
     } else {
@@ -144,14 +144,14 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
             root.join(upgrade::OUT),
         )
     };
-    create_dir(&pmmp_out)?;
+    create_dir(&dump_out)?;
     create_dir(&reference_out)?;
 
-    // The reference list comes first: the PMMP dump reads its block states with PMMP.
+    // The reference list comes first: the dump reads its block states with the dump source.
     let status = Command::new("go")
-        .args(["run", "./reference", "-dragonfly"])
-        .arg(root.join(DRAGONFLY.0))
-        .arg("-refdata")
+        .args(["run", "./reference", "-reference-a"])
+        .arg(root.join(REFERENCE_SOURCE_A.0))
+        .arg("-reference-b")
         .arg(root.join(REFERENCE_SOURCE.0))
         .arg("-out")
         .arg(&reference_out)
@@ -164,13 +164,13 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     let status = Command::new(root.join(PHP))
         .args(["-d", "memory_limit=4G"])
         .arg(root.join("xtask").join("php").join("dump.php"))
-        .arg(&pmmp_out)
+        .arg(&dump_out)
         .arg(reference_out.join(REFERENCE_BLOCKS))
         .current_dir(root.join(DUMP_SOURCE.0))
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
     if !status.success() {
-        return Err(format!("the PMMP dump failed ({status})"));
+        return Err(format!("the dump failed ({status})"));
     }
     copy_biomes(root, &reference_out)?;
     for file in [ENTITY_IDENTIFIERS, VOXEL_SHAPES] {
@@ -193,7 +193,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
             }
         }
         for (committed, made, files) in [
-            (DUMP_DIR, &pmmp_out, PMMP_FILES),
+            (DUMP_DIR, &dump_out, DUMP_FILES),
             (REFERENCE_DIR, &reference_out, REFERENCE_FILES),
         ] {
             for file in files {
@@ -207,10 +207,10 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Vec<String>, String> {
     Ok(differ)
 }
 
-/// One biome of `CloudburstMC`'s file, by name.
+/// One biome of source B's file, by name.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct CloudburstBiome {
+struct OfficialBiome {
     id: Option<Json>,
     temperature: f64,
     downfall: f64,
@@ -227,12 +227,12 @@ struct CloudburstBiome {
     chunk_gen_data: Option<Json>,
 }
 
-/// Writes `CloudburstMC`'s biome definitions to `out` as [`biomes::FILE`], one biome per line in
-/// name order. Fails on a field the packet has no place for that is not null or zero: BDS sends no
-/// ID (-1) and no chunk generation data, and the densities have no packet field.
+/// Writes source B's biome definitions to `out` as [`biomes::FILE`], one biome per line in
+/// name order. Fails on a field the packet has no place for that is not null or zero: the official
+/// server sends no ID (-1) and no chunk generation data, and the densities have no packet field.
 fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
     let path = root.join(REFERENCE_SOURCE.0).join(BIOMES);
-    let all: BTreeMap<String, CloudburstBiome> =
+    let all: BTreeMap<String, OfficialBiome> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut text = "[\n".to_owned();
     for (i, (name, b)) in all.into_iter().enumerate() {
@@ -268,10 +268,10 @@ fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
     write(&out.join(biomes::FILE), text.as_bytes())
 }
 
-/// One block state of `CloudburstMC`'s per-state data: the fields Anchor reads.
+/// One block state of source B's per-state data: the fields Anchor reads.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CloudburstBlock {
+struct OfficialBlock {
     block_state_hash: i64,
     hardness: f64,
     light_emission: u8,
@@ -294,7 +294,7 @@ struct AddingSchema {
     added_properties: BTreeMap<String, BTreeMap<String, Json>>,
 }
 
-/// Writes the physics of every reference block state (BDS's values from `CloudburstMC`'s
+/// Writes the physics of every reference block state (the official server's values from source B's
 /// per-state data, see [`reference_physics`]) to `reference_out` as [`BLOCK_PHYSICS`]: `shapes`,
 /// the distinct collision box lists in order of first use, and `states`, one
 /// `[network ID, hardness, light emission, light dampening, shape]` per line in network ID order.
@@ -305,7 +305,7 @@ fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> 
             .join(upgrade::BLOCK_SCHEMAS)
             .join(SCHEMA_1_26_60),
     )?;
-    let official: Vec<CloudburstBlock> =
+    let official: Vec<OfficialBlock> =
         read_json_file(&root.join(REFERENCE_SOURCE.0).join(REFERENCE_SOURCE_BLOCKS))?;
     let physics = reference_physics(&reference, &schema.added_properties, &official)?;
     let mut shapes: Vec<&[[f64; 6]]> = Vec::new();
@@ -336,16 +336,16 @@ fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> 
     write(&reference_out.join(BLOCK_PHYSICS), text.as_bytes())
 }
 
-/// The BDS physics of every reference state by network ID.
+/// The official server's physics of every reference state by network ID.
 struct ReferencePhysics<'a> {
-    by_id: BTreeMap<u32, &'a CloudburstBlock>,
+    by_id: BTreeMap<u32, &'a OfficialBlock>,
     /// The states that took them by the connection rule.
     connected: usize,
     /// The states that took them by the borrowing rule.
     borrowed: usize,
 }
 
-/// The BDS physics of every reference state. `CloudburstMC`'s per-state data predates 1.26.60,
+/// The official server's physics of every reference state. Source B's per-state data predates 1.26.60,
 /// so two rules fill the states it lacks:
 /// - Connections: a state of a block of `connections` (block name to the 1.26.60 connection
 ///   properties) takes the physics of the same state without those properties, the state the
@@ -358,7 +358,7 @@ struct ReferencePhysics<'a> {
 fn reference_physics<'a>(
     reference: &[ReferenceState],
     connections: &BTreeMap<String, BTreeMap<String, Json>>,
-    official: &'a [CloudburstBlock],
+    official: &'a [OfficialBlock],
 ) -> Result<ReferencePhysics<'a>, String> {
     let mut official_by_id = BTreeMap::new();
     for b in official {
@@ -618,7 +618,7 @@ mod tests {
     }
 
     /// Runs on the committed reference list and 1.26.60 block schema with the pinned
-    /// `CloudburstMC` checkout in `.cache` (`cargo xtask dump` needs it too).
+    /// source B checkout in `.cache` (`cargo xtask dump` needs it too).
     #[test]
     fn the_1_26_60_states_without_official_physics_take_them_by_the_rules() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -635,7 +635,7 @@ mod tests {
                 .join(SCHEMA_1_26_60),
         )
         .unwrap();
-        let official: Vec<CloudburstBlock> = read_json_file(&official_path).unwrap();
+        let official: Vec<OfficialBlock> = read_json_file(&official_path).unwrap();
         let physics = reference_physics(&reference, &schema.added_properties, &official).unwrap();
         assert_eq!(physics.connected, CONNECTED_1_26_60);
         assert_eq!(physics.borrowed, BORROWED_STATES_1_26_60);

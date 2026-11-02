@@ -41,7 +41,7 @@ pub(crate) const MAX_TEXT: usize = 1024;
 /// The client orders the lines by score ([`Sort`], ascending unless set). A text line shows its
 /// text; a player line shows the player's name in the sidebar, its score next to its name in the
 /// player list ([`Slot::List`]) or below its name tag ([`Slot::BelowName`]). An empty text line
-/// is shown blank (filled with a colour code, as dragonfly does).
+/// is shown blank (filled with a colour code).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scoreboard {
     pub(crate) slot: Slot,
@@ -106,7 +106,7 @@ pub(crate) enum Holder {
 /// A boss bar: a title over a bar filled to its progress.
 ///
 /// Bedrock ties a boss bar to an entity; Anchor uses the player's own entity, whose bar the
-/// client lets the server set freely, as PMMP plugins and dragonfly do.
+/// client lets the server set freely.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BossBar {
     pub(crate) title: String,

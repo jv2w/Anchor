@@ -18,7 +18,7 @@ paths:
   - tick rules: under `tick/`;
   - world: `world`;
   - storage: `save`, `storage`, `import`, `export`, `replay`;
-  - block and item data: `block`, `item`, `crafting`, `effect`, `nbt`;
+  - block and item data: `block`, `item`, `effect`, `nbt`;
   - public API: `server` (re-exported at the crate root), `player`, `entity`, `event`, `command`, `form`, and the other modules reachable from the crate root;
   - foundation: `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error`, `args`.
 - Keep tick code and off-tick code in separate modules.

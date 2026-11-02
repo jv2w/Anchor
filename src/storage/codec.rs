@@ -437,7 +437,7 @@ impl Record for Mark {
     }
 }
 
-/// The value of a name or IP ban in `access` (PMMP `BanEntry` without the name, which is the
+/// The value of a name or IP ban in `access` (without the name, which is the
 /// key): the reason and the source as names (at most [`MAX_NAME_BYTES`]), the engine tick it was
 /// added at, then a flag byte and the engine tick it ends at.
 #[derive(Debug, Clone, PartialEq, Eq)]

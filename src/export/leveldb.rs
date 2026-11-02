@@ -5,8 +5,8 @@
 //! number 0: older than any write the game makes later, which LevelDB numbers from 1. Data
 //! blocks ([`blocks`]) are made from runs of keys apart, so runs can be built and compressed on
 //! the CPU pool: a run is cut into blocks of about [`DATA_BLOCK_BYTES`] with a restart every
-//! [`RESTART_INTERVAL`] keys (LevelDB's default), compressed with raw DEFLATE (id 4, as BDS
-//! writes its blocks). The [`Writer`] puts the blocks, in strictly increasing key
+//! [`RESTART_INTERVAL`] keys (LevelDB's default), compressed with raw DEFLATE (id 4, as the official
+//! server writes its blocks). The [`Writer`] puts the blocks, in strictly increasing key
 //! order, into tables of about [`TABLE_BYTES`] (LevelDB's default file size) with no filter.
 //! Every table is in the last level, where tables are sorted and disjoint and none is ever picked
 //! for a size compaction, so opening the database compacts nothing. The `MANIFEST` holds one
@@ -27,7 +27,7 @@ use crate::import::leveldb::table::{
 use crate::import::leveldb::{COMPARATOR, KIND_VALUE, LEVELS, TAG, masked_crc};
 use crate::protocol::compression::zlib::Encoder;
 
-/// The size a data block is closed at, before compression. BDS 1.26.52 writes blocks of over
+/// The size a data block is closed at, before compression. The official server 1.26.52 writes blocks of over
 /// 100 KiB (a 106,535-byte one in `xtask/data/import/flat`).
 pub(super) const DATA_BLOCK_BYTES: usize = 128 << 10;
 /// The DEFLATE level blocks are compressed at: zlib's default.

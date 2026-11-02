@@ -1,20 +1,20 @@
 // Command reference converts the reference lists into the committed JSON files that
 // `cargo xtask gen` and the tests read:
 //
-//	go run ./reference -dragonfly DIR -refdata DIR -out DIR
+//	go run ./reference -reference-a DIR -reference-b DIR -out DIR
 //
-// DIR are checkouts of df-mc/dragonfly and CloudburstMC/Data at the pinned commits (`cargo xtask dump`
+// DIR are the checkouts of reference list sources A and B at the pinned commits (`cargo xtask dump`
 // checks the commits). It writes:
-//   - blocks.json: every block state of dragonfly's block_states.nbt with the network ID CloudburstMC's
+//   - blocks.json: every block state of source A's block_states.nbt with the network ID source B's
 //     block_palette.nbt gives it. The two lists must hold exactly the same states (names, property names,
 //     types and values); any difference fails the run.
-//   - items.json: every item of dragonfly's vanilla_items.nbt (name, runtime ID, component flag, version,
+//   - items.json: every item of source A's vanilla_items.nbt (name, runtime ID, component flag, version,
 //     component data), sorted by runtime ID. Names, runtime IDs, versions and component flags must equal
-//     CloudburstMC's runtime_item_states.json.
-//   - item_blocks.json: the block state the vanilla creative inventory (CloudburstMC creative_items.json,
-//     checked against dragonfly's creative_items.nbt and the block list) gives each block item, for the
-//     items with a single such state. BDS sends block items with these states.
-//   - jigsaw_structure_data.dat, entity_properties.dat: CloudburstMC's jigsaw structure data and entity
+//     source B's runtime_item_states.json.
+//   - item_blocks.json: the block state the vanilla creative inventory (source B creative_items.json,
+//     checked against source A's creative_items.nbt and the block list) gives each block item, for the
+//     items with a single such state. The official server sends block items with these states.
+//   - jigsaw_structure_data.dat, entity_properties.dat: source B's jigsaw structure data and entity
 //     property definitions as the network NBT Anchor sends (network.go).
 //
 // NBT is read by a reader of its own so that list element types survive (gophertunnel's decoder drops the
@@ -40,18 +40,18 @@ import (
 )
 
 func main() {
-	dragonfly := flag.String("dragonfly", "", "df-mc/dragonfly checkout")
-	refdata := flag.String("refdata", "", "CloudburstMC/Data checkout")
+	sourceA := flag.String("reference-a", "", "reference list source A checkout")
+	sourceB := flag.String("reference-b", "", "reference list source B checkout")
 	out := flag.String("out", "", "output directory")
 	flag.Parse()
-	if *dragonfly == "" || *refdata == "" || *out == "" {
-		fail(errors.New("usage: reference -dragonfly DIR -refdata DIR -out DIR"))
+	if *sourceA == "" || *sourceB == "" || *out == "" {
+		fail(errors.New("usage: reference -reference-a DIR -reference-b DIR -out DIR"))
 	}
-	blocks, err := blockList(*dragonfly, *refdata)
+	blocks, err := blockList(*sourceA, *sourceB)
 	if err != nil {
 		fail(err)
 	}
-	items, err := itemList(*dragonfly, *refdata)
+	items, err := itemList(*sourceA, *sourceB)
 	if err != nil {
 		fail(err)
 	}
@@ -61,14 +61,14 @@ func main() {
 	if err := writeLines(filepath.Join(*out, "items.json"), items); err != nil {
 		fail(err)
 	}
-	itemBlocks, err := itemBlockList(*dragonfly, *refdata, blocks)
+	itemBlocks, err := itemBlockList(*sourceA, *sourceB, blocks)
 	if err != nil {
 		fail(err)
 	}
 	if err := writeLines(filepath.Join(*out, "item_blocks.json"), itemBlocks); err != nil {
 		fail(err)
 	}
-	if err := writeNetworkCopies(*refdata, *out); err != nil {
+	if err := writeNetworkCopies(*sourceB, *out); err != nil {
 		fail(err)
 	}
 	fmt.Printf("reference: %d block states, %d items, %d item block states\n", len(blocks), len(items), len(itemBlocks))
@@ -89,14 +89,14 @@ type block struct {
 
 // blockList reads both block lists, checks they hold the same states and returns them sorted by name and
 // then by the JSON form of their states.
-func blockList(dragonfly, refdata string) ([]block, error) {
-	raw, err := os.ReadFile(filepath.Join(dragonfly, "server", "world", "block_states.nbt"))
+func blockList(sourceA, sourceB string) ([]block, error) {
+	raw, err := os.ReadFile(filepath.Join(sourceA, "server", "world", "block_states.nbt"))
 	if err != nil {
 		return nil, err
 	}
 	r := &reader{b: raw, network: true}
 	type key struct{ name, states string }
-	df := map[key]block{}
+	fromA := map[key]block{}
 	var order []key
 	for r.len() > 0 {
 		root, err := r.root()
@@ -108,14 +108,14 @@ func blockList(dragonfly, refdata string) ([]block, error) {
 			return nil, fmt.Errorf("block_states.nbt: %w", err)
 		}
 		k := key{b.Name, canonical(b.States)}
-		if _, ok := df[k]; ok {
+		if _, ok := fromA[k]; ok {
 			return nil, fmt.Errorf("block_states.nbt: %v %v twice", k.name, k.states)
 		}
-		df[k] = b
+		fromA[k] = b
 		order = append(order, k)
 	}
 
-	gz, err := os.ReadFile(filepath.Join(refdata, "block_palette.nbt"))
+	gz, err := os.ReadFile(filepath.Join(sourceB, "block_palette.nbt"))
 	if err != nil {
 		return nil, err
 	}
@@ -155,24 +155,24 @@ func blockList(dragonfly, refdata string) ([]block, error) {
 			return nil, fmt.Errorf("block_palette.nbt: entry %d has no network_id", i)
 		}
 		k := key{b.Name, canonical(b.States)}
-		d, ok := df[k]
+		d, ok := fromA[k]
 		if !ok {
-			return nil, fmt.Errorf("CloudburstMC has %v %v, dragonfly does not", k.name, k.states)
+			return nil, fmt.Errorf("source B has %v %v, source A does not", k.name, k.states)
 		}
 		if seen[k] {
 			return nil, fmt.Errorf("block_palette.nbt: %v %v twice", k.name, k.states)
 		}
 		if d.Version != b.Version {
-			return nil, fmt.Errorf("%v %v: version %d in dragonfly, %d in CloudburstMC", k.name, k.states, d.Version, b.Version)
+			return nil, fmt.Errorf("%v %v: version %d in source A, %d in source B", k.name, k.states, d.Version, b.Version)
 		}
 		seen[k] = true
 		d.NetworkID = uint32(id)
-		df[k] = d
+		fromA[k] = d
 	}
 	var out []block
 	for _, k := range order {
 		if !seen[k] {
-			return nil, fmt.Errorf("dragonfly has %v %v, CloudburstMC does not", k.name, k.states)
+			return nil, fmt.Errorf("source A has %v %v, source B does not", k.name, k.states)
 		}
 	}
 	slices.SortFunc(order, func(a, b key) int {
@@ -182,7 +182,7 @@ func blockList(dragonfly, refdata string) ([]block, error) {
 		return strings.Compare(a.states, b.states)
 	})
 	for _, k := range order {
-		out = append(out, df[k])
+		out = append(out, fromA[k])
 	}
 	return out, nil
 }
@@ -219,10 +219,10 @@ type item struct {
 	Data           map[string]any `json:"data"`
 }
 
-// itemList reads dragonfly's item list, checks it against CloudburstMC's and returns it sorted by runtime
+// itemList reads source A's item list, checks it against source B's and returns it sorted by runtime
 // ID.
-func itemList(dragonfly, refdata string) ([]item, error) {
-	raw, err := os.ReadFile(filepath.Join(dragonfly, "server", "world", "vanilla_items.nbt"))
+func itemList(sourceA, sourceB string) ([]item, error) {
+	raw, err := os.ReadFile(filepath.Join(sourceA, "server", "world", "vanilla_items.nbt"))
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,7 @@ func itemList(dragonfly, refdata string) ([]item, error) {
 		}
 	}
 
-	js, err := os.ReadFile(filepath.Join(refdata, "runtime_item_states.json"))
+	js, err := os.ReadFile(filepath.Join(sourceB, "runtime_item_states.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func itemList(dragonfly, refdata string) ([]item, error) {
 		return nil, fmt.Errorf("runtime_item_states.json: %w", err)
 	}
 	if len(cb) != len(items) {
-		return nil, fmt.Errorf("dragonfly has %d items, CloudburstMC %d", len(items), len(cb))
+		return nil, fmt.Errorf("source A has %d items, source B %d", len(items), len(cb))
 	}
 	byName := map[string]item{}
 	for _, it := range items {
@@ -289,10 +289,10 @@ func itemList(dragonfly, refdata string) ([]item, error) {
 	for _, c := range cb {
 		it, ok := byName[c.Name]
 		if !ok {
-			return nil, fmt.Errorf("CloudburstMC has item %v, dragonfly does not", c.Name)
+			return nil, fmt.Errorf("source B has item %v, source A does not", c.Name)
 		}
 		if it.RuntimeID != c.ID || it.Version != c.Version || it.ComponentBased != c.ComponentBased {
-			return nil, fmt.Errorf("item %v differs: dragonfly %+v, CloudburstMC %+v", c.Name, it, c)
+			return nil, fmt.Errorf("item %v differs: source A %+v, source B %+v", c.Name, it, c)
 		}
 	}
 	return items, nil

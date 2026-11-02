@@ -18,7 +18,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
-// worlddataCommand compares the world packets of a capture with CloudburstMC's data:
+// worlddataCommand compares the world packets of a capture with the reference data:
 //
 //	bot worlddata -world CAPTURE.world.jsonl -data DIR
 //
@@ -30,7 +30,7 @@ import (
 func worlddataCommand(args []string, out io.Writer) (bool, error) {
 	fs := flag.NewFlagSet("bot worlddata",flag.ContinueOnError)
 	world := fs.String("world", "", "the capture's .world.jsonl file")
-	data := fs.String("data", "", "the CloudburstMC Data checkout")
+	data := fs.String("data", "", "the reference data checkout")
 	if err := fs.Parse(args); err != nil {
 		return false, err
 	}
@@ -115,7 +115,7 @@ func decodeJSON(b []byte) (any, error) {
 	return v, err
 }
 
-// biome is the content of one biome definition that both the packet and CloudburstMC's file hold.
+// biome is the content of one biome definition that both the packet and the reference file hold.
 type biome struct {
 	ID                                        *int64
 	Temperature, Downfall, FoliageSnow, Depth float32
@@ -187,7 +187,7 @@ func packetBiomes(fields any) (map[string]biome, error) {
 	return out, nil
 }
 
-// worlddataBiomes reads CloudburstMC's biome definition file. Its density fields have no packet field; a
+// worlddataBiomes reads the reference biome definition file. Its density fields have no packet field; a
 // non-zero one is reported.
 func worlddataBiomes(path string) (map[string]biome, error) {
 	raw, err := os.ReadFile(path)
@@ -243,7 +243,7 @@ func worlddataBiomes(path string) (map[string]biome, error) {
 	return out, nil
 }
 
-// compareBiomes compares a BiomeDefinitionList's fields with CloudburstMC's file.
+// compareBiomes compares a BiomeDefinitionList's fields with the reference file.
 func compareBiomes(fields any, path string) ([]string, error) {
 	got, err := packetBiomes(fields)
 	if err != nil {
@@ -271,19 +271,19 @@ func compareBiomes(fields any, path string) ([]string, error) {
 		w, inWant := want[n]
 		switch {
 		case !inGot:
-			differences = append(differences, fmt.Sprintf("biome %v: only in CloudburstMC", n))
+			differences = append(differences, fmt.Sprintf("biome %v: only in the reference", n))
 		case !inWant:
 			differences = append(differences, fmt.Sprintf("biome %v: only in the capture", n))
 		case len(w.ExtraNonZero) > 0:
-			differences = append(differences, fmt.Sprintf("biome %v: CloudburstMC has non-zero %v", n, w.ExtraNonZero))
+			differences = append(differences, fmt.Sprintf("biome %v: the reference has non-zero %v", n, w.ExtraNonZero))
 		case !reflect.DeepEqual(g, w):
-			differences = append(differences, fmt.Sprintf("biome %v: capture %+v != CloudburstMC %+v", n, g, w))
+			differences = append(differences, fmt.Sprintf("biome %v: capture %+v != reference %+v", n, g, w))
 		}
 	}
 	return differences, nil
 }
 
-// compareJigsaw compares a JigsawStructureData's fields with CloudburstMC's NBT file, both as typed NBT JSON.
+// compareJigsaw compares a JigsawStructureData's fields with the reference NBT file, both as typed NBT JSON.
 func compareJigsaw(fields any, path string) ([]string, error) {
 	gz, err := os.ReadFile(path)
 	if err != nil {
@@ -319,7 +319,7 @@ func compareJigsaw(fields any, path string) ([]string, error) {
 
 // sortByIdentifier sorts each top-level list of a typed-JSON StructureData compound (jigsaws, processors,
 // structure_sets, template_pools) by its entries' description.identifier. Each list is a set of definitions
-// that the data refers to by identifier (start_pool, structure), and BDS's Linux build sends template_pools
+// that the data refers to by identifier (start_pool, structure), and the official server's Linux build sends template_pools
 // in another order than its Windows build (xtask/data/p6/facts.md). Lists inside an entry keep their order.
 func sortByIdentifier(data any) {
 	top, _ := at(data, "compound").(map[string]any)

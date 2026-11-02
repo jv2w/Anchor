@@ -1,6 +1,6 @@
 //! Exporting a persistent world as a Bedrock (LevelDB) world folder, the reverse of the import:
 //! [`Server::export_world`](crate::Server::export_world) reads the world's file and writes a
-//! folder that BDS and the game open, and returns a [`Report`].
+//! folder that the official server and the game open, and returns a [`Report`].
 //!
 //! The world file is opened read-only and read in one read transaction (`storage::Snapshot`), so
 //! the folder holds one commit; a file a server has open is refused, and so is one later than

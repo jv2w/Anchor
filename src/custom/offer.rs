@@ -6,7 +6,7 @@
 
 use crate::item::Stack;
 
-/// The price multiplier BDS gives most offers (P6, `xtask/data/p6/facts.md`).
+/// The price multiplier the official server gives most offers (P6, `xtask/data/p6/facts.md`).
 pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 
 /// The most offers one villager holds ([`check_offers`](super::check_offers)): well above the
@@ -23,7 +23,7 @@ pub const MAX_OFFERS: usize = 128;
 /// [`Context::set_trade_tier_xp`]: crate::Context::set_trade_tier_xp
 pub const MAX_TRADE_COUNTER: u32 = i32::MAX.cast_unsigned();
 
-/// The highest villager tier, master (BDS `MaxTradeTier`); tiers start at 0, novice.
+/// The highest villager tier, master; tiers start at 0, novice.
 pub const MAX_TRADE_TIER: u8 = 4;
 
 /// The number of villager tiers, 0 to [`MAX_TRADE_TIER`].
@@ -50,7 +50,7 @@ pub struct Offer {
 }
 
 impl Offer {
-    /// An offer of `sell` for `buy` at most `max_uses` times, with BDS's defaults: no second
+    /// An offer of `sell` for `buy` at most `max_uses` times, with the official server's defaults: no second
     /// payment, tier 0 (novice), no villager xp, reward orbs for the player, price
     /// multipliers 0.05, demand 0.
     pub fn new(buy: Stack, sell: Stack, max_uses: u32) -> Self {
@@ -69,7 +69,7 @@ impl Offer {
         }
     }
 
-    /// The same offer taking its payments of any damage (worn tools, any meta), as BDS offers
+    /// The same offer taking its payments of any damage (worn tools, any meta), as the official server's offers
     /// carry `Damage` 32767.
     #[must_use]
     pub fn with_any_damage(mut self) -> Self {

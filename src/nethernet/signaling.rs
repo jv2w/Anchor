@@ -3,7 +3,7 @@
 //! It answers `GET /v1/join` with the server-list status and hands `POST /v1/join/{networkId}`
 //! offers to the offer consumer, within the connection, size and time limits below. It never
 //! reads the SDP.
-//! Responses copy BDS 1.26.52: each one closes the connection, and a failed negotiation is still
+//! Responses copy the official server 1.26.52: each one closes the connection, and a failed negotiation is still
 //! `200` with the error code as an `application/sdp` body.
 
 use std::collections::BTreeMap;
@@ -33,7 +33,7 @@ use crate::raknet::ip_key;
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// The connections the kernel queues before they are accepted.
 const BACKLOG: i32 = 128;
-/// What BDS sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
+/// What the official server sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
 /// holding a fatal `handshake_failure`.
 const HANDSHAKE_FAILURE: [u8; 7] = [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
 /// The largest request body after chunked decoding, in bytes: the SDP offer limit.
@@ -201,7 +201,7 @@ impl Code {
 pub(crate) enum Reply {
     /// `200`, `application/sdp`, the answer SDP.
     Answer(String),
-    /// `200`, `application/sdp`, the negotiation error code in decimal (BDS).
+    /// `200`, `application/sdp`, the negotiation error code in decimal.
     Code(Code),
     /// `503 Service Unavailable`: too many peers before login.
     Busy,
@@ -289,12 +289,12 @@ impl Limits {
     }
 }
 
-/// A response status. Except `200`, the reason phrase is also the `text/plain` body, as in BDS.
+/// A response status. Except `200`, the reason phrase is also the `text/plain` body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Ok,
     BadRequest,
-    /// BDS puts this message in the status line.
+    /// The official server puts this message in the status line.
     BadNetworkId,
     NotFound,
     PayloadTooLarge,
@@ -934,7 +934,7 @@ fn canonical(addr: SocketAddr) -> SocketAddr {
     SocketAddr::new(addr.ip().to_canonical(), addr.port())
 }
 
-/// The route of a request, like BDS: an unknown path, or a known path with another method, is
+/// The route of a request, like the official server: an unknown path, or a known path with another method, is
 /// `404`.
 fn route(method: Method, path: &str) -> Route {
     if method == Method::Get && path == "/v1/join" {
@@ -960,7 +960,7 @@ fn encode_status(status: Status) -> Vec<u8> {
     encode(status, Kind::Text, status.reason().as_bytes())
 }
 
-/// A failed negotiation: `200` with the code as the SDP body (BDS).
+/// A failed negotiation: `200` with the code as the SDP body.
 fn encode_code(code: Code) -> Vec<u8> {
     encode(Status::Ok, Kind::Sdp, code.number().to_string().as_bytes())
 }
@@ -1181,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn requests_get_bds_responses() {
+    fn requests_get_the_official_responses() {
         run(requests_get_responses());
     }
 
@@ -1722,7 +1722,7 @@ mod tests {
     }
 
     #[test]
-    fn routes_follow_bds() {
+    fn routes_follow_the_official_server() {
         assert_eq!(route(Method::Get, "/v1/join"), Route::Status);
         assert_eq!(route(Method::Post, "/v1/join/0"), Route::Offer(0));
         assert_eq!(

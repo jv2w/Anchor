@@ -1,11 +1,11 @@
 //! A read-only LevelDB reader for the `db` folder of a Bedrock world (Mojang's fork of LevelDB
-//! 1.x, as BDS writes it).
+//! 1.x, as the official server writes it).
 //!
 //! Opening writes nothing: no `LOCK`, no replay of the logs into new tables, no compaction
 //! (rusty-leveldb does all three to the source folder). `CURRENT` names the
 //! `MANIFEST`, whose version edits (google/leveldb `db/version_edit.cc`: tags 1 comparator,
 //! 2 log number, 3 next file number, 4 last sequence, 5 compaction pointer, 6 deleted table,
-//! 7 new table, 9 previous log number; BDS 1.26.52 writes 1 to 5 and 7) give the live tables per
+//! 7 new table, 9 previous log number; the official server 1.26.52 writes 1 to 5 and 7) give the live tables per
 //! level; tables on disk that the `MANIFEST` does not list are leftovers of a compaction and are
 //! not read, or they would bring back deleted values. The logs numbered at or above the log
 //! number (and the previous log, if any) hold the writes not yet in a table; they are read into

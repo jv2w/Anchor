@@ -1,6 +1,6 @@
 //! The biome definitions the client gets once in the spawn window.
 //!
-//! The 89 vanilla biomes BDS sends, generated from `CloudburstMC`'s stripped definitions into
+//! The 89 vanilla biomes the official server sends, generated from stripped definitions into
 //! [`table`].
 
 mod table;
@@ -8,10 +8,10 @@ mod table;
 use crate::protocol::BiomeDefinition;
 use crate::protocol::packet::BiomeDefinitionList;
 
-/// The biome ID BDS sends for every vanilla biome: the client finds a vanilla biome by its name.
+/// The biome ID the official server sends for every vanilla biome: the client finds a vanilla biome by its name.
 const VANILLA_ID: i16 = -1;
 
-/// One biome definition as BDS sends it, its strings as indices into [`table::STRINGS`].
+/// One biome definition as the official server sends it, its strings as indices into [`table::STRINGS`].
 #[derive(Debug)]
 struct Definition {
     /// The index of the biome's name.
@@ -36,7 +36,7 @@ struct Definition {
 
 /// The `BiomeDefinitionList` packet with every biome of the table.
 ///
-/// Every biome has the vanilla ID and no chunk generation data, like BDS.
+/// Every biome has the vanilla ID and no chunk generation data, like the official server.
 pub(crate) fn definition_list() -> BiomeDefinitionList {
     BiomeDefinitionList {
         biome_definitions: table::DEFINITIONS
@@ -72,11 +72,11 @@ mod tests {
 
     use crate::protocol::packet::Packet;
 
-    /// The payload size of BDS 1.26.52's `BiomeDefinitionList`.
+    /// The payload size of the official server 1.26.52's `BiomeDefinitionList`.
     ///
     /// P6 measured 7,668 bytes with the one-byte packet header. It depends only on the content,
     /// not on the order of biomes or strings.
-    const BDS_PAYLOAD_SIZE: usize = 7667;
+    const OFFICIAL_PAYLOAD_SIZE: usize = 7667;
 
     #[test]
     fn the_list_round_trips_with_every_biome_and_no_generation_data() {
@@ -91,7 +91,7 @@ mod tests {
         let packet = Packet::BiomeDefinitionList(list);
         let mut bytes = Vec::new();
         packet.encode(&mut bytes, 0).unwrap();
-        assert_eq!(bytes.len(), BDS_PAYLOAD_SIZE);
+        assert_eq!(bytes.len(), OFFICIAL_PAYLOAD_SIZE);
         let mut budget = usize::MAX;
         let decoded = Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap();
         assert_eq!(decoded, packet);

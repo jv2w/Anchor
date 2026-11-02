@@ -460,8 +460,7 @@ fn biomes_entities_and_pending_ticks_are_not_read() {
     assert_eq!(raw.ignored, vec![0x2b, 0x2d, 0x32, 0x33]);
 }
 
-/// The legacy terrain golden values: PMMP's `SubChunkConverter::convertSubChunkFromLegacyColumn`
-/// (ext-chunkutils2, run under the PM5 PHP build) on ids `(i * 7 + 3) & 0xff` and meta bytes
+/// The legacy terrain golden values, from the dump's converter, on ids `(i * 7 + 3) & 0xff` and meta bytes
 /// `(i * 13 + 5) & 0xff`, sub-chunk 3, returns `id << 4 | meta` at (x, y, z).
 const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
     ((0, 0, 0), 1341),
@@ -472,7 +471,7 @@ const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
 ];
 
 #[test]
-fn legacy_terrain_splits_the_column_like_pmmp() {
+fn legacy_terrain_splits_the_column_into_golden_values() {
     let mut terrain: Vec<u8> = (0..LEGACY_IDS_BYTES).map(|i| byte(i * 7 + 3)).collect();
     terrain.extend((0..LEGACY_META_BYTES).map(|i| byte(i * 13 + 5)));
     terrain.extend(vec![0; LEGACY_LIGHT_BYTES + 256]);
@@ -509,7 +508,7 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
     ));
 }
 
-/// The legacy sub-chunk golden values: PMMP's `SubChunkConverter::convertSubChunkXZY` on the
+/// The legacy sub-chunk golden values, from the dump's converter, on the
 /// first 4,096 ids and 2,048 meta bytes of the column above.
 const LEGACY_XZY_GOLDEN: [((usize, usize, usize), u16); 5] = [
     ((0, 0, 0), 53),
@@ -520,7 +519,7 @@ const LEGACY_XZY_GOLDEN: [((usize, usize, usize), u16); 5] = [
 ];
 
 #[test]
-fn legacy_sub_chunks_index_blocks_like_pmmp() {
+fn legacy_sub_chunks_index_blocks_into_golden_values() {
     let mut value = vec![0];
     value.extend((0..4096_usize).map(|i| byte(i * 7 + 3)));
     value.extend((0..2048_usize).map(|i| byte(i * 13 + 5)));

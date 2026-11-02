@@ -1,4 +1,4 @@
-//! Tests of trading: the screen BDS sends, the trade rules, the end of trading, and that nothing
+//! Tests of trading: the screen the official server sends, the trade rules, the end of trading, and that nothing
 //! stays behind. Villagers, windows and orbs are stand-ins here (the entity and inventory modules
 //! own them).
 
@@ -265,7 +265,7 @@ fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
 }
 
 #[test]
-fn the_trade_screen_is_the_one_bds_sends() {
+fn the_trade_screen_is_the_one_the_official_server_sends() {
     let mut server = Server::new(1);
     let v = server.villager(1, sample());
     assert!(server.open(1, v));
@@ -281,7 +281,7 @@ fn the_trade_screen_is_the_one_bds_sends() {
     assert_eq!(u.display_name, "entity.villager.farmer");
     assert!(u.new_trade_ui);
     assert!(u.demand_based_prices);
-    // The offers: BDS's root keys, every offer, IDs from the first one.
+    // The offers: the root keys, every offer, IDs from the first one.
     let offers = from_network_bytes(&u.serialised_offers);
     assert_eq!(
         offers.keys().collect::<Vec<_>>(),
@@ -450,10 +450,7 @@ fn trades_count_uses_up_to_the_repeat_cap() {
         before,
         "a sold-out offer counts nothing"
     );
-    assert!(
-        server.screens(1).is_empty(),
-        "no UpdateTrade after trades (BDS)"
-    );
+    assert!(server.screens(1).is_empty(), "no UpdateTrade after trades");
     assert!(server.state.trades.fixtures.drops.is_empty(), "no reward");
 }
 
@@ -481,7 +478,7 @@ fn trades_reward_orbs_and_raise_the_tier() {
         "each trade tells the villager's viewers of its tier and xp"
     );
     for s in [1, 2] {
-        // BDS sends no UpdateTrade at a new tier (P6 `tradeup`): the traders learn it from the
+        // The official server sends no UpdateTrade at a new tier (P6 `tradeup`): the traders learn it from the
         // villager's entity data (`traded` above).
         assert!(server.screens(s).is_empty(), "no new screen at a new tier");
     }

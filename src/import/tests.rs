@@ -1,4 +1,4 @@
-//! The world folder reader: the BDS fixture, the catalog, chunk reads, the source check, and its
+//! The world folder reader: the official server fixture, the catalog, chunk reads, the source check, and its
 //! file errors and limits.
 
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ const CONTINENTAL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/xtask/data/import/continental.kv"
 ));
-/// The world BDS 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
+/// The world the official server 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
 /// sign, a pig, an armor stand and pending ticks over five runs, so it has a table and a live log.
 pub(crate) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
@@ -84,7 +84,7 @@ fn put(key: Vec<u8>, value: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
 }
 
 #[test]
-fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
+fn the_official_fixture_reads_as_raw_chunks_without_writing() {
     let before = snapshot(Path::new(FIXTURE));
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
     assert_eq!(source.world().spawn, [0, 32_767, 0]);

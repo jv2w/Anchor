@@ -23,8 +23,8 @@
 //! command) ends the server without saving: [`Server::run`] writes the input log to `data/crash/`
 //! and returns [`Error::TickPanicked`].
 //!
-//! Items that come from PocketMine-MP carry its names as search aliases, so searching these docs
-//! for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
+//! Items that have a counterpart in the API table carry its names as search aliases, so
+//! searching these docs for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
 //! and tick, network, protocol, storage, data sources, dependencies, testing, and every
 //! `anchor.toml` key) are in the repository's `.claude/docs/` folder.
 //!

@@ -182,7 +182,7 @@ func playItemUse(g *game) error {
 			throw = map[string]any{"data": s.ExtraData, "height above the feet": fmt.Sprintf("%.2f", s.Position[1]-feetY)}
 		}
 	}
-	// The entity type of a sound without an entity ("" on BDS) differs between the servers: a fact.
+	// The entity type of a sound without an entity ("" on the official server) differs between the servers: a fact.
 	g.record("fact", map[string]any{"name": "trident sounds", "value": all})
 	g.check("trident throw sound", throw)
 	g.check("trident released", !g.usingItem())
@@ -197,7 +197,7 @@ func playItemUse(g *game) error {
 	if err := g.startUsing("drink the potion", ahead); err != nil {
 		return err
 	}
-	// BDS finishes the drink by its own clock, PMMP at the second ClickAir: the effect of either counts.
+	// The official server finishes the drink by its own clock, Anchor at the second ClickAir: the effect of either counts.
 	drunk, err := g.collect(500*time.Millisecond, g.effectDuration)
 	if err != nil {
 		return err

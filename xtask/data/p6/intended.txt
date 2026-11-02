@@ -1,63 +1,49 @@
 # Intended differences of `cargo xtask p6 api` (`xtask/data/p6/facts.md`): differences from
-# BDS that Anchor keeps on purpose, each with its reason. `p6 api compare` reports a difference
+# the official server that Anchor keeps on purpose, each with its reason. `p6 api compare` reports a difference
 # whose text is exactly a line's (in that line's scenario) as `intended` and does not fail for it;
 # any other difference still fails. A line the comparison no longer finds is printed as a note:
 # remove it then. Review every line like a code change.
 # <scenario> | <difference, exactly as printed after `DIFFERENT <scenario>: `> | <reason>
 # import | block <name> | <reason>
 
-# `/say`: BDS sends no CommandOutput and everyone a Text 8 `[name] message`; Anchor keeps PMMP's
-# `SayCommand`: the `§d%chat.type.announcement` translation and an empty CommandOutput.
-commands | command say hi: CommandOutput: A 0 != B 1 | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
-commands | command say hi: Text#0.TextType: A 8 != B 2 | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
-commands | command say hi: Text#0.NeedsTranslation: A false != B true | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
-commands | command say hi: Text#0.SourceName: A "P6Commands" != B "" | /say keeps PMMP's SayCommand: the translation has no source name
-commands | command say hi: Text#0.Message: A "[P6Commands] hi" != B "§d%chat.type.announcement" | /say keeps PMMP's SayCommand: §d%chat.type.announcement with the name and message as parameters
-commands | command say hi: Text#0.Parameters: A [] != B ["P6Commands","hi"] | /say keeps PMMP's SayCommand: §d%chat.type.announcement with the name and message as parameters
-commands | command say hi: output uuid_echoed: A null != B true | /say keeps PMMP's SayCommand: the empty CommandOutput echoes the request, BDS sends none
-commands | command say hi: CommandOutput: A none B sent | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
-
-# give: BDS names the item by its language-file name (`Stone`), Anchor by its ID: Anchor has no
-# item display name table (PMMP uses `Item::getName()`).
+# give: the official server names the item by its language-file name (`Stone`), Anchor by its ID:
+# Anchor has no item display name table.
 commands | command give @s stone 3: CommandOutput#0.OutputMessages: A [{"Message":"commands.give.success","Parameters":["Stone","3","P6Commands"],"Success":true}] != B [{"Message":"commands.give.success","Parameters":["minecraft:stone","3","P6Commands"],"Success":true}] | no item display name table: give names the item by its ID
 commands | command give @s stone 3: Text#0.Message: A "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"Stone\"},{\"text\":\"3\"}]}}]}\n" != B "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"minecraft:stone\"},{\"text\":\"3\"}]}}]}\n" | no item display name table: give names the item by its ID
 
-# gamemode: BDS sends no UpdateAbilities after a game mode change; Anchor sends it as PMMP and
-# dragonfly do, carrying the flight, collision, flight speed and operator values the API set (the
-# same values, harmless to the client).
-commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+# gamemode: the official server sends no UpdateAbilities after a game mode change; Anchor sends it,
+# carrying the flight, collision, flight speed and operator values the API set (the same values,
+# harmless to the client).
+commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change carrying the values the API set
 
 # `cargo xtask p6 import`: `import | block <name> | <reason>`. Where Anchor sends
 # `info_update` for an imported block it keeps as an unknown block (with its NBT, so nothing is
-# lost), BDS's block of a listed name is an intended difference. PMMP does not have these blocks
-# (xtask/data/dump/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
-# facing south for any facing: xtask/data/dump/deserialized.json) needs no line.
-import | block minecraft:bubble_column | PMMP has no bubble column; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:bush | PMMP has no bush; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:cinnabar | PMMP has no cinnabar; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:decorated_pot | PMMP has no decorated pot; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:dispenser | PMMP has no dispenser (redstone); kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:firefly_bush | PMMP has no firefly bush; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:seagrass | PMMP has no seagrass; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:sulfur | PMMP has no sulfur; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:trial_spawner | PMMP has no trial spawner; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:vault | PMMP has no vault; kept as an unknown block, sent as stored without server behaviour
-import | block minecraft:wildflowers | PMMP has no wildflowers; kept as an unknown block, sent as stored without server behaviour
+# lost), the official server's block of a listed name is an intended difference. The dump does not
+# have these blocks (xtask/data/dump/blocks.json). A block Anchor sends as the state the dump reads it
+# as (a pumpkin facing south for any facing: xtask/data/dump/deserialized.json) needs no line.
+import | block minecraft:bubble_column | the dump has no bubble column; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:bush | the dump has no bush; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:cinnabar | the dump has no cinnabar; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:decorated_pot | the dump has no decorated pot; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:dispenser | the dump has no dispenser (redstone); kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:firefly_bush | the dump has no firefly bush; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:seagrass | the dump has no seagrass; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:sulfur | the dump has no sulfur; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:trial_spawner | the dump has no trial spawner; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:vault | the dump has no vault; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:wildflowers | the dump has no wildflowers; kept as an unknown block, sent as stored without server behaviour
 
 # Verification scenarios (`xtask/data/p6/facts.md`): differences Anchor keeps on purpose.
-enchants | trident into the table: check options trident: A {"options":3,"slot":32768} != B {"options":0,"slot":null} | PMMP has no trident enchantments (impaling, loyalty, riptide, channeling): its enchanting table gives a trident no options
-potions | throw splash potion 42: check splash colours: A {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4294168505,"41":4294168505,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} != B {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4281884102,"41":4281884102,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} | PMMP has no slow falling effect: Anchor's slow falling potions (40, 41) have no effect and show the water colour
-syntax | command xp abc @s: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/xp ","abc"," @s"],"Success":false}] != B [{"Message":"commands.generic.usage","Parameters":["/xp <amount: string> [player: target]"],"Success":false}] | /xp keeps PMMP's single amount parameter (`10` or `10L`): a bad amount fits the overload and the handler answers with the usage
-syntax | command xp abc: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/xp ","abc",""],"Success":false}] != B [{"Message":"commands.generic.usage","Parameters":["/xp <amount: string> [player: target]"],"Success":false}] | /xp keeps PMMP's single amount parameter (`10` or `10L`): a bad amount fits the overload and the handler answers with the usage
-syntax | command gamemode survival: CommandOutput#0.SuccessCount: A 1 != B 0 | /gamemode to the mode a player has keeps PMMP's failure (BDS succeeds)
-syntax | command gamemode survival: CommandOutput#0.OutputMessages: A [{"Message":"commands.gamemode.success.self","Parameters":["%createWorldScreen.gameMode.survival"],"Success":true}] != B [{"Message":"The game mode of P6Syntax stays as it is","Parameters":[],"Success":false}] | /gamemode to the mode a player has keeps PMMP's failure (BDS succeeds)
-syntax | command gamemode survival: Text: A 1 != B 0 | /gamemode to the mode a player has keeps PMMP's failure (BDS tells the player of the change)
-syntax | command gamemode adventure: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
-syntax | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
-syntax | command gamemode spectator: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
-syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+potions | throw splash potion 42: check splash colours: A {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4294168505,"41":4294168505,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} != B {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4281884102,"41":4281884102,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} | the dump has no slow falling effect: Anchor's slow falling potions (40, 41) have no effect and show the water colour
+syntax | command gamemode survival: CommandOutput#0.SuccessCount: A 1 != B 0 | /gamemode to the mode a player has keeps the failure (the official server succeeds)
+syntax | command gamemode survival: CommandOutput#0.OutputMessages: A [{"Message":"commands.gamemode.success.self","Parameters":["%createWorldScreen.gameMode.survival"],"Success":true}] != B [{"Message":"The game mode of P6Syntax stays as it is","Parameters":[],"Success":false}] | /gamemode to the mode a player has keeps the failure (the official server succeeds)
+syntax | command gamemode survival: Text: A 1 != B 0 | /gamemode to the mode a player has keeps the failure (the official server tells the player of the change)
+syntax | command gamemode adventure: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change carrying the values the API set
+syntax | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change carrying the values the API set
+syntax | command gamemode spectator: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change carrying the values the API set
+syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change carrying the values the API set
 
-# Other players' movement: BDS sends it as MovePlayer, which the client applies
-# at once (20 jumps a second); Anchor sends MoveActorAbsolute, which the client interpolates, as
-# PMMP and dragonfly do. Teleports stay MovePlayer mode 2 on both.
-others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true} != B {"MoveActorAbsolute":true} | other players move by MoveActorAbsolute, which the client interpolates (PMMP broadcastMovement); MovePlayer snaps them
+# Other players' movement: the official server sends it as MovePlayer, which the client applies
+# at once (20 jumps a second); Anchor sends MoveActorAbsolute, which the client interpolates.
+# Teleports stay MovePlayer mode 2 on both.
+others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true} != B {"MoveActorAbsolute":true} | other players move by MoveActorAbsolute, which the client interpolates; MovePlayer snaps them

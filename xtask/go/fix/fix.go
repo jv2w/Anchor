@@ -71,7 +71,7 @@ var replacements = []replacement{
 			"\t\t\tuint64(len(animation.ImageData))/4*4 != uint64(len(animation.ImageData)) {\n",
 	},
 	// Entity data keys: 139 is reserved and 140 is the name tag render distance. The arrow and firework
-	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte BDS 1.26.60 sends players
+	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte the official server 1.26.60 sends players
 	// (P6), with no public name.
 	{
 		file: "entity_metadata.go",

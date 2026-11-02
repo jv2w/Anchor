@@ -98,7 +98,7 @@ pub(crate) struct Identity {
     /// (`PlayerListEntry::skin`; `AddPlayer` has no skin: a client needs the list entry first).
     pub(crate) skin: Skin,
     /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
-    /// player list's `BuildPlatform` (BDS sends it, P6).
+    /// player list's `BuildPlatform` (the official server sends it, P6).
     pub(crate) device_os: i32,
     /// The address the client connected from, which IP bans match; `None` when unknown
     /// (tests).
@@ -151,8 +151,7 @@ super::checkpoint::fields!(Identity {
 });
 
 /// What the login's client data and identity token and the connection tell about the client
-/// besides who it is (PMMP `PlayerInfo::getLocale`, `PlayerInfo::getExtraData`,
-/// `NetworkSession::getPort`). Every client data text is the client's own claim; the login checked
+/// besides who it is. Every client data text is the client's own claim; the login checked
 /// the locale (a language tag of at most 64 bytes), the game version (digits and dots), the
 /// self-signed ID (empty or a UUID) and the server address (a host and port). The token's PlayFab
 /// ID is bounded by the token's own cap ([`MAX_TOKEN_PAYLOAD_BYTES`](crate::login::MAX_TOKEN_PAYLOAD_BYTES)).
@@ -421,8 +420,8 @@ pub(crate) enum InputKind {
     Measure(Measure),
 }
 
-/// A value measured off the tick: what PMMP reads from the wall clock or the network when asked,
-/// Anchor reads from the input log.
+/// A value measured off the tick: what the wall clock or the network would tell,
+/// read from the input log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Measure {
     /// How long the previous tick took, in microseconds (at most `u32::MAX`), on
@@ -431,8 +430,7 @@ pub(crate) enum Measure {
     /// The session's latest round trip time, in milliseconds: the RakNet ping or the NetherNet
     /// ICE consent check.
     Ping(u32),
-    /// The connections the networking holds, on [`SessionId::NETWORK`] (PMMP
-    /// `Network::getConnectionCount`, `Network::getValidConnectionCount`).
+    /// The connections the networking holds, on [`SessionId::NETWORK`].
     Connections {
         /// Every connection with a session, logged in or not.
         all: u32,
@@ -448,8 +446,7 @@ pub(crate) enum Measure {
     },
 }
 
-/// What the tick asks of the networking (PMMP `Network::setName`, `Network::blockAddress`,
-/// `Network::unblockAddress`). The networking applies it when it reads it; nothing comes back.
+/// What the tick asks of the networking. The networking applies it when it reads it; nothing comes back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Control {
     /// The server list shows this name (a checked `motd`).

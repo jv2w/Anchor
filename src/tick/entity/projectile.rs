@@ -2084,7 +2084,7 @@ mod tests {
     }
 
     #[test]
-    fn splash_potions_give_bds_durations_and_instant_effects_weaker_from_the_eyes() {
+    fn splash_potions_give_the_official_durations_and_instant_effects_weaker_from_the_eyes() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         h.spawn(2, standing(2.0, 0.0));
@@ -2188,7 +2188,7 @@ mod tests {
         );
     }
 
-    /// `xp-orbs = false` or `xp = false`: a bottle o' enchanting is not thrown
+    /// `xp-orbs = false` or `xp = false`: an xp bottle is not thrown
     /// (the caller keeps it); other projectiles still are.
     #[test]
     fn xp_orbs_off_refuses_the_bottle_throw() {

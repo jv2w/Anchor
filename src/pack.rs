@@ -8,15 +8,13 @@
 //! the limit and a repeated UUID stop it without a file name.
 //!
 //! Limits: a pack is at most 256 MiB, at most 64 packs are offered, and they total at most
-//! 512 MiB (PMMP has none; these bound the memory the packs take). A pack's `manifest.json` is at
-//! most 256 KiB.
+//! 512 MiB (these bound the memory the packs take). A pack's `manifest.json` is at most 256 KiB.
 //!
 //! The manifest is the root `manifest.json`, else the shortest `.../manifest.json`; a pack with
-//! an old `pack_manifest.json` is refused. The JSON may hold comments and trailing commas (PMMP
-//! strips them with `Ahc\Json\Comment`). `format_version`, `header.name`, `header.uuid`,
+//! an old `pack_manifest.json` is refused. The JSON may hold comments and trailing commas.
+//! `format_version`, `header.name`, `header.uuid`,
 //! `header.version` and `modules` (each with `type`, `uuid` and `version`) are required. A version
-//! is three whole numbers, as an array or as `"x.y.z"` text (gophertunnel reads both; PMMP reads
-//! only the array).
+//! is three whole numbers, as an array or as `"x.y.z"` text (gophertunnel reads both).
 //!
 //! Players keep a downloaded pack by its UUID and version: raise `header.version` when the
 //! contents of a pack change, or players keep the old pack.
@@ -35,7 +33,7 @@ use crate::protocol::packet::{ResourcePackStack, ResourcePacksInfo};
 use crate::protocol::{StackResourcePack, TexturePackInfo, Uuid};
 use manifest::Manifest;
 
-/// The size of a content key, in bytes (PMMP `ResourcePackManager`).
+/// The size of a content key, in bytes.
 const CONTENT_KEY_BYTES: usize = 32;
 
 /// The pack folder's name, in the data folder.
@@ -69,7 +67,7 @@ impl Pack {
     ///
     /// Fails if the bytes are larger than 256 MiB, are not a zip archive Anchor reads (stored or
     /// DEFLATE entries; no zip64, encryption or multiple disks; entry names that stay inside the
-    /// pack folder), or hold no valid `manifest.json` (PMMP's rules, see the module docs).
+    /// pack folder), or hold no valid `manifest.json` (see the module docs).
     pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Result<Self> {
         let bytes = bytes.into();
         let size = u64::try_from(bytes.len())
@@ -90,7 +88,7 @@ impl Pack {
 
     /// The pack read from the file at `path` (`.mcpack` or `.zip`) and, if `<path>.key` exists,
     /// its content key ([`with_content_key`](Self::with_content_key); line breaks at its end are
-    /// ignored, as PMMP does).
+    /// ignored).
     ///
     /// This does blocking file I/O: call it before the server starts. Fails like
     /// [`from_bytes`](Self::from_bytes), or if a file cannot be read; the error names `path`.
@@ -267,7 +265,7 @@ impl Offer {
             .iter()
             .map(|p| format!("{}_{}", p.uuid(), p.version()))
             .collect();
-        // BDS's values for an empty offer (P6); the packs as gophertunnel lists them.
+        // The official server's values for an empty offer (P6); the packs as gophertunnel lists them.
         let info = ResourcePacksInfo {
             texture_pack_required: acceptance == Acceptance::Required,
             world_template_version: "0.0.0".to_owned(),

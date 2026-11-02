@@ -49,8 +49,7 @@ const ACCEPT_QUEUE: usize = 64;
 /// Session events waiting for the accept task. A session sends at most two (logged in, ended)
 /// and only after taking a permit with `send().await`, so a full queue only delays it.
 const EVENT_QUEUE: usize = 256;
-/// Addresses blocked at once (PMMP `Network::blockAddress` has no bound); a block past it is
-/// refused with a warning.
+/// Addresses blocked at once; a block past it is refused with a warning.
 const MAX_BLOCKED: usize = 4096;
 /// How often the accept task reports changed connection counts to the tick and forgets ended
 /// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
@@ -282,7 +281,7 @@ impl Accept {
     }
 }
 
-/// Addresses whose new connections are refused (PMMP `Network::blockAddress`), by canonical IP
+/// Addresses whose new connections are refused, by canonical IP
 /// (an IPv4-mapped IPv6 address is its IPv4 address), with when each block ends; `None` lasts
 /// until it is lifted. At most [`MAX_BLOCKED`].
 #[derive(Debug, Default)]
@@ -321,10 +320,10 @@ impl Blocks {
     }
 }
 
-/// The server-list status. The RakNet pong uses the field order BDS 1.26.52 answers with (P6):
-/// `MCPE;motd;protocol;version;players;max;guid;level;mode;1;port v4;port v6;0;1;1;`. BDS sends
+/// The server-list status. The RakNet pong uses the field order the official server 1.26.52 answers with (P6):
+/// `MCPE;motd;protocol;version;players;max;guid;level;mode;1;port v4;port v6;0;1;1;`. It sends
 /// `Survival;1`; what it sends after other modes is unverified, so the `1` is kept for all. The
-/// NetherNet JSON uses the key order of BDS's `GET /v1/join`.
+/// NetherNet JSON uses the key order of the official server's `GET /v1/join`.
 #[derive(Debug)]
 struct Status {
     motd: String,
@@ -393,7 +392,7 @@ impl Status {
     }
 }
 
-/// The body of `GET /v1/join`, keys in BDS order.
+/// The body of `GET /v1/join`, keys in the official server's order.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Join<'a> {
@@ -572,7 +571,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_join_status_has_the_bds_keys_in_order() {
+    fn the_join_status_has_the_official_keys_in_order() {
         let mut config = Config::default();
         "Say \"hi\"".clone_into(&mut config.general.motd);
         let status = Status::new(&config, 7);

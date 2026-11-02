@@ -4,7 +4,7 @@
 //! harness runs on the server's console. Each weather scenario after the first joins in the
 //! weather the one before it left; the script scenario runs the actions of `SCRIPT`.
 //!
-//! - `p6 api official [scenario]...`: one BDS session (RakNet, zlib, a fresh flat world) with cheats
+//! - `p6 api official [scenario]...`: one official server session (RakNet, zlib, a fresh flat world) with cheats
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
 //!   new world, into `target/p6/official-api/`; the session first runs `game::SESSION_SETUP`.
 //! - `p6 api anchor [scenario]...`: the same against Anchor in this process (`game::console`
@@ -22,7 +22,7 @@
 //! the bot's output lines must have the same `uuid_echoed` and `state`, its form
 //! lines the same form JSON (numbers compared as numbers) and its check lines the same values. The
 //! command lists (`available` lines) are compared only for the commands both servers have and only
-//! as notes: BDS has vanilla's commands, Anchor PMMP's. The scenarios of `FACTS_ONLY` are facts
+//! as notes: the official server has vanilla's commands, Anchor its own. The scenarios of `FACTS_ONLY` are facts
 //! only, and those of `CHECKS_ONLY` compare no fixed-field packets.
 //!
 //! Differences Anchor keeps on purpose are listed with their reasons in the intended-difference
@@ -40,8 +40,6 @@ use serde_json::Value;
 use super::compare::{self, Received, field};
 use super::game;
 
-/// Settings of the BDS session besides the test settings: players may run cheat commands.
-const BDS_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
 /// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets differ for
@@ -61,10 +59,10 @@ const CHECKS_ONLY: &[&str] = &[
 const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The scenarios whose comparison is facts only: the particles scenario records what each server
 /// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
-/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (BDS-only items
+/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (items only the official server has
 /// and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a
-/// command) and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers)
-/// record BDS facts for `xtask/data/p6/facts.md`.
+/// command) and the command line lengths (the official server ends the connection from 508 bytes, Anchor answers)
+/// record the official server facts for `xtask/data/p6/facts.md`.
 const FACTS_ONLY: [&str; 27] = [
     "particles",
     "script",
@@ -96,16 +94,19 @@ const FACTS_ONLY: [&str; 27] = [
 ];
 /// The forms script pack, relative to the repository root, and its files.
 const FORMS_PACK: &str = "xtask/data/p6/forms-pack";
-/// The pack's folder in the BDS copy's `development_behavior_packs`.
+/// The pack's folder in the official server copy's `development_behavior_packs`.
 const FORMS_PACK_DIR: &str = "p6_forms";
 /// The files of the forms pack, relative to [`FORMS_PACK`].
 const FORMS_PACK_FILES: [&str; 2] = ["manifest.json", "scripts/main.js"];
 /// The intended-difference file, relative to the repository root; `import` reads it too.
 pub(crate) const INTENDED: &str = "xtask/data/p6/intended.txt";
-/// The bot's checks whose differences are notes: BDS sends every command to every player and
-/// leaves hiding them to the client's permission level, so it does not resend the list after
-/// `op`; Anchor sends only the commands the player may use (PMMP) and resends the list.
+/// The bot's checks whose differences are notes: the official server sends every command to every
+/// player and leaves hiding them to the client's permission level, so it does not resend the list
+/// after `op`; Anchor sends only the commands the player may use and resends the list.
 const NOTE_CHECKS: [&str; 1] = ["op resends AvailableCommands"];
+/// Settings of the official server session besides the test settings: players may run cheat
+/// commands.
+const OFFICIAL_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
 /// How many characters of a packet's fields a report line shows.
 const REPORT_WIDTH: usize = 600;
 /// The packets each step's report shows with their fields; others are only counted.
@@ -133,7 +134,7 @@ const REPORTED: &[&str] = &[
     "UpdatePlayerGameType",
 ];
 /// The API scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 48] = [
+pub(crate) const SCENARIOS: [&str; 45] = [
     "commands",
     "particles",
     "kick",
@@ -145,14 +146,11 @@ pub(crate) const SCENARIOS: [&str; 48] = [
     "boltpeaceful",
     "bolteasy",
     "bolthard",
-    "enchants",
-    "stations",
     "potions",
     "entities",
     "villagers",
     "numbers",
     "syntax",
-    "clocks",
     "limits",
     "limitchat",
     "line256",
@@ -185,7 +183,7 @@ pub(crate) const SCENARIOS: [&str; 48] = [
 ];
 /// The action file of the script scenario, relative to the repository root.
 const SCRIPT: &str = "xtask/data/p6/script.txt";
-/// The packets compared in setup steps too: the console runs a setup step's commands on BDS and
+/// The packets compared in setup steps too: the console runs a setup step's commands on the official server and
 /// the harness calls Anchor's API for them, so their messages differ, but the player's new
 /// permissions after `op` must reach the client the same way.
 const SETUP_COMPARED: &[&str] = &["UpdateAbilities"];
@@ -257,7 +255,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
     Ok(passed)
 }
 
-/// The BDS session of the API scenarios into `target/p6/official-api/`, each with its report.
+/// The official server session of the API scenarios into `target/p6/official-api/`, each with its report.
 pub(crate) fn session(
     root: &Path,
     exe: &Path,
@@ -269,7 +267,7 @@ pub(crate) fn session(
     let session = super::OfficialSession {
         transport: "raknet",
         compression: "zlib",
-        settings: BDS_SETTINGS,
+        settings: OFFICIAL_SETTINGS,
     };
     let pack = root.join(FORMS_PACK);
     let install = |official: &Path| install_pack(&pack, official);
@@ -310,7 +308,7 @@ fn script_of(root: &Path, scenario: &str) -> Option<std::path::PathBuf> {
     (scenario == "script").then(|| root.join(SCRIPT))
 }
 
-/// Installs the forms pack into the BDS copy `official` and turns it on for the world it creates
+/// Installs the forms pack into the official server copy `official` and turns it on for the world it creates
 /// (`worlds/<level-name>/world_behavior_packs.json`).
 fn install_pack(pack: &Path, official: &Path) -> Result<(), String> {
     let target = official
@@ -340,7 +338,7 @@ fn install_pack(pack: &Path, official: &Path) -> Result<(), String> {
 }
 
 /// The API session against Anchor into `target/p6/anchor-api/`, then its comparison with the
-/// BDS session's captures. It passes when every bot and console command passed and the captures
+/// official server session's captures. It passes when every bot and console command passed and the captures
 /// are the same.
 pub(crate) fn anchor_session(
     root: &Path,
@@ -351,7 +349,7 @@ pub(crate) fn anchor_session(
     let dir = root.join(super::OUT_DIR).join("anchor-api");
     let (mut console, task) = game::console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(game::console::EVERY_TICK, task);
-    // The session setup turns BDS's day cycle off before the first bot joins; Anchor takes it
+    // The session setup turns the official server's day cycle off before the first bot joins; Anchor takes it
     // from its settings.
     let no_day_cycle = |c: &mut anchor::Config| c.general.daylight_cycle = false;
     let played = super::anchor_session(
@@ -647,7 +645,7 @@ fn cut(text: &str) -> String {
     }
 }
 
-/// Compares the steps of two captures (A BDS, B Anchor): the differences, and notes.
+/// Compares the steps of two captures (A official, B Anchor): the differences, and notes.
 fn compare_steps(a: &[Step], b: &[Step], fields: &compare::Fields) -> (Vec<String>, Vec<String>) {
     let mut differences = Vec::new();
     let mut notes = Vec::new();
@@ -668,7 +666,7 @@ fn compare_steps(a: &[Step], b: &[Step], fields: &compare::Fields) -> (Vec<Strin
         compare_records(x, y, &mut step, &mut notes);
         differences.extend(step.into_iter().map(|d| format!("{}: {d}", x.label)));
     }
-    // BDS lists every command at spawn, Anchor the operator's after `op`: their last lists.
+    // The official server lists every command at spawn, Anchor the operator's after `op`: their last lists.
     if let (Some(x), Some(y)) = (last_available(a), last_available(b)) {
         let when = |r: &Value| field(r, "when").as_str().unwrap_or_default().to_owned();
         for note in compare_available(field(x, "commands"), field(y, "commands")) {
@@ -937,22 +935,24 @@ mod tests {
     #[test]
     fn command_lists_note_only_shared_shape_differences() {
         let a = serde_json::json!([
-            {"name": "time", "aliases": [], "permission_level": 1, "flags": 0,
-             "overloads": [{"params": [{"type": "enum:TimeSet", "optional": false}]}]},
+            {"name": "gamemode", "aliases": [], "permission_level": 1, "flags": 0,
+             "overloads": [{"params": [{"type": "enum:GameMode", "optional": false}]}]},
             {"name": "fill", "aliases": [], "overloads": []},
         ]);
         let b = serde_json::json!([
-            {"name": "time", "aliases": [], "permission_level": 0, "flags": 0,
+            {"name": "gamemode", "aliases": [], "permission_level": 0, "flags": 0,
              "overloads": [{"params": [{"type": "string", "optional": true}]}]},
         ]);
         let notes = compare_available(&a, &b);
         assert!(notes.iter().any(|n| n == "only A: fill"), "{notes:?}");
         assert!(
-            notes.iter().any(|n| n.starts_with("time overloads")),
+            notes.iter().any(|n| n.starts_with("gamemode overloads")),
             "{notes:?}"
         );
         assert!(
-            notes.iter().any(|n| n.starts_with("time permission_level")),
+            notes
+                .iter()
+                .any(|n| n.starts_with("gamemode permission_level")),
             "{notes:?}"
         );
     }
@@ -962,13 +962,13 @@ mod tests {
         let intended = parse_intended(concat!(
             "# comment\n",
             "\n",
-            "commands | command say hi: Text: A 1 != B 2 | PMMP's say\n",
+            "commands | command kick hi: Text: A 1 != B 2 | Anchor's own wording\n",
             "kick | x | y | z | the middle keeps its bars\n",
         ))
         .expect("intended");
         assert_eq!(
-            intended.reason("commands", "command say hi: Text: A 1 != B 2"),
-            Some("PMMP's say")
+            intended.reason("commands", "command kick hi: Text: A 1 != B 2"),
+            Some("Anchor's own wording")
         );
         assert_eq!(
             intended.reason("kick", "x | y | z"),
@@ -976,18 +976,18 @@ mod tests {
         );
         // Another scenario, a changed value or a part of the text is not listed.
         assert_eq!(
-            intended.reason("forms", "command say hi: Text: A 1 != B 2"),
+            intended.reason("forms", "command kick hi: Text: A 1 != B 2"),
             None
         );
         assert_eq!(
-            intended.reason("commands", "command say hi: Text: A 1 != B 3"),
+            intended.reason("commands", "command kick hi: Text: A 1 != B 3"),
             None
         );
-        assert_eq!(intended.reason("commands", "command say hi"), None);
+        assert_eq!(intended.reason("commands", "command kick hi"), None);
         let found = vec!["other".to_owned()];
         assert_eq!(
             intended.unseen("commands", &found).collect::<Vec<_>>(),
-            ["command say hi: Text: A 1 != B 2"]
+            ["command kick hi: Text: A 1 != B 2"]
         );
         for bad in [
             "commands | no reason",

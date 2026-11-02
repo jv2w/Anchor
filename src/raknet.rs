@@ -344,7 +344,7 @@ impl Connection {
     }
 
     /// The round trip time of the latest connected ping the client answered; `None` until one
-    /// was (`RakLib`'s ping measure, which PMMP reports).
+    /// was (RakNet's ping measure).
     pub(crate) fn ping(&self) -> Option<Duration> {
         *self.ping.borrow()
     }
@@ -820,7 +820,7 @@ pub(crate) mod tests {
     }
 
     /// The server's connected ping comes back as a pong: the connection's ping is the time
-    /// between (`RakLib`'s ping measure, PMMP `NetworkSession::getPing`).
+    /// between (RakNet's ping measure).
     #[test]
     fn a_connected_pong_sets_the_connections_ping() {
         run(async {

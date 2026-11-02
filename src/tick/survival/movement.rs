@@ -606,7 +606,7 @@ fn boxes_collide(boxes: &[Aabb], pos: BlockPos, bb: Aabb) -> bool {
 }
 
 /// Updates the fall distance after a vertical move; landing hurts after the block landed on had
-/// its say (beds and hay soften, slime cancels). A player without block collision builds no
+/// its say (bed blocks and hay soften, slime cancels). A player without block collision builds no
 /// fall: its client flies, and a fall kept from then would hurt at the first landing once blocks
 /// stop it again.
 fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
@@ -632,7 +632,7 @@ fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
     }
 }
 
-/// Lands the player: the block landed on has its say first (beds and hay bales soften the fall,
+/// Lands the player: the block landed on has its say first (bed blocks and hay bales soften the fall,
 /// slime cancels it), then the fall hurts with the long or short fall sound, or the landing makes
 /// the block's land sound (always with `fall-damage = false`).
 fn land(state: &mut State, session: SessionId) {

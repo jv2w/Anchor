@@ -111,10 +111,9 @@ fn read_bounded(input: &mut impl BufRead, line: &mut Vec<u8>) -> io::Result<(boo
     }
 }
 
-/// `line` without terminal escape sequences and control characters, as PMMP's console reader
-/// strips them (cursor keys and other edits a terminal echoes into the line). A sequence is an
-/// ECMA-48 control sequence: `ESC [`, parameter and intermediate bytes, then one final byte.
-/// PMMP's pattern instead runs from `ESC [` to the last `~` of the line, which drops typed text.
+/// `line` without terminal escape sequences and control characters (cursor keys and
+/// other edits a terminal echoes into the line). A sequence is an ECMA-48 control sequence:
+/// `ESC [`, parameter and intermediate bytes, then one final byte, so typed text stays.
 fn strip_terminal(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();

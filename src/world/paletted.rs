@@ -191,7 +191,7 @@ impl<T: Derive> Paletted<T> {
     }
 
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which
-    /// gives BDS's palette order (P6).
+    /// gives the official server's palette order (P6).
     pub(crate) fn compact(&mut self) {
         *self = Self::compacted(self.bits, &self.words, &self.palette);
     }

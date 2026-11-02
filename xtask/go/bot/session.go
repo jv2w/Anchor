@@ -649,7 +649,7 @@ func (s *session) levelChunk(pk *packet.LevelChunk) error {
 		return nil
 	}
 	s.requested[pk.Position] = true
-	// Overworld sub-chunks -4 to 19 around the chunk's sub-chunk 0, as dragonfly's ViewSubChunks reads them.
+	// Overworld sub-chunks -4 to 19 around the chunk's sub-chunk 0, as a client reads them.
 	var offsets []protocol.SubChunkOffset
 	for y := -4; y < 20 && (limit < 0 || len(offsets) < int(limit)); y++ {
 		offsets = append(offsets, protocol.SubChunkOffset{0, int8(y), 0})

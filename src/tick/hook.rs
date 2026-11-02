@@ -115,9 +115,8 @@ impl ServerBuilder {
     /// session's and never reaches them. Until the player's saved data has loaded,
     /// [`Context::player`] of the hook's ID is `None`. With `hook-player-input = false`,
     /// `PlayerAuthInput` (sent every client tick) skips them. Like listeners, hooks run only in
-    /// the tick with a [`Context`], so a replay of the input log runs them the same way. PMMP's
-    /// `DataPacketDecodeEvent` (raw bytes before decoding) has no counterpart: Anchor decodes
-    /// and checks every packet first.
+    /// the tick with a [`Context`], so a replay of the input log runs them the same way. Raw bytes
+    /// before decoding have no hook: Anchor decodes and checks every packet first.
     #[doc(alias = "DataPacketReceiveEvent")]
     #[doc(alias = "DataPacketDecodeEvent")]
     #[must_use]
@@ -154,7 +153,7 @@ impl ServerBuilder {
     }
 
     /// Calls `edit` on each player's `StartGame` packet when it is built, in registration order,
-    /// so a server can set what Anchor leaves at BDS's values: the world name, the seed shown,
+    /// so a server can set what Anchor leaves at the official server's values: the world name, the seed shown,
     /// experiments, education features, chat and emote settings and the like. Send hooks see
     /// the edited packet.
     ///

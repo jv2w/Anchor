@@ -1,6 +1,7 @@
 //! `cargo xtask p6`: the reference server comparison. It builds the Go
-//! bot (`xtask/go/bot`), runs its scenarios against BDS or any running server, and compares
-//! captures. It needs Go and, for `official`, the BDS copy in `.cache/official/`, so `verify` does not run it.
+//! bot (`xtask/go/bot`), runs its scenarios against the official server or any running server, and
+//! compares captures. It needs Go and, for `official`, the official server copy in
+//! `.cache/official/`, so `verify` does not run it.
 //!
 //! - `p6 official [zlib|snappy]...`: for each compression (default both), writes the test settings into
 //!   the copy's `server.properties`, deletes its `worlds` folder, starts `bedrock_server` in the
@@ -9,28 +10,29 @@
 //!   into `target/p6/official-nethernet-<compression>/`, plus big-skin with the bot sending 65,535-byte
 //!   segments (`big-skin-65535.jsonl`, recorded). NetherNet runs print the segment facts of each
 //!   capture (what the server sent per data channel message). In the run of
-//!   `FALLBACK_COMPRESSION` it also runs the `auto` bot against the RakNet BDS (`official-fallback/`,
+//!   `FALLBACK_COMPRESSION` it also runs the `auto` bot against the RakNet official server (`official-fallback/`,
 //!   it must fall back to RakNet and spawn). Once, in the first compression's runs, it records,
-//!   against the NetherNet BDS, what a mismatched offer identity (`official-bind-mismatch/`) and a
-//!   second login with the same name (`official-duplicate/`) do. The duplicate login is a check only if BDS kicks
-//!   the first player as PMMP does. Each RakNet run also runs the `blocks` scenario
-//!   (`official-<compression>/blocks.jsonl`): while the bot stays spawned, BDS console commands place
+//!   against the NetherNet official server, what a mismatched offer identity
+//!   (`official-bind-mismatch/`) and a second login with the same name (`official-duplicate/`) do.
+//!   The duplicate login is a check only if the official server kicks the first player. Each
+//!   RakNet run also runs the `blocks` scenario
+//!   (`official-<compression>/blocks.jsonl`): while the bot stays spawned, official server console commands place
 //!   fences, panes, bars, walls, a gate, stairs and tripwire next to each other near the player
 //!   and remove some again; a marker block set after each step delimits the steps (`MARKER`), and
-//!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
-//!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
-//!   data (`worlddata`). Last, it runs the game session once (`game`, every game scenario into
+//!   the block updates the official server sent for each step are reported with their states
+//!   (`blocks.txt`). The biome definitions and jigsaw data of each spawn capture are checked against
+//!   reference list source B's data (`worlddata`). Last, it runs the game session once (`game`, every game scenario into
 //!   `target/p6/official-game/`) and the API session once (`api`, every API scenario into
 //!   `target/p6/official-api/`).
 //! - `p6 api official|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
-//! - `p6 import`: a world BDS made, imported into Anchor, sends the same blocks (see `import`).
+//! - `p6 import`: a world the official server made, imported into Anchor, sends the same blocks (see `import`).
 //! - `p6 game official [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
 //!   same session against Anchor into `target/p6/anchor-game/`, compared with `official-game/`;
 //!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
 //! - `p6 anchor [zlib|snappy]...`: starts Anchor in this process with the same settings and runs
 //!   the same RakNet and NetherNet scenarios into `target/p6/anchor-<compression>/` and
 //!   `anchor-nethernet-<compression>/`, and the `auto` bot, with `FALLBACK_COMPRESSION`, against an
-//!   unreachable NetherNet address into `anchor-fallback/`; each capture is compared with its BDS
+//!   unreachable NetherNet address into `anchor-fallback/`; each capture is compared with its official server
 //!   capture. Last, it runs
 //!   the game session against Anchor (`p6 game anchor`, into `anchor-game/`, compared with
 //!   `official-game/`) and the API session (`p6 api anchor`, into `anchor-api/`, compared with
@@ -60,24 +62,7 @@ use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir,
 use crate::say;
 use compare::field;
 
-/// The BDS copy, relative to the repository root. The original download is never run.
-const OFFICIAL_DIR: &str = ".cache/official/1.26.60.6";
-/// Test settings written into the copy's `server.properties`, besides the transport, ports,
-/// compression and seed of each run and the lines of [`default_settings`]. The login (offline),
-/// the world name ([`LEVEL_NAME`]) and the flat generator are fixed for the comparison, and
-/// [`anchor_config`] and [`anchor_session`] give Anchor the same; the lines of
-/// [`default_settings`] are Anchor's defaults, so config-dependent fields compare equal. LAN
-/// visibility is on because BDS answers RakNet pings with empty data without it; it also binds
-/// UDP 19132 and 19133.
-const BDS_SETTINGS: &[(&str, &str)] = &[
-    ("online-mode", "false"),
-    ("allow-list", "false"),
-    ("allow-cheats", "false"),
-    ("enable-lan-visibility", "true"),
-    ("level-name", LEVEL_NAME),
-    ("level-type", "FLAT"),
-];
-/// The BDS log line of a `setblock` that ran.
+/// The official server log line of a `setblock` that ran.
 const BLOCK_PLACED: &str = "Block placed";
 /// The steps of the blocks scenario: one block placed at (`dx`, `dy`, `dz`) from the base position
 /// with `setblock ... keep`, or removed with `setblock ... air replace` when the block is `air`. The
@@ -159,11 +144,11 @@ const BLOCK_STEPS: &[(i32, i32, i32, &str)] = &[
 const BLOCKS_OFFSET: i32 = 2;
 /// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
-/// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
+/// The `y` of the blocks scenario: the first air layer of the official server's default flat world (bedrock at
 /// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
 /// and fails the run.
 const BLOCKS_Y: i32 = -60;
-/// How long BDS may take to run one console command of the blocks scenario.
+/// How long the official server may take to run one console command of the blocks scenario.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
@@ -190,6 +175,23 @@ static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new()
 /// is next to it. After each step the marker is set to the step's marker block, so every step ends
 /// with a single-block update there; both servers can make it with block changes only.
 const MARKER: (i32, i32) = (-4, 0);
+/// The official server copy, relative to the repository root. The original download is never run.
+const OFFICIAL_DIR: &str = ".cache/official/1.26.60.6";
+/// Test settings written into the copy's `server.properties`, besides the transport, ports,
+/// compression and seed of each run and the lines of [`default_settings`]. The login (offline),
+/// the world name ([`LEVEL_NAME`]) and the flat generator are fixed for the comparison, and
+/// [`anchor_config`] and [`anchor_session`] give Anchor the same; the lines of
+/// [`default_settings`] are Anchor's defaults, so config-dependent fields compare equal. LAN
+/// visibility is on because the official server answers RakNet pings with empty data without it;
+/// it also binds UDP 19132 and 19133.
+const OFFICIAL_SETTINGS: &[(&str, &str)] = &[
+    ("online-mode", "false"),
+    ("allow-list", "false"),
+    ("allow-cheats", "false"),
+    ("enable-lan-visibility", "true"),
+    ("level-name", LEVEL_NAME),
+    ("level-type", "FLAT"),
+];
 /// Captures and logs, relative to the repository root.
 const OUT_DIR: &str = "target/p6";
 /// The pause between two looks at a log or a process.
@@ -204,16 +206,16 @@ const RAKNET_MAGIC: [u8; 16] = [
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
-/// limited to 64 KiB SCTP messages uses. `p6 official` sends big-skin in it to record whether BDS
+/// limited to 64 KiB SCTP messages uses. `p6 official` sends big-skin in it to record whether the official server
 /// accepts it; Anchor accepts both.
 const SMALL_SEGMENT: &str = "65535";
-/// How long BDS may take to start.
+/// How long the official server may take to start.
 const START_TIMEOUT: Duration = Duration::from_mins(2);
 /// The marker blocks of the steps, alternating: step `n` ends with `STEP_MARKERS[n % 2]`.
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
-/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
+/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between official server commands.
 const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
-/// How long BDS may take to exit after `stop`.
+/// How long the official server may take to exit after `stop`.
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The player name of both bots of the duplicate-login run.
 const TWIN: &str = "P6Twin";
@@ -237,7 +239,7 @@ pub(crate) const USAGE: &str = "cargo xtask p6 official [zlib|snappy]... | cargo
                                 | cargo xtask p6 api compare DIR_A DIR_B \
                                 | cargo xtask p6 import";
 
-/// What a BDS session runs with besides the test settings.
+/// What an official server session runs with besides the test settings.
 struct OfficialSession<'a> {
     transport: &'a str,
     compression: &'a str,
@@ -333,7 +335,7 @@ impl tracing::field::Visit for LogLine {
 
 /// What changes the blocks of the blocks scenario on a server.
 enum Placer<'a> {
-    /// BDS console commands.
+    /// Official server console commands.
     Official(&'a mut Official),
     /// Anchor's scheduled task from [`anchor_steps`], started by sending it the base position.
     Anchor(std::sync::mpsc::SyncSender<[i32; 3]>),
@@ -357,7 +359,7 @@ impl Outcome {
     }
 }
 
-/// A running BDS process. Its output goes to a log file, which is polled for the start line.
+/// A running official server process. Its output goes to a log file, which is polled for the start line.
 #[derive(Debug)]
 struct Official {
     child: Child,
@@ -371,7 +373,7 @@ impl Official {
         let stderr = file.try_clone().map_err(|e| e.to_string())?;
         let mut child = Command::new(exe)
             .current_dir(dir)
-            // The Linux BDS loads the libraries in its folder, as its how-to starts it
+            // The Linux official server loads the libraries in its folder, as its how-to starts it
             // (`LD_LIBRARY_PATH=. ./bedrock_server`); Windows ignores the variable.
             .env("LD_LIBRARY_PATH", dir)
             .stdin(Stdio::piped())
@@ -387,7 +389,7 @@ impl Official {
         })
     }
 
-    /// Waits for BDS's "Server started." line.
+    /// Waits for the official server's "Server started." line.
     fn wait_started(&mut self) -> Result<(), String> {
         let deadline = now() + START_TIMEOUT;
         loop {
@@ -396,13 +398,13 @@ impl Official {
             }
             if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
                 return Err(format!(
-                    "BDS exited ({status}) before starting; see {}",
+                    "the official server exited ({status}) before starting; see {}",
                     self.log.display()
                 ));
             }
             if now() > deadline {
                 return Err(format!(
-                    "BDS did not start within {START_TIMEOUT:?}; see {}",
+                    "the official server did not start within {START_TIMEOUT:?}; see {}",
                     self.log.display()
                 ));
             }
@@ -415,15 +417,15 @@ impl Official {
         let stdin = self
             .stdin
             .as_mut()
-            .ok_or_else(|| "BDS has no console input".to_owned())?;
+            .ok_or_else(|| "the official server has no console input".to_owned())?;
         stdin
             .write_all(format!("{line}\n").as_bytes())
             .and_then(|()| stdin.flush())
-            .map_err(|e| format!("BDS console: {e}"))
+            .map_err(|e| format!("the official server console: {e}"))
     }
 
-    /// Sends one console command and waits until BDS logs `done` once more, so the next command
-    /// runs in a later tick. A pause between commands does not ensure that: BDS sometimes runs
+    /// Sends one console command and waits until the official server logs `done` once more, so the next command
+    /// runs in a later tick. A pause between commands does not ensure that: the official server sometimes runs
     /// commands that came a few hundred milliseconds apart in one tick, and then sends their block
     /// changes grouped by sub-chunk, not in command order.
     fn command_done(&mut self, line: &str, done: &str) -> Result<(), String> {
@@ -435,7 +437,7 @@ impl Official {
         while logged()? == before {
             if now() > deadline {
                 return Err(format!(
-                    "BDS did not log {done:?} for `{line}` within {COMMAND_TIMEOUT:?}; see {}",
+                    "the official server did not log {done:?} for `{line}` within {COMMAND_TIMEOUT:?}; see {}",
                     self.log.display()
                 ));
             }
@@ -444,7 +446,7 @@ impl Official {
         Ok(())
     }
 
-    /// Sets the game rule and waits until BDS confirms it.
+    /// Sets the game rule and waits until the official server confirms it.
     fn set_game_rule(&mut self, rule: &str, value: &str) -> Result<(), String> {
         self.command_done(
             &format!("gamerule {rule} {value}"),
@@ -452,7 +454,7 @@ impl Official {
         )
     }
 
-    /// Sends `stop` and waits for the exit; kills BDS, and says why, if `stop` could not be sent
+    /// Sends `stop` and waits for the exit; kills the official server, and says why, if `stop` could not be sent
     /// or did not end it in time.
     fn stop(mut self) -> Result<(), String> {
         let sent = self
@@ -467,24 +469,28 @@ impl Official {
                         return Ok(());
                     }
                     if now() >= deadline {
-                        break format!("BDS did not stop on `stop` within {STOP_TIMEOUT:?}");
+                        break format!(
+                            "the official server did not stop on `stop` within {STOP_TIMEOUT:?}"
+                        );
                     }
                     pause();
                 }
             }
-            Some(Err(e)) => format!("BDS console: {e}"),
-            None => "BDS has no console input".to_owned(),
+            Some(Err(e)) => format!("the official server console: {e}"),
+            None => "the official server has no console input".to_owned(),
         };
         if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
             return Err(format!(
-                "{reason}; BDS had exited ({status}); see {}",
+                "{reason}; the official server had exited ({status}); see {}",
                 self.log.display()
             ));
         }
-        self.child.kill().map_err(|e| format!("kill BDS: {e}"))?;
+        self.child
+            .kill()
+            .map_err(|e| format!("kill the official server: {e}"))?;
         self.child
             .wait()
-            .map_err(|e| format!("wait for BDS: {e}"))?;
+            .map_err(|e| format!("wait for the official server: {e}"))?;
         Err(format!("{reason}; killed it"))
     }
 }
@@ -580,8 +586,8 @@ fn report_written(
     }
 }
 
-/// The BDS executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
-/// on Linux), or an error saying where to copy BDS when it is missing.
+/// The official server executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
+/// on Linux), or an error saying where to copy the official server when it is missing.
 fn official_exe(root: &Path) -> Result<PathBuf, String> {
     let exe = root
         .join(OFFICIAL_DIR)
@@ -591,7 +597,7 @@ fn official_exe(root: &Path) -> Result<PathBuf, String> {
     }
     let version = OFFICIAL_DIR.rsplit('/').next().unwrap_or(OFFICIAL_DIR);
     Err(format!(
-        "{} is missing: copy BDS {version} for this OS into {OFFICIAL_DIR} (never run the original)",
+        "{} is missing: copy the official server {version} for this OS into {OFFICIAL_DIR} (never run the original)",
         exe.display()
     ))
 }
@@ -623,7 +629,7 @@ fn default_settings() -> [(&'static str, String); 5] {
     ]
 }
 
-/// `p6 official`: runs the scenarios against BDS once per compression and transport.
+/// `p6 official`: runs the scenarios against the official server once per compression and transport.
 fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
     let exe = official_exe(root)?;
@@ -683,8 +689,9 @@ fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, St
 }
 
 /// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
-/// `CloudburstMC`'s data with the bot (`bot worlddata`) and prints the result. Any
-/// difference, or either packet missing, fails, on BDS's captures and on Anchor's alike.
+/// reference list source B's data with the bot (`bot worlddata`) and prints the result. Any
+/// difference, or either packet missing, fails, on the official server's captures and on Anchor's
+/// alike.
 fn worlddata(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
     let output = Command::new(bot)
         .arg("worlddata")
@@ -706,13 +713,13 @@ fn worlddata(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Resul
         }
     };
     for line in String::from_utf8_lossy(&output.stdout).lines() {
-        say(out, &format!("CloudburstMC check: {line}"))?;
+        say(out, &format!("source B check: {line}"))?;
     }
     Ok(same)
 }
 
-/// Starts BDS with the test settings, the transport and the compression, calls `run` with its
-/// address and the process (for console commands) and stops it. The BDS log goes to
+/// Starts the official server with the test settings, the transport and the compression, calls `run` with its
+/// address and the process (for console commands) and stops it. The official server log goes to
 /// `<out_dir>/official.log`.
 fn official_session<W: Write>(
     exe: &Path,
@@ -731,7 +738,7 @@ fn official_session<W: Write>(
 }
 
 /// [`official_session`] with more settings, and `prepare` called with the copy's folder once its
-/// `worlds` folder is gone, before BDS starts (to install a pack into the new world).
+/// `worlds` folder is gone, before the official server starts (to install a pack into the new world).
 fn official_session_with<W: Write>(
     exe: &Path,
     out_dir: &Path,
@@ -753,7 +760,7 @@ fn official_session_with<W: Write>(
     let (port_text, port_v6_text) = (port.to_string(), port_v6.to_string());
     let seed_text = LEVEL_SEED.to_string();
     let defaults = default_settings();
-    let mut settings = BDS_SETTINGS.to_vec();
+    let mut settings = OFFICIAL_SETTINGS.to_vec();
     settings.extend(defaults.iter().map(|(key, value)| (*key, value.as_str())));
     settings.extend([
         ("level-seed", seed_text.as_str()),
@@ -769,7 +776,7 @@ fn official_session_with<W: Write>(
     say(
         out,
         &format!(
-            "{}: starting BDS ({transport}, {compression}) on port {port}",
+            "{}: starting the official server ({transport}, {compression}) on port {port}",
             name(out_dir)
         ),
     )?;
@@ -784,7 +791,7 @@ fn official_session_with<W: Write>(
 }
 
 /// `p6 anchor`: runs the scenarios against Anchor, started in this process with the settings
-/// `p6 official` gives BDS, and compares each capture with the BDS capture of the same run.
+/// `p6 official` gives the official server, and compares each capture with the official server capture of the same run.
 fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
     let bot = build_bot(root)?;
@@ -988,7 +995,7 @@ fn channel() -> (
     std::sync::mpsc::sync_channel(1)
 }
 
-/// The block state a step names: `name` or `name ["key"=value,...]` (BDS `setblock` syntax), with
+/// The block state a step names: `name` or `name ["key"=value,...]` (the official server `setblock` syntax), with
 /// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
 /// default state (connection properties are worked out by `set_block` anyway).
 fn step_state(block: &str) -> Result<anchor::block::State, String> {
@@ -1031,7 +1038,7 @@ fn step_state(block: &str) -> Result<anchor::block::State, String> {
 
 /// Anchor's side of the blocks scenario: a task for `ServerBuilder::every(STEP_TICKS, ..)` that
 /// waits for the base position, turns random ticks off, then on each call sets the next step's
-/// block or the step's marker (as `blocks` does with BDS commands), and finally the end marker.
+/// block or the step's marker (as `blocks` does with the official server commands), and finally the end marker.
 /// The harness sends the base position once the bot has spawned; the channel is the harness's,
 /// outside the engine.
 fn anchor_steps(
@@ -1089,10 +1096,10 @@ fn anchor_steps(
 /// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, turns random ticks
 /// off (with them on, a placed block can change on its own between steps, as copper bars oxidize,
 /// so a step's states would differ between runs and servers: `xtask/data/p6/facts.md`), changes
-/// each block of `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on BDS with console commands,
-/// each sent once BDS ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
+/// each block of `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on the official server with console commands,
+/// each sent once the official server ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
 /// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
-/// the bot passed, every step ended and every step changed a block; the comparison with BDS is
+/// the bot passed, every step ended and every step changed a block; the comparison with the official server is
 /// `compare_with_official`.
 fn blocks(
     bot: &Path,
@@ -1349,7 +1356,7 @@ fn state_text(name: &str, properties: &str) -> String {
     format!("{name}[{properties}]")
 }
 
-/// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the BDS run `official_name`.
+/// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the official server run `official_name`.
 fn compare_with_official(
     root: &Path,
     official_name: &str,
@@ -1361,7 +1368,7 @@ fn compare_with_official(
         say(
             out,
             &format!(
-                "no BDS capture at {}; run `p6 official` first",
+                "no official server capture at {}; run `p6 official` first",
                 official.display()
             ),
         )?;
@@ -1467,7 +1474,7 @@ fn record_bind_mismatch(
 
 /// Logs in twice with the same name: the first bot (`kicked`, into `<dir>/first.jsonl`) spawns
 /// and waits for its Disconnect while the second (`spawn`, `<dir>/second.jsonl`) joins. When the
-/// first is kicked with `LoggedInOtherLocation`, as in PMMP, both must pass; otherwise the server's
+/// first is kicked with `LoggedInOtherLocation`, both must pass; otherwise the server's
 /// behaviour is recorded and the run passes.
 fn duplicate_login(
     bot: &Path,
@@ -1522,7 +1529,7 @@ fn duplicate_login(
         say(
             out,
             &format!(
-                "{} duplicate login: the first player was kicked ({}, {}), like PMMP{}",
+                "{} duplicate login: the first player was kicked ({}, {}){}",
                 if second.passed { "ok  " } else { "FAIL" },
                 field(&first_result, "disconnect_reason"),
                 field(&first_result, "disconnect_message"),
@@ -1534,7 +1541,7 @@ fn duplicate_login(
     say(
         out,
         &format!(
-            "note duplicate login (recorded, not PMMP's behaviour): first player: {}; second \
+            "note duplicate login (recorded, not a kick): first player: {}; second \
              spawned: {}; players the first saw added: {}",
             field(&first_result, "reason"),
             second.passed,
@@ -1595,7 +1602,7 @@ fn wait_for_pong(port: u16) -> Result<(), String> {
 }
 
 /// Pings the server until its pong reports no player online, so a scenario does not meet the
-/// player of the one before it (BDS keeps a left player for a while).
+/// player of the one before it (the official server keeps a left player for a while).
 fn wait_until_empty(addr: &str) -> Result<(), String> {
     let port = addr
         .rsplit(':')
@@ -1999,9 +2006,9 @@ fn set_properties(path: &Path, settings: &[(&str, &str)]) -> Result<(), String> 
     write(path, out.as_bytes())
 }
 
-/// Two distinct UDP ports that are free on all IPv4 interfaces right now, for BDS, which takes
+/// Two distinct UDP ports that are free on all IPv4 interfaces right now, for the official server, which takes
 /// its ports from `server.properties` (Anchor binds port 0 instead, [`anchor_config`]). Another
-/// process may take one before BDS binds it; BDS then cannot bind it, says so in its log and never
+/// process may take one before the official server binds it; the official server then cannot bind it, says so in its log and never
 /// logs "Server started.", so [`Official::wait_started`] fails the run instead of a bot meeting another
 /// server.
 #[expect(

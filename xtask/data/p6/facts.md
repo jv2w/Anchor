@@ -3,11 +3,11 @@
 공식 서버 1.26.60.6(프로토콜 2225)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 1.26.52.3(프로토콜 2193)에서 처음 적은 값은 1.26.60.6 캡처로 다시 대조했고, 판에 따라 다른 값은 그 판을 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `.claude/docs/testing.md`에 있다.
 
 ## 캡처 조건
-- 게임 시나리오: `cargo xtask p6 game official [craft|furnace|enchant|crops|trade]...` → `target/p6/official-game/`. RakNet, zlib, 새 평지 월드.
+- 게임 시나리오: `cargo xtask p6 game official [dive|trade]...` → `target/p6/official-game/`. RakNet, zlib, 새 평지 월드.
 - API 시나리오: `cargo xtask p6 api official [시나리오]...` → `target/p6/official-api/`(시나리오마다 `<시나리오>.txt` 보고). 같은 조건에 `allow-cheats=true`와 폼 스크립트 팩(`xtask/data/p6/forms-pack`)을 더한다.
 - 스폰 창: `cargo xtask p6 official` → `target/p6/official-<압축>/`.
-- 블록 시나리오(`p6 official`·`p6 anchor`의 RakNet 실행, `blocks.txt`): 봇이 스폰한 뒤 첫 단계 전에 콘솔 `gamerule randomtickspeed 0`으로 랜덤 틱을 끈다(Anchor는 단계 작업이 `Context::set_random_tick_speed(0)`). 켜 두면 놓은 블록이 단계 사이에 스스로 바뀐다: Anchor(기본 3)에서 구리 창살이 `exposed_copper_bars`로 산화해 그 단계 상태가 공식 서버 캡처와 달랐다. 공식 서버도 기본 1로 랜덤 틱이 돌아 같은 일이 날 수 있다.
-- 세션 시작 때 콘솔: `gamerule domobspawning false`, `gamerule randomtickspeed 0`, `gamerule dodaylightcycle false`, `gamerule doweathercycle false`, `kill @e[type=!player]`. 난이도는 normal.
+- 블록 시나리오(`p6 official`·`p6 anchor`의 RakNet 실행, `blocks.txt`): 봇이 스폰한 뒤 첫 단계 전에 콘솔 `gamerule randomtickspeed 0`으로 랜덤 틱을 끈다켜 두면 놓은 블록이 단계 사이에 스스로 바뀐다(공식 서버는 기본 1로 랜덤 틱이 돌아 구리 창살이 산화할 수 있다). Anchor는 바닐라 블록의 랜덤 틱이 없어 이 단계가 필요 없다.
+- 세션 시작 때 콘솔: `gamerule domobspawning false`, `gamerule dodaylightcycle false`, `gamerule doweathercycle false`, `kill @e[type=!player]`. 난이도는 normal.
 - 시나리오마다 새 플레이어(`P6Craft` 등)가 자기 구역으로 `tp`한 뒤 논다. 좌표가 절대값이라 두 서버의 같은 평지를 그대로 비교한다.
 - 월드 준비는 콘솔 명령이다: `tp`, `give`, `setblock`, `fill`, `xp`, `summon villager`, `effect`, `kill`. Anchor 쪽은 하네스(`xtask/src/p6/game/console.rs`)가 같은 명령을 공개 API로 옮긴다.
 
@@ -21,45 +21,12 @@
 - 응답 모양: `Status` 0, 액션 순서대로 바뀐 칸(출발 → 도착, 소비 칸 → 결과 칸). 칸마다 `Slot` = `HotbarSlot`, 개수, StackNetworkID(0이면 빈 칸), `CustomName` "", `FilteredCustomName` 없음, `DurabilityCorrection` 0.
 - 스택 네트워크 ID(공식 서버): 서버 전체 카운터 하나. 요청으로 스택 전체를 옮기면 ID가 따라간다. 일부를 옮기면 빈 도착 칸은 새 ID, 출발 칸은 그대로다. 개수만 바뀐 칸과 합쳐진 칸은 ID를 유지한다. 만든 결과, 인챈트 결과, 거래 결과는 새 ID다. 요청 밖의 변화(give, 아이템 사용으로 줄어듦, 줍기)는 새 ID다.
 - 창 ID: 플레이어마다 2부터 열 때마다 1씩 는다(자기 인벤토리 창, 거래 창도 같은 카운터). 닫기는 클라이언트 ContainerClose(창, 열린 종류, false) → 공식 서버 ContainerClose(같은 창, 종류 247(= -9 NONE), ServerSide false).
-- 블록 클릭 뒤 재동기화: 아이템을 쓰는 클릭(설치, 뼛가루)마다 공식 서버는 바뀐 인벤토리(InventoryContent 0·120·124·119, PlayerHotBar select false)와 블록 갱신(클릭 블록, 놓인 블록, 아래·위 블록) 뒤에 플레이어 전체 상태(UpdateAttributes 전체, SetActorData 전체, InventoryContent 4창, PlayerHotBar select true)와 놓인 블록을 한 번 더 보낸다. 클라이언트 예측 액션을 넣어도 같다.
+- 블록 클릭 뒤 재동기화: 아이템을 쓰는 클릭(설치)마다 공식 서버는 바뀐 인벤토리(InventoryContent 0·120·124·119, PlayerHotBar select false)와 블록 갱신(클릭 블록, 놓인 블록, 아래·위 블록) 뒤에 플레이어 전체 상태(UpdateAttributes 전체, SetActorData 전체, InventoryContent 4창, PlayerHotBar select true)와 놓인 블록을 한 번 더 보낸다. 클라이언트 예측 액션을 넣어도 같다.
 - 콘솔 give: 공식 서버는 서버 → 클라이언트 InventoryTransaction(normal, 액션 둘: 컨테이너 창 0 칸 N 빈 칸 → 아이템 새 ID, 출처 3(creative) 칸 1 아이템 → 빈 칸), InventoryContent 4창, 소리 `pop`, Text(`commands.give.successRecipient`)를 보낸다.
 - Anchor: 컨테이너 번호, 요청 ID 규칙, 요청 안의 스택 ID 규칙, 응답 칸 순서를 공식 서버와 같게 한다. 스택 ID 카운터는 플레이어마다다. 컨테이너가 자기 틱에서 개수만 바꾼 칸은 ID를 유지한다(공식 서버). 아이템 클릭(UseItem ClickBlock·ClickAir) 뒤에는 클라이언트가 예측한 자기 칸(창 0·120·119) 중 하나라도 서버 칸과 다르면(아이템, meta, 개수, 태그) 4창과 열린 창을 다시 보낸다(틱마다 한 번). 클라이언트는 클릭을 보내며 칸을 미리 바꾸고 서버가 다시 보낼 때까지 그대로 두므로, 거부된 클릭을 고치지 않으면 들고 있는 개수가 서버와 어긋나 그 뒤 클릭이 모두 거부된다. 예측이 맞았거나 예측 없는 클릭에는 보내지 않는다(누르고 있는 클릭이 틱마다 오므로). 플레이어 전체 상태 재전송과 give의 InventoryTransaction은 따라 하지 않는다(비교는 결과 상태만 본다).
 
-## 제작과 레시피 책
-- 순서(`craft`): give 원목 4 → Interact(OpenInventory, 자기 런타임 ID) → ContainerOpen(창 2, 종류 255(-1 인벤토리), 위치 = 플레이어 눈 블록, 엔티티 -1) → 원목을 13:28에 Place → 판자 4번 → 판자를 28~31에 하나씩 → 작업대 → 막대(레시피 책) → ContainerClose → 작업대 설치 → 작업대 클릭 → ContainerOpen(창 3, 종류 1, 블록 위치) → 판자 32·33·34, 막대 36·39 → 곡괭이 → 닫기.
-- 수동 제작 요청(상태 0): `[CraftRecipe(레시피 네트워크 ID, 1), CraftResultsDeprecated([결과], 1), Consume(1, 13:칸)…, Place(개수, 60:50 ID=요청 ID, 12:칸 ID 또는 0)]`. 응답은 소비한 제작 칸들과 도착 칸이다.
-- 레시피 책(CraftRecipeAuto): 공식 서버가 받는 형태는 `[CraftRecipeAuto(ID, 1, 재료=[이름 디스크립터(oak_planks, meta 0) ×1, 같은 것 ×1]), CraftResultsDeprecated, Consume(1, 12:판자 칸) ×2, Place(4, 60:50, 12:빈 칸)]`. 레시피의 태그 디스크립터(`minecraft:planks` ×1 둘)를 그대로 보내면 상태 25(FailedToMatchExpectedAllowedAnywhereConsumedItem)다.
-- 공식 서버는 자기 CraftingData의 레시피 네트워크 ID만 쓴다(1~4768, 3,312개, 빈 번호 있음). CraftResultsDeprecated의 결과 블록 런타임 ID를 돌로 바꿔도 받고, 설치할 때 HeldItem의 블록 런타임 ID를 돌로 바꿔도 작업대가 놓인다. 즉 공식 서버는 클라이언트가 보낸 아이템 형태를 검사하지 않고 서버 칸 내용과 스택 ID로 판정한다.
-- 레시피 출력의 블록 아이템 형태: 작업대 출력 `BlockRuntimeID` 1752181952(크리에이티브 항목과 같은 바닐라 상태). 클라이언트는 이 형태를 예측해 들고 설치 요청에 쓴다.
-- 작업대 설치: UseItem(ClickBlock, 바닥 블록 윗면 1, HeldItem=작업대, 예측 액션) → 재동기화, UpdateBlock 작업대 flags 3, 소리 `place`(ExtraData = 블록 런타임 ID).
-- 해금: 게임 규칙 `recipesUnlock` true, `doLimitedCrafting` false. SetLocalPlayerAsInitialised 뒤 UnlockedRecipes(종류 1, 20개)가 온다. 20개는 문맥 1 레시피 전부(제작대 2개와 `deprecated` 화로 18개)다. 재료를 얻으면 종류 2로 새로 해금된 것을 보낸다(통나무를 받자 `minecraft:oak_planks` 등 3개, 판자를 만들자 16개).
-- CraftingData의 `UnlockRequirement`: 모양 있는 1,217개 중 문맥 0(None)·재료 있음 1,022, 문맥 0·재료 없음 181, 문맥 2(물속) 11, 문맥 1(항상 해금) 2, 문맥 3(아이템 많음) 1. 모양 없는 2,068개 중 문맥 0·재료 있음 1,691(제작대, 석재 절단기, 화로 계열, 지도 제작대), 문맥 0·재료 없음 359, 문맥 1 18(블록 `deprecated`). 문맥 0·재료 없음 540개(예: `minecraft:barrel`, `minecraft:grindstone_from_crimson_planks2`, `minecraft:Torch_charcoal_recipeId`)는 재료로 해금되지 않고 서버의 UnlockedRecipes로만 해금된다.
-- Anchor:
-  - CraftResultsDeprecated는 무시한다. HeldItem은 네트워크 ID, 개수, 스택 ID로만 서버 칸과 맞추고 블록 런타임 ID 차이로 거부하지 않는다.
-  - CraftRecipeAuto의 재료 목록은 믿지 않고 서버 레시피로 인벤토리에서 소비를 검사한다. 목록에는 상한 검사만 한다.
-  - 게임 규칙은 공식 서버와 같게 보낸다. UnlockedRecipes는 보내지 않는다.
-  - `recipe-book = true`(기본): 모든 레시피를 항상 해금으로 보낸다.
-  - `recipe-book = false`: 모든 레시피를 문맥 0·재료 없음(공식 서버가 서버만 해금하는 레시피에 주는 모양)으로 보낸다. 클라이언트가 스스로 해금할 것이 없어 책이 빈다. 제작 칸 제작(CraftRecipe)은 해금을 보지 않으므로 그대로 되고, 레시피 책 빠른 제작(CraftRecipeAuto)은 거부한다.
-
-## 화로
-- 클릭 → ContainerOpen(창 2, 종류 2, 블록 위치, -1), InventoryContent(화로 창 빈 3칸)와 4창, ContainerSetData 키 0·1·2·3 값 0(열 때 한 번).
-- 연료 Place(1, 12:석탄, 24:1) → 응답 [12:0 x0, 24:1 x1 같은 ID]. 재료 Place(2, 12:원석, 25:0) → 응답, 곧 InventorySlot(화로 창 칸 1 빈 칸), UpdateBlock `lit_furnace`(같은 방향), BlockActorData `{"LastFuel": 석탄 아이템 NBT(`WasPickedUp` 0 포함)}`. 열 때와 setblock 때는 BlockActorData를 보내지 않는다.
-- 굽는 동안 매 틱 ContainerSetData 키 0(굽기 진행 0→199, 다 되면 0)과 키 1(남은 연료 틱, 1600에서 감소), 연료를 태울 때 키 2(연료 총 1600) 한 번. 한 개가 끝날 때마다 InventorySlot 칸 2(주괴, 처음 새 ID, 늘면 같은 ID)와 칸 0(원석 감소, 마지막은 빈 칸). 철 두 개에 약 20초.
-- 꺼내기 Place(2, 26:2, 12:빈 칸) → 응답 [26:2 x0, 12:0 x2 주괴 ID 그대로]. 경험치 구슬 AddActor(1~2개, 무작위) → 플레이어가 주우면 LevelEvent 1051, UpdateAttributes player.experience, RemoveActor.
-- Anchor: ContainerSetData 키 0·1·2, 열 때 0~3 초기값, BlockActorData `LastFuel`(`WasPickedUp` 포함). 경험치는 결과 아이템마다 정한 값으로 쌓았다가 꺼낼 때 구슬로 준다(공식 서버와 같음).
-
-## 인챈트
-- 열기: ContainerOpen(창 2, 종류 3, 블록 위치, -1)과 빈 PlayerEnchantOptions. 곡괭이를 22:14에 놓으면(청금석 없이도) 선택지 3개가 온다. 청금석을 23:15에 놓아도 다시 오지 않는다.
-- 선택지: `Cost`(필요 레벨, 무작위; 레벨 30·유효 책장 15에서 예 6·13·30), `Enchantments{Slot, Enchantments [[착용], [손에 듦], [아이템 자신]]}`(각 {Type, Level}), `Name`(무작위 단어), `RecipeNetworkID`.
-- 발동 목록: 0 착용(보호 계열, 가시, 호흡, 친수성, 차가운 걸음), 1 손에 듦(날카로움, 발화, 약탈, 화염, 섬세한 손길, 내구성, 행운, 바다의 행운), 2 아이템 자신(효율, 밀치기, 힘, 밀어내기, 무한, 미끼, 충성, 집전, 관통, 빠른 장전, 수선, 소실 저주). 곡괭이에서 내구성(17)은 1번, 효율(15)은 2번 목록이다(gophertunnel 문서와 같음).
-- `Slot`(아이템 종류별): 투구 1, 흉갑 2, 레깅스 8, 부츠 4, 책 -1, 검 16, 활 32, 괭이 64, 도끼 512, 곡괭이 1024, 삽 2048, 낚싯대 4096, 삼지창 32768, 쇠뇌 65536. 가위와 부싯돌은 선택지가 없다. 삼지창은 공식 서버에서 선택지 3개다.
-- 인챈트 요청(상태 0, CraftResultsDeprecated 없음): `[CraftRecipe(선택지 RecipeNetworkID, 1), Consume(1, 22:14), Consume(선택지 순서+1, 23:15), Place(1, 60:50 ID=요청 ID, 22:14 ID=요청 ID)]`. 청금석 개수는 선택지 순서 + 1이고 `Cost`는 레벨 조건이다. 응답 [22:14 x1 새 ID, 23:15 x2 같은 ID], 곧 빈 PlayerEnchantOptions, UpdateAttributes player.level 29(첫 선택지는 1레벨). 인챈트된 아이템 NBT는 보내지 않는다(클라이언트가 선택지로 안다).
-- `RecipeNetworkID`와 거래 `netId`는 CraftingData 마지막 번호(4768) 다음부터 서버 전체에서 하나씩 는다(인챈트 4769~4771, 그 뒤 주민 오퍼 4772~). 같은 주민의 오퍼는 다시 열어도 같은 번호다.
-- Anchor: `Slot`과 세 목록은 공식 서버 값이다. 선택지 ID는 CraftingData 다음부터 서버 카운터다. 청금석 = 순서 + 1, 레벨 = 순서 + 1. 삼지창 선택지는 없다(덤프에 삼지창 인챈트가 없음, `intended.txt`).
-
-## 작물, 부수기, 드롭, 줍기
-- 뼛가루: UseItem(ClickBlock, 작물 윗면, HeldItem=뼛가루, 예측 액션) → LevelEvent 2005(ParticleCropGrowth, 블록 위치, data 0), InventoryContent(뼛가루 -1, 새 스택 ID), UpdateBlock 밀 `growth` 증가(무작위 1~3단계), 재동기화(밭 `moisturized_amount` 0 포함).
-- 서버 권위 부수기: PlayerAuthInput 한 틱에 블록 액션 `[StartBreak(위치, 면 1), PredictDestroyBlock(위치, 면 1)]`(InputFlagPerformBlockActions). 공식 서버: LevelEvent 3600(StartBlockCracking, data 65535), LevelEvent 2001(ParticlesDestroyBlock, 블록 중심, data = 부서진 블록 런타임 ID), UpdateBlock 공기, 드롭 AddItemActor(밀 1, 씨앗 0~3 무작위, 각자 SetActorData·MoveActorDelta).
+## 부수기, 드롭, 줍기
+- 서버 권위 부수기: PlayerAuthInput 한 틱에 블록 액션 `[StartBreak(위치, 면 1), PredictDestroyBlock(위치, 면 1)]`(InputFlagPerformBlockActions). 공식 서버: LevelEvent 3600(StartBlockCracking, data 65535), LevelEvent 2001(ParticlesDestroyBlock, 블록 중심, data = 부서진 블록 런타임 ID), UpdateBlock 공기, 드롭 AddItemActor(각자 SetActorData·MoveActorDelta).
 - 드롭 이동: AddItemActor와 MoveActorDelta의 위치는 발 + 0.125, MoveActorDelta `Ticks` 0, 떨어지는 동안 매 틱 보내고 바뀌지 않은 축은 없음(null). 경험치 구슬과 주민의 MoveActorDelta도 `Ticks` 0이다.
 - 줍기: 플레이어 상자 안에 들면 TakeItemActor(아이템 런타임 ID, 플레이어 런타임 ID) → 서버 → 클라이언트 InventoryTransaction(normal: 컨테이너 창 0 칸 N 이전 → 새 아이템 새 ID, 출처 2(world) 칸 1 아이템 → 빈 칸) → RemoveActor. InventorySlot은 보내지 않는다.
 - 봇의 걷기는 서버 권위 이동이 CorrectPlayerMovePrediction으로 되돌린다(봇이 물리를 재현하지 않음). 그래서 봇은 `tp`로 드롭 위에 선다.
@@ -80,12 +47,6 @@
 - 닫기: 클라이언트 ContainerClose(창, 15, false) → 공식 서버 ContainerClose(창, 247, false).
 - Anchor: 주민형 NPC의 actor 종류는 `minecraft:villager_v2` 하나, 창 종류 15, 닫기 응답 247, 오퍼 NBT는 공식 서버 키 전부, `netId`는 서버 카운터(처음 열 때 매기고 유지), `uses`만 늘리고 UpdateTrade를 다시 보내지 않는다(등급이 올라도). 메타데이터 101~104는 공식 서버 키이고 SkinId는 0으로 고정한다. 직업 번호 표(`trade.rs`)는 공식 서버와 같다. 주민 AI가 없어 demand는 늘 0이다. 거래 Event EntityInteract는 보내지 않는다(통계용, 클라이언트 동작에 영향 없음).
 
-## 모루, 대장장이, 신호기 요청
-- 모루 이름 바꾸기: FilterStrings `["새 이름"]`, `[CraftRecipeOptional{RecipeNetworkID 0, FilterStringIndex 0}, Consume(1, AnvilInput:1), Place(1, Created:50, 인벤토리)]`. 레벨 30→29.
-- 대장장이(네더라이트 검): `[CraftRecipe{스미딩 레시피 ID, 1}, Consume(1, SmithingTableInput:51), Consume(1, SmithingTableMaterial:52), Consume(1, SmithingTableTemplate:53), Place(1, Created:50, 인벤토리)]`.
-- 신호기: 지불 칸 BeaconPayment:27에 철 주괴를 먼저 놓고 `[BeaconPayment{1, 0}, Destroy(1, BeaconPayment:27)]`.
-- 모두 상태 0이다. Anchor도 같은 모양을 받는다(`stations`).
-
 ## 스폰 창
 - 순서: NetworkSettings → ServerToClientHandshake → PlayStatus(0) → ResourcePacksInfo → ResourcePackStack → LevelEventGeneric → PlayerList → SyncWorldClocks → JigsawStructureData → VoxelShapes → StartGame → SyncActorProperty ×13 → ItemRegistry → (RequestChunkRadius) → SetSpawnPosition → SyncWorldClocks → SetDifficulty → SetCommandsEnabled → UpdateAdventureSettings → UpdateAbilities → GameRulesChanged → PlayerList → UpdateAbilities → BiomeDefinitionList → AvailableActorIdentifiers → PlayerFog → CameraPresets → CameraAimAssistPresets → CameraSpline → UpdateAttributes → CreativeContent → TrimData → InventoryContent ×4 → PlayerHotBar → CraftingData → AvailableCommands → Respawn ×3 → (청크) → LevelSoundEvent → SetActorData → CurrentStructureFeature → UpdateAttributes → ChunkRadiusUpdated → (주변 몹 AddActor 등) → SetHealth → PlayStatus(3).
 - LevelEventGeneric: EventID 9801(SleepingPlayers), 데이터 = 루트 태그 없는 네트워크 NBT 컴파운드 내용(int 셋과 끝 0): `ableToSleep` 1, `overworldPlayerCount` 1, `sleepingPlayerCount` 0(1인).
@@ -96,7 +57,7 @@
 - AvailableActorIdentifiers: 8,907바이트, 기준 목록 `entity_identifiers.dat`과 바이트가 같다. Anchor는 그 파일을 그대로 보낸다.
 - JigsawStructureData: 없으면 공식 클라이언트가 `disconnectionScreen.missingStructureData`로 끊는다. Anchor는 기준 목록 `jigsaw_structure_data.dat` 내용을 공식 서버와 같은 자리에 보낸다.
 - CameraPresets(프리셋 6개: first_person, fixed_boom, follow_orbit, free, third_person, third_person_front), CameraAimAssistPresets(범주 bucket·empty_hand·default, 프리셋 하나), CameraSpline(빈 목록): Anchor는 Windows판 공식 서버 내용(`xtask/data/reference/camera.json`)을 같은 자리에 보낸다.
-- Windows판과 Linux판 공식 서버(둘 다 1.26.52.3)는 같은 내용을 보내지만 아래 목록의 순서가 다르다. 판마다 몇 번 돌려도 순서는 같다. 모두 클라이언트가 이름으로 찾는 목록이라 순서에 뜻이 없고, P6는 키 순서로 바꿔 비교한다(`xtask/src/p6/compare.rs`의 `in_key_order`, `bot cloudburst`의 `sortByIdentifier`).
+- Windows판과 Linux판 공식 서버(둘 다 1.26.52.3)는 같은 내용을 보내지만 아래 목록의 순서가 다르다. 판마다 몇 번 돌려도 순서는 같다. 모두 클라이언트가 이름으로 찾는 목록이라 순서에 뜻이 없고, P6는 키 순서로 바꿔 비교한다(`xtask/src/p6/compare.rs`의 `in_key_order`, `bot worlddata`의 `sortByIdentifier`).
   - SyncActorProperty 패킷의 엔티티 종류 순서(Linux: sulfur_cube, wolf, armadillo, pig, happy_ghast, cat, creaking, zombie_nautilus, chicken, bee, egg, cow, copper_golem). 엔티티 하나의 `properties` 목록 순서는 두 판이 같고 뜻이 있다: AddActor의 EntityProperties가 그 목록의 번호(`Index`)로 속성을 가리킨다(공식 서버 닭 AddActor `IntegerProperties` Index 0·1, gophertunnel `IntegerEntityProperty`). 그래서 이 목록은 순서대로 비교한다.
   - CameraAimAssistPresets 범주 순서(Linux: empty_hand, default, bucket)와 범주마다 `Blocks` 우선순위 목록 순서(예 bucket: Windows cauldron·lava·water, Linux cauldron·water·lava). 프리셋은 범주를 이름(`ItemSettings.Category`, `DefaultItemSettings`, `HandSettings`)으로 가리키고, 우선순위는 블록 이름마다 하나다.
   - JigsawStructureData `template_pools` 64개 순서. 네 최상위 목록(jigsaws, processors, structure_sets, template_pools)은 `description.identifier`로 이름 붙은 정의이고 서로 이름(`start_pool`, `structure`)으로 가리킨다. 정의 안의 목록(가중치 있는 `elements` 등)은 두 판의 순서가 같고 순서대로 비교한다.
@@ -108,9 +69,9 @@
 - SetHealth 20(PlayStatus(3) 바로 앞). PlayerFog 빈 스택. Respawn 세 번: (State 0, y 32769.62), (State 0, y 32768), (State 1, 실제 눈 위치), EntityRuntimeID 0.
 - 플레이어 SetActorData(Tick 0) 73개 키: 0 flags 844424930656256, 1 1, 2 0, 3 0, 4 이름, 5 -1, 6 0, 7 300, 22 0, 26 0, 27 1, 28 [0,0,0], 37 0, 39 0, 42 300, 43~46 0, 55 -1, 57~60 0, 70 0, 71 "", 72 "", 73 1, 75~77 0, 78 -1, 81 1, 82 0, 84 "", 88 -1, 91 0, 92 35184405643264, 100 "", 101~104 0, 106 3, 107 1, 108 8, 109 16, 110 "ambient", 111 1, 114~117 0, 118 {}, 119 0, 120 0, 124 1, 125 20, 126 614, 127 [0,0,0], 128 0, 129 0, 130 [0.6,1.8,0], 131 0, 132 "", 133 [0,0,0], 134 0, 135 0, 136~138 -1, 140 64, 141 0(u8, 1.26.60에서 더해짐, 공개된 이름 없음).
 - InventoryContent 4개: 창 0(36칸), 120(갑옷 5칸), 124(UI 54칸), 119(왼손 1칸), 모두 빈 칸. PlayerHotBar {0, 창 0, select true}.
-- TrimData: 무늬 18개(ward, sentry, snout, dune, spire, tide, wild, rib, coast, shaper, eye, vex, silence, wayfinder, raiser, host, flow, bolt; ItemName `minecraft:<무늬>_armor_trim_smithing_template`), 재료 11개(quartz §h, iron §i, netherite §j, redstone §m, copper §n, gold §p, emerald §q, diamond §s, lapis §t, amethyst §u, resin §v; ItemName은 재료 아이템). Anchor는 같은 목록(`crafting::TRIM_*`)을 보낸다.
+- TrimData: 무늬 18개(ward, sentry, snout, dune, spire, tide, wild, rib, coast, shaper, eye, vex, silence, wayfinder, raiser, host, flow, bolt; ItemName `minecraft:<무늬>_armor_trim_smithing_template`), 재료 11개(quartz §h, iron §i, netherite §j, redstone §m, copper §n, gold §p, emerald §q, diamond §s, lapis §t, amethyst §u, resin §v; ItemName은 재료 아이템). Anchor는 같은 목록(`TRIM_PATTERNS`, `TRIM_MATERIALS`)을 보낸다.
 - MobEquipment, MobArmourEquipment는 스폰 창에 오지 않는다(주민·몹이 보일 때만). 스폰 창의 AddActor, RemoveActor, MoveActorDelta 등은 평지의 바닐라 몹(닭, 소, 양)이다. 참가 플레이어의 entity spawn 소리(LevelSoundEvent)도 온다. 이 패킷들은 유예표(`deferred.txt`)에 있다.
-- SetLocalPlayerAsInitialised 뒤 UnlockedRecipes(종류 1, 20개)가 온다(창 밖, 레시피 책 절).
+- SetLocalPlayerAsInitialised 뒤 UnlockedRecipes(종류 1, 20개)가 온다(창 밖). Anchor는 레시피가 없어 보내지 않는다.
 - 공기: 스폰 창 데이터에는 Breathing 플래그가 없다. 물속 첫 틱에 Breathing을 끄고 공기 -1/틱, -20이면 0으로 하고 익사 피해 2. 물 밖이면 바로 Breathing을 켜고 공기 +4/틱으로 최대까지. Anchor는 이를 따르고 Initialised 뒤 첫 틱에 키 0만 보낸다.
 - Anchor 스폰 창은 위 순서와 값(크기까지)을 공식 서버와 같게 보내고, 비교는 zlib, Snappy, NetherNet 모두 같다.
 
@@ -121,19 +82,15 @@
 - 매개변수 형 번호: int 1, float 3, target 8, string 56, position 65, message 68(MessageRoot: say, me, tell, kick), raw_text 70, json 74. gophertunnel의 `CommandArgTypeMessage`는 67이다. Anchor는 관찰한 값 68을 쓴다.
 - 공식 서버 명령 모양(권한 단계, 플래그, 오버로드): give 1 0 `target enum:Item int? int? json?` / effect 1 0 `target enum:ClearEffects enum:Effect?`, `target enum:Effect int? int? enum:Boolean?`, `target enum:Effect enum:AddInfiniteEffect int? enum:Boolean?` / gamemode 1 0 `enum:GameMode target?`, `int target?` / time 1 0 (1.26.60: "월드 시계 명령"의 12가지) / xp 1 0 `int target?`, `suffix:L target?`(접미사 매개변수는 Valid 비트 없이 접미사 번호) / say 1 192 `message` / kick 1 128 `target message` / op 2 1152 `target` / particle 1 0 `string position?` / tell 0 192 별칭 `tell w msg` `target message` / tp는 `teleport`의 별칭.
 - 별칭이 없는 명령의 AliasesOffset은 0xFFFFFFFF. 별칭 enum은 `<이름>CommandAliases`이고 이름을 맨 앞에 넣는다(`teleport`: `["teleport","tp"]`, `allowlist`: `["allowlist","whitelist"]`). Anchor도 같다.
-- Anchor의 기본 명령 21개(give, effect, enchant, gamemode, tp, kill, tell, clear, difficulty, kick, op, deop, me, say, list, stop, time, title, xp, spawnpoint, setworldspawn)는 인자 형, 이름, enum이 공식 서버와 같다. `particle`, `whitelist`, `transferserver`는 덤프 원본의 명령 모양을 따라 공식 서버와 다르다. `time`은 1.26.60의 모양 전체(아래 "월드 시계 명령")를 따른다. 명령 목록 비교는 둘 다 가진 명령만 메모로 본다.
+- Anchor의 기본 명령 중 give, gamemode, tp, kill, clear, kick, op, deop, list, stop은 인자 형, 이름, enum이 공식 서버와 같다. `whitelist`는 덤프 원본의 명령 모양을 따라 공식 서버와 다르다. 명령 목록 비교는 둘 다 가진 명령만 메모로 본다.
 - op: 콘솔 `op <이름>` 뒤 공식 서버는 AvailableCommands를 다시 보내지 않고 Text(종류 10, rawtext `commands.op.message`)와 UpdateAbilities(CommandPermissions 1, PlayerPermissions 2, 층 하나 Abilities 1048575, Values 255, FlySpeed 0.05, WalkSpeed 0.1, VerticalFlySpeed 1)를 보낸다.
   - Anchor: op면 CommandPermissions 1, PlayerPermissions 2, Values에 OperatorCommands·Teleport(생존 255), deop면 0·1·63. 같은 상태로 다시 op하면 보내지 않는다. op인 플레이어는 들어올 때 StartGame `PlayerPermissions`부터 op 값이다.
 - CommandOutput 공통: 원점은 요청 그대로(Origin 0 player, 같은 UUID, RequestID "", PlayerUniqueID 0), OutputType 3(AllOutput), DataSet 없음. 성공이면 SuccessCount 1과 메시지 Success true, 실패면 0과 false. 메시지는 번역 키와 매개변수다.
 - 명령마다 공식 서버 값:
-  - 권한 없음(구성원의 `time set 500`): `commands.generic.error.permissions` `["time"]`. 목록에 있는 명령이라 "모르는 명령"이 아니다.
-  - `say hi`: CommandOutput이 없다. 모두에게 Text(종류 8 Announcement, SourceName `P6Commands`, Message `[P6Commands] hi`, 번역 없음).
+  - 권한 없음(구성원의 `gamemode creative`): `commands.generic.error.permissions` `["gamemode"]`. 목록에 있는 명령이라 "모르는 명령"이 아니다.
   - `give @s stone 3`: `commands.give.success` `["Stone","3","P6Commands"]`. 받는 이에게 Text(종류 10, rawtext `commands.give.successRecipient` `["Stone","3"]`), InventoryTransaction, InventoryContent 4창, PlayerHotBar, 소리 `pop`.
   - `tp ~ ~1 ~`: `commands.tp.success.coordinates` `["P6Commands","-3.50","-59.00","-11.50"]`(발 좌표, 소수 둘째 자리). MovePlayer(Mode 2 Teleport, TeleportCause 3, 눈 높이 +1), Text(종류 10, `commands.tp.successVictim` `["-3.50, -59.00, -11.50"]`). 떠 있는 봇에게 곧 CorrectPlayerMovePrediction을 보낸다.
   - `gamemode creative`: `commands.gamemode.success.self` `["%createWorldScreen.gameMode.creative"]`. UpdatePlayerGameType(GameType 1, PlayerUniqueID 자신, Tick 서버 틱)만 보내고 SetPlayerGameType, UpdateAbilities는 보내지 않는다. Text(종류 10, `gameMode.changed` `["%createWorldScreen.gameMode.creative"]`).
-  - `time set 1000`: `commands.time.clock.set` `["minecraft:overworld","1000"]`(1.26.52는 `commands.time.set` `["1000"]`). SetTime이 아니라 SyncWorldClocks(SyncStates 하나, Time 1000, Paused false)로 알린다. 시각이 흐를 때도 몇 초마다 SyncWorldClocks를 보낸다. 1.26.60 `/time`의 형태와 답 전체는 `clocks` 시나리오(아래 "월드 시계 명령").
-  - `effect @s speed 10 1`: `commands.effect.success` `["%potion.moveSpeed","1","P6Commands","10"]`. MobEffect(Operation 1 Add, EffectType 1, Amplifier 1, Duration 200, Particles true, Ambient false), UpdateAttributes(이동 속도), SetActorData.
-  - `xp 10`: `commands.xp.success` `["10","P6Commands"]`. UpdateAttributes(레벨 1, 진행 0.33).
   - `give @s no_such_item`: `commands.generic.syntax` `["/give @s ","no_such_item",""]`.
   - `no_such_command`: `commands.generic.unknown` `["no_such_command"]`.
   - `effect @s clear`: 효과 ID 순으로 지우고, 제거 MobEffect마다 그 효과의 증폭과 남은 시간을 싣는다.
@@ -141,21 +98,10 @@
 - 공식 서버는 명령마다 Event(SlashCommandExecuted: 명령 이름, 성공 수, 메시지 수·키)를 보낸다(원격 측정). Anchor는 보내지 않는다.
 - Anchor가 공식 서버와 같은 것: 모르는 명령, 권한 없음(채팅으로 친 `/` 줄도), 문법 오류의 키와 매개변수(`command::Error::Syntax`), 게임 모드 이름 `%createWorldScreen.gameMode.<모드>`, `%potion.*` 이름, 명령이 손댄 플레이어에게 가는 Text 10(`gameMode.changed`는 자기 자신에게도, `commands.give.successRecipient`, `commands.tp.successVictim`), tp 좌표 소수 둘째 자리, gamemode 뒤 바뀐 플레이어에게만 UpdatePlayerGameType(SetPlayerGameType 없음, 하드코어 관전 전환도 같음; 남의 ID로 보내면 클라이언트가 무시함), `effect clear`의 순서와 값.
 - Anchor가 일부러 다른 것(`intended.txt`):
-  - `/say`: `§d%chat.type.announcement` [이름, 말] 번역과 빈 CommandOutput.
   - give 성공 메시지의 아이템 이름: Anchor는 ID(`minecraft:stone`)를 쓴다. 아이템 표시 이름 표가 없다.
   - gamemode 뒤 UpdateAbilities를 보낸다. API가 바꾼 비행, 충돌, 비행 속도, op 값을 실어야 하고 같은 값이라 클라이언트에 해가 없다.
-  - `/xp abc`: 문자열 매개변수 하나(`10` 또는 `10L`)라 오버로드에 맞고 핸들러가 usage로 답한다.
   - 지금과 같은 게임 모드로 `/gamemode`: 실패한다(공식 서버는 성공).
   - UpdatePlayerGameType `Tick`: 공식 서버는 서버 틱(예 333), Anchor는 0이다(비교 필드 아님).
-  - `/particle`: 번호 입자 모양(`<name> <position> <xd> <yd> <zd> [count] [data]`)이라 공식 서버 오버로드 `string position?`와 다르다(사실 기록 시나리오).
-
-## 월드 시계 명령 (`clocks`)
-- 1.26.60 `/time`의 형태: `add <amount>`, `set <amount>`, `set <시각 표시> [next|previous|stay]`(인자 종류 86 ClockTimeMarker), `query <time|daytime|gametime|day>`, `pause`, `resume`, 그리고 같은 여섯 가지 앞에 `of <시계>`(소프트 enum `WorldClocks` `["minecraft:overworld"]`, query는 `time`만). 1.26.52의 `TimeSpec`, `TimeQuery`는 없다.
-- 시계는 `minecraft:overworld` 하나이고 시각은 24000에서 돌지 않는다(`time set 30000` 뒤 30000, `query day`는 시각 / 24000). 2147483647까지 받는다.
-- 답: `set` `commands.time.clock.set` [시계, 시각]. `add` `commands.time.clock.added` [더한 값, 시계, 새 시각]. 음수 시각이 되면 `commands.time.clock.num.tooSmall` [받을 수 있는 가장 작은 값](`set -5` → "0", 1500에서 `add -2000` → "-1500"). `query time` `commands.time.clock.query.time` [시계, 시각], `daytime` `commands.time.query.daytime` [시각 mod 24000], `gametime` `commands.time.query.gametime` [월드 나이 틱], `day` `commands.time.query.day` [시각 / 24000]. `pause`·`resume` `commands.time.clock.paused`·`resumed` [시계, 시각](SyncWorldClocks Paused true·false).
-- 시각 표시: `minecraft:`를 붙여도 떼어도 되고 대소문자를 가린다(`Noon` 실패). next는 지금 이후(같으면 지금) 첫 표시, previous는 지금 이전(같으면 지금) 마지막 표시, stay는 오늘의 표시. 모르는 표시는 `commands.time.clock.timemarker.failed` [입력 그대로, 시계], 모르는 시계는 `commands.time.clock.failed` [입력 그대로](`overworld`는 됨, `MINECRAFT:OVERWORLD`는 실패).
-- 바꿀 때마다 SyncWorldClocks(SyncStates 하나)를 보낸다.
-- Anchor: 같은 형태와 답이다(`clocks` 비교 같음). 여러 월드에서는 `set`·`add`·`pause`·`resume`이 모든 월드에, `query`가 보낸 사람의 월드에 걸린다. `gametime`은 월드 나이(`World::age_ticks`)이고 저장하지 않아 다시 시작하면 0부터다(공식 서버는 월드와 함께 저장). 비교에서는 뺀다: 봇이 들어오기 전 서버가 돈 시간에 달렸다. 공식 서버는 2147483647에서 `add 1`을 하면 알 수 없는 값(11649)이 되고, Anchor는 2147483648이 된다. API 세션은 시작 설정이 공식 서버의 낮 주기를 끄므로 Anchor도 `daylight-cycle = false`로 띄운다.
 
 ## 채팅과 문자열 상한
 - 클라이언트 Text(Chat)에 공식 서버는 모두에게 Text(종류 1 Chat, SourceName `이름§r`, Message 원문, Parameters 없음, NeedsTranslation false)를 보낸다.
@@ -279,7 +225,6 @@
 
 ## 실제 클라이언트로만 확인
 - 공식 클라이언트가 보내는 CraftRecipeAuto 재료 목록과 InventoryTransaction LegacyRequestID·LegacySetItemSlots 모양(공식 서버 재동기화의 원인일 수 있음).
-- `recipe-book = false`에서 레시피 책이 비는지, `doLimitedCrafting` false에서 해금되지 않은 레시피를 제작 칸에서 만들 수 있는지.
 - 공식 클라이언트 CommandRequest의 Version 값.
 - 별칭 enum 순서, 플레이어별 `CommandName` enum이 명령 자동 완성에 맞게 보이는지.
 - 번호 입자 형식: 클라이언트가 2009 형식(`id | 추가값 << 16`)과 `0x4000 | id` 형식을 둘 다 받는지.

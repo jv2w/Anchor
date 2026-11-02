@@ -1,5 +1,5 @@
-//! `manifest.json` of a pack: which archive entry is the manifest, and what Anchor reads of it
-//! (PMMP `ZippedResourcePack` and its `json\Manifest` classes). The rules are in the module
+//! `manifest.json` of a pack: which archive entry is the manifest, and what Anchor reads of it.
+//! The rules are in the module
 //! documentation of [`pack`](super).
 
 use serde::Deserialize;
@@ -43,7 +43,7 @@ pub(super) struct Manifest {
 /// The fields of `manifest.json` Anchor reads; others are ignored.
 #[derive(Deserialize)]
 struct Json {
-    /// Required (PMMP), not used.
+    /// Required, not used.
     #[serde(rename = "format_version")]
     _format_version: i64,
     header: Header,
@@ -61,10 +61,10 @@ struct Header {
 struct Module {
     #[serde(rename = "type")]
     kind: String,
-    /// Required (PMMP), not used.
+    /// Required, not used.
     #[serde(rename = "uuid")]
     _uuid: String,
-    /// Required (PMMP), not used.
+    /// Required, not used.
     #[serde(rename = "version")]
     _version: Version,
 }
@@ -100,7 +100,7 @@ impl Version {
 /// The manifest among `entries`, found and read.
 pub(super) fn read(entries: &[Entry<'_>]) -> Result<Manifest> {
     let root = entries.iter().find(|e| e.name == MANIFEST);
-    // PMMP: the shortest name matching `#.*/manifest.json$#`, the first of equal length.
+    // The shortest name matching `#.*/manifest.json$#`, the first of equal length.
     let nested = || {
         entries
             .iter()
@@ -167,7 +167,7 @@ fn parse(bytes: &[u8]) -> Result<Manifest> {
 }
 
 /// `text` without `//` and `/* */` comments and without commas before `}` or `]`, outside
-/// strings (what `Ahc\Json\Comment` strips for PMMP). Each removed byte becomes a space, and a
+/// strings. Each removed byte becomes a space, and a
 /// removed line break stays, so a syntax error is reported where the file has it.
 #[expect(
     clippy::expect_used,

@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::dump::{
-    BLOCK_PHYSICS, DUMP_DIR, PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_ITEMS, PMMP_TABLES,
+    BLOCK_PHYSICS, DUMP_BLOCKS, DUMP_DESERIALIZED, DUMP_DIR, DUMP_ITEMS, DUMP_TABLES,
     REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
 };
 
@@ -464,7 +464,7 @@ impl Data {
             aliases,
             items: Vec::new(),
             kinds,
-            tables: read_json(root, DUMP_DIR, PMMP_TABLES)?,
+            tables: read_json(root, DUMP_DIR, DUMP_TABLES)?,
             dump_state_index,
             item_index: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
@@ -505,7 +505,7 @@ impl Data {
             .iter()
             .map(|i| (i.name.as_str(), &i.data))
             .collect();
-        let dump: Vec<DumpItem> = read_json(root, DUMP_DIR, PMMP_ITEMS)?;
+        let dump: Vec<DumpItem> = read_json(root, DUMP_DIR, DUMP_ITEMS)?;
         for (i, item) in dump.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
@@ -855,7 +855,7 @@ fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
 /// does not read as themselves). Fails if a listed state is not a reference state or is listed
 /// twice.
 fn read_dump_reading(root: &Path, network: &BTreeMap<StateKey, u32>) -> R<DumpReading> {
-    let list: Vec<Deserialized> = read_json(root, DUMP_DIR, PMMP_DESERIALIZED)?;
+    let list: Vec<Deserialized> = read_json(root, DUMP_DIR, DUMP_DESERIALIZED)?;
     dump_reading(list, network)
 }
 
@@ -1014,7 +1014,7 @@ fn unimplemented_keys<'a>(
 /// ones (see [`merge`]); also the default state and identity of each block type, which all its
 /// states must share.
 fn read_dump_states(root: &Path) -> R<DumpStates> {
-    let dump: Vec<DumpBlock> = read_json(root, DUMP_DIR, PMMP_BLOCKS)?;
+    let dump: Vec<DumpBlock> = read_json(root, DUMP_DIR, DUMP_BLOCKS)?;
     let mut groups: BTreeMap<StateKey, Vec<Values>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
     let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();

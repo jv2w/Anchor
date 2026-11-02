@@ -1,7 +1,6 @@
 //! The light of one chunk worked out alone, as if every neighbour were dark.
 //!
-//! This is PMMP's `LightPopulationTask` (`BlockLightUpdate::recalculateChunk`,
-//! `SkyLightUpdate::recalculateChunk`): the chunk's own emitters and its open sky. Light from and
+//! This computes the chunk's own emitters and its open sky. Light from and
 //! to neighbours crosses later, face by face ([`super::Engine`]).
 //!
 //! It works on a snapshot of the chunk (shared sub-chunks), so it can run on the CPU pool or in
@@ -117,8 +116,7 @@ impl Population {
     /// Lights sub-chunk `sub` from the open sky.
     ///
     /// The light is 15 at and above each column's sky height, and the top block of a column
-    /// blocked at the top is lit from above the world (PMMP `SkyLightUpdate::getEffectiveLight`
-    /// above `Y_MAX`).
+    /// blocked at the top is lit from above the world (above `Y_MAX`).
     #[expect(
         clippy::expect_used,
         clippy::indexing_slicing,
@@ -157,7 +155,7 @@ impl Population {
     /// Queues the sky blocks of column `column_index` that can light a block.
     ///
     /// These are the blocks from the sky height up to one below the highest sky height of the
-    /// columns beside it (PMMP's `nodeColumnEnd`, one higher to also light the side of a blocked
+    /// columns beside it (one higher to also light the side of a blocked
     /// neighbour), and a lit top block.
     #[expect(
         clippy::indexing_slicing,

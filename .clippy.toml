@@ -3,7 +3,7 @@ avoid-breaking-exported-api = false
 # C-CASE: catch acronyms inside names (`HTTPServer`), not only all-caps names.
 upper-case-acronyms-aggressive = true
 # Proper names that doc comments may use without backticks; ".." keeps the defaults.
-doc-valid-idents = ["RakNet", "NetherNet", "PocketMine", "PlayFab", "OpenID", "LevelDB", ".."]
+doc-valid-idents = ["RakNet", "NetherNet", "PlayFab", "OpenID", "LevelDB", ".."]
 # windows-sys 0.52 comes from memory-stats (the resident memory of `/status`; its latest release
 # pins 0.52, and a vendor copy only to share one windows-sys would cost more than the 0.52 build
 # with four features, Windows only) and from ring, an optional dependency of rustls-webpki that

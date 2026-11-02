@@ -117,7 +117,7 @@ RakNet only.
 ## Remaining risks and what cannot be verified
 These show only on the official client; neither the official server nor bots can settle them.
 - Whether the official client joins over RakNet.
-- gophertunnel's comment reports, unconfirmed, that devices without AVX2 crash with Snappy (Mojira BDS-19188 points the same way).
+- gophertunnel's comment reports, unconfirmed, that devices without AVX2 crash with Snappy (a Mojang bug report points the same way).
 - Whether a held right click's copies stay byte-identical within a client tick while the player moves, and whether other packets come every frame. If the position changes every frame, the copies cannot be dropped and count against the packet budget, so a client holding the button while moving at over 512 frames per second exceeds it and is disconnected. Copies do count against the byte budget, so holding a heavy item (NBT of a few KiB) at hundreds of frames per second can reach `max-batch-bytes` / 4 per second.
 - Whether 32 deferred packets before the join are enough, whether the strict ClientData JSON accepts all of the official client's output, and the number after a mode other than survival in the pong (the official server sends only `Survival;1`).
 - The content of the unreliable data channel, and whether the official client's NetherNet sends ICE consent checks that give a ping.

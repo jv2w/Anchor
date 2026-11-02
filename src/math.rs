@@ -124,7 +124,7 @@ impl Vec3 {
         Self::new(self.x.floor(), self.y.floor(), self.z.floor())
     }
 
-    /// The vector scaled to length 1; the zero vector stays zero (PMMP `Vector3::normalize`).
+    /// The vector scaled to length 1; the zero vector stays zero.
     #[must_use]
     pub fn normalize(self) -> Self {
         let length = self.length();
@@ -230,8 +230,7 @@ impl Aabb {
         self.overlaps(o, 0.0)
     }
 
-    /// Whether the boxes overlap by more than `epsilon` on every axis (PMMP
-    /// `AxisAlignedBB::intersectsWith`, whose default `epsilon` is 0.00001).
+    /// Whether the boxes overlap by more than `epsilon` on every axis.
     pub fn overlaps(self, o: Self, epsilon: f64) -> bool {
         o.max.x - self.min.x > epsilon
             && self.max.x - o.min.x > epsilon
@@ -241,8 +240,7 @@ impl Aabb {
             && self.max.z - o.min.z > epsilon
     }
 
-    /// The box stretched toward `by`: the side each component points to moves by it (PMMP
-    /// `AxisAlignedBB::addCoord`), so the result covers every place the box passes moving by
+    /// The box stretched toward `by`: the side each component points to moves by it, so the result covers every place the box passes moving by
     /// `by`.
     #[must_use]
     pub fn stretch(self, by: Vec3) -> Self {
@@ -261,8 +259,7 @@ impl Aabb {
         Self { min, max }
     }
 
-    /// How far `moving` may go along x, up to `dx`, before it hits this box (PMMP
-    /// `AxisAlignedBB::calculateXOffset`): `dx` itself when they do not share the y and z
+    /// How far `moving` may go along x, up to `dx`, before it hits this box: `dx` itself when they do not share the y and z
     /// ranges or this box is not ahead.
     pub fn clip_x(self, moving: Self, dx: f64) -> f64 {
         if moving.max.y <= self.min.y
@@ -275,7 +272,7 @@ impl Aabb {
         clip(self.min.x, self.max.x, moving.min.x, moving.max.x, dx)
     }
 
-    /// [`Aabb::clip_x`] along y (PMMP `calculateYOffset`).
+    /// [`Aabb::clip_x`] along y.
     pub fn clip_y(self, moving: Self, dy: f64) -> f64 {
         if moving.max.x <= self.min.x
             || moving.min.x >= self.max.x
@@ -287,7 +284,7 @@ impl Aabb {
         clip(self.min.y, self.max.y, moving.min.y, moving.max.y, dy)
     }
 
-    /// [`Aabb::clip_x`] along z (PMMP `calculateZOffset`).
+    /// [`Aabb::clip_x`] along z.
     pub fn clip_z(self, moving: Self, dz: f64) -> f64 {
         if moving.max.x <= self.min.x
             || moving.min.x >= self.max.x
@@ -594,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn clipping_stops_a_moving_box_at_an_obstacle_as_pmmp_does() {
+    fn clipping_stops_a_moving_box_at_an_obstacle() {
         let floor = Aabb::new(Vec3::new(0.0, -1.0, 0.0), Vec3::new(1.0, 0.0, 1.0));
         let item = Aabb::new(Vec3::new(0.4, 0.5, 0.4), Vec3::new(0.6, 0.75, 0.6));
         assert_eq!(floor.clip_y(item, -2.0), -0.5);

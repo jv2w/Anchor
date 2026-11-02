@@ -11,24 +11,24 @@ import (
 )
 
 // itemBlock is one entry of item_blocks.json: the block state the vanilla creative inventory gives a
-// block item, which is the state BDS sends with that item.
+// block item, which is the state the official server sends with that item.
 type itemBlock struct {
 	Item  string         `json:"item"`
 	Name  string         `json:"name"`
 	State map[string]any `json:"states"`
 }
 
-// itemBlockList reads the block states of the creative items of CloudburstMC's creative_items.json and
-// checks them against dragonfly's creative_items.nbt (same properties per item name) and against the
+// itemBlockList reads the block states of the creative items of source B's creative_items.json and
+// checks them against source A's creative_items.nbt (same properties per item name) and against the
 // reference block list (same network ID). It returns the items whose creative entries all have one
 // state, sorted by item name; items with several states (one name for several blocks) are left out.
-func itemBlockList(dragonfly, refdata string, blocks []block) ([]itemBlock, error) {
+func itemBlockList(sourceA, sourceB string, blocks []block) ([]itemBlock, error) {
 	network := map[string]uint32{}
 	for _, b := range blocks {
 		network[b.Name+canonical(b.States)] = b.NetworkID
 	}
 
-	js, err := os.ReadFile(filepath.Join(refdata, "creative_items.json"))
+	js, err := os.ReadFile(filepath.Join(sourceB, "creative_items.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func itemBlockList(dragonfly, refdata string, blocks []block) ([]itemBlock, erro
 		states[it.ID][key] = itemBlock{Item: it.ID, Name: s.Name, State: s.States}
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dragonfly, "server", "item", "creative", "creative_items.nbt"))
+	raw, err := os.ReadFile(filepath.Join(sourceA, "server", "item", "creative", "creative_items.nbt"))
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +103,13 @@ func itemBlockList(dragonfly, refdata string, blocks []block) ([]itemBlock, erro
 		}
 		seen[name][canonical(props)] = true
 	}
-	// Every CloudburstMC state's properties must be among dragonfly's for the item (dragonfly omits
+	// Every source B state's properties must be among source A's for the item (source A omits
 	// empty properties; both read as an empty compound).
 	for item, byKey := range states {
 		for _, s := range byKey {
 			props := canonical(s.State)
 			if !seen[item][props] {
-				return nil, fmt.Errorf("creative item %v: dragonfly has no entry with properties %v", item, props)
+				return nil, fmt.Errorf("creative item %v: source A has no entry with properties %v", item, props)
 			}
 		}
 	}

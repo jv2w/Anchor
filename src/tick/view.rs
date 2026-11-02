@@ -1,10 +1,10 @@
 //! What each player sees of its world: the chunks around it, the chunk loads they need, the
 //! sub-chunk request answers, the block changes it is sent and its fake blocks.
 //!
-//! Chunks go out in the sub-chunk request system, as BDS sends them (P6): a `LevelChunk` with the
+//! Chunks go out in the sub-chunk request system, as the official server sends them (P6): a `LevelChunk` with the
 //! biomes, then the client asks for the sub-chunks it wants. A chunk stays loaded while a player
 //! sees it, it is a spawn chunk or a ticket holds it ([`Context::hold_chunks`]); one nobody holds
-//! unloads in the next view phase (PMMP unloads at its world tick too), with or without
+//! unloads in the next view phase, with or without
 //! [`ChunkUnload`] listeners, so that listening changes nothing; an unloaded chunk with unsaved
 //! changes waits in memory for the next commit (`save`).
 //!
@@ -43,7 +43,7 @@ use crate::world::{
 };
 
 /// How long a chunk a listener kept stays loaded before the listeners are asked again: 30
-/// seconds, PMMP's unload delay.
+/// seconds.
 const KEEP_TICKS: u64 = 600;
 /// The most fake blocks one player is shown, and the most changes of what a player is shown one
 /// tick takes from the API (clears of fake blocks it had before the tick come on top).
@@ -86,7 +86,7 @@ const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_E
 /// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
 /// sends a tick.
 const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK_RANGE.end() as usize;
-/// `UpdateBlock` flags BDS sends (P6): neighbours and network.
+/// `UpdateBlock` flags the official server sends (P6): neighbours and network.
 const UPDATE_FLAGS: u32 = BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
 /// The bits of a word of [`View::unsent`].
 const WORD_BITS: usize = u64::BITS as usize;
@@ -956,8 +956,7 @@ impl Context<'_> {
 
     /// Keeps the chunks of `world` within `radius` of `center` (a square of 2 × `radius` + 1
     /// chunks a side) loaded, whether a player is near or not, until
-    /// [`release_chunks`](Self::release_chunks) lets the ticket go (PMMP
-    /// `World::registerChunkLoader`, for a square at once). Unlike the API table's one-off loads
+    /// [`release_chunks`](Self::release_chunks) lets the ticket go (a square at once). Unlike the API table's one-off loads
     /// (`World::loadChunk`, `World::requestChunkPopulation`), the chunks stay held until the
     /// ticket is released, and the tickets of every caller share one bound. The chunks that are
     /// not loaded load from the next view phase on, as players' chunks do: [`ChunkLoad`] says when
@@ -1018,7 +1017,7 @@ impl Context<'_> {
         Ok(crate::world::Ticket::new(n))
     }
 
-    /// Lets the chunks of `ticket` go (PMMP `World::unregisterChunkLoader`): those nobody else
+    /// Lets the chunks of `ticket` go: those nobody else
     /// holds unload in the view phase, as players' chunks do. False if the ticket was let go
     /// already or its world unloaded.
     #[doc(alias = "World::unregisterChunkLoader")]
@@ -1026,8 +1025,7 @@ impl Context<'_> {
         release_ticket(&mut self.state.chunks, ticket.get())
     }
 
-    /// The tickets that hold chunk `chunk` of `world`, in the order they were given (PMMP
-    /// `World::getChunkLoaders`). Players' views and the 3 × 3 spawn chunks hold chunks too
+    /// The tickets that hold chunk `chunk` of `world`, in the order they were given. Players' views and the 3 × 3 spawn chunks hold chunks too
     /// without a ticket, so a chunk with none may still be in use;
     /// [`World::is_chunk_loaded`] tells whether it is loaded.
     #[doc(alias = "World::getChunkLoaders")]
@@ -1147,7 +1145,7 @@ fn unload(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, saving: 
 }
 
 /// Numbers the worlds by their place in the list ([`World::id`]) and holds the spawn chunks of
-/// every world (3 × 3 around the spawn, as PMMP keeps them), so they stay loaded without players.
+/// every world (3 × 3 around the spawn), so they stay loaded without players.
 ///
 /// It also notes which chunk events someone listens to: listeners are fixed when the server is
 /// built, and the chunk code that runs on split borrows of the state cannot ask.
@@ -1456,7 +1454,7 @@ fn update_player(
         if center != player.view.center || radius != player.view.radius {
             set_view(worlds, chunks, rules, player, center, radius);
         }
-        // BDS sends a publisher update every tick (P6), so the client's chunk area follows the
+        // The official server sends a publisher update every tick (P6), so the client's chunk area follows the
         // player block by block rather than a chunk at a time; repeats of a block are left out.
         let at = BlockPos::containing(player.position);
         if player.view.out.publish || at != player.view.published {
@@ -1852,8 +1850,7 @@ fn wanted_sub_chunks(state: &State) -> Vec<SubChunkKey> {
 }
 
 /// Works out one wanted sub-chunk: its height map, and as its payload its blocks, then the client
-/// form of its block entities as network NBT (dragonfly `subChunkEntry`; PMMP sends them with
-/// the chunk the same way), so a sign shows its text and a chest its pair as soon as the
+/// form of its block entities as network NBT, so a sign shows its text and a chest its pair as soon as the
 /// sub-chunk arrives. An all-air sub-chunk has no payload: it holds no block entity. `None` when
 /// the chunk is not loaded.
 fn encode(
@@ -1888,7 +1885,7 @@ fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize
     Some((pos, index))
 }
 
-/// Puts in `out` the chunk packets of one player this tick, in BDS's order (P6): the publisher
+/// Puts in `out` the chunk packets of one player this tick, in the official server's order (P6): the publisher
 /// update, the chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the
 /// client forgets them with the sub-chunk it replaces); then the positions whose fake block was
 /// set or cleared this tick or that a refused change sends again, with what they show now.
@@ -1969,7 +1966,7 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
 }
 
 /// Builds the packet that sets `blocks` (with their network IDs) of sub-chunk `sub_y` of `chunk`
-/// on a client: an `UpdateBlock` for one block, an `UpdateSubChunkBlocks` for several (BDS, P6);
+/// on a client: an `UpdateBlock` for one block, an `UpdateSubChunkBlocks` for several (P6);
 /// none for none.
 fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
     match blocks {
@@ -2001,8 +1998,8 @@ fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Opt
     }
 }
 
-/// Builds the answer to one sub-chunk request: one entry per offset, in order (dragonfly
-/// `ViewSubChunks`, values from P6).
+/// Builds the answer to one sub-chunk request: one entry per offset, in order (values from
+/// P6).
 fn answer(
     world_index: WorldIndex,
     view: &View,
@@ -2010,7 +2007,7 @@ fn answer(
     encoded: &Encoded,
 ) -> SubChunk {
     let mut entries = Vec::with_capacity(request.offsets.len());
-    // A request for another dimension gets no entries (dragonfly): the overworld is the only one.
+    // A request for another dimension gets no entries: the overworld is the only one.
     if request.dimension == 0 {
         for &offset in &request.offsets {
             entries.push(entry(world_index, view, request, offset, encoded));
@@ -2124,7 +2121,7 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
 }
 
 /// Puts in `out` the block change packets for a player: for each changed sub-chunk of a chunk it
-/// was sent, an `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (BDS, P6). A
+/// was sent, an `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (P6). A
 /// change where the player is shown a fake block, or where [`packets`] sends what it shows, is
 /// left out.
 pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Message>) {

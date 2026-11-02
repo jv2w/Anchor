@@ -58,7 +58,7 @@ const MAX_OPTIONS: usize = 256;
 pub(crate) const MAX_PENDING: usize = 16;
 /// The longest answer accepted, in bytes of JSON; a longer one is dropped before it is parsed.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 64 * 1024;
-/// The `timeout` BDS writes on every slider (P6), copied as it is: its unit is not known.
+/// The `timeout` the official server writes on every slider (P6), copied as it is: its unit is not known.
 const SLIDER_TIMEOUT: u32 = 100;
 /// How far, in steps, a slider answer may lie off a step or outside the range and still count:
 /// the client computes the value in 32-bit floats.
@@ -500,8 +500,7 @@ impl Shape {
                 let Json::Array(values) = json else {
                     return None;
                 };
-                // The client sends one value per element; anything after them is ignored, as
-                // dragonfly does.
+                // The client sends one value per element; anything after them is ignored.
                 if values.len() < expect.len() {
                     return None;
                 }
@@ -556,7 +555,7 @@ fn menu(m: &Menu) -> Result<(Json, Shape)> {
                             "image": { "type": kind, "data": data },
                         })
                     }
-                    // BDS writes the key for a button without an image too.
+                    // The official server writes the key for a button without an image too.
                     None => json!({ "type": "button", "text": b.text, "image": null }),
                 }
             }
@@ -619,7 +618,8 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
             } => {
                 check_slider(min, max, step, default)?;
                 (
-                    // BDS (`@minecraft/server-ui`) writes `"timeout": 100` on every slider.
+                    // The official server (`@minecraft/server-ui`) writes `"timeout": 100` on
+                    // every slider.
                     json!({
                         "type": "slider",
                         "text": text,
@@ -669,7 +669,7 @@ fn custom(c: &Custom) -> Result<(Json, Shape)> {
         expect.push(e);
     }
     check_default_answer(&default_answer)?;
-    // BDS writes `"icon": null` on every custom form.
+    // The official server writes `"icon": null` on every custom form.
     let json = json!({
         "type": "custom_form",
         "title": c.title,
@@ -775,7 +775,7 @@ mod tests {
 
     // api: Form
     #[test]
-    fn forms_serialize_to_the_json_bds_sends_with_escaping() {
+    fn forms_serialize_to_the_json_the_official_server_sends_with_escaping() {
         assert_eq!(
             json(Modal::new("T \"q\"", "body\n", "Yes", "No")),
             json!({

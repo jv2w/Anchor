@@ -1,5 +1,5 @@
 //! SDP for NetherNet signaling: the client's offer parser and Anchor's answer
-//! writer, in the layout BDS 1.26.52 answers with.
+//! writer, in the layout the official server 1.26.52 answers with.
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -13,7 +13,7 @@ use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 
 /// The bytes in a SHA-256 fingerprint.
 const FINGERPRINT_BYTES: usize = 32;
-/// The priority of the answer's host candidate, as BDS writes it.
+/// The priority of the answer's host candidate, as the official server writes it.
 const HOST_PRIORITY: u32 = 2_122_260_223;
 /// The length of `ice-pwd` in characters (RFC 8839 5.4).
 const ICE_PWD_LEN_RANGE: RangeInclusive<usize> = 22..=256;
@@ -29,7 +29,7 @@ const MAX_FINGERPRINTS_BYTES: usize = 1024;
 const MAX_IDENTITY_JSON_BYTES: usize = 32 * 1024;
 /// The most non-empty lines in an offer. A real offer has about 20.
 const MAX_LINES: usize = 1024;
-/// The `a=max-message-size` Anchor answers with, as BDS: one 262,143-byte fragment and its
+/// The `a=max-message-size` Anchor answers with, as the official server: one 262,143-byte fragment and its
 /// 1-byte header.
 pub(crate) const MAX_MESSAGE_BYTES: u32 = 262_144;
 /// The largest offer body, in bytes. A real offer is about 2 KiB, most of it the identity token.
@@ -38,7 +38,7 @@ pub(crate) const MAX_OFFER_BYTES: usize = 64 * 1024;
 const MAX_TOKEN_BYTES: usize = max_jws_text(MAX_TOKEN_PAYLOAD_BYTES);
 /// The smallest `max-message-size` accepted, in bytes.
 const MIN_MESSAGE_BYTES: u32 = 1024;
-/// The only SCTP port accepted: the RFC 8841 default, which go-nethernet and BDS write.
+/// The only SCTP port accepted: the RFC 8841 default, which go-nethernet and the official server write.
 const SCTP_PORT: &str = "5000";
 
 /// Why an offer was rejected. The offer task answers every one with code 13, the shape of the
@@ -133,10 +133,10 @@ pub(crate) struct Assertion {
     pub(crate) fingerprints: String,
 }
 
-/// Anchor's answer. [`write_answer`] lays it out as BDS 1.26.52 does.
+/// Anchor's answer. [`write_answer`] lays it out as the official server 1.26.52 does.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Answer<'a> {
-    /// The `o=` session ID, random per answer as BDS draws it.
+    /// The `o=` session ID, random per answer as the official server draws it.
     pub(crate) session_id: u64,
     /// The `a=identity` value: base64 of the server assertion.
     pub(crate) identity: &'a str,
@@ -414,7 +414,7 @@ fn candidate(value: Option<&str>) -> Result<Option<SocketAddr>> {
         .map(|ip| SocketAddr::new(ip, port)))
 }
 
-/// The `a=identity` value: padded standard base64 (go-nethernet `base64.StdEncoding`, BDS) of
+/// The `a=identity` value: padded standard base64 (go-nethernet `base64.StdEncoding`, and the official server) of
 /// `{"assertion":"<JSON text of {fingerprints, token}>","idp":{"domain":..,"protocol":"default"}}`.
 fn identity(value: Option<&str>) -> Result<Assertion> {
     let text = value.ok_or(Error::Identity("empty"))?;
@@ -481,7 +481,7 @@ fn decimal<T: FromStr>(text: &str) -> Option<T> {
 }
 
 /// Writes the answer with CRLF line ends. The candidate foundation is libwebrtc's classic one,
-/// the decimal CRC-32 of `"local" + ip + "udp"`: stable per address, the shape BDS writes.
+/// the decimal CRC-32 of `"local" + ip + "udp"`: stable per address, the shape the official server writes.
 pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
     let ip = answer.addr.ip().to_canonical();
     let family = if ip.is_ipv4() { "IP4" } else { "IP6" };
@@ -516,7 +516,7 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
     )
 }
 
-/// A fingerprint as BDS writes it: uppercase hex bytes separated by colons.
+/// A fingerprint as the official server writes it: uppercase hex bytes separated by colons.
 pub(crate) fn fingerprint_text(bytes: &[u8; FINGERPRINT_BYTES]) -> String {
     let mut out = String::with_capacity(FINGERPRINT_BYTES * 3 - 1);
     for (i, &b) in bytes.iter().enumerate() {
@@ -999,7 +999,7 @@ a=max-message-size:262144
     }
 
     #[test]
-    fn answers_follow_the_bds_layout() {
+    fn answers_follow_the_official_layout() {
         let expected = "v=0\r
 o=- 1234567890123 2 IN IP4 127.0.0.1\r
 s=-\r

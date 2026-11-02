@@ -4169,8 +4169,8 @@ pub(super) fn left(state: &mut State, session: SessionId) {
 }
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
-/// pearl, splash or lingering potion, xp bottle). False if `item` throws nothing (a bottle o'
-/// enchanting with `xp-orbs = false`), the player cannot (not spawned, dead, spectator) or the
+/// pearl, splash or lingering potion, xp bottle). False if `item` throws nothing (an xp bottle
+/// with `xp-orbs = false`), the player cannot (not spawned, dead, spectator) or the
 /// entity limit is reached (the caller keeps the item; it takes one away on true, and keeps the
 /// ender pearl cooldown).
 #[doc(alias = "ProjectileItem::onClickAir")]

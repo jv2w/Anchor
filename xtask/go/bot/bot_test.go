@@ -24,8 +24,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
-// The hashes BDS 1.26.60.6 sent in its flat-world sub-chunk palettes (cargo xtask p6 official).
-func TestNetworkBlockHashMatchesBDSPalette(t *testing.T) {
+// The hashes the official server 1.26.60.6 sent in its flat-world sub-chunk palettes (cargo xtask p6 official).
+func TestNetworkBlockHashMatchesOfficialPalette(t *testing.T) {
 	for _, c := range []struct {
 		state blockState
 		want  int32

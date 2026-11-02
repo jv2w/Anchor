@@ -1,4 +1,4 @@
-//! Tasks scheduled while the server runs (PMMP `TaskScheduler`): run once after a delay or again
+//! Tasks scheduled while the server runs: run once after a delay or again
 //! every period, by due tick and then in the order they were scheduled.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -212,8 +212,7 @@ impl Context<'_> {
     }
 
     /// The scheduled task that is running now, if a scheduled task (and not a listener or a
-    /// build-time task) called this: a repeating task cancels itself with it (PMMP
-    /// `CancelTaskException`).
+    /// build-time task) called this: a repeating task cancels itself with it.
     #[doc(alias = "Task::getHandler")]
     pub fn current_task(&self) -> Option<Handle> {
         self.state.tasks.queue.running.map(|r| Handle::new(r.id))

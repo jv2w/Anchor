@@ -275,7 +275,7 @@ impl Landed {
     /// listener that changed the damage, the absorption or the hands neither wastes a totem nor
     /// is saved by one it took away. Unchanged, they are bit for bit what no listener gives. A
     /// listener that set one of those three
-    /// itself, or changed a suicide, is followed as it left the event; the absorption modifier
+    /// itself, or changed a self-kill, is followed as it left the event; the absorption modifier
     /// can only use absorption up.
     fn change(&mut self, settings: &Settings, event: &mut EntityDamage, player: &Player) {
         let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
@@ -490,14 +490,14 @@ pub(super) fn damage_quiet(
 fn lands(player: &Player, hit: &Hit) -> bool {
     let s = &player.survival;
     let mode = s.mode();
-    let suicide = hit.cause == Damage::Suicide;
+    let self_kill = hit.cause == Damage::Suicide;
     player.phase == Phase::Spawned
         && !s.is_dead()
-        && (suicide || (mode != GameMode::Creative && s.no_damage_ticks == 0))
+        && (self_kill || (mode != GameMode::Creative && s.no_damage_ticks == 0))
         && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
         && !(hit.cause == Damage::Fall && s.can_fly())
         && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
-        && (suicide || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
+        && (self_kill || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
 
 /// Works out whether a hit lands and how much it deals; `None` if it is cancelled. Each modifier
@@ -531,7 +531,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let base = hit.base;
     let mut sum = hit.extra;
     let mut modifiers = hit.parts;
-    // A suicide skips the modifiers.
+    // A self-kill skips the modifiers.
     if hit.cause != Damage::Suicide {
         let s = &player.survival;
         if s.attack_time > 0

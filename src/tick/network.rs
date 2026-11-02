@@ -3,7 +3,7 @@
 //! threads the server started with, and the controls the API asks of the networking ([`Control`]),
 //! which leave after the tick's output.
 //!
-//! PMMP reads the wall clock and the network when asked; the tick reads neither, so the same
+//! The tick reads neither the wall clock nor the network, so the same
 //! values come in through the input log and a replay reads what the run read.
 
 use std::time::Duration;
@@ -22,8 +22,7 @@ const AVERAGED: u32 = 20;
 /// The tick's view of its load and of the networking.
 #[derive(Debug, Default)]
 pub(super) struct Network {
-    /// Microseconds each of the last 20 measured ticks took, the oldest replaced first (PMMP
-    /// `Server::$useAverage`); 0 before a tick was measured.
+    /// Microseconds each of the last 20 measured ticks took, the oldest replaced first; 0 before a tick was measured.
     tick_times: [u32; AVERAGED as usize],
     /// The slot of the latest measured tick.
     latest: usize,
@@ -44,27 +43,25 @@ pub(super) struct Network {
 }
 
 impl Network {
-    /// How long the latest measured tick took (PMMP `Server::getTickUsage`, which gives it as a
-    /// percentage of 50 ms).
+    /// How long the latest measured tick took.
     pub(super) fn mspt(&self) -> Duration {
         let latest = self.tick_times.get(self.latest).copied().unwrap_or(0);
         Duration::from_micros(u64::from(latest))
     }
 
-    /// The mean of the last 20 measured tick times (PMMP `Server::getTickUsageAverage`).
+    /// The mean of the last 20 measured tick times.
     pub(super) fn average_mspt(&self) -> Duration {
         let sum: u64 = self.tick_times.iter().map(|&t| u64::from(t)).sum();
         Duration::from_micros(sum / u64::from(AVERAGED))
     }
 
     /// The ticks a second the latest tick time allows, at most
-    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND) (PMMP `Server::getTicksPerSecond`:
-    /// `min(20, 1 / max(0.001, seconds))`).
+    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND).
     pub(super) fn tps(&self) -> f64 {
         tps_of(self.tick_times.get(self.latest).copied().unwrap_or(0))
     }
 
-    /// The mean of the last 20 ticks' [`Self::tps`] (PMMP `Server::getTicksPerSecondAverage`).
+    /// The mean of the last 20 ticks' [`Self::tps`].
     pub(super) fn average_tps(&self) -> f64 {
         // Summed in slot order, serially: the same on every run and thread count.
         let sum: f64 = self.tick_times.iter().map(|&t| tps_of(t)).sum();
@@ -205,8 +202,7 @@ pub(super) fn apply(state: &mut State, session: SessionId, measure: Measure) {
     }
 }
 
-/// The ticks a second a tick of `micros` allows, at most a full-speed tick's (PMMP's 0.001
-/// seconds floor lies below the full-speed tick, so the cap covers it).
+/// The ticks a second a tick of `micros` allows, at most a full-speed tick's.
 fn tps_of(micros: u32) -> f64 {
     if u128::from(micros) <= TICK.as_micros() {
         1.0 / TICK.as_secs_f64()
@@ -251,8 +247,8 @@ mod tests {
     // api: Server::getTicksPerSecond, Server::getTicksPerSecondAverage, Server::getTickUsage
     // api: Server::getTickUsageAverage, World::getTickRateTime, Network::getConnectionCount
     // api: Network::getValidConnectionCount
-    /// The tick times and connection counts come in as logged inputs: the API reads them by
-    /// PMMP's formulas, and a replay of the written log reads the same at every tick.
+    /// The tick times and connection counts come in as logged inputs: the API reads them
+    /// through these formulas, and a replay of the written log reads the same at every tick.
     #[test]
     fn measured_tick_times_and_connection_counts_read_back_and_replay_the_same() {
         let pool = crate::runtime::cpu_pool(1).unwrap();

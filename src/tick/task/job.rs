@@ -1,4 +1,4 @@
-//! Blocking work off the tick (PMMP `AsyncPool`/`AsyncTask`): the work runs on the runtime's
+//! Blocking work off the tick: the work runs on the runtime's
 //! blocking pool, at most [`MAX_RUNNING_JOBS`] jobs at once, and its result comes back as an input
 //! of a later tick ([`InputKind::Job`](crate::tick::queue::InputKind::Job)), which the input log
 //! records.
@@ -158,8 +158,7 @@ impl Context<'_> {
     /// Runs `work` off the tick on the blocking pool and, in a later tick, `done` with its
     /// result, in the tick's input step. `work` cannot touch the game; anything it needs it takes
     /// by value. Its result travels as JSON and is recorded in the input log, so a replay gives
-    /// `done` the same value without running `work` again (PMMP `AsyncTask` without its
-    /// serialized task object).
+    /// `done` the same value without running `work` again.
     ///
     /// `done` gets [`Error::Panicked`] if `work` panicked, [`Error::TooLarge`] if the result's JSON
     /// is longer than [`MAX_RESULT_BYTES`], [`Error::Encode`] or [`Error::Decode`] if it does not

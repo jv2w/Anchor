@@ -20,9 +20,9 @@ use crate::login::{
 
 /// The largest key file read, in bytes. A P-384 PKCS#8 document is under 200.
 const MAX_KEY_FILE_BYTES: u64 = 4096;
-/// The identity provider domain BDS names for its own key.
+/// The identity provider domain the official server names for its own key.
 const SERVER_DOMAIN: &str = "self";
-/// The lifetime of the server identity JWT, in seconds (BDS: `exp = iat + 60`).
+/// The lifetime of the server identity JWT, in seconds (`exp = iat + 60`).
 const TOKEN_LIFETIME_SECONDS: i64 = 60;
 
 /// An identity failure: the key file at start, or an offer's assertion (signaling code 37).
@@ -118,9 +118,9 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// new key only once.
 pub(crate) struct ServerIdentity {
     key: ServerKey,
-    /// The JWT header as BDS writes it: `{"alg":"ES384","x5u":"<base64 SPKI>"}` and a line feed.
+    /// The JWT header as the official server writes it: `{"alg":"ES384","x5u":"<base64 SPKI>"}` and a line feed.
     header: String,
-    /// The `cpk` claim: the public key as a P-384 JWK object, keys in BDS order.
+    /// The `cpk` claim: the public key as a P-384 JWK object, keys in the official server's order.
     cpk: String,
 }
 
@@ -154,10 +154,10 @@ impl ServerIdentity {
     }
 
     /// The `a=identity` value of an answer whose `a=fingerprint` digest is `answer_fingerprint`
-    /// (as written there), with the BDS bytes: padded standard base64 of
+    /// (as written there), with the official server's bytes: padded standard base64 of
     /// `{"assertion":"{\"fingerprints\":\"<detached JWS>\",\"token\":\"<JWT>\"}","idp":{"domain":"self","protocol":"default"}}`.
     /// The JWT is issued at `now_unix` and expires 60 seconds later; its header and payload JSON
-    /// end in a line feed, as BDS writes them.
+    /// end in a line feed, as the official server writes them.
     pub(crate) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
         let signed = fingerprint_payload("sha-256", answer_fingerprint)?;
         let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECONDS);
@@ -273,7 +273,7 @@ struct Jwk {
 ///
 /// The token follows `mode`: online, every Login `Token` rule, so `cpk` is base64 SPKI; offline,
 /// no signature, but the algorithm must be RS256 or ES384 and `exp`, `nbf` and `iat` hold when
-/// present, and `cpk` is base64 SPKI or a P-384 JWK object (BDS writes a JWK, go-nethernet
+/// present, and `cpk` is base64 SPKI or a P-384 JWK object (the official server writes a JWK, go-nethernet
 /// base64). The fingerprint signature is a detached ES384 JWS by `cpk`. Rejecting an online
 /// offer that has no assertion is the caller's job.
 pub(crate) fn verify_offer(
@@ -376,13 +376,13 @@ mod tests {
     use crate::protocol::{self, fuzz};
     use crate::save::tests::TempDir;
 
-    /// Inside both captured tokens' lifetimes: BDS iat 1790993459, exp 1790993519; go-nethernet
+    /// Inside both captured tokens' lifetimes: the official server's iat 1790993459, exp 1790993519; go-nethernet
     /// exp 1790997059.
     const NOW: i64 = 1_790_993_469;
-    /// The `a=identity` value of a captured BDS 1.26.52.3 answer.
-    const BDS_IDENTITY: &str = "eyJhc3NlcnRpb24iOiJ7XCJmaW5nZXJwcmludHNcIjpcImV5SmhiR2NpT2lKRlV6TTROQ0o5Li45N0M2d21LYXVlTnlIcVdHcU83ZXZuNVJnU09OZG54NFZLbDFCR0hRUzAwNzZoMm50akF2bXFlRjFiX1k2MXlnU2RpVjR4QnhoWThGcG5lNU5oMnlXRHZZNFBWX0l2UjFseXhtT2hKZW5HU2NzdmNIek5fSGR1VVlDTHZRT29rQ1wiLFwidG9rZW5cIjpcImV5SmhiR2NpT2lKRlV6TTROQ0lzSW5nMWRTSTZJazFJV1hkRlFWbElTMjlhU1hwcU1FTkJVVmxHU3pSRlJVRkRTVVJaWjBGRmVXRXZhbmh3U0VObVRWcGlhazVLUTJwVWJtTmFjREJ3T1c4MFpHZGpUMFphYVZoc2NrRmpOMDlXWjBnMk5rNDJZblpQU2toTGRFRkxVMFl3V1RBNFRqTlBjM3BQVERORFZrRTNRV1pSY3pscllreExSVm8zTkhsRmFHeEtObUZJVDFGc2RUaG9TMGhsUmpGSk9FOXdkMnhSTTNoMVUya3diVnBGUm5JM1Z6QWlmUW8uZXlKamNHc2lPbnNpWTNKMklqb2lVQzB6T0RRaUxDSnJkSGtpT2lKRlF5SXNJbmdpT2lKNVlWOXFlSEJJUTJaTldtSnFUa3BEYWxSdVkxcHdNSEE1YnpSa1oyTlBSbHBwV0d4eVFXTTNUMVpuU0RZMlRqWmlkazlLU0V0MFFVdFRSakJaTURoT0lpd2llU0k2SWpOUGMzcFBURE5EVmtFM1FXWlJjemxyWWt4TFJWbzNOSGxGYUd4S05tRklUMUZzZFRob1MwaGxSakZKT0U5d2QyeFJNM2gxVTJrd2JWcEZSbkkzVnpBaWZTd2laWGh3SWpveE56a3dPVGt6TlRFNUxDSnBZWFFpT2pFM09UQTVPVE0wTlRsOUNnLlBURFlTVVEwWXFfQmFZWS1IZGttM1c5TEU5aXBvTTJZbE1VNktDNUZqRkNmZ1hhbEsyV2k5elFhLUhVNzBqaUZ4WWFLd3MycW5rZ0dUTHQ2ckdVM3lXd0tkU1ZZLWt4ZmdXdDkxM0xYNFhLOHAzRVYwMnBoNzZnV2RyQjFEWkVZXCJ9IiwiaWRwIjp7ImRvbWFpbiI6InNlbGYiLCJwcm90b2NvbCI6ImRlZmF1bHQifX0=";
+    /// The `a=identity` value of a captured official server 1.26.52.3 answer.
+    const OFFICIAL_IDENTITY: &str = "eyJhc3NlcnRpb24iOiJ7XCJmaW5nZXJwcmludHNcIjpcImV5SmhiR2NpT2lKRlV6TTROQ0o5Li45N0M2d21LYXVlTnlIcVdHcU83ZXZuNVJnU09OZG54NFZLbDFCR0hRUzAwNzZoMm50akF2bXFlRjFiX1k2MXlnU2RpVjR4QnhoWThGcG5lNU5oMnlXRHZZNFBWX0l2UjFseXhtT2hKZW5HU2NzdmNIek5fSGR1VVlDTHZRT29rQ1wiLFwidG9rZW5cIjpcImV5SmhiR2NpT2lKRlV6TTROQ0lzSW5nMWRTSTZJazFJV1hkRlFWbElTMjlhU1hwcU1FTkJVVmxHU3pSRlJVRkRTVVJaWjBGRmVXRXZhbmh3U0VObVRWcGlhazVLUTJwVWJtTmFjREJ3T1c4MFpHZGpUMFphYVZoc2NrRmpOMDlXWjBnMk5rNDJZblpQU2toTGRFRkxVMFl3V1RBNFRqTlBjM3BQVERORFZrRTNRV1pSY3pscllreExSVm8zTkhsRmFHeEtObUZJVDFGc2RUaG9TMGhsUmpGSk9FOXdkMnhSTTNoMVUya3diVnBGUm5JM1Z6QWlmUW8uZXlKamNHc2lPbnNpWTNKMklqb2lVQzB6T0RRaUxDSnJkSGtpT2lKRlF5SXNJbmdpT2lKNVlWOXFlSEJJUTJaTldtSnFUa3BEYWxSdVkxcHdNSEE1YnpSa1oyTlBSbHBwV0d4eVFXTTNUMVpuU0RZMlRqWmlkazlLU0V0MFFVdFRSakJaTURoT0lpd2llU0k2SWpOUGMzcFBURE5EVmtFM1FXWlJjemxyWWt4TFJWbzNOSGxGYUd4S05tRklUMUZzZFRob1MwaGxSakZKT0U5d2QyeFJNM2gxVTJrd2JWcEZSbkkzVnpBaWZTd2laWGh3SWpveE56a3dPVGt6TlRFNUxDSnBZWFFpT2pFM09UQTVPVE0wTlRsOUNnLlBURFlTVVEwWXFfQmFZWS1IZGttM1c5TEU5aXBvTTJZbE1VNktDNUZqRkNmZ1hhbEsyV2k5elFhLUhVNzBqaUZ4WWFLd3MycW5rZ0dUTHQ2ckdVM3lXd0tkU1ZZLWt4ZmdXdDkxM0xYNFhLOHAzRVYwMnBoNzZnV2RyQjFEWkVZXCJ9IiwiaWRwIjp7ImRvbWFpbiI6InNlbGYiLCJwcm90b2NvbCI6ImRlZmF1bHQifX0=";
     /// The `a=fingerprint` digest of the same answer.
-    const BDS_FINGERPRINT: &str = "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9";
+    const OFFICIAL_FINGERPRINT: &str = "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9";
 
     /// The key file in the folder `dir`.
     fn key_file(dir: &TempDir) -> PathBuf {
@@ -485,12 +485,12 @@ mod tests {
     }
 
     #[test]
-    fn the_bds_answer_assertion_verifies_and_shows_its_bytes() {
-        let (json, fingerprints, token) = decode(BDS_IDENTITY);
+    fn the_official_answer_assertion_verifies_and_shows_its_bytes() {
+        let (json, fingerprints, token) = decode(OFFICIAL_IDENTITY);
         assert!(json.starts_with(r#"{"assertion":"{\"fingerprints\":\"eyJhbGciOiJFUzM4NCJ9.."#));
         assert!(json.ends_with(r#"\"}","idp":{"domain":"self","protocol":"default"}}"#));
         let (header, payload) = jwt_parts(&token);
-        // BDS ends the JWT header and payload JSON with a line feed; the detached header has none.
+        // The official server ends the JWT header and payload JSON with a line feed; the detached header has none.
         assert!(header.starts_with(br#"{"alg":"ES384","x5u":"MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE"#));
         assert!(header.ends_with(b"\"}\n"));
         assert!(payload.starts_with(br#"{"cpk":{"crv":"P-384","kty":"EC","x":""#));
@@ -506,13 +506,13 @@ mod tests {
         let x5u = PublicKey::from_base64_spki(jws.header.x5u.as_deref().unwrap()).unwrap();
         verify_jws(&jws, Verifier::Es384(&x5u)).unwrap();
         let offer = OFFER
-            .replace(identity_line(), &format!("a=identity:{BDS_IDENTITY}"))
+            .replace(identity_line(), &format!("a=identity:{OFFICIAL_IDENTITY}"))
             .replace(
                 OFFER
                     .lines()
                     .find(|l| l.starts_with("a=fingerprint:"))
                     .unwrap(),
-                &format!("a=fingerprint:sha-256 {BDS_FINGERPRINT}"),
+                &format!("a=fingerprint:sha-256 {OFFICIAL_FINGERPRINT}"),
             );
         let offer = parse_offer(&offer).unwrap();
         let assertion = offer.identity.unwrap();
@@ -525,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn answer_assertions_have_the_bds_layout_and_verify() {
+    fn answer_assertions_have_the_official_layout_and_verify() {
         let dir = TempDir::new("identity-layout");
         let identity = ServerIdentity::load_or_create(&key_file(&dir)).unwrap();
         let fingerprint = fingerprint_text(&[0xab; 32]);
@@ -552,16 +552,19 @@ mod tests {
             )
             .as_bytes()
         );
-        // Byte for byte the BDS layout, values aside.
-        let (bds_json, bds_fingerprints, bds_token) = decode(BDS_IDENTITY);
-        assert_eq!(skeleton(json.as_bytes()), skeleton(bds_json.as_bytes()));
+        // Byte for byte the official server's layout, values aside.
+        let (official_json, official_fingerprints, official_token) = decode(OFFICIAL_IDENTITY);
+        assert_eq!(
+            skeleton(json.as_bytes()),
+            skeleton(official_json.as_bytes())
+        );
         assert_eq!(
             skeleton(fingerprints.as_bytes()),
-            skeleton(bds_fingerprints.as_bytes())
+            skeleton(official_fingerprints.as_bytes())
         );
-        let (bds_header, bds_payload) = jwt_parts(&bds_token);
-        assert_eq!(skeleton(&header), skeleton(&bds_header));
-        assert_eq!(skeleton(&payload), skeleton(&bds_payload));
+        let (official_header, official_payload) = jwt_parts(&official_token);
+        assert_eq!(skeleton(&header), skeleton(&official_header));
+        assert_eq!(skeleton(&payload), skeleton(&official_payload));
 
         // A peer checks it as go-nethernet does: the JWT with its x5u, then the fingerprints with
         // cpk, after parsing the whole answer.

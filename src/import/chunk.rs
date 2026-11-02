@@ -1,15 +1,15 @@
 //! Bedrock chunk keys and values, decoded into raw data (no block state upgrade).
 //!
-//! Keys (PMMP `LevelDB::chunkIndex`, dragonfly `mcdb` `index`; checked on BDS 1.26.52 output):
+//! Keys (checked on official server 1.26.52 output):
 //! chunk x and z as little-endian `i32`, a little-endian `i32` dimension for the Nether (1) and
 //! the End (2) only, a tag byte, and for sub-chunks the sub-chunk y as a signed byte. Entities
 //! since 1.18.30: `digp` + chunk position holds the chunk's 8-byte actor ids, `actorprefix` + id
 //! each actor's NBT; older chunks keep entities under tag 50.
 //!
-//! Anchor imports blocks and block entities only. The values it reads (PMMP
-//! `LevelDB::loadChunk`, BDS 1.26.52 output for the current forms):
-//! - Version (44, or 118 in old worlds): one byte, 0 to 42 (PMMP `ChunkVersion`, 42 = 1.21.120;
-//!   BDS 1.26.52 still writes 42).
+//! Anchor imports blocks and block entities only. The values it reads (official server 1.26.52
+//! output for the current forms):
+//! - Version (44, or 118 in old worlds): one byte, 0 to 42 (42 = 1.21.120; the official server
+//!   1.26.52 still writes 42).
 //! - Sub-chunk (47): a version byte, then for 0 and the misnumbered 2 to 7 4,096 block ids and
 //!   2,048 bytes of meta nibbles in x-z-y order (optionally 4,096 bytes of light after, as before
 //!   1.1); 1 one block layer; 8 a layer count and the layers; 9 a layer count, the sub-chunk y
@@ -20,18 +20,17 @@
 //!   sub-chunk y + 4 in the key.
 //! - Legacy terrain (48, chunk versions 0 to 2): the whole 16 × 128 × 16 column: 32,768 ids,
 //!   16,384 bytes of meta nibbles (index x << 11 | z << 7 | y), 32,768 bytes of light, a 256-byte
-//!   height map and 1,024 bytes of biome colours (layout checked against PMMP's
-//!   `SubChunkConverter::convertSubChunkFromLegacyColumn`); only the blocks are read.
+//!   height map and 1,024 bytes of biome colours; only the blocks are read.
 //! - Block entities (49): little-endian NBT compounds back to back.
 //! - Legacy block extra data (52, before 1.2.13): an `i32` count, then (`i32` position, `u16`
 //!   id | meta << 8) pairs; the position packs x, z, y as 4, 4, 8 bits (7 bits of y before
-//!   chunk version 3). PMMP applies it as a second layer to sub-chunks of versions 0 to 7.
+//!   chunk version 3). It applies as a second layer to sub-chunks of versions 0 to 7.
 //!
 //! Every other chunk tag is not read: biomes (`Data3D` 43, `Data2D` 45), old entities (50),
 //! pending ticks (51), finalization (54), the 1.18+ metadata hash (63, 64, 65), ...;
 //! [`Raw::ignored`] lists those present, and the tags a newer one replaced. Anything malformed in
-//! a value that is read is an error naming the chunk and the key, where PMMP would sometimes log
-//! and go on: a skipped value loses blocks.
+//! a value that is read is an error naming the chunk and the key, never logged and skipped: a
+//! skipped value loses blocks.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
@@ -73,7 +72,7 @@ const LEGACY_TERRAIN_BYTES: usize =
     LEGACY_IDS_BYTES + LEGACY_META_BYTES + LEGACY_LIGHT_BYTES + 256 + 1024;
 /// The most value bytes kept for one chunk.
 const MAX_CHUNK_BYTES: usize = 64 << 20;
-/// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
+/// The newest chunk version read (1.21.120).
 const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
 const MAX_SUB_CHUNK_VERSION: u8 = 9;

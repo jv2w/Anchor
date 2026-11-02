@@ -1,6 +1,6 @@
-//! The world export as a user runs it: the world BDS 1.26.52 made (`xtask/data/import/flat`)
-//! imported with `Server::import_world`, exported with `Server::export_world`, and the export
-//! imported again.
+//! The world export as a user runs it: the world the official server 1.26.52
+//! made (`xtask/data/import/flat`) imported with `Server::import_world`, exported with
+//! `Server::export_world`, and the export imported again.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]

@@ -3,7 +3,7 @@
 //!
 //! Numbers follow registration order, so they are the same on every start: custom items and
 //! custom blocks' items take the runtime IDs after the last vanilla one, custom blocks the block
-//! IDs from 10,000 (dragonfly). Every custom state gets its network hash; one equal to another
+//! IDs from 10,000. Every custom state gets its network hash; one equal to another
 //! state's refuses the build (rename the block).
 
 use std::collections::BTreeMap;
@@ -16,7 +16,7 @@ use crate::nbt::{Compound, Value};
 use crate::protocol::consts::{CreativeCategory, ItemEntryVersion};
 use crate::protocol::{BlockEntry, ItemEntry, packet};
 
-/// The first block ID of custom blocks (dragonfly: 10,000 plus the block's index).
+/// The first block ID of custom blocks (10,000 plus the block's index).
 const FIRST_BLOCK_ID: i32 = 10_000;
 /// The most states of all custom blocks together.
 const MAX_ALL_STATES: usize = 65_536;
@@ -389,7 +389,7 @@ impl Entry {
     }
 }
 
-/// The resolved creative inventories; with nothing registered, PMMP's inventory alone.
+/// The resolved creative inventories; with nothing registered, the vanilla inventory alone.
 #[derive(Debug)]
 struct Creatives(Vec<Resolved>);
 

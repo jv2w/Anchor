@@ -75,7 +75,7 @@ impl Server {
     }
 
     /// Exports the persistent world `world` as the Bedrock world folder `dir` (a `level.dat` and
-    /// its `db` database folder, which BDS and the game open), the reverse of
+    /// its `db` database folder, which the official server and the game open), the reverse of
     /// [`import_world`](Self::import_world).
     ///
     /// It reads the world's file `data/worlds/<world>.redb` (the name in any letter case)
@@ -96,7 +96,7 @@ impl Server {
     /// [`export::Report`](crate::export::Report): they are saved in Anchor's own form, and so
     /// are players, who are not in the world's file. Chunks the file does not hold (generated
     /// and never changed) are not written: the Bedrock world's flat generator makes them, as
-    /// BDS's default flat world for a world of [`Flat`] (the same terrain) and as air for any
+    /// the official server's default flat world for a world of [`Flat`] (the same terrain) and as air for any
     /// other generator. `level.dat` holds the world's name, spawn and time and no setting (game
     /// mode, difficulty, game rules): a world runs with the settings of the server that opens
     /// it.
@@ -121,8 +121,8 @@ impl Server {
         )
     }
 
-    /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as BDS
-    /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
+    /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as the official
+    /// server and the game write it) as the persistent world `world`, before [`run`](Self::run).
     ///
     /// The world becomes the new file `data/worlds/<world>.redb`, and nothing else is
     /// written: several Bedrock worlds import side by side under their own names. A declared
@@ -487,7 +487,7 @@ impl ServerBuilder {
     /// them the same way, the state they capture starting over. This is the build-time way,
     /// fixed for the server's life; the runtime
     /// one, counted from its call and cancellable, is
-    /// [`Context::schedule_repeating`] (PMMP `TaskScheduler::scheduleRepeatingTask`).
+    /// [`Context::schedule_repeating`].
     #[must_use]
     pub fn every(
         mut self,
@@ -499,8 +499,7 @@ impl ServerBuilder {
     }
 
     /// Registers `generator` under its [`name`](Generator::name), for the worlds
-    /// [`Context::create_world`] makes and the stored worlds [`Context::load_world`] loads (PMMP
-    /// `GeneratorManager::addGenerator`). The built-in `flat` and `void` are always registered.
+    /// [`Context::create_world`] makes and the stored worlds [`Context::load_world`] loads. The built-in `flat` and `void` are always registered.
     /// Two generators of one type with one name count as one, the first registered (a world of
     /// [`world`](Self::world) keeps its own); two types with one name fail the build with
     /// [`Error::DuplicateGenerator`].
@@ -512,7 +511,7 @@ impl ServerBuilder {
     }
 
     /// Calls `monitor` on every `E` event after its outcome is applied, with shared access only,
-    /// in registration order (PMMP's `MONITOR` priority, enforced by the types).
+    /// in registration order (the monitor priority, enforced by the types).
     #[doc(alias = "EventPriority::MONITOR")]
     #[must_use]
     pub fn monitor<E: event::Event>(
@@ -800,7 +799,7 @@ macro_rules! forward {
 }
 
 /// Listens for the stop signals on Unix: Ctrl+C, SIGTERM (`kill`, service managers) and SIGHUP
-/// (the terminal closed), as PMMP handles them. SIGHUP is not listened for when it is ignored as
+/// (the terminal closed). SIGHUP is not listened for when it is ignored as
 /// the server starts (`nohup`): the operator asked a closed terminal to leave the process
 /// running, and a handler would replace that disposition. If that cannot be read, SIGHUP is
 /// listened for, since with the default disposition a closed terminal would end the process
@@ -855,7 +854,7 @@ fn listen(received: &mpsc::Sender<&'static str>) {
 }
 
 /// Turns the first stop signal of `signals` into a shutdown request and ends the process at the
-/// second, as PMMP does (it drops its handlers after the first): an operator whose stop hangs can
+/// second (its handlers are dropped after the first): an operator whose stop hangs can
 /// still end it, with the result of a crash (the last commit stays).
 async fn stop_on_signals(
     shutdown: ShutdownHandle,

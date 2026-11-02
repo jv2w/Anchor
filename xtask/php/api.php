@@ -1,14 +1,14 @@
 <?php
 
-//! PMMP public API inventory: reflects every class-like in PMMP's src/ and generated/ into sorted JSON.
+//! Public API inventory: reflects every class-like in the dump source's src/ and generated/ into sorted JSON.
 
 /*
- * Run with the PMMP PHP binary from the pinned PocketMine-MP checkout (`.cache/dump`) as the
+ * Run with the dump PHP binary from the pinned dump source checkout (`.cache/dump`) as the
  * working directory:
  *
  *     php api.php <output file>
  *
- * It finds the class-likes each file under src/ and generated/ (the registries PMMP's codegen
+ * It finds the class-likes each file under src/ and generated/ (the registries its codegen
  * writes, such as VanillaBlocks) declares (by its tokens, so files that declare none are skipped),
  * loads them through composer's autoloader and writes, for each one, its kind, parent, interfaces
  * (all, inherited included), docblock tags, file (relative to the checkout), the `@method` names
@@ -174,7 +174,7 @@ $root = realpath(".") ?: fail("cannot resolve the working directory");
 
 $files = [];
 foreach(["src", "generated"] as $dir){
-	is_dir("$root/$dir") || fail("run from the PocketMine-MP checkout (no $dir/ here)");
+	is_dir("$root/$dir") || fail("run from the dump source checkout (no $dir/ here)");
 	foreach(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator("$root/$dir", \FilesystemIterator::SKIP_DOTS)) as $file){
 		if($file->getExtension() === "php"){
 			$files[] = $file->getPathname();

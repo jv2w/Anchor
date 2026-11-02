@@ -1,10 +1,10 @@
 //! The values of an exported chunk, keyed as the import's `chunk` module reads them: the chunk
 //! version, `Data3D` (the height map, then the biomes of each sub-chunk), a value per sub-chunk
-//! that has blocks, the block entities and the finalization state. Their layouts are those BDS
+//! that has blocks, the block entities and the finalization state. Their layouts are those the official server
 //! 1.26.52 writes (`xtask/data/import/flat`): [`CHUNK_VERSION`], [`SUB_CHUNK_VERSION`], block
 //! layers with a width byte of `bits << 1` (disk palettes of NBT block states), biome storages
 //! with `bits << 1 | 1` and [`SAME_BIOMES`] for one the same as the storage below, and
-//! [`FINISHED`]. The height map is left at zero; BDS loads such chunks and sends their blocks as
+//! [`FINISHED`]. The height map is left at zero; the official server loads such chunks and sends their blocks as
 //! stored (`cargo xtask p6 import`).
 
 use crate::import::chunk::{
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn plains_biomes_are_the_bytes_bds_writes() {
+    fn plains_biomes_are_the_bytes_the_official_server_writes() {
         let mut db = Db::open(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/xtask/data/import/flat"
@@ -161,9 +161,12 @@ mod tests {
         .unwrap();
         let mut key = prefix(0, 0).to_vec();
         key.push(DATA_3D);
-        let bds = db.get(&key).unwrap().unwrap();
+        let official = db.get(&key).unwrap().unwrap();
         let ours = data_3d(&empty_chunk()).unwrap();
-        assert_eq!(ours.get(HEIGHT_MAP_BYTES..), bds.get(HEIGHT_MAP_BYTES..));
+        assert_eq!(
+            ours.get(HEIGHT_MAP_BYTES..),
+            official.get(HEIGHT_MAP_BYTES..)
+        );
         assert!(
             ours.get(..HEIGHT_MAP_BYTES)
                 .unwrap()

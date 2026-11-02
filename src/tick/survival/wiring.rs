@@ -378,7 +378,7 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     let mut game = Game::new(1, listeners);
     assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Contact));
     assert_eq!(game.survival_mut(1).health, 20.0);
-    // A suicide is not spared by a game mode.
+    // A self-kill is not spared by a game mode.
     let source = DamageSource::Entity(Actor::Player(pid(1)));
     assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_some());
     assert!(game.survival_mut(1).is_dead());

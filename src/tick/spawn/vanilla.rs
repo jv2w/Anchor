@@ -1,6 +1,6 @@
 //! The vanilla data packets of the spawn window that are the same for every server and player:
 //! the jigsaw structure data, the entity property definitions and the camera presets, built
-//! once at start from the committed data BDS 1.26.52 sends (P6).
+//! once at start from the committed data the official server 1.26.52 sends (P6).
 
 use serde::Deserialize;
 
@@ -14,21 +14,21 @@ use crate::protocol::{
     CameraAimAssistPriorities, CameraAimAssistPriority, CameraPreset, Reader,
 };
 
-/// BDS's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
+/// The official server's `CameraPresets` and `CameraAimAssistPresets` from a P6 capture (the file names its
 /// source); no pinned data source holds them.
 const CAMERA: &str = include_str!("../../../xtask/data/reference/camera.json");
 
-/// `CloudburstMC`'s `entity_properties.nbt` as network NBT (`cargo xtask dump`): one root per
-/// entity type in the file's order, the order and `PropertyData` of BDS's 13 `SyncActorProperty`
-/// packets (P6).
+/// `entity_properties.nbt` as network NBT (`cargo xtask dump`): one root per
+/// entity type in the file's order, the order and `PropertyData` of the official server's 13
+/// `SyncActorProperty` packets (P6).
 const ENTITY_PROPERTIES: &[u8] =
     include_bytes!("../../../xtask/data/reference/entity_properties.dat");
 
 /// The number of entity types in [`ENTITY_PROPERTIES`].
 const ENTITY_PROPERTY_TYPES: usize = 13;
 
-/// `CloudburstMC`'s `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
-/// is; BDS 1.26.52 sent its version of that `StructureData` (P6 `bot worlddata`). Without it the
+/// `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
+/// is; the official server 1.26.52 sent that `StructureData` (P6 `bot worlddata`). Without it the
 /// official client leaves the join with "disconnectionScreen.missingStructureData".
 const JIGSAW_STRUCTURE_DATA: &[u8] =
     include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");
@@ -41,7 +41,7 @@ struct CameraFile {
     camera_aim_assist_presets: AimAssistJson,
 }
 
-/// `CameraPresets` with the preset fields BDS sets; another field fails the parse.
+/// `CameraPresets` with the preset fields the official server sets; another field fails the parse.
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase", deny_unknown_fields)]
 struct PresetsJson {
@@ -137,7 +137,7 @@ pub(super) fn jigsaw_structure_data() -> Packet {
         .expect("jigsaw_structure_data.dat decodes")
 }
 
-/// Decodes one `SyncActorProperty` per entity type of [`ENTITY_PROPERTIES`], in BDS's order.
+/// Decodes one `SyncActorProperty` per entity type of [`ENTITY_PROPERTIES`], in the file's order.
 pub(super) fn actor_properties() -> Vec<Packet> {
     let mut r = Reader::new(ENTITY_PROPERTIES, usize::MAX, 0);
     let mut out = Vec::with_capacity(ENTITY_PROPERTY_TYPES);
@@ -156,7 +156,7 @@ pub(super) fn actor_properties() -> Vec<Packet> {
     out
 }
 
-/// Builds BDS's camera packets in its order: the presets, the aim assist presets and an empty
+/// Builds the camera packets in the official server's order: the presets, the aim assist presets and an empty
 /// spline list.
 pub(super) fn camera() -> [Packet; 3] {
     #[expect(
@@ -249,7 +249,7 @@ mod tests {
     use crate::tick::spawn::tests::payload;
 
     #[test]
-    fn the_jigsaw_structure_data_is_the_committed_cloudburst_data_at_bds_size() {
+    fn the_jigsaw_structure_data_is_the_committed_data_at_the_official_size() {
         let packet = jigsaw_structure_data();
         let Packet::JigsawStructureData(data) = &packet else {
             panic!("a JigsawStructureData");
@@ -259,12 +259,12 @@ mod tests {
         }
         // Anchor writes the decoded data back to the same bytes, so it sends the file as it is.
         assert_eq!(payload(&packet), JIGSAW_STRUCTURE_DATA);
-        // The CloudburstMC 1.26.60 file; with its two-byte ID the packet is 209,537 bytes.
+        // The 1.26.60 file; with its two-byte ID the packet is 209,537 bytes.
         assert_eq!(JIGSAW_STRUCTURE_DATA.len(), 209_535);
     }
 
     #[test]
-    fn the_actor_properties_are_bds_types_in_bds_order_and_sizes() {
+    fn the_actor_properties_are_the_official_types_in_order_and_sizes() {
         let packets = actor_properties();
         let types: Vec<&str> = packets
             .iter()
@@ -294,7 +294,7 @@ mod tests {
                 "minecraft:cow",
             ]
         );
-        // BDS's packet sizes with their two-byte ID (P6), and the file read back byte for byte.
+        // The official server's packet sizes with their two-byte ID (P6), and the file read back byte for byte.
         let sizes: Vec<usize> = packets.iter().map(|p| payload(p).len() + 2).collect();
         assert_eq!(
             sizes,
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn the_camera_packets_have_the_bds_presets_and_sizes() {
+    fn the_camera_packets_have_the_official_presets_and_sizes() {
         let [presets, aim, spline] = camera();
         let Packet::CameraPresets(p) = &presets else {
             panic!("CameraPresets");
@@ -325,7 +325,7 @@ mod tests {
             ]
         );
         assert_eq!(p.presets[2].radius, Some(10.0));
-        // BDS's packet sizes with their two-byte IDs (P6).
+        // The official server's packet sizes with their two-byte IDs (P6).
         let sizes = [&presets, &aim, &spline].map(|p| payload(p).len() + 2);
         assert_eq!(sizes, [339, 1098, 3]);
         for packet in [presets, aim, spline] {

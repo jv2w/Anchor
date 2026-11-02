@@ -18,7 +18,7 @@ use crate::protocol::consts::{BossEventOverlay, BossEventType, ScoreboardIdentit
 use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObjective, SetScore};
 use crate::protocol::{BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN, ScoreboardEntry};
 
-/// Colour codes that fill empty text lines, so that each is its own blank line (dragonfly).
+/// Colour codes that fill empty text lines, so that each is its own blank line.
 const BLANKS: [&str; 15] = [
     "§1", "§2", "§3", "§4", "§5", "§6", "§7", "§8", "§9", "§a", "§b", "§c", "§d", "§e", "§f",
 ];

@@ -6,7 +6,7 @@
 //! differ; `// api:` comments above tests name the aliases each test covers. The table goes to
 //! `xtask/data/dump/table.md`; `--check` compares instead of writing.
 //!
-//! The names of the rows have no namespace root: the tool drops the leading `pocketmine\` of the
+//! The names of the rows have no namespace root: the tool drops the leading namespace root of the
 //! dump file when it reads it.
 //!
 //! Alias spelling: `Class` or `Class::member`, `Class` being the API short name, or its

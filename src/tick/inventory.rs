@@ -21,7 +21,7 @@
 //! items into and out of its editable slots only.
 //!
 //! The trade window keeps its payment slots in the window and trades through [`station`]. There
-//! is no crafting: no window has a crafting grid, and a craft request is refused.
+//! is no craft: no window has a craft grid, and a craft request is refused.
 //!
 //! Events: opening a window raises `InventoryOpen` and closing it `InventoryClose`; selecting a
 //! hotbar slot `PlayerItemHeld`; picking a block `PlayerBlockPick`; the legacy drop

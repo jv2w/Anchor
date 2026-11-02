@@ -1,12 +1,12 @@
 //! The upgrade part of `cargo xtask dump`: copies the block and item upgrade
 //! schemas from their pinned checkouts into `xtask/data/upgrade/`, converts the legacy block table
 //! `id_meta_to_nbt/1.12.0.bin` into typed JSON lines, records the SHA-256 of every source file,
-//! and runs PMMP's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
+//! and runs the dump source's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
 //! import's tests compare with.
 //!
 //! The block schemas are opencollab-incubator/BedrockBlockUpgradeSchema 5.4.1, not the 5.2.0
-//! PMMP's composer pins (it lacks the changes from 1.26.30 on). The item schemas are
-//! opencollab-incubator/BedrockItemUpgradeSchema 1.19.0, newer than PMMP's 1.17.0: it adds the
+//! the dump source's composer pins (it lacks the changes from 1.26.30 on). The item schemas are
+//! opencollab-incubator/BedrockItemUpgradeSchema 1.19.0, newer than its 1.17.0: it adds the
 //! 1.26.50 rename (`photo` to `photo_item`) and the 1.26.60 frostbite spawn egg.
 
 use std::path::{Path, PathBuf};
@@ -120,7 +120,7 @@ const K: [u32; 64] = [
     0xbef9_a3f7,
     0xc671_78f2,
 ];
-/// The legacy block table PMMP loads.
+/// The legacy block table the dump source loads.
 const LEGACY_BIN: &str = "id_meta_to_nbt/1.12.0.bin";
 /// The older legacy block table, which only feeds the golden run.
 const LEGACY_BIN_1_9: &str = "id_meta_to_nbt/1.9.0.bin";
@@ -313,7 +313,7 @@ pub(super) fn run(root: &Path, reference_blocks: &Path, out: &Path) -> Result<Ve
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
     if !status.success() {
-        return Err(format!("the PMMP upgrade golden run failed ({status})"));
+        return Err(format!("the upgrade golden run failed ({status})"));
     }
     written.extend(GOLDEN_FILES.iter().map(|f| format!("{GOLDEN}/{f}")));
     Ok(written)
@@ -355,11 +355,11 @@ fn json_files(dir: &Path) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-/// The legacy table (PMMP `BlockIdMetaUpgrader::loadFromString` format: unsigned varint ID
+/// The legacy table (the dump source's `BlockIdMetaUpgrader::loadFromString` format: unsigned varint ID
 /// count; per ID its varint-length name and varint meta count; per meta the varint meta and a
 /// little-endian NBT state) as one JSON line per entry, in file order:
 /// `{"id":..,"meta":..,"state":{"name":..,"states":{..},"version":..}}`, values typed as in the
-/// schemas. Fails on trailing bytes, as PMMP does.
+/// schemas. Fails on trailing bytes, as the dump source does.
 fn legacy_lines(bin: &[u8]) -> Result<String, String> {
     let mut r = Bin { bytes: bin, at: 0 };
     let mut out = String::new();

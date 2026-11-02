@@ -21,12 +21,12 @@ import (
 // Each step of the weather scenario ends with a "weather" check: the weather level events in order (type and
 // data), and in a lightning step the summoned bolt's entity type and position, its sounds (type, position,
 // extra data, whether they name the bolt), whether it was removed, whether fire appeared in its block, and
-// the damage and burning of the bot. BDS sets the bolt's burning flag in some runs and not in others, so its
-// flags are left out, and bolts elsewhere (BDS strikes at random during thunder) are not looked at. The join
+// the damage and burning of the bot. The official server sets the bolt's burning flag in some runs and not in others, so its
+// flags are left out, and bolts elsewhere (it strikes at random during thunder) are not looked at. The join
 // scenarios check the rain and lightning levels of StartGame and the weather level events before their first
 // step.
 //
-// BDS raises and lowers its rain and lightning levels over about five seconds, and which level events a
+// The official server raises and lowers its rain and lightning levels over about five seconds, and which level events a
 // weather command sends depends on the levels reached (a command during a change sends more); Anchor's
 // weather has no change over time. So every weather step and join waits rampWait, and the comparison holds
 // for weather that has settled.

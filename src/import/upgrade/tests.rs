@@ -1,4 +1,4 @@
-//! The block state, legacy value and item upgrade against PMMP's own upgrader (golden files) and
+//! The block state, legacy value and item upgrade against the dump's own upgrader (golden files) and
 //! the schema rules.
 
 use serde_json::Value as Json;
@@ -22,7 +22,7 @@ static FLATTEN_BLOCKS: [(&str, Rules<'static>); 1] = [(
 )];
 /// The flattened property's value remaps.
 static FLATTEN_REMAPS: [(&str, &str); 1] = [("-1", "minus_one")];
-/// PMMP's own upgrader over the 5.3.0 schemas (`xtask/php/upgrade.php`, `cargo xtask dump`).
+/// The dump's own upgrader over the 5.3.0 schemas (`xtask/php/upgrade.php`, `cargo xtask dump`).
 const GOLDEN_LEGACY: &str = include_str!("../../../xtask/data/upgrade/golden/legacy.jsonl");
 /// The upgrader's result for each reference state.
 const GOLDEN_REFERENCE: &str = include_str!("../../../xtask/data/upgrade/golden/reference.jsonl");
@@ -143,7 +143,7 @@ fn has_legacy_entry(name: &str, meta: u8) -> bool {
 }
 
 #[test]
-fn states_upgrade_as_pmmp_upgrades_them_except_for_metas_the_legacy_table_lacks() {
+fn states_upgrade_as_the_dump_upgrades_them_except_for_metas_the_legacy_table_lacks() {
     let mut fallbacks = 0;
     let mut lines = 0;
     for line in GOLDEN_STATES.lines() {
@@ -154,7 +154,7 @@ fn states_upgrade_as_pmmp_upgrades_them_except_for_metas_the_legacy_table_lacks(
         if let Some(out) = state(&input) {
             assert_eq!(Some(out), expected, "{line}");
         } else {
-            // PMMP falls back to meta 0 (or throws); Anchor keeps the entry as unknown.
+            // The dump falls back to meta 0 (or throws); Anchor keeps the entry as unknown.
             let (Some(Value::String(name)), Some(Value::Short(meta))) =
                 (input.get("name"), input.get("val"))
             else {
@@ -177,7 +177,7 @@ fn states_upgrade_as_pmmp_upgrades_them_except_for_metas_the_legacy_table_lacks(
 }
 
 #[test]
-fn legacy_terrain_values_upgrade_as_pmmp_and_unknown_metas_stay_unknown() {
+fn legacy_terrain_values_upgrade_as_the_dump_and_unknown_metas_stay_unknown() {
     let mut known = 0;
     for line in GOLDEN_LEGACY.lines() {
         let json: Json = serde_json::from_str(line).unwrap();
@@ -189,7 +189,7 @@ fn legacy_terrain_values_upgrade_as_pmmp_and_unknown_metas_stay_unknown() {
                 assert_eq!(Some(out), expected, "{line}");
                 known += 1;
             }
-            // PMMP gives meta 0's state or throws.
+            // The dump gives meta 0's state or throws.
             None => assert_eq!(expected, legacy(id, 0), "{line}"),
         }
     }
@@ -203,7 +203,7 @@ fn legacy_terrain_values_upgrade_as_pmmp_and_unknown_metas_stay_unknown() {
 }
 
 #[test]
-fn current_states_that_pmmp_turns_back_are_kept() {
+fn current_states_that_the_dump_turns_back_are_kept() {
     let mut lines = 0;
     for line in GOLDEN_REFERENCE.lines() {
         let json: Json = serde_json::from_str(line).unwrap();
@@ -279,9 +279,9 @@ fn entries_that_are_not_states_are_not_upgraded() {
 }
 
 #[test]
-fn a_state_pmmp_saved_with_its_data_version_upgrades_without_it() {
-    // PMMP writes `PMMPDataVersion` next to every state it saves (`BlockStateData::toNbt`) and
-    // drops it when it reads one (`fromNbt`). 17_825_808 is 1.16.0.16, before wool split.
+fn a_state_saved_with_a_foreign_data_version_upgrades_without_it() {
+    // Another server program writes `PMMPDataVersion` next to every state it saves.
+    // 17_825_808 is 1.16.0.16, before wool split.
     let wool = || {
         Compound::from([
             ("name".to_owned(), s("minecraft:wool")),
@@ -306,7 +306,7 @@ fn a_state_pmmp_saved_with_its_data_version_upgrades_without_it() {
     ]);
     assert_eq!(nbt(&mut stack), 1);
     assert_eq!(stack.get("Block"), Some(&Value::Compound(red_wool.clone())));
-    // A current state saved by PMMP counts as changed too: only the key goes.
+    // A current state with the key counts as changed too: only the key goes.
     let mut current = red_wool.clone();
     current.insert("PMMPDataVersion".to_owned(), Value::Long(1));
     let mut block = item_stack(&[("Block", Value::Compound(current))]);
@@ -604,7 +604,7 @@ fn a_flattened_property_names_the_block_only_with_its_expected_type() {
         run(&schemas, 0, "old", &[("kind", byte(3)), ("x", byte(1))]),
         ("minecraft:3_block".to_owned(), st(&[("x", byte(1))]))
     );
-    // Bytes are signed, as PMMP reads them.
+    // Bytes are signed.
     assert_eq!(
         run(&schemas, 0, "old", &[("kind", byte(255))]).0,
         "minecraft:minus_one_block"

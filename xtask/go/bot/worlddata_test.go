@@ -96,7 +96,7 @@ func TestWorlddataCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testing
 	}
 	data := writeWorlddata(t, map[string]any{"template_pools": []any{pool("a", "x", "y"), pool("b", "z")}})
 	var out bytes.Buffer
-	// The pools in another order, as BDS's Linux build sends them.
+	// The pools in another order, as the official server's Linux build sends them.
 	moved := map[string]any{"template_pools": []any{pool("b", "z"), pool("a", "x", "y")}}
 	world := writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: moved})
 	same, err := worlddataCommand([]string{"-world", world, "-data", data}, &out)

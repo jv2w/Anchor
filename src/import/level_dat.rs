@@ -1,10 +1,10 @@
-//! `level.dat`: the world's settings (PMMP `BedrockWorldData`).
+//! `level.dat`: the world's settings.
 //!
 //! Layout: little-endian `i32` storage version, `i32` length of the rest, then one little-endian
-//! NBT root compound filling exactly that length. Like PMMP, the version that counts is the
-//! `StorageVersion` tag (BDS 1.26.52 writes 10 in both places), a world newer than 10 is refused,
-//! and `NetworkVersion` must be at most the protocol Anchor speaks (BDS 1.26.52 writes 2193, the
-//! protocol of the same release): a newer game may have stored blocks Anchor cannot read.
+//! NBT root compound filling exactly that length. The version that counts is the
+//! `StorageVersion` tag (the official server 1.26.52 writes 10 in both places), a world newer
+//! than 10 is refused, and `NetworkVersion` must be at most the protocol Anchor speaks (the
+//! official server 1.26.52 writes 2193, the protocol of the same release): a newer game may have stored blocks Anchor cannot read.
 
 use super::{Error, Result};
 use crate::nbt::{Compound, Encoding, Value};
@@ -15,7 +15,7 @@ use crate::storage::seal::DECODE_BUDGET;
 
 /// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
 pub(crate) const SPAWN_Y_UNSET: i32 = 32_767;
-/// The newest `StorageVersion` read (PMMP `WorldDataVersions::STORAGE`).
+/// The newest `StorageVersion` read.
 pub(crate) const STORAGE_VERSION: i32 = 10;
 
 /// What Anchor reads of `level.dat`: the spawn and the time, which are state. No setting (seed,
@@ -134,7 +134,7 @@ pub(crate) mod tests {
 
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn bds_fixture_level_dat_reads() {
+    fn official_fixture_level_dat_reads() {
         let bytes =
             std::fs::read(std::path::Path::new(crate::import::tests::FIXTURE).join("level.dat"))
                 .unwrap();

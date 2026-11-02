@@ -1,7 +1,7 @@
-# P6 fixed fields: fields that must be equal between BDS and Anchor captures, by
+# P6 fixed fields: fields that must be equal between the official server and Anchor captures, by
 # packet name and gophertunnel field path. Same-named packets are paired in order. Values that
 # differ per world or run (seed, positions, entity IDs, time, level ID, names, salts, checksums)
-# are not listed. BDS runs with Anchor's default settings (`cargo xtask p6 official`).
+# are not listed. The official server runs with Anchor's default settings (`cargo xtask p6 official`).
 # <packet> <field>[.<field>...]
 
 NetworkSettings CompressionThreshold
@@ -27,7 +27,7 @@ ResourcePackStack Experiments
 ResourcePackStack ExperimentsPreviouslyToggled
 ResourcePackStack IncludeEditorPacks
 
-# GameVersion is left out: it is the server build's patch version (BDS 1.26.52, Anchor 1.26.50 from
+# GameVersion is left out: it is the server build's patch version (the official server 1.26.52, Anchor 1.26.50 from
 # its protocol source); both speak protocol 2193.
 StartGame BaseGameVersion
 StartGame UseBlockNetworkIDHashes
@@ -74,11 +74,11 @@ StartGame ServerJoinInformation
 
 ChunkRadiusUpdated ChunkRadius
 
-# The vanilla data of the spawn window: entity property definitions (CloudburstMC, paired by
-# entity type) and the camera presets (BDS's, xtask/data/reference/camera.json; aim assist
-# categories and their priority lists by name). The key order is `in_key_order` in compare.rs.
-# JigsawStructureData and BiomeDefinitionList are checked against CloudburstMC by `bot worlddata`;
-# CurrentStructureFeature is not listed: BDS repeats it ("") outside the window.
+# The vanilla data of the spawn window: entity property definitions (the reference data, paired by
+# entity type) and the camera presets (the official server's, xtask/data/reference/camera.json; aim
+# assist categories and their priority lists by name). The key order is `in_key_order` in compare.rs.
+# JigsawStructureData and BiomeDefinitionList are checked against the reference data by `bot worlddata`;
+# CurrentStructureFeature is not listed: the official server repeats it ("") outside the window.
 SyncActorProperty PropertyData
 CameraPresets Presets
 CameraAimAssistPresets Categories
@@ -107,13 +107,6 @@ Text Message
 Text Parameters
 UpdatePlayerGameType GameType
 SetPlayerGameType GameType
-MobEffect Operation
-MobEffect EffectType
-MobEffect Amplifier
-MobEffect Particles
-MobEffect Duration
-SpawnParticleEffect ParticleName
-SpawnParticleEffect Dimension
 Disconnect Reason
 Disconnect HideDisconnectionScreen
 Disconnect Message

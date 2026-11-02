@@ -8,7 +8,7 @@ use anchor::block::ItemForm;
 use anchor::item::{Kind, Stack, Type};
 use anchor::nbt::{Compound, Value};
 
-/// Item names of the PMMP dump, as the lookup knows them, with a meta each type has.
+/// Item names of the dump, as the lookup knows them, with a meta each type has.
 const NAMES: &[(&str, u16)] = &[
     ("minecraft:stick", 0),
     ("minecraft:diamond_sword", 0),
@@ -47,7 +47,7 @@ fn known_names_resolve() {
         assert_eq!(t.meta(), meta);
         assert!(t.block().is_none());
     }
-    // The ominous banner is white (meta 15) as BDS sends it, told apart from the white banner by
+    // The ominous banner is white (meta 15) as the official server sends it, told apart from the white banner by
     // its type NBT.
     let ominous: Compound = [("Type".to_owned(), Value::Int(1))].into();
     let banner = Type::from_name("minecraft:banner", 15, None, &ominous).expect("ominous banner");

@@ -1,4 +1,4 @@
-//! The [`Context`] every task and listener gets: the root handle of the game (PMMP `Server`), and
+//! The [`Context`] every task and listener gets: the root handle of the game, and
 //! the user's tasks, blocking jobs and data.
 //!
 //! The build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) and the scheduled
@@ -43,7 +43,7 @@ use crate::world::World;
 use data::registered;
 
 /// What a task or a listener can see and change: the engine time, the server, the worlds, the
-/// players and the entities (PMMP `Server`, without its singleton: a callback gets the context).
+/// players and the entities (no singleton: a callback gets the context).
 pub struct Context<'a> {
     pub(super) state: &'a mut State,
 }
@@ -95,7 +95,7 @@ impl Context<'_> {
 
     /// The ticks a second the latest measured tick allows:
     /// [`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) unless it took longer than one tick at that
-    /// rate (PMMP's formula). Every tick's time is measured off the game logic and read as a logged
+    /// rate. Every tick's time is measured off the game logic and read as a logged
     /// input by the next tick, so a replay reads the same.
     #[doc(alias = "Server::getTicksPerSecond")]
     pub fn tps(&self) -> f64 {
@@ -108,7 +108,7 @@ impl Context<'_> {
         self.state.network.average_tps()
     }
 
-    /// How long the latest measured tick took (PMMP gives it as a percentage of 50 ms).
+    /// How long the latest measured tick took.
     #[doc(alias = "Server::getTickUsage")]
     #[doc(alias = "World::getTickRateTime")]
     pub fn mspt(&self) -> Duration {
@@ -186,8 +186,7 @@ impl Context<'_> {
         self.state.players.get(&id.session()).filter(|p| in_game(p))
     }
 
-    /// The player in the game whose name is `name`, ignoring ASCII case (PMMP compares with
-    /// `strtolower`), the first in [`Id`](PlayerId) order if players signed in with Xbox share
+    /// The player in the game whose name is `name`, ignoring ASCII case, the first in [`Id`](PlayerId) order if players signed in with Xbox share
     /// it. An index search. The lookups return an [`Id`](PlayerId), so the context stays free for
     /// [`player_mut`](Self::player_mut).
     #[doc(alias = "Server::getPlayerExact")]
@@ -201,8 +200,7 @@ impl Context<'_> {
     }
 
     /// The player in the game whose name starts with `prefix` (ignoring ASCII case) and is the
-    /// shortest of those, the first in [`Id`](PlayerId) order on a tie (PMMP
-    /// `getPlayerByPrefix`). Only the names with the prefix are looked at.
+    /// shortest of those, the first in [`Id`](PlayerId) order on a tie. Only the names with the prefix are looked at.
     #[doc(alias = "Server::getPlayerByPrefix")]
     pub fn player_by_prefix(&self, prefix: &str) -> Option<PlayerId> {
         let starts = |name: &str| {
@@ -220,7 +218,7 @@ impl Context<'_> {
             .map(|&(_, session)| PlayerId::new(session))
     }
 
-    /// The player in the game whose UUID is `uuid` (PMMP `getPlayerByUUID`), the first in
+    /// The player in the game whose UUID is `uuid`, the first in
     /// [`Id`](PlayerId) order if logins share it. An index search.
     #[doc(alias = "Server::getPlayerByUUID")]
     pub fn player_by_uuid(&self, uuid: Uuid) -> Option<PlayerId> {
@@ -270,7 +268,7 @@ impl Context<'_> {
     /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
     /// the end of this tick; [`Duration::MAX`] lasts until
     /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
-    /// replaces its end, as PMMP `Network::blockAddress` does. Players already connected from it
+    /// replaces its end. Players already connected from it
     /// stay ([`Player::kick`](crate::player::Player::kick) them). False, changing nothing, past
     /// 256 network changes in one tick; at most 4,096 addresses are blocked at once, and the
     /// networking refuses a block past that with a warning.
@@ -304,8 +302,8 @@ impl Context<'_> {
             .filter(|p| in_game(p))
     }
 
-    /// Shows `message` to every player in the game that is not leaving (PMMP's broadcast methods
-    /// merged); returns how many got it. Fails, sending nothing, for a message a client does not
+    /// Shows `message` to every player in the game that is not leaving;
+    /// returns how many got it. Fails, sending nothing, for a message a client does not
     /// decode.
     #[doc(alias = "Server::broadcastMessage")]
     #[doc(alias = "Server::broadcastTip")]
@@ -348,7 +346,7 @@ impl Context<'_> {
     /// other work, so players do not wait for it; what came of it is in the log, not here: a
     /// backup asked for while another is being made is not made, and a failed one leaves no
     /// file. A stop waits for the backup being made. Calling it again before the save changes
-    /// nothing. PMMP has no backup.
+    /// nothing.
     ///
     /// Returns `false`, asking for nothing, when backups are off (`backups = false`).
     pub fn backup(&mut self) -> bool {
@@ -500,7 +498,7 @@ impl fmt::Debug for Tasks {
 type Body = Box<dyn FnMut(&mut Context<'_>) + Send>;
 
 /// Tells whether the player is in the game: its saved data has loaded, so it has a place in a
-/// world (PMMP creates the `Player` then).
+/// world.
 fn in_game(player: &Player) -> bool {
     player.phase != Phase::Loading
 }

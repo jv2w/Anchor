@@ -1,8 +1,8 @@
 //! LevelDB sorted tables (`.ldb`, older `.sst`) and their blocks.
 //!
 //! Format (google/leveldb `doc/table_format.md`, `table/format.cc`, `table/block.cc`; Mojang's
-//! compression ids from its `leveldb-mcpe` fork; checked on BDS 1.26.52 output, which uses id 4
-//! for data and index blocks): the last 48 bytes are the footer, two block handles
+//! compression ids from its `leveldb-mcpe` fork; checked on official server 1.26.52 output,
+//! which uses id 4 for data and index blocks): the last 48 bytes are the footer, two block handles
 //! (metaindex, index; varint64 offset and size each), zero padding and the magic
 //! `0xdb4775248b80fb57` (little-endian). Each block is followed by a compression byte and the
 //! masked CRC-32C of the block and that byte. Compression: 0 none, 1 Snappy, 2 zlib with its

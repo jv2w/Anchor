@@ -287,8 +287,7 @@ pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
 }
 
 /// Keeps the data of a leaving player in memory until a commit holds it. Leaving dates the
-/// play history (`lastPlayed`), so the data is newer than any snapshot taken before (PMMP saves
-/// every player that quits).
+/// play history (`lastPlayed`), so the data is newer than any snapshot taken before.
 pub(super) fn left(state: &mut State, player: &Player) {
     if !state.saving.players || player.phase == Phase::Loading {
         return;

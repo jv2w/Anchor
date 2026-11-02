@@ -58,7 +58,7 @@ const PIECE_TYPES: [(&str, PieceType); 28] = [
 ];
 /// The login tint piece types whose protocol name is not the login name without `persona_`: the
 /// protocol names a tint's piece by the `persona::PieceType` name in lower case (Mojang protocol
-/// docs, the Cloudburst protocol library), which drops the underscore of these. gophertunnel
+/// docs), which drops the underscore of these. gophertunnel
 /// only drops `persona_`, so its codec would send `facial_hair`, a name the client does not read.
 const TINT_PROTOCOL_NAMES: [(&str, &str); 7] = [
     ("persona_facial_hair", "facialhair"),
@@ -167,12 +167,11 @@ impl ClientData {
         Ok(data)
     }
 
-    /// The skin the client sent, as the protocol carries it to other players (PMMP
-    /// `ClientDataToSkinDataHelper::fromClientData`, without PMMP's `LegacySkinAdapter`, which
-    /// swaps persona skins for a random colour: Anchor keeps the skin as sent). The images,
+    /// The skin the client sent, as the protocol carries it to other players (Anchor keeps
+    /// the skin as sent). The images,
     /// geometry (`{}` when empty), resource patch and animation data are decoded from base64, tint
     /// piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]); the full skin ID is
-    /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
+    /// the skin ID and the cape ID together (the official server's value is not
     /// confirmed). Fails if a field does not decode, the geometry or the resource patch is not a
     /// JSON object or null (gophertunnel `ClientData.Validate`), an image dimension or animation
     /// number is out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
@@ -226,7 +225,7 @@ impl ClientData {
             premium_skin: self.premium_skin,
             persona_skin: self.persona_skin,
             persona_cape_on_classic_skin: self.cape_on_classic_skin,
-            // PMMP: the client data has no field for it.
+            // The client data has no field for it.
             primary_user: true,
             cape_id: self.cape_id.clone(),
             full_id: format!("{}{}", self.skin_id, self.cape_id),

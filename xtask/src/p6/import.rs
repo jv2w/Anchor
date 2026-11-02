@@ -1,27 +1,28 @@
-//! `cargo xtask p6 import`: the world import against BDS. It starts the BDS copy on
-//! a new world with BDS's own terrain (seed [`SEED`]) and spawn radius 0, lets the spawn bot record
-//! the sub-chunks BDS sends (`target/p6/import-official/spawn.world.jsonl`), stops BDS, which saves the
-//! world, and copies the world folder to `target/p6/import-world/` (BDS never runs from it). It
+//! `cargo xtask p6 import`: the world import against the official server. It starts the official
+//! server copy on a new world with the official server's own terrain (seed [`SEED`]) and spawn radius 0, lets the spawn bot record
+//! the sub-chunks the official server sends (`target/p6/import-official/spawn.world.jsonl`), stops the official server, which saves the
+//! world, and copies the world folder to `target/p6/import-world/` (the official server never runs from it). It
 //! then imports that folder into Anchor's default world (a Void world of the same name) with
 //! `Server::import_world`, starts Anchor, lets the bot record the sub-chunks Anchor sends
 //! (`import-anchor/spawn.world.jsonl`), and compares them block by block: every block of every
 //! sub-chunk both servers answered (an all-air answer holds air), in every layer (a layer one side
 //! does not send is air), must have the same network ID.
 //!
-//! Anchor keeps a block PMMP does not have as an unknown block. It sends the stored state when the
-//! client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
-//! block BDS sends where Anchor sends `info_update`, or a different state where Anchor sends the
-//! stored one (BDS updates some blocks after loading), is an intended difference when its name is
-//! listed in `xtask/data/p6/intended.txt` as `import | block <name> | <reason>`. A block BDS sends
-//! that Anchor sends as the state PMMP reads it as is intended too: PMMP ignores some vanilla
+//! Anchor keeps a block the dump does not have as an unknown block. It sends the stored state when
+//! the client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
+//! block the official server sends where Anchor sends `info_update`, or a different state where
+//! Anchor sends the stored one (the official server updates some blocks after loading), is an
+//! intended difference when its name is listed in `xtask/data/p6/intended.txt` as
+//! `import | block <name> | <reason>`. A block the official server sends that Anchor sends as the
+//! state the dump source reads it as is intended too: the dump source ignores some vanilla
 //! properties, such as a pumpkin's facing (`xtask/data/dump/deserialized.json`). Every other
 //! difference fails, printed as the pair of states with how many blocks and where.
 //!
 //! Then the export: Anchor's world is written back as a Bedrock world with
-//! `Server::export_world` (`target/p6/export-world/`), BDS starts on a copy of it with the same
-//! game rules, the bot records what BDS sends (`export-official/spawn.world.jsonl`), and that is
-//! compared with what BDS sent of its own world in the same way: BDS loads the export as the
-//! world it saved, except where Anchor stores a block as PMMP reads it.
+//! `Server::export_world` (`target/p6/export-world/`), the official server starts on a copy of it with the same
+//! game rules, the bot records what the official server sends (`export-official/spawn.world.jsonl`), and that is
+//! compared with what the official server sent of its own world in the same way: the official server loads the export as the
+//! world it saved, except where Anchor stores a block as the dump source reads it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -43,7 +44,7 @@ const BLOCKS: usize = 4096;
 /// Differing blocks shown per pair of states.
 const EXAMPLES: usize = 3;
 /// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
-/// it, and nothing changes blocks between BDS sending them and saving them but what the
+/// it, and nothing changes blocks between the official server sending them and saving them but what the
 /// world's own pending updates do (fire burned vines next to lava in an earlier run).
 const RULES: [(&str, &str); 4] = [
     ("spawnradius", "0"),
@@ -53,9 +54,9 @@ const RULES: [(&str, &str); 4] = [
 ];
 /// The scenario's name in `intended.txt`.
 pub(crate) const SCENARIO: &str = "import";
-/// The seed of BDS's world.
+/// The seed of the official server's world.
 const SEED: &str = "20261004";
-/// The world's name, in BDS and in Anchor.
+/// The world's name, in the official server and in Anchor.
 const WORLD: &str = "p6-import";
 
 /// How many blocks of a pair of states differ, and where the first [`EXAMPLES`] are: x, y, z and
@@ -85,7 +86,7 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
     let mut passed = official_run(&exe, &bot, &official_dir, |_| Ok(()), out)?;
     let saved = exe
         .parent()
-        .ok_or("the BDS copy has no folder")?
+        .ok_or("the official server copy has no folder")?
         .join("worlds")
         .join(WORLD);
     remove_dir(&world_dir)?;
@@ -102,7 +103,7 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         &states,
         intended.blocks(),
         &aliases,
-        ["BDS", "Anchor"],
+        ["official", "Anchor"],
         out,
     )?;
 
@@ -121,14 +122,14 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         &states,
         intended.blocks(),
         &aliases,
-        ["BDS", "BDS on the export"],
+        ["official", "official on the export"],
         out,
     )?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
-/// Starts BDS on the world [`WORLD`] (a new one of seed [`SEED`], or the one `prepare` puts in
+/// Starts the official server on the world [`WORLD`] (a new one of seed [`SEED`], or the one `prepare` puts in
 /// the copy's folder), sets the [`RULES`] and runs the spawn bot into `<out_dir>/spawn.jsonl`.
 fn official_run(
     exe: &Path,
@@ -156,12 +157,12 @@ fn official_run(
             for (rule, value) in RULES {
                 official.set_game_rule(rule, value)?;
             }
-            spawn_bot(bot, addr, out_dir, "BDS", out)
+            spawn_bot(bot, addr, out_dir, "official", out)
         },
     )
 }
 
-/// The network ID of each reference state that is not an Anchor state but that PMMP reads as
+/// The network ID of each reference state that is not an Anchor state but that the dump source reads as
 /// one, with that Anchor state's network ID (the generator's aliases).
 fn aliases(root: &Path) -> Result<BTreeMap<u32, u32>, String> {
     let data = Data::load(root)?;
@@ -382,10 +383,10 @@ fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
 
 /// Compares, block by block, the sub-chunks both captures hold and prints the result, naming
 /// the two sides `sides`: each pair of differing states with how many blocks and the first
-/// positions. `official` is what BDS sent of its own world, `anchor` what was sent of Anchor's world
-/// (by Anchor, or by BDS from its export). Where Anchor sends `info_update` (an unknown block),
-/// or a stored block of an intended name BDS changed after loading, the difference is excused as
-/// [`excuse`] says. Where Anchor's world has the state PMMP reads BDS's as (`aliases`), the
+/// positions. `official` is what the official server sent of its own world, `anchor` what was sent of Anchor's world
+/// (by Anchor, or by the official server from its export). Where Anchor sends `info_update` (an unknown block),
+/// or a stored block of an intended name the official server changed after loading, the difference is excused as
+/// [`excuse`] says. Where Anchor's world has the state the dump source reads the official server's as (`aliases`), the
 /// block is excused too.
 fn compare(
     official: &BTreeMap<[i64; 3], Layers>,
@@ -411,7 +412,7 @@ fn compare(
         let state = state_name(states, id);
         state.split('[').next().unwrap_or_default().to_owned()
     };
-    // (BDS state, Anchor state) → count and the first positions.
+    // (official server state, Anchor state) → count and the first positions.
     let mut pairs: BTreeMap<(u32, u32), Differing> = BTreeMap::new();
     let mut excused: BTreeMap<String, usize> = BTreeMap::new();
     let mut compared = 0_usize;
@@ -441,7 +442,7 @@ fn compare(
                 }
                 if aliases.get(&x) == Some(&y) {
                     *excused
-                        .entry(format!("{} as PMMP reads it", name(x)))
+                        .entry(format!("{} as the dump source reads it", name(x)))
                         .or_default() += 1;
                     continue;
                 }
@@ -476,7 +477,7 @@ fn compare(
         &format!(
             "{SCENARIO}: {compared} sub-chunks {first} and {second} sent ({} only {first} sent, {} \
              only {second} sent); intended blocks (unknown blocks Anchor sends as info_update, \
-             and blocks Anchor keeps as PMMP reads them): {excused:?}",
+             and blocks Anchor keeps as the dump source reads them): {excused:?}",
             official.keys().filter(|k| !anchor.contains_key(*k)).count(),
             anchor.keys().filter(|k| !official.contains_key(*k)).count(),
         ),
@@ -490,11 +491,11 @@ fn compare(
     Ok(compared > 0 && pairs.is_empty())
 }
 
-/// Why the difference between BDS's layers `a` and Anchor's `b` at one block is intended, if it
+/// Why the difference between the official server's layers `a` and Anchor's `b` at one block is intended, if it
 /// is: Anchor sends a block of an intended name as it was stored, with no server behaviour, and
-/// BDS may have changed it after loading the world (a bubble column over no soul sand turns to
+/// The official server may have changed it after loading the world (a bubble column over no soul sand turns to
 /// water, a trial spawner wakes up); or Anchor sends `unknown` (`info_update`)
-/// for a block whose name is intended, or for a waterlogged block BDS sends as its water.
+/// for a block whose name is intended, or for a waterlogged block the official server sends as its water.
 fn excuse(
     [a0, a1]: [u32; 2],
     [b0, b1]: [u32; 2],

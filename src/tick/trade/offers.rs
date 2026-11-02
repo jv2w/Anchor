@@ -1,8 +1,8 @@
 //! The offer list of one villager NPC and its two NBT forms (P6).
 //!
-//! An offer list holds the offers ([`Recipe`], BDS `Recipes`) in the order the trade screen
-//! shows them, the villager's tier and trade xp, and the xp each tier needs (BDS
-//! `TierExpRequirements`). Code sets and changes it ([`Offers::set`], [`Offers::add`],
+//! An offer list holds the offers ([`Recipe`], key `Recipes`) in the order the trade screen
+//! shows them, the villager's tier and trade xp, and the xp each tier needs
+//! (`TierExpRequirements`). Code sets and changes it ([`Offers::set`], [`Offers::add`],
 //! [`Offers::remove`], [`Offers::replace`], [`Offers::set_tier`], [`Offers::set_xp`],
 //! [`Offers::set_tier_xp`], [`Offers::reset_uses`]); trades change only the counters
 //! ([`Offers::apply`]). There is no vanilla economy: prices are the counts of the payment stacks,
@@ -11,14 +11,15 @@
 //! Both NBT forms come from one writer:
 //!
 //! - saved ([`Offers::to_nbt`]): the entity's `Offers` compound, `{Recipes, TierExpRequirements,
-//!   TradeTier, TradeExperience}` plus every unknown key. BDS keeps the tier and xp on
-//!   the entity; here they travel with the offers so the entity module stores one value.
-//! - wire ([`Offers::wire_nbt`]): `UpdateTrade.SerialisedOffers`, the BDS shape `{Recipes,
+//!   TradeTier, TradeExperience}` plus every unknown key. The official server keeps the
+//!   tier and xp on the entity; here they travel with the offers so the entity module stores one
+//!   value.
+//! - wire ([`Offers::wire_nbt`]): `UpdateTrade.SerialisedOffers`, the shape `{Recipes,
 //!   TierExpRequirements}` (the packet carries the tier), each recipe with its `netId`.
 //!
-//! A recipe's keys are BDS's: `buyA`, `buyB` (only with a second payment), `buyCountA`,
+//! A recipe's keys are `buyA`, `buyB` (only with a second payment), `buyCountA`,
 //! `buyCountB`, `demand`, `maxUses`, `netId` (wire only), `priceMultiplierA`, `priceMultiplierB`,
-//! `rewardExp`, `sell`, `tier`, `traderExp`, `uses`; items are disk item compounds with BDS's
+//! `rewardExp`, `sell`, `tier`, `traderExp`, `uses`; items are disk item compounds with
 //! `WasPickedUp`. Unknown recipe and root keys are kept and written back. A saved recipe Anchor
 //! cannot use (unknown item, a value out of range, a wrong tag type) is skipped with a warning,
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
@@ -42,20 +43,20 @@ const ANY_DAMAGE: i16 = i16::MAX;
 const BUY_A: &str = "buyA";
 /// A recipe's second payment, only when it has one.
 const BUY_B: &str = "buyB";
-/// The first payment's count: the price BDS charges.
+/// The first payment's count: the price charged.
 const BUY_COUNT_A: &str = "buyCountA";
 /// The second payment's count (0 without one).
 const BUY_COUNT_B: &str = "buyCountB";
 /// An item compound's damage (meta).
 const DAMAGE: &str = "Damage";
-/// The xp each tier needs, as BDS sends it (P6).
+/// The xp each tier needs, as the official server sends it (P6).
 const DEFAULT_TIER_XP: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 /// A recipe's demand.
 const DEMAND: &str = "demand";
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
 /// reader's budget to read back: half of one NBT root ([`crate::nbt::MAX_ROOT_BYTES`]), which
 /// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
-/// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each). PMMP has no such limit.
+/// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each).
 const MAX_SAVED_BYTES: usize = crate::nbt::MAX_ROOT_BYTES / 2;
 /// A recipe's maximum uses.
 const MAX_USES: &str = "maxUses";
@@ -120,7 +121,7 @@ pub(in crate::tick) struct Offers {
     skipped: Vec<Compound>,
     /// The network ID of the first offer while the list is shown to players: allocated when a
     /// player first opens the list, kept while it does not change (reopening shows the same
-    /// IDs, as BDS), dropped by every change of the list so a stale screen's IDs fail. Not saved.
+    /// IDs, as the official server does), dropped by every change of the list so a stale screen's IDs fail. Not saved.
     first_net_id: Option<u32>,
 }
 
@@ -546,7 +547,7 @@ impl Recipe {
     }
 
     /// Reads the offer a recipe compound holds, or why it cannot be used. The price is
-    /// `buyCountA` (BDS's actual count) when present, otherwise the item's `Count`. Custom items
+    /// `buyCountA` (the actual count) when present, otherwise the item's `Count`. Custom items
     /// are read through `custom`.
     fn from_nbt(c: &Compound, custom: &Registry) -> Result<Self, &'static str> {
         let (buy_a, damage_a) =
@@ -715,7 +716,7 @@ pub(in crate::tick) enum Damage {
     /// The offer item's damage (meta) exactly.
     #[default]
     Exact,
-    /// Any damage: BDS offers carry `Damage` 32767 on their payments (P6), written back and sent as
+    /// Any damage: the official server's offers carry `Damage` 32767 on their payments (P6), written back and sent as
     /// it came.
     Any,
 }
@@ -811,7 +812,7 @@ fn int(v: u32) -> Value {
     Value::Int(v)
 }
 
-/// Writes a stack as a BDS trade item compound: the disk item compound with `WasPickedUp`, and
+/// Writes a stack as a trade item compound: the disk item compound with `WasPickedUp`, and
 /// `Damage` 32767 for a payment of any damage.
 fn item_nbt(stack: &Stack, damage: Damage) -> Value {
     let mut c = stack.to_sent_nbt();
@@ -934,7 +935,7 @@ pub(in crate::tick) mod tests {
         }
     }
 
-    /// Builds offers of the shapes BDS sends: a plain offer, one with a second payment and a
+    /// Builds offers of the shapes the official server sends: a plain offer, one with a second payment and a
     /// block item, an enchanted sale, a locked tier.
     pub(in crate::tick) fn sample() -> Offers {
         let mut offers = Offers::default();
@@ -1002,7 +1003,7 @@ pub(in crate::tick) mod tests {
     }
 
     #[test]
-    fn the_wire_form_has_the_bds_keys_and_types() {
+    fn the_wire_form_has_the_official_keys_and_types() {
         let mut offers = sample();
         assert_eq!(
             offers.wire_nbt(),
@@ -1015,7 +1016,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(
             wire.keys().collect::<Vec<_>>(),
             [RECIPES, TIER_XP],
-            "the BDS root keys"
+            "the root keys"
         );
         assert_eq!(
             wire.get(TIER_XP),
@@ -1157,8 +1158,8 @@ pub(in crate::tick) mod tests {
     }
 
     #[test]
-    fn bds_payments_of_any_damage_are_kept_and_written_as_they_came() {
-        // A BDS farmer offer (P6): `Damage` 32767 on both payments.
+    fn payments_of_any_damage_are_kept_and_written_as_they_came() {
+        // A farmer offer of the official server (P6): `Damage` 32767 on both payments.
         let mut wheat = sample().recipes[0].to_nbt(None);
         let any = |c: &mut Compound, key: &str| {
             if let Some(Value::Compound(item)) = c.get_mut(key) {

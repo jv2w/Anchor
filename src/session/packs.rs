@@ -1,12 +1,12 @@
 //! The resource pack sequence of a session, and the chunks of the packs it downloads.
 //!
-//! What a client may ask for between `ResourcePacksInfo` and its `Completed` answer is checked as
-//! PMMP's `ResourcePacksPacketHandler` checks it. The client asks for the packs it lacks once,
+//! What a client may ask for between `ResourcePacksInfo` and its `Completed` answer is checked.
+//! The client asks for the packs it lacks once,
 //! before the stack, and for each chunk of them once.
 //!
 //! The chunks go out in request order at most one per [`CHUNK_INTERVAL`] (gophertunnel), and
 //! only while the connection holds at most [`MAX_UNDELIVERED_BYTES`] bytes it has not delivered
-//! (PMMP waits for each chunk's acknowledgement): a slow link slows the download instead of
+//! (each chunk's acknowledgement is waited for): a slow link slows the download instead of
 //! filling the transport's outbound cap. A download extends the spawn deadline by an allowance
 //! for its size ([`allowance`]), so the transfer does not eat into the 60 seconds a client has to
 //! spawn but still ends.
@@ -26,7 +26,7 @@ use crate::protocol::packet::{
 /// Per chunk: ten times [`CHUNK_INTERVAL`], so a client may download at 64 KiB/s.
 const CHUNK_ALLOWANCE: Duration = Duration::from_secs(2);
 /// Bytes per chunk.
-/// This is gophertunnel's `DefaultResourcePackChunkSize`; PMMP sends 256 KiB, which with its
+/// This is gophertunnel's `DefaultResourcePackChunkSize`; a chunk of 256 KiB with its
 /// packet header no longer fits one 256 KiB batch.
 pub(super) const CHUNK_BYTES: u32 = 128 * 1024;
 /// The least time between two chunks to one client.
@@ -90,7 +90,7 @@ impl Transfer {
 
     /// Handles a `ResourcePackChunkRequest`.
     /// It queues the chunk, or fails if its pack was not requested, the chunk does not exist or
-    /// was asked for before (PMMP refuses repeats too).
+    /// was asked for before.
     pub(super) fn on_chunk_request(
         &mut self,
         offer: &Offer,
@@ -141,7 +141,7 @@ impl Transfer {
         }))
     }
 
-    /// `SendPacks`: the data info of each pack the client names (PMMP's checks).
+    /// `SendPacks`: the data info of each pack the client names.
     fn on_send_packs(&mut self, offer: &Offer, names: &[String]) -> Result<Reply> {
         if self.requested {
             return Err(Error::Order("packs requested twice"));
@@ -388,7 +388,7 @@ mod tests {
             t.on_chunk_request(&offer, &chunk(&id, 1)),
             Err(Error::Order("chunk requested twice"))
         );
-        // The name without a version is the same pack (PMMP), so this is a repeat too.
+        // The name without a version is the same pack, so this is a repeat too.
         assert_eq!(
             t.on_chunk_request(&offer, &chunk(UUID, 1)),
             Err(Error::Order("chunk requested twice"))

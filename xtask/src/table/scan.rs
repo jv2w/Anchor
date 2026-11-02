@@ -2,7 +2,7 @@
 //! `// api-class: Name` comments on items, and the `// api: A::b, C::d` comments above test
 //! functions.
 //!
-//! rustdoc rejects an alias equal to the item's own name, so a type named like its PMMP class
+//! rustdoc rejects an alias equal to the item's own name, so a type named like its API class
 //! (`pub struct Permission` for `Permission`) carries the class alias as a `// api-class: Name`
 //! line above the item instead (its doc comments, attributes and other comments may be in
 //! between, blank lines may not). The name must be the item's name; any other alias is a

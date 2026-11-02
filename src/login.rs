@@ -554,9 +554,9 @@ fn parse_xuid(xid: &str) -> Result<Option<u64>> {
         .ok_or(Error::Identity("xuid out of range"))
 }
 
-/// Checks that `name` can be a player's name (PMMP `Player::isValidUserName`).
+/// Checks that `name` can be a player's name.
 /// It is 1 to 16 bytes of `A-Z a-z 0-9 _` and space only, and not `rcon` or `console` in any
-/// case. Spaces may lead, trail or repeat, as in PMMP. The error says which rule `name` breaks.
+/// case. Spaces may lead, trail or repeat. The error says which rule `name` breaks.
 /// Logins without Xbox sign-in and the commands that take a player's name (`/op`, `/whitelist`)
 /// check it.
 pub(crate) fn check_user_name(name: &str) -> Result<()> {
@@ -1110,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn offline_names_follow_pmmp() {
+    fn offline_names_follow_the_name_rules() {
         for name in [
             "a",
             "_",

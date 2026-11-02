@@ -147,7 +147,7 @@ pub(crate) struct State {
     trades: trade::Trades,
     /// The skin bytes the server may still broadcast, and whose skin goes next.
     skin_budget: survival::SkinBudget,
-    /// The custom items, blocks and recipes (fixed at build).
+    /// The custom items and blocks (fixed at build).
     custom: std::sync::Arc<crate::custom::Registry>,
     /// What the server was built with, which the input log names (fixed at build).
     fingerprints: log::Fingerprints,
@@ -590,7 +590,7 @@ impl State {
     /// Closes the session of `player`, which [`Self::remove`] returned, with `packet` after the
     /// packets the serial phases queued for it this tick, passed through the send hooks as the
     /// output phase passes them: what the player was sent in the step that removed it (before a
-    /// kick, by a quit listener) reaches it, as PMMP flushes the queued packets ahead of the
+    /// kick, by a quit listener) reaches it: the queued packets go ahead of the
     /// disconnect packet. A player whose outbox or blocks to send again overflowed this tick
     /// gets `packet` alone: what it was to be sent is incomplete.
     fn close(&self, player: Player, packet: Packet, output: &mut Output) {
@@ -697,7 +697,7 @@ pub(crate) struct Settings {
     food: bool,
     /// Whether players gain XP (`xp`).
     xp: bool,
-    /// Whether XP orbs exist and bottles o' enchanting can be thrown (`xp-orbs`);
+    /// Whether XP orbs exist and bottles of xp can be thrown (`xp-orbs`);
     /// the rules ask [`Settings::has_orbs`], which also needs `xp`.
     xp_orbs: bool,
     /// Whether falling hurts (`fall-damage`).
@@ -806,7 +806,7 @@ impl Settings {
 
     /// Whether XP orbs exist: `xp-orbs` with `xp`, as no XP means
     /// no orbs. Off, no rule works out XP to drop, no orb is made or loaded and no bottle
-    /// o' enchanting is thrown; points and levels follow `xp` alone.
+    /// of xp is thrown; points and levels follow `xp` alone.
     fn has_orbs(&self) -> bool {
         self.xp && self.xp_orbs
     }
@@ -835,7 +835,7 @@ pub(crate) struct Setup {
     pub(crate) data: task::UserData,
     /// The custom entity types.
     pub(crate) custom_entities: entity::Customs,
-    /// The custom items, blocks and recipes, numbered by `build`.
+    /// The custom items and blocks, numbered by `build`.
     pub(crate) custom: crate::custom::Registry,
     /// The generators worlds are made with, by name.
     pub(crate) generators: crate::world::Generators,
@@ -844,7 +844,7 @@ pub(crate) struct Setup {
 }
 
 /// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
-/// lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
+/// lowercase (folding ASCII only).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum PlayerKey {
     Xuid(u64),
@@ -897,7 +897,7 @@ pub struct Player {
     pending: spawn::Pending,
     /// What the rule modules keep of the player between joins (`extra`).
     extra: extra::Player,
-    /// Slots, cursor, crafting grids and open windows.
+    /// Slots, cursor, craft grids and open windows.
     inventory: inventory::Inventory,
     /// Health, food, XP, effects, and game mode.
     survival: survival::Survival,
@@ -1347,7 +1347,7 @@ fn start(state: &mut State) {
 }
 
 /// Applies an in-game packet of `session`: each packet goes to the rule module that owns it.
-/// `PlayerAuthInput` runs in PMMP's order: movement, block actions and item interaction, then its
+/// `PlayerAuthInput` runs in this order: movement, block actions and item interaction, then its
 /// item stack request.
 fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
     match packet {
@@ -2639,7 +2639,7 @@ mod tests {
         assert_eq!(start.player_position, [0.5, -58.38, 0.5]);
         assert_eq!(start.game_version, crate::protocol::packet::GAME_VERSION);
         // The start-game packets, then the spawn window up to the chunk radius answer, the first
-        // NetworkChunkPublisherUpdate and a chunk (BDS, P6; the survival tests check it).
+        // NetworkChunkPublisherUpdate and a chunk (P6; the survival tests check it).
         let window = START_GAME.len();
         assert_eq!(sent[..window], START_GAME);
         assert_eq!(sent[window..window + 3], [43, 344, 60]);

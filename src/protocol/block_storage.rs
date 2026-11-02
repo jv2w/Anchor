@@ -1,7 +1,6 @@
 //! The network sub-chunk payload: versions 8 and 9 with layers of paletted block storage.
 //!
-//! The layers hold block runtime IDs (dragonfly `chunk.EncodeSubChunk` with `NetworkEncoding`).
-//! Decoding is stricter than dragonfly: only the bit widths Bedrock writes are read, only the
+//! The layers hold block runtime IDs. Decoding is strict: only the bit widths Bedrock writes are read, only the
 //! runtime palette form (header bit 0 set) is read, a palette may not have more entries than
 //! the width can index, and every block index must point into the palette.
 
@@ -17,7 +16,7 @@ const HEADER_RUNTIME: u8 = 1;
 const VERSION_8: u8 = 8;
 /// The sub-chunk version with a y index.
 const VERSION_9: u8 = 9;
-/// Bits per block index Bedrock writes (dragonfly `sizes`).
+/// Bits per block index Bedrock writes.
 pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// One layer of 16×16×16 block indices into a palette of block runtime IDs.
@@ -254,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn word_counts_match_dragonfly() {
+    fn word_counts_match_the_widths() {
         let counts = WIDTHS.map(word_count);
         assert_eq!(counts, [0, 128, 256, 410, 512, 683, 820, 1024, 2048]);
     }
@@ -293,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn a_single_block_layer_matches_dragonfly_bytes() {
+    fn a_single_block_layer_has_the_expected_bytes() {
         let x = SubChunk {
             y_index: None,
             layers: vec![PalettedStorage::new(vec![5]).unwrap()],

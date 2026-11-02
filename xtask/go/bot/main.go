@@ -38,14 +38,14 @@
 //	bind-mismatch  nethernet only: the offer identity proves a second key, the Login the bot key; pass if
 //	               the server sends a Disconnect or closes the connection before spawning
 //	idle, prelogin-limit  RakNet server limit checks (limits.go)
-//	craft, furnace, enchant, crops, trade  survival gameplay like the official client (game.go, scenarios.go);
+//	dive, trade    survival gameplay like the official client (game.go, scenarios.go);
 //	               the caller runs the console commands the bot writes as "command" records
-//	commands, particles, kick, forms  the API scenarios (api.go): player commands and their output, particle
-//	               commands, a console kick and forms, on the game scenarios' machinery
+//	commands, kick, forms  the API scenarios (api.go): player commands and their output, a console kick
+//	               and forms, on the game scenarios' machinery
 //	script         the actions of the -script file (api.go: chat, commands, expected texts, items, positions,
 //	               forms, scores, boss bar, titles, menu clicks), for the example tests
 //	weather, joinrain, joinstorm  weather changes and lightning, and joining in rain and thunder (weather.go)
-//	enchants, stations, potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
+//	potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
 //	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the verification scenarios (verify.go); the line
 //	               scenarios are the byte counts of lineScenarios
 //

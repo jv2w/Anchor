@@ -66,7 +66,7 @@ impl Category {
 /// Where a custom item or block's item shows in the default creative inventory, after its own
 /// entries: a tab and an optional group (a vanilla group name such as `itemGroup.name.sword`, or
 /// a name of the resource pack). Custom entries with the same tab and group share one group shown
-/// with the first of them, as one PMMP `CreativeGroup` would be.
+/// with the first of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Creative {
     category: Category,
@@ -216,16 +216,15 @@ impl ServerBuilder {
     /// Sets the creative inventory every player sees unless switched to an alternative
     /// ([`Context::set_creative_inventory`](crate::Context::set_creative_inventory)): `inventory`
     /// (checked by [`build`](Self::build)), then the custom items and blocks that ask for a
-    /// place ([`Creative`]). Without a call it is PMMP's ([`CreativeInventory::vanilla`]).
+    /// place ([`Creative`]). Without a call it is the vanilla one ([`CreativeInventory::vanilla`]).
     #[must_use]
     pub fn creative_inventory(mut self, inventory: CreativeInventory) -> Self {
         self.setup.custom.set_creative_inventory(inventory);
         self
     }
 
-    /// Registers `inventory` as the alternative creative inventory `name` (PMMP: a clone of
-    /// `CreativeInventory` given to `Player::setCreativeInventory`), which a player is switched
-    /// to while the server runs. It holds what it lists: no custom item or block place is added.
+    /// Registers `inventory` as the alternative creative inventory `name`, which a player is
+    /// switched to while the server runs. It holds what it lists: no custom item or block place is added.
     /// [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or repeated
     /// name, or more than 64 alternatives.
     #[must_use]

@@ -459,8 +459,8 @@ fn kind_setters_change_their_kind_only() {
         for ticks in [-2, 40_000] {
             assert!(e.set_despawn_delay_ticks(ticks).is_err(), "{ticks}");
         }
-        assert_eq!(e.set_owner("me").is_ok(), item);
-        assert_eq!(e.set_thrower("you").is_ok(), item);
+        assert_eq!(e.set_owner("alice").is_ok(), item);
+        assert_eq!(e.set_thrower("bob").is_ok(), item);
         assert_eq!(e.set_xp_value(9).is_ok(), orb);
         assert!(e.set_xp_value(0).is_err() && e.set_xp_value(40_000).is_err());
         assert_eq!(e.set_fuse_ticks(12).is_ok(), tnt);
@@ -481,7 +481,7 @@ fn kind_setters_change_their_kind_only() {
         if item {
             assert_eq!(e.pickup_delay_ticks(), Some(-1));
             assert_eq!(e.despawn_delay_ticks(), Some(100));
-            assert_eq!((e.owner(), e.thrower()), (Some("me"), Some("you")));
+            assert_eq!((e.owner(), e.thrower()), (Some("alice"), Some("bob")));
         }
         if orb {
             assert_eq!(e.xp_value(), Some(9));

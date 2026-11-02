@@ -38,7 +38,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest datagram passed to str0m, in bytes: an Ethernet MTU. Honest peers stay below it
 /// (pion sends SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
 pub(crate) const MAX_DATAGRAM: usize = 1500;
-/// The largest data channel message sent, in bytes: BDS's `a=max-message-size`. BDS sends
+/// The largest data channel message sent, in bytes: the official server's `a=max-message-size`. It sends
 /// segments of this minus the header byte, 262,143 bytes (P6); a remote that announces less gets
 /// smaller ones.
 const MAX_SEND_MESSAGE_BYTES: usize = 256 * 1024;
@@ -47,7 +47,7 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The memory one queued message costs besides its bytes, in bytes, charged against
 /// `MAX_UNSENT_BYTES` so that many tiny messages cannot exceed the cap's memory.
 const PENDING_COST_BYTES: usize = size_of::<Pending>();
-/// The length of the local ICE password, as BDS sends.
+/// The length of the local ICE password, as the official server sends.
 const PWD_LEN: usize = 24;
 /// The label and parameters of the reliable channel (go-nethernet `MessageReliabilityReliable`).
 const RELIABLE_LABEL: &str = "ReliableDataChannel";
@@ -62,7 +62,7 @@ const SCTP_SEND_BUFFER_BYTES: usize = 4 * MAX_SEND_MESSAGE_BYTES;
 const STUN_BINDING_REQUEST: [u8; 2] = [0x00, 0x01];
 /// The type of the STUN USERNAME attribute.
 const STUN_USERNAME: u16 = 0x0006;
-/// The length of the local ICE username fragment, as BDS sends.
+/// The length of the local ICE username fragment, as the official server sends.
 const UFRAG_LEN: usize = 4;
 /// The label of the unreliable channel: unordered with no retransmits.
 const UNRELIABLE_LABEL: &str = "UnreliableDataChannel";
@@ -313,7 +313,7 @@ impl Peer {
             rtc.add_local_candidate(candidate);
             let offer =
                 SdpOffer::from_sdp_string(&offer).map_err(|e| Error::Webrtc(RtcError::Sdp(e)))?;
-            // Only str0m reads its answer; the client gets the BDS-shaped one from `sdp`.
+            // Only str0m reads its answer; the client gets the official-shaped one from `sdp`.
             #[expect(
                 clippy::disallowed_methods,
                 reason = "consistency: the SDP API is str0m's only way to learn the remote \
@@ -753,7 +753,7 @@ impl fmt::Debug for Peer {
 
 /// The offer as str0m reads it: the remote's ICE credentials (`sdp` checked their characters),
 /// fingerprint and message size, and `setup:passive`. A NetherNet client offers `actpass`, for
-/// which str0m would take the DTLS server role; BDS takes the client role, and so does str0m
+/// which str0m would take the DTLS server role; the official server takes the client role, and so does str0m
 /// told the remote is passive. str0m then also runs SCTP as the client and ICE as controlled.
 /// Candidates are added to str0m directly.
 fn str0m_offer(remote: &Remote) -> String {
@@ -885,7 +885,7 @@ pub(crate) mod tests {
     const BULK: u32 = 16;
     const CLIENT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 50_000);
     /// The test client drives str0m's direct API, which sends at most 64 KiB messages: so the
-    /// peer also receives 65,535-byte segments, which BDS accepts too (P6).
+    /// peer also receives 65,535-byte segments, which the official server accepts too (P6).
     const CLIENT_PAYLOAD_BYTES: usize = 64 * 1024 - 1;
     /// The bytes of a DTLS record header.
     const DTLS_RECORD_HEADER_BYTES: usize = 13;
@@ -1556,7 +1556,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn local_credentials_match_bds_shape() {
+    fn local_credentials_match_the_official_shape() {
         let (server, client) = certificates();
         let h = Harness::honest(&server, &client);
         let local = h.peer.local();
@@ -1573,7 +1573,7 @@ pub(crate) mod tests {
     }
 
     /// An open peer reports the round trip time of its ICE consent checks, the connection's
-    /// ping (PMMP `NetworkSession::getPing`), every [`RTT_INTERVAL`].
+    /// ping, every [`RTT_INTERVAL`].
     #[test]
     fn an_open_peer_reports_its_round_trip_time() {
         let (server, client) = certificates();

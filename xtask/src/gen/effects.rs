@@ -1,4 +1,4 @@
-//! `src/effect/table.rs`: the status effect and potion tables from the PMMP dump
+//! `src/effect/table.rs`: the status effect and potion tables from the dump
 //! (`tables.json`).
 
 use super::blocks::{api_enumeration, by_id, strings, variants};
@@ -7,10 +7,10 @@ use super::data::Data;
 use super::emit::HEADER;
 use super::items::effect_instance;
 
-/// BDS's colours (RGB) of the effects whose splash potions it shows, where they differ from
-/// PMMP's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash `LevelEvent` colours;
+/// The official server's colours (RGB) of the effects whose splash potions it shows, where they
+/// differ from the dump's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash `LevelEvent` colours;
 /// resistance from the turtle master's mixes). The client draws potions and particles in them.
-const BDS_COLOURS: [(&str, [u8; 3]); 12] = [
+const OFFICIAL_COLOURS: [(&str, [u8; 3]); 12] = [
     ("fire_resistance", [0xff, 0x99, 0x00]),
     ("instant_damage", [0xa9, 0x65, 0x6a]),
     ("invisibility", [0xf6, 0xf6, 0xf6]),
@@ -27,12 +27,13 @@ const BDS_COLOURS: [(&str, [u8; 3]); 12] = [
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/effect/table.rs";
 
-/// An effect's colour (RGBA): BDS's where [`BDS_COLOURS`] has it, PMMP's otherwise.
-fn colour(name: &str, pmmp: [u8; 4]) -> [u8; 4] {
-    BDS_COLOURS
+/// An effect's colour (RGBA): the official server's where [`OFFICIAL_COLOURS`] has it, the
+/// dump's otherwise.
+fn colour(name: &str, dumped: [u8; 4]) -> [u8; 4] {
+    OFFICIAL_COLOURS
         .iter()
         .find(|(n, _)| *n == name)
-        .map_or(pmmp, |(_, [r, g, b])| [*r, *g, *b, pmmp[3]])
+        .map_or(dumped, |(_, [r, g, b])| [*r, *g, *b, dumped[3]])
 }
 
 /// Generates the file text (unformatted).
@@ -42,7 +43,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Status effects and potion types generated from the PMMP dump: \
+        "{HEADER}\n//! Status effects and potion types generated from the dump: \
          {} effects, {} potion types.\n\nuse super::{{Data, Instance, PotionData}};\n",
         effects.len(),
         potions.len()
@@ -51,7 +52,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let effect_variants = variants(&names)?;
     api_enumeration(
         &mut out,
-        "A status effect type (PMMP `VanillaEffects`).",
+        "A status effect type (the dump source's `VanillaEffects`).",
         "#[doc(alias = \"Effect\", alias = \"VanillaEffects\")]
 ",
         "Type",
@@ -71,11 +72,13 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
          duration, bubbles).\npub(super) static DATA: [Data; {}] = [",
         effects.len()
     );
-    if let Some((name, _)) = BDS_COLOURS
+    if let Some((name, _)) = OFFICIAL_COLOURS
         .iter()
         .find(|(n, _)| !effects.iter().any(|e| e.name == *n))
     {
-        return Err(format!("BDS_COLOURS names {name}, which is not an effect"));
+        return Err(format!(
+            "OFFICIAL_COLOURS names {name}, which is not an effect"
+        ));
     }
     for e in effects {
         let [r, g, b, a] = colour(&e.name, [e.colour.r, e.colour.g, e.colour.b, e.colour.a]);
@@ -112,14 +115,14 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     Ok(out)
 }
 
-/// The potion type enum and tables (PMMP `PotionType`, `PotionTypeIdMap`).
+/// The potion type enum and tables (the dump source's `PotionType`, `PotionTypeIdMap`).
 fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     let potions = &data.tables.potions;
     let potion_names: Vec<&str> = potions.iter().map(|p| p.name.as_str()).collect();
     let potion_variants = variants(&potion_names)?;
     api_enumeration(
         out,
-        "A potion type (PMMP `PotionType`): what a potion, splash potion, lingering potion or \
+        "A potion type (the dump source's `PotionType`): what a potion, splash potion, lingering potion or \
          tipped arrow holds.",
         "#[doc(alias = \"PotionType\")]
 ",
@@ -149,7 +152,7 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     )?;
     strings(
         out,
-        "The PMMP display name of each potion type.",
+        "The dump's display name of each potion type.",
         "POTION_TEXT",
         &potions.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
     );
@@ -186,7 +189,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bds_colours_replace_pmmps() {
+    fn official_colours_replace_the_dumped_ones() {
         assert_eq!(
             colour("night_vision", [31, 31, 161, 255]),
             [0xc2, 0xff, 0x66, 255]

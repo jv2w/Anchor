@@ -1,6 +1,6 @@
-//! Sounds a world plays at a position (PMMP `world\sound\*`), for
-//! [`Context::add_sound`](crate::Context::add_sound): each is the packet PMMP sends for its
-//! class, with gophertunnel's names and numbers.
+//! Sounds a world plays at a position, for
+//! [`Context::add_sound`](crate::Context::add_sound): each is the packet the official server
+//! sends for it, with gophertunnel's names and numbers.
 //!
 //! Left out: sounds of an entity (`EntityLandSound`, `EntityLongFallSound`,
 //! `EntityShortFallSound`: the entity rules play them) and pressure plates' (`PressurePlate*`:
@@ -15,7 +15,7 @@ use crate::protocol::packet::{
     LevelEvent as LevelEventPacket, LevelSoundEvent as LevelSoundEventPacket, Packet,
 };
 
-/// The calls of the goat horn types, in `GoatHornType` order (PMMP `GoatHornSound`).
+/// The calls of the goat horn types, in `GoatHornType` order.
 const GOAT_CALLS: [SoundEvent; 8] = [
     SoundEvent::GoatCall0,
     SoundEvent::GoatCall1,
@@ -26,10 +26,10 @@ const GOAT_CALLS: [SoundEvent; 8] = [
     SoundEvent::GoatCall6,
     SoundEvent::GoatCall7,
 ];
-/// The entity type of a sound with no entity (PMMP `LevelSoundEventPacket::nonActorSound`).
+/// The entity type of a sound with no entity.
 const NO_ENTITY: &str = ":";
-/// The entity type of a player (PMMP `Human::getNetworkTypeId`): the one PMMP gives hit and throw
-/// sounds, and the one the sounds a player makes name.
+/// The entity type of a player: the one hit and throw sounds carry, and the one the sounds a
+/// player makes name.
 pub(crate) const PLAYER_ENTITY_TYPE: &str = "minecraft:player";
 
 /// A sound.
@@ -168,7 +168,7 @@ pub enum Sound {
     /// A chorus flower growing.
     #[doc(alias = "ChorusFlowerGrowSound")]
     ChorusFlowerGrow,
-    /// A click at `pitch` (PMMP's default 0).
+    /// A click at `pitch` (0 by default).
     #[doc(alias = "ClickSound")]
     Click {
         /// The pitch.
@@ -186,7 +186,7 @@ pub enum Sound {
     /// A door being broken in.
     #[doc(alias = "DoorCrashSound")]
     DoorCrash,
-    /// A door opening or closing, at `pitch` (PMMP's default 0).
+    /// A door opening or closing, at `pitch` (0 by default).
     #[doc(alias = "DoorSound")]
     Door {
         /// The pitch.
@@ -234,7 +234,7 @@ pub enum Sound {
     /// A firework launching.
     #[doc(alias = "FireworkLaunchSound")]
     FireworkLaunch,
-    /// A fizz at `pitch` (PMMP's default 0).
+    /// A fizz at `pitch` (0 by default).
     #[doc(alias = "FizzSound")]
     Fizz {
         /// The pitch.
@@ -255,8 +255,8 @@ pub enum Sound {
     /// Glow berries being picked.
     #[doc(alias = "GlowBerriesPickSound")]
     GlowBerriesPick,
-    /// A goat horn of this item type sounding: the call of its meta, 0 to 7 (PMMP `GoatHornType`
-    /// in its order); any other item plays the first call, as Anchor's horn rule does.
+    /// A goat horn of this item type sounding: the call of its meta, 0 to 7 (in
+    /// `GoatHornType` order); any other item plays the first call, as Anchor's horn rule does.
     #[doc(alias = "GoatHornSound")]
     GoatHorn(item::Type),
     /// An ice bomb hitting.
@@ -283,7 +283,7 @@ pub enum Sound {
     /// An item being used on a block of this state.
     #[doc(alias = "ItemUseOnBlockSound")]
     ItemUseOnBlock(block::State),
-    /// A launch at `pitch` (PMMP's default 0).
+    /// A launch at `pitch` (0 by default).
     #[doc(alias = "LaunchSound")]
     Launch {
         /// The pitch.
@@ -297,13 +297,13 @@ pub enum Sound {
     Note {
         /// The instrument.
         instrument: NoteInstrument,
-        /// The note: 0 to 24 are the note block's pitches (PMMP takes 0 to 255).
+        /// The note: 0 to 24 are the note block's pitches.
         note: u8,
     },
     /// A painting being placed.
     #[doc(alias = "PaintingPlaceSound")]
     PaintingPlace,
-    /// A pop at `pitch` (PMMP's default 0).
+    /// A pop at `pitch` (0 by default).
     #[doc(alias = "PopSound")]
     Pop {
         /// The pitch.
@@ -315,7 +315,7 @@ pub enum Sound {
     /// A potion bottle shattering.
     #[doc(alias = "PotionSplashSound")]
     PotionSplash,
-    /// A jukebox playing the music disc of this item type (PMMP `RecordType`); any other item
+    /// A jukebox playing the music disc of this item type; any other item
     /// stops the music, as [`Sound::RecordStop`].
     #[doc(alias = "RecordSound")]
     Record(item::Type),
@@ -385,7 +385,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    /// The packet that plays the sound at `at` (PMMP `Sound::encode`).
+    /// The packet that plays the sound at `at`.
     pub(crate) fn packet(self, at: Vec3) -> Packet {
         let position = at.to_f32();
         match self.sent() {
@@ -424,10 +424,10 @@ impl Sound {
         }
     }
 
-    /// What the sound sends (the PMMP class's `encode`).
+    /// What the sound sends.
     #[expect(
         clippy::too_many_lines,
-        reason = "consistency: one arm per PMMP sound class, in one place"
+        reason = "consistency: one arm per sound, in one place"
     )]
     fn sent(self) -> Sent {
         use LevelEvent as L;
@@ -492,7 +492,7 @@ impl Sound {
             Self::EnderChestClose => plain(S::EnderChestClosed),
             Self::EnderChestOpen => plain(S::EnderChestOpen),
             Self::EndermanTeleport => level(L::SoundEndermanTeleport),
-            // PMMP: ATTACK seems dysfunctional, so a landed hit is ATTACK_STRONG.
+            // ATTACK seems dysfunctional, so a landed hit is ATTACK_STRONG.
             Self::EntityAttack => Sent::Sound(S::AttackStrong, -1, PLAYER_ENTITY_TYPE),
             Self::EntityAttackNoDamage => Sent::Sound(S::AttackNoDamage, -1, PLAYER_ENTITY_TYPE),
             Self::Explode => plain(S::Explode),
@@ -521,7 +521,7 @@ impl Sound {
             Self::Note { instrument, note } => {
                 Sent::Sound(S::Note, instrument.id() << 8 | i32::from(note), NO_ENTITY)
             }
-            // PMMP: item frames and paintings share the sound.
+            // Item frames and paintings share the sound.
             Self::PaintingPlace => level(L::SoundItemFramePlace),
             Self::Pop { pitch } => Sent::Level(L::SoundInfinityArrowPickup, permille(pitch)),
             Self::PotionFinishBrewing => plain(S::PotionBrewed),
@@ -549,7 +549,7 @@ impl Sound {
             Self::XpCollect => level(L::SoundExperienceOrbPickup),
             Self::XpLevelUp { level } => {
                 // The volume field carries the level: 0x1000_0000 for every five levels up to 30,
-                // the values PMMP sends.
+                // the values the official server sends.
                 let volume = 0x1000_0000_u32 * (level.min(30) / 5);
                 Sent::Sound(S::LevelUp, volume.cast_signed(), NO_ENTITY)
             }
@@ -596,7 +596,7 @@ pub enum NoteInstrument {
 }
 
 impl NoteInstrument {
-    /// The instrument's number in the `note` sound (PMMP `NoteInstrumentIdMap`).
+    /// The instrument's number in the `note` sound.
     const fn id(self) -> i32 {
         match self {
             Self::Piano => 0,
@@ -627,7 +627,7 @@ enum Sent {
     Level(LevelEvent, i32),
 }
 
-/// The call of a goat horn type (PMMP `GoatHornSound`): its meta in `GoatHornType` order; the
+/// The call of a goat horn type: its meta in `GoatHornType` order; the
 /// first for another item.
 fn horn_call(horn: item::Type) -> SoundEvent {
     if horn.kind() != Some(item::Kind::GoatHorn) {
@@ -639,7 +639,7 @@ fn horn_call(horn: item::Type) -> SoundEvent {
         .unwrap_or(SoundEvent::GoatCall0)
 }
 
-/// The music of a disc (PMMP `RecordSound`); the jukebox stop for another item.
+/// The music of a disc; the jukebox stop for another item.
 fn record(disc: item::Type) -> SoundEvent {
     use item::Kind as K;
     match disc.kind() {
@@ -667,7 +667,7 @@ fn record(disc: item::Type) -> SoundEvent {
     }
 }
 
-/// A pitch as level events carry it (PMMP `(int) ($pitch * 1000)`).
+/// A pitch as level events carry it: thousandths.
 fn permille(pitch: f32) -> i32 {
     scaled(pitch, 1000.0)
 }
@@ -675,8 +675,7 @@ fn permille(pitch: f32) -> i32 {
 /// `value × factor` as an `i32`, saturating (0 for a value that is not a number).
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "consistency: PMMP casts with `(int)`; Rust's `as` saturates and maps NaN to 0, the \
-              same on every platform"
+    reason = "consistency: Rust's `as` saturates and maps NaN to 0, the same on every platform"
 )]
 fn scaled(value: f32, factor: f64) -> i32 {
     (f64::from(value) * factor) as i32
@@ -730,7 +729,7 @@ mod tests {
     // api: TridentHitEntitySound, TridentThrowSound, WaterSplashSound, XpCollectSound,
     // api: XpLevelUpSound, Sound
     #[test]
-    fn sounds_send_pmmps_packets_with_gophertunnel_names() {
+    fn sounds_send_the_official_packets_with_gophertunnel_names() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
         let id = stone.network_id().cast_signed();
         let cases = [
@@ -798,7 +797,7 @@ mod tests {
 
     // api: RedstonePowerOnSound, RedstonePowerOffSound
     #[test]
-    fn levers_and_buttons_sound_as_pmmps_redstone_power() {
+    fn levers_and_buttons_sound_as_redstone_power() {
         assert_eq!(
             sent(Sound::RedstonePowerOn),
             ("power.on".to_owned(), -1, ":".to_owned())
@@ -811,7 +810,7 @@ mod tests {
 
     // api: NoteSound, NoteInstrument, RecordSound, GoatHornSound
     #[test]
-    fn notes_discs_and_horns_send_pmmps_sound_events() {
+    fn notes_discs_and_horns_send_the_official_sound_events() {
         let none = crate::nbt::Compound::new();
         let ty = |name: &str, meta: u16| item::Type::from_name(name, meta, None, &none).unwrap();
         let play = |instrument, note| Sound::Note { instrument, note };
@@ -819,7 +818,7 @@ mod tests {
             sent(play(NoteInstrument::Piano, 0)),
             ("note".to_owned(), 0, ":".to_owned())
         );
-        // PMMP `NoteInstrumentIdMap`: flute is 5 and bell 6, unlike their enum order.
+        // Flute is 5 and bell 6 on the wire, unlike their enum order.
         assert_eq!(sent(play(NoteInstrument::Flute, 12)).1, 0x050c);
         assert_eq!(sent(play(NoteInstrument::Pling, 255)).1, 0x0fff);
         assert_eq!(

@@ -6,16 +6,16 @@
 //! the same commit). This module keeps who trades with which villager ([`Trades`]).
 //!
 //! - [`open`]: an interaction with a villager opens the trade window (`inventory::open_trade`) and
-//!   sends `UpdateTrade` (BDS: no `ContainerOpen`; window type 15, size 0, the villager's tier and
+//!   sends `UpdateTrade` (no `ContainerOpen`; window type 15, size 0, the villager's tier and
 //!   unique ID, entity -1, the profession's display name, new trade UI, demand-based prices, the
 //!   offers in network NBT), after `TradeOpen` (cancelled, nothing opens). Offers get network IDs
-//!   from a server counter that starts at 1, as the recipe list is empty; reopening an unchanged
-//!   list shows the same IDs (BDS), and every change of the list gives it new ones, so a stale
+//!   from a server counter that starts at 1, as `CraftingData` is empty; reopening an unchanged
+//!   list shows the same IDs, and every change of the list gives it new ones, so a stale
 //!   screen's IDs fail.
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
 //!   its item changes committed (a check/apply pair; `traded` cannot fail after `offer`
 //!   succeeded in the same request). A trade counts uses (at most 256 per request), gives the
-//!   villager xp and tiers, and drops reward orbs at the villager. Like BDS, no
+//!   villager xp and tiers, and drops reward orbs at the villager. No
 //!   `UpdateTrade` follows a trade, not even one that reaches a new tier (P6 `tradeup`).
 //! - [`closed`]: the inventory module's report that the trade window closed (it returns the
 //!   payment slots). [`tick`] closes the window of every player whose villager is gone or in
@@ -44,12 +44,12 @@ use crate::protocol::packet::{Packet, UpdateTrade};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 
-/// `UpdateTrade.EntityUniqueID` as BDS sends it.
+/// `UpdateTrade.EntityUniqueID` as the official server sends it.
 const ANY_ENTITY: i64 = -1;
 /// The title of other professions (the nitwit, 14, has none of its own).
 const DEFAULT_DISPLAY_NAME: &str = "entity.villager.name";
-/// The trade screen titles by profession (`EntityVariant`), from BDS 1.26.52's `villager_v2`
-/// economy trade tables: unskilled, farmer, fisherman, shepherd, fletcher, librarian,
+/// The trade screen titles by profession (`EntityVariant`), from the official server 1.26.52's
+/// `villager_v2` economy trade tables: unskilled, farmer, fisherman, shepherd, fletcher, librarian,
 /// cartographer, cleric, armorer, weaponsmith, toolsmith, butcher, leatherworker, mason.
 const DISPLAY_NAMES: [&str; 14] = [
     "entity.villager.unskilled",
@@ -67,7 +67,7 @@ const DISPLAY_NAMES: [&str; 14] = [
     "entity.villager.leather",
     "entity.villager.mason",
 ];
-/// The first network ID of a trade offer: the recipe list is empty, so no recipe takes one.
+/// The first network ID of a trade offer: `CraftingData` is empty, so no recipe takes one.
 const FIRST_NET_ID: u32 = 1;
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
@@ -82,7 +82,7 @@ const HOOKS: Hooks = Hooks {
 };
 /// The most trades one request may repeat.
 pub(super) const MAX_REPEAT: u32 = 256;
-/// Xp per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
+/// Xp per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; the official server drops a
 /// random amount).
 const REWARD_BASE: u32 = 3;
 /// The height above the villager's feet where reward orbs appear (Java
@@ -278,7 +278,7 @@ impl View {
         })
     }
 
-    /// `UpdateTrade` for trade window `window`, as BDS sends it (P6).
+    /// `UpdateTrade` for trade window `window`, as the official server sends it (P6).
     fn packet(&self, window: u8) -> Packet {
         Packet::UpdateTrade(UpdateTrade {
             window_id: window,
@@ -387,7 +387,7 @@ pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<
 
 /// Checks whether `given` pays for the payment `want` of an offer, counts aside: the same item
 /// type and damage, and the same extra data when the offer's payment has any. A payment of any
-/// damage (BDS `Damage` 32767, the Bedrock any-meta value) takes the item of any damage or meta:
+/// damage (`Damage` 32767, the Bedrock any-meta value) takes the item of any damage or meta:
 /// the same item name.
 pub(super) fn is_payment(want: &Stack, damage: Damage, given: &Stack) -> bool {
     let item = match damage {
@@ -471,7 +471,7 @@ fn traded_with(
         let at = Vec3::new(position.x, position.y + REWARD_HEIGHT, position.z);
         (hooks.drop_xp)(state, world, at, amount);
     }
-    // A new tier reaches the traders through the villager's entity data alone: BDS sends no
+    // A new tier reaches the traders through the villager's entity data alone: the official server sends no
     // UpdateTrade then (P6 `tradeup`).
     (hooks.villager_traded)(state, villager, before);
 }

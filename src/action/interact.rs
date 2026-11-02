@@ -1,5 +1,4 @@
-//! Actions of a player on blocks, items and entities: breaking, clicking and using (PMMP
-//! `Player::attackBlock`, `breakBlock`, `interactBlock`, `useHeldItem`, `interactEntity`).
+//! Actions of a player on blocks, items and entities: breaking, clicking and using.
 //!
 //! Each goes through the same rules and events as the player's own click; the rules live in the
 //! tick's interaction module.

@@ -1,8 +1,8 @@
 //! Joining and spawning: the saved player data, the start-game packets, the chunk radius and the
 //! spawn status.
 //!
-//! The packet order and the values follow what BDS 1.26.52 sends (P6, `xtask/data/p6/facts.md`);
-//! the packets BDS sends that Anchor does not send are listed in `xtask/data/p6/deferred.txt`. The
+//! The packet order and the values follow what the official server 1.26.52 sends (P6,
+//! `xtask/data/p6/facts.md`); the packets it sends that Anchor does not send are listed in `xtask/data/p6/deferred.txt`. The
 //! player list is kept for everyone: a placed player gets the whole list in its window and is added
 //! to everyone else's, and a player who leaves is removed from the others' lists.
 
@@ -57,17 +57,17 @@ use crate::world::{World, biome};
 
 /// What a player whose saved data is damaged sees.
 const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
-/// The position BDS's `SetSpawnPosition` carries for a default spawn (P6).
+/// The position the official server's `SetSpawnPosition` carries for a default spawn (P6).
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
-/// The entity types of `AvailableActorIdentifiers`: `CloudburstMC`'s `entity_identifiers.dat`
-/// (8,971 bytes), sent as it is; BDS 1.26.52 sent its version of the file byte for byte (P6).
+/// The entity types of `AvailableActorIdentifiers`: `entity_identifiers.dat`
+/// (8,971 bytes), sent as it is; the official server 1.26.52 sent the file byte for byte (P6).
 const ENTITY_IDENTIFIERS: &[u8] =
     include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
-/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
+/// The join message, the yellow "joined the game" line: the official server sends a translated `Text`
 /// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
 /// any other as it is (like [`LEFT`](super::player::LEFT)).
 const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
-/// The limited world size BDS sends (P6); the client ignores it for infinite worlds.
+/// The limited world size the official server sends (P6); the client ignores it for infinite worlds.
 const LIMITED_WORLD_SIZE: i32 = 16;
 /// The most wire bytes of a player list entry besides its name, XUID, PlayFab ID and skin
 /// ([`queue::Skin::size`]): the entry kind (a varint, at most 5, and a byte), the UUID (16), the
@@ -86,23 +86,24 @@ pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
     + MAX_TOKEN_PAYLOAD_BYTES
     + XUID_DIGITS
     + MAX_SKIN_BYTES;
-/// The colour of every entry of the player list (BDS's value, P6).
+/// The colour of every entry of the player list (the official server's value, P6).
 pub(super) const PLAYER_LIST_COLOUR: Rgba = Rgba {
     r: 237,
     g: 237,
     b: 237,
     a: 255,
 };
-/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
+/// The y the official server sends in its first two spawn `Respawn` packets: the top of the build limit, above
 /// the eyes and at the feet (P6).
 const RESPAWN_SEARCH_Y: f64 = 32_768.0;
-/// BDS rewinds 40 ticks of movement history for server-authoritative movement (P6).
+/// The official server rewinds 40 ticks of movement history for server-authoritative movement
+/// (P6).
 const REWIND_HISTORY_SIZE: i32 = 40;
-/// The dimension BDS's `SetSpawnPosition` names at join (P6).
+/// The dimension the official server's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
-/// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
+/// The block collision shapes the official server 1.26.52 sends in `VoxelShapes`:
 /// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
-/// bytes) equal BDS's (P6).
+/// bytes) equal the official server's (P6).
 const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
 /// The most digits of a XUID (`u64::MAX`).
 const XUID_DIGITS: usize = 20;
@@ -135,7 +136,7 @@ impl Shared {
     ///
     /// With the server's custom content: the custom items after the vanilla ones in the item
     /// registry and the creative inventory, the custom block definitions for `StartGame` and the
-    /// custom entity identifiers. The recipe list is always empty. Without custom content the
+    /// custom entity identifiers. `CraftingData` is always empty. Without custom content the
     /// other batches are byte for byte the vanilla ones.
     pub(crate) fn new(
         settings: batch::Settings,
@@ -276,7 +277,7 @@ pub(super) struct Pending {
 pub(super) struct RadiusAnswer {
     /// The granted radius.
     radius: u8,
-    /// The first answer: the spawn position, the creative inventory and the recipes go first.
+    /// The first answer: the spawn position, the creative inventory and `CraftingData` go first.
     first: bool,
 }
 
@@ -408,7 +409,7 @@ super::checkpoint::fields!(Loading {
 });
 
 impl super::Context<'_> {
-    /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
+    /// Sets the chunk radius `player` sees, kept from 1 to
     /// the `view-distance` of its world: its view grows or shrinks at once, and its client is
     /// told the radius at the end of the tick. A world the player goes to later grants the
     /// radius set here up to its own `view-distance`. The client asks again when its own
@@ -433,7 +434,7 @@ impl super::Context<'_> {
     }
 }
 
-/// Reads the voxel shapes of [`VOXEL_SHAPES`], names in the file's order (BDS's order).
+/// Reads the voxel shapes of [`VOXEL_SHAPES`], names in the file's order.
 fn voxel_shapes() -> VoxelShapes {
     #[expect(
         clippy::expect_used,
@@ -605,10 +606,10 @@ fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
         .collect()
 }
 
-/// Builds one player's packets of the tick, in the order BDS sends them (P6): the start-game
-/// packets; for the first chunk radius answer the spawn window (spawn position, clocks,
+/// Builds one player's packets of the tick, in the order the official server sends them (P6): the
+/// start-game packets; for the first chunk radius answer the spawn window (spawn position, clocks,
 /// difficulty, settings, weather, abilities, rules, player list, biomes, entity types, fog, camera
-/// presets, attributes, creative inventory, trims, inventory, recipes, commands, respawn, entity
+/// presets, attributes, creative inventory, trims, inventory, `CraftingData`, commands, respawn, entity
 /// data, structure feature); the granted radius; the chunk packets; the health and the spawn
 /// status; then the block changes it sees.
 fn messages(
@@ -676,9 +677,9 @@ fn messages(
     out
 }
 
-/// Puts in `out` the packets BDS sends between the chunk radius request and the chunks (P6), with
-/// the player's `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt).
-/// BDS sends the entity data and the structure feature with its first chunks; the chunk packets
+/// Puts in `out` the packets the official server sends between the chunk radius request and the chunks (P6),
+/// with the player's `AvailableCommands`, but for the spawn sound Anchor never sends
+/// (deferred.txt). The official server sends the entity data and the structure feature with its first chunks; the chunk packets
 /// leave the order of the others as it is.
 fn spawn_window(
     settings: &Settings,
@@ -753,9 +754,9 @@ fn spawn_window(
     out.push(packet(attributes));
 }
 
-/// Builds a player's entry in the player list (BDS values, P6): the skin and device the client
+/// Builds a player's entry in the player list (P6): the skin and device the client
 /// sent at login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the
-/// server-verified one; BDS's value is not confirmed).
+/// server-verified one; the official server's value is not confirmed).
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
         action_type: PlayerListAction::Add.into(),
@@ -768,7 +769,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
             .map_or_else(String::new, |x| x.to_string()),
         playfab_id: player.identity.client.playfab_id.clone(),
         platform_chat_id: String::new(),
-        // BDS sends the login's device (PMMP the unknown device, -1).
+        // The official server sends the login's device.
         build_platform: player.identity.device_os,
         skin: Arc::clone(player.identity.skin.shared()),
         teacher: false,
@@ -1177,7 +1178,7 @@ fn duplicate_login(
     (identity, outcome, Some(watched))
 }
 
-/// Decides whether `identity` may join (PMMP `PlayerPreLoginEvent`, which Anchor raises here, in
+/// Decides whether `identity` may join (Anchor raises the event here, in
 /// the tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
 /// event's kick flags, listeners may clear them or set others, and the first flag left refuses
 /// the player with its screen message. Without listeners the first refusal decides
@@ -1285,7 +1286,7 @@ fn logged_in_other_location(message: String) -> Packet {
 
 /// Grants a chunk radius request: the view opens at once or resizes in the view phase, and the
 /// output phase sends the granted radius (the first time with the spawn position, the creative
-/// inventory and the recipes). Requests in one tick share one answer and one resize with the last
+/// inventory and `CraftingData`). Requests in one tick share one answer and one resize with the last
 /// radius.
 pub(super) fn request_chunk_radius(
     state: &mut State,
@@ -1409,9 +1410,9 @@ pub(super) fn initialised(
     joined(state, session);
 }
 
-/// Announces that the player of `session` spawned (PMMP `Player::doFirstSpawn`): [`PlayerJoin`]
-/// may change the join message, which every other player in the game then sees (BDS sends it to
-/// the others only; PMMP to everyone). An empty message shows nothing; a player a listener kicked
+/// Announces that the player of `session` spawned: [`PlayerJoin`]
+/// may change the join message, which every other player in the game then sees (the official
+/// server sends it to the others only). An empty message shows nothing; a player a listener kicked
 /// shows none.
 fn joined(state: &mut State, session: SessionId) {
     let Some(name) = state
@@ -1489,7 +1490,7 @@ fn start_game(
 ) -> StartGame {
     let game_mode = survival::game_mode_id(settings.game_mode);
     let difficulty = difficulty_id(super::world_api::difficulty_of(settings, world));
-    // BDS sends the default type (the world's mode) for a player without its own mode (P6).
+    // The official server sends the default type (the world's mode) for a player without its own mode (P6).
     let player_game_mode = survival::own_game_mode(settings, player)
         .map_or(i32::from(GameType::Default), survival::game_mode_id);
     let spawn = world.spawn();
@@ -1500,7 +1501,7 @@ fn start_game(
         player_game_mode,
         player_position: player.position.to_f32(),
         world_seed: world.seed(),
-        // What BDS sends for a flat world (P6).
+        // What the official server sends for a flat world (P6).
         generator: i32::from(Generator::Flat),
         world_game_mode: game_mode,
         hardcore: settings.hardcore,
@@ -1514,7 +1515,7 @@ fn start_game(
         commands_enabled: true,
         player_permissions: u8::from(permissions),
         server_chunk_tick_radius: i32::from(settings.view(player.world).tick_radius),
-        // BDS sends "*" (P6): any base game version.
+        // The official server sends "*" (P6): any base game version.
         base_game_version: "*".to_owned(),
         world_name: settings.motd.clone(),
         player_movement_settings: PlayerMovementSettings {
@@ -1526,15 +1527,14 @@ fn start_game(
         server_join_information: Some(ServerJoinInformation::default()),
         game_version: packet::GAME_VERSION.to_owned(),
         use_block_network_id_hashes: true,
-        // The custom block definitions; none for a vanilla server, as BDS's data-driven blocks are
-        // not PMMP blocks.
+        // The custom block definitions; none without custom blocks.
         blocks: shared.blocks.to_vec(),
-        // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
+        // The world's time, so the day cycle starts where it is.
         time: world.time_ticks(),
         day_cycle_lock_time: survival::day_cycle_lock_time(settings, world),
         rain_level,
         lightning_level,
-        // Education features stay off, as PMMP leaves them: the Education items are never
+        // Education features stay off: the Education items are never
         // offered.
         ..StartGame::default()
     }
@@ -1841,7 +1841,7 @@ mod tests {
 
         // api: PlayerJoinEvent
         #[test]
-        fn the_join_message_goes_to_the_others_as_bds_sends_it() {
+        fn the_join_message_goes_to_the_others_as_the_official_server_sends_it() {
             let noop = on(|_: &mut PlayerJoin, _: &mut Context<'_>| {});
             for listeners in [Listeners::default(), noop] {
                 let mut state = state(|_| {}, listeners);
@@ -2064,7 +2064,7 @@ mod tests {
 
     use super::*;
 
-    /// Reads the `CloudburstMC` data copy, when the external sources are there (`.cache`).
+    /// Reads the data copy, when the external sources are there (`.cache`).
     fn cache(name: &str) -> Option<Vec<u8>> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(".cache/reference-data")
@@ -2085,11 +2085,11 @@ mod tests {
     }
 
     #[test]
-    fn the_entity_types_are_the_cloudburst_bytes_bds_sends() {
+    fn the_entity_types_are_the_bytes_the_official_server_sends() {
         assert_eq!(
             ENTITY_IDENTIFIERS.len(),
             8971,
-            "the CloudburstMC 1.26.60 file is 8,971 bytes"
+            "the 1.26.60 file is 8,971 bytes"
         );
         if let Some(copy) = cache("entity_identifiers.dat") {
             assert_eq!(ENTITY_IDENTIFIERS, copy.as_slice());
@@ -2101,13 +2101,13 @@ mod tests {
     }
 
     #[test]
-    fn voxel_shapes_match_bds_counts_order_and_size() {
+    fn voxel_shapes_match_the_official_counts_order_and_size() {
         if let Some(copy) = cache("voxel_shapes.json") {
             assert_eq!(VOXEL_SHAPES.as_bytes(), copy.as_slice());
         }
         let shapes = voxel_shapes();
         assert_eq!((shapes.shapes.len(), shapes.name_map.len()), (287, 220));
-        // BDS's first names, in its order (P6 capture).
+        // The first names of the official server's, in its order (P6 capture).
         let first: Vec<(&str, u16)> = shapes
             .name_map
             .iter()
@@ -2127,7 +2127,11 @@ mod tests {
         );
         let packet = Packet::VoxelShapes(shapes);
         let bytes = payload(&packet);
-        assert_eq!(bytes.len(), 23_178, "BDS's VoxelShapes payload (P6)");
+        assert_eq!(
+            bytes.len(),
+            23_178,
+            "the official server's VoxelShapes payload (P6)"
+        );
         let mut budget = usize::MAX;
         assert_eq!(
             Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
@@ -2136,7 +2140,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_data_has_the_bds_patterns_and_materials() {
+    fn trim_data_has_the_official_patterns_and_materials() {
         let trims = trim_data();
         assert_eq!((trims.patterns.len(), trims.materials.len()), (18, 11));
         assert_eq!(
@@ -2144,13 +2148,13 @@ mod tests {
             "minecraft:ward_armor_trim_smithing_template"
         );
         assert_eq!(trims.materials[10].colour, "\u{a7}v");
-        // BDS: 1,271 bytes with the two-byte header of packet 302 (P6).
+        // The official server: 1,271 bytes with the two-byte header of packet 302 (P6).
         assert_eq!(payload(&Packet::TrimData(trims)).len(), 1269);
     }
 
-    /// The trim tables are the BDS `TrimData` the P6 run recorded, in its order.
+    /// The trim tables are the `TrimData` the P6 run recorded, in its order.
     #[test]
-    fn trim_data_equals_the_bds_record() {
+    fn trim_data_equals_the_official_record() {
         let facts = include_str!("../../xtask/data/p6/facts.md");
         let line = facts
             .lines()

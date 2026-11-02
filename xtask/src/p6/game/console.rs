@@ -39,9 +39,9 @@ use crate::p6;
 pub(crate) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
 const FARMER: u8 = 1;
-/// The most blocks one `fill` may change (BDS's limit).
+/// The most blocks one `fill` may change (the official server's limit).
 const MAX_FILL: u64 = 32_768;
-/// The most items one `give` may hand out (BDS's limit).
+/// The most items one `give` may hand out (the official server's limit).
 const MAX_GIVE: u32 = 32_767;
 /// Commands waiting in the task at most; the harness's send blocks beyond it.
 const MAX_PENDING: usize = 256;
@@ -84,7 +84,7 @@ pub(crate) enum Command {
     /// `kick <player> <reason>`: [`anchor::player::Player::kick`].
     Kick { player: String, reason: String },
     /// `scriptevent p6:<kind>`: the forms scenario's form of that kind to every player, as the
-    /// BDS script pack shows it (`xtask/data/p6/forms-pack`, [`p6_form`]).
+    /// official server's script pack shows it (`xtask/data/p6/forms-pack`, [`p6_form`]).
     Form(FormKind),
     /// `summon snowball|egg <x> <y> <z>`: the projectile, dropped without motion.
     Projectile {
@@ -100,7 +100,7 @@ pub(crate) enum Command {
     /// `difficulty peaceful|easy|normal|hard`: [`Context::set_difficulty`].
     Difficulty(Difficulty),
     /// `summon lightning_bolt <x> <y> <z>` (whole coordinates, the bolt at the middle of the
-    /// block's floor as BDS puts it): [`Context::strike_lightning`] with BDS's damage and fire.
+    /// block's floor as the official server puts it): [`Context::strike_lightning`] with damage.
     Lightning { pos: Vec3 },
 }
 
@@ -306,7 +306,7 @@ fn channel<T>(bound: usize) -> (SyncSender<T>, Receiver<T>) {
     std::sync::mpsc::sync_channel(bound)
 }
 
-/// Parses a console command line in the form the bot writes (BDS syntax, absolute coordinates).
+/// Parses a console command line in the form the bot writes (the official server's syntax, absolute coordinates).
 pub(crate) fn parse(line: &str) -> Result<Command, String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words.as_slice() {
@@ -315,7 +315,7 @@ pub(crate) fn parse(line: &str) -> Result<Command, String> {
             feet: Vec3::new(number(x)?, number(y)?, number(z)?),
         }),
         ["give", _, "wind_charge", ..] => Ok(Command::Accepted(
-            "Anchor's item table has no wind charge: the numbers scenario records BDS's only",
+            "Anchor's item table has no wind charge: the numbers scenario records the official server's only",
         )),
         ["give", player, item, rest @ ..] => give(player, item, rest),
         ["xp", amount, player] => Ok(Command::Xp {
@@ -562,7 +562,7 @@ fn xp(amount: &str) -> Result<Xp, String> {
     }
 }
 
-/// The effect type of a BDS effect name (`slowness`, `instant_health`).
+/// The effect type of an official server effect name (`slowness`, `instant_health`).
 fn effect_type(name: &str) -> Result<effect::Type, String> {
     let wanted: String = name.chars().filter(|c| *c != '_').collect();
     effect::Type::all()
@@ -572,7 +572,7 @@ fn effect_type(name: &str) -> Result<effect::Type, String> {
         .ok_or_else(|| format!("no effect {name}"))
 }
 
-/// The offers of the console's villager: a farmer's first-tier trades as BDS sends them (P6,
+/// The offers of the console's villager: a farmer's first-tier trades as the official server sends them (P6,
 /// `xtask/data/p6/facts.md`: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
 /// them, `netId`).
 fn farmer_offers() -> Result<Vec<Offer>, String> {
@@ -669,7 +669,7 @@ fn execute(
             let Some(p) = joined(cx, player) else {
                 return not_joined(player);
             };
-            // As on BDS, 0 seconds takes the effect away.
+            // As on the official server, 0 seconds takes the effect away.
             if effect.is_expired() {
                 let removed = p.remove_effect(effect.effect());
                 return Outcome::Done((!removed).then(|| "not removed".to_owned()));
@@ -779,7 +779,7 @@ fn not_joined(player: &str) -> Outcome {
     Outcome::Wait(format!("{player} has not joined"))
 }
 
-/// The forms scenario's form of `kind`, the same as the BDS script pack's
+/// The forms scenario's form of `kind`, the same as the official server's script pack's
 /// (`xtask/data/p6/forms-pack/scripts/main.js`); keep the two the same.
 fn p6_form(kind: FormKind) -> Form {
     match kind {
@@ -836,29 +836,9 @@ mod tests {
 
     use crate::p6::game;
 
-    /// Every command line of the BDS game session (`target/p6/official-game/*.jsonl`) and its setup.
+    /// Every command line of the official server game session (`target/p6/official-game/*.jsonl`)
+    /// and its setup.
     const SCENARIO_COMMANDS: &[&str] = &[
-        "tp P6Craft -11.5 -60 -11.5",
-        "give P6Craft oak_log 4",
-        "fill -14 -60 -18 -10 -57 -14 glass",
-        "fill -13 -60 -17 -11 -58 -15 water",
-        "tp P6Craft -11.5 -60 -15.5",
-        "tp P6Furnace -11.5 -60 -3.5",
-        r#"setblock -10 -60 -4 furnace ["minecraft:cardinal_direction"="west"]"#,
-        "give P6Furnace coal 1",
-        "give P6Furnace raw_iron 2",
-        "tp P6Enchant -11.5 -60 4.5",
-        "fill -11 -60 2 -7 -59 6 bookshelf",
-        "fill -10 -60 3 -8 -59 5 air",
-        "fill -11 -60 4 -11 -59 4 air",
-        "setblock -9 -60 4 enchanting_table",
-        "xp 30L P6Enchant",
-        "give P6Enchant iron_pickaxe 1",
-        "give P6Enchant lapis_lazuli 3",
-        "tp P6Crops -11.5 -60 12.5",
-        "setblock -11 -61 12 farmland",
-        r#"setblock -11 -60 12 wheat ["growth"=0]"#,
-        "give P6Crops bone_meal 16",
         "tp P6Trade -11.5 -60 20.5",
         "give P6Trade emerald 64",
         "give P6Trade wheat 64",
@@ -886,9 +866,9 @@ mod tests {
     #[test]
     fn commands_parse_into_their_api_calls() {
         assert_eq!(
-            parse("tp P6Craft -11.5 -60 -11.5"),
+            parse("tp P6Trade -11.5 -60 -11.5"),
             Ok(Command::Teleport {
-                player: "P6Craft".to_owned(),
+                player: "P6Trade".to_owned(),
                 feet: Vec3::new(-11.5, -60.0, -11.5),
             })
         );
@@ -898,17 +878,17 @@ mod tests {
         let counts: Vec<u8> = stacks.iter().map(Stack::count).collect();
         assert_eq!(counts, [64, 36]);
         assert_eq!(stacks[0].item().map(Type::name), Some("minecraft:emerald"));
-        let Ok(Command::Give { stacks, .. }) = parse("give P6Craft oak_log 4") else {
+        let Ok(Command::Give { stacks, .. }) = parse("give P6Trade oak_log 4") else {
             panic!("block item");
         };
         assert_eq!(stacks[0].item().map(Type::name), Some("minecraft:oak_log"));
         let Ok(Command::Fill { from, to, state }) =
-            parse(r#"setblock -10 -60 -4 furnace ["minecraft:cardinal_direction"="west"]"#)
+            parse(r#"setblock -10 -60 -4 chest ["minecraft:cardinal_direction"="west"]"#)
         else {
             panic!("setblock");
         };
         assert_eq!((from, to), (BlockPos::new(-10, -60, -4), from));
-        assert_eq!(state.name(), "minecraft:furnace");
+        assert_eq!(state.name(), "minecraft:chest");
         assert!(matches!(
             parse("gamerule randomtickspeed 0"),
             Ok(Command::Accepted(_))
@@ -949,20 +929,20 @@ mod tests {
     fn bad_commands_are_refused_with_a_reason() {
         for line in [
             "",
-            "tp P6Craft 1 2",
-            "tp P6Craft nan 0 0",
-            "give P6Craft no_such_item 1",
-            "give P6Craft stick 0",
-            "give P6Craft stick 40000",
+            "tp P6Trade 1 2",
+            "tp P6Trade nan 0 0",
+            "give P6Trade no_such_item 1",
+            "give P6Trade stick 0",
+            "give P6Trade stick 40000",
             "fill 0 0 0 100 100 100 stone",
             "setblock 0 0 0 stone keep",
             "setblock 0 0 0 no_such_block",
-            "xp 30Q P6Enchant",
+            "xp 30Q P6Trade",
             "summon zombie 0 0 0",
             "kill @a",
             "gamerule pvp false",
             "gamerule randomtickspeed fast",
-            "effect P6Craft no_such_effect",
+            "effect P6Trade no_such_effect",
             "weather snow",
             "summon lightning_bolt 4.5 -60 -20",
         ] {

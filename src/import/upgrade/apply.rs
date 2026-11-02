@@ -1,11 +1,11 @@
-//! Block state upgrade rules and their interpreter: a port of PMMP `BlockStateUpgrader`.
+//! Block state upgrade rules and their interpreter.
 //! The import runs the generated rules (`super::table`); `cargo xtask gen`
 //! includes this file by path to check the schemas with the same code before it generates them,
 //! so the rules and their meaning live in one place.
 
 use std::collections::BTreeMap;
 
-/// A property value in a rule (PMMP `BlockStateUpgradeSchemaModelTag`).
+/// A property value in a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tag<'a> {
     Byte(u8),
@@ -23,7 +23,7 @@ impl Tag<'_> {
         }
     }
 
-    /// Whether `value` is this tag: same type and value (PMMP `Tag::equals`).
+    /// Whether `value` is this tag: same type and value.
     fn matches(self, value: &Value) -> bool {
         match (self, value) {
             (Self::Byte(a), Value::Byte(b)) => a == *b,
@@ -53,7 +53,7 @@ pub(crate) enum Kind {
     String,
 }
 
-/// A property folded into the block name (PMMP `BlockStateUpgradeSchemaFlattenInfo`).
+/// A property folded into the block name.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Flatten<'a> {
     pub(crate) prefix: &'a str,
@@ -71,7 +71,7 @@ pub(crate) enum NewName<'a> {
     Flatten(Flatten<'a>),
 }
 
-/// A state rule (PMMP `BlockStateUpgradeSchemaBlockRemap`): a state that has every `old`
+/// A state rule: a state that has every `old`
 /// property becomes `new_name` with `new` and the `copied` properties it has.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Remap<'a> {
@@ -100,7 +100,7 @@ pub(crate) struct Rules<'a> {
     pub(crate) remapped_states: &'a [Remap<'a>],
 }
 
-/// One schema file (PMMP `BlockStateUpgradeSchema`).
+/// One schema file.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Schema<'a> {
     /// The block state version it upgrades to: (major << 24) | (minor << 16) | (patch << 8) |
@@ -118,18 +118,17 @@ impl<'a> Schema<'a> {
 }
 
 /// Upgrades a state of block state version `version` through `schemas`, which are sorted by
-/// (version, id) as PMMP sorts them. Schemas of a version above the state's apply. Of the schemas
+/// (version, id). Schemas of a version above the state's apply. Of the schemas
 /// of the state's own version, the first introduced that version, so the state has it already;
 /// the others, written by releases that kept the version, apply, since the version does not say
-/// which of them did. PMMP applies the first one too: from 0321 on every schema writes
+/// which of them did. The first one applies too: from 0321 on every schema writes
 /// 1.21.60.33, so 0321 runs again on current states and turns `red_mushroom_block` 10 and 15 into
-/// `mushroom_stem` (`BedrockBlockUpgradeSchema` #22). With one schema of the version this is
-/// PMMP's rule.
+/// `mushroom_stem`.
 ///
-/// A state of a version above the newest schema's is upgraded as one of the newest version, where
-/// PMMP upgrades nothing: a 1.21 game wrote 18,186,752 (1.21.130) in a real world for states
+/// A state of a version above the newest schema's is upgraded as one of the newest version: a
+/// 1.21 game wrote 18,186,752 (1.21.130) in a real world for states
 /// without the properties the 1.26 schemas of version 1.21.60.33 add (fence connections, stair
-/// corners), which BDS 1.26.52 still numbers 1.21.60.33. Those schemas only add properties that
+/// corners), which the official server 1.26.52 still numbers 1.21.60.33. Those schemas only add properties that
 /// are missing and rename old names, so they leave a state that has them as it is.
 pub(crate) fn upgrade(
     schemas: &[Schema<'_>],
@@ -156,7 +155,7 @@ pub(crate) fn upgrade(
     }
 }
 
-/// Applies one schema's rules for a block (PMMP `applySchema`): a matching state rule replaces
+/// Applies one schema's rules for a block: a matching state rule replaces
 /// everything; otherwise the rename or flattening, then the added, removed and renamed properties
 /// and the value remaps.
 fn apply(rules: &Rules<'_>, name: &mut String, states: &mut States) {
@@ -195,7 +194,7 @@ fn apply(rules: &Rules<'_>, name: &mut String, states: &mut States) {
     }
 }
 
-/// The state the first matching state rule makes, if one matches (PMMP `applyStateRemapped`).
+/// The state the first matching state rule makes, if one matches.
 fn remapped(rules: &Rules<'_>, name: &str, states: &States) -> Option<(String, States)> {
     let remap = rules.remapped_states.iter().find(|remap| {
         remap.old.len() <= states.len()
@@ -221,7 +220,7 @@ fn remapped(rules: &Rules<'_>, name: &str, states: &States) -> Option<(String, S
     Some((new_name, new_states))
 }
 
-/// The value a property's value remaps to, or the value itself (PMMP `locateNewPropertyValue`).
+/// The value a property's value remaps to, or the value itself.
 fn remapped_value(rules: &Rules<'_>, property: &str, value: Value) -> Value {
     let pairs = rules
         .remapped_values
@@ -234,9 +233,8 @@ fn remapped_value(rules: &Rules<'_>, property: &str, value: Value) -> Value {
     }
 }
 
-/// The name a flattening gives, or `None` if the property is missing or of another type (PMMP
-/// `applyPropertyFlattened`, which then leaves the state alone). A byte is written signed, as
-/// PMMP reads it.
+/// The name a flattening gives, or `None` if the property is missing or of another type (the state is then
+/// left alone). A byte is written signed.
 fn flattened_name(flatten: &Flatten<'_>, states: &States) -> Option<String> {
     let key = match (flatten.kind, states.get(flatten.property)?) {
         (Kind::String, Value::String(s)) => s.clone(),

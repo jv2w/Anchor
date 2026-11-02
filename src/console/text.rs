@@ -7,10 +7,9 @@
 use crate::player::Message;
 
 /// Anchor's sentences by translation key, in key order; `{%0}`, `{%1}`... are the parameters.
-const TEXTS: [(&str, &str); 146] = [
+const TEXTS: [(&str, &str); 97] = [
     ("chat.type.admin", "[{%0}: {%1}]"),
     ("chat.type.announcement", "[{%0}] {%1}"),
-    ("chat.type.emote", "* {%0} {%1}"),
     ("chat.type.text", "<{%0}> {%1}"),
     (
         "commands.allowlist.add.success",
@@ -51,51 +50,9 @@ const TEXTS: [(&str, &str); 146] = [
     ),
     ("commands.clear.success", "Took {%1} items from {%0}"),
     ("commands.clear.testing", "{%0} holds {%1} such items"),
-    (
-        "commands.defaultgamemode.description",
-        "Sets the game mode new players start in",
-    ),
-    (
-        "commands.defaultgamemode.success",
-        "New players start in {%0}",
-    ),
     ("commands.deop.description", "Takes operator status away"),
     ("commands.deop.message", "You are an operator no more"),
     ("commands.deop.success", "{%0} is an operator no more"),
-    ("commands.difficulty.description", "Sets the difficulty"),
-    ("commands.difficulty.success", "The difficulty is {%0} now"),
-    (
-        "commands.effect.description",
-        "Gives or takes status effects",
-    ),
-    (
-        "commands.effect.failure.notActive",
-        "{%1} has no {%0} to take away",
-    ),
-    (
-        "commands.effect.failure.notActive.all",
-        "{%0} has no effects to take away",
-    ),
-    (
-        "commands.effect.success",
-        "{%2} has {%0} at amplifier {%1} for {%3} seconds",
-    ),
-    (
-        "commands.effect.success.infinite",
-        "{%2} has {%0} at amplifier {%1} with no end",
-    ),
-    ("commands.effect.success.removed", "Took {%0} from {%1}"),
-    (
-        "commands.effect.success.removed.all",
-        "Took every effect from {%0}",
-    ),
-    (
-        "commands.enchant.cantEnchant",
-        "What {%0} holds cannot take it",
-    ),
-    ("commands.enchant.description", "Enchants the held item"),
-    ("commands.enchant.noItem", "No item is held"),
-    ("commands.enchant.success", "Enchanted what {%0} holds"),
     ("commands.gamemode.description", "Sets a player's game mode"),
     ("commands.gamemode.success.other", "{%1} plays in {%0} now"),
     ("commands.gamemode.success.self", "You play in {%0} now"),
@@ -127,11 +84,6 @@ const TEXTS: [(&str, &str); 146] = [
     ("commands.give.success", "{%2} got {%1} of {%0}"),
     ("commands.give.successRecipient", "You got {%1} of {%0}"),
     (
-        "commands.help.description",
-        "Lists the commands or explains one",
-    ),
-    ("commands.help.header", "Commands, page {%0} of {%1}"),
-    (
         "commands.kick.description",
         "Removes a player from the server",
     ),
@@ -140,67 +92,21 @@ const TEXTS: [(&str, &str); 146] = [
     ("commands.kill.description", "Kills players"),
     ("commands.kill.successful", "{%0} was killed"),
     ("commands.list.description", "Lists the online players"),
-    ("commands.me.description", "Tells everyone what you do"),
     ("commands.message.display.incoming", "{%0} whispers: {%1}"),
     (
         "commands.message.display.outgoing",
         "Whispered to {%0}: {%1}",
     ),
-    (
-        "commands.message.sameTarget",
-        "A whisper needs someone else",
-    ),
     ("commands.op.description", "Makes a player an operator"),
     ("commands.op.message", "You are an operator now"),
     ("commands.op.success", "{%0} is an operator now"),
-    ("commands.particle.description", "Shows particles"),
-    ("commands.particle.success", "Showed {%1} of {%0}"),
     ("commands.players.list", "Players online: {%0} of {%1}"),
     ("commands.save-on.description", "Turns automatic saving on"),
     ("commands.save.disabled", "Automatic saving is off"),
     ("commands.save.enabled", "Automatic saving is on"),
     ("commands.save.start", "Saving"),
-    ("commands.say.description", "Tells everyone a message"),
-    ("commands.seed.success", "World seed: {%0}"),
-    (
-        "commands.setworldspawn.description",
-        "Moves the spawn of the world",
-    ),
-    (
-        "commands.setworldspawn.success",
-        "The world spawn is at {%0}, {%1}, {%2} now",
-    ),
-    (
-        "commands.spawnpoint.description",
-        "Sets where players respawn",
-    ),
-    (
-        "commands.spawnpoint.success.single",
-        "{%0} respawns at {%1}, {%2}, {%3} now",
-    ),
     ("commands.stop.description", "Stops the server"),
     ("commands.stop.start", "Stopping the server"),
-    ("commands.tell.description", "Whispers to players"),
-    ("commands.time.clock.added", "{%1} moved on by {%0} to {%2}"),
-    ("commands.time.clock.failed", "No clock is named {%0}"),
-    (
-        "commands.time.clock.num.tooSmall",
-        "The number must be at least {%0}",
-    ),
-    ("commands.time.clock.paused", "{%0} stands still at {%1}"),
-    ("commands.time.clock.query.time", "{%0} is at {%1}"),
-    ("commands.time.clock.resumed", "{%0} runs again from {%1}"),
-    ("commands.time.clock.set", "{%0} is at {%1} now"),
-    (
-        "commands.time.clock.timemarker.failed",
-        "{%1} has no time marker {%0}",
-    ),
-    ("commands.time.description", "Changes or shows the time"),
-    ("commands.time.query.day", "Days passed: {%0}"),
-    ("commands.time.query.daytime", "Time of day: {%0}"),
-    ("commands.time.query.gametime", "World age: {%0} ticks"),
-    ("commands.title.description", "Shows players a title"),
-    ("commands.title.success", "Title sent"),
     ("commands.tp.description", "Moves players"),
     ("commands.tp.success", "Moved {%0} to {%1}"),
     (
@@ -208,29 +114,11 @@ const TEXTS: [(&str, &str); 146] = [
         "Moved {%0} to {%1}, {%2}, {%3}",
     ),
     ("commands.tp.successVictim", "You were moved to {%0}"),
-    (
-        "commands.transferserver.description",
-        "Sends you to another server",
-    ),
     ("commands.unban.success", "The ban on {%0} is lifted"),
     ("commands.unbanip.invalid", "Give an IP address"),
     (
         "commands.unbanip.success",
         "The ban on the address {%0} is lifted",
-    ),
-    (
-        "commands.xp.description",
-        "Gives experience points or levels",
-    ),
-    (
-        "commands.xp.failure.widthdrawXp",
-        "Points cannot be taken away; take levels",
-    ),
-    ("commands.xp.success", "{%1} got {%0} experience points"),
-    ("commands.xp.success.levels", "{%1} got {%0} levels"),
-    (
-        "commands.xp.success.negative.levels",
-        "{%1} lost {%0} levels",
     ),
     ("createWorldScreen.gameMode.adventure", "Adventure"),
     ("createWorldScreen.gameMode.creative", "Creative"),
@@ -455,10 +343,10 @@ mod tests {
         );
         assert_eq!(
             render(
-                "commands.effect.success",
-                &["%potion.moveSpeed", "1", "Steve", "10"]
+                "commands.give.success",
+                &["%potion.moveSpeed", "3", "Steve"]
             ),
-            "Steve has Speed at amplifier 1 for 10 seconds",
+            "Steve got 3 of Speed",
             "a %key parameter is translated too"
         );
         assert_eq!(

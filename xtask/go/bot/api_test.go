@@ -26,7 +26,7 @@ func TestCommandSummariesNameParameterTypesAndAliases(t *testing.T) {
 				{Name: "victim", Type: protocol.CommandArgValid | protocol.CommandArgTypeTarget},
 				{Name: "destination", Type: protocol.CommandArgValid | protocol.CommandArgTypePosition, Optional: true},
 			}}}},
-			{Name: "time", AliasesOffset: math.MaxUint32, Overloads: []protocol.CommandOverload{{Parameters: []protocol.CommandParameter{
+			{Name: "mixed", AliasesOffset: math.MaxUint32, Overloads: []protocol.CommandOverload{{Parameters: []protocol.CommandParameter{
 				{Name: "mode", Type: protocol.CommandArgValid | protocol.CommandArgEnum | 1},
 				{Name: "tag", Type: protocol.CommandArgValid | protocol.CommandArgSoftEnum | 0},
 				{Name: "x", Type: 2},
@@ -56,7 +56,7 @@ func TestCommandSummariesNameParameterTypesAndAliases(t *testing.T) {
 		t.Fatalf("tp types %v", types(0))
 	}
 	if want := []string{"enum:TimeMode", "softenum:Tags", "type:2!invalid", "suffix:L"}; !reflect.DeepEqual(types(1), want) {
-		t.Fatalf("time types %v", types(1))
+		t.Fatalf("mixed types %v", types(1))
 	}
 }
 

@@ -18,9 +18,9 @@ use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE
 use crate::tick::TICK;
 use crate::tick::queue::SessionId;
 
-/// The height of a standing player's box in blocks (PMMP `Human` size); a human NPC's too.
+/// The height of a standing player's box in blocks; a human NPC's too.
 pub const HEIGHT: f64 = 1.8;
-/// The highest XP level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
+/// The highest XP level.
 pub(crate) const MAX_LEVEL: u32 = 24_791;
 /// The most parameters of a translated message a client decodes.
 const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
@@ -29,7 +29,7 @@ const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
 /// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
 /// most a message, a command's output and the other texts the API sends take.
 pub const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
-/// The width and depth of a standing player's box in blocks (PMMP `Human` size); a human NPC's
+/// The width and depth of a standing player's box in blocks; a human NPC's
 /// too.
 pub const WIDTH: f64 = 0.6;
 
@@ -137,12 +137,12 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(crate) type Packets = [Option<Packet>; 3];
 
 /// Something to show a player with [`Player::send`] or everyone with
-/// [`Context::broadcast`](crate::Context::broadcast): PMMP's message methods merged into one.
+/// [`Context::broadcast`](crate::Context::broadcast): every kind of message in one type.
 /// Texts may hold `§` format codes; a key is a client translation key such as
 /// `chat.type.text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
-    /// A chat line shown as it is (PMMP `sendMessage` with a string).
+    /// A chat line shown as it is.
     Raw(String),
     /// A chat line from `source`, shown as `<source> text`.
     Chat {
@@ -151,19 +151,18 @@ pub enum Message {
         /// What is said.
         text: String,
     },
-    /// A chat line the client translates: `key` with up to 4 `parameters` (PMMP `sendMessage`
-    /// with a `Translatable`).
+    /// A chat line the client translates: `key` with up to 4 `parameters`.
     Translation {
         /// The translation key.
         key: String,
         /// The values of the key's placeholders, in order.
         parameters: Vec<String>,
     },
-    /// A line above the hotbar (PMMP `sendPopup`).
+    /// A line above the hotbar.
     Popup(String),
-    /// A line above the hotbar, higher than a popup (PMMP `sendTip`).
+    /// A line above the hotbar, higher than a popup.
     Tip(String),
-    /// The "now playing" line of a jukebox, translated by the client (PMMP `sendJukeboxPopup`).
+    /// The "now playing" line of a jukebox, translated by the client.
     JukeboxPopup {
         /// The translation key.
         key: String,
@@ -187,7 +186,7 @@ pub enum Message {
         text: String,
     },
     /// A title in the middle of the screen, with a subtitle under it unless it is empty, and its
-    /// timing unless `times` is `None` (PMMP `sendTitle`).
+    /// timing unless `times` is `None`.
     Title {
         /// The title.
         title: String,
@@ -196,17 +195,17 @@ pub enum Message {
         /// How long the title fades in, stays and fades out; `None` keeps the client's.
         times: Option<TitleTimes>,
     },
-    /// The subtitle of the next or current title (PMMP `sendSubTitle`).
+    /// The subtitle of the next or current title.
     Subtitle(String),
-    /// A line above the hotbar in the title style (PMMP `sendActionBarMessage`).
+    /// A line above the hotbar in the title style.
     ActionBar(String),
-    /// The timing of the next titles (PMMP `setTitleDuration`).
+    /// The timing of the next titles.
     TitleTimes(TitleTimes),
-    /// Removes the title on screen (PMMP `removeTitles`).
+    /// Removes the title on screen.
     ClearTitle,
-    /// Removes the title on screen and resets the timing to the client's (PMMP `resetTitles`).
+    /// Removes the title on screen and resets the timing to the client's.
     ResetTitle,
-    /// A notification at the top of the screen (PMMP `sendToastNotification`).
+    /// A notification at the top of the screen.
     Toast {
         /// The first line.
         title: String,
@@ -328,8 +327,7 @@ impl TitleTimes {
 }
 
 /// The level `xp` points make, at most [`Player::xp_level`]'s highest (24,791), and the share of
-/// the next level's points collected, from 0 to 1 (PMMP `ExperienceUtils::getLevelFromXp`, whose
-/// fraction is the root of the level's quadratic instead: Anchor keeps the share, as the client
+/// the next level's points collected, from 0 to 1 (the share, as the client
 /// shows it).
 #[doc(alias = "ExperienceUtils::getLevelFromXp")]
 pub fn level_from_xp(xp: u64) -> (u32, f64) {
@@ -357,8 +355,7 @@ pub fn level_from_xp(xp: u64) -> (u32, f64) {
     (lo, progress)
 }
 
-/// The XP points from `level` to the next (PMMP
-/// `ExperienceUtils::getXpToCompleteLevel`).
+/// The XP points from `level` to the next.
 #[doc(alias = "ExperienceUtils::getXpToCompleteLevel")]
 pub fn xp_to_complete_level(level: u32) -> u64 {
     let l = u64::from(level);
@@ -371,8 +368,7 @@ pub fn xp_to_complete_level(level: u32) -> u64 {
     }
 }
 
-/// The XP points that reach `level` from none (PMMP
-/// `ExperienceUtils::getXpToReachLevel`), saturating at `u64::MAX`.
+/// The XP points that reach `level` from none, saturating at `u64::MAX`.
 #[doc(alias = "ExperienceUtils")]
 #[doc(alias = "ExperienceUtils::getXpToReachLevel")]
 pub fn xp_to_reach_level(level: u32) -> u64 {
@@ -397,8 +393,7 @@ pub(crate) fn check_text(text: &str) -> Result<()> {
     Ok(())
 }
 
-/// A `Text` packet. An empty message becomes a space: clients fail on an empty one (PMMP
-/// `TextPacket::messageOnly`).
+/// A `Text` packet. An empty message becomes a space: clients fail on an empty one.
 fn text_packet(kind: TextType, source: String, message: String, parameters: Vec<String>) -> Packet {
     let message = if message.is_empty() {
         " ".to_owned()
@@ -439,8 +434,8 @@ mod tests {
     // api: ExperienceUtils, ExperienceUtils::getXpToReachLevel,
     // api: ExperienceUtils::getXpToCompleteLevel, ExperienceUtils::getLevelFromXp
     #[test]
-    fn level_thresholds_follow_pmmp() {
-        // PMMP ExperienceUtils at the three formula boundaries.
+    fn level_thresholds_follow_the_formula() {
+        // The three formula boundaries.
         let reach = [
             (0, 0),
             (1, 7),

@@ -18,8 +18,8 @@ pub(crate) const FILE: &str = "biomes.json";
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/world/biome/table.rs";
 
-/// One line of [`FILE`]: a biome definition as BDS sends it, without chunk generation data.
-/// Numbers keep the decimal text of `CloudburstMC`'s file; [`single`] reads them at the packet's
+/// One line of [`FILE`]: a biome definition as the official server sends it, without chunk generation data.
+/// Numbers keep the decimal text of source B's file; [`single`] reads them at the packet's
 /// precision.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,7 +46,7 @@ pub(crate) struct Colour {
 }
 
 /// The `f32` nearest to the decimal a JSON number was written as. The shortest text of the `f64`
-/// is that decimal, so the value is rounded once, as BDS and gophertunnel read it.
+/// is that decimal, so the value is rounded once, as the official server and gophertunnel read it.
 pub(crate) fn single(value: f64) -> Result<f32, String> {
     let text = value.to_string();
     match text.parse::<f32>() {
@@ -92,7 +92,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The biome definitions generated from `CloudburstMC`'s stripped biome \
+        "{HEADER}\n//! The biome definitions generated from source B's stripped biome \
          definitions: {} biomes, {} strings.\n\n\
          use super::Definition;\n\n\
          /// The packet's string list: every biome name and tag once, in order of first use.\n\

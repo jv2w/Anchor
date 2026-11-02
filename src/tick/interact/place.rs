@@ -2,7 +2,7 @@
 //!
 //! A placement does not check the place: the client's position is taken wherever it is. What the
 //! rules decide is the state of the placed block (facing, half, axis, stacking, the form an item
-//! takes) and the blocks that go together (doors, beds, tall plants).
+//! takes) and the blocks that go together (doors, a bed, tall plants).
 //!
 //! [`placement`] only reads the world: it returns the blocks to set, which the caller checks
 //! (entities in the way, adventure mode, events) and then applies.
@@ -20,7 +20,7 @@ const BARREL_NEAR: f64 = 2.0;
 const CANDLES_FULL: i32 = 3;
 /// The `cluster_count` of four sea pickles.
 const CLUSTER_FULL: i32 = 3;
-/// The most blocks one placement sets: two for doors, beds and tall plants.
+/// The most blocks one placement sets: two for a door, a bed or a tall plant.
 const MAX_BLOCKS: usize = 2;
 /// The `growth` of four pink petals.
 const PETALS_FULL: i32 = 3;
@@ -90,7 +90,7 @@ impl Attempt<'_> {
     }
 }
 
-/// The blocks a placement sets, in position order: one, or two for doors, beds and tall plants.
+/// The blocks a placement sets, in position order: one, or two for a door, a bed or a tall plant.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Blocks {
     slots: [Option<(BlockPos, State)>; MAX_BLOCKS],

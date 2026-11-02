@@ -2,7 +2,7 @@
 //! little-endian `i32` storage version, the `i32` length of the rest, one little-endian NBT root
 //! compound). It holds the world's state (name, spawn, time), the storage and network versions
 //! of this protocol's release, and a flat generator, which makes the chunks the world never
-//! saved: BDS's default flat layers for a world of [`Flat`] (the same terrain Anchor generated),
+//! saved: the official server's default flat layers for a world of [`Flat`] (the same terrain Anchor generated),
 //! a layer of air for any other generator. No setting is written (game mode, difficulty, game
 //! rules, seed): the game takes its defaults, and a server its own settings.
 
@@ -20,7 +20,7 @@ const AIR_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     \"world_version\":\"version.post_1_18\"}\n";
 /// The `Generator` of a flat world.
 const FLAT_GENERATOR: i32 = 2;
-/// `FlatWorldLayers` as BDS 1.26.60 writes it for its default flat world: bedrock at y -64,
+/// `FlatWorldLayers` as the official server 1.26.60 writes it for its default flat world: bedrock at y -64,
 /// dirt at -63 and -62, grass at -61, plains.
 const FLAT_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     {\"block_name\":\"minecraft:bedrock\",\"count\":1},\
@@ -83,10 +83,11 @@ mod tests {
 
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_flat_world_has_the_layers_bds_writes_and_any_other_air() {
-        // The level.dat BDS 1.26.60 wrote for its P6 flat world (`cargo xtask p6 bds`).
+    fn a_flat_world_has_the_layers_the_official_server_writes_and_any_other_air() {
+        // The level.dat the official server 1.26.60 wrote for its P6 flat world
+        // (`cargo xtask p6 official`).
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/export/level.dat");
-        let bds = root(&std::fs::read(path).unwrap());
+        let official = root(&std::fs::read(path).unwrap());
         let record = WorldRecord {
             number: 0,
             time: 0,
@@ -99,7 +100,7 @@ mod tests {
             "StorageVersion",
             "NetworkVersion",
         ] {
-            assert_eq!(flat.get(key), bds.get(key), "{key}");
+            assert_eq!(flat.get(key), official.get(key), "{key}");
         }
         let void = root(&encode("w", &record, &Void));
         assert_eq!(

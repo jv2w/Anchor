@@ -1,23 +1,23 @@
 <?php
 
 /*
- * PMMP block upgrade golden run. Run by `cargo xtask dump` with the PMMP PHP
- * binary, from the pinned PocketMine-MP checkout (`.cache/dump`) as the working directory:
+ * Block upgrade golden run. Run by `cargo xtask dump` with the dump PHP
+ * binary, from the pinned dump source checkout (`.cache/dump`) as the working directory:
  *
  *     php upgrade.php <upgrade dir> <1.12.0.bin> <1.9.0.bin> <reference blocks.json>
  *
- * It builds PMMP's own upgrader (BlockStateUpgrader, BlockIdMetaUpgrader, BlockDataUpgrader) from
+ * It builds the dump source's own upgrader (BlockStateUpgrader, BlockIdMetaUpgrader, BlockDataUpgrader) from
  * the schemas the dump copied into `<upgrade dir>/blocks` (BedrockBlockUpgradeSchema 5.4.1), not
- * from the 5.2.0 copy in PMMP's vendor folder (PMMP's legacy ID
+ * from the 5.2.0 copy in the dump source's vendor folder (its legacy ID
  * map class reads only that copy, so its file must equal `<upgrade dir>/block_legacy_id_map.json`),
  * and writes what it gives into `<upgrade dir>/golden/`:
  * - legacy.jsonl: every legacy terrain value, numeric ID 0..255 and meta 0..15, through
- *   upgradeIntIdMeta: {"id", "meta", "state"}, "state" null where PMMP throws.
+ *   upgradeIntIdMeta: {"id", "meta", "state"}, "state" null where the upgrader throws.
  * - states.jsonl: upgradeBlockStateNbt over every NBT state of 1.9.0.bin (no version) and of
  *   1.12.0.bin, and over the legacy palette form {name, val} of every string ID of 1.12.0.bin
- *   with meta 0..15: {"in", "out"}, "out" null where PMMP throws.
+ *   with meta 0..15: {"in", "out"}, "out" null where the upgrader throws.
  * - reference.jsonl: the states of the reference list (the protocol version's states, at their
- *   version) that upgradeBlockStateNbt does not give back unchanged: {"in", "out"}. PMMP applies
+ *   version) that upgradeBlockStateNbt does not give back unchanged: {"in", "out"}. The upgrader applies
  *   every schema of the state's own version when several share it, and from 0321 on all of them
  *   write 1.21.60.33, so 0321 runs again on current states; Anchor skips the schema that
  *   introduced the version, and its test checks it keeps these states.
@@ -51,9 +51,9 @@ use pocketmine\nbt\tag\Tag;
 [, $dir, $bin112, $bin19, $referencePath] = $argv;
 
 $stateUpgrader = new BlockStateUpgrader(BlockStateUpgradeSchemaUtils::loadSchemas($dir . '/blocks', PHP_INT_MAX));
-// PMMP's ID map class reads only its vendor copy (5.2.0); its file must equal the 5.3.0 copy.
+// The ID map class reads only its vendor copy (5.2.0); its file must equal the 5.3.0 copy.
 if(file_get_contents(\pocketmine\BEDROCK_BLOCK_UPGRADE_SCHEMA_PATH . '/block_legacy_id_map.json') !== file_get_contents($dir . '/block_legacy_id_map.json')){
-	fwrite(STDERR, "PMMP's block_legacy_id_map.json differs from the copied one\n");
+	fwrite(STDERR, "the vendor block_legacy_id_map.json differs from the copied one\n");
 	exit(1);
 }
 $idMap = LegacyBlockIdToStringIdMap::getInstance();

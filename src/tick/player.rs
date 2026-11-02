@@ -30,16 +30,15 @@ use crate::protocol::packet::{Disconnect, Packet, PlaySound, SpawnParticleEffect
 use crate::save::WorldIndex;
 use crate::world;
 
-/// The lines a player's screen shows at once unless set (PMMP `Player::getScreenLineHeight`).
+/// The lines a player's screen shows at once unless set.
 const DEFAULT_LINE_HEIGHT: u32 = 7;
-/// The default quit message: BDS's yellow "left the game" line, which the client translates with
-/// the player's display name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
-/// so; any other is sent as it is.
+/// The default quit message: the yellow "left the game" line, which the client translates with
+/// the player's display name. A [`PlayerQuit`] message left at it is sent so; any other is sent
+/// as it is.
 pub(super) const LEFT: &str = "§e%multiplayer.player.left";
 /// The longest transfer address: the longest host name.
 const MAX_ADDRESS: usize = 253;
-/// The client's "disconnected" text, for a kick without a reason (PMMP
-/// `disconnectionScreen_noReason`).
+/// The client's "disconnected" text, for a kick without a reason.
 const NO_REASON: &str = "disconnectionScreen.noReason";
 /// The log message of a transfer unless one is given.
 const TRANSFERRED: &str = "Moved to another server";
@@ -127,8 +126,8 @@ impl Player {
         &self.identity.client.locale
     }
 
-    /// The input mode the client started in, as its login tells (PMMP's
-    /// `getExtraData()["CurrentInputMode"]`); [`InputMode::Undefined`] for a value the protocol
+    /// The input mode the client started in, as its login tells;
+    /// [`InputMode::Undefined`] for a value the protocol
     /// does not name.
     #[doc(alias = "PlayerInfo::getExtraData")]
     pub fn input_mode(&self) -> InputMode {
@@ -192,8 +191,7 @@ impl Player {
     }
 
     /// When the player's data was last saved before this join, by the wall clock (its saved
-    /// `lastPlayed`, or this join for a new player). It does not move while the player plays,
-    /// as in PMMP.
+    /// `lastPlayed`, or this join for a new player). It does not move while the player plays.
     #[doc(alias = "Player::getLastPlayed")]
     #[doc(alias = "IPlayer::getLastPlayed")]
     pub fn last_played(&self) -> SystemTime {
@@ -201,7 +199,7 @@ impl Player {
     }
 
     /// Whether the player played here before this join: its data was saved more than a
-    /// millisecond after its first join (PMMP's test).
+    /// millisecond after its first join.
     #[doc(alias = "Player::hasPlayedBefore")]
     #[doc(alias = "IPlayer::hasPlayedBefore")]
     pub fn has_played_before(&self) -> bool {
@@ -246,10 +244,10 @@ impl Player {
         world::Id::of(self.marks.teleport.map_or(self.world, |(world, _)| world))
     }
 
-    /// Where the player's feet are: 1.62 below its eyes, rounded to 4 decimals as PMMP keeps it,
+    /// Where the player's feet are: 1.62 below its eyes, rounded to 4 decimals,
     /// so the feet of a player standing on a block are on it (its client sends the eyes as
     /// floats, a hair off). With [`world`](Self::world), [`yaw`](Self::yaw) and
-    /// [`pitch`](Self::pitch) its PMMP location.
+    /// [`pitch`](Self::pitch) its location.
     #[doc(alias = "Entity::getPosition")]
     #[doc(alias = "Entity::getLocation")]
     pub fn position(&self) -> Vec3 {
@@ -263,7 +261,7 @@ impl Player {
     }
 
     /// Sets the name chat shows: chat lines and the join and quit lines name the player by it.
-    /// Not saved, as in PMMP. Fails for a name longer than 65,536 bytes.
+    /// Not saved. Fails for a name longer than 65,536 bytes.
     #[doc(alias = "Player::setDisplayName")]
     pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
         let name = name.into();
@@ -272,8 +270,8 @@ impl Player {
         Ok(())
     }
 
-    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved, as in
-    /// PMMP. Fails for 0.
+    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved.
+    /// Fails for 0.
     #[doc(alias = "Player::setScreenLineHeight")]
     pub fn set_screen_line_height(&mut self, height: Option<u32>) -> Result<()> {
         if height == Some(0) {
@@ -283,7 +281,7 @@ impl Player {
         Ok(())
     }
 
-    /// Shows the player `message` (PMMP's message methods merged). The packets follow this tick's
+    /// Shows the player `message`. The packets follow this tick's
     /// other packets. Fails, sending nothing, for a message a client does not decode ([`Message`]
     /// gives the bounds). More than 4,096 packets queued in one tick disconnect the player
     /// ([`send_packet`](Self::send_packet)).
@@ -341,7 +339,7 @@ impl Player {
     /// [`add_sound`](Self::add_sound) heard at full volume however far `pos` is, so a sound
     /// played where the player stands keeps up with it while it moves. Fails for a `pos` that is
     /// not finite or outside the world border, and with [`Error::NoFullVolume`] for a sound the
-    /// client plays from a level event (an anvil's, a door's, a click), which has no full-volume
+    /// client plays from a level event (a door's, a click), which has no full-volume
     /// form.
     pub fn add_full_volume_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
         check_position(pos)?;
@@ -602,16 +600,15 @@ impl Context<'_> {
 /// What the API marked on a player for the end of the tick, and the chat limit.
 #[derive(Debug, Default)]
 pub(super) struct Marks {
-    /// The name chat shows (PMMP `displayName`); `None` is the player's name. Not saved.
+    /// The name chat shows; `None` is the player's name. Not saved.
     display_name: Option<String>,
     /// Why the player leaves at the end of the tick.
     leave: Option<Leave>,
     /// Where the player moves at the end of the tick: the world and the eye position, checked.
     teleport: Option<(WorldIndex, Vec3)>,
-    /// The tick of the player's last chat line and the lines it sent in that tick (PMMP
-    /// `messageCounter`).
+    /// The tick of the player's last chat line and the lines it sent in that tick.
     pub(super) chat: (u64, u8),
-    /// The lines the player's screen shows at once (PMMP `lineHeight`); `None` is 7. Not saved.
+    /// The lines the player's screen shows at once; `None` is 7. Not saved.
     line_height: Option<u32>,
 }
 
@@ -769,8 +766,8 @@ pub(super) struct Presence {
 }
 
 impl Presence {
-    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (PMMP
-    /// writes the wall clock; the tick dates it from the join time and the ticks since, one
+    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
+    /// reads no wall clock; it dates it from the join time and the ticks since, one
     /// [`super::TICK`] each).
     pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
         let ticks = u128::from(tick.saturating_sub(self.placed_tick));
@@ -800,7 +797,7 @@ impl Presence {
     }
 
     /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
-    /// new player, which gets `join_ms`, as PMMP gives it the time of its first spawn).
+    /// new player, which gets `join_ms`).
     pub(super) fn place(
         &mut self,
         (first, last): (Option<i64>, Option<i64>),
@@ -894,11 +891,11 @@ fn apply_marks(state: &mut State, session: SessionId) {
     survival::sync(state, session);
 }
 
-/// The player of `session` is about to leave for `reason` (PMMP `Player::onPostDisconnect`):
+/// The player of `session` is about to leave for `reason`:
 /// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
-/// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
+/// player, the listeners' marks included, takes effect (the save follows the event, so a teleport
 /// is the saved place and a kill dies with its drops), then every other online player sees the
-/// message in chat: [`LEFT`] as BDS's translated line with the player's display name, an empty
+/// message in chat: [`LEFT`] as the translated line with the player's display name, an empty
 /// one not at all, any other as it is. Call it just before the player is removed, in the tick's
 /// serial step. A player still loading its data has not joined, so it raises nothing.
 pub(super) fn quit(
@@ -1316,7 +1313,7 @@ pub(super) mod tests {
 
     // api: PlayerQuitEvent
     #[test]
-    fn the_others_see_bds_left_line_unless_a_listener_changes_it() {
+    fn the_others_see_the_translated_left_line_unless_a_listener_changes_it() {
         let (mut state, [mut rx1, mut rx2]) = two();
         player_mut(&mut state, 1).kick("bye").unwrap();
         run(&mut state, Vec::new());
@@ -1382,7 +1379,7 @@ pub(super) mod tests {
 
     // api: PlayerQuitEvent
     /// What a [`PlayerQuit`] listener does to the quitting player takes effect before it is
-    /// saved, as PMMP saves after the event: a teleport is the saved position, and a kill drops
+    /// saved, which follows the event: a teleport is the saved position, and a kill drops
     /// what the player carries with [`crate::event::PlayerDeath`].
     #[test]
     fn a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player() {
@@ -1551,8 +1548,8 @@ pub(super) mod tests {
 
     // api: Player::kick
     /// What a player is sent in the step that removes it, before the kick or by a quit listener
-    /// (the stop's included), reaches it before the final `Disconnect`, as PMMP flushes the
-    /// queued packets ahead of the disconnect packet.
+    /// (the stop's included), reaches it before the final `Disconnect`: the
+    /// queued packets go ahead of the disconnect packet.
     #[test]
     fn messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect() {
         let texts = |packets: Vec<Packet>| -> Vec<String> {
@@ -1746,7 +1743,7 @@ pub(super) mod tests {
     // api: Player::hasPlayedBefore, Player::getFirstPlayed, Player::getLastPlayed
     // api: IPlayer::hasPlayedBefore, IPlayer::getFirstPlayed, IPlayer::getLastPlayed
     /// A new player's first and last play are its join; the saved data keeps the first join and
-    /// the time of the save under PMMP's keys, and the next run's join reads them back: the
+    /// the time of the save, and the next run's join reads them back: the
     /// player has played before.
     #[test]
     fn the_play_history_is_saved_and_read_back_by_the_next_run() {
@@ -1777,7 +1774,7 @@ pub(super) mod tests {
         assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 5000)));
         assert!(
             !player_mut(&mut state, 1).has_played_before(),
-            "the last play does not move while the player plays, as in PMMP"
+            "the last play does not move while the player plays"
         );
 
         // The next run: an hour later, the saved data comes back.
@@ -1803,7 +1800,7 @@ pub(super) mod tests {
 
     // api: Player::getLastPlayed
     /// Leaving dates the play history, so a player who changed nothing else is still saved
-    /// when it leaves (PMMP saves every player that quits): its next join has played before.
+    /// when it leaves: its next join has played before.
     #[test]
     fn a_player_who_changed_nothing_else_is_saved_when_it_leaves() {
         let first_join = 1_700_000_000_000;

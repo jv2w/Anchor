@@ -1,11 +1,10 @@
-//! Block entities: containers, signs, beds, banners, flower pots, mob heads and the other blocks
+//! Block entities: containers, signs, bed colours, banners, flower pots, mob heads and the other blocks
 //! with data beyond their state, by position, saved with their chunk (chunk extras kind 1, in
 //! Bedrock form: `id`, `x`, `y`, `z`, `Items` with `Slot`, `CustomName`, `pairx`/`pairz`…; the same
 //! list holds Anchor's own spill entries, [`SPILL_ID`], which an export leaves out).
 //!
 //! The store keeps a typed [`BlockEntity`] per position of every loaded chunk; a saved entry of an
-//! id Anchor does not type, among them the kinds whose work Anchor does not do (furnaces, brewing
-//! stands, campfires, beacons…), is kept as it came ([`Kind::Other`]) and does nothing. A kind with
+//! id Anchor does not type is kept as it came ([`Kind::Other`]) and does nothing. A kind with
 //! slots keeps them in [`BlockEntity::items`], which the inventory windows read and write; the
 //! keys of a kind that Anchor does not read stay in the entity and are written back unchanged.
 //!

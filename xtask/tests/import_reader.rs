@@ -1,7 +1,7 @@
-//! The Go cross-check of the world import reader: df-mc/goleveldb, the LevelDB
-//! reader dragonfly uses, must read the BDS fixture world (`xtask/data/import/flat`) as
+//! The Go cross-check of the world import reader: df-mc/goleveldb, a LevelDB
+//! reader, must read the official server's fixture world (`xtask/data/import/flat`) as
 //! `xtask/data/import/flat.dump` says, and Anchor's reader is checked against that same file
-//! (`import::leveldb::tests::the_bds_fixture_reads_like_goleveldb`). Like the other Go tests,
+//! (`import::leveldb::tests::the_fixture_reads_like_goleveldb`). Like the other Go tests,
 //! it needs Go on PATH.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).

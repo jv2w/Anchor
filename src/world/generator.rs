@@ -46,7 +46,7 @@ pub trait Generator: Send + Sync + 'static {
     }
 }
 
-/// The generators a server makes worlds with, by [`Generator::name`] (PMMP `GeneratorManager`):
+/// The generators a server makes worlds with, by [`Generator::name`]:
 /// the built-in ones, those of the worlds it was built with and those registered with
 /// [`ServerBuilder::generator`](crate::ServerBuilder::generator). Fixed when it is built.
 #[derive(Clone)]
@@ -139,8 +139,8 @@ impl fmt::Debug for Generators {
     }
 }
 
-/// BDS's default flat world: bedrock at y -64, dirt at -63 and -62, grass at -61, plains
-/// everywhere. Its chunks are the same bytes as BDS's flat world (P6).
+/// The official server's default flat world: bedrock at y -64, dirt at -63 and -62, grass at -61,
+/// plains everywhere. Its chunks are the same bytes as that flat world's (P6).
 #[derive(Debug, Clone, Copy, Default)]
 // api-class: Flat
 pub struct Flat;

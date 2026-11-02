@@ -1,4 +1,4 @@
-//! Chat: the `Text` packets players send, checked and broadcast as PMMP's `Player::chat` does.
+//! Chat: the `Text` packets players send, checked and broadcast.
 //!
 //! A chat packet is checked first ([`check`]: the sender, the per-tick limit, the length, the
 //! cleaning), then applied ([`apply`]: the limit is spent, a line starting with `/` runs as the
@@ -15,13 +15,13 @@ use crate::player::{Id, MAX_TEXT, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
 
-/// The translation key of a chat line, `<name> message` (PMMP `StandardChatFormatter`), for a
+/// The translation key of a chat line, `<name> message`, for a
 /// speaker whose name does not fit a chat source ([`standard`]).
 const CHAT_FORMAT: &str = "chat.type.text";
-/// Chat lines and command requests a player may send in one tick, together (PMMP
-/// `Player::$messageCounter`, which its command requests spend as chat lines).
+/// Chat lines and command requests a player may send in one tick, together (a command request
+/// spends a chat line).
 const LINES_PER_TICK: u8 = 2;
-/// The longest chat line BDS relays, in bytes (P6 `limits`, `xtask/data/p6/facts.md`).
+/// The longest chat line the official server relays, in bytes (P6 `limits`, `xtask/data/p6/facts.md`).
 const MAX_CHAT_BYTES: usize = 512;
 
 /// The lines a chat message carries, ready to send.
@@ -65,7 +65,7 @@ pub(super) fn on_text(state: &mut State, session: SessionId, packet: &Text) {
     chat(state, session, &packet.message);
 }
 
-/// Says `message` for `session` as PMMP's `Player::chat` does: only a spawned player speaks, and
+/// Says `message` for `session`: only a spawned player speaks, and
 /// it closes its open window first; then the message is checked and applied.
 fn chat(state: &mut State, session: SessionId, message: &str) {
     if !state
@@ -82,7 +82,7 @@ fn chat(state: &mut State, session: SessionId, message: &str) {
 }
 
 /// Spends one line of the per-tick limit of the player of `session` for a command request;
-/// false, spending nothing, if none is left (PMMP runs a command request as a chat line, so the
+/// false, spending nothing, if none is left (a command request is a chat line, so the
 /// two share the limit).
 pub(super) fn spend_line(state: &mut State, session: SessionId) -> bool {
     let tick = state.tick;
@@ -97,13 +97,13 @@ pub(super) fn spend_line(state: &mut State, session: SessionId) -> bool {
     true
 }
 
-/// The lines `message` holds (PMMP `Player::chat`): nothing once the player sent 2 lines this
+/// The lines `message` holds: nothing once the player sent 2 lines this
 /// tick or for a message longer than the lines it may still send; then the message is cleaned
 /// (private-use characters and terminal escapes removed, `§` codes kept) and split at every line
-/// break. Blank lines and lines over 512 bytes (BDS's limit, P6 `limits`; PMMP's is 512
-/// characters or 2,048 bytes) are dropped, and the first lines that remain are kept up to the
+/// break. Blank lines and lines over 512 bytes (the official server's limit, P6 `limits`)
+/// are dropped, and the first lines that remain are kept up to the
 /// limit left, each spending one of it. A line that starts with `/` (or `./`, whose dot is
-/// dropped) is a command, as in PMMP.
+/// dropped) is a command.
 fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
     let player = state.players.get(&session)?;
     let mut left = lines_left(player, state.tick);
@@ -145,10 +145,9 @@ fn lines_left(player: &Player, tick: u64) -> u8 {
     }
 }
 
-/// Spends the player's limit and does its lines in order: a command runs as the player's (PMMP
-/// `Server::dispatchCommand`) and its output goes to the player in chat; a chat line goes to
-/// every online player as `<name> line` with the speaker's display name (PMMP
-/// `Server::broadcastMessage` of the chat format), unless a [`PlayerChat`] listener changes it.
+/// Spends the player's limit and does its lines in order: a command runs as the player's
+/// and its output goes to the player in chat; a chat line goes to
+/// every online player as `<name> line` with the speaker's display name, unless a [`PlayerChat`] listener changes it.
 fn apply(state: &mut State, session: SessionId, lines: Lines) {
     let tick = state.tick;
     let Some(player) = state.players.get_mut(&session) else {
@@ -282,9 +281,9 @@ fn say(state: &mut State, session: SessionId, line: String) {
     dispatch::watch(state, &event);
 }
 
-/// The packets of `name` saying `line` in the standard format, as BDS sends them: a chat `Text`
+/// The packets of `name` saying `line` in the standard format, as the official server sends them: a chat `Text`
 /// from `<name>§r` with the line as it is, untranslated (the client shows `<name> line`). A
-/// display name too long for a chat source keeps PMMP's translated form ([`CHAT_FORMAT`]), which
+/// display name too long for a chat source keeps the translated form ([`CHAT_FORMAT`]), which
 /// carries the name as a parameter, so the line is still sent.
 fn standard(name: &str, line: &str) -> crate::player::Result<Packets> {
     Message::Chat {
@@ -315,7 +314,7 @@ fn online(state: &State, id: Id) -> Option<&Player> {
 }
 
 /// `format` with `{%0}` replaced by `name`, `{%1}` by `message` and `{%%` by `{%` in one pass
-/// (PMMP `LegacyRawChatFormatter`, which has no escape), or `None` if the line would be longer
+/// (a replacement is not rescanned), or `None` if the line would be longer
 /// than a client decodes.
 fn formatted(format: &str, name: &str, message: &str) -> Option<String> {
     let mut out = String::new();
@@ -410,7 +409,7 @@ mod tests {
         )
     }
 
-    /// The chat lines a session received, `[speaker, line]`: BDS's chat `Text` from `<name>§r`,
+    /// The chat lines a session received, `[speaker, line]`: the chat `Text` from `<name>§r`,
     /// untranslated and without parameters.
     fn lines(rx: &mut mpsc::Receiver<Outbound>) -> Vec<Vec<String>> {
         received(rx)
@@ -445,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_has_bds_shape_and_a_name_too_long_for_a_source_is_translated() {
+    fn chat_has_the_official_shape_and_a_name_too_long_for_a_source_is_translated() {
         let (mut state, [_rx1, mut rx2]) = server();
         run(&mut state, vec![chat(1, 10, "hello")]);
         let got: Vec<Box<Text>> = received(&mut rx2)
@@ -521,7 +520,7 @@ mod tests {
     #[test]
     fn long_blank_command_and_non_chat_lines_are_not_broadcast() {
         let (mut state, [_rx1, mut rx2]) = server();
-        // BDS relays a chat line of at most 512 bytes (P6 `limits`): 170 three-byte characters
+        // The official server relays a chat line of at most 512 bytes (P6 `limits`): 170 three-byte characters
         // pass, 171 do not.
         let long = "x".repeat(MAX_CHAT_BYTES + 1);
         let wide = "가".repeat(170);

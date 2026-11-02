@@ -31,14 +31,14 @@ use crate::world::BlockPos;
 
 /// The UI slot of the created output.
 const CREATED_SLOT: u8 = 50;
-/// The UI slot of the 2x2 crafting grid's first cell; the 3x3 grid's cells follow its four.
+/// The UI slot of the 2x2 craft grid's first cell; the 3x3 grid's cells follow its four.
 pub(super) const GRID_2X2: u8 = 28;
 /// The upper bound of the creative item network IDs the generator draws; the creative inventory
 /// has fewer items, so some draws are refused.
 const MAX_CREATIVE_ID: usize = 1700;
 /// How many items the refused craft claims to make.
 const REFUSED_CRAFT_COUNT: u8 = 4;
-/// The recipe network ID of the craft the server must refuse: the recipe list is empty.
+/// The network ID of the craft the server must refuse: `CraftingData` is empty.
 const REFUSED_RECIPE: u32 = 1;
 
 /// What the clients of a run received, by kind, over every session: the run must reach each.
@@ -130,7 +130,7 @@ impl Client {
     }
 
     /// Draws the packets of one game input of the spawned `player`: one packet, or a burst for
-    /// actions a client sends over several of its ticks (breaking, crafting from the grid, choosing
+    /// actions a client sends over several of its ticks (breaking, a craft request from the grid, choosing
     /// an item before using it). Empty when the player lacks what the drawn input needs (a log to
     /// craft planks from).
     #[expect(

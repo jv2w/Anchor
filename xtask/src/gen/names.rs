@@ -59,7 +59,7 @@ pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
     identifier(camel_of(&words(go)), qualified)
 }
 
-/// An upper camel case Rust name of a snake case or PMMP name (`oak_planks` → `OakPlanks`), with
+/// An upper camel case Rust name of a snake case or dump name (`oak_planks` → `OakPlanks`), with
 /// acronyms as one word (`TNT` → `Tnt`).
 pub(crate) fn upper_camel(name: &str) -> String {
     let mut joined = String::with_capacity(name.len());

@@ -1,18 +1,16 @@
-# P6 deferral table: packets BDS sends in the spawn window that Anchor never sends, each with
-# its reason. `cargo xtask p6 compare` removes them from both captures. Anchor sends every packet
+# P6 deferral table: packets the official server sends in the spawn window that Anchor never sends, each
+# with its reason. `cargo xtask p6 compare` removes them from both captures. Anchor sends every packet
 # of the window the official client may need; a packet is listed only when it is tied to
 # something Anchor does not have or does nothing the client needs.
 # <packet> <status> <reason>; status `-`: Anchor never sends the packet.
 
-# The recipe book: BDS 1.26.52 unlocks entries right after the window (UnlockedRecipes type 1,
-# 20 recipes, `xtask/data/p6/facts.md`) and after each craft. With `recipe-book` on, Anchor marks
-# every recipe of its CraftingData always unlocked, so the client shows them all without unlocks,
-# as with PMMP.
-UnlockedRecipes - recipe book unlocks; every recipe Anchor sends is always unlocked, as PMMP
+# The recipe book: the official server 1.26.52 unlocks entries right after the window (UnlockedRecipes
+# type 1, 20 recipes, `xtask/data/p6/facts.md`). Anchor has no recipes and sends an empty recipe list.
+UnlockedRecipes - recipe book unlocks; Anchor has no recipes
 
-# Vanilla mobs: BDS spawns and despawns animals in the flat world during the spawn window;
+# Vanilla mobs: the official server spawns and despawns animals in the flat world during the spawn window;
 # Anchor simulates no mobs, so it never sends these there. The
-# SetActorData and UpdateAttributes BDS sends for those mobs are left out by `compare.rs`
+# SetActorData and UpdateAttributes the official server sends for those mobs are left out by `compare.rs`
 # (`ENTITY_DATA`: only the player's own are compared).
 AddActor - the flat world's natural mobs; Anchor spawns no mobs
 RemoveActor - the flat world's natural mobs despawning; Anchor spawns no mobs
@@ -24,7 +22,7 @@ MobEquipment - mob equipment, sent only for mobs and villagers in view, never in
 MobArmourEquipment - mob armour, sent only for mobs and villagers in view, never in the spawn window
 AddItemActor - items the flat world's mobs drop (chicken eggs); Anchor spawns no mobs, and no item lies near a new world's spawn
 
-# Sounds: in the window BDS plays the entity "spawn" sound for the joining player (EntityType
+# Sounds: in the window the official server plays the entity "spawn" sound for the joining player (EntityType
 # minecraft:player at 0,0,0 with its first chunks) and for each mob it adds. A sound the client
-# needs neither to join nor to play; Anchor plays no entity spawn sounds (PMMP and dragonfly neither).
+# needs neither to join nor to play; Anchor plays no entity spawn sounds.
 LevelSoundEvent - entity spawn sounds (the joining player at the origin, mobs); no join or game effect

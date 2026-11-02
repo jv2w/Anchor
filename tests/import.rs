@@ -1,5 +1,6 @@
 //! The Bedrock world import as a user runs it: `Server::import_world` on the
-//! world BDS 1.26.52 made (`xtask/data/import/flat`, flat, seed 7), then the server loading it.
+//! world the official server 1.26.52 made (`xtask/data/import/flat`, flat, seed 7), then the
+//! server loading it.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -72,7 +73,7 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     clippy::disallowed_types,
     reason = "off-tick: the server task fills it on the tick thread for the test thread"
 )]
-fn a_bds_world_imports_once_and_the_server_loads_it() {
+fn an_official_world_imports_once_and_the_server_loads_it() {
     let data = TempPath::new("load");
     let before = snapshot(Path::new(FIXTURE));
     let report = server(&data.0, 2)
@@ -107,7 +108,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     );
 
     // The server runs the world with its own settings (not level.dat's seed 7) and the imported
-    // spawn: its spawn chunks loaded with BDS's flat layers at the bottom.
+    // spawn: its spawn chunks loaded with the official flat layers at the bottom.
     let seen: Arc<std::sync::Mutex<Option<Seen>>> = Arc::default();
     let out = Arc::clone(&seen);
     let server = Server::builder()

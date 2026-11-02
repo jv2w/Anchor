@@ -13,14 +13,11 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The verification scenarios check behaviour only BDS can show; they run on the game scenarios'
-// machinery. Each plays the game actions of its items and ends its steps with checks of the facts the
-// comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/facts.md).
+// The verification scenarios check behaviour only the official server can show; they run on the game
+// scenarios' machinery. Each plays the game actions of its items and ends its steps with checks of the facts
+// the comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/facts.md).
 //
-//	enchants   an enchanting table: each of enchantItems into the input, the Slot of the options it gets
-//	stations   an anvil rename and repair, a smithing table netherite upgrade and a beacon payment, with the
-//	           request shapes the official client sends; the status and slots of each response
-//	potions    every splash potion thrown at the bot's feet (the colour of the splash) and one lingering potion
+//	potions   every splash potion thrown at the bot's feet (the colour of the splash) and one lingering potion
 //	           (the area effect cloud's entity data)
 //	entities   a painting hung on a wall, a firework rocket used on the ground, an end crystal summoned and a
 //	           trident thrown at a villager
@@ -36,7 +33,7 @@ import (
 //	rulesjoin  joins with those rules off (facts: StartGame, game rules, clocks), then turns them on again
 func init() {
 	for name, play := range map[string]func(*game) error{
-		"enchants": playEnchants, "stations": playStations, "potions": playPotions, "entities": playEntities,
+		"potions": playPotions, "entities": playEntities,
 		"villagers": playVillagers, "numbers": playNumbers, "syntax": playSyntax, "limits": playLimits,
 		"limitchat": playLimitChat, "others": playOthers, "mover": playMover,
 		"rules": playRules, "rulesjoin": playRulesJoin, "tradeup": playTradeUp,
@@ -48,7 +45,7 @@ func init() {
 		gameAreas[name] = protocol.BlockPos{4, -60, 12}
 	}
 	for name, at := range map[string]protocol.BlockPos{
-		"enchants": {12, -60, -12}, "stations": {12, -60, -4}, "potions": {12, -60, 4}, "entities": {12, -60, 12},
+		"potions": {12, -60, 4}, "entities": {12, -60, 12},
 		"villagers": {12, -60, 20}, "numbers": {20, -60, -12}, "syntax": {-4, -60, 20}, "limits": {4, -60, 12},
 		"limitchat": {4, -60, 12}, "others": {20, -60, 4}, "mover": {22, -60, 4},
 		"rules": {4, -60, 20}, "rulesjoin": {20, -60, 12}, "tradeup": {20, -60, 20},
@@ -154,289 +151,6 @@ func (v *verifyLog) tier(rid uint64, m protocol.EntityMetadata) {
 	v.tiers[rid] = t
 }
 
-// enchantItems are the items the enchants scenario puts into the enchanting table: every armour slot, a book
-// and the item kinds with their own enchanting slot flag.
-var enchantItems = []string{
-	"iron_helmet", "iron_chestplate", "iron_leggings", "iron_boots", "book", "iron_sword", "bow", "iron_hoe",
-	"iron_axe", "iron_shovel", "fishing_rod", "trident", "shears", "flint_and_steel",
-}
-
-// playEnchants is the enchants scenario.
-func playEnchants(g *game) error {
-	at := g.offset(3, 0, 0)
-	x, y, z := at[0], at[1], at[2]
-	g.setup("place the enchanting table and bookshelves")
-	g.command("fill %v %v %v %v %v %v bookshelf", x-2, y, z-2, x+2, y+1, z+2)
-	g.command("fill %v %v %v %v %v %v air", x-1, y, z-1, x+1, y+1, z+1)
-	g.command("fill %v %v %v %v %v %v air", x-2, y, z, x-2, y+1, z)
-	g.command("setblock %v %v %v enchanting_table", x, y, z)
-	tableID := state("minecraft:enchanting_table", nil)
-	if err := g.waitState("the enchanting table", gameWait, func() bool { return g.blocks[at] == tableID }); err != nil {
-		return err
-	}
-	if err := g.settleSetup(); err != nil {
-		return err
-	}
-	g.setup("give levels")
-	g.command("xp 30L %v", g.s.c.name)
-	if err := g.waitState("30 levels", gameWait, func() bool { return g.attrs["minecraft:player.level"] >= 30 }); err != nil {
-		return err
-	}
-	if err := g.give("lapis_lazuli", 3); err != nil {
-		return err
-	}
-	for _, item := range enchantItems {
-		if err := g.give(item, 1); err != nil {
-			return err
-		}
-	}
-	if err := g.openBlock("open the enchanting table", at, protocol.ContainerTypeEnchantment); err != nil {
-		return err
-	}
-	lapis, _, _ := g.find("minecraft:lapis_lazuli")
-	if _, err := g.request("lapis into the table", g.requestID(), protocol.ItemStack{}, place(3, g.slotInfo(lapis), g.uiSlot(protocol.ContainerEnchantingMaterial, 15))); err != nil {
-		return err
-	}
-	for _, item := range enchantItems {
-		slot, _, ok := g.find("minecraft:" + item)
-		if !ok {
-			return fmt.Errorf("no %v", item)
-		}
-		g.options = nil
-		if _, err := g.request(item+" into the table", g.requestID(), protocol.ItemStack{}, place(1, g.slotInfo(slot), g.uiSlot(protocol.ContainerEnchantingInput, 14))); err != nil {
-			return err
-		}
-		err := g.waitState("options", 2*time.Second, func() bool { return len(g.options) > 0 })
-		if err != nil && !errors.Is(err, errTimeout) {
-			return err
-		}
-		value := map[string]any{"options": len(g.options), "slot": nil}
-		lists := map[string]any{}
-		if len(g.options) > 0 {
-			value["slot"] = g.options[0].Enchantments.Slot
-			for _, o := range g.options {
-				for i, list := range [][]protocol.EnchantmentInstance{o.Enchantments.Enchantments[0], o.Enchantments.Enchantments[1], o.Enchantments.Enchantments[2]} {
-					for _, e := range list {
-						lists[fmt.Sprint(e.Type)] = i
-					}
-				}
-			}
-		}
-		g.check("options "+item, value)
-		g.record("fact", map[string]any{"name": "enchantment lists " + item, "value": lists})
-		if _, err := g.request("take the "+item, g.requestID(), protocol.ItemStack{}, place(1, g.uiSlot(protocol.ContainerEnchantingInput, 14), g.slotInfo(slot))); err != nil {
-			return err
-		}
-	}
-	return g.closeWindow("close the enchanting table")
-}
-
-// requestFiltered is request with filter strings (an anvil's new name).
-func (g *game) requestFiltered(name string, id int32, filters []string, result protocol.ItemStack, actions ...protocol.StackRequestAction) (protocol.ItemStackResponse, error) {
-	req := protocol.ItemStackRequest{RequestID: id, Actions: actions, FilterStrings: filters}
-	g.step(name, map[string]any{"request_id": id, "filters": filters, "actions": toJSON(reflect.ValueOf(actions), 0, true)})
-	if err := g.s.send(&packet.ItemStackRequest{Requests: []protocol.ItemStackRequest{req}}); err != nil {
-		return protocol.ItemStackResponse{}, err
-	}
-	var res protocol.ItemStackResponse
-	_, err := g.until("the response to "+name, gameWait, func(pk packet.Packet) bool {
-		r, ok := pk.(*packet.ItemStackResponse)
-		if !ok {
-			return false
-		}
-		for _, x := range r.Responses {
-			if x.RequestID == id {
-				res = x
-				return true
-			}
-		}
-		return false
-	})
-	if err != nil {
-		return res, err
-	}
-	g.record("response", map[string]any{"request_id": id, "step": name, "status": res.Status})
-	g.applyResponse(res)
-	return res, nil
-}
-
-// applyResponse takes the slots of a successful response into the model; new items keep their kind unknown
-// until the server sends them.
-func (g *game) applyResponse(res protocol.ItemStackResponse) {
-	if res.Status != protocol.ItemStackResponseStatusOK {
-		return
-	}
-	for _, info := range res.ContainerInfo {
-		for _, si := range info.SlotInfo {
-			ref, ok := g.refOf(info.Container.ContainerID, si.Slot)
-			if !ok {
-				continue
-			}
-			if si.Count == 0 {
-				delete(g.slots, ref)
-				continue
-			}
-			st := g.slots[ref]
-			if st.empty() {
-				// An item the model does not know: kept as taken (-1), not empty.
-				st.item.NetworkID = -1
-			}
-			st.item.Count = uint16(si.Count)
-			st.id = si.StackNetworkID
-			g.slots[ref] = st
-		}
-	}
-}
-
-// response is the comparable part of a response: its status and the changed slots (container, slot, count,
-// custom name, durability correction).
-func response(res protocol.ItemStackResponse) map[string]any {
-	var slots []any
-	for _, info := range res.ContainerInfo {
-		for _, si := range info.SlotInfo {
-			slots = append(slots, map[string]any{
-				"container": info.Container.ContainerID, "slot": si.Slot, "count": si.Count, "name": si.CustomName,
-			})
-		}
-	}
-	return map[string]any{"status": res.Status, "slots": slots}
-}
-
-// playStations is the stations scenario.
-func playStations(g *game) error {
-	anvil, smithing, beacon := g.offset(2, 0, -2), g.offset(2, 0, 0), g.offset(2, 1, 3)
-	g.setup("place the anvil, the smithing table and a beacon on its pyramid")
-	g.command("setblock %v %v %v anvil", anvil[0], anvil[1], anvil[2])
-	g.command("setblock %v %v %v smithing_table", smithing[0], smithing[1], smithing[2])
-	g.command("fill %v %v %v %v %v %v iron_block", beacon[0]-1, beacon[1]-1, beacon[2]-1, beacon[0]+1, beacon[1]-1, beacon[2]+1)
-	g.command("setblock %v %v %v beacon", beacon[0], beacon[1], beacon[2])
-	beaconID := state("minecraft:beacon", nil)
-	if err := g.waitState("the beacon", gameWait, func() bool { return g.blocks[beacon] == beaconID }); err != nil {
-		return err
-	}
-	if err := g.settleSetup(); err != nil {
-		return err
-	}
-	g.setup("give levels")
-	g.command("xp 30L %v", g.s.c.name)
-	if err := g.waitState("30 levels", gameWait, func() bool { return g.attrs["minecraft:player.level"] >= 30 }); err != nil {
-		return err
-	}
-	for _, item := range []string{"iron_sword", "diamond_sword", "netherite_ingot", "netherite_upgrade_smithing_template", "iron_ingot"} {
-		if err := g.give(item, 1); err != nil {
-			return err
-		}
-	}
-
-	// The anvil: rename the iron sword.
-	if err := g.openBlock("open the anvil", anvil, protocol.ContainerTypeAnvil); err != nil {
-		return err
-	}
-	sword, _, _ := g.find("minecraft:iron_sword")
-	if _, err := g.request("sword into the anvil", g.requestID(), protocol.ItemStack{}, place(1, g.slotInfo(sword), g.uiSlot(protocol.ContainerAnvilInput, 1))); err != nil {
-		return err
-	}
-	dst, err := g.emptySlot()
-	if err != nil {
-		return err
-	}
-	id := g.requestID()
-	res, err := g.requestFiltered("rename", id, []string{"P6 Sword"}, protocol.ItemStack{},
-		&protocol.CraftRecipeOptionalStackRequestAction{RecipeNetworkID: 0, FilterStringIndex: 0},
-		consume(1, g.uiSlot(protocol.ContainerAnvilInput, 1)),
-		place(1, createdSlot(id), g.slotInfo(dst)))
-	if err != nil {
-		return err
-	}
-	g.check("anvil rename", response(res))
-	if err := g.settle(500 * time.Millisecond); err != nil {
-		return err
-	}
-	g.check("level after the rename", g.attrs["minecraft:player.level"])
-	if err := g.closeWindow("close the anvil"); err != nil {
-		return err
-	}
-
-	// The smithing table: the diamond sword upgraded to netherite.
-	var upgrade recipe
-	for _, r := range g.recipes {
-		if r.block == "smithing_table" && len(r.output) == 1 && g.name(r.output[0]) == "minecraft:netherite_sword" {
-			upgrade = r
-			break
-		}
-	}
-	if upgrade.networkID == 0 {
-		return errors.New("no netherite sword smithing recipe")
-	}
-	// The renamed sword is not in the model (its slot looks empty): the clicks hold the last hotbar slot,
-	// which nothing filled, so the held item matches the server's.
-	if err := g.hold(8); err != nil {
-		return err
-	}
-	if err := g.openBlock("open the smithing table", smithing, protocol.ContainerTypeSmithingTable); err != nil {
-		return err
-	}
-	for _, in := range []struct {
-		item      string
-		container byte
-		slot      byte
-	}{
-		{"minecraft:diamond_sword", protocol.ContainerSmithingTableInput, 51},
-		{"minecraft:netherite_ingot", protocol.ContainerSmithingTableMaterial, 52},
-		{"minecraft:netherite_upgrade_smithing_template", protocol.ContainerSmithingTableTemplate, 53},
-	} {
-		slot, _, ok := g.find(in.item)
-		if !ok {
-			return fmt.Errorf("no %v", in.item)
-		}
-		if _, err := g.request(in.item+" into the smithing table", g.requestID(), protocol.ItemStack{}, place(1, g.slotInfo(slot), g.uiSlot(in.container, in.slot))); err != nil {
-			return err
-		}
-	}
-	if dst, err = g.emptySlot(); err != nil {
-		return err
-	}
-	id = g.requestID()
-	res, err = g.requestFiltered("upgrade", id, nil, protocol.ItemStack{},
-		&protocol.CraftRecipeStackRequestAction{RecipeNetworkID: upgrade.networkID, NumberOfCrafts: 1},
-		consume(1, g.uiSlot(protocol.ContainerSmithingTableInput, 51)),
-		consume(1, g.uiSlot(protocol.ContainerSmithingTableMaterial, 52)),
-		consume(1, g.uiSlot(protocol.ContainerSmithingTableTemplate, 53)),
-		place(1, createdSlot(id), g.slotInfo(dst)))
-	if err != nil {
-		return err
-	}
-	g.check("smithing upgrade", response(res))
-	if err := g.closeWindow("close the smithing table"); err != nil {
-		return err
-	}
-
-	// The beacon: an iron ingot pays for speed.
-	if err := g.openBlock("open the beacon", beacon, protocol.ContainerTypeBeacon); err != nil {
-		return err
-	}
-	ingot, _, _ := g.find("minecraft:iron_ingot")
-	if _, err := g.request("ingot into the beacon", g.requestID(), protocol.ItemStack{}, place(1, g.slotInfo(ingot), g.uiSlot(protocol.ContainerBeaconPayment, 27))); err != nil {
-		return err
-	}
-	id = g.requestID()
-	res, err = g.requestFiltered("pay the beacon", id, nil, protocol.ItemStack{},
-		&protocol.BeaconPaymentStackRequestAction{PrimaryEffect: 1, SecondaryEffect: 0},
-		&protocol.DestroyStackRequestAction{Count: 1, Source: g.uiSlot(protocol.ContainerBeaconPayment, 27)})
-	if err != nil {
-		return err
-	}
-	g.check("beacon payment", response(res))
-	if err := g.closeWindow("close the beacon"); err != nil {
-		return err
-	}
-	// The paid beacon would give its effect to the players of later scenarios (and BDS stops
-	// answering a player in its range: xtask/data/p6/facts.md); it goes.
-	g.setup("remove the beacon")
-	g.command("setblock %v %v %v air", beacon[0], beacon[1], beacon[2])
-	return g.settle(time.Second)
-}
-
 // throwItem uses the held item in the air, as a throw (or the start of a draw), looking at at.
 func (g *game) throwItem(name string, at mgl32.Vec3) error {
 	if err := g.lookAt(at); err != nil {
@@ -462,8 +176,8 @@ func (g *game) releaseItem(name string) error {
 	return g.s.send(&packet.InventoryTransaction{TransactionData: data})
 }
 
-// potionTypes is the number of potion types both servers have (item metadata 0 to potionTypes-1: PMMP's
-// potion types; BDS also has 43 to 46).
+// potionTypes is the number of potion types both servers have (item metadata 0 to potionTypes-1; the
+// official server also has 43 to 46).
 const potionTypes = 43
 
 // playPotions is the potions scenario.
@@ -552,8 +266,8 @@ func (g *game) actorAdded(entityType string, d time.Duration) (*packet.AddActor,
 }
 
 // actorFacts is the comparable part of an AddActor: its type and the entity data keys of its kind (keys,
-// as the entity data names them). The whole entity data is a fact (the generic keys BDS gives every actor
-// differ from Anchor's PMMP set: xtask/data/p6/facts.md).
+// as the entity data names them). The whole entity data is a fact (the generic keys the official server
+// gives every actor differ from Anchor's: xtask/data/p6/facts.md).
 func (g *game) actorFacts(a *packet.AddActor, keys ...uint32) map[string]any {
 	g.record("fact", map[string]any{"name": a.EntityType + " entity data", "value": toJSON(reflect.ValueOf(a.EntityMetadata), 0, true)})
 	data := map[string]any{}
@@ -696,7 +410,7 @@ func playEntities(g *game) error {
 		}
 		switch pk := pk.(type) {
 		case *packet.MoveActorDelta:
-			// BDS 1.26.60 sends a thrown trident no SetActorMotion: its moves show its course.
+			// The official server 1.26.60 sends a thrown trident no SetActorMotion: its moves show its course.
 			if now, ok := pk.PositionX.Value(); ok && pk.EntityRuntimeID == trident.EntityRuntimeID {
 				flight = append(flight, map[string]any{"x step": sign(now - x)})
 				x = now
@@ -935,27 +649,18 @@ func playNumbers(g *game) error {
 var syntaxLines = []string{
 	"give @s no_such_item",
 	"give @s no_such_item 3 and more words",
-	"xp abc @s",
 	"gamemode foo @s",
 	"give @s stone abc",
 	"give @s",
 	"give",
-	"xp abc",
 	"gamemode foo",
-	"effect @s speed abc",
-	"effect @s no_such_effect",
 	"tp ~ ~ abc",
-	"time set abc",
 	"kill @x",
-	"enchant @s no_such_enchantment",
 	"gamemode survival",
 	"gamemode adventure",
 	"gamemode creative",
 	"gamemode spectator",
 	"gamemode survival",
-	"effect @s regeneration 5 0",
-	"effect @s jump_boost 5 1",
-	"effect @s night_vision 5 0",
 }
 
 // playSyntax is the syntax scenario.
@@ -1013,8 +718,8 @@ func playLimits(g *game) error {
 	return nil
 }
 
-// lineScenarios are the command line scenarios, "line<bytes>" and "linekorean<bytes>": "/tell @s " and a
-// message, the whole line of about the given bytes, ASCII or three-byte characters (fewer characters than
+// lineScenarios are the command line scenarios, "line<bytes>" and "linekorean<bytes>": "/give @s " and an
+// item name, the whole line of about the given bytes, ASCII or three-byte characters (fewer characters than
 // bytes). Each runs as its own player, since the server may end the connection.
 var lineScenarios = []string{
 	"line256", "line257", "line384", "line448", "line480", "line484", "line488", "line492", "line496",
@@ -1026,14 +731,14 @@ var lineScenarios = []string{
 func playCommandLimit(g *game) error {
 	name := g.s.c.scenario
 	korean := strings.HasPrefix(name, "linekorean")
-	// "lineunknown<bytes>": an unknown command of that many bytes, no tell message.
+	// "lineunknown<bytes>": an unknown command of that many bytes, no item name.
 	unknown := strings.HasPrefix(name, "lineunknown")
 	digits := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name, "lineunknown"), "linekorean"), "line")
 	bytes, err := strconv.Atoi(digits)
 	if err != nil {
 		return err
 	}
-	prefix := "tell @s "
+	prefix := "give @s "
 	if unknown {
 		prefix = "x"
 	}
@@ -1100,7 +805,7 @@ func playLimitChat(g *game) error {
 // type, abilities, held item) and the packets about it by name.
 //
 // The comparable part: the entity data keys with their types, the flags, the game type, whether it holds an
-// item, whether a device ID is given, the build platform and the links. The ability layers (BDS adds a
+// item, whether a device ID is given, the build platform and the links. The ability layers (the official server adds a
 // loading screen layer while the player loads) and the values are facts (xtask/data/p6/facts.md).
 func otherFacts(p *packet.AddPlayer) map[string]any {
 	return map[string]any{

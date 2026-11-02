@@ -23,11 +23,10 @@ import (
 //
 //	commands   the bot's AvailableCommands as a member, a command it may not use, then "op <name>" on the
 //	           console, the AvailableCommands that follows, a chat line and commandLines as player commands
-//	particles  op, then particleLines as player commands, then a snowball and an egg summoned above the bot
-//	kick       "kick <name> <kickReason>" on the console; the Disconnect that follows
+//	kick      "kick <name> <kickReason>" on the console; the Disconnect that follows
 //	forms      "scriptevent p6:<kind>" on the console for each formAnswers kind; each form that arrives is
-//	           answered (BDS shows them with the script pack in xtask/data/p6/forms-pack, Anchor's harness
-//	           with its form API)
+//	           answered (the official server shows them with the script pack in xtask/data/p6/forms-pack,
+//	           Anchor's harness with its form API)
 //	script     the actions of the -script file (readScript), for the example tests
 //
 // A player command is a CommandRequest like the client's (origin "player", a new UUID, version "latest"). The
@@ -35,37 +34,21 @@ import (
 // arrive, and records one {"type":"output"} line: the command line, the CommandOutput in full (null when
 // none came), whether its origin UUID is the request's, the names of the packets received meanwhile and the
 // client state the command changed ("state": stone count, the first move of the player, level and
-// XP, and for a time command the first world time sent). An AvailableCommands is recorded as
+// XP). An AvailableCommands is recorded as
 // {"type":"available"} with each command's name, aliases, flags, permission level and overloads (parameter
 // types by name, paramType). Each answered form is a {"type":"form"} line with its JSON and the answer.
 
 // commandLines are the commands both servers have that the commands scenario runs as an operator, in order.
 var commandLines = []string{
-	"say hi",
 	"give @s stone 3",
 	"tp ~ ~1 ~",
 	"gamemode creative",
-	"time set 1000",
-	"effect @s speed 10 1",
-	"xp 10",
 	"give @s no_such_item",
 	"no_such_command",
 }
 
 // memberLine is the command the commands scenario runs before it is an operator.
-const memberLine = "time set 500"
-
-// particleLines are the particle commands of the particles scenario.
-var particleLines = []string{
-	"particle minecraft:heart_particle ~ ~1 ~",
-	"particle minecraft:villager_happy ~ ~1 ~",
-	"particle minecraft:villager_angry ~ ~1 ~",
-	"particle minecraft:critical_hit_emitter ~ ~1 ~",
-	"particle minecraft:basic_flame_particle ~ ~1 ~",
-	"particle minecraft:note_particle ~ ~1 ~",
-	"particle minecraft:explosion_particle ~ ~1 ~",
-	"particle minecraft:ink_emitter ~ ~1 ~",
-}
+const memberLine = "gamemode creative"
 
 // kickReason is the reason the kick scenario's console kick gives.
 const kickReason = "P6 kick reason"
@@ -130,27 +113,6 @@ func playCommands(g *game) error {
 	}
 	for _, line := range commandLines {
 		if err := g.playerCommand(line); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// playParticles is the particles scenario.
-func playParticles(g *game) error {
-	if err := g.op(); err != nil {
-		return err
-	}
-	for _, line := range particleLines {
-		if err := g.playerCommand(line); err != nil {
-			return err
-		}
-	}
-	for _, entity := range []string{"snowball", "egg"} {
-		g.step("summon "+entity, nil)
-		at := g.offset(0, 4, 2)
-		g.command("summon %v %v %v %v", entity, at[0], at[1], at[2])
-		if err := g.settle(3 * time.Second); err != nil {
 			return err
 		}
 	}
@@ -282,12 +244,6 @@ func (g *game) playerCommand(line string) error {
 		"level": round2(g.attrs["minecraft:player.level"] - attrs),
 		"xp":    round2(g.attrs["minecraft:player.experience"]),
 	}
-	// Servers sync their clocks now and then, with the time they hold: the step of a time command that
-	// succeeded compares the time last sent, which is the one before it when the command changed none
-	// (BDS then sends no sync).
-	if strings.HasPrefix(line, "time ") && line != memberLine && output != nil && output.SuccessCount > 0 {
-		changed["clock"] = g.clock
-	}
 	g.lastOutput = output
 	rec := map[string]any{"line": line, "packets": names, "state": changed, "output": nil}
 	if output != nil {
@@ -366,7 +322,7 @@ var argTypes = map[uint32]string{
 	protocol.CommandArgTypeString:          "string",
 	protocol.CommandArgTypeBlockPosition:   "block_position",
 	protocol.CommandArgTypePosition:        "position",
-	// BDS's message parameters (say, me, tell, kick) and PMMP's ARG_TYPE_MESSAGE are MessageRoot.
+	// The message parameter of kick is MessageRoot.
 	protocol.CommandArgTypeMessageRoot: "message",
 	protocol.CommandArgTypeRawText:     "raw_text",
 	protocol.CommandArgTypeJSON:        "json",
@@ -472,8 +428,6 @@ type scriptAction struct {
 //	expect-packs N         the bot downloaded at least N resource packs when it joined
 //	expect-entity TYPE     wait until an entity of the actor type TYPE (AddActor) is in view
 //	interact TYPE          interact with the first entity of the actor type TYPE in view (a right click)
-//	craft OUTPUT ITEM      craft OUTPUT once in the inventory's 2x2 grid from a recipe of only ITEM (one or
-//	                       four cells), as the client does with the inventory open
 //	place NAME X Y Z       hold NAME (from the hotbar) and place it at X Y Z on the top of the block below
 //	use X Y Z              click the top of the block at X Y Z with the held item
 //	break X Y Z DURATION   start breaking the block at X Y Z, wait DURATION, then destroy it; wait for air
@@ -509,7 +463,7 @@ func knownVerb(verb string) bool {
 	switch verb {
 	case "chat", "command", "expect-output", "expect-text", "expect-title", "expect-toast", "expect-form",
 		"answer-form", "expect-score", "expect-bossbar", "expect-window", "expect-item", "expect-position", "click",
-		"expect-disconnect", "wait", "expect-packs", "expect-entity", "interact", "craft", "place", "use", "break",
+		"expect-disconnect", "wait", "expect-packs", "expect-entity", "interact", "place", "use", "break",
 		"expect-block", "expect-drop", "trade":
 		return true
 	}
@@ -674,9 +628,6 @@ func (g *game) scriptStep(a scriptAction) error {
 			return err
 		}
 		return g.useOnEntity("interact", actor.EntityRuntimeID, actor.Position.Add(mgl32.Vec3{0, 0.25, 0}))
-	case "craft":
-		output, item, _ := strings.Cut(a.arg, " ")
-		return g.craftInInventory(output, item)
 	case "place":
 		name, at, _ := strings.Cut(a.arg, " ")
 		pos, _, err := blockArgs(at, 3)
@@ -792,34 +743,6 @@ func (g *game) actorOfType(entityType string) (*packet.AddActor, error) {
 		return found != nil
 	})
 	return found, err
-}
-
-// craftInInventory crafts output once in the 2x2 grid of the open inventory from a recipe whose every
-// ingredient is item, then closes the inventory.
-func (g *game) craftInInventory(output, item string) error {
-	r, err := g.recipeFor("crafting_table", output, item)
-	if err != nil {
-		return err
-	}
-	if len(r.input) != 1 && len(r.input) != 4 {
-		return fmt.Errorf("the %v recipe does not fit the 2x2 grid in order", output)
-	}
-	var grid []byte
-	for i, in := range r.input {
-		if in.Count > 0 {
-			grid = append(grid, byte(28+i))
-		}
-	}
-	if err := g.openInventory(); err != nil {
-		return err
-	}
-	if err := g.fillGrid("fill the grid", item, grid); err != nil {
-		return err
-	}
-	if err := g.craft("craft "+output, r, grid, true); err != nil {
-		return err
-	}
-	return g.closeWindow("close the inventory")
 }
 
 // breakBlock breaks the block at pos like a survival player: the start, d of breaking, then the

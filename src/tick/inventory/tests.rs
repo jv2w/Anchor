@@ -1,4 +1,4 @@
-//! Tests of inventories, windows and item stack requests: item conservation and refused crafting.
+//! Tests of inventories, windows and item stack requests: item conservation and refused craft requests.
 
 mod api;
 mod events;

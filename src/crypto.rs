@@ -441,15 +441,15 @@ mod tests {
         assert_eq!(back.spki(), public.spki());
         let sig = key.sign_es384(b"m").unwrap();
         back.verify_es384(b"m", &sig).unwrap();
-        // The coordinates of the BDS 1.26.52 identity key in its answer match the
+        // The coordinates of the official server 1.26.52 identity key in its answer match the
         // SPKI in the same token's `x5u`.
         let x5u = "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEya/jxpHCfMZbjNJCjTncZp0p9o4dgcOFZiXlrAc7OVgH66N6bvOJHKtAKSF0Y08N3OszOL3CVA7AfQs9kbLKEZ74yEhlJ6aHOQlu8hKHeF1I8OpwlQ3xuSi0mZEFr7W0";
-        let bds = PublicKey::from_p384_jwk(
+        let official = PublicKey::from_p384_jwk(
             "ya_jxpHCfMZbjNJCjTncZp0p9o4dgcOFZiXlrAc7OVgH66N6bvOJHKtAKSF0Y08N",
             "3OszOL3CVA7AfQs9kbLKEZ74yEhlJ6aHOQlu8hKHeF1I8OpwlQ3xuSi0mZEFr7W0",
         )
         .unwrap();
-        assert_eq!(STD.encode(bds.spki()), x5u);
+        assert_eq!(STD.encode(official.spki()), x5u);
         let short = RAW_URL.encode(&[1; P384_COORDINATE_BYTES - 1]);
         let long = RAW_URL.encode(&[1; P384_COORDINATE_BYTES + 1]);
         let mut off_curve = RAW_URL.decode(&y, P384_COORDINATE_BYTES).unwrap();

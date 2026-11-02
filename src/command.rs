@@ -25,8 +25,7 @@
 //! `CommandOutput` packet; the console's goes to the log. Each player's client autocompletes the
 //! commands that player may use (`AvailableCommands`), sent again when its permissions change.
 //!
-//! The server also has Anchor's own commands, PMMP's default ones (`/give`, `/tp`, `/ban`, ...),
-//! with the permissions of [`permission`](crate::permission). A command of the user's with the
+//! The server also has Anchor's own commands (`/give`, `/tp`, `/ban`, ...), with the permissions of [`permission`](crate::permission). A command of the user's with the
 //! same name replaces one, and
 //! [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) drops one.
 
@@ -44,16 +43,15 @@ use crate::permission::Permission;
 use crate::player;
 use crate::tick::Context;
 
-/// The enum type name of [`Param::block`]: what the client shows and the usage writes (BDS).
+/// The enum type name of [`Param::block`]: what the client shows and the usage writes.
 pub(crate) const BLOCK_ENUM: &str = "Block";
-/// The enum type name of [`Param::bool`]: what the client shows and the usage writes (BDS).
+/// The enum type name of [`Param::bool`]: what the client shows and the usage writes.
 pub(crate) const BOOLEAN_ENUM: &str = "Boolean";
-/// The enum type name of [`Param::effect`]: what the client shows and the usage writes (BDS).
+/// The enum type name of [`Param::effect`]: what the client shows and the usage writes.
 pub(crate) const EFFECT_ENUM: &str = "Effect";
-/// The enum type name of [`Param::enchantment`]: what the client shows and the usage writes
-/// (BDS).
+/// The enum type name of [`Param::enchantment`]: what the client shows and the usage writes.
 pub(crate) const ENCHANT_ENUM: &str = "Enchant";
-/// The enum type name of [`Param::item`]: what the client shows and the usage writes (BDS).
+/// The enum type name of [`Param::item`]: what the client shows and the usage writes.
 pub(crate) const ITEM_ENUM: &str = "Item";
 /// The most values one enum parameter offers.
 pub(crate) const MAX_ENUM_VALUES: usize = 4096;
@@ -65,15 +63,15 @@ pub(crate) const MAX_OVERLOADS: usize = 64;
 pub(crate) const MAX_PARAMS: usize = 32;
 /// The most permissions one command names.
 pub(crate) const MAX_PERMISSIONS: usize = 16;
-/// The client's "no permission" text, filled with the command's name (BDS).
+/// The client's "no permission" text, filled with the command's name.
 const NO_PERMISSION: &str = "commands.generic.error.permissions";
 /// The client's "no targets matched" text.
 const NO_TARGETS: &str = "commands.generic.noTargetMatch";
 /// The client's "player not found" text.
 const PLAYER_NOT_FOUND: &str = "commands.generic.player.notFound";
-/// The client's text for a line that does not fit a command: before, the word, after (BDS).
+/// The client's text for a line that does not fit a command: before, the word, after.
 const SYNTAX: &str = "commands.generic.syntax";
-/// The client's "unknown command" text, filled with the name typed (BDS).
+/// The client's "unknown command" text, filled with the name typed.
 const UNKNOWN: &str = "commands.generic.unknown";
 /// The client's "usage" text, filled with the usage.
 const USAGE: &str = "commands.generic.usage";
@@ -146,7 +144,7 @@ impl Command {
     }
 
     /// Lets only senders with `permission` use the command (and see it in their command list).
-    /// Called again, it adds another: a sender needs any one of them (PMMP `setPermissions`), and
+    /// Called again, it adds another: a sender needs any one of them, and
     /// the handler checks which one an argument needs, such as `/give`'s permissions for giving
     /// oneself and others. A command names at most 16.
     #[doc(alias = "Command::setPermission")]
@@ -267,13 +265,10 @@ impl Param {
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
     /// typed). `type_name` is the enum type the client shows: every enum of a type name must have
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
-    /// [`Error::ConflictingEnum`]. Anchor's own commands use BDS's names and values: `Boolean`,
-    /// `Item`, `Block`, `Effect`, `Enchant`, `GameMode`, `Difficulty`, `ClearEffects`,
-    /// `AddInfiniteEffect`, `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`,
-    /// `TimeModeSet`, `TimeModeQuery`, `TimeModePause`, `TimeModeResume`, `TimeOfCommand`,
-    /// `TimeMarkerOccurrence`, `TimeQuery2`, `ClockTimeQuery` and `<name>CommandAliases` for a
-    /// command with aliases, and Anchor's `BanListType`, `WhitelistAction`, `WhitelistEdit` and
-    /// `ParticleName`, unless the user replaces or drops the command.
+    /// [`Error::ConflictingEnum`]. Anchor's own commands use the official server's names and
+    /// values: `Boolean`, `Item`, `Block`, `Effect`, `Enchant`, `GameMode` and
+    /// `<name>CommandAliases` for a command with aliases, and Anchor's `BanListType`,
+    /// `WhitelistAction` and `WhitelistEdit`, unless the user replaces or drops the command.
     /// `CommandName` is the client's list of command names: no parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
@@ -335,8 +330,7 @@ impl Param {
 
     /// One word, or words in double quotes, as typed ([`Args::string`]); the client suggests the
     /// values [`Context::set_soft_enum`] last set for the enum type `type_name`, none at first
-    /// but `minecraft:overworld` for `WorldClocks`, `/time`'s as BDS lists it (a BDS soft enum,
-    /// as `/scoreboard` objectives). The handler checks the word: the client
+    /// but `minecraft:overworld` for `WorldClocks`. The handler checks the word: the client
     /// sends words it does not suggest. `type_name` may not be the type name of an
     /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
     /// [`Error::ConflictingEnum`]; an empty one refuses the build ([`Error::InvalidOverload`]).
@@ -675,7 +669,7 @@ pub(crate) struct Line {
 /// [`ServerBuilder`](crate::ServerBuilder) cannot be built.
 ///
 /// The first kinds are what a sender sees (in red): the client's translation where it has a text
-/// for the case, as BDS sends it, and Anchor's text otherwise; a handler fails with
+/// for the case, as the official server sends it, and Anchor's text otherwise; a handler fails with
 /// [`Error::failed`] or [`Error::translated`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -691,7 +685,7 @@ pub enum Error {
     },
     /// The line fits none of the command's overloads: the word where it stops fitting the
     /// overload that fits furthest, with up to 10 characters of the line (from its `/`) before
-    /// and after it, as BDS reports it (`commands.generic.syntax`).
+    /// and after it, as the official server reports it (`commands.generic.syntax`).
     Syntax {
         /// Up to 10 characters before the word.
         before: String,
@@ -795,7 +789,7 @@ impl Error {
     }
 
     /// What the sender sees: the client's translation where it has a text for the case (filled
-    /// as BDS fills it), Anchor's text otherwise, or the handler's message and parameters.
+    /// as the official server fills it), Anchor's text otherwise, or the handler's message and parameters.
     pub(crate) fn line(&self) -> Line {
         let text = match self {
             Self::Unknown { name } => {

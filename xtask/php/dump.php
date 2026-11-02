@@ -433,7 +433,7 @@ foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateI
 			"entity_collision" => $block->hasEntityCollision(),
 		])),
 		"friction" => $block->getFrictionFactor(),
-		// The tag names without their `pocketmine:` namespace.
+		// The tag names without their namespace prefix.
 		"tags" => array_map(fn(string $tag) => str_replace("pocketmine:", "", $tag), $block->getTypeTags()),
 		"support" => support($block),
 		"boxes" => boxes($block),
@@ -619,7 +619,7 @@ write($out, "creative.json", lines($creative));
 
 // Tables: effects, potion types, enchantments and banner patterns.
 /** The text of a name, which is a translation key or a plain string. */
-function text(\pocketmine\lang\Translatable|string $name) : string{
+function text(Translatable|string $name) : string{
 	return $name instanceof Translatable ? $name->getText() : $name;
 }
 

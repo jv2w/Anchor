@@ -3,8 +3,8 @@
 //! RakNet: spawns with zlib and Snappy, offline and online (a test issuer), and with a 6 MiB
 //! Login; idle connections close at the login deadline and one IP gets four connections before
 //! login. NetherNet: the same spawns over WebRTC, both transports at once, the fallback to RakNet
-//! when NetherNet fails, the pre-login peer limit, the identity binding and PMMP's duplicate
-//! login in both outcomes. The jigsaw and biome data on the wire equal `CloudburstMC`'s. Sessions
+//! when NetherNet fails, the pre-login peer limit, the identity binding and the duplicate
+//! login in both outcomes. The jigsaw and biome data on the wire equal the reference data. Sessions
 //! that logged in but have not joined are capped at `max-players`, and the server's stop reaches
 //! them with the shutdown message.
 //!
@@ -504,11 +504,11 @@ fn the_bot_spawns_with_snappy_and_with_zlib() {
     }
 }
 
-/// The jigsaw structure data and biome definitions Anchor sends equal `CloudburstMC`'s data, as
-/// BDS's do, checked on the wire by `bot worlddata` when the pinned checkout is in
+/// The jigsaw structure data and biome definitions Anchor sends equal the reference data, as the
+/// official server's do, checked on the wire by `bot worlddata` when the pinned checkout is in
 /// `.cache` (`cargo xtask dump` needs it too).
 #[test]
-fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
+fn the_jigsaw_and_biome_data_sent_equal_the_reference_data() {
     let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.cache/reference-data");
     #[expect(
         clippy::disallowed_methods,
@@ -657,7 +657,7 @@ fn the_bot_spawns_over_nethernet_with_snappy_and_with_zlib() {
             lines.contains(&format!("\"CompressionAlgorithm\":{id}")),
             "NetworkSettings announces {name}"
         );
-        // The answer carries the server identity at session level, as BDS's does.
+        // The answer carries the server identity at session level, as the official server's does.
         let identity = lines
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).expect("JSON line"))

@@ -330,7 +330,7 @@ pub(super) fn unconnected_pong(
     Ok(())
 }
 
-/// Writes `OpenConnectionReply1` with security off and no cookie, as BDS 1.26.52 sends it.
+/// Writes `OpenConnectionReply1` with security off and no cookie, as the official server 1.26.52 sends it.
 pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, mtu: u16) {
     buf.push(ID_OPEN_CONNECTION_REPLY_1);
     buf.extend_from_slice(&MAGIC);

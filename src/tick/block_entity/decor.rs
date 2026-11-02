@@ -1,4 +1,4 @@
-//! The data of the block entities without slots: signs, beds, banners, flower pots and mob
+//! The data of the block entities without slots: signs, bed colours, banners, flower pots and mob
 //! heads, read from and written to their Bedrock NBT keys.
 //!
 //! Reading takes the keys a kind owns out of the saved compound; the caller keeps the rest as it

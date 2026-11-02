@@ -8,7 +8,7 @@ use crate::math::Vec3;
 use crate::tick::Context;
 use crate::{player, world};
 
-/// A player says something in chat as if it had typed it (PMMP `Player::chat`): the chat limits
+/// A player says something in chat as if it had typed it: the chat limits
 /// apply (2 lines a tick, 512 bytes a line), a line starting with `/` runs as its command,
 /// and each other line raises [`PlayerChat`](crate::event::PlayerChat).
 #[doc(alias = "Player::chat")]
@@ -36,8 +36,7 @@ impl Sealed for Chat {
     }
 }
 
-/// Damage to a player as the game would deal it (PMMP `Entity::attack` with an
-/// `EntityDamageEvent`): its armour, effects, enchantments, invulnerability and game mode count
+/// Damage to a player as the game would deal it: its armour, effects, enchantments, invulnerability and game mode count
 /// (except for [`DamageCause::Suicide`], which skips them), the
 /// [`EntityDamage`](crate::event::EntityDamage) listeners decide, and a death raises
 /// [`PlayerDeath`](crate::event::PlayerDeath). A player in the source is the attacker: its
@@ -82,7 +81,7 @@ impl Sealed for Damage {
     }
 }
 
-/// A kick of a player as the game would do it (PMMP `Player::kick`): the
+/// A kick of a player as the game would do it: the
 /// [`PlayerKick`](crate::event::PlayerKick) listeners may keep it or change the messages; it
 /// leaves at the end of the tick, raising [`PlayerQuit`](crate::event::PlayerQuit). Nothing
 /// happens if the player is gone or already leaving, a text is longer than 65,536 bytes, or a
@@ -140,7 +139,7 @@ impl Sealed for Kick {
     }
 }
 
-/// A change of a player's game mode as the game would make it (PMMP `Player::setGamemode`): the
+/// A change of a player's game mode as the game would make it: the
 /// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners may keep the old one.
 /// [`Player::set_game_mode`](crate::player::Player::set_game_mode) changes it without asking.
 #[doc(alias = "Player::setGamemode")]
@@ -165,7 +164,7 @@ impl Sealed for SetGameMode {
     }
 }
 
-/// A teleport of a player as the game would do it (PMMP `Entity::teleport`): the
+/// A teleport of a player as the game would do it: the
 /// [`EntityTeleport`](crate::event::EntityTeleport) listeners may keep it where it is or send it
 /// elsewhere. [`Context::teleport`] moves it without asking.
 #[doc(alias = "Entity::teleport")]
@@ -207,7 +206,7 @@ impl Sealed for Teleport {
     }
 }
 
-/// A transfer of a player to another server as the game would do it (PMMP `Player::transfer`):
+/// A transfer of a player to another server as the game would do it:
 /// the [`PlayerTransfer`](crate::event::PlayerTransfer) listeners may keep it or change where it
 /// goes; it leaves at the end of the tick, raising [`PlayerQuit`](crate::event::PlayerQuit).
 /// Nothing happens if the player is gone or already leaving, the address is empty or longer than

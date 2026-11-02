@@ -12,13 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 /// The chunk packets: they interleave with the spawn window by timing (a server sends them as
-/// chunks load, BDS from before the radius answer), so the window leaves them out and
+/// chunks load, the official server from before the radius answer), so the window leaves them out and
 /// [`compare_chunks`] compares them by their own rules.
 pub(crate) const CHUNK_PACKETS: [&str; 3] =
     ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 /// The deferral table, relative to the repository root.
 pub(crate) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
-/// Entity packets that also carry other entities' data: BDS sends them for the flat world's
+/// Entity packets that also carry other entities' data: the official server sends them for the flat world's
 /// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
 /// (it simulates no mobs). Only the player's own are compared.
 const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
@@ -70,137 +70,11 @@ impl Fields {
 }
 
 /// The full item packets of a capture (the bot's `<capture>.items.jsonl`): the first
-/// `ItemRegistry`, `CreativeContent` and `CraftingData`, each as its fields.
+/// `ItemRegistry` and `CreativeContent`, each as its fields.
 #[derive(Debug, Default)]
 pub(crate) struct Items {
     registry: Option<Value>,
     creative: Option<Value>,
-    crafting: Option<Value>,
-}
-
-/// The item representations a capture uses in its creative and crafting data, by kind: `stack`
-/// (`NetworkID:MetadataValue:BlockRuntimeID` of an item stack), `item` (`Name:MetadataValue` of a
-/// name descriptor), `tag`, `molang`, `potion` (`ID:metadata` of a potion recipe item) and
-/// `potion-id` (an item ID of a potion container change recipe). A name descriptor, potion item
-/// or potion ID also matches any stack of the same item (and metadata); names come from the
-/// capture's `ItemRegistry`.
-#[derive(Debug, Default)]
-struct Representations(BTreeSet<(&'static str, String)>);
-
-impl Representations {
-    fn of(items: &Items) -> Self {
-        let mut set = BTreeSet::new();
-        let mut add = |kind: &'static str, key: String| {
-            set.insert((kind, key));
-        };
-        for value in [&items.creative, &items.crafting].into_iter().flatten() {
-            Self::walk(value, &mut add);
-        }
-        // Stacks also stand for name descriptors and potion items of the same item and metadata.
-        let names: BTreeMap<i64, &str> = items
-            .registry
-            .as_ref()
-            .map(|r| array(r, "Items"))
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|e| Some((field(e, "RuntimeID").as_i64()?, field(e, "Name").as_str()?)))
-            .collect();
-        let stacks: Vec<(i64, String)> = set
-            .iter()
-            .filter(|(kind, _)| *kind == "stack")
-            .filter_map(|(_, key)| {
-                let mut parts = key.split(':');
-                let id = parts.next()?.parse().ok()?;
-                Some((id, parts.next()?.to_owned()))
-            })
-            .collect();
-        for (id, meta) in stacks {
-            if let Some(name) = names.get(&id) {
-                set.insert(("item", format!("{name}:{meta}")));
-            }
-            set.insert(("potion", format!("{id}:{meta}")));
-            set.insert(("potion-id", id.to_string()));
-        }
-        Self(set)
-    }
-
-    fn has(&self, kind: &'static str, key: &str) -> bool {
-        self.0.contains(&(kind, key.to_owned()))
-    }
-
-    /// Calls `f` with every item representation in a JSON tree: objects with `ItemType` and
-    /// `BlockRuntimeID` are stacks, `Descriptor` objects are ingredient descriptors,
-    /// `PotionRecipes` entries give their three items and `PotionContainerChangeRecipes` entries
-    /// their three item IDs.
-    fn walk(value: &Value, f: &mut impl FnMut(&'static str, String)) {
-        match value {
-            Value::Array(list) => {
-                for v in list {
-                    Self::walk(v, f);
-                }
-            }
-            Value::Object(map) => {
-                // Air (network ID 0) is an empty slot, not an item.
-                if let Some(key) = stack_key(value).filter(|k| !k.starts_with("0:")) {
-                    f("stack", key);
-                }
-                if let Some(descriptor) = map.get("Descriptor") {
-                    Self::descriptor(descriptor, f);
-                }
-                for recipe in map
-                    .get("PotionRecipes")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    for (id, meta) in [
-                        ("InputPotionID", "InputPotionMetadata"),
-                        ("ReagentItemID", "ReagentItemMetadata"),
-                        ("OutputPotionID", "OutputPotionMetadata"),
-                    ] {
-                        f(
-                            "potion",
-                            format!("{}:{}", field(recipe, id), field(recipe, meta)),
-                        );
-                    }
-                }
-                let changes = map
-                    .get("PotionContainerChangeRecipes")
-                    .and_then(Value::as_array);
-                for recipe in changes.into_iter().flatten() {
-                    for id in ["InputItemID", "ReagentItemID", "OutputItemID"] {
-                        f("potion-id", field(recipe, id).to_string());
-                    }
-                }
-                for (key, v) in map {
-                    if !matches!(
-                        key.as_str(),
-                        "Descriptor" | "PotionRecipes" | "PotionContainerChangeRecipes"
-                    ) {
-                        Self::walk(v, f);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Calls `f` with one ingredient descriptor; the invalid (empty) descriptor has no fields.
-    fn descriptor(descriptor: &Value, f: &mut impl FnMut(&'static str, String)) {
-        if let Some(name) = field(descriptor, "Name").as_str() {
-            f(
-                "item",
-                format!("{name}:{}", field(descriptor, "MetadataValue")),
-            );
-        } else if let Some(tag) = field(descriptor, "Tag").as_str() {
-            f("tag", tag.to_owned());
-        } else if let Some(expression) = field(descriptor, "Expression").as_str() {
-            f(
-                "molang",
-                format!("{expression} v{}", field(descriptor, "Version")),
-            );
-        }
-    }
 }
 
 /// The chunk packets of a capture, made independent of where the player spawned: chunk positions
@@ -363,7 +237,7 @@ impl ChunkReader {
 /// The marker of the blocks scenario: its position relative to the base position and the states
 /// (as `p6::block_states` writes them) that end a step (alternating) and the scenario; and the
 /// positions the steps can change (each step position and its 8 horizontal neighbours). Changes
-/// elsewhere are the server's own (BDS turns grass under placed blocks into dirt on random ticks)
+/// elsewhere are the server's own (the official server turns grass under placed blocks into dirt on random ticks)
 /// and are only counted.
 #[derive(Debug)]
 pub(crate) struct Markers {
@@ -423,7 +297,7 @@ impl StepSummary {
     }
 
     /// The packet kind Anchor sends for this step: `UpdateBlock` when one position
-    /// changed, else `UpdateSubChunkBlocks`. BDS repeats a position in one `UpdateSubChunkBlocks`
+    /// changed, else `UpdateSubChunkBlocks`. The official server repeats a position in one `UpdateSubChunkBlocks`
     /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
     /// updates in two packets of consecutive ticks; neither is followed.
     fn normalized_kinds(&self) -> BTreeSet<&'static str> {
@@ -643,7 +517,7 @@ pub(crate) fn compare(
     differences
 }
 
-/// The fields of a window's packets of one name, in the order `compare` pairs them. BDS sends some
+/// The fields of a window's packets of one name, in the order `compare` pairs them. The official server sends some
 /// lists in an order that means nothing to the client and differs between its Windows and Linux
 /// builds (`xtask/data/p6/facts.md`); they are put in key order, so only their content counts:
 /// - the `SyncActorProperty` packets, one entity type each, by `PropertyData.type`. Each entity's
@@ -789,7 +663,8 @@ pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
         let slot = match field(&value, "name").as_str() {
             Some("ItemRegistry") => &mut items.registry,
             Some("CreativeContent") => &mut items.creative,
-            Some("CraftingData") => &mut items.crafting,
+            // Anchor sends an empty `CraftingData` on purpose; the official server's is not compared.
+            Some("CraftingData") => continue,
             _ => return Err(format!("line {}: not an item packet", i + 1)),
         };
         if slot.is_none() {
@@ -799,14 +674,11 @@ pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
     Ok(items)
 }
 
-/// Compares the item packets of capture A (BDS) and B (Anchor) where both have them. Returns the
+/// Compares the item packets of capture A (official server) and B (Anchor) where both have them. Returns the
 /// differences, which fail the comparison, and notes, which are information:
 /// - `ItemRegistry`: the `Items` lists must hold the same entries (`compare_registry`).
 /// - `CreativeContent`: every item of B must be in A with the same `NetworkID`, `MetadataValue`,
 ///   `BlockRuntimeID` and `NBTData`; B's groups must be consistent (`group_problems`).
-/// - `CraftingData`: every item stack (`NetworkID`, `MetadataValue`, `BlockRuntimeID`) and every
-///   ingredient descriptor of B must be one A uses somewhere in its creative or crafting data
-///   (`Representations`). Recipe content differences are notes.
 pub(crate) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) {
     let mut differences = Vec::new();
     let mut notes = Vec::new();
@@ -824,7 +696,7 @@ pub(crate) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) 
             .filter(|key| !known.contains(key))
             .collect();
         // An item A has in its creative inventory must have A's form; an item A leaves out
-        // (education items BDS hides) is content, not a form difference.
+        // (education items the official server hides) is content, not a form difference.
         let (wrong, absent) = split_by_item(&missing, &known);
         differences.extend(listed(
             "CreativeContent items of B whose item A has in another form (NetworkID, \
@@ -840,37 +712,6 @@ pub(crate) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) 
                 .into_iter()
                 .map(|p| format!("CreativeContent of B: {p}")),
         );
-    }
-    if let (Some(x), Some(y)) = (&a.crafting, &b.crafting) {
-        let used = Representations::of(a);
-        let mut missing = BTreeSet::new();
-        Representations::walk(y, &mut |kind, key| {
-            if !used.has(kind, &key) {
-                missing.insert(format!("{kind} {key}"));
-            }
-        });
-        let stacks: BTreeSet<String> = used
-            .0
-            .iter()
-            .filter(|(kind, _)| *kind == "stack")
-            .map(|(kind, key)| format!("{kind} {key}"))
-            .collect();
-        // A stack of an item A never has in a stack is recipe content (an item BDS uses in no
-        // recipe or creative entry), not a form difference.
-        let (stack_keys, others): (Vec<String>, Vec<String>) =
-            missing.into_iter().partition(|k| k.starts_with("stack "));
-        let (mut wrong, absent) = split_by_item(&stack_keys, &stacks);
-        wrong.extend(others);
-        wrong.sort();
-        differences.extend(listed(
-            "CraftingData item representations of B that A never uses",
-            &wrong,
-        ));
-        notes.extend(listed(
-            "CraftingData item representations of B for items A never uses",
-            &absent,
-        ));
-        notes.extend(recipe_notes(x, y));
     }
     (differences, notes)
 }
@@ -907,7 +748,7 @@ fn listed(what: &str, entries: &[String]) -> Option<String> {
     ))
 }
 
-/// Compares two `ItemRegistry` item lists in runtime ID order: BDS lists them in an order that is
+/// Compares two `ItemRegistry` item lists in runtime ID order: the official server lists them in an order that is
 /// the same on every start but neither by runtime ID nor by name, and the client looks entries up
 /// by runtime ID. Reports the names only one side has and the first differing entry.
 fn compare_registry(a: &Value, b: &Value) -> Vec<String> {
@@ -1032,73 +873,6 @@ fn group_problems(creative: &Value) -> Vec<String> {
     problems
 }
 
-/// Notes on recipe content: per recipe list of `CraftingData`, how many recipes only one side has,
-/// compared without their network IDs and UUIDs (BDS makes new recipe UUIDs on every start; only
-/// `MultiRecipes` keep theirs, which name the recipe kind), and the first few recipe IDs of each.
-fn recipe_notes(a: &Value, b: &Value) -> Vec<String> {
-    let lists: BTreeSet<&String> = a
-        .as_object()
-        .into_iter()
-        .chain(b.as_object())
-        .flat_map(|m| m.iter())
-        .filter(|(_, v)| v.is_array())
-        .map(|(k, _)| k)
-        .collect();
-    let mut notes = Vec::new();
-    for list in lists {
-        let content = |v: &Value| -> BTreeMap<String, String> {
-            array(v, list)
-                .iter()
-                .map(|recipe| {
-                    let mut recipe = recipe.clone();
-                    if let Some(map) = recipe.as_object_mut() {
-                        map.remove("RecipeNetworkID");
-                        if list != "MultiRecipes" {
-                            map.remove("UUID");
-                        }
-                    }
-                    let id = field(&recipe, "RecipeID")
-                        .as_str()
-                        .map_or_else(|| short(&recipe), str::to_owned);
-                    (recipe.to_string(), id)
-                })
-                .collect()
-        };
-        let (x, y) = (content(a), content(b));
-        let only = |p: &BTreeMap<String, String>, q: &BTreeMap<String, String>| -> Vec<String> {
-            p.iter()
-                .filter(|(k, _)| !q.contains_key(*k))
-                .map(|(_, id)| id.clone())
-                .collect()
-        };
-        let (only_a, only_b) = (only(&x, &y), only(&y, &x));
-        if only_a.is_empty() && only_b.is_empty() {
-            continue;
-        }
-        notes.push(format!(
-            "CraftingData {list}: A {}, B {}, only in A {}, only in B {}",
-            array(a, list).len(),
-            array(b, list).len(),
-            only_a.len(),
-            only_b.len()
-        ));
-        let first = |ids: &[String]| {
-            ids.iter()
-                .take(SHOWN)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        if !only_a.is_empty() {
-            notes.push(format!("  only in A: {}", first(&only_a)));
-        }
-        if !only_b.is_empty() {
-            notes.push(format!("  only in B: {}", first(&only_b)));
-        }
-    }
-    notes
-}
-
 /// Reads the chunk packets of a capture (the whole capture, not only the spawn window).
 pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
     let mut reader = ChunkReader::default();
@@ -1163,7 +937,7 @@ fn sub_chunk_entries(fields: &Value) -> Vec<(Value, Value)> {
         .collect()
 }
 
-/// Compares the chunk packets of A (BDS) and B. Differences:
+/// Compares the chunk packets of A (official server) and B. Differences:
 /// - the distinct `LevelChunk` field sets (without the position) differ: the same flat world must
 ///   give the same chunks;
 /// - a `SubChunk` answer (by relative centre and offset) differs or only one side has it: result,
@@ -1369,7 +1143,7 @@ pub(crate) fn block_steps(
     Ok((steps, false))
 }
 
-/// Compares the steps of two blocks captures, A (BDS) and B: per step, the last state and flags of
+/// Compares the steps of two blocks captures, A (official server) and B: per step, the last state and flags of
 /// every position, B's packet kinds against A's normalized ones (`StepSummary::normalized_kinds`)
 /// and the other block packet names. `labels` name the steps in messages. Returns the differences
 /// and notes on the steps where A's own packet kinds differ from its normalized ones.
@@ -1443,11 +1217,9 @@ mod tests {
 {"type":"packet","index":3,"name":"Text","fields":{}}
 "#;
 
-    /// A small item packet file: two registry entries, two creative items in two groups, one
-    /// shaped recipe (stick and tag ingredients, planks output) and one potion recipe.
+    /// A small item packet file: two registry entries and two creative items in two groups.
     const ITEMS: &str = r#"{"index":1,"name":"ItemRegistry","fields":{"Items":[{"Name":"minecraft:planks","RuntimeID":5,"Data":{}},{"Name":"minecraft:stick","RuntimeID":7,"Data":{}}]}}
 {"index":2,"name":"CreativeContent","fields":{"Groups":[{"Category":1,"Name":"a","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}},{"Category":2,"Name":"","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}}],"Items":[{"CreativeItemNetworkID":1,"GroupIndex":0,"Item":{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}},{"CreativeItemNetworkID":2,"GroupIndex":1,"Item":{"ItemType":{"NetworkID":7,"MetadataValue":0},"BlockRuntimeID":0,"NBTData":{"compound":{}}}}]}}
-{"index":3,"name":"CraftingData","fields":{"ShapedRecipes":[{"RecipeID":"r","RecipeNetworkID":1,"UUID":"u1","Input":[{"Count":1,"Descriptor":{"Name":"minecraft:stick","MetadataValue":32767}},{"Count":1,"Descriptor":{"Tag":"minecraft:logs"}},{"Count":0,"Descriptor":{}}],"Output":[{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}]}],"MultiRecipes":[{"UUID":"m","RecipeNetworkID":2}],"PotionRecipes":[{"InputPotionID":7,"InputPotionMetadata":0,"ReagentItemID":5,"ReagentItemMetadata":0,"OutputPotionID":7,"OutputPotionMetadata":0}],"ClearRecipes":true}}
 "#;
 
     fn tables(deferred: &str, fields: &str) -> (Deferred, Fields) {
@@ -1575,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn the_committed_tables_parse_and_defer_no_cloudburst_packet() {
+    fn the_committed_tables_parse_and_defer_no_source_b_packet() {
         let (deferred, _) = tables(
             include_str!("../../data/p6/deferred.txt"),
             include_str!("../../data/p6/fields.txt"),
@@ -1745,73 +1517,15 @@ mod tests {
     }
 
     #[test]
-    fn crafting_representations_of_b_must_be_used_by_a() {
-        let a = items(ITEMS);
-        // A stick stack with a block runtime ID A never uses, an unknown tag and an unknown
-        // descriptor item.
-        let b = ITEMS
-            .replace(
-                r#""BlockRuntimeID":99,"NBTData":{"compound":{}}}]"#,
-                r#""BlockRuntimeID":98,"NBTData":{"compound":{}}}]"#,
-            )
-            .replace("minecraft:logs", "minecraft:planks_tag")
-            .replace(
-                r#"{"Name":"minecraft:stick","MetadataValue":32767}"#,
-                r#"{"Name":"minecraft:stick","MetadataValue":3}"#,
-            );
-        let (differences, notes) = compare_items(&a, &items(&b));
-        assert_eq!(differences.len(), 1, "{differences:?}");
-        assert!(
-            differences[0]
-                .starts_with("CraftingData item representations of B that A never uses: 3:")
+    fn the_crafting_data_packet_is_not_compared() {
+        let with_recipes = format!(
+            "{ITEMS}{}\n",
+            r#"{"index":3,"name":"CraftingData","fields":{"ClearRecipes":true}}"#
         );
-        for missing in [
-            "item minecraft:stick:3",
-            "stack 5:0:98",
-            "tag minecraft:planks_tag",
-        ] {
-            assert!(
-                differences[0].contains(missing),
-                "{missing}: {differences:?}"
-            );
-        }
-        assert_eq!(
-            notes[0],
-            "CraftingData ShapedRecipes: A 1, B 1, only in A 1, only in B 1"
-        );
-        assert_eq!(notes[1], "  only in A: r");
-    }
-
-    #[test]
-    fn descriptors_match_stacks_of_the_same_item() {
-        // A's stick stack (network ID 7, metadata 0) stands for the name descriptor stick:0 and the
-        // potion item 7:0; a potion item A never uses is a difference.
-        let b = ITEMS.replace(
-            r#"{"Name":"minecraft:stick","MetadataValue":32767}"#,
-            r#"{"Name":"minecraft:stick","MetadataValue":0}"#,
-        );
-        assert!(compare_items(&items(ITEMS), &items(&b)).0.is_empty());
-        let potion = ITEMS.replace(r#""OutputPotionMetadata":0"#, r#""OutputPotionMetadata":4"#);
-        let (differences, _) = compare_items(&items(ITEMS), &items(&potion));
-        assert!(differences[0].contains("potion 7:4"), "{differences:?}");
-    }
-
-    #[test]
-    fn recipe_notes_ignore_network_ids_and_uuids_but_not_multi_recipe_uuids() {
-        let renumbered = ITEMS.replace(
-            r#""RecipeNetworkID":1,"UUID":"u1""#,
-            r#""RecipeNetworkID":9,"UUID":"u2""#,
-        );
-        let (differences, notes) = compare_items(&items(ITEMS), &items(&renumbered));
+        let (differences, notes) = compare_items(&items(&with_recipes), &items(ITEMS));
         assert!(
             differences.is_empty() && notes.is_empty(),
             "{differences:?} {notes:?}"
-        );
-        let multi = ITEMS.replace(r#""UUID":"m""#, r#""UUID":"n""#);
-        let (_, notes) = compare_items(&items(ITEMS), &items(&multi));
-        assert_eq!(
-            notes[0],
-            "CraftingData MultiRecipes: A 1, B 1, only in A 1, only in B 1"
         );
     }
 
@@ -1862,7 +1576,7 @@ mod tests {
     }
 
     /// A blocks capture (base (2, -60, 2), marker at x -2): step 0 places a fence, step 1 a second
-    /// fence east of it, with BDS's repeated entry.
+    /// fence east of it, with the official server's repeated entry.
     fn blocks_capture() -> String {
         [
             update(1, 2, 1),
@@ -1921,7 +1635,7 @@ mod tests {
         let labels = ["s0".to_owned(), "s1".to_owned()];
         assert_eq!(compare_steps(&a, &b, &labels), (Vec::new(), Vec::new()));
         // A different last state and a single position sent in an UpdateSubChunkBlocks differ;
-        // BDS's repeated entry for one position is a note, not a difference.
+        // The official server's repeated entry for one position is a note, not a difference.
         let c_capture = blocks_capture()
             .replace(&update(1, 2, 1), &sub_chunk_update(1, &[(2, 1)]))
             .replace(

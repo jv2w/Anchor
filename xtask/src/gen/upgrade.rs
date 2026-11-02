@@ -3,13 +3,13 @@
 //!
 //! The block schemas are checked with the import's own interpreter (`apply.rs`, included by
 //! path), so a defect the rules hide fails here: an ID that is both renamed and flattened in one
-//! schema (PMMP throws on it at run time), a schema renaming a property to a name another rename
-//! of the block reads (the result would depend on order), a byte value above 127 (PMMP reads
+//! schema (the dump source throws on it at run time), a schema renaming a property to a name another rename
+//! of the block reads (the result would depend on order), a byte value above 127 (the dump source reads
 //! bytes signed, Anchor unsigned), and any of the reference list's states that does not upgrade
 //! to itself (Anchor writes the reference version, and modern states go through the schemas that
-//! share it again). The legacy 1.12.0 table is upgraded here once, as PMMP does when it loads it;
+//! share it again). The legacy 1.12.0 table is upgraded here once, as the dump source does when it loads it;
 //! entries whose result is not a reference state are listed in the generated file. The item
-//! tables are checked the way PMMP reads them: lowercase IDs, numeric metas, and legacy IDs that
+//! tables are checked the way the dump source reads them: lowercase IDs, numeric metas, and legacy IDs that
 //! map one to one.
 
 #[path = "../../../src/import/upgrade/apply.rs"]
@@ -50,7 +50,7 @@ pub(crate) fn block_schema(root: &Path, name: &str) -> PathBuf {
     root.join(DIR).join(BLOCK_SCHEMAS).join(name)
 }
 
-/// A property value in a schema (PMMP `BlockStateUpgradeSchemaModelTag`): exactly one field.
+/// A property value in a schema (the dump source's `BlockStateUpgradeSchemaModelTag`): exactly one field.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TagModel {
@@ -88,7 +88,7 @@ struct RemapModel {
     copied_state: Vec<String>,
 }
 
-/// A block schema file (PMMP `BlockStateUpgradeSchemaModel`).
+/// A block schema file (the dump source's `BlockStateUpgradeSchemaModel`).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SchemaModel {
@@ -114,7 +114,7 @@ struct SchemaModel {
     remapped_states: BTreeMap<String, Vec<RemapModel>>,
 }
 
-/// An item schema file (PMMP `ItemIdMetaUpgradeSchemaModel`).
+/// An item schema file (the dump source's `ItemIdMetaUpgradeSchemaModel`).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ItemSchemaModel {
@@ -320,7 +320,7 @@ fn schema(model: &SchemaModel) -> R<Schema<'static>> {
     })
 }
 
-/// Reads the block schemas, sorted by (version, ID) as PMMP sorts them.
+/// Reads the block schemas, sorted by (version, ID) as the dump source sorts them.
 fn read_schemas(root: &Path) -> R<Vec<Schema<'static>>> {
     let mut schemas = Vec::new();
     let mut previous = None;
@@ -338,7 +338,7 @@ fn read_schemas(root: &Path) -> R<Vec<Schema<'static>>> {
     Ok(schemas.into_iter().map(|(_, s)| s).collect())
 }
 
-/// The schema files of a folder (PMMP's `^(\d{4}).*\.json$`) with their number and bytes, by
+/// The schema files of a folder (the dump source's `^(\d{4}).*\.json$`) with their number and bytes, by
 /// name.
 #[expect(
     clippy::disallowed_methods,
@@ -464,7 +464,7 @@ fn legacy_ids(path: &Path) -> R<BTreeMap<i16, String>> {
     Ok(out)
 }
 
-/// Upgrades every legacy entry to the newest version, as PMMP's `BlockIdMetaUpgrader` does when
+/// Upgrades every legacy entry to the newest version, as the dump source's `BlockIdMetaUpgrader` does when
 /// it loads the table; returns the entries whose result is not a reference state too.
 fn legacy(
     root: &Path,
@@ -506,7 +506,7 @@ fn legacy(
     Ok(((entries, list), outside))
 }
 
-/// Reads the item schemas in ID order, checked as PMMP reads them: it looks IDs up lowercased,
+/// Reads the item schemas in ID order, checked as the dump source reads them: it looks IDs up lowercased,
 /// so an ID with a capital letter could never match.
 fn item_schemas(root: &Path) -> R<Vec<ItemSchema>> {
     let mut out = Vec::new();
@@ -541,7 +541,7 @@ fn item_schemas(root: &Path) -> R<Vec<ItemSchema>> {
     Ok(out)
 }
 
-/// The 1.12 item ID → block ID map with lowercased keys, as PMMP builds it.
+/// The 1.12 item ID → block ID map with lowercased keys, as the dump source builds it.
 fn item_blocks(root: &Path) -> R<BTreeMap<String, String>> {
     let path = root.join(DIR).join(ITEM_SCHEMAS).join(ITEM_BLOCKS);
     let map: BTreeMap<String, String> =
@@ -580,7 +580,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     if !outside.is_empty() {
         put!(
             out,
-            "//!\n//! {} legacy entries upgrade to states outside the reference list (PMMP gives \
+            "//!\n//! {} legacy entries upgrade to states outside the reference list (the dump source gives \
              the same; such a state is kept as an unknown block):\n",
             outside.len()
         );
@@ -639,7 +639,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     }
     put!(
         out,
-        "/// The legacy 1.12.0 table (PMMP `BlockIdMetaUpgrader`): string ID with each known meta's \
+        "/// The legacy 1.12.0 table (the dump source's `BlockIdMetaUpgrader`): string ID with each known meta's \
          index in [`LEGACY_STATES`], sorted.\npub(super) static LEGACY: [(&str, &[(u8, u16)]); {}] = [",
         by_id.len()
     );
@@ -654,7 +654,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     id_table(
         &mut out,
         "BLOCK_IDS",
-        "Legacy numeric block IDs and their string IDs (PMMP `LegacyBlockIdToStringIdMap`)",
+        "Legacy numeric block IDs and their string IDs (the dump source's `LegacyBlockIdToStringIdMap`)",
         &block_ids,
     );
     item_tables(&mut out, &item_ids, &item_blocks, &items);
@@ -671,12 +671,12 @@ fn item_tables(
     id_table(
         out,
         "ITEM_IDS",
-        "Legacy numeric item IDs and their string IDs (PMMP `LegacyItemIdToStringIdMap`)",
+        "Legacy numeric item IDs and their string IDs (the dump source's `LegacyItemIdToStringIdMap`)",
         item_ids,
     );
     put!(
         out,
-        "/// 1.12 item IDs, lowercase, and their block IDs (PMMP `R12ItemIdToBlockIdMap`), \
+        "/// 1.12 item IDs, lowercase, and their block IDs (the dump source's `R12ItemIdToBlockIdMap`), \
          sorted.\npub(super) static ITEM_BLOCKS: [(&str, &str); {}] = [",
         item_blocks.len()
     );
@@ -686,7 +686,7 @@ fn item_tables(
     out.push_str("];\n\n");
     put!(
         out,
-        "/// The item schemas in ID order (PMMP `ItemIdMetaUpgrader`).\npub(super) static \
+        "/// The item schemas in ID order (the dump source's `ItemIdMetaUpgrader`).\npub(super) static \
          ITEM_SCHEMAS: [ItemSchema; {}] = [",
         items.len()
     );
@@ -851,11 +851,11 @@ mod tests {
     #[test]
     fn schema_defects_fail_the_generator() {
         for json in [
-            // PMMP throws on an ID both renamed and flattened.
+            // The dump source throws on an ID both renamed and flattened.
             r#""renamedIds":{"a":"b"},"flattenedProperties":{"a":{"prefix":"","flattenedProperty":"p","suffix":""}}"#,
             // The result of these renames would depend on their order.
             r#""renamedProperties":{"a":{"p":"q","q":"r"}}"#,
-            // PMMP reads bytes signed.
+            // The dump source reads bytes signed.
             r#""addedProperties":{"a":{"p":{"byte":200}}}"#,
             r#""addedProperties":{"a":{"p":{"byte":1,"int":1}}}"#,
             r#""remappedPropertyValues":{"a":{"p":"missing"}}"#,

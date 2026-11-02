@@ -175,7 +175,7 @@ pub(super) enum Kind {
     Item(Item),
     /// An xp orb.
     XpOrb(Orb),
-    /// A falling block that the API spawned: sand, gravel, an anvil…
+    /// A falling block that the API spawned: sand, gravel…
     FallingBlock(Falling),
     /// Primed TNT.
     Tnt(Tnt),
@@ -527,7 +527,7 @@ fields!(Orb {
 /// A falling block.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Falling {
-    /// The block it is, placed as it is when it lands (an anvil keeps its damage and facing).
+    /// The block it is, placed as it is when it lands (it keeps its block state).
     pub(super) block: block::State,
 }
 

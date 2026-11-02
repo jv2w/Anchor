@@ -1,17 +1,16 @@
-//! Particles a world shows at a position (PMMP `world\particle\*`), for
-//! [`Context::add_particle`](crate::Context::add_particle): each is the `LevelEvent` PMMP sends for
-//! its class.
+//! Particles a world shows at a position, for
+//! [`Context::add_particle`](crate::Context::add_particle): each is the `LevelEvent` the official
+//! server sends for it.
 //!
-//! Particle type numbers are PMMP's (`ParticleIds`), which are BDS's: BDS's snowball and egg hits
-//! send 15 and 14 and its potion clouds 35 (BDS, P6). gophertunnel's
-//! `protocol::consts::ParticleType` puts `CANDLE_FLAME` (PMMP 9) and `BREEZE_WIND_EXPLOSION` (PMMP
-//! 18) at its end, so its numbers from 9 on are one or two lower. The numbers used are the
-//! variants' docs.
+//! Particle type numbers are the official server's: its snowball and egg hits send 15 and 14 and
+//! its potion clouds 35 (P6). gophertunnel's `protocol::consts::ParticleType` puts `CANDLE_FLAME`
+//! (9) and `BREEZE_WIND_EXPLOSION` (18) at its end, so its numbers from 9 on are one or two
+//! lower. The numbers used are the variants' docs.
 //!
-//! Left out: `FloatingTextParticle` (an invisible entity per viewer, not an event; a human NPC
-//! with a name tag does the same) and the base class `Particle` (this enum).
+//! Left out: floating text (an invisible entity per viewer, not an event; a human NPC with a name
+//! tag does the same).
 
-/// PMMP's particle numbers (`ParticleIds`) that the particles use.
+/// The official server's particle numbers that the particles use.
 pub(crate) mod id {
     /// The number of the bubble particle.
     pub(crate) const BUBBLE: i32 = 1;
@@ -94,7 +93,7 @@ pub enum Particle {
     /// `ParticlesDestroyBlock`).
     #[doc(alias = "BlockBreakParticle")]
     BlockBreak(block::State),
-    /// A block force field (`BLOCK_FORCE_FIELD`, 4) with its data (PMMP's default 0).
+    /// A block force field (`BLOCK_FORCE_FIELD`, 4) with its data (0 by default).
     #[doc(alias = "BlockForceFieldParticle")]
     BlockForceField(i32),
     /// The cracks of a block of this state being hit on a face (level event
@@ -104,7 +103,7 @@ pub enum Particle {
     /// A bubble (`BUBBLE`, 1).
     #[doc(alias = "BubbleParticle")]
     Bubble,
-    /// A critical hit's stars (`CRITICAL`, 3) of a scale (PMMP's default 2).
+    /// A critical hit's stars (`CRITICAL`, 3) of a scale (2 by default).
     #[doc(alias = "CriticalParticle")]
     Critical(i32),
     /// A dragon egg's trail to a block this many blocks away on each axis (level event
@@ -142,7 +141,7 @@ pub enum Particle {
     /// A happy villager's sparkle (`VILLAGER_HAPPY`, 41).
     #[doc(alias = "HappyVillagerParticle")]
     HappyVillager,
-    /// Hearts of a scale (`HEART`, 20; PMMP's default 0).
+    /// Hearts of a scale (`HEART`, 20; 0 by default).
     #[doc(alias = "HeartParticle")]
     Heart(i32),
     /// A large explosion (`HUGE_EXPLODE`, 16).
@@ -151,7 +150,7 @@ pub enum Particle {
     /// An explosion emitter (`HUGE_EXPLODE_SEED`, 17).
     #[doc(alias = "HugeExplodeSeedParticle")]
     HugeExplodeSeed,
-    /// Ink of a scale (`INK`, 37; PMMP's default 0).
+    /// Ink of a scale (`INK`, 37; 0 by default).
     #[doc(alias = "InkParticle")]
     Ink(i32),
     /// Instant potion swirls of a colour (`MOB_SPELL_INSTANTANEOUS`, 36).
@@ -184,10 +183,10 @@ pub enum Particle {
     /// A raindrop's splash (`RAIN_SPLASH`, 39).
     #[doc(alias = "RainSplashParticle")]
     RainSplash,
-    /// Redstone dust lasting this long (`REDSTONE`, 12; PMMP's default 1).
+    /// Redstone dust lasting this long (`REDSTONE`, 12; 1 by default).
     #[doc(alias = "RedstoneParticle")]
     Redstone(i32),
-    /// Smoke of a scale (`SMOKE`, 5; PMMP's default 0).
+    /// Smoke of a scale (`SMOKE`, 5; 0 by default).
     #[doc(alias = "SmokeParticle")]
     Smoke(i32),
     /// A snowball's puff (`SNOWBALL_POOF`, 15).
@@ -214,7 +213,7 @@ pub enum Particle {
 }
 
 impl Particle {
-    /// The packet that shows the particle at `at` (PMMP `Particle::encode`).
+    /// The packet that shows the particle at `at`.
     pub(crate) fn packet(self, at: Vec3) -> Packet {
         let (event_type, event_data) = self.event();
         Packet::LevelEvent(LevelEventPacket {
@@ -224,8 +223,7 @@ impl Particle {
         })
     }
 
-    /// The level event type and data (a standard particle is the legacy event mask with the type,
-    /// PMMP `LevelEventPacket::standardParticle`).
+    /// The level event type and data (a standard particle is the legacy event mask with the type).
     fn event(self) -> (i32, i32) {
         let standard = |t: i32, data: i32| (i32::from(LevelEvent::ParticleLegacyEvent) | t, data);
         let level = |e: LevelEvent, data: i32| (i32::from(e), data);
@@ -295,7 +293,7 @@ fn punch_data(network_id: u32, face: Face) -> i32 {
     network_id.cast_signed() | (i32::from(face.index()) << 24)
 }
 
-/// The dragon egg trail data of one axis (PMMP `DragonEggTeleportParticle::encode`): the size in
+/// The dragon egg trail data of one axis: the size in
 /// a byte at `shift` and the sign in bit `sign`.
 fn axis(v: i16, shift: u32, sign: u32) -> i32 {
     let size = i32::from(v.unsigned_abs().min(255));
@@ -319,8 +317,8 @@ mod tests {
         }
     }
 
-    // PMMP's particle numbers (`ParticleIds`) are BDS's: 14 and 15 in BDS's snowball and egg hits
-    // (P6), 35 in BDS's potion cloud (P6); gophertunnel's are smaller from 9 on.
+    // The numbers are the official server's: 14 and 15 in its snowball and egg hits (P6), 35 in
+    // its potion cloud (P6); gophertunnel's are smaller from 9 on.
     // api: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle,
     // api: BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle,
     // api: DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle,
@@ -332,7 +330,7 @@ mod tests {
     // api: SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle,
     // api: Particle
     #[test]
-    fn particles_send_pmmps_events_with_pmmps_numbers() {
+    fn particles_send_the_official_events_with_the_official_numbers() {
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
         let id = stone.network_id().cast_signed();
         let red = Rgba {
@@ -361,7 +359,7 @@ mod tests {
                     y: 300,
                     z: 4,
                 },
-                // PMMP: the sign of x in bit 24, of y in 25, of z in 26.
+                // The sign of x in bit 24, of y in 25, of z in 26.
                 (2010, 0x0103_ff04),
             ),
             (Particle::Dust(red), (MASK + 33, argb_red)),

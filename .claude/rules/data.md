@@ -4,8 +4,6 @@ paths:
   - "src/block/**"
   - "src/item.rs"
   - "src/item/**"
-  - "src/crafting.rs"
-  - "src/crafting/**"
   - "src/effect.rs"
   - "src/effect/**"
   - "src/world/biome.rs"

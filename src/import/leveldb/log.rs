@@ -1,6 +1,6 @@
 //! LevelDB log files (`.log` write-ahead logs and the `MANIFEST`) and the write batches in logs.
 //!
-//! Format (google/leveldb `doc/log_format.md`, `db/write_batch.cc`; BDS 1.26.52 writes it so):
+//! Format (google/leveldb `doc/log_format.md`, `db/write_batch.cc`; the official server 1.26.52 writes it so):
 //! 32 KiB blocks of physical records, each a 7-byte header (masked CRC-32C of the type byte and
 //! the payload, little-endian `u16` payload length, type) and the payload. Types: 1 a whole
 //! record, 2 its first fragment, 3 a middle one, 4 the last one; a fragment never crosses a block,

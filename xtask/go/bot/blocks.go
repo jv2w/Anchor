@@ -12,14 +12,14 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 )
 
-// blockState is a block name and its state properties, typed as in dragonfly's block_states.nbt.
+// blockState is a block name and its state properties, typed as in the block state list of the reference data.
 type blockState struct {
 	name  string
 	props map[string]any
 }
 
-// knownStates are the states a flat world's spawn chunks hold. Their properties match dragonfly v0.11.4's
-// block_states.nbt.
+// knownStates are the states a flat world's spawn chunks hold. Their properties match the block state list
+// of the reference data.
 var knownStates = []blockState{
 	{name: "minecraft:air"},
 	{name: "minecraft:bedrock", props: map[string]any{"infiniburn_bit": uint8(0)}},
@@ -29,9 +29,8 @@ var knownStates = []blockState{
 	{name: "minecraft:stone"},
 }
 
-// networkBlockHash is dragonfly's network block hash (server/world/network_block_hash.go): FNV-1a 32 over
-// the little-endian NBT of {name, states} with the state keys sorted. Unlike dragonfly it returns an error
-// instead of panicking on a property type NBT states do not use.
+// networkBlockHash is the network block hash: FNV-1a 32 over the little-endian NBT of {name, states} with
+// the state keys sorted. It returns an error instead of panicking on a property type NBT states do not use.
 func networkBlockHash(name string, props map[string]any) (uint32, error) {
 	if name == "minecraft:unknown" {
 		return 0xfffffffe, nil

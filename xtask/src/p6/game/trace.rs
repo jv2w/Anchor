@@ -7,30 +7,29 @@
 //! - the items the client sees at the end of each step (the bot's `state` record: inventory, UI
 //!   and open container slots with item name and count). How a server delivers them
 //!   (`InventorySlot`, `InventoryContent`, server `InventoryTransaction`, how often it resends) is
-//!   shown only: BDS resends every window twice after a block placement;
+//!   shown only: the official server resends every window twice after a block placement;
 //! - `ContainerOpen` and `ContainerClose` (window IDs other than the fixed inventory windows as
 //!   `w#n`, numbered in order of appearance), the keys of `ContainerSetData` per window over the
 //!   whole capture (a last step, `ContainerSetData`: when a value arrives is timing);
 //! - the last state of each position a step's `UpdateBlock` and `UpdateSubChunkBlocks` packets set
 //!   (layer 0) when it differs from the state the client knew before the step (an earlier update,
-//!   else the flat world's), the keys of `BlockActorData`, `LevelEvent` types. BDS resends the
+//!   else the flat world's), the keys of `BlockActorData`, `LevelEvent` types. The official server resends the
 //!   blocks around a clicked block after every placement (P6, `xtask/data/p6/facts.md`); a resend that changes nothing is shown only;
 //! - entities by type (`AddActor`, `AddItemActor` item, `RemoveActor`, `TakeItemActor` taker);
 //! - `UpdateTrade` window type, size, tier and flags, the key and tag types of the offers;
-//! - the number of `PlayerEnchantOptions` and the player's last XP level of a step when
-//!   it differs from the level before the step (BDS resends every attribute after a placement);
+//! - the player's last XP level of a step when it differs from the level before the step (the
+//!   official server resends every attribute after a placement);
 //! - the bot's `check` lines named in `FIXED_CHECKS`, the shape of the `offers` checks, every
 //!   `Disconnect`, and every packet that failed to decode. Any other `check` line is shown only:
 //!   a game scenario's check compares nothing until its name is in `FIXED_CHECKS`.
 //!
-//! Shown only, because they vary per run or by design: random values (enchantment options,
-//! offers, a villager's profession and name, XP orbs and points), timing
-//! (`ContainerSetData` values and counts, entity motion), sounds, chat, recipe unlocks,
-//! `SetActorData`, positions of dropped items, and `Event` types: the only one BDS sends in the
+//! Shown only, because they vary per run or by design: random values (offers, a villager's profession and name, XP orbs and points), timing
+//! (`ContainerSetData` values and counts, entity motion), sounds, chat, `UnlockedRecipes`,
+//! `SetActorData`, positions of dropped items, and `Event` types: the only one the official server sends in the
 //! scenarios is `EntityInteract` when trading opens, which feeds the client's statistics and
 //! changes nothing the client does, so Anchor does not send it (P6, `xtask/data/p6/facts.md`).
 //! What other scenarios of the session left behind is shown only, so one scenario's leftovers never land in another's
-//! comparison at whatever time they happen (a furnace going out): block changes, block entity
+//! comparison at whatever time they happen (a dropped item despawning): block changes, block entity
 //! data and level events farther than [`AREA_REACH`] from the scenario's area (its `teleport`
 //! step), and the removal of an entity the capture never saw added. Within a step the
 //! fixed lines are compared as a sorted list, so packets of one step that a server sends in
@@ -74,11 +73,7 @@ const COUNTED: [&str; 18] = [
     "LevelSoundEvent",
 ];
 /// Checks whose values are fixed between servers.
-const FIXED_CHECKS: [&str; 10] = [
-    "auto craft variant",
-    "deprecated result form",
-    "place a crafting table",
-    "place a crafting table held with a wrong block runtime ID",
+const FIXED_CHECKS: [&str; 6] = [
     "legacy villager",
     "legacy trading",
     "breathing before diving",
@@ -88,7 +83,7 @@ const FIXED_CHECKS: [&str; 10] = [
 ];
 /// The windows whose IDs mean the same on every server: the inventory, off hand, armour and UI.
 const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
-/// The flat world's blocks by height (BDS's and Anchor's default flat world), as the bot assumes
+/// The flat world's blocks by height (the official server's and Anchor's default flat world), as the bot assumes
 /// them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.
 const FLAT: [(i64, &str); 4] = [
     (-64, "minecraft:bedrock[infiniburn_bit=0]"),
@@ -362,7 +357,7 @@ impl Tracer<'_> {
                 self.world(&name, f);
             }
             "AddActor" | "AddItemActor" | "RemoveActor" | "TakeItemActor" => self.entity(&name, f),
-            "UpdateTrade" | "PlayerEnchantOptions" => self.screen(&name, f),
+            "UpdateTrade" => self.trade_screen(f),
             "UpdateAttributes" if field(f, "EntityRuntimeID").as_i64() == self.player => {
                 self.attributes(f);
             }
@@ -573,35 +568,26 @@ impl Tracer<'_> {
         }
     }
 
-    /// Trading and enchanting screens.
-    fn screen(&mut self, name: &str, f: &Value) {
-        if name == "UpdateTrade" {
-            let window = self.window(field(f, "WindowID"));
-            self.fixed(format!(
-                "UpdateTrade window {window} type {} size {} tier {} new UI {} demand based prices {}",
-                field(f, "WindowType"),
-                field(f, "Size"),
-                field(f, "TradeTier"),
-                field(f, "NewTradeUI"),
-                field(f, "DemandBasedPrices")
-            ));
-            self.shown(format!(
-                "UpdateTrade display name {} villager {} entity {}",
-                field(f, "DisplayName"),
-                field(f, "VillagerUniqueID"),
-                field(f, "EntityUniqueID")
-            ));
-            return;
-        }
-        let options = field(f, "Options").as_array().map_or(0, Vec::len);
-        self.fixed(format!("PlayerEnchantOptions {options} options"));
-        if options > 0 {
-            self.shown(format!("PlayerEnchantOptions {}", compact(f)));
-        }
+    /// The trading screen.
+    fn trade_screen(&mut self, f: &Value) {
+        let window = self.window(field(f, "WindowID"));
+        self.fixed(format!(
+            "UpdateTrade window {window} type {} size {} tier {} new UI {} demand based prices {}",
+            field(f, "WindowType"),
+            field(f, "Size"),
+            field(f, "TradeTier"),
+            field(f, "NewTradeUI"),
+            field(f, "DemandBasedPrices")
+        ));
+        self.shown(format!(
+            "UpdateTrade display name {} villager {} entity {}",
+            field(f, "DisplayName"),
+            field(f, "VillagerUniqueID"),
+            field(f, "EntityUniqueID")
+        ));
     }
 
-    /// The player's attributes: the level is fixed (commands and enchanting change it by fixed
-    /// amounts), XP points and the exhaustion of actions vary.
+    /// The player's attributes: the level is fixed (commands change it by fixed amounts), XP points and the exhaustion of actions vary.
     fn attributes(&mut self, f: &Value) {
         let mut values = Vec::new();
         for a in field(f, "Attributes").as_array().into_iter().flatten() {
@@ -811,7 +797,7 @@ fn compact(v: &Value) -> String {
 }
 
 /// The shape of an offer list (typed NBT JSON): its top-level keys, and the keys and tag types
-/// that every recipe has (also inside its item compounds), without values. Keys only some offers
+/// that every offer has (also inside its item compounds), without values. Keys only some offers
 /// have (`buyB`, an item's `Block` or `tag`) depend on the offers, which are random.
 fn offer_shape(offers: &Value) -> String {
     let root = field(offers, "compound");
@@ -820,13 +806,13 @@ fn offer_shape(offers: &Value) -> String {
         .map(|m| m.keys().collect())
         .unwrap_or_default();
     let mut common: Option<BTreeSet<String>> = None;
-    for recipe in field(field(root, "Recipes"), "list")
+    for offer in field(field(root, "Recipes"), "list")
         .as_array()
         .into_iter()
         .flatten()
     {
         let mut keys = BTreeSet::new();
-        for (k, typed) in field(recipe, "compound").as_object().into_iter().flatten() {
+        for (k, typed) in field(offer, "compound").as_object().into_iter().flatten() {
             keys.insert(format!("{k}:{}", tag(typed)));
             for (inner, inner_typed) in field(typed, "compound").as_object().into_iter().flatten() {
                 keys.insert(format!("{k}.{inner}:{}", tag(inner_typed)));
@@ -838,7 +824,7 @@ fn offer_shape(offers: &Value) -> String {
         });
     }
     format!(
-        "top {top:?} keys of every recipe {:?}",
+        "top {top:?} keys of every offer {:?}",
         common.unwrap_or_default()
     )
 }
@@ -1066,8 +1052,8 @@ mod tests {
             ]
             .join("\n")
         };
-        // Another scenario's furnace (8 blocks away) goes out, its block entity changes and its
-        // smoke rises, and a drop it left despawns.
+        // Another scenario's block (8 blocks away) changes, its block entity changes and a level
+        // event plays there, and a drop it left despawns.
         let leftovers = [
             r#"{"type":"packet","name":"UpdateBlock","fields":{"Position":[-10,-60,-4],"NewBlockRuntimeID":1,"Flags":3,"Layer":0}}"#,
             r#"{"type":"packet","name":"UpdateSubChunkBlocks","fields":{"Blocks":[{"BlockPos":[13,-60,12],"BlockRuntimeID":1,"Flags":3}],"Extra":[]}}"#,
@@ -1172,14 +1158,14 @@ mod tests {
     }
 
     #[test]
-    fn offer_shapes_keep_the_keys_every_recipe_has() {
+    fn offer_shapes_keep_the_keys_every_offer_has() {
         let offers: Value = serde_json::from_str(
             r#"{"compound":{"Recipes":{"list":[{"compound":{"buyA":{"compound":{"Count":{"byte":20}}},"netId":{"int":4772},"buyB":{"compound":{}}}},{"compound":{"buyA":{"compound":{"Count":{"byte":1}}},"netId":{"int":4773}}}]},"TierExpRequirements":{"list":[]}}}"#,
         )
         .expect("json");
         assert_eq!(
             offer_shape(&offers),
-            r#"top ["Recipes", "TierExpRequirements"] keys of every recipe {"buyA.Count:byte", "buyA:compound", "netId:int"}"#
+            r#"top ["Recipes", "TierExpRequirements"] keys of every offer {"buyA.Count:byte", "buyA:compound", "netId:int"}"#
         );
     }
 }

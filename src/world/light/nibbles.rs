@@ -1,6 +1,6 @@
 //! A sub-chunk's 4-bit light values, two to a byte or one for the whole cube.
 //!
-//! A uniform cube costs no allocation (PMMP `LightArray::fill`). A full array is shared until it
+//! A uniform cube costs no allocation. A full array is shared until it
 //! changes (copy on write), so a checkpoint keeps the light of every loaded chunk without copying
 //! it on the tick, for the replay tool.
 

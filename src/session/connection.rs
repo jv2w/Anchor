@@ -6,7 +6,7 @@
 //! and reach the tick after the join, in order (gophertunnel defers them the same way, without
 //! a bound). Outbound, the tick's packets are batched, compressed and encrypted here, off the
 //! tick, and handed to the connection as it delivers them ([`MAX_OUTPUT_UNDELIVERED_BYTES`]).
-//! NetherNet runs the same handshake but never encrypts (DTLS protects it, as on BDS), and its
+//! NetherNet runs the same handshake but never encrypts (DTLS protects it, as on the official server), and its
 //! Login must carry the key its offer proved.
 
 use std::collections::VecDeque;
@@ -537,7 +537,7 @@ impl Session {
             }
         };
         let Ok(waiting) = Arc::clone(&self.shared.waiting).try_acquire_owned() else {
-            // PMMP also turns players away as the server is full at login.
+            // Players are turned away as the server is full at login.
             self.send(&[queue::server_full()]).await?;
             return Err(Error::Limit("sessions waiting to join"));
         };
@@ -580,14 +580,13 @@ impl Session {
             debug!("accept task gone during login");
         }
         if self.conn.can_encrypt() && !self.shared.encryption {
-            // `enable-encryption = false`: no handshake, plain RakNet traffic (PMMP
-            // `NetworkSession::onServerLoginSuccess` without encryption).
+            // `enable-encryption = false`: no handshake, plain RakNet traffic.
             return self.login_success().await;
         }
         let handshake =
             Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
         // The handshake goes out before encryption starts; everything after it is encrypted.
-        // BDS sends it on NetherNet too but never encrypts there (P6).
+        // The official server sends it on NetherNet too but never encrypts there (P6).
         self.send(&[Packet::ServerToClientHandshake(ServerToClientHandshake {
             jwt: handshake.jwt.into_bytes(),
         })])

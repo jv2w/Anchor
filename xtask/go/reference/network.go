@@ -12,7 +12,7 @@ import (
 	"sort"
 )
 
-// The CloudburstMC files Anchor sends as packets, and the network NBT files written from them.
+// The source B files Anchor sends as packets, and the network NBT files written from them.
 const (
 	jigsawSource     = "jigsaw_structure_data.nbt"
 	jigsawOut        = "jigsaw_structure_data.dat"
@@ -20,13 +20,13 @@ const (
 	propertiesOut    = "entity_properties.dat"
 )
 
-// writeNetworkCopies writes the CloudburstMC data BDS sends in the spawn window as the network
+// writeNetworkCopies writes the source B data the official server sends in the spawn window as the network
 // little-endian NBT of the packets, compound keys in byte order as Anchor writes them:
 //   - jigsaw_structure_data.dat: jigsaw_structure_data.nbt, the StructureData of JigsawStructureData.
-//   - entity_properties.dat: each compound of entity_properties.nbt as one root, in the file's order (BDS's
-//     order), the PropertyData of one SyncActorProperty each.
-func writeNetworkCopies(refdata, out string) error {
-	r, err := gzipBigEndian(filepath.Join(refdata, jigsawSource))
+//   - entity_properties.dat: each compound of entity_properties.nbt as one root, in the file's order (the official
+//     server's order), the PropertyData of one SyncActorProperty each.
+func writeNetworkCopies(sourceB, out string) error {
+	r, err := gzipBigEndian(filepath.Join(sourceB, jigsawSource))
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func writeNetworkCopies(refdata, out string) error {
 		return err
 	}
 
-	r, err = gzipBigEndian(filepath.Join(refdata, propertiesSource))
+	r, err = gzipBigEndian(filepath.Join(sourceB, propertiesSource))
 	if err != nil {
 		return err
 	}

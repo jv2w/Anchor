@@ -294,7 +294,7 @@ impl Listener {
         mut cur: Cursor<'_>,
         sink: &mut impl Sink,
     ) -> Result<()> {
-        // No cookie: BDS replies with security off, and the official client's cookie handling
+        // No cookie: the official server replies with security off, and the official client's cookie handling
         // cannot be observed. A spoofed source therefore can open a connection state here; the
         // pre-login caps (64 in total, 4 per IP, the 10 s handshake deadline and the 5 s idle
         // timeout) bound what such requests hold.
@@ -986,7 +986,7 @@ pub(super) mod tests {
             assert_eq!(data[0], wire::ID_OPEN_CONNECTION_REPLY_1);
             assert_eq!(data[1..17], wire::MAGIC);
             assert_eq!(data[17..25], GUID.to_be_bytes());
-            assert_eq!(data[25], 0, "security off, as BDS sends");
+            assert_eq!(data[25], 0, "security off, as the official server sends");
             assert_eq!(data[26..28], u16::to_be_bytes(reply));
         }
         let small = Client::request_1(MIN_MTU - 1, wire::PROTOCOL_VERSION);
@@ -1264,7 +1264,7 @@ pub(super) mod tests {
     }
 
     /// A connected pong echoes the time of the server's ping: the difference is the ping the
-    /// session reports (`RakLib` `Session::handlePong`, PMMP `NetworkSession::getPing`).
+    /// session reports.
     #[test]
     fn a_connected_pong_measures_the_ping() {
         let mut listener = listener();

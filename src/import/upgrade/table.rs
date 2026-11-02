@@ -21533,7 +21533,7 @@ pub(super) static LEGACY_STATES: [(&str, &[(&str, Tag<'static>)]); 2812] = [
     ),
 ];
 
-/// The legacy 1.12.0 table (PMMP `BlockIdMetaUpgrader`): string ID with each known meta's index in [`LEGACY_STATES`], sorted.
+/// The legacy 1.12.0 table (the dump source's `BlockIdMetaUpgrader`): string ID with each known meta's index in [`LEGACY_STATES`], sorted.
 pub(super) static LEGACY: [(&str, &[(u8, u16)]); 460] = [
     (
         "minecraft:acacia_button",
@@ -25986,7 +25986,7 @@ pub(super) static LEGACY: [(&str, &[(u8, u16)]); 460] = [
     ),
 ];
 
-/// Legacy numeric block IDs and their string IDs (PMMP `LegacyBlockIdToStringIdMap`), sorted.
+/// Legacy numeric block IDs and their string IDs (the dump source's `LegacyBlockIdToStringIdMap`), sorted.
 pub(super) static BLOCK_IDS: [(i16, &str); 553] = [
     (0, "minecraft:air"),
     (1, "minecraft:stone"),
@@ -26543,7 +26543,7 @@ pub(super) static BLOCK_IDS: [(i16, &str); 553] = [
     (559, "minecraft:quartz_bricks"),
 ];
 
-/// Legacy numeric item IDs and their string IDs (PMMP `LegacyItemIdToStringIdMap`), sorted.
+/// Legacy numeric item IDs and their string IDs (the dump source's `LegacyItemIdToStringIdMap`), sorted.
 pub(super) static ITEM_IDS: [(i16, &str); 807] = [
     (-304, "minecraft:quartz_bricks"),
     (-303, "minecraft:cracked_nether_bricks"),
@@ -27354,7 +27354,7 @@ pub(super) static ITEM_IDS: [(i16, &str); 807] = [
     (801, "minecraft:soul_campfire"),
 ];
 
-/// 1.12 item IDs, lowercase, and their block IDs (PMMP `R12ItemIdToBlockIdMap`), sorted.
+/// 1.12 item IDs, lowercase, and their block IDs (the dump source's `R12ItemIdToBlockIdMap`), sorted.
 pub(super) static ITEM_BLOCKS: [(&str, &str); 479] = [
     ("minecraft:acacia_button", "minecraft:acacia_button"),
     ("minecraft:acacia_fence_gate", "minecraft:acacia_fence_gate"),
@@ -28101,7 +28101,7 @@ pub(super) static ITEM_BLOCKS: [(&str, &str); 479] = [
     ),
 ];
 
-/// The item schemas in ID order (PMMP `ItemIdMetaUpgrader`).
+/// The item schemas in ID order (the dump source's `ItemIdMetaUpgrader`).
 pub(super) static ITEM_SCHEMAS: [ItemSchema; 30] = [
     ItemSchema {
         renamed: &[

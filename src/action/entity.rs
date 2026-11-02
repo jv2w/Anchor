@@ -5,7 +5,7 @@ use super::Action;
 use crate::math::Vec3;
 use crate::{entity, player, world};
 
-/// A player hits an entity in melee as its client's hit would (PMMP `Player::attackEntity`):
+/// A player hits an entity in melee as its client's hit would:
 /// reach, the damage of the held item with Strength, Weakness, Sharpness and a critical hit,
 /// knockback, Knockback and Fire Aspect, wear and food, with the events of each
 /// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
@@ -29,7 +29,7 @@ impl Attack {
 
 impl Action for Attack {}
 
-/// An explosion as the game makes one (PMMP `Explosion::explodeA` then `explodeB`): what
+/// An explosion as the game makes one: what
 /// [`Context::explode`](crate::Context::explode) does, with the events of the entities it hurts
 /// and pushes ([`EntityDamage`](crate::event::EntityDamage),
 /// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
@@ -57,8 +57,8 @@ impl Explode {
         }
     }
 
-    /// The same explosion, setting a third of the broken blocks on fire (PMMP's default fire
-    /// chance) where the block under them can hold fire.
+    /// The same explosion, setting a third of the broken blocks on fire
+    /// where the block under them can hold fire.
     #[doc(alias = "Explosion::setFireChance")]
     #[must_use]
     pub fn fire(self) -> Self {

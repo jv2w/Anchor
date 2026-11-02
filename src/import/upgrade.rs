@@ -1,13 +1,12 @@
-//! Old block states and item names to the protocol version's, as PMMP upgrades
-//! them when it loads a world: block states through
-//! opencollab-incubator/BedrockBlockUpgradeSchema (PMMP `BlockDataUpgrader`), legacy numeric and
-//! string IDs with a meta through its 1.12.0 table (`BlockIdMetaUpgrader`), and item stacks
-//! through opencollab-incubator/BedrockItemUpgradeSchema (`ItemDataUpgrader`). The tables are
+//! Old block states and item names to the protocol version's: block states through
+//! opencollab-incubator/BedrockBlockUpgradeSchema, legacy numeric and
+//! string IDs with a meta through its 1.12.0 table, and item stacks
+//! through opencollab-incubator/BedrockItemUpgradeSchema. The tables are
 //! generated (`table`, `cargo xtask gen`); the rule interpreter (`apply`) is shared with the
 //! generator, which checks the schemas with it.
 //!
-//! Where PMMP falls back to meta 0 for a legacy meta its table lacks, or drops what it cannot
-//! read, this module gives `None` and the caller keeps the original as an unknown block, so
+//! Where a loader could fall back to meta 0 for a legacy meta the table lacks, or drop what it
+//! cannot read, this module gives `None` and the caller keeps the original as an unknown block, so
 //! nothing is guessed and nothing is lost.
 
 mod apply;
@@ -19,11 +18,11 @@ use crate::nbt::{Compound, List, Value};
 use crate::save::palette_entry;
 use apply::States;
 
-/// The key PMMP adds to every block state it saves (`VersionInfo::TAG_WORLD_DATA_VERSION`); it
-/// drops the key, of any type, when it reads a state (`BlockStateData::fromNbt`).
-const PMMP_DATA_VERSION: &str = "PMMPDataVersion";
+/// The key another server program adds to every block state it saves; the import drops it,
+/// of any type, when it reads a state.
+const FOREIGN_DATA_VERSION: &str = "PMMPDataVersion";
 
-/// One item schema (PMMP `ItemIdMetaUpgradeSchema`): renamed IDs and, by ID, metas whose item
+/// One item schema: renamed IDs and, by ID, metas whose item
 /// became an ID of its own, each sorted.
 #[derive(Debug)]
 struct ItemSchema {
@@ -31,9 +30,9 @@ struct ItemSchema {
     remapped: &'static [(&'static str, &'static [(u16, &'static str)])],
 }
 
-/// A disk palette entry upgraded to the protocol version (PMMP `upgradeBlockStateNbt`):
+/// A disk palette entry upgraded to the protocol version:
 /// `{name, states, version}`. A modern entry is `{name, states}` with an optional `version` (0
-/// without one), an optional `PMMPDataVersion` (dropped, as PMMP drops it) and nothing else, its
+/// without one), an optional data version key of another server (dropped) and nothing else, its
 /// properties bytes, ints or strings; a legacy one is `{name, val}` with a string and a short,
 /// looked up in the 1.12.0 table. `None` for anything else and for a legacy name and meta the
 /// table does not have.
@@ -41,7 +40,7 @@ pub(crate) fn state(entry: &Compound) -> Option<Compound> {
     if let Some((name, meta)) = legacy_parts(entry) {
         let (name, mut states) = legacy_name(name, u8::try_from(meta).ok()?)?;
         let mut name = name.to_owned();
-        // PMMP upgrades the table's state once more; it is at the newest version, so only the
+        // The table's state is upgraded once more; it is at the newest version, so only the
         // schemas that share that version apply.
         apply::upgrade(&table::SCHEMAS, BLOCK_STATE_VERSION, &mut name, &mut states);
         return Some(to_nbt(name, states));
@@ -67,7 +66,7 @@ pub(crate) fn state(entry: &Compound) -> Option<Compound> {
     Some(to_nbt(name, states))
 }
 
-/// The state of legacy terrain value `id`:`meta` (PMMP `upgradeIntIdMeta`, without its fallback
+/// The state of legacy terrain value `id`:`meta` (with no fallback
 /// to meta 0), or `None` if the 1.12.0 table does not have it.
 pub(crate) fn legacy(id: u16, meta: u8) -> Option<Compound> {
     let name = find_copied(&table::BLOCK_IDS, i16::try_from(id).ok()?)?;
@@ -105,7 +104,7 @@ fn to_nbt(name: String, states: States) -> Compound {
 
 /// Upgrades, in place, every block state and item stack in a block entity's or entity's NBT, at
 /// any depth (inside item tags too), and returns how many compounds changed. A block state is a
-/// compound of `name` and `states` with an optional `version` and `PMMPDataVersion`, or of `name`
+/// compound of `name` and `states` with an optional `version` and a foreign data version key, or of `name`
 /// and `val`, as [`state`] reads it (a falling block's, a flower pot's plant, an item's `Block`);
 /// an item stack is a compound with a byte `Count` and a string `Name` or a short legacy `id`
 /// ([`item`]). What cannot be upgraded stays as it was.
@@ -153,7 +152,7 @@ fn is_state_shape(c: &Compound) -> bool {
 }
 
 /// The name and properties of a modern block state: a string `name`, a compound `states`, and no
-/// other key but `version` and `PMMPDataVersion`.
+/// other key but `version` and the foreign data version key.
 fn modern_parts(c: &Compound) -> Option<(&String, &Compound)> {
     match (c.get("name"), c.get("states")) {
         (Some(Value::String(name)), Some(Value::Compound(states)))
@@ -175,10 +174,10 @@ fn legacy_parts(c: &Compound) -> Option<(&str, i16)> {
 
 /// Whether `key` belongs in a modern block state.
 fn is_state_key(key: &str) -> bool {
-    matches!(key, "name" | "states" | "version" | PMMP_DATA_VERSION)
+    matches!(key, "name" | "states" | "version" | FOREIGN_DATA_VERSION)
 }
 
-/// Upgrades an item stack's type in place (PMMP `upgradeItemStackNbt`), returning whether it
+/// Upgrades an item stack's type in place, returning whether it
 /// changed. The name is `Name`, or the legacy numeric `id` through the legacy item ID map (an ID
 /// of 0 is air, left as it is); the meta is `Damage`. A 1.12 block item without `Block` gets the
 /// state of its block ID and meta; then the ID and meta go through the item schemas, and the
@@ -229,9 +228,9 @@ fn item(c: &mut Compound) -> bool {
     changed
 }
 
-/// An item ID and meta through every item schema in order (PMMP `ItemIdMetaUpgrader::upgrade`):
+/// An item ID and meta through every item schema in order:
 /// a schema that remaps the meta gives a new ID with meta 0, else one that renames the ID gives
-/// the new ID. IDs are looked up lowercased, as PMMP does.
+/// the new ID. IDs are looked up lowercased.
 fn item_id_meta(id: &str, meta: i16) -> (String, i16) {
     let mut id = id.to_owned();
     let mut lower = id.to_ascii_lowercase();

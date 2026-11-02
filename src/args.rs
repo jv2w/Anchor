@@ -206,9 +206,9 @@ mod tests {
             }
         );
         assert_eq!(
-            task(&["export", "C:/bds/worlds/lobby"]).expect("ok"),
+            task(&["export", "C:/server/worlds/lobby"]).expect("ok"),
             Task::Export {
-                dir: PathBuf::from("C:/bds/worlds/lobby"),
+                dir: PathBuf::from("C:/server/worlds/lobby"),
                 world: None
             }
         );

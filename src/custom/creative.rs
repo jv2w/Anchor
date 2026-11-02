@@ -1,17 +1,17 @@
-//! Creative inventories (PMMP `CreativeInventory`): what the creative
-//! inventory screen lists. A server has a default inventory (PMMP's list, or the one given to
+//! Creative inventories: what the creative
+//! inventory screen lists. A server has a default inventory (the vanilla list, or the one given to
 //! [`ServerBuilder::creative_inventory`](crate::ServerBuilder::creative_inventory), then the
 //! places custom items and blocks ask for) and may register named alternatives that a player is
 //! switched to while the server runs
 //! ([`Context::set_creative_inventory`](crate::Context::set_creative_inventory)). Every inventory
 //! is fixed when the server is built and encoded once at start.
 //!
-//! The packet follows PMMP's `CreativeInventoryCache`: an entry's group is numbered when the
+//! The packet follows the official server's: an entry's group is numbered when the
 //! group first shows in its category, later entries of the same category and group join it
 //! wherever they are, a category's entries without a group share one anonymous group until an
 //! entry of a named group of that category starts a new one, and a named group's icon carries
 //! the group's index ([`item::GROUP_WORKAROUND`]). Two groups are the same group when their names
-//! and icons are equal. Creative item network IDs count from 1, as BDS sends them.
+//! and icons are equal. Creative item network IDs count from 1, as the official server sends them.
 
 use std::collections::BTreeMap;
 
@@ -26,16 +26,16 @@ pub(crate) const MAX_ALTERNATIVES: usize = 64;
 /// The most changes of one creative inventory.
 const MAX_CHANGES: usize = 65_536;
 
-/// The most entries of one creative inventory (PMMP's list and every custom item fit).
+/// The most entries of one creative inventory (the vanilla list and every custom item fit).
 pub(crate) const MAX_ENTRIES: usize = 8192;
 
 /// The longest creative group or inventory name, in bytes.
 const MAX_NAME_BYTES: usize = 128;
 
-/// A creative inventory to register (PMMP `CreativeInventory`): PMMP's list or an empty one,
+/// A creative inventory to register: the vanilla list or an empty one,
 /// then the changes made to it in order. The server resolves it when it is built (where an
 /// item that is unknown, or custom and not registered, refuses the build) and never changes it
-/// afterwards. The default is PMMP's list.
+/// afterwards. The default is the vanilla list.
 ///
 /// ```
 /// use anchor::custom::{Category, CreativeGroup, CreativeInventory, ItemRef};
@@ -68,7 +68,7 @@ impl CreativeInventory {
         }
     }
 
-    /// PMMP's creative inventory without the Education Edition items.
+    /// The vanilla creative inventory without the Education Edition items.
     pub fn vanilla() -> Self {
         Self {
             vanilla: true,
@@ -102,8 +102,8 @@ impl CreativeInventory {
         self
     }
 
-    /// Removes the first entry of `item`'s type and damage (PMMP
-    /// `CreativeInventoryEntry::matchesItem`: the NBT is not compared); nothing if there is none.
+    /// Removes the first entry of `item`'s type and damage (the NBT is
+    /// not compared); nothing if there is none.
     #[doc(alias = "CreativeInventory::remove")]
     #[doc(alias = "CreativeInventoryEntry::matchesItem")]
     #[must_use]
@@ -213,7 +213,7 @@ enum Change {
     Clear,
 }
 
-/// A named group of creative entries, shown folded under its icon (PMMP `CreativeGroup`).
+/// A named group of creative entries, shown folded under its icon.
 /// The name is a translation key such as `itemGroup.name.sword` or plain text; it must not be
 /// empty (checked when the server is built).
 #[derive(Debug, Clone)]
@@ -281,7 +281,7 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
-    /// PMMP's inventory unchanged.
+    /// The vanilla inventory unchanged.
     pub(crate) fn vanilla() -> Self {
         Self::new(vanilla_entries())
     }
@@ -313,7 +313,7 @@ impl Resolved {
         &self.stacks
     }
 
-    /// Numbers `entries` from 1 and groups them by PMMP's rule (see the module).
+    /// Numbers `entries` from 1 and groups them by the rule in the module docs.
     #[doc(alias = "CreativeInventoryCache::buildPacket")]
     #[expect(
         clippy::expect_used,
@@ -420,8 +420,8 @@ fn too_many_entries() -> Error {
     }
 }
 
-/// PMMP's entries, as generated, without the Education items ([`item::is_education`]). The
-/// `ItemRegistry` keeps those, so a stack that still exists (an old save, a world's element block
+/// The vanilla entries, as generated, without the Education items ([`item::is_education`]). The
+/// item table keeps those, so a stack that still exists (an old save, a world's element block
 /// broken) stays readable to the client.
 fn vanilla_entries() -> Vec<Entry> {
     (0..)

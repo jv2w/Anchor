@@ -3,7 +3,7 @@
 //! ticks from the commits it reports (never in wall-clock time). Every other run saves every third
 //! tick and is killed a random number of ticks after its first commit, during a later commit or
 //! between two; the runs between commit once, at a phase of the item cycle taken by turns (items on
-//! the ground, on the player's cursor and in its crafting grid, or in the slots and the chest
+//! the ground, on the player's cursor and in its craft grid, or in the slots and the chest
 //! only), and are killed after that commit, so the commits caught hold items in every place however
 //! slow the machine is. Every restart must find undamaged data files whose last commit is newer
 //! than the last restart's and that hold every item exactly once (no duplicate, no loss) and hold

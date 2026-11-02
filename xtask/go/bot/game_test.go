@@ -54,15 +54,15 @@ func TestPredictMovesItemsLikeTheClient(t *testing.T) {
 	g.slots[slotRef{protocol.WindowIDInventory, 0}] = stack{item: logs, id: 2}
 	planks := protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: 5}, Count: 4}
 	predicted := g.predict([]protocol.StackRequestAction{
-		place(3, g.slotInfo(0), g.uiSlot(protocol.ContainerCraftingInput, 28)),
-		consume(1, g.uiSlot(protocol.ContainerCraftingInput, 28)),
+		place(3, g.slotInfo(0), g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4)),
+		consume(1, g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4)),
 		place(4, createdSlot(-1), g.slotInfo(1)),
 	}, planks)
 	if got := predicted[slotRef{protocol.WindowIDInventory, 0}].item.Count; got != 1 {
 		t.Fatalf("source slot holds %v logs, want 1", got)
 	}
-	if got := predicted[slotRef{protocol.WindowIDUI, 28}].item; got.NetworkID != 17 || got.Count != 2 {
-		t.Fatalf("grid slot holds %+v, want 2 logs", got)
+	if got := predicted[slotRef{protocol.WindowIDUI, 4}].item; got.NetworkID != 17 || got.Count != 2 {
+		t.Fatalf("ingredient slot holds %+v, want 2 logs", got)
 	}
 	if got := predicted[slotRef{protocol.WindowIDInventory, 1}].item; got.NetworkID != 5 || got.Count != 4 {
 		t.Fatalf("result slot holds %+v, want 4 planks", got)
@@ -131,32 +131,6 @@ func TestFeedHandsPacketsOverInOrderAndEnds(t *testing.T) {
 	f.push(&packet.Text{}, 2)
 	if pks, closed := f.take(); !closed || len(pks) != 0 {
 		t.Fatalf("after close: %v packets, closed %v", len(pks), closed)
-	}
-}
-
-func TestRecipesAreFoundByOutputAndIngredients(t *testing.T) {
-	g := testGame()
-	planks := protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: 5}, Count: 4}
-	in := func(d protocol.ItemDescriptor) []protocol.ItemDescriptorCount {
-		return []protocol.ItemDescriptorCount{{Descriptor: d, Count: 1}, {Count: 0}}
-	}
-	g.craftingData(&packet.CraftingData{
-		ShapedRecipes: []protocol.ShapedRecipe{
-			{RecipeID: "b", RecipeNetworkID: 9, Block: "crafting_table", Input: in(&protocol.DefaultItemDescriptor{Name: "minecraft:oak_log"}), Output: []protocol.ItemStack{planks}},
-			{RecipeID: "a", RecipeNetworkID: 7, Block: "crafting_table", Input: in(&protocol.DefaultItemDescriptor{Name: "minecraft:stripped_oak_log"}), Output: []protocol.ItemStack{planks}},
-			{RecipeID: "c", RecipeNetworkID: 3, Block: "stonecutter", Input: in(&protocol.DefaultItemDescriptor{Name: "minecraft:oak_log"}), Output: []protocol.ItemStack{planks}},
-			{RecipeID: "d", RecipeNetworkID: 11, Block: "crafting_table", Input: in(&protocol.ItemTagItemDescriptor{Tag: "minecraft:logs"}), Output: []protocol.ItemStack{planks}},
-		},
-	})
-	r, err := g.recipeFor("crafting_table", "minecraft:oak_planks", "minecraft:oak_log")
-	if err != nil || r.id != "b" {
-		t.Fatalf("found %+v, %v; want recipe b", r, err)
-	}
-	if r, err := g.recipeFor("crafting_table", "minecraft:oak_planks", "#minecraft:logs"); err != nil || r.id != "d" {
-		t.Fatalf("found %+v, %v; want recipe d", r, err)
-	}
-	if _, err := g.recipeFor("crafting_table", "minecraft:oak_planks", "minecraft:dirt"); err == nil {
-		t.Fatal("found a recipe from dirt")
 	}
 }
 

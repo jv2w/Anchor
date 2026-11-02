@@ -1,9 +1,8 @@
-//! The game scenarios of `cargo xtask p6`: `craft`, `furnace`, `enchant`,
-//! `crops` and `trade`. The bot plays each one like the official client
+//! The game scenarios of `cargo xtask p6`: `trade`. The bot plays each one like the official client
 //! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
 //! records; the harness runs
 //! each new command on the server's console while the bot runs (`run_scenario`). `p6 game official` runs
-//! them against a fresh BDS world into `target/p6/official-game/`: first the `spawn` scenario with
+//! them against a fresh official server world into `target/p6/official-game/`: first the `spawn` scenario with
 //! untouched game rules (the spawn window of this world), then `SESSION_SETUP`, then each game
 //! scenario with its own player name. Each capture gets a report (`<scenario>.txt`, see `trace`),
 //! and `p6 game compare A B` compares the fixed parts of the traces of two capture folders.
@@ -24,10 +23,10 @@ use std::time::Duration;
 
 /// How long the harness waits for a bot past its own time limit before killing it.
 const BOT_GRACE: Duration = Duration::from_secs(30);
-/// The bot's time limit for one game scenario (the furnace smelts for 20 seconds).
+/// The bot's time limit for one game scenario.
 const BOT_TIMEOUT: Duration = Duration::from_secs(150);
 /// The game scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 5] = ["craft", "furnace", "enchant", "crops", "trade"];
+pub(crate) const SCENARIOS: [&str; 1] = ["trade"];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
 /// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block traffic
 /// lands between the steps; then every mob is removed.
@@ -70,7 +69,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
 }
 
 /// The game session against Anchor into `target/p6/anchor-game/`, then its comparison with the
-/// BDS session's captures (`p6 game official` makes them). It passes when every bot and every console
+/// official server session's captures (`p6 game official` makes them). It passes when every bot and every console
 /// command passed and the traces are the same.
 pub(crate) fn anchor_session(
     root: &Path,
@@ -111,7 +110,7 @@ pub(crate) fn anchor_session(
     Ok(played && same)
 }
 
-/// One BDS session (RakNet, zlib, a fresh world) that records the spawn window, runs
+/// One official server session (RakNet, zlib, a fresh world) that records the spawn window, runs
 /// `SESSION_SETUP` and the game scenarios into `target/p6/official-game/`, each with its report.
 pub(crate) fn session(
     root: &Path,
@@ -429,24 +428,23 @@ mod tests {
 
     #[test]
     fn players_are_named_after_their_scenario() {
-        assert_eq!(player("craft"), "P6Craft");
         assert_eq!(player("trade"), "P6Trade");
     }
 
     #[test]
     fn only_complete_command_lines_are_relayed() {
         let capture = concat!(
-            r#"{"type":"command","line":"give P6Craft oak_log 4"}"#,
+            r#"{"type":"command","line":"give P6Trade emerald 4"}"#,
             "\n",
             r#"{"type":"step","name":"x"}"#,
             "\n",
-            r#"{"type":"command","line":"tp P6Craft 1 2 3"}"#,
+            r#"{"type":"command","line":"tp P6Trade 1 2 3"}"#,
             "\n",
             r#"{"type":"command","line":"unfinished"#,
         );
         assert_eq!(
             commands(capture).expect("commands"),
-            ["give P6Craft oak_log 4", "tp P6Craft 1 2 3"]
+            ["give P6Trade emerald 4", "tp P6Trade 1 2 3"]
         );
     }
 
@@ -474,18 +472,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-p6-game-{}", std::process::id()));
         let (a, b) = (dir.join("a"), dir.join("b"));
         let items = br#"{"type":"packet","name":"ItemRegistry","fields":{"Items":[]}}"#;
-        for (d, scenario) in [(&a, "craft"), (&b, "craft"), (&a, "furnace")] {
+        for (d, scenario) in [(&a, "trade"), (&b, "trade"), (&a, "second")] {
             p6::create_dir(d).expect("dir");
             p6::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
             p6::write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
         }
         let mut out = Vec::new();
-        let same = compare_scenarios(&crate::root(), &a, &b, &["craft", "furnace"], &mut out);
+        let same = compare_scenarios(&crate::root(), &a, &b, &["trade", "second"], &mut out);
         p6::remove_dir(&dir).expect("cleanup");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(
-            report.contains("DIFFERENT furnace: no capture in"),
+            report.contains("DIFFERENT second: no capture in"),
             "{report}"
         );
     }

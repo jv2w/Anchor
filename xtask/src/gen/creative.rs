@@ -1,11 +1,11 @@
-//! `src/item/creative.rs`: the creative inventory from the PMMP dump
-//! (`creative.json`), with groups built as PMMP's `CreativeInventoryCache` builds them.
+//! `src/item/creative.rs`: the creative inventory from the dump
+//! (`creative.json`), with groups built as the dump source's `CreativeInventoryCache` builds them.
 
 use std::collections::BTreeMap;
 
 use serde_json::Value as Json;
 
-use crate::dump::{DUMP_DIR, PMMP_CREATIVE};
+use crate::dump::{DUMP_CREATIVE, DUMP_DIR};
 
 use super::body::str_lit;
 use super::data::{Data, Tag, read_json, static_compound};
@@ -19,10 +19,10 @@ type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, String> {
-    let entries: Vec<Json> = read_json(root, DUMP_DIR, PMMP_CREATIVE)?;
+    let entries: Vec<Json> = read_json(root, DUMP_DIR, DUMP_CREATIVE)?;
 
-    // PMMP `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first time it is
-    // seen in a category. A PMMP group object is one group of a creative data file, whose entries
+    // The dump source's `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first
+    // time it is seen in a category. A dump source group object is one group of a creative data file, whose entries
     // are consecutive, so a run of entries with the same category and group is one object.
     // Entries without a group share one anonymous group per category until an entry with a group
     // in that category starts a new anonymous group.
@@ -62,11 +62,11 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The creative inventory generated from the PMMP dump: {} \
+        "{HEADER}\n//! The creative inventory generated from the dump: {} \
          groups, {} items.\n\n\
          use super::{{CreativeGroup, CreativeItem, StaticStack, Type}};\n\
          use crate::protocol::consts::CreativeCategory;\n\n\
-         /// The groups in PMMP's order: (category, name, icon).\n\
+         /// The groups in the dump's order: (category, name, icon).\n\
          pub(super) static GROUPS: [CreativeGroup; {}] = [",
         groups.len(),
         items.len(),
@@ -84,7 +84,7 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
             .get("name")
             .and_then(Json::as_str)
             .ok_or("group without a name")?;
-        // PMMP translates the name for the client; a name without `%` comes out unchanged.
+        // The dump source translates the name for the client; a name without `%` comes out unchanged.
         if name.contains('%') {
             return Err(format!("group name {name} needs translation"));
         }
@@ -98,7 +98,7 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     }
     put!(
         out,
-        "];\n\n/// The items in PMMP's order, so an item's index is its creative item network ID: \
+        "];\n\n/// The items in the dump's order, so an item's index is its creative item network ID: \
          (group index, stack).\npub(super) static ITEMS: [CreativeItem; {}] = [",
         items.len()
     );
@@ -133,16 +133,16 @@ fn stack(item: usize, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> String 
     format!("StaticStack::new(Type::from_index({item}), {meta}, {nbt})")
 }
 
-/// Whether a dumped stack is an enchanted book without enchantments. PMMP drops the enchantments
+/// Whether a dumped stack is an enchanted book without enchantments. The dump source drops the enchantments
 /// it does not implement when it reads the creative data, which leaves a bare book in place of
-/// each book of such an enchantment (61 identical entries that BDS does not list, P6); Anchor
+/// each book of such an enchantment (61 identical entries that the official server does not list, P6); Anchor
 /// leaves them out.
 fn is_lost_enchanted_book(stack: &Json) -> bool {
     stack.get("name").and_then(Json::as_str) == Some("minecraft:enchanted_book")
         && stack.get("nbt").and_then(|n| n.get("ench")).is_none()
 }
 
-/// Resolves a dumped creative stack ([`Data::stack`]); PMMP's creative stacks hold one item.
+/// Resolves a dumped creative stack ([`Data::stack`]); the dump's creative stacks hold one item.
 fn resolve(data: &Data, json: &Json) -> Result<Stack, String> {
     let s = data.stack(json)?;
     if s.count != 1 {

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::base64::RAW_URL;
 use super::{Error, PublicKey, Result, ServerKey, Verifier, verify_jws};
 
-/// The protected header of a detached signature, as go-jose and BDS write it.
+/// The protected header of a detached signature, as go-jose and the official server write it.
 const DETACHED_HEADER: &[u8] = br#"{"alg":"ES384"}"#;
 /// The longest header segment, in base64 text.
 /// A Bedrock header holds `alg`, `kid`, `typ`, `x5t` or a P-384 `x5u` (160 characters), well under

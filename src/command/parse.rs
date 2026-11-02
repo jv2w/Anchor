@@ -13,14 +13,13 @@ use crate::effect;
 use crate::item;
 use crate::nbt::Compound;
 
-/// The longest line, in bytes: PMMP's chat limit (`Player::MAX_CHAT_BYTE_LENGTH`), which its
-/// commands share.
+/// The longest line, in bytes: the chat limit, which commands share.
 pub(crate) const MAX_LINE_BYTES: usize = 2048;
-/// The longest line, in characters (PMMP `Player::MAX_CHAT_CHAR_LENGTH`).
+/// The longest line, in characters.
 pub(crate) const MAX_LINE_CHARS: usize = 512;
 /// The namespace item and block names may carry.
 pub(crate) const NAMESPACE: &str = "minecraft:";
-/// The characters of BDS's syntax error on each side of the word.
+/// The characters of the official server's syntax error on each side of the word.
 pub(crate) const SYNTAX_CONTEXT: usize = 10;
 
 /// A word of a command line ([`split`]) and where it starts (its opening quote, if quoted).
@@ -108,8 +107,7 @@ impl Names {
             .collect();
         items.sort_unstable();
         items.dedup();
-        // The names are PMMP's (`element_hydrogen`), so each is judged by the Bedrock name of
-        // its item.
+        // The dump's names (`element_hydrogen`) are judged by the Bedrock name of their item.
         items.retain(|n| !Self::item(n).is_some_and(|t| item::is_education(t.name())));
         Self {
             effects,
@@ -182,10 +180,10 @@ impl Names {
     }
 }
 
-/// Splits `line` into words as commands are split (PMMP `CommandStringHelper::parseQuoteAware`):
+/// Splits `line` into words as commands are split:
 /// whitespace separates words; a word that starts with `"` ends at the next `"` not escaped, and
 /// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is. Fails
-/// with [`Error::UnclosedQuote`] for an unclosed quote (PMMP would split the rest at spaces) and
+/// with [`Error::UnclosedQuote`] for an unclosed quote and
 /// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
 /// A line within the bounds has at most 256 words.
 #[expect(
@@ -363,7 +361,7 @@ pub(crate) fn fit(
     }
 }
 
-/// BDS's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
+/// The official server's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
 /// the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line before and after
 /// it (P6 `syntax`, `xtask/data/p6/facts.md`).
 pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
@@ -546,7 +544,7 @@ mod tests {
     /// The `Item` enum and item parameters leave the Education items out, the other items stay.
     #[test]
     fn item_names_leave_the_education_items_out() {
-        // PMMP's names of an element, a compound, hardened glass and a coloured torch.
+        // The names of an element, a compound, hardened glass and a coloured torch.
         let education = [
             "element_hydrogen",
             "chemical_ammonia",
