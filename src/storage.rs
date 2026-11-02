@@ -1774,7 +1774,7 @@ fn write(db: &Database, batch: &Batch) -> Result<()> {
     Ok(())
 }
 
-/// Writes as [`write`] does, keeping a savepoint of the file as it was, unless the file's meta
+/// Writes as [`write()`] does, keeping a savepoint of the file as it was, unless the file's meta
 /// value is no longer `before`, the one it held before the commit's first try: that try landed
 /// before its call failed.
 #[expect(

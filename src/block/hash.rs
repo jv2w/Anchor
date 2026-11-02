@@ -29,7 +29,7 @@ const UNKNOWN: u32 = 0xffff_fffe;
 /// The value of a block state property, typed as the client's block state NBT types it.
 ///
 /// The table's values borrow `'static` strings; a lookup such as
-/// [`State::find`](super::State::find) takes values borrowed from its input. Values order by
+/// `State::find` takes values borrowed from its input. Values order by
 /// type (byte, int, string), then by value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PropertyValue<'a> {

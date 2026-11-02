@@ -585,7 +585,7 @@ pub(super) struct Chunks {
     /// ticket and chunk (at most [`MAX_TICKET_CHUNKS`]): derived from `tickets`, so neither
     /// saved nor hashed.
     by_chunk: BTreeSet<(Key, u64)>,
-    /// The sessions whose view has each chunk position ([`View::sees`]), in whatever world they
+    /// The sessions whose view has each chunk position ([`View::can_see`]), in whatever world they
     /// are (at most the chunks the views have): derived from the views, so neither saved nor
     /// hashed. Who sees a chunk is looked up here rather than by asking every player.
     viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>>,

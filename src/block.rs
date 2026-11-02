@@ -1825,7 +1825,7 @@ mod tests {
     // api: BlockBreakInfo::isToolCompatible, BlockBreakInfo::getBreakTime,
     // api: BlockBreakInfo::isBreakable, BlockBreakInfo::breaksInstantly, Block::isSolid,
     // api: Block::isTransparent, Block::canBeReplaced, Block::getFrictionFactor,
-    // api: Block::canBeFlowedInto, Block::hasEntityCollision, Block::hasTypeTag
+    // api: Block::canBeFlowedInto, Block::hasEntityCollision, Block::hasTypeTag, BlockTypeTags
     /// The values of well-known blocks: break info, flags, friction, class, trait and type tag.
     #[test]
     fn gameplay_data_are_the_dump_values() {
@@ -1975,7 +1975,7 @@ mod tests {
     }
 
     // api: VanillaBlocks, Block::asItem, BlockStateDictionary::getStates,
-    // api: BannerPatternTypeIdMap::fromId, BannerPatternTypeIdMap::toId
+    // api: BannerPatternType, BannerPatternTypeIdMap::fromId, BannerPatternTypeIdMap::toId
     #[test]
     fn every_kind_and_state_has_its_data() {
         // 799 kinds and 42 banner patterns.

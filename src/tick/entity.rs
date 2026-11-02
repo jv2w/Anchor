@@ -3250,7 +3250,7 @@ pub(super) fn player_moved(state: &mut State) {
     state.rules.entities.players_fresh = false;
 }
 
-/// Calls `f` with each player [`targetable`] in `world` whose box overlaps `area` by more than
+/// Calls `f` with each player [`is_targetable`] in `world` whose box overlaps `area` by more than
 /// [`EPSILON`], in session order. With the players'
 /// index of the entity tick it asks the chunks within a block of `area` (a box is at most 0.6
 /// wide; the feet round by less than 1e-4), at most [`MAX_PLAYER_COLUMNS`] of them; otherwise it

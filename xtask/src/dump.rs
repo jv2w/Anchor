@@ -14,7 +14,7 @@
 //! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
 //! made from the committed data instead).
 //!
-//! It is also xtask's file layer: [`read`], [`read_if_exists`], [`write`], [`create_dir`] and
+//! It is also xtask's file layer: [`read`], [`read_if_exists`], [`write()`], [`create_dir`] and
 //! [`is_file`] give every command the same path-carrying errors, and `upgrade::sha256` is the one
 //! hash.
 

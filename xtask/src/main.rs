@@ -292,7 +292,7 @@ fn reasons_command(out: &mut impl Write) -> Result<bool, String> {
     }
 }
 
-/// Writes one `<verb>: <file> (run `cargo xtask <command>`)` line for each file that `result`
+/// Writes one `verb: file (run `cargo xtask command`)` line for each file that `result`
 /// lists as differing, or its error. Passes when the list is empty.
 fn report_files(
     out: &mut impl Write,

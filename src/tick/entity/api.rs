@@ -944,7 +944,7 @@ impl Mut<'_> {
     }
 
     /// The entity and the players, to change both.
-    /// The entity's chunk is marked for the next save, as [`Self::entity`] says.
+    /// The entity's chunk is marked for the next save, as [`Self::entity_mut`] says.
     fn parts(&mut self) -> (&mut Entity, &mut BTreeMap<SessionId, Player>) {
         let key = {
             let e = &**self;

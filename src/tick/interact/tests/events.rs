@@ -967,6 +967,23 @@ fn perform(h: &mut Harness, a: impl crate::action::Action) {
     crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
+// api: Player::attackBlock
+#[test]
+fn the_attack_action_raises_the_left_click_event() {
+    let dirt = Kind::Dirt.default_state();
+    let l = listen(move |e: &mut PlayerInteract, _: &mut Context<'_>| {
+        note(SEEN, (e.action(), e.pos(), e.block()));
+    });
+    let mut h = Harness::with(|_| {}, l);
+    h.set(TARGET, dirt);
+    h.hold(Stack::EMPTY);
+    perform(&mut h, action::AttackBlock::new(me(), TARGET, Face::West));
+    assert_eq!(
+        notes(SEEN),
+        [dbg((InteractAction::LeftClickBlock, TARGET, dirt))]
+    );
+}
+
 // api: Player::breakBlock, Player::interactBlock, Player::useHeldItem, Player::interactEntity
 #[test]
 fn actions_do_what_the_player_would_with_events() {

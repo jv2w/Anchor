@@ -331,7 +331,7 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
     }
 }
 
-/// Turns `toggle` on or off for a spawned, living player (one that [may fly](Survival::may_fly),
+/// Turns `toggle` on or off for a spawned, living player (one that [may fly](Survival::can_fly),
 /// to start flying) unless its event's listener cancels it or leaves the player unable to; false
 /// if refused.
 fn toggle(state: &mut State, session: SessionId, toggle: Toggle) -> bool {
@@ -693,7 +693,7 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
 }
 
 /// Lets the blocks the player is inside act on it, on every move and in the base tick: the blocks
-/// that hurt ([`crate::tick::entity::Harm`], as for entities), water and water cauldrons put out
+/// that hurt (`Harm`, as for entities), water and water cauldrons put out
 /// fire, climbable blocks and cobwebs end a fall, wither roses wither.
 fn intersect(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {

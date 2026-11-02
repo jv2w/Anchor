@@ -879,7 +879,7 @@ pub(super) const fn is_float_angle(degrees: f64) -> bool {
 }
 
 /// Queues `packet` for the player of `session` and every player shown it
-/// ([`entity::send_about_player`]).
+/// ([`super::entity::send_about_player`]).
 fn broadcast_from(state: &mut State, session: SessionId, packet: &Packet) {
     super::entity::send_about_player(state, session, super::entity::Audience::Itself, packet);
 }

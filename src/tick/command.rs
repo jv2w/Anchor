@@ -133,7 +133,7 @@ pub(crate) struct Commands {
 }
 
 impl Commands {
-    /// Writes what changes while the server runs, as [`Self::hash_into`] hashes it, and the
+    /// Writes what changes while the server runs, as `Self::hash_into` hashes it, and the
     /// start tick.
     pub(super) fn checkpoint(&self, w: &mut Writer) {
         let Self {

@@ -6,13 +6,13 @@
 //!
 //! - **Arrival.** A chunk's extras arrive with its terrain, in the same load answer, and the tick
 //!   calls [`Extras::chunk_loaded`] right after it puts the terrain into its world; the rule
-//!   modules take them over as [`super::rules`] says. A player's extra arrives with its saved
+//!   modules take them over as [`super::rules()`] says. A player's extra arrives with its saved
 //!   data and the tick calls [`player_loaded`] when it places the player. A module that owns a
 //!   key of it reads its typed state from [`Player::raw`] there and from then on owns that
 //!   state.
 //! - **Snapshot.** At a save snapshot the tick asks for every chunk kind marked dirty
 //!   ([`Extras::take_dirty`]); the modules wrote their changed typed state back as NBT before
-//!   ([`super::rules`]), and the snapshot clears the chunk marks. For every player whose
+//!   ([`super::rules()`]), and the snapshot clears the chunk marks. For every player whose
 //!   `data_dirty` is set it copies the compound as saved ([`player_saved`]) and every module that
 //!   owns a key writes its typed state over it.
 //! - **Unload.** When the last holder of a chunk releases it, [`Extras::chunk_unloaded`] gives

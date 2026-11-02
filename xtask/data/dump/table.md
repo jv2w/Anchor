@@ -5,16 +5,16 @@ Rows: the non-`@internal` class-likes of `xtask/data/dump/api.json` and the publ
 
 | status | rows |
 |---|---:|
-| implemented | 1529 |
+| implemented | 1533 |
 | differs | 21 |
 | merged | 3313 |
-| skipped | 5126 |
-| blank | 228 |
+| skipped | 5350 |
+| blank | 0 |
 | total | 10217 |
 
 ## `block`
 
-implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
+implemented 99, differs 0, merged 1898, skipped 1341, blank 0 (of 3338 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -278,7 +278,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Block::hasTypeTag` | implemented | src/block.rs:321 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values |  |
 | `block\Block::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
 | `block\Block::isFireProofAsItem` | merged | src/item.rs:390 `is_fire_proof` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::isFireProof` |
-| `block\Block::isFlammable` | blank |  |  |  |
+| `block\Block::isFlammable` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Block::isFullCube` | merged | src/block.rs:203 `collision_boxes` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getCollisionBoxes` |
 | `block\Block::isSameState` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Block::isSolid` | implemented | src/block.rs:334 `is_solid` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values |  |
@@ -328,7 +328,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\BlockTypeInfo::getEnchantmentTags` | skipped |  |  | kinds are generated from the dump |
 | `block\BlockTypeInfo::getTypeTags` | merged | src/block.rs:321 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values | into `Block::hasTypeTag` |
 | `block\BlockTypeInfo::hasTypeTag` | merged | src/block.rs:321 `has_type_tag` | src/block.rs::gameplay_data_are_the_dump_values | into `Block::hasTypeTag` |
-| `block\BlockTypeTags` | blank | src/block/table.rs:81417 `TypeTag` |  | no `// api:` test (implemented) |
+| `block\BlockTypeTags` | implemented | src/block/table.rs:81417 `TypeTag` | src/block.rs::gameplay_data_are_the_dump_values |  |
 | `block\BlueIce` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\BlueIce::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\BlueIce::getFrictionFactor` | merged | src/block.rs:293 `friction_factor` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getFrictionFactor` |
@@ -410,7 +410,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\CakeWithDyedCandle::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\CakeWithDyedCandle::setColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Campfire` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Campfire::getCookingTime` | blank |  |  |  |
+| `block\Campfire::getCookingTime` | skipped |  |  | campfire rule code: a campfire cooks nothing and keeps no block entity data |
 | `block\Campfire::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Campfire::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Campfire::getInventory` | merged | src/tick/inventory/api.rs:137 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
@@ -426,7 +426,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Campfire::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Campfire::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Campfire::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\Campfire::setCookingTime` | blank |  |  |  |
+| `block\Campfire::setCookingTime` | skipped |  |  | campfire rule code: a campfire cooks nothing and keeps no block entity data |
 | `block\Campfire::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Campfire::setLit` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Campfire::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -522,7 +522,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ChiseledBookshelf` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChiseledBookshelf::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\ChiseledBookshelf::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ChiseledBookshelf::getLastInteractedSlot` | blank |  |  |  |
+| `block\ChiseledBookshelf::getLastInteractedSlot` | skipped |  |  | a chiseled bookshelf click is removed and its block entity keeps no data |
 | `block\ChiseledBookshelf::getSlots` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChiseledBookshelf::hasSlot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChiseledBookshelf::isAffectedBySilkTouch` | skipped |  |  | a broken block drops its own item: there are no vanilla drop rules |
@@ -530,7 +530,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ChiseledBookshelf::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ChiseledBookshelf::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\ChiseledBookshelf::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ChiseledBookshelf::setLastInteractedSlot` | blank |  |  |  |
+| `block\ChiseledBookshelf::setLastInteractedSlot` | skipped |  |  | a chiseled bookshelf click is removed and its block entity keeps no data |
 | `block\ChiseledBookshelf::setSlot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChiseledBookshelf::setSlots` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ChiseledBookshelf::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -1036,9 +1036,9 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ItemFrame` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ItemFrame::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\ItemFrame::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ItemFrame::getFramedItem` | blank |  |  |  |
-| `block\ItemFrame::getItemDropChance` | blank |  |  |  |
-| `block\ItemFrame::getItemRotation` | blank |  |  |  |
+| `block\ItemFrame::getFramedItem` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\ItemFrame::getItemDropChance` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\ItemFrame::getItemRotation` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
 | `block\ItemFrame::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `block\ItemFrame::hasMap` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\ItemFrame::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1047,16 +1047,16 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\ItemFrame::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\ItemFrame::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\ItemFrame::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ItemFrame::setFramedItem` | blank |  |  |  |
+| `block\ItemFrame::setFramedItem` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
 | `block\ItemFrame::setHasMap` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\ItemFrame::setItemDropChance` | blank |  |  |  |
-| `block\ItemFrame::setItemRotation` | blank |  |  |  |
+| `block\ItemFrame::setItemDropChance` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\ItemFrame::setItemRotation` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
 | `block\ItemFrame::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Jukebox` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Jukebox::ejectRecord` | skipped |  |  | block rule code |
 | `block\Jukebox::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Jukebox::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
-| `block\Jukebox::getRecord` | blank |  |  |  |
+| `block\Jukebox::getRecord` | skipped |  |  | a jukebox click is removed and its block entity keeps no data |
 | `block\Jukebox::insertRecord` | skipped |  |  | block rule code |
 | `block\Jukebox::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
 | `block\Jukebox::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1118,12 +1118,12 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Leaves::setNoDecay` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Leaves::ticksRandomly` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them |
 | `block\Lectern` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\Lectern::getBook` | blank |  |  |  |
+| `block\Lectern::getBook` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\Lectern::getDrops` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `block\Lectern::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lectern::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\Lectern::getSupportType` | merged | src/block.rs:477 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
-| `block\Lectern::getViewedPage` | blank |  |  |  |
+| `block\Lectern::getViewedPage` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\Lectern::isProducingSignal` | skipped |  |  | redstone |
 | `block\Lectern::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\Lectern::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1131,10 +1131,10 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Lectern::onScheduledUpdate` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\Lectern::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `block\Lectern::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\Lectern::setBook` | blank |  |  |  |
+| `block\Lectern::setBook` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\Lectern::setFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lectern::setProducingSignal` | skipped |  |  | redstone |
-| `block\Lectern::setViewedPage` | blank |  |  |  |
+| `block\Lectern::setViewedPage` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\Lectern::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\Lever` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\Lever::getFacing` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1353,11 +1353,11 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\PotionCauldron::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\PotionCauldron::getEmptySound` | skipped |  |  | block rule code |
 | `block\PotionCauldron::getFillSound` | skipped |  |  | block rule code |
-| `block\PotionCauldron::getPotionItem` | blank |  |  |  |
+| `block\PotionCauldron::getPotionItem` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\PotionCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\PotionCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\PotionCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\PotionCauldron::setPotionItem` | blank |  |  |  |
+| `block\PotionCauldron::setPotionItem` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\PotionCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\PoweredRail` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\PoweredRail::isPowered` | skipped |  |  | redstone |
@@ -1653,7 +1653,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\TNT::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's block states are a generated table |
 | `block\TNT::getFlameEncouragement` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `block\TNT::getFlammability` | skipped |  |  | fire is out of scope: blocks do not burn |
-| `block\TNT::ignite` | blank |  |  |  |
+| `block\TNT::ignite` | skipped |  |  | block rule code: TNT is lit by fire and redstone, which Anchor does not run |
 | `block\TNT::isUnstable` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\TNT::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
 | `block\TNT::onIncinerate` | skipped |  |  | block rule code: Anchor runs no block rules |
@@ -2583,7 +2583,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\Water::onEntityInside` | skipped |  |  | block rule code |
 | `block\Water::tickRate` | skipped |  |  | liquid rule code |
 | `block\WaterCauldron` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `block\WaterCauldron::getCustomWaterColor` | blank |  |  |  |
+| `block\WaterCauldron::getCustomWaterColor` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\WaterCauldron::getEmptySound` | skipped |  |  | block rule code |
 | `block\WaterCauldron::getFillSound` | skipped |  |  | block rule code |
 | `block\WaterCauldron::hasEntityCollision` | merged | src/block.rs:300 `has_entity_collision` | src/block.rs::gameplay_data_are_the_dump_values<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
@@ -2591,7 +2591,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\WaterCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `block\WaterCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: Anchor runs no block rules |
 | `block\WaterCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `block\WaterCauldron::setCustomWaterColor` | blank |  |  |  |
+| `block\WaterCauldron::setCustomWaterColor` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\WaterCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `block\WaterLily` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\WaterLily::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
@@ -2722,8 +2722,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\inventory\EnchantInventory` | merged | src/tick/inventory/api.rs:58 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `Player::getCurrentWindow` |
 | `block\inventory\EnchantInventory::__construct` | skipped |  |  | block inventories are made with their block by the rules |
 | `block\inventory\EnchantInventory::getHolder` | skipped |  |  | a block inventory is found by its position (`Context::block_inventory`) |
-| `block\inventory\EnchantInventory::getInput` | blank |  |  |  |
-| `block\inventory\EnchantInventory::getLapis` | blank |  |  |  |
+| `block\inventory\EnchantInventory::getInput` | skipped |  |  | the enchanting table window is removed |
+| `block\inventory\EnchantInventory::getLapis` | skipped |  |  | the enchanting table window is removed |
 | `block\inventory\EnchantInventory::getOption` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `block\inventory\EnchantInventory::getOutput` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `block\inventory\EnderChestInventory` | merged | src/tick/inventory/api.rs:51 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Human::getEnderInventory` |
@@ -2786,11 +2786,11 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Barrel::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\Barrel::setName` | merged | src/tick/block_entity/api.rs:352 `set_name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `block\tile\Beacon` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `block\tile\Beacon::getPrimaryEffect` | blank |  |  |  |
-| `block\tile\Beacon::getSecondaryEffect` | blank |  |  |  |
+| `block\tile\Beacon::getPrimaryEffect` | skipped |  |  | a beacon has no rules and keeps no block entity data |
+| `block\tile\Beacon::getSecondaryEffect` | skipped |  |  | a beacon has no rules and keeps no block entity data |
 | `block\tile\Beacon::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Beacon::setPrimaryEffect` | blank |  |  |  |
-| `block\tile\Beacon::setSecondaryEffect` | blank |  |  |  |
+| `block\tile\Beacon::setPrimaryEffect` | skipped |  |  | a beacon has no rules and keeps no block entity data |
+| `block\tile\Beacon::setSecondaryEffect` | skipped |  |  | a beacon has no rules and keeps no block entity data |
 | `block\tile\Bed` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\Bed::getColor` | implemented | src/tick/block_entity/api.rs:109 `bed_colour` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
 | `block\tile\Bed::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2823,18 +2823,18 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Campfire` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\Campfire::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Campfire::canOpenWith` | merged | src/tick/block_entity/api.rs:125 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
-| `block\tile\Campfire::getCookingTimes` | blank |  |  |  |
+| `block\tile\Campfire::getCookingTimes` | skipped |  |  | campfire rule code: a campfire cooks nothing and keeps no block entity data |
 | `block\tile\Campfire::getInventory` | merged | src/tick/inventory/api.rs:137 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `block\tile\Campfire::getRealInventory` | merged | src/tick/inventory/api.rs:136 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `block\tile\Campfire::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Campfire::setCookingTimes` | blank |  |  |  |
+| `block\tile\Campfire::setCookingTimes` | skipped |  |  | campfire rule code: a campfire cooks nothing and keeps no block entity data |
 | `block\tile\Cauldron` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `block\tile\Cauldron::getCustomWaterColor` | blank |  |  |  |
-| `block\tile\Cauldron::getPotionItem` | blank |  |  |  |
+| `block\tile\Cauldron::getCustomWaterColor` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
+| `block\tile\Cauldron::getPotionItem` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\tile\Cauldron::getRenderUpdateBugWorkaroundStateProperties` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `block\tile\Cauldron::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Cauldron::setCustomWaterColor` | blank |  |  |  |
-| `block\tile\Cauldron::setPotionItem` | blank |  |  |  |
+| `block\tile\Cauldron::setCustomWaterColor` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
+| `block\tile\Cauldron::setPotionItem` | skipped |  |  | cauldron contents are removed: a cauldron keeps no block entity data |
 | `block\tile\Chest` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\Chest::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\Chest::addNameSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2857,10 +2857,10 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\ChiseledBookshelf::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `block\tile\ChiseledBookshelf::canOpenWith` | merged | src/tick/block_entity/api.rs:125 `can_open_with` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `block\tile\ChiseledBookshelf::getInventory` | merged | src/tick/inventory/api.rs:137 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
-| `block\tile\ChiseledBookshelf::getLastInteractedSlot` | blank |  |  |  |
+| `block\tile\ChiseledBookshelf::getLastInteractedSlot` | skipped |  |  | a chiseled bookshelf click is removed and its block entity keeps no data |
 | `block\tile\ChiseledBookshelf::getRealInventory` | merged | src/tick/inventory/api.rs:136 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `block\tile\ChiseledBookshelf::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\ChiseledBookshelf::setLastInteractedSlot` | blank |  |  |  |
+| `block\tile\ChiseledBookshelf::setLastInteractedSlot` | skipped |  |  | a chiseled bookshelf click is removed and its block entity keeps no data |
 | `block\tile\Comparator` | skipped |  |  | redstone |
 | `block\tile\Comparator::getSignalStrength` | skipped |  |  | redstone |
 | `block\tile\Comparator::readSaveData` | skipped |  |  | redstone |
@@ -2922,24 +2922,24 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\tile\Hopper::setName` | merged | src/tick/block_entity/api.rs:352 `set_name` | src/tick/block_entity/api.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `block\tile\ItemFrame` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\ItemFrame::__construct` | skipped |  |  | block entities are made by the block rules with their block |
-| `block\tile\ItemFrame::getItem` | blank |  |  |  |
-| `block\tile\ItemFrame::getItemDropChance` | blank |  |  |  |
-| `block\tile\ItemFrame::getItemRotation` | blank |  |  |  |
-| `block\tile\ItemFrame::hasItem` | blank |  |  |  |
+| `block\tile\ItemFrame::getItem` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\tile\ItemFrame::getItemDropChance` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\tile\ItemFrame::getItemRotation` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\tile\ItemFrame::hasItem` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
 | `block\tile\ItemFrame::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\ItemFrame::setItem` | blank |  |  |  |
-| `block\tile\ItemFrame::setItemDropChance` | blank |  |  |  |
-| `block\tile\ItemFrame::setItemRotation` | blank |  |  |  |
+| `block\tile\ItemFrame::setItem` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\tile\ItemFrame::setItemDropChance` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
+| `block\tile\ItemFrame::setItemRotation` | skipped |  |  | an item frame click is removed and its block entity keeps no data |
 | `block\tile\Jukebox` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `block\tile\Jukebox::getRecord` | blank |  |  |  |
+| `block\tile\Jukebox::getRecord` | skipped |  |  | a jukebox click is removed and its block entity keeps no data |
 | `block\tile\Jukebox::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Jukebox::setRecord` | blank |  |  |  |
+| `block\tile\Jukebox::setRecord` | skipped |  |  | a jukebox click is removed and its block entity keeps no data |
 | `block\tile\Lectern` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `block\tile\Lectern::getBook` | blank |  |  |  |
-| `block\tile\Lectern::getViewedPage` | blank |  |  |  |
+| `block\tile\Lectern::getBook` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
+| `block\tile\Lectern::getViewedPage` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\tile\Lectern::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `block\tile\Lectern::setBook` | blank |  |  |  |
-| `block\tile\Lectern::setViewedPage` | blank |  |  |  |
+| `block\tile\Lectern::setBook` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
+| `block\tile\Lectern::setViewedPage` | skipped |  |  | a lectern click is removed and its block entity keeps no data |
 | `block\tile\MobHead` | merged | src/block_entity.rs:40 `BlockEntity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `block\tile\MobHead::getMobHeadType` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\tile\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:199 `skull_rotation` | src/tick/block_entity/api.rs::beds_banners_and_heads_keep_their_look |  |
@@ -3049,7 +3049,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\BannerPatternLayer::__construct` | skipped |  |  | kinds are generated from the dump; users do not make block objects |
 | `block\utils\BannerPatternLayer::getColor` | implemented | src/block_entity.rs:308 `colour` | src/block_entity.rs::banner_colours_count_the_other_way |  |
 | `block\utils\BannerPatternLayer::getType` | implemented | src/block_entity.rs:314 `pattern` | src/block_entity.rs::banner_colours_count_the_other_way |  |
-| `block\utils\BannerPatternType` | blank | src/block/table.rs:94804 `BannerPattern` |  | no `// api:` test (implemented) |
+| `block\utils\BannerPatternType` | implemented | src/block/table.rs:94804 `BannerPattern` | src/block.rs::every_kind_and_state_has_its_data |  |
 | `block\utils\BannerPatternType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\BannerPatternType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\BannerPatternType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -3074,7 +3074,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\BrewingStandSlot::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\BrewingStandSlot::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\BrewingStandSlot::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `block\utils\BrewingStandSlot::getSlotNumber` | blank |  |  |  |
+| `block\utils\BrewingStandSlot::getSlotNumber` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `block\utils\BrewingStandSlot::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\BrewingStandSlot::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CandleTrait` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -3086,7 +3086,7 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\ChiseledBookshelfSlot` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\ChiseledBookshelfSlot::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\ChiseledBookshelfSlot::from` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `block\utils\ChiseledBookshelfSlot::fromBlockFaceCoordinates` | blank |  |  |  |
+| `block\utils\ChiseledBookshelfSlot::fromBlockFaceCoordinates` | skipped |  |  | a chiseled bookshelf click is removed |
 | `block\utils\ChiseledBookshelfSlot::tryFrom` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\Colored` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `block\utils\Colored::getColor` | merged | src/block.rs:83 `State` | src/block.rs::gameplay_data_are_the_dump_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_dump_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -3106,8 +3106,8 @@ implemented 97, differs 0, merged 1898, skipped 1289, blank 54 (of 3338 rows)
 | `block\utils\CopperOxidation::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperOxidation::from` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperOxidation::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `block\utils\CopperOxidation::getNext` | blank |  |  |  |
-| `block\utils\CopperOxidation::getPrevious` | blank |  |  |  |
+| `block\utils\CopperOxidation::getNext` | skipped |  |  | block rule code: copper does not oxidise |
+| `block\utils\CopperOxidation::getPrevious` | skipped |  |  | block rule code: copper does not oxidise |
 | `block\utils\CopperOxidation::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperOxidation::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `block\utils\CopperOxidation::tryFrom` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -4415,7 +4415,7 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 
 ## `entity`
 
-implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
+implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -4613,7 +4613,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Human::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `entity\Human::emote` | implemented | src/tick/survival/api.rs:779 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
-| `entity\Human::getEnchantmentSeed` | blank |  |  |  |
+| `entity\Human::getEnchantmentSeed` | skipped |  |  | the enchanting table is removed: there is no enchantment seed |
 | `entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:51 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:387 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:47 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -4628,10 +4628,10 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Human::getXpManager` | merged | src/tick/survival/api.rs:658 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\Human::jump` | skipped |  |  | movement rule code: listeners see PlayerJump |
 | `entity\Human::parseSkinNBT` | skipped |  |  | entity NBT is internal to the chunk store |
-| `entity\Human::regenerateEnchantmentSeed` | blank |  |  |  |
+| `entity\Human::regenerateEnchantmentSeed` | skipped |  |  | the enchanting table is removed: there is no enchantment seed |
 | `entity\Human::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\Human::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
-| `entity\Human::setEnchantmentSeed` | blank |  |  |  |
+| `entity\Human::setEnchantmentSeed` | skipped |  |  | the enchanting table is removed: there is no enchantment seed |
 | `entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1369 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\HungerManager` | merged | src/tick/survival/api.rs:387 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
@@ -4667,7 +4667,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 | `entity\Living::getDisplayName` | merged | src/tick/player.rs:76 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `entity\Living::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `entity\Living::getEffects` | implemented | src/tick/survival/api.rs:353 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
-| `entity\Living::getFrostWalkerLevel` | blank |  |  |  |
+| `entity\Living::getFrostWalkerLevel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `entity\Living::getHighestArmorEnchantmentLevel` | skipped |  |  | damage rule code |
 | `entity\Living::getJumpVelocity` | skipped |  |  | movement rule code |
 | `entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1533 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
@@ -5093,7 +5093,7 @@ implemented 326, differs 1, merged 122, skipped 218, blank 4 (of 671 rows)
 
 ## `event`
 
-implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
+implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -5140,41 +5140,41 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\BlockBreakEvent::getInstaBreak` | implemented | src/event/block.rs:45 `insta_break` | src/event/block.rs::block_break_reads_and_changes_its_fields<br>src/tick/interact/tests/events.rs::a_break_before_its_time_raises_no_block_break |  |
 | `event\block\BlockBreakEvent::getItem` | implemented | src/event/block.rs:40 `item` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::getPlayer` | implemented | src/event/block.rs:28 `player` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBreakEvent::getXpDropAmount` | blank |  |  |  |
+| `event\block\BlockBreakEvent::getXpDropAmount` | skipped |  |  | a broken block drops its own item and no experience: there are no vanilla drop rules |
 | `event\block\BlockBreakEvent::isCancelled` | implemented | src/event/block.rs:64 `Raised` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setDrops` | implemented | src/event/block.rs:55 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setDropsVariadic` | implemented | src/event/block.rs:56 `set_drops` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
 | `event\block\BlockBreakEvent::setInstaBreak` | skipped |  |  | a break before its time is refused before the event (nothing reads the value back either) |
-| `event\block\BlockBreakEvent::setXpDropAmount` | blank |  |  |  |
+| `event\block\BlockBreakEvent::setXpDropAmount` | skipped |  |  | a broken block drops its own item and no experience: there are no vanilla drop rules |
 | `event\block\BlockBreakEvent::uncancel` | implemented | src/event/block.rs:63 `Raised` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockBurnEvent` | blank |  |  |  |
+| `event\block\BlockBurnEvent` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `event\block\BlockBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockBurnEvent::cancel` | blank |  |  |  |
-| `event\block\BlockBurnEvent::getCausingBlock` | blank |  |  |  |
+| `event\block\BlockBurnEvent::cancel` | skipped |  |  | fire is out of scope: blocks do not burn |
+| `event\block\BlockBurnEvent::getCausingBlock` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `event\block\BlockBurnEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BlockBurnEvent::uncancel` | blank |  |  |  |
-| `event\block\BlockDeathEvent` | blank |  |  |  |
+| `event\block\BlockBurnEvent::uncancel` | skipped |  |  | fire is out of scope: blocks do not burn |
+| `event\block\BlockDeathEvent` | skipped |  |  | block rule code: blocks do not die by themselves |
 | `event\block\BlockEvent` | merged | src/event/block.rs:37 `block` | src/event/block.rs::block_break_reads_and_changes_its_fields | into `BlockEvent::getBlock` |
 | `event\block\BlockEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockEvent::getBlock` | implemented | src/event/block.rs:37 `block` | src/event/block.rs::block_break_reads_and_changes_its_fields |  |
-| `event\block\BlockExplodeEvent` | blank |  |  |  |
+| `event\block\BlockExplodeEvent` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockExplodeEvent::cancel` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::getAffectedBlocks` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::getIgnitions` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::getPosition` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::getYield` | blank |  |  |  |
+| `event\block\BlockExplodeEvent::cancel` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::getAffectedBlocks` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::getIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::getPosition` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::getYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BlockExplodeEvent::setAffectedBlocks` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::setIgnitions` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::setYield` | blank |  |  |  |
-| `event\block\BlockExplodeEvent::uncancel` | blank |  |  |  |
-| `event\block\BlockFormEvent` | blank |  |  |  |
+| `event\block\BlockExplodeEvent::setAffectedBlocks` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::setIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::setYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockExplodeEvent::uncancel` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockFormEvent` | skipped |  |  | block rule code: blocks do not form by themselves |
 | `event\block\BlockFormEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockFormEvent::getCausingBlock` | blank |  |  |  |
-| `event\block\BlockGrowEvent` | blank |  |  |  |
+| `event\block\BlockFormEvent::getCausingBlock` | skipped |  |  | block rule code: blocks do not form by themselves |
+| `event\block\BlockGrowEvent` | skipped |  |  | block rule code: blocks do not grow |
 | `event\block\BlockGrowEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockGrowEvent::getPlayer` | blank |  |  |  |
+| `event\block\BlockGrowEvent::getPlayer` | skipped |  |  | block rule code: blocks do not grow |
 | `event\block\BlockItemPickupEvent` | skipped |  |  | the API'snever raises it |
 | `event\block\BlockItemPickupEvent::__construct` | skipped |  |  | the API'snever raises it |
 | `event\block\BlockItemPickupEvent::cancel` | skipped |  |  | the API'snever raises it |
@@ -5185,7 +5185,7 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\BlockItemPickupEvent::setInventory` | skipped |  |  | the API'snever raises it |
 | `event\block\BlockItemPickupEvent::setItem` | skipped |  |  | the API'snever raises it |
 | `event\block\BlockItemPickupEvent::uncancel` | skipped |  |  | the API'snever raises it |
-| `event\block\BlockMeltEvent` | blank |  |  |  |
+| `event\block\BlockMeltEvent` | skipped |  |  | block rule code: blocks do not melt |
 | `event\block\BlockPlaceEvent` | implemented | src/event/block.rs:69 `BlockPlace` | src/event/block.rs::block_place_lists_every_block_it_sets<br>src/tick/interact/tests/events.rs::a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door<br>src/tick/interact/tests/events.rs::a_cancelled_placement_changes_nothing_and_resyncs<br>src/tick/interact/tests/events.rs::a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places<br>src/tick/interact/tests/events.rs::a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items<br>src/tick/interact/tests/events.rs::a_place_listener_that_ends_creative_mode_has_the_block_paid_for<br>src/tick/interact/tests/events.rs::a_place_listener_that_moves_the_player_out_of_reach_cancels_the_placement |  |
 | `event\block\BlockPlaceEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockPlaceEvent::cancel` | implemented | src/event/block.rs:99 `Raised` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
@@ -5195,63 +5195,63 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\BlockPlaceEvent::getTransaction` | implemented | src/event/block.rs:87 `blocks` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
 | `event\block\BlockPlaceEvent::isCancelled` | implemented | src/event/block.rs:101 `Raised` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
 | `event\block\BlockPlaceEvent::uncancel` | implemented | src/event/block.rs:100 `Raised` | src/event/block.rs::block_place_lists_every_block_it_sets |  |
-| `event\block\BlockPreExplodeEvent` | blank |  |  |  |
+| `event\block\BlockPreExplodeEvent` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockPreExplodeEvent::cancel` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::getFireChance` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::getPlayer` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::getRadius` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::isBlockBreaking` | blank |  |  |  |
+| `event\block\BlockPreExplodeEvent::cancel` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::getFireChance` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::getPlayer` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::getRadius` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::isBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BlockPreExplodeEvent::isIncendiary` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::setBlockBreaking` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::setFireChance` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::setIncendiary` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::setRadius` | blank |  |  |  |
-| `event\block\BlockPreExplodeEvent::uncancel` | blank |  |  |  |
-| `event\block\BlockSpreadEvent` | blank |  |  |  |
+| `event\block\BlockPreExplodeEvent::isIncendiary` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::setBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::setFireChance` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::setIncendiary` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::setRadius` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockPreExplodeEvent::uncancel` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
+| `event\block\BlockSpreadEvent` | skipped |  |  | block rule code: blocks do not spread |
 | `event\block\BlockSpreadEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockSpreadEvent::getSource` | blank |  |  |  |
-| `event\block\BlockTeleportEvent` | blank |  |  |  |
+| `event\block\BlockSpreadEvent::getSource` | skipped |  |  | block rule code: blocks do not spread |
+| `event\block\BlockTeleportEvent` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BlockTeleportEvent::cancel` | blank |  |  |  |
-| `event\block\BlockTeleportEvent::getTo` | blank |  |  |  |
+| `event\block\BlockTeleportEvent::cancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
+| `event\block\BlockTeleportEvent::getTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BlockTeleportEvent::setTo` | blank |  |  |  |
-| `event\block\BlockTeleportEvent::uncancel` | blank |  |  |  |
-| `event\block\BlockUpdateEvent` | blank |  |  |  |
-| `event\block\BlockUpdateEvent::cancel` | blank |  |  |  |
+| `event\block\BlockTeleportEvent::setTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
+| `event\block\BlockTeleportEvent::uncancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
+| `event\block\BlockUpdateEvent` | skipped |  |  | block rule code: Anchor runs no block updates |
+| `event\block\BlockUpdateEvent::cancel` | skipped |  |  | block rule code: Anchor runs no block updates |
 | `event\block\BlockUpdateEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BlockUpdateEvent::uncancel` | blank |  |  |  |
-| `event\block\BrewItemEvent` | blank |  |  |  |
+| `event\block\BlockUpdateEvent::uncancel` | skipped |  |  | block rule code: Anchor runs no block updates |
+| `event\block\BrewItemEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BrewItemEvent::cancel` | blank |  |  |  |
-| `event\block\BrewItemEvent::getBrewingStand` | blank |  |  |  |
-| `event\block\BrewItemEvent::getInput` | blank |  |  |  |
-| `event\block\BrewItemEvent::getRecipe` | skipped |  |  | brewing is out of scope: the brewing stand does nothing |
-| `event\block\BrewItemEvent::getResult` | blank |  |  |  |
-| `event\block\BrewItemEvent::getSlot` | blank |  |  |  |
+| `event\block\BrewItemEvent::cancel` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::getBrewingStand` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::getInput` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::getRecipe` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::getResult` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::getSlot` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BrewItemEvent::setResult` | blank |  |  |  |
-| `event\block\BrewItemEvent::uncancel` | blank |  |  |  |
-| `event\block\BrewingFuelUseEvent` | blank |  |  |  |
+| `event\block\BrewItemEvent::setResult` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewItemEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewingFuelUseEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\BrewingFuelUseEvent::cancel` | blank |  |  |  |
-| `event\block\BrewingFuelUseEvent::getBrewingStand` | blank |  |  |  |
-| `event\block\BrewingFuelUseEvent::getFuelTime` | blank |  |  |  |
+| `event\block\BrewingFuelUseEvent::cancel` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewingFuelUseEvent::getBrewingStand` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewingFuelUseEvent::getFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\BrewingFuelUseEvent::setFuelTime` | blank |  |  |  |
-| `event\block\BrewingFuelUseEvent::uncancel` | blank |  |  |  |
-| `event\block\CampfireCookEvent` | blank |  |  |  |
+| `event\block\BrewingFuelUseEvent::setFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\BrewingFuelUseEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
+| `event\block\CampfireCookEvent` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\CampfireCookEvent::cancel` | blank |  |  |  |
-| `event\block\CampfireCookEvent::getCampfire` | blank |  |  |  |
-| `event\block\CampfireCookEvent::getInput` | blank |  |  |  |
-| `event\block\CampfireCookEvent::getResult` | blank |  |  |  |
-| `event\block\CampfireCookEvent::getSlot` | blank |  |  |  |
+| `event\block\CampfireCookEvent::cancel` | skipped |  |  | campfire rule code: a campfire cooks nothing |
+| `event\block\CampfireCookEvent::getCampfire` | skipped |  |  | campfire rule code: a campfire cooks nothing |
+| `event\block\CampfireCookEvent::getInput` | skipped |  |  | campfire rule code: a campfire cooks nothing |
+| `event\block\CampfireCookEvent::getResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
+| `event\block\CampfireCookEvent::getSlot` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\CampfireCookEvent::setResult` | blank |  |  |  |
-| `event\block\CampfireCookEvent::uncancel` | blank |  |  |  |
+| `event\block\CampfireCookEvent::setResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
+| `event\block\CampfireCookEvent::uncancel` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\ChestPairEvent` | implemented | src/event/block.rs:106 `ChestPair` | src/event/block.rs::chest_pair_names_both_halves<br>src/tick/inventory/tests/events.rs::chest_pair_names_the_halves_and_cancelling_keeps_them_single |  |
 | `event\block\ChestPairEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\ChestPairEvent::cancel` | implemented | src/event/block.rs:128 `Raised` | src/event/block.rs::chest_pair_names_both_halves |  |
@@ -5259,18 +5259,18 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\ChestPairEvent::getRight` | implemented | src/event/block.rs:122 `right` | src/event/block.rs::chest_pair_names_both_halves |  |
 | `event\block\ChestPairEvent::isCancelled` | implemented | src/event/block.rs:130 `Raised` | src/event/block.rs::chest_pair_names_both_halves |  |
 | `event\block\ChestPairEvent::uncancel` | implemented | src/event/block.rs:129 `Raised` | src/event/block.rs::chest_pair_names_both_halves |  |
-| `event\block\FarmlandHydrationChangeEvent` | blank |  |  |  |
+| `event\block\FarmlandHydrationChangeEvent` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\FarmlandHydrationChangeEvent::cancel` | blank |  |  |  |
-| `event\block\FarmlandHydrationChangeEvent::getNewHydration` | blank |  |  |  |
-| `event\block\FarmlandHydrationChangeEvent::getOldHydration` | blank |  |  |  |
+| `event\block\FarmlandHydrationChangeEvent::cancel` | skipped |  |  | block rule code: farmland does not dry or wet |
+| `event\block\FarmlandHydrationChangeEvent::getNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
+| `event\block\FarmlandHydrationChangeEvent::getOldHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\FarmlandHydrationChangeEvent::setNewHydration` | blank |  |  |  |
-| `event\block\FarmlandHydrationChangeEvent::uncancel` | blank |  |  |  |
-| `event\block\LeavesDecayEvent` | blank |  |  |  |
-| `event\block\LeavesDecayEvent::cancel` | blank |  |  |  |
+| `event\block\FarmlandHydrationChangeEvent::setNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
+| `event\block\FarmlandHydrationChangeEvent::uncancel` | skipped |  |  | block rule code: farmland does not dry or wet |
+| `event\block\LeavesDecayEvent` | skipped |  |  | block rule code: leaves do not decay |
+| `event\block\LeavesDecayEvent::cancel` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\LeavesDecayEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\LeavesDecayEvent::uncancel` | blank |  |  |  |
+| `event\block\LeavesDecayEvent::uncancel` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\PressurePlateUpdateEvent` | skipped |  |  | redstone |
 | `event\block\PressurePlateUpdateEvent::__construct` | skipped |  |  | redstone |
 | `event\block\PressurePlateUpdateEvent::getActivatingEntities` | skipped |  |  | redstone |
@@ -5285,13 +5285,13 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\block\SignChangeEvent::isFrontFace` | implemented | src/event/block.rs:166 `side` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
 | `event\block\SignChangeEvent::setNewText` | implemented | src/event/block.rs:174 `set_new_text` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change<br>src/tick/interact/tests/events.rs::a_listeners_sign_text_goes_on_as_it_is_and_monitors_see_it |  |
 | `event\block\SignChangeEvent::uncancel` | implemented | src/event/block.rs:181 `cfg` | src/event/block.rs::sign_change_names_its_side_and_its_text_can_change |  |
-| `event\block\StructureGrowEvent` | blank |  |  |  |
+| `event\block\StructureGrowEvent` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\block\StructureGrowEvent::cancel` | blank |  |  |  |
-| `event\block\StructureGrowEvent::getPlayer` | blank |  |  |  |
-| `event\block\StructureGrowEvent::getTransaction` | blank |  |  |  |
+| `event\block\StructureGrowEvent::cancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
+| `event\block\StructureGrowEvent::getPlayer` | skipped |  |  | block rule code: saplings do not grow by themselves |
+| `event\block\StructureGrowEvent::getTransaction` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\block\StructureGrowEvent::uncancel` | blank |  |  |  |
+| `event\block\StructureGrowEvent::uncancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\entity\AreaEffectCloudApplyEvent` | implemented | src/event/entity.rs:28 `AreaEffectCloudApply` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected<br>src/tick/entity/tests/events.rs::a_cancelled_cloud_application_gives_no_effects |  |
 | `event\entity\AreaEffectCloudApplyEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\AreaEffectCloudApplyEvent::cancel` | implemented | src/event/entity.rs:47 `Raised` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
@@ -5390,17 +5390,17 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\entity\EntityExtinguishEvent` | implemented | src/event/entity.rs:625 `EntityExtinguish` | src/event/entity.rs::entity_extinguish_names_the_cause<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out<br>src/tick/survival/wiring.rs::combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end |  |
 | `event\entity\EntityExtinguishEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\EntityExtinguishEvent::getCause` | implemented | src/event/entity.rs:636 `cause` | src/event/entity.rs::entity_extinguish_names_the_cause |  |
-| `event\entity\EntityFrostWalkerEvent` | blank |  |  |  |
+| `event\entity\EntityFrostWalkerEvent` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\entity\EntityFrostWalkerEvent::cancel` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::getLiquid` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::getRadius` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::getTargetBlock` | blank |  |  |  |
+| `event\entity\EntityFrostWalkerEvent::cancel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::getLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::getRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::getTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\entity\EntityFrostWalkerEvent::setLiquid` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::setRadius` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::setTargetBlock` | blank |  |  |  |
-| `event\entity\EntityFrostWalkerEvent::uncancel` | blank |  |  |  |
+| `event\entity\EntityFrostWalkerEvent::setLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::setRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::setTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
+| `event\entity\EntityFrostWalkerEvent::uncancel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityItemPickupEvent` | implemented | src/event/entity.rs:663 `EntityItemPickup` | src/event/entity.rs::entity_item_pickup_item_can_change<br>src/tick/entity/tests/events.rs::a_pickup_offers_what_fits_and_listeners_decide_what_moves<br>src/tick/entity/tests/events.rs::listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items |  |
 | `event\entity\EntityItemPickupEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\EntityItemPickupEvent::cancel` | implemented | src/event/entity.rs:691 `Raised` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
@@ -5459,12 +5459,12 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\entity\EntityTeleportEvent::isCancelled` | implemented | src/event/entity.rs:961 `Why` | src/event/entity.rs::entity_teleport_target_can_change |  |
 | `event\entity\EntityTeleportEvent::setTo` | implemented | src/event/entity.rs:948 `set_target` | src/event/entity.rs::entity_teleport_target_can_change |  |
 | `event\entity\EntityTeleportEvent::uncancel` | implemented | src/event/entity.rs:960 `Why` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `event\entity\EntityTrampleFarmlandEvent` | blank |  |  |  |
+| `event\entity\EntityTrampleFarmlandEvent` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\EntityTrampleFarmlandEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\entity\EntityTrampleFarmlandEvent::cancel` | blank |  |  |  |
-| `event\entity\EntityTrampleFarmlandEvent::getBlock` | blank |  |  |  |
+| `event\entity\EntityTrampleFarmlandEvent::cancel` | skipped |  |  | block rule code: farmland is not trampled |
+| `event\entity\EntityTrampleFarmlandEvent::getBlock` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\EntityTrampleFarmlandEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\entity\EntityTrampleFarmlandEvent::uncancel` | blank |  |  |  |
+| `event\entity\EntityTrampleFarmlandEvent::uncancel` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\ItemDespawnEvent` | implemented | src/event/entity.rs:978 `ItemDespawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::a_cancelled_item_despawn_gives_the_whole_time_again |  |
 | `event\entity\ItemDespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\ItemDespawnEvent::cancel` | implemented | src/event/entity.rs:993 `Raised` | src/event/entity.rs::dropped_item_events_name_the_items |  |
@@ -5496,37 +5496,37 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\entity\ProjectileLaunchEvent::getEntity` | implemented | src/event/entity.rs:1093 `entity` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
 | `event\entity\ProjectileLaunchEvent::isCancelled` | implemented | src/event/entity.rs:1101 `The` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
 | `event\entity\ProjectileLaunchEvent::uncancel` | implemented | src/event/entity.rs:1100 `The` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `event\inventory\CraftItemEvent` | blank |  |  |  |
+| `event\inventory\CraftItemEvent` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\inventory\CraftItemEvent::cancel` | blank |  |  |  |
-| `event\inventory\CraftItemEvent::getInputs` | blank |  |  |  |
-| `event\inventory\CraftItemEvent::getOutputs` | blank |  |  |  |
-| `event\inventory\CraftItemEvent::getPlayer` | blank |  |  |  |
-| `event\inventory\CraftItemEvent::getRecipe` | skipped |  |  | crafting is out of scope: Anchor has no recipes |
-| `event\inventory\CraftItemEvent::getRepetitions` | blank |  |  |  |
-| `event\inventory\CraftItemEvent::getTransaction` | skipped |  |  | crafting is out of scope: Anchor has no recipes |
+| `event\inventory\CraftItemEvent::cancel` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getInputs` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getOutputs` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getPlayer` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getRecipe` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getRepetitions` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\CraftItemEvent::getTransaction` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\inventory\CraftItemEvent::uncancel` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent` | blank |  |  |  |
+| `event\inventory\CraftItemEvent::uncancel` | skipped |  |  | crafting is removed: crafting requests are refused |
+| `event\inventory\FurnaceBurnEvent` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\inventory\FurnaceBurnEvent::cancel` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::getBurnTime` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::getFuel` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::getFurnace` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::isBurning` | blank |  |  |  |
+| `event\inventory\FurnaceBurnEvent::cancel` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::getBurnTime` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::getFuel` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::isBurning` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\inventory\FurnaceBurnEvent::setBurnTime` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::setBurning` | blank |  |  |  |
-| `event\inventory\FurnaceBurnEvent::uncancel` | blank |  |  |  |
-| `event\inventory\FurnaceSmeltEvent` | blank |  |  |  |
+| `event\inventory\FurnaceBurnEvent::setBurnTime` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::setBurning` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceBurnEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceSmeltEvent` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\inventory\FurnaceSmeltEvent::cancel` | blank |  |  |  |
-| `event\inventory\FurnaceSmeltEvent::getFurnace` | blank |  |  |  |
-| `event\inventory\FurnaceSmeltEvent::getResult` | blank |  |  |  |
-| `event\inventory\FurnaceSmeltEvent::getSource` | blank |  |  |  |
+| `event\inventory\FurnaceSmeltEvent::cancel` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceSmeltEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceSmeltEvent::getResult` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceSmeltEvent::getSource` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\inventory\FurnaceSmeltEvent::setResult` | blank |  |  |  |
-| `event\inventory\FurnaceSmeltEvent::uncancel` | blank |  |  |  |
+| `event\inventory\FurnaceSmeltEvent::setResult` | skipped |  |  | furnace rule code: furnaces are removed |
+| `event\inventory\FurnaceSmeltEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\InventoryCloseEvent` | implemented | src/event/inventory.rs:12 `InventoryClose` | src/event/inventory.rs::inventory_open_and_close_name_the_window<br>src/tick/interact/tests/events.rs::breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total<br>src/tick/inventory/tests/events.rs::windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed<br>src/tick/inventory/tests/events.rs::a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window<br>src/tick/survival/wiring.rs::a_menu_a_close_listener_opens_does_not_follow_a_teleport_to_another_world |  |
 | `event\inventory\InventoryCloseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\inventory\InventoryCloseEvent::getPlayer` | implemented | src/event/inventory.rs:21 `player` | src/event/inventory.rs::inventory_open_and_close_name_the_window |  |
@@ -5546,15 +5546,15 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\inventory\InventoryTransactionEvent::getTransaction` | implemented | src/event/inventory.rs:86 `changes` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
 | `event\inventory\InventoryTransactionEvent::isCancelled` | implemented | src/event/inventory.rs:95 `One` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
 | `event\inventory\InventoryTransactionEvent::uncancel` | implemented | src/event/inventory.rs:94 `One` | src/event/inventory.rs::inventory_transaction_lists_every_slot_change |  |
-| `event\player\PlayerBedEnterEvent` | blank |  |  |  |
+| `event\player\PlayerBedEnterEvent` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedEnterEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerBedEnterEvent::cancel` | blank |  |  |  |
-| `event\player\PlayerBedEnterEvent::getBed` | blank |  |  |  |
+| `event\player\PlayerBedEnterEvent::cancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
+| `event\player\PlayerBedEnterEvent::getBed` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedEnterEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerBedEnterEvent::uncancel` | blank |  |  |  |
-| `event\player\PlayerBedLeaveEvent` | blank |  |  |  |
+| `event\player\PlayerBedEnterEvent::uncancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
+| `event\player\PlayerBedLeaveEvent` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedLeaveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerBedLeaveEvent::getBed` | blank |  |  |  |
+| `event\player\PlayerBedLeaveEvent::getBed` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBlockPickEvent` | implemented | src/event/player.rs:25 `PlayerBlockPick` | src/event/player.rs::block_pick_names_the_item<br>src/tick/inventory/tests/events.rs::pick_block_raises_block_pick_and_cancelling_gives_nothing |  |
 | `event\player\PlayerBlockPickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerBlockPickEvent::cancel` | implemented | src/event/player.rs:53 `Raised` | src/event/player.rs::block_pick_names_the_item |  |
@@ -5562,18 +5562,18 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerBlockPickEvent::getResultItem` | implemented | src/event/player.rs:47 `result_item` | src/event/player.rs::block_pick_names_the_item |  |
 | `event\player\PlayerBlockPickEvent::isCancelled` | implemented | src/event/player.rs:55 `Raised` | src/event/player.rs::block_pick_names_the_item |  |
 | `event\player\PlayerBlockPickEvent::uncancel` | implemented | src/event/player.rs:54 `Raised` | src/event/player.rs::block_pick_names_the_item |  |
-| `event\player\PlayerBucketEmptyEvent` | blank |  |  |  |
-| `event\player\PlayerBucketEvent` | blank |  |  |  |
+| `event\player\PlayerBucketEmptyEvent` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerBucketEvent::cancel` | blank |  |  |  |
-| `event\player\PlayerBucketEvent::getBlockClicked` | blank |  |  |  |
-| `event\player\PlayerBucketEvent::getBlockFace` | blank |  |  |  |
-| `event\player\PlayerBucketEvent::getBucket` | blank |  |  |  |
-| `event\player\PlayerBucketEvent::getItem` | blank |  |  |  |
+| `event\player\PlayerBucketEvent::cancel` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent::getBlockClicked` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent::getBlockFace` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent::getBucket` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent::getItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerBucketEvent::setItem` | blank |  |  |  |
-| `event\player\PlayerBucketEvent::uncancel` | blank |  |  |  |
-| `event\player\PlayerBucketFillEvent` | blank |  |  |  |
+| `event\player\PlayerBucketEvent::setItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketEvent::uncancel` | skipped |  |  | bucket use is removed: buckets do not change blocks |
+| `event\player\PlayerBucketFillEvent` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerChangeSkinEvent` | implemented | src/event/player.rs:62 `PlayerChangeSkin` | src/event/player.rs::change_skin_new_skin_can_change<br>src/tick/survival/wiring.rs::skin_changes_reach_everyone_or_go_back_to_the_player<br>src/tick/survival/wiring.rs::a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change |  |
 | `event\player\PlayerChangeSkinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerChangeSkinEvent::cancel` | implemented | src/event/player.rs:100 `Raised` | src/event/player.rs::change_skin_new_skin_can_change |  |
@@ -5668,14 +5668,14 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:538 `Raised` | src/event/player.rs::emote_can_change |  |
 | `event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:530 `set_emote_id` | src/event/player.rs::emote_can_change |  |
 | `event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:537 `Raised` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEnchantingOptionsRequestEvent` | blank |  |  |  |
+| `event\player\PlayerEnchantingOptionsRequestEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEnchantingOptionsRequestEvent::cancel` | blank |  |  |  |
-| `event\player\PlayerEnchantingOptionsRequestEvent::getInventory` | blank |  |  |  |
-| `event\player\PlayerEnchantingOptionsRequestEvent::getOptions` | blank |  |  |  |
+| `event\player\PlayerEnchantingOptionsRequestEvent::cancel` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerEnchantingOptionsRequestEvent::getInventory` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerEnchantingOptionsRequestEvent::getOptions` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerEnchantingOptionsRequestEvent::setOptions` | blank |  |  |  |
-| `event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | blank |  |  |  |
+| `event\player\PlayerEnchantingOptionsRequestEvent::setOptions` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:548 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
 | `event\player\PlayerEntityInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:570 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
@@ -5740,16 +5740,16 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:897 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
 | `event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:889 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
 | `event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:896 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemEnchantEvent` | blank |  |  |  |
+| `event\player\PlayerItemEnchantEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemEnchantEvent::cancel` | blank |  |  |  |
-| `event\player\PlayerItemEnchantEvent::getCost` | blank |  |  |  |
-| `event\player\PlayerItemEnchantEvent::getInputItem` | blank |  |  |  |
-| `event\player\PlayerItemEnchantEvent::getOption` | blank |  |  |  |
-| `event\player\PlayerItemEnchantEvent::getOutputItem` | blank |  |  |  |
-| `event\player\PlayerItemEnchantEvent::getTransaction` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
+| `event\player\PlayerItemEnchantEvent::cancel` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerItemEnchantEvent::getCost` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerItemEnchantEvent::getInputItem` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerItemEnchantEvent::getOption` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerItemEnchantEvent::getOutputItem` | skipped |  |  | the enchanting table is removed |
+| `event\player\PlayerItemEnchantEvent::getTransaction` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerItemEnchantEvent::uncancel` | blank |  |  |  |
+| `event\player\PlayerItemEnchantEvent::uncancel` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:901 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
 | `event\player\PlayerItemHeldEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:923 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
@@ -5836,14 +5836,14 @@ implemented 482, differs 3, merged 69, skipped 204, blank 151 (of 909 rows)
 | `event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:680 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:680 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerRespawnAnchorUseEvent` | blank |  |  |  |
+| `event\player\PlayerRespawnAnchorUseEvent` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerRespawnAnchorUseEvent::cancel` | blank |  |  |  |
-| `event\player\PlayerRespawnAnchorUseEvent::getAction` | blank |  |  |  |
-| `event\player\PlayerRespawnAnchorUseEvent::getBlock` | blank |  |  |  |
+| `event\player\PlayerRespawnAnchorUseEvent::cancel` | skipped |  |  | a respawn anchor click is removed |
+| `event\player\PlayerRespawnAnchorUseEvent::getAction` | skipped |  |  | a respawn anchor click is removed |
+| `event\player\PlayerRespawnAnchorUseEvent::getBlock` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::isCancelled` | merged | src/event/player.rs:353 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerRespawnAnchorUseEvent::setAction` | blank |  |  |  |
-| `event\player\PlayerRespawnAnchorUseEvent::uncancel` | blank |  |  |  |
+| `event\player\PlayerRespawnAnchorUseEvent::setAction` | skipped |  |  | a respawn anchor click is removed |
+| `event\player\PlayerRespawnAnchorUseEvent::uncancel` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1428 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::respawn_monitors_see_the_place_used_not_an_ignored_one |  |
 | `event\player\PlayerRespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1442 `position` | src/event/player.rs::respawn_position_can_change |  |
@@ -6019,7 +6019,7 @@ implemented 2, differs 0, merged 1, skipped 0, blank 0 (of 3 rows)
 
 ## `inventory`
 
-implemented 83, differs 0, merged 11, skipped 109, blank 1 (of 204 rows)
+implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -6131,7 +6131,7 @@ implemented 83, differs 0, merged 11, skipped 109, blank 1 (of 204 rows)
 | `inventory\InventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `inventory\InventoryListener::onContentChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `inventory\InventoryListener::onSlotChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
-| `inventory\PlayerCraftingInventory` | blank |  |  |  |
+| `inventory\PlayerCraftingInventory` | skipped |  |  | crafting is removed: there is no crafting grid |
 | `inventory\PlayerCraftingInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
 | `inventory\PlayerCraftingInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
 | `inventory\PlayerCursorInventory` | implemented | src/inventory.rs:46 `Cursor` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -6230,7 +6230,7 @@ implemented 83, differs 0, merged 11, skipped 109, blank 1 (of 204 rows)
 
 ## `item`
 
-implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
+implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -6388,7 +6388,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Durable::setDamage` | implemented | src/item/stack.rs:340 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Durable::setUnbreakable` | merged | src/item/stack.rs:619 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Dye` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Dye::getColor` | blank |  |  |  |
+| `item\Dye::getColor` | skipped |  |  | dye colours served crafting and cauldrons, which are removed |
 | `item\Dye::setColor` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\Egg` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Egg::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
@@ -6681,7 +6681,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\Potion::getType` | implemented | src/item.rs:492 `potion` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Potion::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `item\Potion::setType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
-| `item\PotionType` | blank | src/effect/table.rs:365 `Potion` |  | no `// api:` test (implemented) |
+| `item\PotionType` | implemented | src/effect/table.rs:365 `Potion` | src/effect.rs::effect_and_potion_data_are_the_dump_values |  |
 | `item\PotionType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\PotionType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
@@ -6821,7 +6821,7 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\TieredTool::getEnchantability` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\TieredTool::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\TieredTool::getMaxDurability` | merged | src/item.rs:405 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\TieredTool::getTier` | blank |  |  |  |
+| `item\TieredTool::getTier` | skipped |  |  | tool tiers served crafting and block rules, which are removed |
 | `item\TieredTool::isFireProof` | merged | src/item.rs:390 `is_fire_proof` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::isFireProof` |
 | `item\Tool` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Tool::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
@@ -7234,26 +7234,26 @@ implemented 37, differs 0, merged 784, skipped 262, blank 12 (of 1095 rows)
 | `item\enchantment\EnchantingHelper::enchantItem` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\enchantment\EnchantingHelper::generateOptions` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
 | `item\enchantment\EnchantingHelper::generateSeed` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
-| `item\enchantment\EnchantingOption` | blank |  |  |  |
+| `item\enchantment\EnchantingOption` | skipped |  |  | the enchanting table is removed |
 | `item\enchantment\EnchantingOption::__construct` | skipped |  |  | enchanting options are made by the enchanting table rule |
 | `item\enchantment\EnchantingOption::getDisplayName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
-| `item\enchantment\EnchantingOption::getEnchantments` | blank |  |  |  |
-| `item\enchantment\EnchantingOption::getRequiredXpLevel` | blank |  |  |  |
+| `item\enchantment\EnchantingOption::getEnchantments` | skipped |  |  | the enchanting table is removed |
+| `item\enchantment\EnchantingOption::getRequiredXpLevel` | skipped |  |  | the enchanting table is removed |
 | `item\enchantment\Enchantment` | implemented | src/item/table.rs:14607 `Enchantment` | src/item.rs::enchantment_ids_round_trip |  |
 | `item\enchantment\Enchantment::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `item\enchantment\Enchantment::__construct` | skipped |  |  | enchantments are a generated table; no custom enchantments (the client cannot show them) |
 | `item\enchantment\Enchantment::__serialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `item\enchantment\Enchantment::__unserialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `item\enchantment\Enchantment::getMaxEnchantingPower` | blank |  |  |  |
-| `item\enchantment\Enchantment::getMaxLevel` | blank |  |  |  |
-| `item\enchantment\Enchantment::getMinEnchantingPower` | blank |  |  |  |
-| `item\enchantment\Enchantment::getName` | blank |  |  |  |
+| `item\enchantment\Enchantment::getMaxEnchantingPower` | skipped |  |  | the enchanting table is removed: enchantments are a generated table of ids |
+| `item\enchantment\Enchantment::getMaxLevel` | skipped |  |  | enchantments are a generated table of ids: Anchor reads no level limit |
+| `item\enchantment\Enchantment::getMinEnchantingPower` | skipped |  |  | the enchanting table is removed: enchantments are a generated table of ids |
+| `item\enchantment\Enchantment::getName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
 | `item\enchantment\Enchantment::getPrimaryItemFlags` | skipped |  |  | legacy item flags: Anchor uses the item tags |
-| `item\enchantment\Enchantment::getRarity` | blank |  |  |  |
+| `item\enchantment\Enchantment::getRarity` | skipped |  |  | enchantments are a generated table of ids: Anchor reads no rarity |
 | `item\enchantment\Enchantment::getSecondaryItemFlags` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `item\enchantment\Enchantment::hasPrimaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `item\enchantment\Enchantment::hasSecondaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
-| `item\enchantment\Enchantment::isCompatibleWith` | blank |  |  |  |
+| `item\enchantment\Enchantment::isCompatibleWith` | skipped |  |  | enchantments are a generated table of ids: Anchor reads no incompatible groups |
 | `item\enchantment\EnchantmentInstance` | merged | src/item/stack.rs:615 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\enchantment\EnchantmentInstance::__construct` | merged | src/item/stack.rs:615 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\enchantment\EnchantmentInstance::getLevel` | merged | src/item/stack.rs:615 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
@@ -8236,7 +8236,7 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 
 ## `player`
 
-implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
+implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -8275,7 +8275,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1019 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1564 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
-| `player\Player::attackBlock` | blank | src/action/interact.rs:18 `AttackBlock` |  | no `// api:` test (implemented) |
+| `player\Player::attackBlock` | implemented | src/action/interact.rs:18 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
 | `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4235 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:41 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
 | `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1797 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
@@ -8300,7 +8300,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1578 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `player\Player::emote` | skipped |  |  | player rule code: listeners see PlayerEmote |
 | `player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:301 `can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::getCraftingGrid` | blank |  |  |  |
+| `player\Player::getCraftingGrid` | skipped |  |  | crafting is removed: there is no crafting grid |
 | `player\Player::getCreativeInventory` | implemented | src/tick/inventory/api.rs:163 `creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:58 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:50 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -8351,7 +8351,7 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::isFlying` | implemented | src/tick/survival/api.rs:465 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::isOnline` | implemented | src/tick/player.rs:144 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::isPermissionSet` | implemented | src/tick/command.rs:683 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `player\Player::isSleeping` | blank |  |  |  |
+| `player\Player::isSleeping` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:524 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isSpectator` | implemented | src/tick/survival/api.rs:536 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isSurvival` | implemented | src/tick/survival/api.rs:549 `is_survival` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8413,10 +8413,10 @@ implemented 95, differs 5, merged 14, skipped 107, blank 5 (of 226 rows)
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:424 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1817 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `player\Player::sleepOn` | blank |  |  |  |
+| `player\Player::sleepOn` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `player\Player::stopSleep` | blank |  |  |  |
+| `player\Player::stopSleep` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::teleport` | implemented | src/action/survival.rs:180 `Teleport`<br>src/tick/player.rs:607 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
 | `player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
@@ -9340,7 +9340,7 @@ implemented 0, differs 0, merged 0, skipped 3, blank 0 (of 3 rows)
 
 ## `world`
 
-implemented 244, differs 5, merged 223, skipped 600, blank 1 (of 1073 rows)
+implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -9512,7 +9512,7 @@ implemented 244, differs 5, merged 223, skipped 600, blank 1 (of 1073 rows)
 | `world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:303 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
 | `world\World::save` | implemented | src/tick/task.rs:368 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
-| `world\World::scheduleDelayedBlockUpdate` | blank |  |  |  |
+| `world\World::scheduleDelayedBlockUpdate` | skipped |  |  | block rule code: Anchor has no scheduled block updates |
 | `world\World::setAutoSave` | merged | src/tick/command.rs:960 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
 | `world\World::setBiomeId` | implemented | src/world.rs:1055 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::setBlock` | implemented | src/world.rs:1092 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/world.rs::random_sets_over_chunks_match_an_array |  |

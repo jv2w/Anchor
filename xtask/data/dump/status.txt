@@ -1271,6 +1271,87 @@ resourcepacks\json\** merged ResourcePack::getPackId
 resourcepacks\ZippedResourcePack::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
 resourcepacks\**::getPath skipped a pack is read once at build; Anchor keeps no path
 
+# ===== Removed vanilla behavior =====
+
+# Block entity data of removed clicks: only signs, banners, heads, flower pots, beds, chests, barrels,
+# shulker boxes and ender chests keep block entity data.
+block\Campfire::*CookingTime skipped campfire rule code: a campfire cooks nothing and keeps no block entity data
+block\tile\Campfire::*CookingTimes skipped campfire rule code: a campfire cooks nothing and keeps no block entity data
+block\**::*LastInteractedSlot skipped a chiseled bookshelf click is removed and its block entity keeps no data
+block\ItemFrame::*FramedItem skipped an item frame click is removed and its block entity keeps no data
+block\ItemFrame::*ItemDropChance skipped an item frame click is removed and its block entity keeps no data
+block\ItemFrame::*ItemRotation skipped an item frame click is removed and its block entity keeps no data
+block\tile\ItemFrame::*Item skipped an item frame click is removed and its block entity keeps no data
+block\tile\ItemFrame::*ItemDropChance skipped an item frame click is removed and its block entity keeps no data
+block\tile\ItemFrame::*ItemRotation skipped an item frame click is removed and its block entity keeps no data
+block\Jukebox::getRecord skipped a jukebox click is removed and its block entity keeps no data
+block\tile\Jukebox::*Record skipped a jukebox click is removed and its block entity keeps no data
+block\Lectern::*Book skipped a lectern click is removed and its block entity keeps no data
+block\Lectern::*ViewedPage skipped a lectern click is removed and its block entity keeps no data
+block\tile\Lectern::*Book skipped a lectern click is removed and its block entity keeps no data
+block\tile\Lectern::*ViewedPage skipped a lectern click is removed and its block entity keeps no data
+block\PotionCauldron::*PotionItem skipped cauldron contents are removed: a cauldron keeps no block entity data
+block\WaterCauldron::*CustomWaterColor skipped cauldron contents are removed: a cauldron keeps no block entity data
+block\tile\Cauldron::*CustomWaterColor skipped cauldron contents are removed: a cauldron keeps no block entity data
+block\tile\Cauldron::*PotionItem skipped cauldron contents are removed: a cauldron keeps no block entity data
+block\tile\Beacon::*Effect skipped a beacon has no rules and keeps no block entity data
+block\utils\BrewingStandSlot::getSlotNumber skipped brewing stand rule code: the stand is removed
+block\utils\ChiseledBookshelfSlot::fromBlockFaceCoordinates skipped a chiseled bookshelf click is removed
+block\inventory\EnchantInventory::* skipped the enchanting table window is removed
+
+# Block rules: blocks change only by players, the API, custom block hooks and code explosions.
+block\Block::isFlammable skipped fire is out of scope: blocks do not burn
+block\TNT::ignite skipped block rule code: TNT is lit by fire and redstone, which Anchor does not run
+block\utils\CopperOxidation::* skipped block rule code: copper does not oxidise
+world\World::scheduleDelayedBlockUpdate skipped block rule code: Anchor has no scheduled block updates
+event\block\BlockBreakEvent::*XpDropAmount skipped a broken block drops its own item and no experience: there are no vanilla drop rules
+event\block\BlockBurnEvent** skipped fire is out of scope: blocks do not burn
+event\block\BlockDeathEvent** skipped block rule code: blocks do not die by themselves
+event\block\BlockExplodeEvent** skipped block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode`
+event\block\BlockFormEvent** skipped block rule code: blocks do not form by themselves
+event\block\BlockGrowEvent** skipped block rule code: blocks do not grow
+event\block\BlockMeltEvent** skipped block rule code: blocks do not melt
+event\block\BlockPreExplodeEvent** skipped block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode`
+event\block\BlockSpreadEvent** skipped block rule code: blocks do not spread
+event\block\BlockTeleportEvent** skipped block rule code: no dragon egg moves by itself
+event\block\BlockUpdateEvent** skipped block rule code: Anchor runs no block updates
+event\block\BrewItemEvent** skipped brewing stand rule code: the stand is removed
+event\block\BrewingFuelUseEvent** skipped brewing stand rule code: the stand is removed
+event\block\CampfireCookEvent** skipped campfire rule code: a campfire cooks nothing
+event\block\FarmlandHydrationChangeEvent** skipped block rule code: farmland does not dry or wet
+event\block\LeavesDecayEvent** skipped block rule code: leaves do not decay
+event\block\StructureGrowEvent** skipped block rule code: saplings do not grow by themselves
+event\entity\EntityTrampleFarmlandEvent** skipped block rule code: farmland is not trampled
+event\player\PlayerBucketEmptyEvent skipped bucket use is removed: buckets do not change blocks
+event\player\PlayerBucketEvent** skipped bucket use is removed: buckets do not change blocks
+event\player\PlayerBucketFillEvent skipped bucket use is removed: buckets do not change blocks
+event\player\PlayerRespawnAnchorUseEvent** skipped a respawn anchor click is removed
+event\player\PlayerBedEnterEvent** skipped sleeping is removed: a bed click does nothing
+event\player\PlayerBedLeaveEvent** skipped sleeping is removed: a bed click does nothing
+player\Player::isSleeping skipped sleeping is removed: a bed click does nothing
+player\Player::sleepOn skipped sleeping is removed: a bed click does nothing
+player\Player::stopSleep skipped sleeping is removed: a bed click does nothing
+
+# Crafting, smelting and enchanting are removed.
+event\entity\EntityFrostWalkerEvent** skipped the frost walker enchantment changes blocks, which only players, the API and code explosions do
+entity\Living::getFrostWalkerLevel skipped the frost walker enchantment changes blocks, which only players, the API and code explosions do
+event\inventory\CraftItemEvent** skipped crafting is removed: crafting requests are refused
+event\inventory\FurnaceBurnEvent** skipped furnace rule code: furnaces are removed
+event\inventory\FurnaceSmeltEvent** skipped furnace rule code: furnaces are removed
+inventory\PlayerCraftingInventory skipped crafting is removed: there is no crafting grid
+player\Player::getCraftingGrid skipped crafting is removed: there is no crafting grid
+event\player\PlayerEnchantingOptionsRequestEvent** skipped the enchanting table is removed
+event\player\PlayerItemEnchantEvent** skipped the enchanting table is removed
+entity\Human::*EnchantmentSeed skipped the enchanting table is removed: there is no enchantment seed
+item\enchantment\EnchantingOption** skipped the enchanting table is removed
+item\enchantment\Enchantment::get*EnchantingPower skipped the enchanting table is removed: enchantments are a generated table of ids
+item\enchantment\Enchantment::getMaxLevel skipped enchantments are a generated table of ids: Anchor reads no level limit
+item\enchantment\Enchantment::getName skipped English names are client-side translations (Anchor sends translation keys)
+item\enchantment\Enchantment::getRarity skipped enchantments are a generated table of ids: Anchor reads no rarity
+item\enchantment\Enchantment::isCompatibleWith skipped enchantments are a generated table of ids: Anchor reads no incompatible groups
+item\Dye::getColor skipped dye colours served crafting and cauldrons, which are removed
+item\TieredTool::getTier skipped tool tiers served crafting and block rules, which are removed
+
 # ===== Last: PHP magic methods and enum plumbing left anywhere =====
 **::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
 **::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
@@ -1377,10 +1458,6 @@ command\CommandSender::setScreenLineHeight merged Player::setScreenLineHeight
 console\ConsoleCommandSender::*etScreenLineHeight skipped the console's output goes to the log, which pages nothing
 console\ConsoleCommandSender::getEffectivePermissions merged Permissible::getEffectivePermissions
 console\ConsoleCommandSender::*etBasePermission skipped the console counts as an operator: its permissions are the operators' defaults
-event\block\BrewItemEvent::getRecipe skipped brewing is out of scope: the brewing stand does nothing
-event\inventory\CraftItemEvent::getRecipe skipped crafting is out of scope: Anchor has no recipes
-event\inventory\CraftItemEvent::getTransaction skipped crafting is out of scope: Anchor has no recipes
-event\player\PlayerItemEnchantEvent::getTransaction skipped enchanting is out of scope: the enchanting table does nothing
 event\inventory\InventoryEvent::getViewers merged Player::getCurrentWindow
 event\entity\EntityItemPickupEvent::*etInventory skipped the pickup rule puts the item into the picker's inventory; a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut`
 event\entity\EntityShootBowEvent::setProjectile skipped the arrow is an entity the rule has made: a listener changes it through `Context::entity_mut`, or cancels and spawns another with `Context::spawn_projectile`

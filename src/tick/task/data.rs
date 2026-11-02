@@ -373,7 +373,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyExtensions`](crate::data::Error::TooManyExtensions) when `T` is new and the
+    /// [`Error::TooManyExtensions`] when `T` is new and the
     /// player holds [`MAX_EXTENSIONS`] types already; nothing is kept.
     pub fn insert_extension<T: Any + Send + Sync>(&mut self, value: T) -> Result<Option<T>> {
         let extensions = &mut self.extra.user.extensions;

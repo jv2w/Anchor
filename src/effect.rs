@@ -495,8 +495,8 @@ mod tests {
     // api: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
     // api: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance,
     // api: EffectInstance::getType, EffectInstance::getDuration, EffectInstance::getAmplifier,
-    // api: EffectInstance::isVisible, EffectInstance::isAmbient, PotionType::getEffects,
-    // api: PotionType::getDisplayName
+    // api: EffectInstance::isVisible, EffectInstance::isAmbient, PotionType,
+    // api: PotionType::getEffects, PotionType::getDisplayName
     /// The effect and potion type values of the dump.
     #[test]
     fn effect_and_potion_data_are_the_dump_values() {
