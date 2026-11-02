@@ -63,7 +63,7 @@ paths:
 ## Public API
 - Only `Server` owns game state; callbacks borrow it through `Context`.
 - Keep nothing across ticks but `Copy` IDs that point at nothing else: numbers never reused (`player::Id`), indexes with a generation (`entity::Id`), or a world's place, which only a world made again under its name takes (`world::Id`).
-- Give state access this shape: `ctx.player(id) -> Option<&Player>` to read, `ctx.player_mut(id)` to change.
+- Give state access this shape: `cx.player(id) -> Option<&Player>` to read, `cx.player_mut(id)` to change.
 - Keep the fields of tick-state structs such as `Player` and `Entity` private.
 - Lend an entity, whose position change must also update an index, through the guard `entity::Mut`.
 - Make positions, block states, and IDs `Copy` values, and `item::Stack` an immutable value.

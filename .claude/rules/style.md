@@ -48,7 +48,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Module constants and statics are alphabetical, each with its own `///` line, except the tag bytes and bit flags of a written format (`<GROUP>_<VARIANT>`), which follow their values. Where no order carries meaning, the order is alphabetical, comparing names word by word with a shorter word first (`QUEUE_CAPACITY` before `QUEUED_WORDS`).
 
 ## Signatures
-- Parameter order: receiver, context (`ctx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
+- Parameter order: receiver, context (`cx`, `&Server`), the subject acted on (or its ID), the value, options and limits, an output buffer (`&mut Vec<_>`) last. Functions with the same verb take the same parameters in the same order.
 - Getters have no `get_` and return `&T` or a `Copy` value; a lookup by key in a collection type is `get`/`get_mut`, as in std. Mutable access is `_mut`. Setters are `set_x(&mut self, value)` returning `()` or `Result<()>`. Immutable updates are `with_<field>(self, value) -> Self`. Queries are `is_`/`has_`/`can_`. Conversions are `as_`/`to_`/`into_`/`from_`.
 - Absence is `Option`, failure is `Result`; never a sentinel (`-1`, `0`, empty string). Never a `bool` flag argument; use an enum or a separate method.
 - Chained methods taking `self` and returning `Self`: one that sets a field is `with_<field>` (above); one that adds an element to a list is named after the element (`button`, `line`, `alias`); one that turns on a switch is named after the state (`optional`, `temporary`). A builder type (`<Thing>Builder`, finished by `build()`) is the one exception: its setters drop `with_` (`ServerBuilder::data_dir`).
@@ -72,7 +72,7 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 - Acronyms are one word (`Raknet`, `Nethernet`, `Xuid`, `Uuid`, `Id`, `Nbt`, `Json`, `Http`, `Udp`, `Aabb`); prose keeps the original spelling (RakNet).
 - A module name is not repeated in its types (`event::PlayerJoin`). API-table event names drop their `Event` suffix.
 - Units are a type (`Duration`, `Tick`) or a suffix (`_ticks`, `_ms`, `_bytes`). Upper bounds are `MAX_<THING>`, lower bounds `MIN_<THING>`, an inclusive range of allowed values `<THING>_RANGE`.
-- A `Context` value is named `ctx`, and `ctx` names nothing else; other context-like values take a name of their own (`attempt`, `settings`).
+- A `Context` value is named `cx`, and `cx` names nothing else; other context-like values take a name of their own (`attempt`, `settings`).
 - One concept has one word across the crate, and one word means one concept.
 - API-table conversion: `getX/setX/isX` → `x/set_x/is_x`; singleton → a `&Server` or `Context` argument; `null`, exceptions, `-1` → `Option` or `Result`; constant groups → an enum; mutable `Vector3` → a `Copy` value; twin methods → one.
 

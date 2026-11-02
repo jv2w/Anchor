@@ -152,12 +152,12 @@ Phases:
 
 ## Events
 
-- Registration: `ServerBuilder::on::<E>(Priority, |e: &mut E, ctx: &mut Context| ..)` and `ServerBuilder::monitor::<E>(|e: &E, ctx: &Context| ..)`. There are five priorities, `Lowest` to `Highest`. A listener that only watches registers with `monitor`, read-only by its types, and sees the state after the outcome is applied.
+- Registration: `ServerBuilder::on::<E>(Priority, |e: &mut E, cx: &mut Context| ..)` and `ServerBuilder::monitor::<E>(|e: &E, cx: &Context| ..)`. There are five priorities, `Lowest` to `Highest`. A listener that only watches registers with `monitor`, read-only by its types, and sees the state after the outcome is applied.
 - Why the second check: applying without looking again at the state a listener changed would duplicate or lose items.
 - Every listener also sees cancelled events and filters them with `is_cancelled`.
 - **No re-entry**: while listeners run, the event's listener list is lent out of the state (what is registered stays readable), and nothing calls it then. An entity a listener makes is announced by the next announcement, a spawn listener's included.
-  - `ctx.defer(f)`: runs after the running callback returns, in the same tick, in queue order.
-  - `ctx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
+  - `cx.defer(f)`: runs after the running callback returns, in the same tick, in queue order.
+  - `cx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
 - Why the entity tick raises EntitySpawn and ItemSpawn: listeners never run in the middle of another rule or of a direct API call.
 - Why user code that is no event of an action runs only after the action is applied: a listener that changes the hand or the block in between would duplicate or lose items.
 - There are 104 events, in `event/{block,entity,inventory,player,server,world}.rs`, all public flat as `anchor::event::*`. The API table's events out of scope (plugins, PHP and operations internals, redstone) are left out; the raw packet events (DataPacketReceive, DataPacketSend, DataPacketDecode) are the packet hooks; PlayerPreLogin is merged into PlayerLogin. `TradeOpen` and `Trade` have no API-table counterpart.
@@ -173,8 +173,8 @@ Phases:
 | Login policy | The PlayerLogin event (refusal reasons as a list of flags), permissions, operators, bans, whitelist |
 | Commands | `ServerBuilder::command(Command)` (typed arguments, AvailableCommands completion), `without_command`, `permission`, `permission_default` |
 | UI | Forms, menus (fake containers), scoreboards, boss bars, titles, fake blocks |
-| Scheduling and blocking work | `ctx.schedule`, `schedule_repeating`, `ServerBuilder::every`, cancel handles, `ctx.spawn_blocking(work, done)` (the result goes into the log as JSON through serde) |
-| User data | Per-player Extensions that are not saved (keyed by type, at most 64 types), `ServerBuilder::player_data` and `server_data` (serde types, in the same commit), the inventory and data of a player who is not online through `ctx.hold_offline_player(xuid, name, done)` (64 tickets, `storage.md`) |
+| Scheduling and blocking work | `cx.schedule`, `schedule_repeating`, `ServerBuilder::every`, cancel handles, `cx.spawn_blocking(work, done)` (the result goes into the log as JSON through serde) |
+| User data | Per-player Extensions that are not saved (keyed by type, at most 64 types), `ServerBuilder::player_data` and `server_data` (serde types, in the same commit), the inventory and data of a player who is not online through `cx.hold_offline_player(xuid, name, done)` (64 tickets, `storage.md`) |
 | Custom content | `custom_item`, `custom_block` (behaviour trait `custom::Behaviour`), `custom_entity` (`entity::Behaviour`), `recipe`, `creative_inventory`. The engine fills the StartGame properties, ItemRegistry, entity identifiers, and block hash IDs. Textures come from resource packs |
 | Resource packs | `ServerBuilder::resource_pack`, the setting `resource-packs` |
 | World generation | The `Generator` trait, `ServerBuilder::generator` (registered by name; `flat` and `void` are built in) |
