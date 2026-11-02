@@ -93,7 +93,8 @@ fn every_kind_reads_as_what_it_is() {
             let block = crate::world::BlockPos::containing(e.position());
             assert_eq!(bounds, object::painting_box(block, p.facing, p.motive));
         } else {
-            assert!(bounds.max.y > bounds.min.y && bounds.min.y == e.position().y);
+            assert!(bounds.max.y > bounds.min.y);
+            assert_eq!(bounds.min.y, e.position().y);
             assert!(e.eye_height() > 0.0 && e.eye_height() <= bounds.max.y - bounds.min.y);
         }
         assert_eq!(e.eye_position().y, e.position().y + e.eye_height());
@@ -170,8 +171,7 @@ fn every_kind_reads_as_what_it_is() {
         assert!(types.contains(&t), "{t:?}");
     }
     // A thing that is not that kind answers `None`.
-    let (item, _) = made[0];
-    let e = cx.entity(item).unwrap();
+    let e = cx.entity(made[0].0).unwrap();
     assert!(e.fuse_ticks().is_none() && e.xp_value().is_none() && e.skin().is_none());
     assert!(e.owning_player().is_none() && e.target_player().is_none());
     assert!(e.painting_motive().is_none() && e.painting_facing().is_none());
@@ -305,7 +305,8 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     )
     .unwrap();
     assert_eq!(loaded.looks.name_tag, "Boom");
-    assert!(!loaded.looks.name_tag_visible && loaded.looks.name_tag_always_visible == Some(true));
+    assert!(!loaded.looks.name_tag_visible);
+    assert_eq!(loaded.looks.name_tag_always_visible, Some(true));
     assert_eq!(loaded.looks.scale, 2.0);
     assert!(loaded.looks.invisible && !loaded.looks.gravity);
     assert_eq!(e.position().y, -60.0);
@@ -403,7 +404,8 @@ fn health_fire_damage_and_death_raise_no_events() {
     assert!(!e.heal(-1.0));
     assert_eq!(e.health(), 6.5);
     e.set_on_fire(3);
-    assert!(e.is_on_fire() && e.fire_ticks() == 60);
+    assert!(e.is_on_fire());
+    assert_eq!(e.fire_ticks(), 60);
     e.set_on_fire(1);
     assert_eq!(e.fire_ticks(), 60, "a shorter fire does not shorten it");
     e.set_fire_ticks(5);
@@ -487,7 +489,8 @@ fn kind_setters_change_their_kind_only() {
             assert_eq!(e.xp_value(), Some(9));
         }
         if tnt {
-            assert!(e.fuse_ticks() == Some(12) && e.works_underwater());
+            assert_eq!(e.fuse_ticks(), Some(12));
+            assert!(e.works_underwater());
         }
         if arrow {
             assert!(e.is_critical());

@@ -4,11 +4,10 @@
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use crate::dump::{REFERENCE_DIR, REFERENCE_ITEMS};
-
 use super::body::str_lit;
 use super::data::{compound, read_json, static_compound};
 use super::emit::HEADER;
+use crate::dump::{REFERENCE_DIR, REFERENCE_ITEMS};
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/registry.rs";

@@ -47,13 +47,12 @@ impl Issuer {
         SHARED_ISSUER.get_or_init(Self::generate)
     }
 
-    /// The OpenID configuration document.
-    pub(crate) fn openid(jwks_uri: &str) -> Value {
-        json!({
-            "issuer": ISSUER,
-            "jwks_uri": jwks_uri,
-            "id_token_signing_alg_values_supported": ["RS256"],
-        })
+    /// The verification keys, as the authorization task would publish them.
+    pub(crate) fn keys(&self) -> Keys {
+        let openid: OpenId =
+            serde_json::from_value(Self::openid("https://issuer.test/keys")).unwrap();
+        let jwks: Jwks = serde_json::from_value(self.jwks(KID)).unwrap();
+        document::keys(&openid, &jwks).unwrap()
     }
 
     /// The JWKS document with this issuer's key under `kid`.
@@ -62,14 +61,6 @@ impl Issuer {
             {"kty": "EC", "use": "sig", "kid": "ec-key", "crv": "P-256"},
             {"kty": "RSA", "use": "sig", "kid": kid, "x5t": "AA", "n": self.n, "e": self.e},
         ]})
-    }
-
-    /// The verification keys, as the authorization task would publish them.
-    pub(crate) fn keys(&self) -> Keys {
-        let openid: OpenId =
-            serde_json::from_value(Self::openid("https://issuer.test/keys")).unwrap();
-        let jwks: Jwks = serde_json::from_value(self.jwks(KID)).unwrap();
-        document::keys(&openid, &jwks).unwrap()
     }
 
     /// Keys for another issuer's JWKS entry, such as one produced by a Go golden.
@@ -81,6 +72,20 @@ impl Issuer {
             serde_json::from_value(json!({"keys": [{"kty": "RSA", "kid": kid, "n": n, "e": e}]}))
                 .unwrap();
         document::keys(&openid, &jwks).unwrap()
+    }
+
+    /// The OpenID configuration document.
+    pub(crate) fn openid(jwks_uri: &str) -> Value {
+        json!({
+            "issuer": ISSUER,
+            "jwks_uri": jwks_uri,
+            "id_token_signing_alg_values_supported": ["RS256"],
+        })
+    }
+
+    /// A multiplayer token with the standard header (RS256, the test `kid`).
+    pub(crate) fn token(&self, claims: &Value) -> String {
+        self.sign(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), claims)
     }
 
     /// The token of `claims` signed with RS256 under `header`, which may name any `alg`.
@@ -105,11 +110,6 @@ impl Issuer {
         token.push('.');
         token.push_str(&RAW_URL.encode(&signature));
         token
-    }
-
-    /// A multiplayer token with the standard header (RS256, the test `kid`).
-    pub(crate) fn token(&self, claims: &Value) -> String {
-        self.sign(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), claims)
     }
 }
 

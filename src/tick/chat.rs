@@ -11,7 +11,7 @@ use super::queue::SessionId;
 use super::{Context, Phase, Player, State, dispatch, inventory, player};
 use crate::command::{Line, Sender};
 use crate::event::PlayerChat;
-use crate::player::{Id, MAX_TEXT, Message, Packets};
+use crate::player::{Id, MAX_TEXT_BYTES, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
 
@@ -337,9 +337,9 @@ fn formatted(format: &str, name: &str, message: &str) -> Option<String> {
     Some(out)
 }
 
-/// Appends `text` to `out` unless `out` would pass [`MAX_TEXT`] bytes.
+/// Appends `text` to `out` unless `out` would pass [`MAX_TEXT_BYTES`] bytes.
 fn push_bounded(out: &mut String, text: &str) -> Option<()> {
-    if out.len().checked_add(text.len())? > MAX_TEXT {
+    if out.len().checked_add(text.len())? > MAX_TEXT_BYTES {
         return None;
     }
     out.push_str(text);
@@ -684,7 +684,7 @@ mod tests {
         let mut listeners = Listeners::default();
         listeners.push(
             crate::event::Priority::Normal,
-            |e: &mut PlayerChat, _: &mut Context<'_>| e.set_message("x".repeat(MAX_TEXT + 1)),
+            |e: &mut PlayerChat, _: &mut Context<'_>| e.set_message("x".repeat(MAX_TEXT_BYTES + 1)),
         );
         listeners.push_monitor(move |_: &PlayerChat, _: &Context<'_>| {
             seen.try_send(()).expect("room");

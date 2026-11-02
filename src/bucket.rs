@@ -38,6 +38,11 @@ impl Bucket {
         self.refilled
     }
 
+    /// Gives `amount` tokens back, up to the capacity.
+    pub(crate) fn give(&mut self, amount: usize, rate: Rate) {
+        self.tokens = self.tokens.saturating_add(amount).min(rate.capacity);
+    }
+
     /// Takes `amount` tokens at `now`; `false`, taking none, when the bucket holds fewer. The
     /// time a refill pays for is moved forward exactly, so frequent calls lose no fraction of
     /// the rate.
@@ -68,11 +73,6 @@ impl Bucket {
             }
             None => false,
         }
-    }
-
-    /// Gives `amount` tokens back, up to the capacity.
-    pub(crate) fn give(&mut self, amount: usize, rate: Rate) {
-        self.tokens = self.tokens.saturating_add(amount).min(rate.capacity);
     }
 }
 

@@ -8,16 +8,14 @@ use tracing::warn;
 
 use super::Form;
 use crate::block;
+use crate::block_entity::{DyeColour, SignText};
 use crate::nbt::{Compound, List, Value};
-use crate::tick::interact::sign;
-use crate::tile::{DyeColour, SignText};
+use crate::tick::interact::{props, sign};
 
 /// The colour of a bed whose colour is missing or unknown: red.
 pub(in crate::tick) const DEFAULT_BED_COLOUR: u8 = 14;
 /// The most patterns a banner keeps; more in saved data are left out.
 pub(in crate::tick) const MAX_PATTERNS: usize = 16;
-/// Rotations of a mob head on the floor: sixteenths of a turn.
-pub(in crate::tick) const SKULL_ROTATIONS: u8 = 16;
 /// The mob head blocks by their `SkullType` byte.
 pub(in crate::tick) const SKULL_TYPES: [&str; 7] = [
     "minecraft:skeleton_skull",
@@ -74,17 +72,17 @@ impl Sign {
         }
     }
 
+    /// The client keys: the saved ones and nobody editing.
+    pub(in crate::tick) fn spawn(&self, nbt: &mut Compound) {
+        self.write(nbt);
+        nbt.insert("LockedForEditingBy".to_owned(), Value::Long(-1));
+    }
+
     /// The saved keys.
     pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
         nbt.insert(sign::FRONT.to_owned(), self.front.write());
         nbt.insert(sign::BACK.to_owned(), self.back.write());
         nbt.insert("IsWaxed".to_owned(), Value::Byte(u8::from(self.waxed)));
-    }
-
-    /// The client keys: the saved ones and nobody editing.
-    pub(in crate::tick) fn spawn(&self, nbt: &mut Compound) {
-        self.write(nbt);
-        nbt.insert("LockedForEditingBy".to_owned(), Value::Long(-1));
     }
 }
 
@@ -135,7 +133,11 @@ impl SignText {
     fn read(mut nbt: Compound) -> Self {
         let mut side = Self::default();
         if let Some(Value::String(blob)) = nbt.remove(sign::TEXT) {
-            for (slot, line) in side.lines.iter_mut().zip(crate::tile::blob_lines(&blob)) {
+            for (slot, line) in side
+                .lines
+                .iter_mut()
+                .zip(crate::block_entity::blob_lines(&blob))
+            {
                 line.clone_into(slot);
             }
         }
@@ -226,27 +228,13 @@ pub(in crate::tick) fn read_skull(nbt: &mut Compound) -> (u8, u8) {
         .filter(|t| usize::from(*t) < SKULL_TYPES.len())
         .unwrap_or(0);
     let rotation = match take_float(nbt, "Rotation") {
-        Some(yaw) => skull_rotation(yaw),
+        Some(yaw) => props::rotation_nearest(f64::from(yaw)),
         None => take_byte(nbt, "Rot")
-            .filter(|r| *r < SKULL_ROTATIONS)
+            .filter(|r| *r < props::ROTATION_STEPS)
             .unwrap_or(0),
     };
     nbt.remove("Rot");
     (skull, rotation)
-}
-
-/// A yaw in degrees as sixteenths of a turn, rounded to the nearest.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "safety: the value is finite and reduced into 0..16 first"
-)]
-pub(in crate::tick) fn skull_rotation(yaw: f32) -> u8 {
-    let turns = f64::from(SKULL_ROTATIONS);
-    let sixteenths = (f64::from(yaw) * turns / 360.0 + 0.5)
-        .floor()
-        .rem_euclid(turns);
-    (sixteenths as u8) % SKULL_ROTATIONS
 }
 
 /// A mob head's keys.
@@ -254,7 +242,7 @@ pub(in crate::tick) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) 
     nbt.insert("SkullType".to_owned(), Value::Byte(skull));
     nbt.insert(
         "Rotation".to_owned(),
-        Value::Float(f32::from(rotation) * 360.0 / f32::from(SKULL_ROTATIONS)),
+        Value::Float(f32::from(rotation) * 360.0 / f32::from(props::ROTATION_STEPS)),
     );
 }
 
@@ -344,14 +332,6 @@ mod tests {
             assert_eq!((sign.front.colour, sign.front.glowing), (red, resolved));
             assert!(nbt.is_empty(), "{nbt:?}");
         }
-    }
-
-    #[test]
-    fn a_mob_head_rotation_rounds_to_sixteenths_of_a_turn() {
-        assert_eq!(skull_rotation(0.0), 0);
-        assert_eq!(skull_rotation(90.0), 4);
-        assert_eq!(skull_rotation(-22.5), 15);
-        assert_eq!(skull_rotation(350.0), 0);
     }
 
     #[test]

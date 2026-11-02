@@ -35,7 +35,7 @@ const PORTAL_AXIS: &str = "portal_axis";
 /// The property `ground_sign_direction`: a rotation in sixteenths of a turn.
 pub(super) const ROTATION: &str = "ground_sign_direction";
 /// The values of a rotation: sixteenths of a turn.
-const ROTATION_STEPS: i32 = 16;
+pub(in crate::tick) const ROTATION_STEPS: u8 = 16;
 /// The property `torch_facing_direction`.
 const TORCH_FACING: &str = "torch_facing_direction";
 /// The property `weirdo_direction` (stairs).
@@ -119,8 +119,9 @@ pub(in crate::tick) fn facing_in(state: State, name: &str, encoding: Encoding) -
             .or((encoding == Encoding::Stem && v == 1).then_some(Face::Up)),
         PropertyValue::String(v) => match encoding {
             Encoding::DoorCardinal => face_of(v).map(rotate_counterclockwise),
-            Encoding::Torch => Face::ALL
-                .into_iter()
+            Encoding::Torch => Face::all()
+                .iter()
+                .copied()
                 .find(|f| encode_string(encoding, *f) == Some(v))
                 .or((v == "unknown").then_some(Face::Up)),
             _ => face_of(v),
@@ -245,12 +246,23 @@ pub(in crate::tick) fn dead_coral(state: State) -> Option<State> {
     renamed(state, &namespaced(DEAD_PREFIX, name))
 }
 
-/// The sixteenth-of-a-turn rotation of a yaw.
+/// The rotation of a block that faces away from a player looking along `yaw`.
 pub(super) fn rotation_from_yaw(yaw: f64) -> i32 {
+    i32::from(rotation_nearest(yaw + FULL_TURN_DEGREES / 2.0))
+}
+
+/// A yaw in degrees as sixteenths of a turn, rounded to the nearest (0 at yaw 0).
+pub(in crate::tick) fn rotation_nearest(yaw: f64) -> u8 {
     let steps = f64::from(ROTATION_STEPS);
-    let turned = ((yaw + FULL_TURN_DEGREES / 2.0) * steps / FULL_TURN_DEGREES + 0.5).floor();
+    let turned = (yaw * steps / FULL_TURN_DEGREES + 0.5).floor();
     // A finite yaw gives a small whole number; an out-of-range one saturates.
-    float_to_i32(turned) & (ROTATION_STEPS - 1)
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the mask keeps the rotation below ROTATION_STEPS"
+    )]
+    let rotation = u8::try_from(float_to_i32(turned) & i32::from(ROTATION_STEPS - 1))
+        .expect("a masked rotation fits a byte");
+    rotation
 }
 
 /// The horizontal face a yaw looks toward: yaw 0 looks south, 90 west, 180 north, 270 east.
@@ -368,7 +380,7 @@ pub(in crate::tick) const fn face_name(face: Face) -> &'static str {
 
 /// The face of a lowercase name.
 pub(in crate::tick) fn face_of(name: &str) -> Option<Face> {
-    Face::ALL.into_iter().find(|f| face_name(*f) == name)
+    Face::all().iter().copied().find(|f| face_name(*f) == name)
 }
 
 /// The `multi_face_direction_bits` bit of a face: down 1, up 2, south 4, west 8, north 16, east
@@ -464,6 +476,14 @@ mod tests {
     }
 
     #[test]
+    fn a_rotation_rounds_to_sixteenths_of_a_turn() {
+        assert_eq!(rotation_nearest(0.0), 0);
+        assert_eq!(rotation_nearest(90.0), 4);
+        assert_eq!(rotation_nearest(-22.5), 15);
+        assert_eq!(rotation_nearest(350.0), 0);
+    }
+
+    #[test]
     fn facing_round_trips_through_every_encoding() {
         let mut checked = 0;
         for state in State::all() {
@@ -517,7 +537,7 @@ mod tests {
         assert_eq!(rotate_clockwise(Face::North), Face::East);
         assert_eq!(rotate_counterclockwise(Face::North), Face::West);
         assert_eq!(rotate_clockwise(Face::Up), Face::Up);
-        for f in Face::ALL {
+        for &f in Face::all() {
             assert_eq!(rotate_counterclockwise(rotate_clockwise(f)), f);
         }
     }

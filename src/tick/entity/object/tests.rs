@@ -226,7 +226,7 @@ fn flags_of(m: &crate::protocol::EntityMetadata) -> FlagSet<EntityDataFlag> {
         panic!("flags");
     };
     let mut set = FlagSet::<EntityDataFlag>::new();
-    for flag in EntityDataFlag::ALL {
+    for &flag in EntityDataFlag::all() {
         let bit = flag as u32;
         if bit < 64 && (f.cast_unsigned() >> bit) & 1 == 1 {
             set.insert(flag);
@@ -263,7 +263,8 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
     let mut e = cx.entity_mut(id).unwrap();
     e.set_show_base(true).unwrap();
     e.set_beam_target(Some(BlockPos::new(0, 80, 0))).unwrap();
-    assert!(e.shows_base() && e.beam_target() == Some(BlockPos::new(0, 80, 0)));
+    assert!(e.shows_base());
+    assert_eq!(e.beam_target(), Some(BlockPos::new(0, 80, 0)));
     h.step(Vec::new());
     let data: Vec<_> = h
         .take(1)

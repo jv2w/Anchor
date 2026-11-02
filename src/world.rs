@@ -69,6 +69,11 @@ impl BlockPos {
         Self { x, y, z }
     }
 
+    /// The chunk that holds the position.
+    pub const fn chunk(self) -> ChunkPos {
+        ChunkPos::new(self.x >> 4, self.z >> 4)
+    }
+
     /// The block that holds the point `v`: each coordinate rounded down, saturating at the `i32`
     /// range (a coordinate that is not a number counts as 0).
     pub fn containing(v: crate::math::Vec3) -> Self {
@@ -80,9 +85,14 @@ impl BlockPos {
         Self::new(floor(v.x), floor(v.y), floor(v.z))
     }
 
-    /// The chunk that holds the position.
-    pub const fn chunk(self) -> ChunkPos {
-        ChunkPos::new(self.x >> 4, self.z >> 4)
+    /// The position inside its chunk: x and z from 0 to 15.
+    pub(crate) fn local(self) -> (u8, u8) {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a value masked to 0..=15 fits u8"
+        )]
+        let local = |v: i32| u8::try_from(v & 15).expect("a masked coordinate fits u8");
+        (local(self.x), local(self.z))
     }
 
     /// The position one block toward `face`, if it is a valid `i32` position (the world height
@@ -101,16 +111,6 @@ impl BlockPos {
             self.y.checked_add(dy)?,
             self.z.checked_add(dz)?,
         ))
-    }
-
-    /// The position inside its chunk: x and z from 0 to 15.
-    pub(crate) fn local(self) -> (u8, u8) {
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: a value masked to 0..=15 fits u8"
-        )]
-        let local = |v: i32| u8::try_from(v & 15).expect("a masked coordinate fits u8");
-        (local(self.x), local(self.z))
     }
 
     /// The position one block toward `facing`, if it is a valid `i32` position.
@@ -163,6 +163,12 @@ impl Id {
         u32::try_from(index).ok().map(Self)
     }
 
+    /// The index in the state's world list.
+    pub(crate) fn index(self) -> usize {
+        // u32 fits usize on every target Anchor builds for (32 and 64 bits).
+        self.0 as usize
+    }
+
     /// The world at `index` of a world the server has.
     pub(crate) fn of(index: usize) -> Self {
         #[expect(
@@ -170,12 +176,6 @@ impl Id {
             reason = "invariant: a run names at most MAX_WORLDS (1,024) worlds, far fewer than 2^32"
         )]
         Self::new(index).expect("a world index fits u32")
-    }
-
-    /// The index in the state's world list.
-    pub(crate) fn index(self) -> usize {
-        // u32 fits usize on every target Anchor builds for (32 and 64 bits).
-        self.0 as usize
     }
 }
 
@@ -288,9 +288,11 @@ impl Options {
         Self::default()
     }
 
-    /// The world's kind: whether it is saved.
-    pub fn kind(&self) -> Kind {
-        self.kind
+    /// The world's own difficulty, or `None` to follow the server's ([`World::difficulty`]; a
+    /// `hardcore` server plays every world on hard).
+    #[doc(alias = "WorldCreationOptions::getDifficulty")]
+    pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
+        self.difficulty
     }
 
     /// The name of the generator that fills the world: one registered with
@@ -301,24 +303,15 @@ impl Options {
         &self.generator
     }
 
+    /// The world's kind: whether it is saved.
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
     /// The seed, or `None` for one made from the world's name (the same at every start).
     #[doc(alias = "WorldCreationOptions::getSeed")]
     pub fn seed(&self) -> Option<i64> {
         self.seed
-    }
-
-    /// The spawn of a new world, or `None` for the generator's ([`Generator::spawn`]): the
-    /// `spawn` of [`settings`](Self::settings). A world its file stores keeps its own spawn.
-    #[doc(alias = "WorldCreationOptions::getSpawnPosition")]
-    pub fn spawn(&self) -> Option<BlockPos> {
-        self.settings.spawn
-    }
-
-    /// The world's own difficulty, or `None` to follow the server's ([`World::difficulty`]; a
-    /// `hardcore` server plays every world on hard).
-    #[doc(alias = "WorldCreationOptions::getDifficulty")]
-    pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
-        self.difficulty
     }
 
     /// The world's own view values and spawn: each view value set replaces the global one in
@@ -329,10 +322,19 @@ impl Options {
         self.settings
     }
 
-    /// The options with `kind`.
+    /// The spawn of a new world, or `None` for the generator's ([`Generator::spawn`]): the
+    /// `spawn` of [`settings`](Self::settings). A world its file stores keeps its own spawn.
+    #[doc(alias = "WorldCreationOptions::getSpawnPosition")]
+    pub fn spawn(&self) -> Option<BlockPos> {
+        self.settings.spawn
+    }
+
+    /// The options with the world's own `difficulty` (a `hardcore` server still plays the world
+    /// on hard).
+    #[doc(alias = "WorldCreationOptions::setDifficulty")]
     #[must_use]
-    pub fn with_kind(mut self, kind: Kind) -> Self {
-        self.kind = kind;
+    pub fn with_difficulty(mut self, difficulty: crate::config::Difficulty) -> Self {
+        self.difficulty = Some(difficulty);
         self
     }
 
@@ -346,6 +348,13 @@ impl Options {
         self
     }
 
+    /// The options with `kind`.
+    #[must_use]
+    pub fn with_kind(mut self, kind: Kind) -> Self {
+        self.kind = kind;
+        self
+    }
+
     /// The options with `seed`.
     #[doc(alias = "WorldCreationOptions::setSeed")]
     #[must_use]
@@ -354,28 +363,19 @@ impl Options {
         self
     }
 
-    /// The options with `spawn`.
-    #[doc(alias = "WorldCreationOptions::setSpawnPosition")]
-    #[must_use]
-    pub fn with_spawn(mut self, spawn: BlockPos) -> Self {
-        self.settings.spawn = Some(spawn);
-        self
-    }
-
-    /// The options with the world's own `difficulty` (a `hardcore` server still plays the world
-    /// on hard).
-    #[doc(alias = "WorldCreationOptions::setDifficulty")]
-    #[must_use]
-    pub fn with_difficulty(mut self, difficulty: crate::config::Difficulty) -> Self {
-        self.difficulty = Some(difficulty);
-        self
-    }
-
     /// The options with the world's own view values and spawn `settings` (each view value within
     /// its key's range); it replaces [`with_spawn`](Self::with_spawn).
     #[must_use]
     pub fn with_settings(mut self, settings: crate::config::WorldSettings) -> Self {
         self.settings = settings;
+        self
+    }
+
+    /// The options with `spawn`.
+    #[doc(alias = "WorldCreationOptions::setSpawnPosition")]
+    #[must_use]
+    pub fn with_spawn(mut self, spawn: BlockPos) -> Self {
+        self.settings.spawn = Some(spawn);
         self
     }
 }
@@ -597,149 +597,11 @@ impl World {
         }
     }
 
-    /// The server's custom content, for the loaders of saved block entities and entities in
-    /// this world's chunks.
-    pub(crate) fn custom(&self) -> Option<&crate::custom::Registry> {
-        self.custom.as_deref()
-    }
-
-    /// Its ID on the server.
-    #[doc(alias = "World::getId")]
-    pub fn id(&self) -> Id {
-        self.id
-    }
-
-    /// The world's name, unique on the server: its file name and the name it shows.
-    #[doc(alias = "World::getFolderName")]
-    #[doc(alias = "World::getDisplayName")]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// The world's kind: whether it is saved.
-    pub fn kind(&self) -> Kind {
-        self.kind
-    }
-
-    /// The seed the generator gets.
-    #[doc(alias = "World::getSeed")]
-    pub fn seed(&self) -> i64 {
-        self.seed
-    }
-
-    /// Where players appear.
-    #[doc(alias = "World::getSpawnLocation")]
-    pub fn spawn(&self) -> BlockPos {
-        self.spawn
-    }
-
-    /// Whether the chunk is one of the 3 × 3 spawn chunks the server keeps loaded: those around
-    /// the spawn's chunk inside the world border.
-    #[doc(alias = "World::isSpawnChunk")]
-    pub fn is_spawn_chunk(&self, pos: ChunkPos) -> bool {
-        let center = self.spawn.chunk();
-        let near = |a: i32, b: i32| a.abs_diff(b) <= SPAWN_CHUNK_RADIUS.cast_unsigned();
-        is_inside_border(pos) && near(pos.x, center.x) && near(pos.z, center.z)
-    }
-
-    /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
-    /// setting. It goes up by one each tick the world is loaded, unless its time is stopped or
-    /// `daylight-cycle` is off, and jumps when [`Context::set_time`](crate::Context::set_time)
-    /// moves it. It counts on past a day (the time of day is [`Self::time_of_day`]).
-    #[doc(alias = "World::getTime")]
-    pub fn time_ticks(&self) -> i64 {
-        self.time
-    }
-
     /// Ticks the world has run since it was made or loaded, its clock stopped or not, which
     /// moving the clock does not change. Not saved, so it starts at 0 at every load.
     #[cfg(test)]
     pub(crate) fn age_ticks(&self) -> u64 {
         self.age_ticks
-    }
-
-    /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
-    /// midnight and 23,000 sunrise.
-    #[doc(alias = "World::getTimeOfDay")]
-    pub fn time_of_day(&self) -> u32 {
-        tick_of_day(self.time)
-    }
-
-    /// Whether the time stands still ([`Context::stop_time`](crate::Context::stop_time)): the
-    /// day cycle and the sun stay where they are. Not saved: every start runs the time
-    /// (`daylight-cycle` stops every world's).
-    pub fn is_time_stopped(&self) -> bool {
-        self.time_stopped
-    }
-
-    /// The world's own difficulty, or `None` while it follows the server's
-    /// ([`Context::difficulty`](crate::Context::difficulty)), as a new world does unless it is
-    /// made or loaded with one. The rules of the world use it, but on a `hardcore` server they use
-    /// hard whatever it says. Not saved: it comes from the options of every load.
-    #[doc(alias = "World::getDifficulty")]
-    pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
-        self.difficulty
-    }
-
-    /// The weather ([`Context::set_weather`](crate::Context::set_weather) changes it). Not saved:
-    /// every world is clear at start.
-    pub fn weather(&self) -> Weather {
-        self.weather
-    }
-
-    /// The `chunks` key number of a persistent world, `None` for a temporary one.
-    pub(crate) fn number(&self) -> Option<u32> {
-        self.number
-    }
-
-    /// The name of the generator that fills the chunks never saved ([`Generator::name`]).
-    pub(crate) fn generator(&self) -> &'static str {
-        self.generator
-    }
-
-    /// The block at `pos`, or `None` if its chunk is not loaded (or quarantined), `pos` is outside
-    /// the world height, or the block is a state Anchor does not know.
-    #[doc(alias = "World::getBlockAt")]
-    #[doc(alias = "World::getBlock")]
-    #[inline]
-    pub fn block(&self, pos: BlockPos) -> Option<State> {
-        self.entry(pos)?.state()
-    }
-
-    /// The block at `pos` as the world holds it, to put elsewhere with
-    /// [`Self::set_stored_block`]: unlike [`Self::block`], a state Anchor does not know is kept,
-    /// as its stored NBT. `None` if the chunk is not loaded (or quarantined) or `pos` is outside
-    /// the world height.
-    pub fn stored_block(&self, pos: BlockPos) -> Option<StoredBlock> {
-        let (x, z) = pos.local();
-        self.chunks.get(pos.chunk())?.stored_block(x, pos.y, z)
-    }
-
-    /// Whether the chunk is loaded (quarantined chunks are not).
-    #[doc(alias = "World::isChunkLoaded")]
-    pub fn is_chunk_loaded(&self, pos: ChunkPos) -> bool {
-        self.chunks.contains(pos)
-    }
-
-    /// The top y in the column at (x, z) that holds a block other than air, or `None` if the
-    /// column is all air or its chunk is not loaded.
-    #[doc(alias = "World::getHighestBlockAt")]
-    pub fn highest_block(&self, x: i32, z: i32) -> Option<i32> {
-        let pos = BlockPos::new(x, 0, z);
-        let (lx, lz) = pos.local();
-        self.chunks.get(pos.chunk())?.highest_block(lx, lz)
-    }
-
-    /// Whether `pos` is inside the world height (x and z are always inside).
-    #[doc(alias = "World::isInWorld")]
-    pub fn is_in_world(pos: BlockPos) -> bool {
-        (MIN_Y..=MAX_Y).contains(&pos.y)
-    }
-
-    /// The loaded chunks, in position order.
-    #[doc(alias = "World::getLoadedChunks")]
-    pub fn loaded_chunks(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
-        self.loaded.iter().copied()
     }
 
     /// The biome ID at `pos` (such as 1 for plains), or `None` if its chunk is not loaded or
@@ -749,6 +611,15 @@ impl World {
     pub fn biome(&self, pos: BlockPos) -> Option<u32> {
         let (x, z) = pos.local();
         self.chunks.get(pos.chunk())?.biome(x, pos.y, z)
+    }
+
+    /// The block at `pos`, or `None` if its chunk is not loaded (or quarantined), `pos` is outside
+    /// the world height, or the block is a state Anchor does not know.
+    #[doc(alias = "World::getBlockAt")]
+    #[doc(alias = "World::getBlock")]
+    #[inline]
+    pub fn block(&self, pos: BlockPos) -> Option<State> {
+        self.entry(pos)?.state()
     }
 
     /// The block light at `pos`, 0 to 15, or `None` if its chunk is not loaded or not lit yet,
@@ -764,58 +635,16 @@ impl World {
         self.light.light(&self.chunks, pos, light::Channel::Block)
     }
 
-    /// The sky light at `pos` whatever the time of day, 0 to 15: 15 under the open sky, less
-    /// through filtering blocks and into shade (see [`Self::block_light`] for `None` and the
-    /// `lighting` setting).
-    #[doc(alias = "World::getPotentialBlockSkyLightAt")]
-    pub fn sky_light(&self, pos: BlockPos) -> Option<u8> {
-        self.light.light(&self.chunks, pos, light::Channel::Sky)
+    /// The changed blocks waiting for [`Self::next_changed`], oldest first (state hash).
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> impl ExactSizeIterator<Item = BlockPos> + '_ {
+        self.feed.iter().copied()
     }
 
-    /// The sky light at `pos` at the world's time: [`Self::sky_light`] less the time of day's
-    /// reduction, 0 by day to 11 at night.
-    #[doc(alias = "World::getRealBlockSkyLightAt")]
-    pub fn real_sky_light(&self, pos: BlockPos) -> Option<u8> {
-        let sky = self.sky_light(pos)?;
-        Some(sky.saturating_sub(light::sky_light_reduction(self.time)))
-    }
-
-    /// The brightest light at `pos` at the world's time: [`Self::real_sky_light`] or
-    /// [`Self::block_light`], whichever is brighter.
-    #[doc(alias = "World::getFullLightAt")]
-    pub fn full_light(&self, pos: BlockPos) -> Option<u8> {
-        let (block, sky) = self.light.lights(&self.chunks, pos)?;
-        Some(
-            sky.saturating_sub(light::sky_light_reduction(self.time))
-                .max(block),
-        )
-    }
-
-    /// Whether the chunk is loaded and lit (always, with light off): random block ticks need it
-    /// around a chunk.
-    pub(crate) fn is_chunk_lit(&self, pos: ChunkPos) -> bool {
-        self.light.is_lit(&self.chunks, pos)
-    }
-
-    /// Whether the chunk at `pos` is quarantined: its saved data is damaged, so it never loads
-    /// until the position unloads (no player or ticket holds it).
-    pub fn is_quarantined(&self, pos: ChunkPos) -> bool {
-        self.quarantined.contains(&pos)
-    }
-
-    /// The layer 0 entry at `pos`, if its chunk is loaded and `pos` is in the world height.
-    #[inline]
-    pub(crate) fn entry(&self, pos: BlockPos) -> Option<Entry> {
-        let (x, z) = pos.local();
-        self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
-    }
-
-    /// The loaded chunk at `pos`, to read; `None` if it is not loaded. Blocks
-    /// change through [`Self::set_block`], which keeps the block rules, light and viewers up to
-    /// date.
-    #[doc(alias = "World::getChunk")]
-    pub fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
-        self.chunks.get(pos)
+    /// The number of changed blocks waiting for [`Self::next_changed`].
+    #[cfg(test)]
+    pub(crate) fn changed_len(&self) -> usize {
+        self.feed.len()
     }
 
     /// What a checkpoint keeps of the world, naming every field; `fed` is `feed` again, the
@@ -870,16 +699,116 @@ impl World {
         (saved, kept)
     }
 
-    /// The number of changed blocks waiting for [`Self::next_changed`].
-    #[cfg(test)]
-    pub(crate) fn changed_len(&self) -> usize {
-        self.feed.len()
+    /// The loaded chunk at `pos`, to read; `None` if it is not loaded. Blocks
+    /// change through [`Self::set_block`], which keeps the block rules, light and viewers up to
+    /// date.
+    #[doc(alias = "World::getChunk")]
+    pub fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
+        self.chunks.get(pos)
     }
 
-    /// The changed blocks waiting for [`Self::next_changed`], oldest first (state hash).
+    /// The server's custom content, for the loaders of saved block entities and entities in
+    /// this world's chunks.
+    pub(crate) fn custom(&self) -> Option<&crate::custom::Registry> {
+        self.custom.as_deref()
+    }
+
+    /// The world's own difficulty, or `None` while it follows the server's
+    /// ([`Context::difficulty`](crate::Context::difficulty)), as a new world does unless it is
+    /// made or loaded with one. The rules of the world use it, but on a `hardcore` server they use
+    /// hard whatever it says. Not saved: it comes from the options of every load.
+    #[doc(alias = "World::getDifficulty")]
+    pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
+        self.difficulty
+    }
+
+    /// The layer 0 entry at `pos`, if its chunk is loaded and `pos` is in the world height.
+    #[inline]
+    pub(crate) fn entry(&self, pos: BlockPos) -> Option<Entry> {
+        let (x, z) = pos.local();
+        self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
+    }
+
+    /// The brightest light at `pos` at the world's time: [`Self::real_sky_light`] or
+    /// [`Self::block_light`], whichever is brighter.
+    #[doc(alias = "World::getFullLightAt")]
+    pub fn full_light(&self, pos: BlockPos) -> Option<u8> {
+        let (block, sky) = self.light.lights(&self.chunks, pos)?;
+        Some(
+            sky.saturating_sub(light::sky_light_reduction(self.time))
+                .max(block),
+        )
+    }
+
+    /// The name of the generator that fills the chunks never saved ([`Generator::name`]).
+    pub(crate) fn generator(&self) -> &'static str {
+        self.generator
+    }
+
+    /// The top y in the column at (x, z) that holds a block other than air, or `None` if the
+    /// column is all air or its chunk is not loaded.
+    #[doc(alias = "World::getHighestBlockAt")]
+    pub fn highest_block(&self, x: i32, z: i32) -> Option<i32> {
+        let pos = BlockPos::new(x, 0, z);
+        let (lx, lz) = pos.local();
+        self.chunks.get(pos.chunk())?.highest_block(lx, lz)
+    }
+
+    /// Its ID on the server.
+    #[doc(alias = "World::getId")]
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Whether the chunk is loaded and lit (always, with light off): random block ticks need it
+    /// around a chunk.
+    pub(crate) fn is_chunk_lit(&self, pos: ChunkPos) -> bool {
+        self.light.is_lit(&self.chunks, pos)
+    }
+
+    /// Whether the chunk is loaded (quarantined chunks are not).
+    #[doc(alias = "World::isChunkLoaded")]
+    pub fn is_chunk_loaded(&self, pos: ChunkPos) -> bool {
+        self.chunks.contains(pos)
+    }
+
+    /// Whether `pos` is inside the world height (x and z are always inside).
+    #[doc(alias = "World::isInWorld")]
+    pub fn is_in_world(pos: BlockPos) -> bool {
+        (MIN_Y..=MAX_Y).contains(&pos.y)
+    }
+
+    /// Whether no light work is waiting.
     #[cfg(test)]
-    pub(crate) fn changed(&self) -> impl ExactSizeIterator<Item = BlockPos> + '_ {
-        self.feed.iter().copied()
+    pub(crate) fn is_light_idle(&self) -> bool {
+        self.light.is_idle()
+    }
+
+    /// Whether the chunk at `pos` is quarantined: its saved data is damaged, so it never loads
+    /// until the position unloads (no player or ticket holds it).
+    pub fn is_quarantined(&self, pos: ChunkPos) -> bool {
+        self.quarantined.contains(&pos)
+    }
+
+    /// Whether the chunk is one of the 3 × 3 spawn chunks the server keeps loaded: those around
+    /// the spawn's chunk inside the world border.
+    #[doc(alias = "World::isSpawnChunk")]
+    pub fn is_spawn_chunk(&self, pos: ChunkPos) -> bool {
+        let center = self.spawn.chunk();
+        let near = |a: i32, b: i32| a.abs_diff(b) <= SPAWN_CHUNK_RADIUS.cast_unsigned();
+        is_inside_border(pos) && near(pos.x, center.x) && near(pos.z, center.z)
+    }
+
+    /// Whether the time stands still ([`Context::stop_time`](crate::Context::stop_time)): the
+    /// day cycle and the sun stay where they are. Not saved: every start runs the time
+    /// (`daylight-cycle` stops every world's).
+    pub fn is_time_stopped(&self) -> bool {
+        self.time_stopped
+    }
+
+    /// The world's kind: whether it is saved.
+    pub fn kind(&self) -> Kind {
+        self.kind
     }
 
     /// A hash of the world's light (state hashes): the light work waiting,
@@ -901,10 +830,22 @@ impl World {
         h.finish()
     }
 
-    /// Whether no light work is waiting.
-    #[cfg(test)]
-    pub(crate) fn is_light_idle(&self) -> bool {
-        self.light.is_idle()
+    /// The loaded chunks, in position order.
+    #[doc(alias = "World::getLoadedChunks")]
+    pub fn loaded_chunks(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
+        self.loaded.iter().copied()
+    }
+
+    /// The world's name, unique on the server: its file name and the name it shows.
+    #[doc(alias = "World::getFolderName")]
+    #[doc(alias = "World::getDisplayName")]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The `chunks` key number of a persistent world, `None` for a temporary one.
+    pub(crate) fn number(&self) -> Option<u32> {
+        self.number
     }
 
     /// The quarantined positions, in order.
@@ -913,76 +854,68 @@ impl World {
         self.quarantined.iter().copied()
     }
 
-    /// Gives the world the server's custom content, for the loaders of its saved
-    /// block entities and entities.
-    pub(crate) fn set_custom(&mut self, custom: std::sync::Arc<crate::custom::Registry>) {
-        self.custom = Some(custom);
+    /// The sky light at `pos` at the world's time: [`Self::sky_light`] less the time of day's
+    /// reduction, 0 by day to 11 at night.
+    #[doc(alias = "World::getRealBlockSkyLightAt")]
+    pub fn real_sky_light(&self, pos: BlockPos) -> Option<u8> {
+        let sky = self.sky_light(pos)?;
+        Some(sky.saturating_sub(light::sky_light_reduction(self.time)))
     }
 
-    /// Numbers the world: its place in the server's world list.
-    pub(crate) fn set_id(&mut self, id: Id) {
-        self.id = id;
+    /// The seed the generator gets.
+    #[doc(alias = "World::getSeed")]
+    pub fn seed(&self) -> i64 {
+        self.seed
     }
 
-    /// Moves the spawn. A persistent world saves it with its state, so it stays after a restart.
-    /// The 3 × 3 spawn chunks the server keeps loaded (those inside the world border) move
-    /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
-    /// sees them. No event tells of the move.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a spawn where a player would stand outside the world border.
-    #[doc(alias = "World::setSpawnLocation")]
-    pub fn set_spawn(&mut self, spawn: BlockPos) -> Result<()> {
-        if !is_valid_spawn(spawn) {
-            return Err(Error::OutOfRange);
-        }
-        self.spawn = spawn;
-        Ok(())
+    /// The sky light at `pos` whatever the time of day, 0 to 15: 15 under the open sky, less
+    /// through filtering blocks and into shade (see [`Self::block_light`] for `None` and the
+    /// `lighting` setting).
+    #[doc(alias = "World::getPotentialBlockSkyLightAt")]
+    pub fn sky_light(&self, pos: BlockPos) -> Option<u8> {
+        self.light.light(&self.chunks, pos, light::Channel::Sky)
+    }
+
+    /// Where players appear.
+    #[doc(alias = "World::getSpawnLocation")]
+    pub fn spawn(&self) -> BlockPos {
+        self.spawn
+    }
+
+    /// The block at `pos` as the world holds it, to put elsewhere with
+    /// [`Self::set_stored_block`]: unlike [`Self::block`], a state Anchor does not know is kept,
+    /// as its stored NBT. `None` if the chunk is not loaded (or quarantined) or `pos` is outside
+    /// the world height.
+    pub fn stored_block(&self, pos: BlockPos) -> Option<StoredBlock> {
+        let (x, z) = pos.local();
+        self.chunks.get(pos.chunk())?.stored_block(x, pos.y, z)
+    }
+
+    /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
+    /// midnight and 23,000 sunrise.
+    #[doc(alias = "World::getTimeOfDay")]
+    pub fn time_of_day(&self) -> u32 {
+        tick_of_day(self.time)
+    }
+
+    /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
+    /// setting. It goes up by one each tick the world is loaded, unless its time is stopped or
+    /// `daylight-cycle` is off, and jumps when [`Context::set_time`](crate::Context::set_time)
+    /// moves it. It counts on past a day (the time of day is [`Self::time_of_day`]).
+    #[doc(alias = "World::getTime")]
+    pub fn time_ticks(&self) -> i64 {
+        self.time
+    }
+
+    /// The weather ([`Context::set_weather`](crate::Context::set_weather) changes it). Not saved:
+    /// every world is clear at start.
+    pub fn weather(&self) -> Weather {
+        self.weather
     }
 
     /// One more tick of [`Self::age_ticks`]: the clock's tick.
     pub(crate) fn add_age_tick(&mut self) {
         self.age_ticks = self.age_ticks.saturating_add(1);
-    }
-
-    /// Sets the time: the saved time at start, the clock's tick and the context's calls. Clients
-    /// learn it from the clock's next correction.
-    pub(crate) fn set_time(&mut self, time: i64) {
-        self.time = time;
-    }
-
-    /// Stops or starts the time: the context's calls.
-    pub(crate) fn set_time_stopped(&mut self, stopped: bool) {
-        self.time_stopped = stopped;
-    }
-
-    /// Sets the world's own difficulty: the options of its making or loading and the context's
-    /// calls.
-    pub(crate) fn set_difficulty(&mut self, difficulty: Option<crate::config::Difficulty>) {
-        self.difficulty = difficulty;
-    }
-
-    /// Sets the weather: the context's calls.
-    pub(crate) fn set_weather(&mut self, weather: Weather) {
-        self.weather = weather;
-    }
-
-    /// Gives a persistent world its `chunks` key number.
-    pub(crate) fn set_number(&mut self, number: Option<u32>) {
-        self.number = number;
-    }
-
-    /// Makes an unloaded persistent world temporary when it is deleted: nothing of it is saved
-    /// again, and a world of its name may be made in its place.
-    pub(crate) fn forget(&mut self) {
-        self.kind = Kind::Temporary;
-        self.number = None;
-    }
-
-    /// Names the world's generator.
-    pub(crate) fn set_generator(&mut self, name: &'static str) {
-        self.generator = name;
     }
 
     /// After the tick unloaded every chunk of the world (saving what it keeps first): forgets the
@@ -999,55 +932,30 @@ impl World {
             .set_mode(&mut self.chunks, std::iter::empty(), mode);
     }
 
-    /// Sets the block at `pos`.
-    ///
-    /// The neighbour rules then work out the connection properties of the block and of its
-    /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
-    /// so the block may end up in a state that differs from `state` in those properties.
-    /// Neighbours in chunks that are not loaded read as air and are not changed. No other block
-    /// reacts: blocks never change by themselves or because a neighbour changed. The block's
-    /// water layer is cleared.
-    ///
-    /// The block entity follows in the tick's next block change phase: a block that has one (a
-    /// chest, a sign) gets an empty one there, which
-    /// [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a block
-    /// entity the new block does not take goes, dropping what it held as items and losing its
-    /// other data (sign text, banner patterns). Until then the old block entity is still there.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a position outside the world height, [`Error::NotLoaded`] for a
-    /// chunk that is not loaded and [`Error::Quarantined`] for a quarantined one.
-    #[doc(alias = "World::setBlockAt")]
-    #[doc(alias = "World::setBlock")]
-    pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
-        self.set_entry(pos, Entry::Known(state))
+    /// Makes an unloaded persistent world temporary when it is deleted: nothing of it is saved
+    /// again, and a world of its name may be made in its place.
+    pub(crate) fn forget(&mut self) {
+        self.kind = Kind::Temporary;
+        self.number = None;
     }
 
-    /// Sets the block at `pos` as [`Self::set_block`] does, a state Anchor does not know included:
-    /// that one is kept as stored and sent to clients as a chunk read from the server file sends
-    /// it.
+    /// Loads `chunk` at `pos`: from disk or a generator (clean, its saved custom blocks already
+    /// resolved by the save thread), or from memory as it is (an unloaded chunk whose changes are
+    /// not committed yet keeps its dirty mark). Lifts a quarantine of `pos` and returns a chunk it
+    /// replaces, whose light leaves with it.
     ///
-    /// # Errors
-    ///
-    /// The errors of [`Self::set_block`], and [`Error::Full`] when the chunk holds the most
-    /// unknown states it can.
-    pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
-        let entry = match block {
-            StoredBlock::Known(state) => Entry::Known(*state),
-            StoredBlock::Unknown(unknown) => {
-                // Checked before the chunk lists the state, so a failed write adds nothing.
-                let Some(chunk) = self
-                    .chunks
-                    .get_mut(pos.chunk())
-                    .filter(|_| Self::is_in_world(pos))
-                else {
-                    return Err(self.unwritable(pos));
-                };
-                chunk.unknown_entry(unknown)?
-            }
-        };
-        self.set_entry(pos, entry)
+    /// A chunk lit on the CPU pool ([`Chunk::populate_light`]) keeps its light and is connected
+    /// to its lit neighbours; one without light (a chunk from memory, whose copy never holds
+    /// light) is lit on the tick, in steps under the light budget of each tick.
+    pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
+        self.quarantined.remove(&pos);
+        self.loaded.insert(pos);
+        let mut old = self.chunks.insert(pos, chunk);
+        if let Some(old) = &mut old {
+            self.light.unloaded(&self.chunks, pos, old.take_light());
+        }
+        self.light.loaded(&mut self.chunks, pos);
+        old
     }
 
     /// Takes the oldest block changed since the block update rules last took it: every change
@@ -1073,63 +981,6 @@ impl World {
             .put_unknown(x, pos.y, z, nbt)
     }
 
-    /// Sets the biome ID at `pos`, saved with the chunk. Players see it when they are sent the
-    /// chunk again.
-    ///
-    /// # Errors
-    ///
-    /// The errors of [`Self::set_block`].
-    #[doc(alias = "World::setBiomeId")]
-    pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
-        let (x, z) = pos.local();
-        let Some(chunk) = self
-            .chunks
-            .get_mut(pos.chunk())
-            .filter(|_| Self::is_in_world(pos))
-        else {
-            return Err(self.unwritable(pos));
-        };
-        if chunk.biome(x, pos.y, z) != Some(biome) {
-            chunk.set_biome(x, pos.y, z, biome)?;
-            chunk.mark_dirty(pos.y);
-        }
-        Ok(())
-    }
-
-    /// Sets how light is worked out (setting `lighting`, [`LightMode::Dynamic`] for a new
-    /// world). Turning the work off drops all light; turning it on lights every loaded chunk
-    /// again.
-    pub(crate) fn set_lighting(&mut self, mode: LightMode) {
-        self.light
-            .set_mode(&mut self.chunks, self.loaded.iter().copied(), mode);
-    }
-
-    /// Does up to `budget` units of queued light work (one unit per block looked at; the last item
-    /// may look at up to one column more) and returns the units spent. The tick calls it once a
-    /// tick; the rest waits for the next.
-    pub(crate) fn step_light(&mut self, budget: u32) -> u32 {
-        self.light.step(&mut self.chunks, budget)
-    }
-
-    /// Loads `chunk` at `pos`: from disk or a generator (clean, its saved custom blocks already
-    /// resolved by the save thread), or from memory as it is (an unloaded chunk whose changes are
-    /// not committed yet keeps its dirty mark). Lifts a quarantine of `pos` and returns a chunk it
-    /// replaces, whose light leaves with it.
-    ///
-    /// A chunk lit on the CPU pool ([`Chunk::populate_light`]) keeps its light and is connected
-    /// to its lit neighbours; one without light (a chunk from memory, whose copy never holds
-    /// light) is lit on the tick, in steps under the light budget of each tick.
-    pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
-        self.quarantined.remove(&pos);
-        self.loaded.insert(pos);
-        let mut old = self.chunks.insert(pos, chunk);
-        if let Some(old) = &mut old {
-            self.light.unloaded(&self.chunks, pos, old.take_light());
-        }
-        self.light.loaded(&mut self.chunks, pos);
-        old
-    }
-
     /// Quarantines `pos` because its saved data is damaged: a chunk loaded there is dropped,
     /// changes included, and the position stays quarantined until [`Self::remove_chunk`].
     pub(crate) fn quarantine(&mut self, pos: ChunkPos) {
@@ -1144,27 +995,6 @@ impl World {
         self.quarantined.remove(&pos);
         self.loaded.remove(&pos);
         self.take_chunk(pos)
-    }
-
-    /// Takes the blocks changed since the last call, with their last state: what the tick sends
-    /// to the players who see them. The tick takes them every tick.
-    pub(crate) fn take_changes(&mut self) -> BTreeMap<BlockPos, Entry> {
-        std::mem::take(&mut self.changes)
-    }
-
-    /// Takes the chunks changed since the last call as copies that share their sub-chunks (a
-    /// later write copies only the sub-chunk it changes) and marks them clean: the save
-    /// snapshot. It visits every loaded chunk, once per save.
-    pub(crate) fn take_dirty(&mut self) -> Vec<(ChunkPos, Chunk)> {
-        let mut out = Vec::new();
-        for &pos in &self.loaded {
-            if let Some(chunk) = self.chunks.get_mut(pos)
-                && chunk.is_dirty()
-            {
-                out.push((pos, chunk.take_save()));
-            }
-        }
-        out
     }
 
     /// Puts the world back as [`Self::checkpoint`] kept it. Fails unless `kept` holds exactly the
@@ -1216,6 +1046,176 @@ impl World {
         Ok(())
     }
 
+    /// Sets the biome ID at `pos`, saved with the chunk. Players see it when they are sent the
+    /// chunk again.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::set_block`].
+    #[doc(alias = "World::setBiomeId")]
+    pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
+        let (x, z) = pos.local();
+        let Some(chunk) = self
+            .chunks
+            .get_mut(pos.chunk())
+            .filter(|_| Self::is_in_world(pos))
+        else {
+            return Err(self.unwritable(pos));
+        };
+        if chunk.biome(x, pos.y, z) != Some(biome) {
+            chunk.set_biome(x, pos.y, z, biome)?;
+            chunk.mark_dirty(pos.y);
+        }
+        Ok(())
+    }
+
+    /// Sets the block at `pos`.
+    ///
+    /// The neighbour rules then work out the connection properties of the block and of its
+    /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
+    /// so the block may end up in a state that differs from `state` in those properties.
+    /// Neighbours in chunks that are not loaded read as air and are not changed. No other block
+    /// reacts: blocks never change by themselves or because a neighbour changed. The block's
+    /// water layer is cleared.
+    ///
+    /// The block entity follows in the tick's next block change phase: a block that has one (a
+    /// chest, a sign) gets an empty one there, which
+    /// [`Context::block_entity_mut`](crate::Context::block_entity_mut) then lends, and a block
+    /// entity the new block does not take goes, dropping what it held as items and losing its
+    /// other data (sign text, banner patterns). Until then the old block entity is still there.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a position outside the world height, [`Error::NotLoaded`] for a
+    /// chunk that is not loaded and [`Error::Quarantined`] for a quarantined one.
+    #[doc(alias = "World::setBlockAt")]
+    #[doc(alias = "World::setBlock")]
+    pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
+        self.set_entry(pos, Entry::Known(state))
+    }
+
+    /// Gives the world the server's custom content, for the loaders of its saved
+    /// block entities and entities.
+    pub(crate) fn set_custom(&mut self, custom: std::sync::Arc<crate::custom::Registry>) {
+        self.custom = Some(custom);
+    }
+
+    /// Sets the world's own difficulty: the options of its making or loading and the context's
+    /// calls.
+    pub(crate) fn set_difficulty(&mut self, difficulty: Option<crate::config::Difficulty>) {
+        self.difficulty = difficulty;
+    }
+
+    /// Names the world's generator.
+    pub(crate) fn set_generator(&mut self, name: &'static str) {
+        self.generator = name;
+    }
+
+    /// Numbers the world: its place in the server's world list.
+    pub(crate) fn set_id(&mut self, id: Id) {
+        self.id = id;
+    }
+
+    /// Sets how light is worked out (setting `lighting`, [`LightMode::Dynamic`] for a new
+    /// world). Turning the work off drops all light; turning it on lights every loaded chunk
+    /// again.
+    pub(crate) fn set_lighting(&mut self, mode: LightMode) {
+        self.light
+            .set_mode(&mut self.chunks, self.loaded.iter().copied(), mode);
+    }
+
+    /// Gives a persistent world its `chunks` key number.
+    pub(crate) fn set_number(&mut self, number: Option<u32>) {
+        self.number = number;
+    }
+
+    /// Moves the spawn. A persistent world saves it with its state, so it stays after a restart.
+    /// The 3 × 3 spawn chunks the server keeps loaded (those inside the world border) move
+    /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
+    /// sees them. No event tells of the move.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a spawn where a player would stand outside the world border.
+    #[doc(alias = "World::setSpawnLocation")]
+    pub fn set_spawn(&mut self, spawn: BlockPos) -> Result<()> {
+        if !is_valid_spawn(spawn) {
+            return Err(Error::OutOfRange);
+        }
+        self.spawn = spawn;
+        Ok(())
+    }
+
+    /// Sets the block at `pos` as [`Self::set_block`] does, a state Anchor does not know included:
+    /// that one is kept as stored and sent to clients as a chunk read from the server file sends
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::set_block`], and [`Error::Full`] when the chunk holds the most
+    /// unknown states it can.
+    pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
+        let entry = match block {
+            StoredBlock::Known(state) => Entry::Known(*state),
+            StoredBlock::Unknown(unknown) => {
+                // Checked before the chunk lists the state, so a failed write adds nothing.
+                let Some(chunk) = self
+                    .chunks
+                    .get_mut(pos.chunk())
+                    .filter(|_| Self::is_in_world(pos))
+                else {
+                    return Err(self.unwritable(pos));
+                };
+                chunk.unknown_entry(unknown)?
+            }
+        };
+        self.set_entry(pos, entry)
+    }
+
+    /// Sets the time: the saved time at start, the clock's tick and the context's calls. Clients
+    /// learn it from the clock's next correction.
+    pub(crate) fn set_time(&mut self, time: i64) {
+        self.time = time;
+    }
+
+    /// Stops or starts the time: the context's calls.
+    pub(crate) fn set_time_stopped(&mut self, stopped: bool) {
+        self.time_stopped = stopped;
+    }
+
+    /// Sets the weather: the context's calls.
+    pub(crate) fn set_weather(&mut self, weather: Weather) {
+        self.weather = weather;
+    }
+
+    /// Does up to `budget` units of queued light work (one unit per block looked at; the last item
+    /// may look at up to one column more) and returns the units spent. The tick calls it once a
+    /// tick; the rest waits for the next.
+    pub(crate) fn step_light(&mut self, budget: u32) -> u32 {
+        self.light.step(&mut self.chunks, budget)
+    }
+
+    /// Takes the blocks changed since the last call, with their last state: what the tick sends
+    /// to the players who see them. The tick takes them every tick.
+    pub(crate) fn take_changes(&mut self) -> BTreeMap<BlockPos, Entry> {
+        std::mem::take(&mut self.changes)
+    }
+
+    /// Takes the chunks changed since the last call as copies that share their sub-chunks (a
+    /// later write copies only the sub-chunk it changes) and marks them clean: the save
+    /// snapshot. It visits every loaded chunk, once per save.
+    pub(crate) fn take_dirty(&mut self) -> Vec<(ChunkPos, Chunk)> {
+        let mut out = Vec::new();
+        for &pos in &self.loaded {
+            if let Some(chunk) = self.chunks.get_mut(pos)
+                && chunk.is_dirty()
+            {
+                out.push((pos, chunk.take_save()));
+            }
+        }
+        out
+    }
+
     /// Why a block cannot be written at `pos`.
     fn unwritable(&self, pos: BlockPos) -> Error {
         if !Self::is_in_world(pos) {
@@ -1237,6 +1237,14 @@ impl World {
         Ok(())
     }
 
+    /// Takes the chunk at `pos` out of the index with its light work.
+    fn take_chunk(&mut self, pos: ChunkPos) -> Option<Chunk> {
+        let mut chunk = self.chunks.remove(pos)?;
+        let light = chunk.take_light();
+        self.light.unloaded(&self.chunks, pos, light);
+        Some(chunk)
+    }
+
     /// Writes an entry at `pos` of a loaded chunk; a change marks the chunk dirty and records the
     /// block in the change list. Returns the old entry, or `None` if nothing was written (the
     /// chunk is not loaded or `pos` is outside the world height).
@@ -1253,14 +1261,6 @@ impl World {
             self.light.changed(chunk, pos, old, entry);
         }
         Some(old)
-    }
-
-    /// Takes the chunk at `pos` out of the index with its light work.
-    fn take_chunk(&mut self, pos: ChunkPos) -> Option<Chunk> {
-        let mut chunk = self.chunks.remove(pos)?;
-        let light = chunk.take_light();
-        self.light.unloaded(&self.chunks, pos, light);
-        Some(chunk)
     }
 }
 
@@ -1511,7 +1511,7 @@ mod tests {
         }
         assert!(w.chunk(ChunkPos::new(1, 0)).is_none(), "not loaded");
         let p = BlockPos::new(1, 2, 3);
-        let sides = Face::ALL.map(|f| p.step(f).unwrap());
+        let sides: Vec<_> = Face::all().iter().map(|&f| p.step(f).unwrap()).collect();
         assert_eq!(
             sides,
             [

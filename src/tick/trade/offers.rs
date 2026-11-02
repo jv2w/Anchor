@@ -1,6 +1,6 @@
 //! The offer list of one villager NPC and its two NBT forms (P6).
 //!
-//! An offer list holds the offers ([`Recipe`], key `Recipes`) in the order the trade screen
+//! An offer list holds the offers ([`StoredOffer`], key `Recipes`) in the order the trade screen
 //! shows them, the villager's tier and trade xp, and the xp each tier needs
 //! (`TierExpRequirements`). Code sets and changes it ([`Offers::set`], [`Offers::add`],
 //! [`Offers::remove`], [`Offers::replace`], [`Offers::set_tier`], [`Offers::set_xp`],
@@ -15,12 +15,12 @@
 //!   tier and xp on the entity; here they travel with the offers so the entity module stores one
 //!   value.
 //! - wire ([`Offers::wire_nbt`]): `UpdateTrade.SerialisedOffers`, the shape `{Recipes,
-//!   TierExpRequirements}` (the packet carries the tier), each recipe with its `netId`.
+//!   TierExpRequirements}` (the packet carries the tier), each offer with its `netId`.
 //!
-//! A recipe's keys are `buyA`, `buyB` (only with a second payment), `buyCountA`,
+//! An offer's keys are `buyA`, `buyB` (only with a second payment), `buyCountA`,
 //! `buyCountB`, `demand`, `maxUses`, `netId` (wire only), `priceMultiplierA`, `priceMultiplierB`,
 //! `rewardExp`, `sell`, `tier`, `traderExp`, `uses`; items are disk item compounds with
-//! `WasPickedUp`. Unknown recipe and root keys are kept and written back. A saved recipe Anchor
+//! `WasPickedUp`. Unknown offer and root keys are kept and written back. A saved offer Anchor
 //! cannot use (unknown item, a value out of range, a wrong tag type) is skipped with a warning,
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
 //! destroyed).
@@ -39,9 +39,9 @@ use crate::protocol::Writer;
 
 /// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6).
 const ANY_DAMAGE: i16 = i16::MAX;
-/// A recipe's first payment.
+/// An offer's first payment.
 const BUY_A: &str = "buyA";
-/// A recipe's second payment, only when it has one.
+/// An offer's second payment, only when it has one.
 const BUY_B: &str = "buyB";
 /// The first payment's count: the price charged.
 const BUY_COUNT_A: &str = "buyCountA";
@@ -51,7 +51,7 @@ const BUY_COUNT_B: &str = "buyCountB";
 const DAMAGE: &str = "Damage";
 /// The xp each tier needs, as the official server sends it (P6).
 const DEFAULT_TIER_XP: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
-/// A recipe's demand.
+/// An offer's demand.
 const DEMAND: &str = "demand";
 /// The first network ID of an offer; `CraftingData` is empty, so no crafting recipe takes one.
 pub(super) const FIRST_NET_ID: u32 = 1;
@@ -60,16 +60,12 @@ pub(super) const FIRST_NET_ID: u32 = 1;
 /// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
 /// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each).
 const MAX_SAVED_BYTES: usize = crate::nbt::MAX_ROOT_BYTES / 2;
-/// A recipe's maximum uses.
+/// An offer's maximum uses.
 const MAX_USES: &str = "maxUses";
-/// A recipe's network ID (wire form only).
+/// An offer's network ID (wire form only).
 const NET_ID: &str = "netId";
-/// A recipe's first price multiplier.
-const PRICE_MULTIPLIER_A: &str = "priceMultiplierA";
-/// A recipe's second price multiplier.
-const PRICE_MULTIPLIER_B: &str = "priceMultiplierB";
-/// Every key a recipe compound reads; the others are kept as unknown.
-const RECIPE_KEYS: [&str; 14] = [
+/// Every key an offer compound reads; the others are kept as unknown.
+const OFFER_KEYS: [&str; 14] = [
     BUY_A,
     BUY_B,
     BUY_COUNT_A,
@@ -79,21 +75,25 @@ const RECIPE_KEYS: [&str; 14] = [
     NET_ID,
     PRICE_MULTIPLIER_A,
     PRICE_MULTIPLIER_B,
-    REWARD_EXP,
+    REWARD_XP,
     SELL,
     TIER,
-    TRADER_EXP,
+    TRADER_XP,
     USES,
 ];
+/// An offer's first price multiplier.
+const PRICE_MULTIPLIER_A: &str = "priceMultiplierA";
+/// An offer's second price multiplier.
+const PRICE_MULTIPLIER_B: &str = "priceMultiplierB";
 /// The offers (both forms).
 const RECIPES: &str = "Recipes";
-/// Whether a recipe's trades drop orbs (a byte flag).
-const REWARD_EXP: &str = "rewardExp";
+/// Whether an offer's trades drop orbs (a byte flag).
+const REWARD_XP: &str = "rewardExp";
 /// Every key the root compound reads; the others are kept as unknown.
 const ROOT_KEYS: [&str; 4] = [RECIPES, TIER_XP, TRADE_TIER, TRADE_XP];
-/// What a recipe sells.
+/// What an offer sells.
 const SELL: &str = "sell";
-/// The tier that unlocks a recipe.
+/// The tier that unlocks an offer.
 const TIER: &str = "tier";
 /// The xp each tier needs (both forms).
 const TIER_XP: &str = "TierExpRequirements";
@@ -101,16 +101,16 @@ const TIER_XP: &str = "TierExpRequirements";
 const TRADE_TIER: &str = "TradeTier";
 /// The villager's trade xp (saved form only).
 const TRADE_XP: &str = "TradeExperience";
-/// The villager xp per trade of a recipe.
-const TRADER_EXP: &str = "traderExp";
-/// A recipe's uses so far.
+/// The villager xp per trade of an offer.
+const TRADER_XP: &str = "traderExp";
+/// An offer's uses so far.
 const USES: &str = "uses";
 
 /// The offer list of one villager NPC, kept in its entity.
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::tick) struct Offers {
-    /// The offers, at most [`MAX_OFFERS`], each passing [`Recipe::check`].
-    recipes: Vec<Recipe>,
+    /// The offers, at most [`MAX_OFFERS`], each passing [`StoredOffer::check`].
+    list: Vec<StoredOffer>,
     /// The villager's tier (0 to [`MAX_TRADE_TIER`]): offers of higher tiers are locked.
     tier: u8,
     /// The villager's trade xp, at most [`MAX_TRADE_COUNTER`].
@@ -119,7 +119,7 @@ pub(in crate::tick) struct Offers {
     tier_xp: [u32; TRADE_TIERS],
     /// Unknown root keys, written back as they came.
     unknown: Compound,
-    /// Saved recipes Anchor cannot use, written back after the others.
+    /// Saved offers Anchor cannot use, written back after the others.
     skipped: Vec<Compound>,
     /// The network ID of the first offer while the list is shown to players: allocated when a
     /// player first opens the list, kept while it does not change (reopening shows the same
@@ -129,7 +129,7 @@ pub(in crate::tick) struct Offers {
 }
 
 impl Offers {
-    /// Reads the offers of a saved entity (its `Offers` compound). Recipes Anchor cannot use are
+    /// Reads the offers of a saved entity (its `Offers` compound). Offers Anchor cannot use are
     /// skipped with a warning and kept to be written back; a bad tier, xp or tier
     /// requirement list falls back to its default with a warning. Custom items are read
     /// through `custom`, the server's custom content.
@@ -141,8 +141,8 @@ impl Offers {
         match saved.get(RECIPES) {
             Some(Value::List(List::Compound(list))) => {
                 for c in list {
-                    match Recipe::from_nbt(c, custom) {
-                        Ok(r) if offers.recipes.len() < MAX_OFFERS => offers.recipes.push(r),
+                    match StoredOffer::from_nbt(c, custom) {
+                        Ok(o) if offers.list.len() < MAX_OFFERS => offers.list.push(o),
                         Ok(_) => {
                             warn!(max = MAX_OFFERS, "villager offer past the limit skipped");
                             offers.skipped.push(c.clone());
@@ -183,14 +183,48 @@ impl Offers {
         offers
     }
 
-    /// The offers, in screen order.
-    pub(in crate::tick) fn recipes(&self) -> &[Recipe] {
-        &self.recipes
+    #[cfg(test)]
+    pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
+        let Self {
+            list,
+            tier,
+            xp,
+            tier_xp,
+            unknown,
+            skipped,
+            first_net_id,
+        } = self;
+        h.usize(list.len());
+        for o in list {
+            o.hash_into(h);
+        }
+        h.u64(u64::from(*tier));
+        h.u64(u64::from(*xp));
+        for x in tier_xp {
+            h.u64(u64::from(*x));
+        }
+        crate::tick::extra::hash_nbt(h, unknown);
+        h.usize(skipped.len());
+        for c in skipped {
+            crate::tick::extra::hash_nbt(h, c);
+        }
+        h.u64(first_net_id.map_or(0, |id| u64::from(id) + 1));
+    }
+
+    /// The index of the offer the client knows as `net_id`, if the list still has that ID.
+    pub(in crate::tick) fn index_of(&self, net_id: u32) -> Option<usize> {
+        let i = usize::try_from(net_id.checked_sub(self.first_net_id?)?).ok()?;
+        (i < self.list.len()).then_some(i)
     }
 
     /// Whether the list has no offer.
     pub(in crate::tick) fn is_empty(&self) -> bool {
-        self.recipes.is_empty()
+        self.list.is_empty()
+    }
+
+    /// The offers, in screen order.
+    pub(in crate::tick) fn list(&self) -> &[StoredOffer] {
+        &self.list
     }
 
     /// The villager's tier (0 to [`MAX_TRADE_TIER`]).
@@ -198,77 +232,120 @@ impl Offers {
         self.tier
     }
 
-    /// The villager's trade xp.
-    pub(in crate::tick) fn xp(&self) -> u32 {
-        self.xp
-    }
-
     /// The xp each tier needs.
     pub(in crate::tick) fn tier_xp(&self) -> [u32; TRADE_TIERS] {
         self.tier_xp
     }
 
-    /// The index of the offer the client knows as `net_id`, if the list still has that ID.
-    pub(in crate::tick) fn index_of(&self, net_id: u32) -> Option<usize> {
-        let i = usize::try_from(net_id.checked_sub(self.first_net_id?)?).ok()?;
-        (i < self.recipes.len()).then_some(i)
-    }
-
     /// The offer at `index` if it can be traded now: its tier is unlocked and it has uses left.
-    pub(in crate::tick) fn tradable(&self, index: usize) -> Option<&Recipe> {
-        self.recipes
+    pub(in crate::tick) fn tradable(&self, index: usize) -> Option<&StoredOffer> {
+        self.list
             .get(index)
-            .filter(|r| r.tier <= self.tier && r.uses_left() > 0)
+            .filter(|o| o.tier <= self.tier && o.uses_left() > 0)
     }
 
-    /// Replaces the whole list. Every offer must pass [`Recipe::check`] and the saved list fit
-    /// [`MAX_SAVED_BYTES`]; nothing changes otherwise. The saved offers Anchor cannot use stay
-    /// after the new list and count towards that size.
-    pub(in crate::tick) fn set(&mut self, recipes: Vec<Recipe>) -> Result<()> {
-        if recipes.len() > MAX_OFFERS {
-            return Err(Error::Full);
-        }
-        for recipe in &recipes {
-            recipe.check()?;
-        }
-        let old = std::mem::replace(&mut self.recipes, recipes);
-        self.kept_if_saved(|r| *r = old)
+    /// The offers as `UpdateTrade` sends them: every offer with its network ID. `None` until
+    /// network IDs are allocated ([`Self::allocate_net_ids`]).
+    pub(in crate::tick) fn wire_nbt(&self) -> Option<Compound> {
+        self.first_net_id?;
+        Some(self.nbt(Form::Wire))
+    }
+
+    /// The villager's trade xp.
+    pub(in crate::tick) fn xp(&self) -> u32 {
+        self.xp
     }
 
     /// Adds an offer at the end.
-    pub(in crate::tick) fn add(&mut self, recipe: Recipe) -> Result<()> {
-        recipe.check()?;
-        if self.recipes.len() >= MAX_OFFERS {
+    pub(in crate::tick) fn add(&mut self, offer: StoredOffer) -> Result<()> {
+        offer.check()?;
+        if self.list.len() >= MAX_OFFERS {
             return Err(Error::Full);
         }
-        self.recipes.push(recipe);
-        self.kept_if_saved(|r| {
-            r.pop();
+        self.list.push(offer);
+        self.kept_if_saved(|l| {
+            l.pop();
         })
     }
 
+    /// Gives the offers network IDs from `next` (the server's counter, which moves past them)
+    /// unless they have them. IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts
+    /// over at [`FIRST_NET_ID`].
+    pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32) {
+        if self.first_net_id.is_some() {
+            return;
+        }
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the list holds at most MAX_OFFERS (128) offers"
+        )]
+        let len = u32::try_from(self.list.len()).expect("the offers count fits a u32");
+        let start = (*next).max(FIRST_NET_ID);
+        let start = match start.checked_add(len) {
+            Some(end) if end <= MAX_TRADE_COUNTER => start,
+            _ => FIRST_NET_ID,
+        };
+        *next = start.saturating_add(len);
+        self.first_net_id = Some(start);
+    }
+
+    /// Counts `times` trades of the offer at `index`: its uses, the villager's xp and
+    /// tier (raised to the highest tier the xp reaches, several at once if enough). At
+    /// most the uses left are counted. `None` if there is no such offer.
+    pub(in crate::tick) fn apply(&mut self, index: usize, times: u32) -> Option<Applied> {
+        let offer = self.list.get_mut(index)?;
+        let times = times.min(offer.uses_left());
+        offer.uses = offer.uses.saturating_add(times);
+        let gained = offer.trader_xp.saturating_mul(times);
+        let reward_xp = offer.reward_xp;
+        self.xp = self.xp.saturating_add(gained).min(MAX_TRADE_COUNTER);
+        self.raise_tier();
+        Some(Applied { times, reward_xp })
+    }
+
     /// Removes and returns the offer at `index`.
-    pub(in crate::tick) fn remove(&mut self, index: usize) -> Result<Recipe> {
-        if index >= self.recipes.len() {
+    pub(in crate::tick) fn remove(&mut self, index: usize) -> Result<StoredOffer> {
+        if index >= self.list.len() {
             return Err(Error::NoOffer);
         }
         self.first_net_id = None;
-        Ok(self.recipes.remove(index))
+        Ok(self.list.remove(index))
     }
 
     /// Replaces the offer at `index`.
-    pub(in crate::tick) fn replace(&mut self, index: usize, recipe: Recipe) -> Result<()> {
-        recipe.check()?;
-        let slot = self.recipes.get_mut(index).ok_or(Error::NoOffer)?;
-        let old = std::mem::replace(slot, recipe);
-        self.kept_if_saved(|r| {
+    pub(in crate::tick) fn replace(&mut self, index: usize, offer: StoredOffer) -> Result<()> {
+        offer.check()?;
+        let slot = self.list.get_mut(index).ok_or(Error::NoOffer)?;
+        let old = std::mem::replace(slot, offer);
+        self.kept_if_saved(|l| {
             #[expect(
                 clippy::expect_used,
                 reason = "invariant: the offer at `index` was found just before, and the list keeps its length"
             )]
-            let slot = r.get_mut(index).expect("the replaced offer is in the list");
+            let slot = l.get_mut(index).expect("the replaced offer is in the list");
             *slot = old;
         })
+    }
+
+    /// Sets every offer's uses back to 0 (a restock). Offers keep their network IDs.
+    pub(in crate::tick) fn reset_uses(&mut self) {
+        for o in &mut self.list {
+            o.uses = 0;
+        }
+    }
+
+    /// Replaces the whole list. Every offer must pass [`StoredOffer::check`] and the saved list
+    /// fit [`MAX_SAVED_BYTES`]; nothing changes otherwise. The saved offers Anchor cannot use stay
+    /// after the new list and count towards that size.
+    pub(in crate::tick) fn set(&mut self, list: Vec<StoredOffer>) -> Result<()> {
+        if list.len() > MAX_OFFERS {
+            return Err(Error::Full);
+        }
+        for offer in &list {
+            offer.check()?;
+        }
+        let old = std::mem::replace(&mut self.list, list);
+        self.kept_if_saved(|l| *l = old)
     }
 
     /// Sets the villager's tier; its xp moves to at least the tier's need and below the
@@ -290,17 +367,6 @@ impl Offers {
         Ok(())
     }
 
-    /// Sets the villager's trade xp (at most [`MAX_TRADE_COUNTER`]) and raises its tier
-    /// to the highest one the xp reaches; a lower xp keeps the tier.
-    pub(in crate::tick) fn set_xp(&mut self, xp: u32) -> Result<()> {
-        if xp > MAX_TRADE_COUNTER {
-            return Err(Error::Xp);
-        }
-        self.xp = xp;
-        self.raise_tier();
-        Ok(())
-    }
-
     /// Sets the xp each tier needs ([`is_tier_xp`]) and raises the tier to the
     /// highest one the xp reaches; higher needs keep the tier.
     pub(in crate::tick) fn set_tier_xp(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
@@ -312,46 +378,15 @@ impl Offers {
         Ok(())
     }
 
-    /// Sets every offer's uses back to 0 (a restock). Offers keep their network IDs.
-    pub(in crate::tick) fn reset_uses(&mut self) {
-        for r in &mut self.recipes {
-            r.uses = 0;
+    /// Sets the villager's trade xp (at most [`MAX_TRADE_COUNTER`]) and raises its tier
+    /// to the highest one the xp reaches; a lower xp keeps the tier.
+    pub(in crate::tick) fn set_xp(&mut self, xp: u32) -> Result<()> {
+        if xp > MAX_TRADE_COUNTER {
+            return Err(Error::Xp);
         }
-    }
-
-    /// Gives the offers network IDs from `next` (the server's counter, which moves past them)
-    /// unless they have them. IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts
-    /// over at [`FIRST_NET_ID`].
-    pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32) {
-        if self.first_net_id.is_some() {
-            return;
-        }
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the list holds at most MAX_OFFERS (128) offers"
-        )]
-        let len = u32::try_from(self.recipes.len()).expect("the offers count fits a u32");
-        let start = (*next).max(FIRST_NET_ID);
-        let start = match start.checked_add(len) {
-            Some(end) if end <= MAX_TRADE_COUNTER => start,
-            _ => FIRST_NET_ID,
-        };
-        *next = start.saturating_add(len);
-        self.first_net_id = Some(start);
-    }
-
-    /// Counts `times` trades of the offer at `index`: its uses, the villager's xp and
-    /// tier (raised to the highest tier the xp reaches, several at once if enough). At
-    /// most the uses left are counted. `None` if there is no such offer.
-    pub(in crate::tick) fn apply(&mut self, index: usize, times: u32) -> Option<Applied> {
-        let recipe = self.recipes.get_mut(index)?;
-        let times = times.min(recipe.uses_left());
-        recipe.uses = recipe.uses.saturating_add(times);
-        let gained = recipe.trader_exp.saturating_mul(times);
-        let reward_exp = recipe.reward_exp;
-        self.xp = self.xp.saturating_add(gained).min(MAX_TRADE_COUNTER);
+        self.xp = xp;
         self.raise_tier();
-        Some(Applied { times, reward_exp })
+        Ok(())
     }
 
     /// The offers to save with the entity.
@@ -362,29 +397,22 @@ impl Offers {
         c
     }
 
-    /// The offers as `UpdateTrade` sends them: every recipe with its network ID. `None` until
-    /// network IDs are allocated ([`Self::allocate_net_ids`]).
-    pub(in crate::tick) fn wire_nbt(&self) -> Option<Compound> {
-        self.first_net_id?;
-        Some(self.nbt(Form::Wire))
-    }
-
-    /// The common part of both forms: the wire form has network IDs and no skipped recipes.
+    /// The common part of both forms: the wire form has network IDs and no skipped offers.
     fn nbt(&self, form: Form) -> Compound {
         let mut c = self.unknown.clone();
         let skipped = match form {
             Form::Saved => self.skipped.as_slice(),
             Form::Wire => &[],
         };
-        let mut recipes: Vec<Compound> = Vec::with_capacity(self.recipes.len() + skipped.len());
-        for (r, i) in self.recipes.iter().zip(0_u32..) {
-            recipes.push(r.to_nbt(match form {
+        let mut offers: Vec<Compound> = Vec::with_capacity(self.list.len() + skipped.len());
+        for (o, i) in self.list.iter().zip(0_u32..) {
+            offers.push(o.to_nbt(match form {
                 Form::Saved => None,
                 Form::Wire => self.net_id(i),
             }));
         }
-        recipes.extend(skipped.iter().cloned());
-        c.insert(RECIPES.to_owned(), Value::List(List::Compound(recipes)));
+        offers.extend(skipped.iter().cloned());
+        c.insert(RECIPES.to_owned(), Value::List(List::Compound(offers)));
         let tiers = (0..TRADE_TIERS)
             .zip(self.tier_xp)
             .map(|(i, x)| Compound::from([(i.to_string(), int(x))]))
@@ -393,15 +421,20 @@ impl Offers {
         c
     }
 
+    /// The network ID of the offer at `index`, while the list has IDs.
+    fn net_id(&self, index: u32) -> Option<u32> {
+        self.first_net_id?.checked_add(index)
+    }
+
     /// Keeps a change of the offers if their saved form still fits [`MAX_SAVED_BYTES`] (and
     /// reads back within four times that); otherwise `undo` puts the old offers back.
-    fn kept_if_saved(&mut self, undo: impl FnOnce(&mut Vec<Recipe>)) -> Result<()> {
+    fn kept_if_saved(&mut self, undo: impl FnOnce(&mut Vec<StoredOffer>)) -> Result<()> {
         let mut w = Writer::new(Vec::new(), 0);
         let fits = w
             .nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
             .is_ok_and(|c| c.alloc <= 4 * MAX_SAVED_BYTES);
         if !fits {
-            undo(&mut self.recipes);
+            undo(&mut self.list);
             return Err(Error::TooLarge);
         }
         self.first_net_id = None;
@@ -419,45 +452,12 @@ impl Offers {
             self.tier += 1;
         }
     }
-
-    /// The network ID of the offer at `index`, while the list has IDs.
-    fn net_id(&self, index: u32) -> Option<u32> {
-        self.first_net_id?.checked_add(index)
-    }
-
-    #[cfg(test)]
-    pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
-        let Self {
-            recipes,
-            tier,
-            xp,
-            tier_xp,
-            unknown,
-            skipped,
-            first_net_id,
-        } = self;
-        h.usize(recipes.len());
-        for r in recipes {
-            r.hash_into(h);
-        }
-        h.u64(u64::from(*tier));
-        h.u64(u64::from(*xp));
-        for x in tier_xp {
-            h.u64(u64::from(*x));
-        }
-        crate::tick::extra::hash_nbt(h, unknown);
-        h.usize(skipped.len());
-        for c in skipped {
-            crate::tick::extra::hash_nbt(h, c);
-        }
-        h.u64(first_net_id.map_or(0, |id| u64::from(id) + 1));
-    }
 }
 
 impl Default for Offers {
     fn default() -> Self {
         Self {
-            recipes: Vec::new(),
+            list: Vec::new(),
             tier: 0,
             xp: 0,
             tier_xp: DEFAULT_TIER_XP,
@@ -469,7 +469,7 @@ impl Default for Offers {
 }
 
 crate::tick::checkpoint::fields!(Offers {
-    recipes,
+    list,
     tier,
     xp,
     tier_xp,
@@ -481,9 +481,9 @@ crate::tick::checkpoint::fields!(Offers {
 /// One offer as the villager keeps it.
 ///
 /// The fields are open for building one; an offer list takes it only through
-/// [`Recipe::check`], so a stored offer is always valid.
+/// [`StoredOffer::check`], so a stored offer is always valid.
 #[derive(Debug, Clone, PartialEq)]
-pub(in crate::tick) struct Recipe {
+pub(in crate::tick) struct StoredOffer {
     /// The first payment; its count is the price (sent as `buyCountA`).
     pub(in crate::tick) buy_a: Stack,
     /// The second payment, or empty.
@@ -501,9 +501,9 @@ pub(in crate::tick) struct Recipe {
     /// The villager tier that unlocks it (0 to [`MAX_TRADE_TIER`]).
     pub(in crate::tick) tier: u8,
     /// Xp the villager gets per trade.
-    pub(in crate::tick) trader_exp: u32,
+    pub(in crate::tick) trader_xp: u32,
     /// Whether each trade drops xp orbs for the player.
-    pub(in crate::tick) reward_exp: bool,
+    pub(in crate::tick) reward_xp: bool,
     /// Sent as `priceMultiplierA`; Anchor's price does not depend on it.
     pub(in crate::tick) price_multiplier_a: f32,
     /// Sent as `priceMultiplierB`.
@@ -514,7 +514,7 @@ pub(in crate::tick) struct Recipe {
     pub(in crate::tick) unknown: Compound,
 }
 
-impl Recipe {
+impl StoredOffer {
     /// Builds an offer of `sell` for `buy_a` (and `buy_b`, or empty) at most `max_uses` times,
     /// with the defaults of [`Offer::new`](crate::custom::Offer::new) and exact payment damage.
     #[cfg(test)]
@@ -527,8 +527,8 @@ impl Recipe {
             max_uses,
             uses,
             tier,
-            trader_xp: trader_exp,
-            reward_xp: reward_exp,
+            trader_xp,
+            reward_xp,
             price_multipliers: (price_multiplier_a, price_multiplier_b),
             demand,
         } = crate::custom::Offer::new(buy_a, sell, max_uses);
@@ -541,52 +541,13 @@ impl Recipe {
             max_uses,
             uses,
             tier,
-            trader_exp,
-            reward_exp,
+            trader_xp,
+            reward_xp,
             price_multiplier_a,
             price_multiplier_b,
             demand,
             unknown: Compound::new(),
         }
-    }
-
-    /// Reads the offer a recipe compound holds, or why it cannot be used. The price is
-    /// `buyCountA` (the actual count) when present, otherwise the item's `Count`. Custom items
-    /// are read through `custom`.
-    fn from_nbt(c: &Compound, custom: &Registry) -> Result<Self, &'static str> {
-        let (buy_a, damage_a) =
-            payment(c, BUY_A, BUY_COUNT_A, custom)?.ok_or("no first payment")?;
-        let (buy_b, damage_b) = payment(c, BUY_B, BUY_COUNT_B, custom)?.unwrap_or_default();
-        let sell = item(c, SELL, custom)?.ok_or("nothing sold")?;
-        let max_uses = counter(c, MAX_USES)?.ok_or("no maximum uses")?;
-        let recipe = Self {
-            buy_a,
-            buy_b,
-            damage_a,
-            damage_b,
-            sell,
-            max_uses,
-            uses: counter(c, USES)?.unwrap_or(0),
-            tier: counter(c, TIER)?
-                .map_or(Ok(0), u8::try_from)
-                .map_err(|_| "tier out of range")?,
-            trader_exp: counter(c, TRADER_EXP)?.unwrap_or(0),
-            reward_exp: match c.get(REWARD_EXP) {
-                Some(Value::Byte(1)) | None => true,
-                Some(Value::Byte(0)) => false,
-                Some(_) => return Err("rewardExp is not a byte flag"),
-            },
-            price_multiplier_a: float(c, PRICE_MULTIPLIER_A)?,
-            price_multiplier_b: float(c, PRICE_MULTIPLIER_B)?,
-            demand: match c.get(DEMAND) {
-                Some(Value::Int(d)) => *d,
-                Some(_) => return Err("demand is not an int"),
-                None => 0,
-            },
-            unknown: unknown_keys(c, &RECIPE_KEYS),
-        };
-        recipe.check().map_err(Error::reason)?;
-        Ok(recipe)
     }
 
     /// Whether an offer list can hold this offer.
@@ -599,7 +560,7 @@ impl Recipe {
         }
         if self.max_uses > MAX_TRADE_COUNTER
             || self.uses > self.max_uses
-            || self.trader_exp > MAX_TRADE_COUNTER
+            || self.trader_xp > MAX_TRADE_COUNTER
         {
             return Err(Error::Uses);
         }
@@ -619,7 +580,80 @@ impl Recipe {
         self.max_uses.saturating_sub(self.uses)
     }
 
-    /// The recipe compound, with `net_id` on the wire.
+    /// Reads the offer an offer compound holds, or why it cannot be used. The price is
+    /// `buyCountA` (the actual count) when present, otherwise the item's `Count`. Custom items
+    /// are read through `custom`.
+    fn from_nbt(c: &Compound, custom: &Registry) -> Result<Self, &'static str> {
+        let (buy_a, damage_a) =
+            payment(c, BUY_A, BUY_COUNT_A, custom)?.ok_or("no first payment")?;
+        let (buy_b, damage_b) = payment(c, BUY_B, BUY_COUNT_B, custom)?.unwrap_or_default();
+        let sell = item(c, SELL, custom)?.ok_or("nothing sold")?;
+        let max_uses = counter(c, MAX_USES)?.ok_or("no maximum uses")?;
+        let offer = Self {
+            buy_a,
+            buy_b,
+            damage_a,
+            damage_b,
+            sell,
+            max_uses,
+            uses: counter(c, USES)?.unwrap_or(0),
+            tier: counter(c, TIER)?
+                .map_or(Ok(0), u8::try_from)
+                .map_err(|_| "tier out of range")?,
+            trader_xp: counter(c, TRADER_XP)?.unwrap_or(0),
+            reward_xp: match c.get(REWARD_XP) {
+                Some(Value::Byte(1)) | None => true,
+                Some(Value::Byte(0)) => false,
+                Some(_) => return Err("rewardExp is not a byte flag"),
+            },
+            price_multiplier_a: float(c, PRICE_MULTIPLIER_A)?,
+            price_multiplier_b: float(c, PRICE_MULTIPLIER_B)?,
+            demand: match c.get(DEMAND) {
+                Some(Value::Int(d)) => *d,
+                Some(_) => return Err("demand is not an int"),
+                None => 0,
+            },
+            unknown: unknown_keys(c, &OFFER_KEYS),
+        };
+        offer.check().map_err(Error::reason)?;
+        Ok(offer)
+    }
+
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut crate::tick::Fnv) {
+        let Self {
+            buy_a,
+            buy_b,
+            damage_a,
+            damage_b,
+            sell,
+            max_uses,
+            uses,
+            tier,
+            trader_xp,
+            reward_xp,
+            price_multiplier_a,
+            price_multiplier_b,
+            demand,
+            unknown,
+        } = self;
+        for stack in [buy_a, buy_b, sell] {
+            crate::tick::inventory::hash_stack(h, stack);
+        }
+        for d in [damage_a, damage_b] {
+            h.u64(u64::from(*d == Damage::Any));
+        }
+        for v in [*max_uses, *uses, u32::from(*tier), *trader_xp] {
+            h.u64(u64::from(v));
+        }
+        h.u64(u64::from(*reward_xp));
+        h.u64(u64::from(price_multiplier_a.to_bits()));
+        h.u64(u64::from(price_multiplier_b.to_bits()));
+        h.u64(u64::from(demand.cast_unsigned()));
+        crate::tick::extra::hash_nbt(h, unknown);
+    }
+
+    /// The offer compound, with `net_id` on the wire.
     fn to_nbt(&self, net_id: Option<u32>) -> Compound {
         let Self {
             buy_a,
@@ -630,8 +664,8 @@ impl Recipe {
             max_uses,
             uses,
             tier,
-            trader_exp,
-            reward_exp,
+            trader_xp,
+            reward_xp,
             price_multiplier_a,
             price_multiplier_b,
             demand,
@@ -654,50 +688,16 @@ impl Recipe {
         }
         put(PRICE_MULTIPLIER_A, Value::Float(*price_multiplier_a));
         put(PRICE_MULTIPLIER_B, Value::Float(*price_multiplier_b));
-        put(REWARD_EXP, Value::Byte(u8::from(*reward_exp)));
+        put(REWARD_XP, Value::Byte(u8::from(*reward_xp)));
         put(SELL, item_nbt(sell, Damage::Exact));
         put(TIER, Value::Int(i32::from(*tier)));
-        put(TRADER_EXP, int(*trader_exp));
+        put(TRADER_XP, int(*trader_xp));
         put(USES, int(*uses));
         c
     }
-
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut crate::tick::Fnv) {
-        let Self {
-            buy_a,
-            buy_b,
-            damage_a,
-            damage_b,
-            sell,
-            max_uses,
-            uses,
-            tier,
-            trader_exp,
-            reward_exp,
-            price_multiplier_a,
-            price_multiplier_b,
-            demand,
-            unknown,
-        } = self;
-        for stack in [buy_a, buy_b, sell] {
-            crate::tick::inventory::hash_stack(h, stack);
-        }
-        for d in [damage_a, damage_b] {
-            h.u64(u64::from(*d == Damage::Any));
-        }
-        for v in [*max_uses, *uses, u32::from(*tier), *trader_exp] {
-            h.u64(u64::from(v));
-        }
-        h.u64(u64::from(*reward_exp));
-        h.u64(u64::from(price_multiplier_a.to_bits()));
-        h.u64(u64::from(price_multiplier_b.to_bits()));
-        h.u64(u64::from(demand.cast_unsigned()));
-        crate::tick::extra::hash_nbt(h, unknown);
-    }
 }
 
-crate::tick::checkpoint::fields!(Recipe {
+crate::tick::checkpoint::fields!(StoredOffer {
     buy_a,
     buy_b,
     damage_a,
@@ -706,8 +706,8 @@ crate::tick::checkpoint::fields!(Recipe {
     max_uses,
     uses,
     tier,
-    trader_exp,
-    reward_exp,
+    trader_xp,
+    reward_xp,
     price_multiplier_a,
     price_multiplier_b,
     demand,
@@ -736,7 +736,7 @@ pub(in crate::tick) struct Applied {
     /// Trades counted.
     pub(in crate::tick) times: u32,
     /// Whether the offer drops xp orbs per trade.
-    pub(in crate::tick) reward_exp: bool,
+    pub(in crate::tick) reward_xp: bool,
 }
 
 /// The NBT form an offer list is written in.
@@ -851,7 +851,7 @@ fn payment(
         return Ok(Some((stack, damage)));
     };
     match u8::try_from(count) {
-        Ok(n) if n >= 1 && n <= stack.max_count() => Ok(Some((stack.with_count(n), damage))),
+        Ok(n) if n >= 1 && n <= stack.max_stack_size() => Ok(Some((stack.with_count(n), damage))),
         _ => Err("price out of range"),
     }
 }
@@ -943,15 +943,15 @@ pub(in crate::tick) mod tests {
     /// payment and a block item, an enchanted sale, a locked tier.
     pub(in crate::tick) fn sample() -> Offers {
         let mut offers = Offers::default();
-        let mut wheat = Recipe::new(
+        let mut wheat = StoredOffer::new(
             stack(Kind::Wheat, 20),
             Stack::EMPTY,
             stack(Kind::Emerald, 1),
             16,
         );
-        wheat.trader_exp = 2;
+        wheat.trader_xp = 2;
         offers.add(wheat).unwrap();
-        let mut book = Recipe::new(
+        let mut book = StoredOffer::new(
             stack(Kind::Emerald, 9),
             stack(Kind::Book, 1),
             stack(Kind::EnchantedBook, 1)
@@ -963,17 +963,17 @@ pub(in crate::tick) mod tests {
             12,
         );
         book.tier = 1;
-        book.trader_exp = 10;
+        book.trader_xp = 10;
         book.price_multiplier_a = 0.2;
         offers.add(book).unwrap();
-        let mut glass = Recipe::new(
+        let mut glass = StoredOffer::new(
             stack(Kind::Emerald, 1),
             Stack::EMPTY,
             block_item("minecraft:glass", 4),
             12,
         );
         glass.tier = 2;
-        glass.reward_exp = false;
+        glass.reward_xp = false;
         glass.demand = -3;
         offers.add(glass).unwrap();
         offers
@@ -999,10 +999,10 @@ pub(in crate::tick) mod tests {
         }
     }
 
-    fn recipes(c: &Compound) -> &Vec<Compound> {
+    fn offer_compounds(c: &Compound) -> &Vec<Compound> {
         match c.get(RECIPES) {
             Some(Value::List(List::Compound(l))) => l,
-            other => panic!("no recipes: {other:?}"),
+            other => panic!("no offers: {other:?}"),
         }
     }
 
@@ -1032,7 +1032,7 @@ pub(in crate::tick) mod tests {
                     .collect()
             )))
         );
-        let list = recipes(&wire);
+        let list = offer_compounds(&wire);
         let mut first = Vec::new();
         shape(&list[0], "", &mut first);
         first.sort();
@@ -1070,12 +1070,12 @@ pub(in crate::tick) mod tests {
         assert!(third.contains(&"sell.Block:compound".to_owned()));
         // Prices are the actual counts; network IDs follow the counter.
         let first = i32::try_from(FIRST_NET_ID).unwrap();
-        for (i, r) in list.iter().enumerate() {
+        for (i, o) in list.iter().enumerate() {
             assert_eq!(
-                r.get(NET_ID),
+                o.get(NET_ID),
                 Some(&Value::Int(first + i32::try_from(i).unwrap()))
             );
-            let Some(Value::Compound(buy)) = r.get(BUY_A) else {
+            let Some(Value::Compound(buy)) = o.get(BUY_A) else {
                 panic!()
             };
             assert_eq!(
@@ -1083,7 +1083,7 @@ pub(in crate::tick) mod tests {
                     Value::Byte(b) => i32::from(*b),
                     _ => -1,
                 }),
-                r.get(BUY_COUNT_A).map(|v| match v {
+                o.get(BUY_COUNT_A).map(|v| match v {
                     Value::Int(n) => *n,
                     _ => -2,
                 })
@@ -1117,7 +1117,7 @@ pub(in crate::tick) mod tests {
         offers
             .unknown
             .insert("Future".to_owned(), Value::String("kept".to_owned()));
-        offers.recipes[1]
+        offers.list[1]
             .unknown
             .insert("someNewKey".to_owned(), Value::Int(7));
         let mut next = 0;
@@ -1128,17 +1128,14 @@ pub(in crate::tick) mod tests {
             &from_network_bytes(&wire),
             &crate::custom::Registry::default(),
         );
-        assert_eq!(
-            back.recipes, offers.recipes,
-            "the wire form holds every offer"
-        );
+        assert_eq!(back.list, offers.list, "the wire form holds every offer");
         back.allocate_net_ids(&mut 0);
         assert_eq!(network_bytes(&back.wire_nbt().unwrap()), wire);
 
         let saved = little_endian_bytes(&offers.to_nbt());
         let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
         assert_eq!(little_endian_bytes(&back.to_nbt()), saved);
-        assert_eq!(back.recipes, offers.recipes);
+        assert_eq!(back.list, offers.list);
         assert_eq!((back.tier, back.xp), (offers.tier, offers.xp));
         assert_eq!(back.first_net_id, None, "network IDs are not saved");
     }
@@ -1149,7 +1146,7 @@ pub(in crate::tick) mod tests {
         offers.set_tier_xp([0, 5, 20, 40, 80]).unwrap();
         offers.apply(0, 16).unwrap();
         let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
-        assert_eq!(back.recipes[0].uses, 16);
+        assert_eq!(back.list[0].uses, 16);
         assert_eq!(back.xp, 32);
         assert_eq!(back.tier, 2);
         assert_eq!(back.tier_xp, [0, 5, 20, 40, 80]);
@@ -1165,14 +1162,14 @@ pub(in crate::tick) mod tests {
     #[test]
     fn payments_of_any_damage_are_kept_and_written_as_they_came() {
         // A farmer offer of the official server (P6): `Damage` 32767 on both payments.
-        let mut wheat = sample().recipes[0].to_nbt(None);
+        let mut wheat = sample().list[0].to_nbt(None);
         let any = |c: &mut Compound, key: &str| {
             if let Some(Value::Compound(item)) = c.get_mut(key) {
                 item.insert(DAMAGE.to_owned(), Value::Short(ANY_DAMAGE));
             }
         };
         any(&mut wheat, BUY_A);
-        let mut book = sample().recipes[1].to_nbt(None);
+        let mut book = sample().list[1].to_nbt(None);
         any(&mut book, BUY_A);
         any(&mut book, BUY_B);
         let saved = Compound::from([(
@@ -1181,21 +1178,21 @@ pub(in crate::tick) mod tests {
         )]);
         let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
         assert!(offers.skipped.is_empty(), "no offer is skipped");
-        let [w, b] = offers.recipes.as_slice() else {
+        let [w, b] = offers.list.as_slice() else {
             panic!("{offers:?}");
         };
         assert_eq!((w.damage_a, w.damage_b), (Damage::Any, Damage::Exact));
         assert_eq!((b.damage_a, b.damage_b), (Damage::Any, Damage::Any));
         assert_eq!(w.buy_a, stack(Kind::Wheat, 20));
         assert_eq!(
-            recipes(&offers.to_nbt()).as_slice(),
+            offer_compounds(&offers.to_nbt()).as_slice(),
             [wheat, book],
             "written back with Damage 32767"
         );
         let mut shown = offers.clone();
         shown.allocate_net_ids(&mut 0);
         let wire = shown.wire_nbt().unwrap();
-        let sent = recipes(&wire)[0].get(BUY_A);
+        let sent = offer_compounds(&wire)[0].get(BUY_A);
         assert!(
             matches!(sent, Some(Value::Compound(c)) if c.get(DAMAGE) == Some(&Value::Short(ANY_DAMAGE))),
             "sent with Damage 32767: {sent:?}"
@@ -1204,7 +1201,7 @@ pub(in crate::tick) mod tests {
 
     #[test]
     fn unusable_saved_offers_are_skipped_and_written_back() {
-        let good = sample().recipes[0].to_nbt(None);
+        let good = sample().list[0].to_nbt(None);
         let mut unknown_item = good.clone();
         unknown_item.insert(
             SELL.to_owned(),
@@ -1245,7 +1242,7 @@ pub(in crate::tick) mod tests {
             (TIER_XP.to_owned(), Value::Int(3)),
         ]);
         let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
-        assert_eq!(offers.recipes.len(), 1);
+        assert_eq!(offers.list.len(), 1);
         assert_eq!(offers.skipped.len(), bad.len());
         assert_eq!(offers.tier, 0, "a bad tier falls back to 0");
         assert_eq!(offers.tier_xp, DEFAULT_TIER_XP);
@@ -1258,14 +1255,14 @@ pub(in crate::tick) mod tests {
             )]))
         };
         assert_eq!(
-            list(&recipes(&written)[1..]),
+            list(&offer_compounds(&written)[1..]),
             list(&bad),
             "skipped offers are written back unchanged"
         );
         // The wire form never shows them.
         let mut shown = offers.clone();
         shown.allocate_net_ids(&mut 0);
-        assert_eq!(recipes(&shown.wire_nbt().unwrap()).len(), 1);
+        assert_eq!(offer_compounds(&shown.wire_nbt().unwrap()).len(), 1);
     }
 
     #[test]
@@ -1277,7 +1274,7 @@ pub(in crate::tick) mod tests {
         offers.allocate_net_ids(&mut next);
         assert_eq!(offers.index_of(12), Some(2), "reopening keeps the IDs");
 
-        let mut bad = Recipe::new(Stack::EMPTY, Stack::EMPTY, stack(Kind::Emerald, 1), 1);
+        let mut bad = StoredOffer::new(Stack::EMPTY, Stack::EMPTY, stack(Kind::Emerald, 1), 1);
         assert_eq!(offers.add(bad.clone()), Err(Error::NoPayment));
         bad.buy_a = stack(Kind::Wheat, 1);
         bad.sell = Stack::EMPTY;
@@ -1311,9 +1308,9 @@ pub(in crate::tick) mod tests {
         assert_eq!(offers.index_of(13), Some(0), "new IDs follow the old ones");
         assert_eq!(offers.index_of(12), None);
 
-        let full: Vec<Recipe> = (0..=MAX_OFFERS)
+        let full: Vec<StoredOffer> = (0..=MAX_OFFERS)
             .map(|_| {
-                Recipe::new(
+                StoredOffer::new(
                     stack(Kind::Wheat, 1),
                     Stack::EMPTY,
                     stack(Kind::Emerald, 1),
@@ -1360,7 +1357,7 @@ pub(in crate::tick) mod tests {
             applied,
             Applied {
                 times: 4,
-                reward_exp: true,
+                reward_xp: true,
             }
         );
         assert_eq!((offers.xp, offers.tier), (8, 0));
@@ -1370,11 +1367,11 @@ pub(in crate::tick) mod tests {
         // Uses run out; more than the uses left are never counted.
         let applied = offers.apply(0, 100).unwrap();
         assert_eq!(applied.times, 11);
-        assert_eq!(offers.recipes[0].uses, 16);
+        assert_eq!(offers.list[0].uses, 16);
         assert!(offers.tradable(0).is_none());
         assert_eq!(offers.apply(0, 1).unwrap().times, 0);
         // Enough xp at once passes several tiers, up to 4.
-        offers.recipes[1].trader_exp = MAX_TRADE_COUNTER;
+        offers.list[1].trader_xp = MAX_TRADE_COUNTER;
         offers.apply(1, 2).unwrap();
         assert_eq!((offers.tier, offers.xp), (4, MAX_TRADE_COUNTER));
         assert_eq!(offers.apply(9, 1), None);
@@ -1385,7 +1382,7 @@ pub(in crate::tick) mod tests {
     #[test]
     fn a_lowered_tier_stays_through_the_next_trade() {
         let mut offers = sample();
-        offers.recipes[0].trader_exp = 0;
+        offers.list[0].trader_xp = 0;
         offers.set_tier(2).unwrap();
         assert_eq!(offers.xp, 70);
         offers.set_tier(0).unwrap();
@@ -1396,7 +1393,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(offers.xp, 250, "the top tier has no upper bound");
         // Tier 2 needs no more than tier 1: a trade reaches it.
         let mut same = sample();
-        same.recipes[0].trader_exp = 0;
+        same.list[0].trader_xp = 0;
         same.set_tier_xp([0, 10, 10, 70, 250]).unwrap();
         same.set_xp(80).unwrap();
         same.set_tier(1).unwrap();
@@ -1433,22 +1430,22 @@ pub(in crate::tick) mod tests {
                 ..Extra::default()
             }))
             .unwrap();
-        let recipe = Recipe::new(stack(Kind::Emerald, 1), Stack::EMPTY, big, 1);
+        let offer = StoredOffer::new(stack(Kind::Emerald, 1), Stack::EMPTY, big, 1);
         let mut offers = sample();
         let before = offers.to_nbt();
         assert_eq!(
-            offers.set(vec![recipe.clone(); MAX_OFFERS]),
+            offers.set(vec![offer.clone(); MAX_OFFERS]),
             Err(Error::TooLarge)
         );
         assert_eq!(offers.to_nbt(), before);
         let mut added = 0;
-        while offers.add(recipe.clone()).is_ok() {
+        while offers.add(offer.clone()).is_ok() {
             added += 1;
         }
         assert!((1..MAX_OFFERS).contains(&added), "{added}");
         let full = offers.to_nbt();
-        assert_eq!(offers.add(recipe.clone()), Err(Error::TooLarge));
-        assert_eq!(offers.replace(0, recipe), Err(Error::TooLarge));
+        assert_eq!(offers.add(offer.clone()), Err(Error::TooLarge));
+        assert_eq!(offers.replace(0, offer), Err(Error::TooLarge));
         assert_eq!(offers.to_nbt(), full);
         let mut w = Writer::new(Vec::new(), 0);
         assert!(w.nbt(&full, Encoding::LittleEndian).is_ok());

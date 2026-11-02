@@ -25,14 +25,14 @@ impl Update {
         &self.added
     }
 
-    /// The unknown keys removed, such as `general.old-key`, in file order.
-    pub fn removed(&self) -> &[String] {
-        &self.removed
-    }
-
     /// Whether nothing changed, so the file was not written.
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty()
+    }
+
+    /// The unknown keys removed, such as `general.old-key`, in file order.
+    pub fn removed(&self) -> &[String] {
+        &self.removed
     }
 }
 

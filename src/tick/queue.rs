@@ -109,12 +109,6 @@ pub(crate) struct Identity {
 }
 
 impl Identity {
-    /// The bytes of its skin and the client's texts: what an input log entry of its join counts
-    /// against the log's bound.
-    pub(crate) fn size(&self) -> usize {
-        self.skin.size().saturating_add(self.client.size())
-    }
-
     /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
@@ -138,6 +132,12 @@ impl Identity {
             None => h.u64(0),
         }
         client.hash_into(h);
+    }
+
+    /// The bytes of its skin and the client's texts: what an input log entry of its join counts
+    /// against the log's bound.
+    pub(crate) fn size(&self) -> usize {
+        self.skin.size().saturating_add(self.client.size())
     }
 }
 

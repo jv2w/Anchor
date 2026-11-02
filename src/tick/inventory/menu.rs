@@ -13,7 +13,7 @@
 //! them. The handler runs in the input phase with the handler taken out of the state
 //! ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes once. A menu
 //! that lends has the request executor count the items its slots move onto the cursor as lent
-//! (`Inventory::lent`), as [`crate::menu::Menu::lend`] says; while the cursor holds some, every
+//! (`Inventory::lent`), as [`crate::menu::Menu::lending`] says; while the cursor holds some, every
 //! request runs so, and its handler hears those that change them or the cursor.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
@@ -33,7 +33,7 @@ use super::{
 use crate::block;
 use crate::item::Stack;
 use crate::math::Vec3;
-use crate::menu::{Action, Click, Error, Id, Input, Kind, Menu, Response, Result};
+use crate::menu::{Click, Error, Id, Input, Kind, Menu, Response, Result, SlotAction};
 use crate::nbt::{Compound, Value};
 use crate::player;
 use crate::protocol::consts::ContainerId;
@@ -93,28 +93,14 @@ pub(in crate::tick) struct Open {
     pub(super) stacks: Vec<Stack>,
     /// The editable slots, bit `i` for slot `i`.
     editable: u64,
-    /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
+    /// Whether it lends the items taken onto the cursor ([`Menu::lending`]).
     lends: bool,
     /// The tick from which the window may open.
     ready: u64,
 }
 
 impl Open {
-    /// The menu's ID.
-    pub(super) fn id(&self) -> Id {
-        self.id
-    }
-
-    /// Whether requests move the items of slot `slot`.
-    pub(super) fn is_editable(&self, slot: usize) -> bool {
-        crate::menu::slot_bit(slot).is_some_and(|bit| self.editable & bit != 0)
-    }
-
-    /// Whether it lends the items taken onto the cursor ([`Menu::lend`]).
-    pub(super) fn is_lending(&self) -> bool {
-        self.lends
-    }
-
+    /// Feeds the menu into the state hash of a test.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
@@ -132,6 +118,21 @@ impl Open {
         h.u64(*editable);
         h.u64(u64::from(*lends));
         h.u64(*ready);
+    }
+
+    /// The menu's ID.
+    pub(super) fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Whether requests move the items of slot `slot`.
+    pub(super) fn is_editable(&self, slot: usize) -> bool {
+        crate::menu::slot_bit(slot).is_some_and(|bit| self.editable & bit != 0)
+    }
+
+    /// Whether it lends the items taken onto the cursor ([`Menu::lending`]).
+    pub(super) fn is_lending(&self) -> bool {
+        self.lends
     }
 }
 
@@ -174,7 +175,7 @@ impl Context<'_> {
     }
 
     /// How many of the items on the cursor of `player` the menu it has open lends
-    /// ([`Menu::lend`]): the handler's, though the cursor's stack holds them; 0 for a menu that
+    /// ([`Menu::lending`]): the handler's, though the cursor's stack holds them; 0 for a menu that
     /// does not lend.
     pub fn menu_lent(&self, player: player::Id) -> Option<u8> {
         let p = self.state.players.get(&player.session())?;
@@ -198,13 +199,17 @@ impl Context<'_> {
     /// handler hears of the close ([`Input::Close`]) unless a direct call closed it. Neither
     /// opening nor closing raises an event.
     ///
-    /// Fails, opening nothing, if the player is not in the game or its client has no view yet
-    /// ([`Error::Offline`]); if it waits with so many stacks for room that a window's items could
-    /// not go back, or this tick's changes of what it is shown leave no room for the menu's
-    /// blocks ([`Error::Busy`]); if it was given 2^32 menus already, as menu IDs do not wrap
-    /// ([`Error::Exhausted`]); if the menu's blocks cannot stand within 8 blocks of its eyes, the
-    /// world's height being in the way ([`Error::OutsideWorld`]); or if the menu is invalid (a
-    /// slot past its end, a title over 1,024 bytes).
+    /// # Errors
+    ///
+    /// Opens nothing with:
+    /// [`Error::NoSlot`] for a menu with a slot past its end.
+    /// [`Error::TitleTooLong`] for a title over 1,024 bytes.
+    /// [`Error::Offline`] if the player is not in the game or its client has no view yet.
+    /// [`Error::Busy`] if it waits with so many stacks for room that a window's items could not
+    /// go back, or this tick's changes of what it is shown leave no room for the menu's blocks.
+    /// [`Error::Exhausted`] if it was given 2^32 menus already, as menu IDs do not wrap.
+    /// [`Error::OutsideWorld`] if the menu's blocks cannot stand within 8 blocks of its eyes,
+    /// the world's height being in the way.
     #[doc(alias = "Player::setCurrentWindow")]
     pub fn open_menu(
         &mut self,
@@ -252,8 +257,12 @@ impl Context<'_> {
     /// Puts `stack` into `slot` of the menu `player` has open (an empty stack clears it) and
     /// shows it to the player.
     ///
-    /// Fails, changing nothing, if the player has left ([`Error::Offline`]), has no menu open
-    /// ([`Error::NotOpen`]) or the menu has no such slot ([`Error::NoSlot`]).
+    /// # Errors
+    ///
+    /// Changes nothing with:
+    /// [`Error::Offline`] if the player has left.
+    /// [`Error::NotOpen`] if the player has no menu open.
+    /// [`Error::NoSlot`] if the menu has no such slot.
     pub fn set_menu_item(&mut self, player: player::Id, slot: usize, stack: Stack) -> Result<()> {
         let p = self
             .state
@@ -501,19 +510,19 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
                 transfer_stack_request_action: t,
             }) => (
                 [
-                    menu(&t.source, Some(Action::Take)),
-                    menu(&t.destination, Some(Action::Place)),
+                    menu(&t.source, Some(SlotAction::Take)),
+                    menu(&t.destination, Some(SlotAction::Place)),
                 ],
                 true,
             ),
             StackRequestAction::Swap(a) => (
                 [
-                    menu(&a.source, Some(Action::Swap)),
-                    menu(&a.destination, Some(Action::Swap)),
+                    menu(&a.source, Some(SlotAction::Swap)),
+                    menu(&a.destination, Some(SlotAction::Swap)),
                 ],
                 true,
             ),
-            StackRequestAction::Drop(a) => ([menu(&a.source, Some(Action::Drop)), None], true),
+            StackRequestAction::Drop(a) => ([menu(&a.source, Some(SlotAction::Drop)), None], true),
             StackRequestAction::Destroy(a) => ([menu(&a.source, None), None], true),
             StackRequestAction::Consume(a) => (
                 [menu(&a.destroy_stack_request_action.source, None), None],
@@ -566,8 +575,8 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
 /// `info` with the click `action` on it, if it names a menu slot.
 fn menu(
     info: &StackRequestSlotInfo,
-    action: Option<Action>,
-) -> Option<(&StackRequestSlotInfo, Option<Action>)> {
+    action: Option<SlotAction>,
+) -> Option<(&StackRequestSlotInfo, Option<SlotAction>)> {
     (info.container.container_id == ContainerId::LevelEntity as u8).then_some((info, action))
 }
 

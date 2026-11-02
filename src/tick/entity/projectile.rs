@@ -441,9 +441,10 @@ fn launch(state: &mut State, id: Id, still: impl Fn(&State) -> bool) -> bool {
 }
 
 /// Raises [`EntityShootBow`], which someone hears, for `session` shooting the new arrow `id`
-/// from `bow` at `force` blocks per tick along `aim`: the event for the monitors once the shot is done, or `None`, with the arrow taken away unseen, when a
-/// listener cancels it or `still` (the shot's check) fails after the listeners. A force a
-/// listener sets becomes the arrow's speed.
+/// from `bow` at `force` blocks per tick along `aim`: the event for the monitors once the shot
+/// is done, or `None`, with the arrow taken away unseen, when a listener cancels it or `still`
+/// (the shot's check) fails after the listeners. A force a listener sets becomes the arrow's
+/// speed.
 fn shoot(
     state: &mut State,
     session: SessionId,

@@ -33,7 +33,8 @@ use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
 use crate::raknet::{
-    Flags, Inbound, Inbox, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, ip_key, report_undelivered,
+    COMMAND_BATCH, COMMAND_QUEUE, Flags, Inbound, Inbox, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP,
+    ip_key, report_undelivered,
 };
 use crate::tick::queue::LeaveReason;
 use crate::udp::Sockets;
@@ -43,11 +44,6 @@ use signaling::{Code, Offer, Reply};
 
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
-/// The commands handled before the UDP task serves its other inputs.
-const COMMAND_BATCH: usize = 256;
-/// The messages from sessions and offer tasks to the driver. Sends wait when it is full, which
-/// slows sessions to the driver's pace instead of buffering without bound.
-const COMMAND_QUEUE: usize = 4096;
 /// The identity key file in the data folder.
 const IDENTITY_FILE: &str = "identity.key";
 /// The source addresses one peer may be reached from. A client knows its own ICE credentials, so
@@ -512,32 +508,6 @@ pub(crate) struct Driver {
 }
 
 impl Driver {
-    fn new(
-        sockets: Arc<Sockets>,
-        certificate: Certificate,
-        max_message_bytes: usize,
-        accepted: mpsc::Sender<Connection>,
-    ) -> Self {
-        let (commands, pending) = mpsc::channel(COMMAND_QUEUE);
-        Self {
-            sockets,
-            certificate,
-            max_message_bytes,
-            peers: BTreeMap::new(),
-            by_ufrag: BTreeMap::new(),
-            by_addr: BTreeMap::new(),
-            pre_login: BTreeMap::new(),
-            pre_login_total: 0,
-            next_id: 0,
-            accepted,
-            commands,
-            pending,
-            doomed: Vec::new(),
-            due: Vec::new(),
-            stopping: false,
-        }
-    }
-
     /// Whether no peer is left.
     pub(crate) fn is_empty(&self) -> bool {
         self.peers.is_empty()
@@ -604,6 +574,32 @@ impl Driver {
     /// Runs the timer's work.
     pub(crate) fn tick(&mut self) {
         self.update();
+    }
+
+    fn new(
+        sockets: Arc<Sockets>,
+        certificate: Certificate,
+        max_message_bytes: usize,
+        accepted: mpsc::Sender<Connection>,
+    ) -> Self {
+        let (commands, pending) = mpsc::channel(COMMAND_QUEUE);
+        Self {
+            sockets,
+            certificate,
+            max_message_bytes,
+            peers: BTreeMap::new(),
+            by_ufrag: BTreeMap::new(),
+            by_addr: BTreeMap::new(),
+            pre_login: BTreeMap::new(),
+            pre_login_total: 0,
+            next_id: 0,
+            accepted,
+            commands,
+            pending,
+            doomed: Vec::new(),
+            due: Vec::new(),
+            stopping: false,
+        }
     }
 
     /// The timer pass: reads the connections' flags, applies the commands queued before them,

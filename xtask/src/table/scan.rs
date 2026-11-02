@@ -52,9 +52,12 @@ impl<'a> Cursor<'a> {
         self.text.get(self.pos..).unwrap_or_default()
     }
 
-    fn skip_whitespace(&mut self) {
-        let rest = self.rest();
-        self.pos += rest.len() - rest.trim_start().len();
+    fn expect(&mut self, token: &str) -> Result<(), String> {
+        if self.eat(token) {
+            Ok(())
+        } else {
+            Err(format!("malformed doc attribute: expected `{token}`"))
+        }
     }
 
     /// Skips whitespace, then consumes `token` if it comes next.
@@ -65,14 +68,6 @@ impl<'a> Cursor<'a> {
             self.pos += token.len();
         }
         found
-    }
-
-    fn expect(&mut self, token: &str) -> Result<(), String> {
-        if self.eat(token) {
-            Ok(())
-        } else {
-            Err(format!("malformed doc attribute: expected `{token}`"))
-        }
     }
 
     fn ident(&mut self) -> &'a str {
@@ -120,6 +115,11 @@ impl<'a> Cursor<'a> {
             }
         }
         Err("unterminated string in doc attribute".to_owned())
+    }
+
+    fn skip_whitespace(&mut self) {
+        let rest = self.rest();
+        self.pos += rest.len() - rest.trim_start().len();
     }
 }
 

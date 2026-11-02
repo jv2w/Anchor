@@ -56,6 +56,8 @@ pub enum Error {
     TooManyJobs,
     /// The tick queued the most network changes already; nothing was changed.
     NetworkBusy,
+    /// The server name is empty, over 256 bytes, or has `;` or control characters.
+    InvalidMotd,
 }
 
 impl fmt::Display for Error {
@@ -66,6 +68,7 @@ impl fmt::Display for Error {
                 write!(f, "{MAX_JOBS} blocking jobs wait for their result already")
             }
             Self::NetworkBusy => f.write_str("the tick queued the most network changes already"),
+            Self::InvalidMotd => f.write_str("the server name is not allowed"),
         }
     }
 }

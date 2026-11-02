@@ -113,18 +113,6 @@ impl Server {
         }
     }
 
-    fn offers(&self, villager: Id) -> &Offers {
-        &self.state.trades.fixtures.villagers[&villager].offers
-    }
-
-    fn offer(&self, s: u64, net_id: u32) -> Option<Offer> {
-        offer_with(&self.state, SessionId::new(s), net_id, TEST_HOOKS)
-    }
-
-    fn is_trading(&self, s: u64) -> bool {
-        self.state.trades.sessions.contains_key(&SessionId::new(s))
-    }
-
     /// Whether the session table and its index agree.
     fn index_matches(&self) -> bool {
         let t = &self.state.trades;
@@ -134,22 +122,42 @@ impl Server {
                 .all(|(&s, x)| t.by_villager.contains(&(x.villager, s)))
     }
 
-    /// Adds stand-in villager `n` (a farmer at the spawn) with `offers`.
-    fn villager(&mut self, n: u32, offers: Offers) -> Id {
-        let id = Id::new(n, 0);
-        let fixture = Fixture {
-            world: 0,
-            position: Vec3::new(0.5, -60.0, 0.5),
-            unique_id: 1000 + u64::from(n),
-            profession: 1,
-            offers,
-        };
-        self.state.trades.fixtures.villagers.insert(id, fixture);
-        id
+    fn is_trading(&self, s: u64) -> bool {
+        self.state.trades.sessions.contains_key(&SessionId::new(s))
+    }
+
+    fn offer(&self, s: u64, net_id: u32) -> Option<Offer> {
+        offer_with(&self.state, SessionId::new(s), net_id, TEST_HOOKS)
+    }
+
+    fn offers(&self, villager: Id) -> &Offers {
+        &self.state.trades.fixtures.villagers[&villager].offers
+    }
+
+    /// Takes the last screen of player `s` and gives the network IDs of its offers.
+    fn net_ids(&mut self, s: u64) -> Vec<u32> {
+        let screen = self.screens(s).pop().expect("a screen was queued");
+        net_ids(&screen)
     }
 
     fn open(&mut self, s: u64, villager: Id) -> bool {
         open_with(&mut self.state, SessionId::new(s), villager, TEST_HOOKS)
+    }
+
+    /// Takes the `UpdateTrade`s queued for player `s` since the last call.
+    fn screens(&mut self, s: u64) -> Vec<UpdateTrade> {
+        let p = self.state.players.get_mut(&SessionId::new(s)).unwrap();
+        std::mem::take(&mut p.outbox)
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::UpdateTrade(u) => Some(u),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn tick(&mut self) {
+        tick_with(&mut self.state, TEST_HOOKS);
     }
 
     fn traded(&mut self, s: u64, net_id: u32, times: u32) {
@@ -165,26 +173,18 @@ impl Server {
         );
     }
 
-    fn tick(&mut self) {
-        tick_with(&mut self.state, TEST_HOOKS);
-    }
-
-    /// Takes the `UpdateTrade`s queued for player `s` since the last call.
-    fn screens(&mut self, s: u64) -> Vec<UpdateTrade> {
-        let p = self.state.players.get_mut(&SessionId::new(s)).unwrap();
-        std::mem::take(&mut p.outbox)
-            .into_iter()
-            .filter_map(|p| match p {
-                Packet::UpdateTrade(u) => Some(u),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Takes the last screen of player `s` and gives the network IDs of its offers.
-    fn net_ids(&mut self, s: u64) -> Vec<u32> {
-        let screen = self.screens(s).pop().expect("a screen was queued");
-        net_ids(&screen)
+    /// Adds stand-in villager `n` (a farmer at the spawn) with `offers`.
+    fn villager(&mut self, n: u32, offers: Offers) -> Id {
+        let id = Id::new(n, 0);
+        let fixture = Fixture {
+            world: 0,
+            position: Vec3::new(0.5, -60.0, 0.5),
+            unique_id: 1000 + u64::from(n),
+            profession: 1,
+            offers,
+        };
+        self.state.trades.fixtures.villagers.insert(id, fixture);
+        id
     }
 }
 
@@ -247,17 +247,17 @@ fn villager_traded(state: &mut State, villager: Id, before: (u8, u32)) {
     state.trades.fixtures.traded.push((villager, before));
 }
 
-fn recipes(offers: &Compound) -> Vec<Compound> {
+fn offer_compounds(offers: &Compound) -> Vec<Compound> {
     match offers.get("Recipes") {
         Some(Value::List(List::Compound(l))) => l.clone(),
-        other => panic!("no recipes: {other:?}"),
+        other => panic!("no offers: {other:?}"),
     }
 }
 
 fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
-    recipes(&from_network_bytes(&screen.serialised_offers))
+    offer_compounds(&from_network_bytes(&screen.serialised_offers))
         .iter()
-        .map(|r| match r.get("netId") {
+        .map(|o| match o.get("netId") {
             Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
             other => panic!("no netId: {other:?}"),
         })
@@ -290,7 +290,7 @@ fn the_trade_screen_is_the_one_the_official_server_sends() {
     let first = offers::FIRST_NET_ID;
     assert_eq!(net_ids(u), [first, first + 1, first + 2]);
     let mut keys = Vec::new();
-    shape(&recipes(&offers)[0], "", &mut keys);
+    shape(&offer_compounds(&offers)[0], "", &mut keys);
     for key in [
         "buyA:compound",
         "buyCountA:int",
@@ -355,17 +355,17 @@ fn only_a_villager_with_offers_in_the_same_world_opens() {
 }
 
 /// Builds an offer list whose only offer has `max_uses` uses and the given rewards.
-fn single(max_uses: u32, trader_exp: u32, reward_exp: bool) -> Offers {
-    let mut r = Recipe::new(
+fn single(max_uses: u32, trader_xp: u32, reward_xp: bool) -> Offers {
+    let mut o = StoredOffer::new(
         stack(Kind::Wheat, 20),
         Stack::EMPTY,
         stack(Kind::Emerald, 1),
         max_uses,
     );
-    r.trader_exp = trader_exp;
-    r.reward_exp = reward_exp;
+    o.trader_xp = trader_xp;
+    o.reward_xp = reward_xp;
     let mut offers = Offers::default();
-    offers.add(r).unwrap();
+    offers.add(o).unwrap();
     offers
 }
 
@@ -413,7 +413,7 @@ fn offers_need_a_current_id_an_unlocked_tier_and_uses_left() {
     change_offers_with(
         &mut server.state,
         v,
-        |o| o.replace(2, single(1, 0, false).recipes()[0].clone()),
+        |o| o.replace(2, single(1, 0, false).list()[0].clone()),
         TEST_HOOKS,
     )
     .unwrap();
@@ -431,14 +431,14 @@ fn trades_count_uses_up_to_the_repeat_cap() {
     let id = server.net_ids(1)[0];
     assert_eq!(server.offer(1, id).unwrap().max_times, MAX_REPEAT);
     server.traded(1, id, 256);
-    assert_eq!(server.offers(v).recipes()[0].uses, 256);
+    assert_eq!(server.offers(v).list()[0].uses, 256);
     // An executor that ignores `max_times` gets at most the cap counted.
     server.traded(1, id, 300);
-    assert_eq!(server.offers(v).recipes()[0].uses, 512);
+    assert_eq!(server.offers(v).list()[0].uses, 512);
     server.traded(1, id, 256);
     server.traded(1, id, 256);
     assert_eq!(
-        server.offers(v).recipes()[0].uses,
+        server.offers(v).list()[0].uses,
         1000,
         "never past the maximum"
     );
@@ -488,7 +488,7 @@ fn trades_reward_orbs_and_raise_the_tier() {
     change_offers_with(&mut server.state, v, |o| o.set_tier(2), TEST_HOOKS).unwrap();
     server.traded(2, ids[2], 3);
     assert!(server.state.trades.fixtures.drops.is_empty());
-    assert_eq!(server.offers(v).recipes()[2].uses, 3);
+    assert_eq!(server.offers(v).list()[2].uses, 3);
 }
 
 #[test]
@@ -690,8 +690,8 @@ fn changes_are_all_or_nothing_and_reach_the_traders() {
     assert!(server.open(1, v));
     server.screens(1);
     let before = server.state.hash();
-    let full: Vec<Recipe> =
-        std::iter::repeat_n(sample().recipes()[0].clone(), crate::custom::MAX_OFFERS + 1).collect();
+    let full: Vec<StoredOffer> =
+        std::iter::repeat_n(sample().list()[0].clone(), crate::custom::MAX_OFFERS + 1).collect();
     assert_eq!(
         change_offers_with(&mut server.state, v, |o| o.set(full), TEST_HOOKS),
         Err(Error::Full)
@@ -729,7 +729,7 @@ fn too_large_to_send() -> Offers {
             ..Extra::default()
         }))
         .unwrap();
-    let recipe = Compound::from([
+    let offer = Compound::from([
         (
             "buyA".to_owned(),
             Value::Compound(stack(Kind::Emerald, 1).to_nbt()),
@@ -739,7 +739,7 @@ fn too_large_to_send() -> Offers {
     ]);
     let saved = Compound::from([(
         "Recipes".to_owned(),
-        Value::List(List::Compound(vec![recipe; crate::custom::MAX_OFFERS])),
+        Value::List(List::Compound(vec![offer; crate::custom::MAX_OFFERS])),
     )]);
     Offers::from_nbt(&saved, &crate::custom::Registry::default())
 }
@@ -753,7 +753,7 @@ fn a_list_too_large_to_send_closes_the_windows_without_an_event() {
     assert!(server.open(1, v));
     server.screens(1);
     let big = too_large_to_send();
-    assert_eq!(big.recipes().len(), crate::custom::MAX_OFFERS);
+    assert_eq!(big.list().len(), crate::custom::MAX_OFFERS);
     server
         .state
         .trades
@@ -793,8 +793,8 @@ fn offers_with_counters_survive_saving_through_the_entity() {
     server.traded(1, ids[0], 5);
     let saved = server.offers(v).to_nbt();
     let back = Offers::from_nbt(&saved, &crate::custom::Registry::default());
-    assert_eq!(back.recipes(), server.offers(v).recipes());
-    assert_eq!(back.recipes()[0].uses, 5);
+    assert_eq!(back.list(), server.offers(v).list());
+    assert_eq!(back.list()[0].uses, 5);
     assert_eq!((back.tier(), back.xp()), (1, 10));
     assert_eq!(back.to_nbt(), saved);
 }

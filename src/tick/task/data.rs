@@ -51,11 +51,6 @@ pub(crate) struct UserData {
 }
 
 impl UserData {
-    /// The first registration that broke a rule; the server is not built then.
-    pub(crate) fn finish(&self) -> Result<()> {
-        self.error.clone().map_or(Ok(()), Err)
-    }
-
     /// Writes the server values by their JSON (as `Self::hash_into` hashes them), with their
     /// marks; the types are code, fixed at build. A value whose JSON does not encode makes the
     /// checkpoint opaque.
@@ -82,22 +77,9 @@ impl UserData {
         }
     }
 
-    /// Reads what [`Self::checkpoint_player`] wrote: the values, and no extension.
-    pub(in crate::tick) fn restore_player(
-        &self,
-        r: &mut Reader<'_>,
-    ) -> checkpoint::Result<PlayerUser> {
-        let mut data = BTreeMap::new();
-        for codec in &self.players {
-            let has_value: bool = checkpoint::Codec::decode(r)?;
-            if has_value {
-                data.insert(codec.type_id, value(r, codec)?);
-            }
-        }
-        Ok(PlayerUser {
-            data,
-            extensions: BTreeMap::new(),
-        })
+    /// The first registration that broke a rule; the server is not built then.
+    pub(crate) fn finish(&self) -> Result<()> {
+        self.error.clone().map_or(Ok(()), Err)
     }
 
     /// Hashes the server values and every player's data values by their JSON, and how many
@@ -132,6 +114,24 @@ impl UserData {
         }
     }
 
+    /// Reads what [`Self::checkpoint_player`] wrote: the values, and no extension.
+    pub(in crate::tick) fn restore_player(
+        &self,
+        r: &mut Reader<'_>,
+    ) -> checkpoint::Result<PlayerUser> {
+        let mut data = BTreeMap::new();
+        for codec in &self.players {
+            let has_value: bool = checkpoint::Codec::decode(r)?;
+            if has_value {
+                data.insert(codec.type_id, value(r, codec)?);
+            }
+        }
+        Ok(PlayerUser {
+            data,
+            extensions: BTreeMap::new(),
+        })
+    }
+
     /// Reads the saved server values before the threads start. A value never saved stays at its
     /// default. A damaged value, or one that does not deserialize into its type, refuses the start
     /// and stays as saved.
@@ -158,6 +158,18 @@ impl UserData {
         Ok(())
     }
 
+    /// Reads what [`Self::checkpoint`] wrote into the types registered at build.
+    pub(in crate::tick) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
+        if r.len()? != self.servers.len() {
+            return Err(checkpoint::Error::Format("server data types"));
+        }
+        for server in &mut self.servers {
+            server.dirty = checkpoint::Codec::decode(r)?;
+            server.value = value(r, &server.codec)?;
+        }
+        Ok(())
+    }
+
     /// Takes the JSON of every server value changed since the last call, for a snapshot. A value
     /// with no JSON within its limit is not written (the saved form stays) and is tried again by
     /// the next snapshot.
@@ -178,18 +190,6 @@ impl UserData {
             }
         }
         changes
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote into the types registered at build.
-    pub(in crate::tick) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
-        if r.len()? != self.servers.len() {
-            return Err(checkpoint::Error::Format("server data types"));
-        }
-        for server in &mut self.servers {
-            server.dirty = checkpoint::Codec::decode(r)?;
-            server.value = value(r, &server.codec)?;
-        }
-        Ok(())
     }
 
     /// Registers `T` as player data under `name`.
@@ -340,16 +340,6 @@ impl Player {
         self.extra.user.value()
     }
 
-    /// Lends [`Self::data`] to change; the player is saved with the next snapshot, even when
-    /// the value is left as it was, and then every data value of the player is encoded again. A
-    /// value whose JSON is over [`MAX_PLAYER_VALUE_BYTES`] is not saved (the log tells which);
-    /// its last saved form stays.
-    pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
-        let value = self.extra.user.value_mut()?;
-        self.data_dirty = true;
-        Some(value)
-    }
-
     /// The player's extension of type `T`: any value code keeps on the player while it is
     /// online. Extensions are not saved and go when the player leaves.
     pub fn extension<T: Any>(&self) -> Option<&T> {
@@ -358,6 +348,16 @@ impl Player {
             .extensions
             .get(&TypeId::of::<T>())
             .and_then(|v| v.downcast_ref())
+    }
+
+    /// Lends [`Self::data`] to change; the player is saved with the next snapshot, even when
+    /// the value is left as it was, and then every data value of the player is encoded again. A
+    /// value whose JSON is over [`MAX_PLAYER_VALUE_BYTES`] is not saved (the log tells which);
+    /// its last saved form stays.
+    pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
+        let value = self.extra.user.value_mut()?;
+        self.data_dirty = true;
+        Some(value)
     }
 
     /// Lends [`Self::extension`] to change.
@@ -369,8 +369,12 @@ impl Player {
             .and_then(|v| v.downcast_mut())
     }
 
-    /// Sets the player's extension of type `T`, returning the one it replaces. Fails, keeping
-    /// nothing, when `T` is new and the player holds [`MAX_EXTENSIONS`] types already.
+    /// Sets the player's extension of type `T`, returning the one it replaces.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooManyExtensions`](crate::data::Error::TooManyExtensions) when `T` is new and the
+    /// player holds [`MAX_EXTENSIONS`] types already; nothing is kept.
     pub fn insert_extension<T: Any + Send + Sync>(&mut self, value: T) -> Result<Option<T>> {
         let extensions = &mut self.extra.user.extensions;
         let id = TypeId::of::<T>();

@@ -177,44 +177,6 @@ pub(crate) struct InputLog {
 }
 
 impl InputLog {
-    /// The tick's log: it starts at `checkpoint`'s state, the one the server file holds at the
-    /// start of the process with commit identity `identity`, and takes a checkpoint at every
-    /// snapshot ([`Self::needs_checkpoint`]).
-    pub(crate) fn new(
-        checkpoint: Checkpoint,
-        fingerprints: Fingerprints,
-        identity: Option<u64>,
-    ) -> Self {
-        let mut log = Self {
-            takes_checkpoints: true,
-            fingerprints,
-            ..Self::from_state(checkpoint.tick(), identity)
-        };
-        log.set_checkpoint(checkpoint);
-        log
-    }
-
-    /// A replay's log: it starts at the restored `checkpoint`, the state the server file holds
-    /// with commit identity `identity`, and takes a checkpoint at every snapshot, to compare with
-    /// the replayed log's; the replayed log's snapshots started at the ticks of `planned`, which
-    /// decide [`Self::wants_commit`].
-    pub(crate) fn replaying(
-        checkpoint: Checkpoint,
-        identity: Option<u64>,
-        planned: std::collections::BTreeSet<u64>,
-    ) -> Self {
-        Self {
-            planned: Some(planned),
-            ..Self::new(checkpoint, Fingerprints::default(), identity)
-        }
-    }
-
-    /// A log whose state starts at tick `start` (which the server file holds), taking no
-    /// checkpoints: tests replay it from a state they know.
-    pub(crate) fn starting_at(start: u64) -> Self {
-        Self::from_state(start, None)
-    }
-
     /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose packets together
     /// decode within [`MAX_BYTES`]. Its versions are checked first, then its checksum, then every
     /// count against the bytes left before anything is allocated for it.
@@ -298,10 +260,42 @@ impl InputLog {
         })
     }
 
-    /// The commit identity of the state the inputs chained so far lead to: what the commit of a
-    /// snapshot taken now writes into the server file.
-    pub(crate) fn identity(&self) -> u64 {
-        self.chain.0
+    /// The tick's log: it starts at `checkpoint`'s state, the one the server file holds at the
+    /// start of the process with commit identity `identity`, and takes a checkpoint at every
+    /// snapshot ([`Self::needs_checkpoint`]).
+    pub(crate) fn new(
+        checkpoint: Checkpoint,
+        fingerprints: Fingerprints,
+        identity: Option<u64>,
+    ) -> Self {
+        let mut log = Self {
+            takes_checkpoints: true,
+            fingerprints,
+            ..Self::from_state(checkpoint.tick(), identity)
+        };
+        log.set_checkpoint(checkpoint);
+        log
+    }
+
+    /// A replay's log: it starts at the restored `checkpoint`, the state the server file holds
+    /// with commit identity `identity`, and takes a checkpoint at every snapshot, to compare with
+    /// the replayed log's; the replayed log's snapshots started at the ticks of `planned`, which
+    /// decide [`Self::wants_commit`].
+    pub(crate) fn replaying(
+        checkpoint: Checkpoint,
+        identity: Option<u64>,
+        planned: std::collections::BTreeSet<u64>,
+    ) -> Self {
+        Self {
+            planned: Some(planned),
+            ..Self::new(checkpoint, Fingerprints::default(), identity)
+        }
+    }
+
+    /// A log whose state starts at tick `start` (which the server file holds), taking no
+    /// checkpoints: tests replay it from a state they know.
+    pub(crate) fn starting_at(start: u64) -> Self {
+        Self::from_state(start, None)
     }
 
     /// What the run that wrote the log was built with.
@@ -309,9 +303,22 @@ impl InputLog {
         self.fingerprints
     }
 
-    /// The segments, oldest first.
-    pub(crate) fn segments(&self) -> impl Iterator<Item = &Segment> {
-        self.segments.iter()
+    /// The commit identity of the state the inputs chained so far lead to: what the commit of a
+    /// snapshot taken now writes into the server file.
+    pub(crate) fn identity(&self) -> u64 {
+        self.chain.0
+    }
+
+    /// Whether a replay of this log stops before its last tick: a kept segment stopped recording.
+    pub(crate) fn is_truncated(&self) -> bool {
+        self.segments.iter().any(|s| s.truncated)
+    }
+
+    /// Whether the newest segment waits for the checkpoint of its state: the tick takes it at
+    /// the tick boundary that started the segment, right after the snapshot, before anything
+    /// changes the state.
+    pub(crate) fn needs_checkpoint(&self) -> bool {
+        self.takes_checkpoints && self.last_segment().checkpoint.is_none()
     }
 
     /// The segment being recorded.
@@ -323,33 +330,9 @@ impl InputLog {
         self.segments.back().expect("the log keeps a segment")
     }
 
-    /// Whether the newest segment waits for the checkpoint of its state: the tick takes it at
-    /// the tick boundary that started the segment, right after the snapshot, before anything
-    /// changes the state.
-    pub(crate) fn needs_checkpoint(&self) -> bool {
-        self.takes_checkpoints && self.last_segment().checkpoint.is_none()
-    }
-
-    /// Whether the inputs recorded since the state of the last commit reach a quarter of the
-    /// bound: the tick then takes a snapshot even with periodic saves off (`/save-off`), so
-    /// recording does not stop at the bound while the commit is written. In a replay's log:
-    /// whether the replayed log's snapshot started at `tick`, the tick of the boundary.
-    pub(crate) fn wants_commit(&self, tick: u64) -> bool {
-        if let Some(planned) = &self.planned {
-            return planned.contains(&tick);
-        }
-        let since: usize = self
-            .segments
-            .iter()
-            .skip(self.newest_committed())
-            .map(|s| s.bytes)
-            .sum();
-        since >= COMMIT_BYTES
-    }
-
-    /// Whether a replay of this log stops before its last tick: a kept segment stopped recording.
-    pub(crate) fn is_truncated(&self) -> bool {
-        self.segments.iter().any(|s| s.truncated)
+    /// The segments, oldest first.
+    pub(crate) fn segments(&self) -> impl Iterator<Item = &Segment> {
+        self.segments.iter()
     }
 
     /// The tick of the oldest kept state.
@@ -370,43 +353,21 @@ impl InputLog {
         self.replayable().cloned().collect()
     }
 
-    /// The segments dropped for room since the last call, for the tick to hand to another thread
-    /// to free.
-    pub(crate) fn take_discarded(&mut self) -> Vec<Segment> {
-        std::mem::take(&mut self.discarded)
-    }
-
-    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
-    pub(crate) fn snapshot(&mut self, start: u64) {
-        if self.last_segment().start == start {
-            return;
+    /// Whether the inputs recorded since the state of the last commit reach a quarter of the
+    /// bound: the tick then takes a snapshot even with periodic saves off (`/save-off`), so
+    /// recording does not stop at the bound while the commit is written. In a replay's log:
+    /// whether the replayed log's snapshot started at `tick`, the tick of the boundary.
+    pub(crate) fn wants_commit(&self, tick: u64) -> bool {
+        if let Some(planned) = &self.planned {
+            return planned.contains(&tick);
         }
-        let identity = Some(self.identity());
-        self.segments.push_back(Segment::new(start, identity));
-    }
-
-    /// Gives the newest segment the checkpoint of its state, if it starts at the checkpoint's
-    /// tick and has none.
-    pub(crate) fn set_checkpoint(&mut self, checkpoint: Checkpoint) {
-        let last = self.last_segment_mut();
-        if last.start != checkpoint.tick() || last.checkpoint.is_some() {
-            return;
-        }
-        let point = Point::Taken(Box::new(checkpoint));
-        let size = point.size();
-        last.checkpoint = Some(point);
-        self.checkpoint_bytes = self.checkpoint_bytes.saturating_add(size);
-        self.make_room(0);
-    }
-
-    /// The snapshot taken before tick `start` is committed: its segment is the newest committed
-    /// one. The segments before it stay while there is room. Does nothing if no segment starts
-    /// at `start`.
-    pub(crate) fn committed(&mut self, start: u64) {
-        if let Some(segment) = self.segments.iter_mut().find(|s| s.start == start) {
-            segment.committed = true;
-            self.make_room(0);
-        }
+        let since: usize = self
+            .segments
+            .iter()
+            .skip(self.newest_committed())
+            .map(|s| s.bytes)
+            .sum();
+        since >= COMMIT_BYTES
     }
 
     /// Starts the record of tick `number`; every tick counts against the bound, even an empty
@@ -424,6 +385,29 @@ impl InputLog {
                 dropped: Vec::new(),
                 responses: Vec::new(),
             });
+        }
+    }
+
+    /// The snapshot taken before tick `start` is committed: its segment is the newest committed
+    /// one. The segments before it stay while there is room. Does nothing if no segment starts
+    /// at `start`.
+    pub(crate) fn committed(&mut self, start: u64) {
+        if let Some(segment) = self.segments.iter_mut().find(|s| s.start == start) {
+            segment.committed = true;
+            self.make_room(0);
+        }
+    }
+
+    /// Records that the tick forgot `session` after its output.
+    pub(crate) fn dropped(&mut self, session: SessionId) {
+        self.chain.raw(&[CHAIN_DROPPED]);
+        self.chain.u64(session.get());
+        let room = self.last_tick_room(|t| growth(&t.dropped));
+        if self.charge_entry(room_bytes::<SessionId>(room))
+            && let Some(tick) = self.last_tick()
+        {
+            tick.dropped.reserve_exact(room);
+            tick.dropped.push(session);
         }
     }
 
@@ -450,19 +434,6 @@ impl InputLog {
                 Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind)
             }
             None => Cow::Owned(kind),
-        }
-    }
-
-    /// Records that the tick forgot `session` after its output.
-    pub(crate) fn dropped(&mut self, session: SessionId) {
-        self.chain.raw(&[CHAIN_DROPPED]);
-        self.chain.u64(session.get());
-        let room = self.last_tick_room(|t| growth(&t.dropped));
-        if self.charge_entry(room_bytes::<SessionId>(room))
-            && let Some(tick) = self.last_tick()
-        {
-            tick.dropped.reserve_exact(room);
-            tick.dropped.push(session);
         }
     }
 
@@ -507,6 +478,35 @@ impl InputLog {
         }
     }
 
+    /// Gives the newest segment the checkpoint of its state, if it starts at the checkpoint's
+    /// tick and has none.
+    pub(crate) fn set_checkpoint(&mut self, checkpoint: Checkpoint) {
+        let last = self.last_segment_mut();
+        if last.start != checkpoint.tick() || last.checkpoint.is_some() {
+            return;
+        }
+        let point = Point::Taken(Box::new(checkpoint));
+        let size = point.size();
+        last.checkpoint = Some(point);
+        self.checkpoint_bytes = self.checkpoint_bytes.saturating_add(size);
+        self.make_room(0);
+    }
+
+    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
+    pub(crate) fn snapshot(&mut self, start: u64) {
+        if self.last_segment().start == start {
+            return;
+        }
+        let identity = Some(self.identity());
+        self.segments.push_back(Segment::new(start, identity));
+    }
+
+    /// The segments dropped for room since the last call, for the tick to hand to another thread
+    /// to free.
+    pub(crate) fn take_discarded(&mut self) -> Vec<Segment> {
+        std::mem::take(&mut self.discarded)
+    }
+
     /// The written form; tests compare and read it back.
     #[cfg(test)]
     pub(crate) fn encode(&self) -> Result<Vec<u8>> {
@@ -531,23 +531,66 @@ impl InputLog {
         }
     }
 
-    /// The place of the newest committed segment.
-    fn newest_committed(&self) -> usize {
-        self.segments.iter().rposition(|s| s.committed).unwrap_or(0)
+    /// The written form if it takes at most `limit` bytes; otherwise the written form from the
+    /// newest committed segment on, which a replay starts from with the server file of the last
+    /// commit, if that fits; otherwise [`Error::TooLarge`].
+    fn encode_within(&self, limit: usize) -> Result<Vec<u8>> {
+        match self.encode_from(0, limit) {
+            Err(Error::TooLarge) if self.newest_committed() > 0 => {
+                self.encode_from(self.newest_committed(), limit)
+            }
+            written => written,
+        }
     }
 
-    /// The segment being recorded, to change.
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: the log keeps at least one segment"
-    )]
-    fn last_segment_mut(&mut self) -> &mut Segment {
-        self.segments.back_mut().expect("the log keeps a segment")
-    }
-
-    /// The tick being recorded.
-    fn last_tick(&mut self) -> Option<&mut Tick> {
-        self.last_segment_mut().ticks.last_mut()
+    /// The written form of the segments from the one at place `from` on: the header with the
+    /// fingerprints, then each segment (its start, marks, commit identity, checkpoint and ticks),
+    /// then the CRC-32C of everything before it. Integers are little-endian; checkpoints are
+    /// encoded here, on the main thread. [`Error::TooLarge`] as soon as it would take more than
+    /// `limit` bytes.
+    fn encode_from(&self, from: usize, limit: usize) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(&FORMAT.to_le_bytes());
+        out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        out.extend_from_slice(&self.fingerprints.settings);
+        out.extend_from_slice(&self.fingerprints.registrations);
+        put_len(&mut out, self.segments.len().saturating_sub(from))?;
+        let mut body = Vec::new();
+        for segment in self.segments.iter().skip(from) {
+            out.extend_from_slice(&segment.start.to_le_bytes());
+            out.push(u8::from(segment.committed));
+            out.push(u8::from(segment.truncated));
+            match segment.identity {
+                Some(identity) => {
+                    out.push(1);
+                    out.extend_from_slice(&identity.to_le_bytes());
+                }
+                None => out.push(0),
+            }
+            match &segment.checkpoint {
+                Some(Point::Taken(c)) => {
+                    out.push(1);
+                    put_bytes(&mut out, &c.to_bytes())?;
+                }
+                Some(Point::Written(bytes)) => {
+                    out.push(1);
+                    put_bytes(&mut out, bytes)?;
+                }
+                None => out.push(0),
+            }
+            put_len(&mut out, segment.ticks.len())?;
+            for tick in &segment.ticks {
+                put_tick(&mut out, tick, &mut body)?;
+            }
+            if out.len().saturating_add(CRC_BYTES) > limit {
+                return Err(Error::TooLarge);
+            }
+        }
+        let mut crc = Crc32c::new();
+        crc.update(&out);
+        out.extend_from_slice(&crc.finish().to_le_bytes());
+        Ok(out)
     }
 
     /// The items of room that `growth_of` one of the lists of the tick being recorded needs for
@@ -556,29 +599,21 @@ impl InputLog {
         self.last_segment().ticks.last().map_or(0, growth_of)
     }
 
-    /// Drops the oldest segments before the newest committed one while the inputs, the
-    /// checkpoints and `cost` more bytes exceed the bound.
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a committed segment follows the one dropped"
-    )]
-    fn make_room(&mut self, cost: usize) {
-        while self
-            .bytes
-            .saturating_add(self.checkpoint_bytes)
-            .saturating_add(cost)
-            > MAX_BYTES
-            && self.newest_committed() > 0
-        {
-            let first = self
-                .segments
-                .pop_front()
-                .expect("a committed segment follows the first");
-            self.bytes = self.bytes.saturating_sub(first.bytes);
-            let size = first.checkpoint.as_ref().map_or(0, Point::size);
-            self.checkpoint_bytes = self.checkpoint_bytes.saturating_sub(size);
-            self.discarded.push(first);
-        }
+    /// The place of the newest committed segment.
+    fn newest_committed(&self) -> usize {
+        self.segments.iter().rposition(|s| s.committed).unwrap_or(0)
+    }
+
+    /// The ticks a replay from the oldest segment applies, oldest first: every kept segment up
+    /// to and including the first truncated one.
+    #[cfg(test)]
+    fn replayable(&self) -> impl Iterator<Item = &Tick> {
+        let end = self
+            .segments
+            .iter()
+            .position(|s| s.truncated)
+            .map_or(self.segments.len(), |i| i.saturating_add(1));
+        self.segments.iter().take(end).flat_map(|s| &s.ticks)
     }
 
     /// Chains an input into the commit identity: its place, its kind, a packet's id and the
@@ -650,78 +685,43 @@ impl InputLog {
         Charge::Fits
     }
 
-    /// The written form if it takes at most `limit` bytes; otherwise the written form from the
-    /// newest committed segment on, which a replay starts from with the server file of the last
-    /// commit, if that fits; otherwise [`Error::TooLarge`].
-    fn encode_within(&self, limit: usize) -> Result<Vec<u8>> {
-        match self.encode_from(0, limit) {
-            Err(Error::TooLarge) if self.newest_committed() > 0 => {
-                self.encode_from(self.newest_committed(), limit)
-            }
-            written => written,
-        }
+    /// The tick being recorded.
+    fn last_tick(&mut self) -> Option<&mut Tick> {
+        self.last_segment_mut().ticks.last_mut()
     }
 
-    /// The written form of the segments from the one at place `from` on: the header with the
-    /// fingerprints, then each segment (its start, marks, commit identity, checkpoint and ticks),
-    /// then the CRC-32C of everything before it. Integers are little-endian; checkpoints are
-    /// encoded here, on the main thread. [`Error::TooLarge`] as soon as it would take more than
-    /// `limit` bytes.
-    fn encode_from(&self, from: usize, limit: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
-        out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&FORMAT.to_le_bytes());
-        out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-        out.extend_from_slice(&self.fingerprints.settings);
-        out.extend_from_slice(&self.fingerprints.registrations);
-        put_len(&mut out, self.segments.len().saturating_sub(from))?;
-        let mut body = Vec::new();
-        for segment in self.segments.iter().skip(from) {
-            out.extend_from_slice(&segment.start.to_le_bytes());
-            out.push(u8::from(segment.committed));
-            out.push(u8::from(segment.truncated));
-            match segment.identity {
-                Some(identity) => {
-                    out.push(1);
-                    out.extend_from_slice(&identity.to_le_bytes());
-                }
-                None => out.push(0),
-            }
-            match &segment.checkpoint {
-                Some(Point::Taken(c)) => {
-                    out.push(1);
-                    put_bytes(&mut out, &c.to_bytes())?;
-                }
-                Some(Point::Written(bytes)) => {
-                    out.push(1);
-                    put_bytes(&mut out, bytes)?;
-                }
-                None => out.push(0),
-            }
-            put_len(&mut out, segment.ticks.len())?;
-            for tick in &segment.ticks {
-                put_tick(&mut out, tick, &mut body)?;
-            }
-            if out.len().saturating_add(CRC_BYTES) > limit {
-                return Err(Error::TooLarge);
-            }
-        }
-        let mut crc = Crc32c::new();
-        crc.update(&out);
-        out.extend_from_slice(&crc.finish().to_le_bytes());
-        Ok(out)
+    /// The segment being recorded, to change.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the log keeps at least one segment"
+    )]
+    fn last_segment_mut(&mut self) -> &mut Segment {
+        self.segments.back_mut().expect("the log keeps a segment")
     }
 
-    /// The ticks a replay from the oldest segment applies, oldest first: every kept segment up
-    /// to and including the first truncated one.
-    #[cfg(test)]
-    fn replayable(&self) -> impl Iterator<Item = &Tick> {
-        let end = self
-            .segments
-            .iter()
-            .position(|s| s.truncated)
-            .map_or(self.segments.len(), |i| i.saturating_add(1));
-        self.segments.iter().take(end).flat_map(|s| &s.ticks)
+    /// Drops the oldest segments before the newest committed one while the inputs, the
+    /// checkpoints and `cost` more bytes exceed the bound.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a committed segment follows the one dropped"
+    )]
+    fn make_room(&mut self, cost: usize) {
+        while self
+            .bytes
+            .saturating_add(self.checkpoint_bytes)
+            .saturating_add(cost)
+            > MAX_BYTES
+            && self.newest_committed() > 0
+        {
+            let first = self
+                .segments
+                .pop_front()
+                .expect("a committed segment follows the first");
+            self.bytes = self.bytes.saturating_sub(first.bytes);
+            let size = first.checkpoint.as_ref().map_or(0, Point::size);
+            self.checkpoint_bytes = self.checkpoint_bytes.saturating_sub(size);
+            self.discarded.push(first);
+        }
     }
 }
 
@@ -779,9 +779,12 @@ pub(crate) struct Segment {
 }
 
 impl Segment {
-    /// The tick of the segment's state.
-    pub(crate) fn start(&self) -> u64 {
-        self.start
+    /// The written checkpoint of the segment's state, if any (logs read from a file).
+    pub(crate) fn checkpoint(&self) -> Option<&[u8]> {
+        match &self.checkpoint {
+            Some(Point::Written(bytes)) => Some(bytes),
+            Some(Point::Taken(_)) | None => None,
+        }
     }
 
     /// The commit identity of the segment's state, if known.
@@ -789,12 +792,14 @@ impl Segment {
         self.identity
     }
 
-    /// The written checkpoint of the segment's state, if any (logs read from a file).
-    pub(crate) fn checkpoint(&self) -> Option<&[u8]> {
-        match &self.checkpoint {
-            Some(Point::Written(bytes)) => Some(bytes),
-            Some(Point::Taken(_)) | None => None,
-        }
+    /// Whether recording stopped before the segment's last tick.
+    pub(crate) fn is_truncated(&self) -> bool {
+        self.truncated
+    }
+
+    /// The tick of the segment's state.
+    pub(crate) fn start(&self) -> u64 {
+        self.start
     }
 
     /// The checkpoint of the segment's state as this process took it, if any.
@@ -808,11 +813,6 @@ impl Segment {
     /// The ticks recorded, in order.
     pub(crate) fn ticks(&self) -> &[Tick] {
         &self.ticks
-    }
-
-    /// Whether recording stopped before the segment's last tick.
-    pub(crate) fn is_truncated(&self) -> bool {
-        self.truncated
     }
 
     /// A segment from tick `start`, of the state with commit identity `identity`, not committed.
@@ -1077,13 +1077,17 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 struct Read<'a>(&'a [u8]);
 
 impl<'a> Read<'a> {
-    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if n > self.0.len() {
-            return Err(Error::Format("ends early"));
+    /// A byte that is 0 or 1.
+    fn flag(&mut self, what: &'static str) -> Result<bool> {
+        match self.u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(Error::Format(what)),
         }
-        let (head, rest) = self.0.split_at(n);
-        self.0 = rest;
-        Ok(head)
+    }
+
+    fn u8(&mut self) -> Result<u8> {
+        Ok(u8::from_le_bytes(self.array()?))
     }
 
     fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
@@ -1092,17 +1096,13 @@ impl<'a> Read<'a> {
             .map_err(|_| Error::Format("fixed width"))
     }
 
-    fn u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(self.array()?))
-    }
-
-    /// A byte that is 0 or 1.
-    fn flag(&mut self, what: &'static str) -> Result<bool> {
-        match self.u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(Error::Format(what)),
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        if n > self.0.len() {
+            return Err(Error::Format("ends early"));
         }
+        let (head, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Ok(head)
     }
 
     /// A tick of a written log, whose packets take what decoding them allocates from

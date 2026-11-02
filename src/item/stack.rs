@@ -34,9 +34,9 @@ use std::sync::Arc;
 use tracing::warn;
 
 use super::{Enchantment, Type};
+use crate::block_entity::MAX_NAME_BYTES;
 use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
 use crate::protocol::{self, Writer};
-use crate::tile::MAX_NAME_BYTES;
 
 /// The highest enchantment level a stack keeps: the most its saved `lvl`, a `TAG_Short`, holds.
 pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
@@ -54,7 +54,7 @@ pub const MAX_NBT_BYTES: usize = 96 << 10;
 /// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
 /// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
 /// The largest vanilla items fit (a firework rocket of seven stars of eight colours, 12.9 KB;
-/// armour of nine enchantments with the longest name, 12.4 KB; a custom block item of the
+/// armor of nine enchantments with the longest name, 12.4 KB; a custom block item of the
 /// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
 /// all 18 that go together, 20.4 KB) does not.
 const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
@@ -80,7 +80,7 @@ const TAG_ENCH: &str = "ench";
 const TAG_ITEMS: &str = "Items";
 /// The key in [`Extra::nbt`] that keeps a stack with its owner on death: a `TAG_Byte` of 1.
 pub const TAG_KEEP_ON_DEATH: &str = "minecraft:keep_on_death";
-/// The key in [`Extra::nbt`] of an armour piece's trim: a compound of [`TAG_TRIM_MATERIAL`] and
+/// The key in [`Extra::nbt`] of an armor piece's trim: a compound of [`TAG_TRIM_MATERIAL`] and
 /// [`TAG_TRIM_PATTERN`], as the client reads it.
 pub const TAG_TRIM: &str = "Trim";
 /// The trim's material in [`TAG_TRIM`]: a `TAG_String`, one of
@@ -114,6 +114,73 @@ impl Stack {
         extra: None,
     };
 
+    /// The stack a disk item compound ([`Stack::to_nbt`]) holds, knowing the vanilla items and
+    /// blocks only, for code without a server such as a data converter run before it starts;
+    /// [`Context::stack_from_nbt`](crate::Context::stack_from_nbt) knows the server's custom ones
+    /// too. Empty for air or a count of 0; `None` for an unknown item, a compound that is no item
+    /// or a stack over a limit. A count above the item's stack size is cut to it.
+    pub fn from_nbt(nbt: &Compound) -> Option<Self> {
+        Self::read_nbt(nbt, None)
+    }
+
+    /// [`Stack::from_nbt`] knowing the server's custom items and blocks too: a custom item and a
+    /// custom block's item read back by their name, whatever state a custom block's item saved.
+    pub(crate) fn from_nbt_with(nbt: &Compound, custom: &crate::custom::Registry) -> Option<Self> {
+        Self::read_nbt(nbt, Some(custom))
+    }
+
+    /// The inverse of [`Stack::to_network`] for tests: the stack of a network form, or `None` if
+    /// Anchor does not know the item or the count is above the item's stack size. The block a
+    /// block item is sent with only tells apart types of the same runtime ID and meta.
+    #[cfg(test)]
+    pub(crate) fn from_network(stack: &protocol::ItemStack) -> Option<Self> {
+        let protocol::ItemType {
+            network_id,
+            metadata_value,
+        } = stack.item_type;
+        if network_id == 0 || stack.count == 0 {
+            return Some(Self::EMPTY);
+        }
+        let nbt = &stack.nbt_data;
+        let item =
+            Type::from_network_any_block(network_id, metadata_value, stack.block_runtime_id, nbt)?;
+        let count = u8::try_from(stack.count)
+            .ok()
+            .filter(|c| *c <= item.max_stack_size())?;
+        let meta = u16::try_from(metadata_value).unwrap_or(item.meta());
+        let tag = (!nbt.is_empty()).then(|| nbt.clone());
+        Self::from_parts(item, count, meta, tag).ok()
+    }
+
+    /// `count` items of `item` from the parts of an outside form: its meta and item NBT tag.
+    /// The meta is the stack state where it is not the type's (an item that wears reads an old
+    /// meta as damage); the tag's known keys are read into the fields. Empty when
+    /// `count` is 0; the count is limited to the maximum stack size. Fails as
+    /// [`Stack::with_damage`] and [`Stack::with_extra`] do.
+    pub(crate) fn from_parts(
+        item: Type,
+        count: u8,
+        meta: u16,
+        tag: Option<Compound>,
+    ) -> Result<Self> {
+        let stack = Self::new(item, count);
+        if stack.is_empty() {
+            return Ok(stack);
+        }
+        let (damage, extra) = split_tag(item, tag.unwrap_or_default());
+        let damage = match item.max_durability() {
+            // An old meta is the damage of an undamaged item.
+            Some(max) => damage.unwrap_or(meta.min(max)),
+            None if meta != item.meta() => meta,
+            None => 0,
+        };
+        Self {
+            extra: Some(extra).filter(|e| *e != Extra::default()).map(Arc::new),
+            ..stack.with_damage(damage)?
+        }
+        .checked()
+    }
+
     /// `count` items of `item` without damage or extra data; empty when `count` is 0. The count
     /// is limited to the type's maximum stack size.
     pub fn new(item: Type, count: u8) -> Self {
@@ -128,7 +195,129 @@ impl Stack {
         }
     }
 
+    /// Whether a shulker box's slots take the stack: not a shulker box, and at most
+    /// [`MAX_STORED_BYTES`], so that the box with everything it holds is one stack within
+    /// [`MAX_NBT_BYTES`]. An empty stack fits.
+    pub(crate) fn can_enter_shulker_box(&self) -> bool {
+        let Some(item) = self.item else {
+            return true;
+        };
+        let shulker = item
+            .block()
+            .is_some_and(|b| b.is(crate::block::Class::ShulkerBox));
+        // A stack without extra data is its type's form, which every type keeps within the
+        // limit (`every_type_without_extra_data_fits_a_shulker_box_slot`), so it is not written.
+        !shulker
+            && (self.extra.is_none()
+                || self
+                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC)
+                    .is_some())
+    }
+
+    /// Whether `other` can join this stack: the same type, damage and extra data.
+    /// Empty stacks stack with nothing.
+    #[doc(alias = "Item::canStackWith")]
+    #[inline]
+    pub fn can_stack_with(&self, other: &Self) -> bool {
+        self.item.is_some()
+            && self.item == other.item
+            && self.damage == other.damage
+            && self.extra == other.extra
+    }
+
+    /// How many items the stack holds (0 for an empty stack).
+    #[doc(alias = "Item::getCount")]
+    #[inline]
+    pub fn count(&self) -> u8 {
+        self.count
+    }
+
+    /// The custom name, or "".
+    pub(crate) fn custom_name(&self) -> &str {
+        self.extra()
+            .and_then(|e| e.custom_name.as_deref())
+            .unwrap_or_default()
+    }
+
+    /// The damage (durability used) or meta state.
+    #[doc(alias = "Durable::getDamage")]
+    #[inline]
+    pub fn damage(&self) -> u16 {
+        self.damage
+    }
+
+    /// The level of enchantment `e` on the stack, `None` without it.
+    pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u16> {
+        self.extra()?
+            .enchantments
+            .iter()
+            .find(|(x, _)| *x == e)
+            .map(|&(_, level)| level)
+    }
+
+    /// The extra data, if any.
+    pub fn extra(&self) -> Option<&Extra> {
+        self.extra.as_deref()
+    }
+
+    /// Whether the stack holds nothing.
+    #[doc(alias = "Item::isNull")]
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.item.is_none()
+    }
+
+    /// The item type, `None` for an empty stack.
+    #[inline]
+    pub fn item(&self) -> Option<Type> {
+        self.item
+    }
+
+    /// The most items a stack of this type holds (0 for an empty stack).
+    #[inline]
+    pub fn max_stack_size(&self) -> u8 {
+        self.item.map_or(0, Type::max_stack_size)
+    }
+
+    /// The meta of the stack's outside forms: 0 for an item that wears (its durability is in the
+    /// tag), the stack state where one is kept in the meta (a firework star's colour), the
+    /// type's meta otherwise.
+    pub(crate) fn meta(&self) -> u16 {
+        match self.item {
+            Some(item) if item.max_durability().is_some() => 0,
+            Some(_) if self.damage != 0 => self.damage,
+            Some(item) => item.meta(),
+            None => 0,
+        }
+    }
+
+    /// Whether `other` is this stack: `==`, but extra data both stacks share is the same at once,
+    /// without walking its NBT (`Extra` holds floats, so it is not `Eq` and `Arc`'s `==` compares
+    /// the contents). Floats compare by their bits in `==`, so a NaN equals itself.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        self.item == other.item
+            && self.count == other.count
+            && self.damage == other.damage
+            && match (&self.extra, &other.extra) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a == b,
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
+    /// The item NBT `tag`: the extra NBT with the custom name, lore, enchantments, durability and
+    /// the type's own NBT put back in; `None` when it would be empty.
+    pub(crate) fn tag(&self) -> Option<Compound> {
+        let item = self.item?;
+        self.tag_with(
+            item,
+            self.extra().map(|e| e.nbt.clone()).unwrap_or_default(),
+        )
+    }
+
     /// The same stack with `count` items, limited to the maximum stack size; empty when 0.
+    // The `with_*` methods take `&self`: a stack is not `Copy` and its receiver is almost always
+    // a borrowed slot, so the one clone is made here instead of at every call.
     #[doc(alias = "Item::setCount")]
     #[must_use]
     pub fn with_count(&self, count: u8) -> Self {
@@ -195,222 +384,6 @@ impl Stack {
         Self::from_parts(item, self.count, given.meta(), given.tag_with(item, nbt))
     }
 
-    /// `count` items of `item` from the parts of an outside form: its meta and item NBT tag.
-    /// The meta is the stack state where it is not the type's (an item that wears reads an old
-    /// meta as damage); the tag's known keys are read into the fields. Empty when
-    /// `count` is 0; the count is limited to the maximum stack size. Fails as
-    /// [`Stack::with_damage`] and [`Stack::with_extra`] do.
-    pub(crate) fn from_parts(
-        item: Type,
-        count: u8,
-        meta: u16,
-        tag: Option<Compound>,
-    ) -> Result<Self> {
-        let stack = Self::new(item, count);
-        if stack.is_empty() {
-            return Ok(stack);
-        }
-        let (damage, extra) = split_tag(item, tag.unwrap_or_default());
-        let damage = match item.max_durability() {
-            // An old meta is the damage of an undamaged item.
-            Some(max) => damage.unwrap_or(meta.min(max)),
-            None if meta != item.meta() => meta,
-            None => 0,
-        };
-        Self {
-            extra: Some(extra).filter(|e| *e != Extra::default()).map(Arc::new),
-            ..stack.with_damage(damage)?
-        }
-        .checked()
-    }
-
-    /// The inverse of [`Stack::to_network`] for tests: the stack of a network form, or `None` if
-    /// Anchor does not know the item or the count is above the item's stack size. The block a
-    /// block item is sent with only tells apart types of the same runtime ID and meta.
-    #[cfg(test)]
-    pub(crate) fn from_network(stack: &protocol::ItemStack) -> Option<Self> {
-        let protocol::ItemType {
-            network_id,
-            metadata_value,
-        } = stack.item_type;
-        if network_id == 0 || stack.count == 0 {
-            return Some(Self::EMPTY);
-        }
-        let nbt = &stack.nbt_data;
-        let item =
-            Type::from_network_any_block(network_id, metadata_value, stack.block_runtime_id, nbt)?;
-        let count = u8::try_from(stack.count)
-            .ok()
-            .filter(|c| *c <= item.max_stack_size())?;
-        let meta = u16::try_from(metadata_value).unwrap_or(item.meta());
-        let tag = (!nbt.is_empty()).then(|| nbt.clone());
-        Self::from_parts(item, count, meta, tag).ok()
-    }
-
-    /// The stack a disk item compound ([`Stack::to_nbt`]) holds, knowing the vanilla items and
-    /// blocks only, for code without a server such as a data converter run before it starts;
-    /// [`Context::stack_from_nbt`](crate::Context::stack_from_nbt) knows the server's custom ones
-    /// too. Empty for air or a count of 0; `None` for an unknown item, a compound that is no item
-    /// or a stack over a limit. A count above the item's stack size is cut to it.
-    pub fn from_nbt(nbt: &Compound) -> Option<Self> {
-        Self::read_nbt(nbt, None)
-    }
-
-    /// [`Stack::from_nbt`] knowing the server's custom items and blocks too: a custom item and a
-    /// custom block's item read back by their name, whatever state a custom block's item saved.
-    pub(crate) fn from_nbt_with(nbt: &Compound, custom: &crate::custom::Registry) -> Option<Self> {
-        Self::read_nbt(nbt, Some(custom))
-    }
-
-    /// Whether the stack holds nothing.
-    #[doc(alias = "Item::isNull")]
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.item.is_none()
-    }
-
-    /// The item type, `None` for an empty stack.
-    #[inline]
-    pub fn item(&self) -> Option<Type> {
-        self.item
-    }
-
-    /// How many items the stack holds (0 for an empty stack).
-    #[doc(alias = "Item::getCount")]
-    #[inline]
-    pub fn count(&self) -> u8 {
-        self.count
-    }
-
-    /// The damage (durability used) or meta state.
-    #[doc(alias = "Durable::getDamage")]
-    #[inline]
-    pub fn damage(&self) -> u16 {
-        self.damage
-    }
-
-    /// The extra data, if any.
-    pub fn extra(&self) -> Option<&Extra> {
-        self.extra.as_deref()
-    }
-
-    /// The level of enchantment `e` on the stack, `None` without it.
-    pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u16> {
-        self.extra()?
-            .enchantments
-            .iter()
-            .find(|(x, _)| *x == e)
-            .map(|&(_, level)| level)
-    }
-
-    /// Whether `other` is this stack: `==`, but extra data both stacks share is the same at once,
-    /// without walking its NBT (`Extra` holds floats, so it is not `Eq` and `Arc`'s `==` compares
-    /// the contents). Floats compare by their bits in `==`, so a NaN equals itself.
-    pub(crate) fn same(&self, other: &Self) -> bool {
-        self.item == other.item
-            && self.count == other.count
-            && self.damage == other.damage
-            && match (&self.extra, &other.extra) {
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a == b,
-                (None, None) => true,
-                _ => false,
-            }
-    }
-
-    /// The most items a stack of this type holds (0 for an empty stack).
-    #[inline]
-    pub fn max_count(&self) -> u8 {
-        self.item.map_or(0, Type::max_stack_size)
-    }
-
-    /// Whether `other` can join this stack: the same type, damage and extra data.
-    /// Empty stacks stack with nothing.
-    #[doc(alias = "Item::canStackWith")]
-    #[inline]
-    pub fn can_stack_with(&self, other: &Self) -> bool {
-        self.item.is_some()
-            && self.item == other.item
-            && self.damage == other.damage
-            && self.extra == other.extra
-    }
-
-    /// Whether a shulker box's slots take the stack: not a shulker box, and at most
-    /// [`MAX_STORED_BYTES`], so that the box with everything it holds is one stack within
-    /// [`MAX_NBT_BYTES`]. An empty stack fits.
-    pub(crate) fn can_enter_shulker_box(&self) -> bool {
-        let Some(item) = self.item else {
-            return true;
-        };
-        let shulker = item
-            .block()
-            .is_some_and(|b| b.is(crate::block::Class::ShulkerBox));
-        // A stack without extra data is its type's form, which every type keeps within the
-        // limit (`every_type_without_extra_data_fits_a_shulker_box_slot`), so it is not written.
-        !shulker
-            && (self.extra.is_none()
-                || self
-                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC)
-                    .is_some())
-    }
-
-    /// The custom name, or "".
-    pub(crate) fn custom_name(&self) -> &str {
-        self.extra()
-            .and_then(|e| e.custom_name.as_deref())
-            .unwrap_or_default()
-    }
-
-    /// The meta of the stack's outside forms: 0 for an item that wears (its durability is in the
-    /// tag), the stack state where one is kept in the meta (a firework star's colour), the
-    /// type's meta otherwise.
-    pub(crate) fn meta(&self) -> u16 {
-        match self.item {
-            Some(item) if item.max_durability().is_some() => 0,
-            Some(_) if self.damage != 0 => self.damage,
-            Some(item) => item.meta(),
-            None => 0,
-        }
-    }
-
-    /// The item NBT `tag`: the extra NBT with the custom name, lore, enchantments, durability and
-    /// the type's own NBT put back in; `None` when it would be empty.
-    pub(crate) fn tag(&self) -> Option<Compound> {
-        let item = self.item?;
-        self.tag_with(
-            item,
-            self.extra().map(|e| e.nbt.clone()).unwrap_or_default(),
-        )
-    }
-
-    /// The network form: runtime ID, meta, count, the network ID of the block state a block item
-    /// is sent with, and the tag without block entity data and with stored items reduced to
-    /// their type, count and name. The air stack for an empty stack.
-    pub(crate) fn to_network(&self) -> protocol::ItemStack {
-        let Some(item) = self.item else {
-            return protocol::ItemStack::default();
-        };
-        // Built from references, so block entity data and the hidden data of stored items are
-        // never copied only to be dropped.
-        let nbt = self.extra().map_or_else(Compound::new, |extra| {
-            extra
-                .nbt
-                .iter()
-                .filter_map(|(key, value)| {
-                    let sent = match (key.as_str(), value) {
-                        (TAG_BLOCK_ENTITY, _) => return None,
-                        (TAG_ITEMS, Value::List(List::Compound(items))) => {
-                            Value::List(List::Compound(items.iter().map(visible_only).collect()))
-                        }
-                        _ => value.clone(),
-                    };
-                    Some((key.clone(), sent))
-                })
-                .collect()
-        });
-        let nbt_data = self.tag_with(item, nbt).unwrap_or_default();
-        super::network_stack_with(item, self.meta(), u16::from(self.count), nbt_data)
-    }
-
     /// The network form with its stack network ID (`ItemInstance`); an empty stack has ID 0.
     pub(crate) fn to_instance(&self, stack_network_id: i32) -> protocol::ItemInstance {
         protocol::ItemInstance {
@@ -446,6 +419,35 @@ impl Stack {
             out.insert("tag".to_owned(), Value::Compound(tag));
         }
         out
+    }
+
+    /// The network form: runtime ID, meta, count, the network ID of the block state a block item
+    /// is sent with, and the tag without block entity data and with stored items reduced to
+    /// their type, count and name. The air stack for an empty stack.
+    pub(crate) fn to_network(&self) -> protocol::ItemStack {
+        let Some(item) = self.item else {
+            return protocol::ItemStack::default();
+        };
+        // Built from references, so block entity data and the hidden data of stored items are
+        // never copied only to be dropped.
+        let nbt = self.extra().map_or_else(Compound::new, |extra| {
+            extra
+                .nbt
+                .iter()
+                .filter_map(|(key, value)| {
+                    let sent = match (key.as_str(), value) {
+                        (TAG_BLOCK_ENTITY, _) => return None,
+                        (TAG_ITEMS, Value::List(List::Compound(items))) => {
+                            Value::List(List::Compound(items.iter().map(visible_only).collect()))
+                        }
+                        _ => value.clone(),
+                    };
+                    Some((key.clone(), sent))
+                })
+                .collect()
+        });
+        let nbt_data = self.tag_with(item, nbt).unwrap_or_default();
+        super::network_stack_with(item, self.meta(), u16::from(self.count), nbt_data)
     }
 
     /// The disk form as the official server writes it in the NBT it sends (trade offers): with
@@ -801,7 +803,7 @@ mod tests {
     }
 
     /// The largest vanilla items a shulker box takes: a firework rocket of seven stars of eight
-    /// colours and eight fade colours, and armour with nine enchantments (more than survival
+    /// colours and eight fade colours, and armor with nine enchantments (more than survival
     /// gives one piece) at their highest level, the longest name and its prior work.
     #[test]
     fn the_largest_vanilla_items_fit_a_shulker_box() {

@@ -149,20 +149,6 @@ impl Saving {
         }
     }
 
-    /// The start tick of the snapshot in flight if it holds the chunk `key`.
-    pub(super) fn holds_chunk(&self, key: &Key) -> Option<u64> {
-        self.in_flight
-            .as_ref()
-            .filter(|f| f.chunks.contains(key))
-            .map(|f| f.start)
-    }
-
-    /// Whether nothing is in flight or waiting in memory (for leak tests).
-    #[cfg(test)]
-    pub(super) fn is_idle(&self) -> bool {
-        self.in_flight.is_none() && self.offline.is_empty()
-    }
-
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The interval and the player switch are settings.
@@ -226,6 +212,20 @@ impl Saving {
             }
             extra::hash_nbt(h, extra);
         }
+    }
+
+    /// The start tick of the snapshot in flight if it holds the chunk `key`.
+    pub(super) fn holds_chunk(&self, key: &Key) -> Option<u64> {
+        self.in_flight
+            .as_ref()
+            .filter(|f| f.chunks.contains(key))
+            .map(|f| f.start)
+    }
+
+    /// Whether nothing is in flight or waiting in memory (for leak tests).
+    #[cfg(test)]
+    pub(super) fn is_idle(&self) -> bool {
+        self.in_flight.is_none() && self.offline.is_empty()
     }
 }
 

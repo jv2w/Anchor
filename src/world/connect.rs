@@ -25,10 +25,9 @@
 //! changed (a stair whose corner changed). No rule depends on a state that a second round could
 //! change, so this covers every block whose state follows.
 
-use crate::block::{Connection, Facing, PropertyValue, State};
-
 use super::sub_chunk::Entry;
 use super::{BlockPos, World};
+use crate::block::{Connection, Facing, PropertyValue, State};
 
 /// The most tripwire between two hooks that still attaches them.
 const MAX_TRIPWIRE: usize = 40;
@@ -42,40 +41,6 @@ struct Line {
 }
 
 impl World {
-    /// Works out the states around `pos` after it was set from `old` to `new`. When the old and
-    /// the new block look the same to their neighbours (stone over dirt), only the block itself
-    /// is worked out.
-    pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry, new: Entry) {
-        let placed = match self.reconnect(pos) {
-            Some((_, connected)) => Some(connected),
-            None => new.state(),
-        };
-        if let (Entry::Known(old), Some(placed)) = (old, placed)
-            && old.neighbour_view() == placed.neighbour_view()
-        {
-            return;
-        }
-        for facing in Facing::ALL {
-            let Some(side) = pos.side(facing) else {
-                continue;
-            };
-            if let Some((old, new)) = self.reconnect(side)
-                && Facing::ALL
-                    .into_iter()
-                    .any(|f| old.has_full_face(f) != new.has_full_face(f))
-            {
-                for f in Facing::ALL {
-                    if let Some(next) = side.side(f) {
-                        self.reconnect(next);
-                    }
-                }
-            }
-        }
-        if let Some(below) = pos.up(-1) {
-            self.reconnect(below);
-        }
-    }
-
     /// Works out which tripwire and hooks are attached after `pos` was set from `old` to `new`:
     /// the lines through `pos` and next to it, on both axes. Does nothing unless a tripwire or a
     /// hook is involved.
@@ -115,67 +80,38 @@ impl World {
         }
     }
 
-    /// The line of tripwire through `start` along `axis` (both ways), or `None` if `start` is
-    /// neither a tripwire nor a hook facing along the axis. A hook with no tripwire in front of
-    /// it is a line of no tripwire.
-    fn line(&self, start: BlockPos, axis: Facing) -> Option<Line> {
-        let wire = |at: Option<BlockPos>| {
-            self.known(at)
-                .filter(|s| s.connection() == Connection::Tripwire)
-                .and(at)
+    /// Works out the states around `pos` after it was set from `old` to `new`. When the old and
+    /// the new block look the same to their neighbours (stone over dirt), only the block itself
+    /// is worked out.
+    pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry, new: Entry) {
+        let placed = match self.reconnect(pos) {
+            Some((_, connected)) => Some(connected),
+            None => new.state(),
         };
-        let state = self.known(Some(start))?;
-        let first = match state.connection() {
-            Connection::Tripwire => start,
-            Connection::TripwireHook => {
-                let f = state
-                    .facing()
-                    .filter(|f| *f == axis || *f == axis.opposite())?;
-                let Some(next) = wire(start.side(f)) else {
-                    return Some(Line {
-                        wires: Vec::new(),
-                        hooks: [Some(start), None],
-                        attached: false,
-                    });
-                };
-                next
-            }
-            _ => return None,
-        };
-        // Walk each way over at most MAX_TRIPWIRE tripwire: that reaches both ends of any line
-        // short enough to be attached, so none of its tripwire and hooks keeps a stale
-        // `attached_bit`, and a longer line still counts more than MAX_TRIPWIRE.
-        let mut wires = vec![first];
-        let mut ends = [first, first];
-        for (end, f) in ends.iter_mut().zip([axis, axis.opposite()]) {
-            for _ in 0..MAX_TRIPWIRE {
-                let Some(next) = wire(end.side(f)) else {
-                    break;
-                };
-                *end = next;
-                wires.push(next);
+        if let (Entry::Known(old), Some(placed)) = (old, placed)
+            && old.neighbour_view() == placed.neighbour_view()
+        {
+            return;
+        }
+        for facing in Facing::ALL {
+            let Some(side) = pos.side(facing) else {
+                continue;
+            };
+            if let Some((old, new)) = self.reconnect(side)
+                && Facing::ALL
+                    .into_iter()
+                    .any(|f| old.has_full_face(f) != new.has_full_face(f))
+            {
+                for f in Facing::ALL {
+                    if let Some(next) = side.side(f) {
+                        self.reconnect(next);
+                    }
+                }
             }
         }
-        // A hook just past each end, facing back into the line.
-        let hook = |end: BlockPos, f: Facing| {
-            let at = end.side(f)?;
-            let s = self.known(Some(at))?;
-            (s.connection() == Connection::TripwireHook && s.facing() == Some(f.opposite()))
-                .then_some(at)
-        };
-        let [a, b] = ends;
-        let hooks = [hook(a, axis), hook(b, axis.opposite())];
-        let attached = wires.len() <= MAX_TRIPWIRE && hooks.iter().all(Option::is_some);
-        Some(Line {
-            wires,
-            hooks,
-            attached,
-        })
-    }
-
-    /// The known state at `pos`, or `None` for unknown states and unloaded chunks.
-    fn known(&self, pos: Option<BlockPos>) -> Option<State> {
-        self.entry(pos?)?.state()
+        if let Some(below) = pos.up(-1) {
+            self.reconnect(below);
+        }
     }
 
     /// The state `state` takes at `pos` given its neighbours, or `None` if it has no variants.
@@ -260,14 +196,67 @@ impl World {
         }
     }
 
-    /// Sets `attached_bit` of the tripwire or hook at `pos`, if it has one.
-    fn set_attached(&mut self, pos: BlockPos, attached: bool) {
-        if let Some(state) = self.known(Some(pos))
-            && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
-            && new != state
-        {
-            self.write(pos, Entry::Known(new));
+    /// The line of tripwire through `start` along `axis` (both ways), or `None` if `start` is
+    /// neither a tripwire nor a hook facing along the axis. A hook with no tripwire in front of
+    /// it is a line of no tripwire.
+    fn line(&self, start: BlockPos, axis: Facing) -> Option<Line> {
+        let wire = |at: Option<BlockPos>| {
+            self.known(at)
+                .filter(|s| s.connection() == Connection::Tripwire)
+                .and(at)
+        };
+        let state = self.known(Some(start))?;
+        let first = match state.connection() {
+            Connection::Tripwire => start,
+            Connection::TripwireHook => {
+                let f = state
+                    .facing()
+                    .filter(|f| *f == axis || *f == axis.opposite())?;
+                let Some(next) = wire(start.side(f)) else {
+                    return Some(Line {
+                        wires: Vec::new(),
+                        hooks: [Some(start), None],
+                        attached: false,
+                    });
+                };
+                next
+            }
+            _ => return None,
+        };
+        // Walk each way over at most MAX_TRIPWIRE tripwire: that reaches both ends of any line
+        // short enough to be attached, so none of its tripwire and hooks keeps a stale
+        // `attached_bit`, and a longer line still counts more than MAX_TRIPWIRE.
+        let mut wires = vec![first];
+        let mut ends = [first, first];
+        for (end, f) in ends.iter_mut().zip([axis, axis.opposite()]) {
+            for _ in 0..MAX_TRIPWIRE {
+                let Some(next) = wire(end.side(f)) else {
+                    break;
+                };
+                *end = next;
+                wires.push(next);
+            }
         }
+        // A hook just past each end, facing back into the line.
+        let hook = |end: BlockPos, f: Facing| {
+            let at = end.side(f)?;
+            let s = self.known(Some(at))?;
+            (s.connection() == Connection::TripwireHook && s.facing() == Some(f.opposite()))
+                .then_some(at)
+        };
+        let [a, b] = ends;
+        let hooks = [hook(a, axis), hook(b, axis.opposite())];
+        let attached = wires.len() <= MAX_TRIPWIRE && hooks.iter().all(Option::is_some);
+        Some(Line {
+            wires,
+            hooks,
+            attached,
+        })
+    }
+
+    /// The known state at `pos`, or `None` for unknown states and unloaded chunks.
+    fn known(&self, pos: Option<BlockPos>) -> Option<State> {
+        self.entry(pos?)?.state()
     }
 
     /// Works out the state at `pos` from its neighbours and writes it if it differs. Returns the
@@ -282,5 +271,15 @@ impl World {
         }
         self.write(pos, Entry::Known(new))?;
         Some((state, new))
+    }
+
+    /// Sets `attached_bit` of the tripwire or hook at `pos`, if it has one.
+    fn set_attached(&mut self, pos: BlockPos, attached: bool) {
+        if let Some(state) = self.known(Some(pos))
+            && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
+            && new != state
+        {
+            self.write(pos, Entry::Known(new));
+        }
     }
 }

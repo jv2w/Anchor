@@ -41,7 +41,7 @@ const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates
 /// What a player sees when `/tp` moves it.
 const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
 
-/// A slot `/clear` empties, in the order it empties them: the inventory, the cursor, the armour,
+/// A slot `/clear` empties, in the order it empties them: the inventory, the cursor, the armor,
 /// the off hand.
 #[derive(Debug, Clone, Copy)]
 enum Slot {
@@ -135,7 +135,7 @@ fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
     }
 }
 
-/// Empties the inventory, cursor, armour and off hand, or takes the stacks of `item` with damage
+/// Empties the inventory, cursor, armor and off hand, or takes the stacks of `item` with damage
 /// `data` (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts
 /// them) (`/clear [player] [item] [data] [maxCount]`).
 fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {

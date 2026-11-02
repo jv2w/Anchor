@@ -92,29 +92,17 @@ impl State {
         Self(Repr::Vanilla(index))
     }
 
-    /// The state `index` of the registered custom block `block`, or `None` without such a state.
-    ///
-    /// `item_runtime_id` is the runtime ID of the block's item. Only the custom registry and the
-    /// custom states themselves call it, so every custom state is one of a registered block.
-    pub(crate) fn custom(
-        block: &'static custom::Block,
-        index: u16,
-        item_runtime_id: i16,
-    ) -> Option<Self> {
-        if u32::from(index) >= block.state_count() {
-            return None;
-        }
-        let network_id = network_hash(
-            block.identifier(),
-            (0..block.property_count())
-                .filter_map(|i| Some((block.property_name(i)?, block.property_value(index, i)?))),
-        );
-        Some(Self(Repr::Custom(Custom {
-            block,
-            index,
-            item_runtime_id,
-            network_id,
-        })))
+    /// The state of the table with this network ID, or `None` if no state of the table has it.
+    /// A custom state has no lookup by network ID: it comes from its definition
+    /// ([`Context::custom_block`](crate::Context::custom_block) gives the default state and
+    /// [`State::with`] the others).
+    #[doc(alias = "BlockStateDictionary::generateDataFromStateId")]
+    pub fn from_network_id(id: u32) -> Option<Self> {
+        let i = table::NETWORK_IDS.binary_search(&id).ok()?;
+        table::NETWORK_ID_STATES
+            .get(i)
+            .copied()
+            .map(Self::from_index)
     }
 
     /// Every state of the table, in table order.
@@ -136,210 +124,6 @@ impl State {
         let count = u16::try_from(table::STATES.len())
             .expect("the state table has at most `u16::MAX` states");
         (0..count).map(Self::from_index)
-    }
-
-    /// The state of the table with this network ID, or `None` if no state of the table has it.
-    /// A custom state has no lookup by network ID: it comes from its definition
-    /// ([`Context::custom_block`](crate::Context::custom_block) gives the default state and
-    /// [`State::with`] the others).
-    #[doc(alias = "BlockStateDictionary::generateDataFromStateId")]
-    pub fn from_network_id(id: u32) -> Option<Self> {
-        let i = table::NETWORK_IDS.binary_search(&id).ok()?;
-        table::NETWORK_ID_STATES
-            .get(i)
-            .copied()
-            .map(Self::from_index)
-    }
-
-    /// The state of the table with this name and exactly these properties, given in any order.
-    ///
-    /// It is meant for input from disk or the network: it never allocates, and an unknown name,
-    /// a missing, extra or repeated property, a value of the wrong type or an unknown value gives
-    /// `None`. Custom states are not in the table; they come from their definition
-    /// ([`State::from_network_id`]).
-    #[doc(alias = "BlockStateDictionary::lookupStateIdFromData")]
-    pub fn find(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
-        let at = search(
-            &table::STATES,
-            |d| (d.name, d.first_property, d.property_count),
-            name,
-            properties,
-        )?;
-        u16::try_from(at).ok().map(Self::from_index)
-    }
-
-    /// The state a vanilla block state from outside the server becomes.
-    ///
-    /// It is the state of the table with this name and exactly these properties
-    /// ([`State::find`]), else the state the dump reads it as. The dump ignores some vanilla
-    /// properties and has one value for them, so a pumpkin facing east is the pumpkin facing
-    /// south. `None` for a state the reference list does not have (the caller keeps it as an
-    /// unknown block). It never allocates.
-    pub(crate) fn read(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
-        Self::find(name, properties).or_else(|| {
-            let at = search(
-                &table::ALIASES,
-                |a| (a.name, a.first_property, a.property_count),
-                name,
-                properties,
-            )?;
-            table::ALIASES.get(at).map(|a| Self::from_index(a.state))
-        })
-    }
-
-    /// The state with the property `name` set to `value` and the other properties kept.
-    ///
-    /// `None` if the state has no property `name` or no state has that value (a crop's `growth`
-    /// past its last stage). It never allocates.
-    pub fn with(self, name: &str, value: PropertyValue<'_>) -> Option<Self> {
-        let data = match self.0 {
-            Repr::Vanilla(i) => Self::data(i),
-            Repr::Custom(c) => {
-                let index = c.block.with_value(c.index, name, value)?;
-                return Self::custom(c.block, index, c.item_runtime_id);
-            }
-        };
-        let mut buffer = [("", PropertyValue::Byte(0)); table::MAX_PROPERTIES];
-        let mut found = false;
-        let mut count = 0;
-        for (slot, p) in buffer
-            .iter_mut()
-            .zip(properties_of(data.first_property, data.property_count))
-        {
-            *slot = if p.name == name {
-                found = true;
-                (p.name, value)
-            } else {
-                (p.name, p.value)
-            };
-            count += 1;
-        }
-        if !found {
-            return None;
-        }
-        Self::find(self.name(), buffer.get(..count)?)
-    }
-
-    /// The block name, such as `minecraft:oak_stairs`, or a custom block's identifier.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the generated state rows index the name table"
-    )]
-    pub fn name(self) -> &'static str {
-        match self.0 {
-            Repr::Vanilla(i) => table::NAMES[usize::from(Self::data(i).name)],
-            Repr::Custom(c) => c.block.identifier(),
-        }
-    }
-
-    /// The properties, sorted by name.
-    #[inline]
-    pub fn properties(self) -> impl ExactSizeIterator<Item = Property> + 'static {
-        match self.0 {
-            Repr::Vanilla(i) => {
-                let d = Self::data(i);
-                PropertyIter::Vanilla(property_rows(d.first_property, d.property_count))
-            }
-            Repr::Custom(c) => PropertyIter::Custom {
-                block: c.block,
-                index: c.index,
-                at: 0,
-            },
-        }
-    }
-
-    /// The value of a property, or `None` if the state has no property of that name.
-    #[inline]
-    pub fn value(self, name: &str) -> Option<PropertyValue<'static>> {
-        let found = match self.0 {
-            // The table's rows directly, without the custom branch in every step.
-            Repr::Vanilla(i) => {
-                let d = Self::data(i);
-                properties_of(d.first_property, d.property_count).find(|p| p.name == name)
-            }
-            Repr::Custom(_) => self.properties().find(|p| p.name == name),
-        };
-        found.map(|p| p.value)
-    }
-
-    /// The network ID: the block state hash the client uses with `UseBlockNetworkIDHashes`.
-    #[inline]
-    pub fn network_id(self) -> u32 {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).network_id,
-            Repr::Custom(c) => c.network_id,
-        }
-    }
-
-    /// The block type, such as [`Kind::OakPlanks`].
-    ///
-    /// A custom block and a state the dump has no type for read as [`Kind::InfoUpdate`].
-    #[doc(alias = "Block::getTypeId")]
-    #[inline]
-    pub fn kind(self) -> Kind {
-        match self.0 {
-            Repr::Vanilla(i) =>
-            {
-                #[expect(
-                    clippy::indexing_slicing,
-                    reason = "invariant: the generated tables have a kind index per state, and \
-                              each indexes the kind table"
-                )]
-                table::KINDS[usize::from(table::STATE_KIND[usize::from(i)])]
-            }
-            Repr::Custom(_) => Kind::InfoUpdate,
-        }
-    }
-
-    /// The class of the block, such as [`Class::Wheat`].
-    ///
-    /// A custom block's is [`Class::Transparent`] or [`Class::Opaque`].
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: a class chain holds at least the block's own class"
-    )]
-    #[inline]
-    pub fn class(self) -> Class {
-        self.classes()[0]
-    }
-
-    /// Whether the block is of the class or a subclass of it, such as [`Class::Crops`] for wheat.
-    #[inline]
-    pub fn is(self, class: Class) -> bool {
-        self.classes().contains(&class)
-    }
-
-    /// Whether the block's class has the trait or interface, such as [`Trait::Fallable`].
-    /// A custom block has none.
-    #[inline]
-    pub fn has_trait(self, t: Trait) -> bool {
-        self.vanilla().is_some() && self.kind().has_trait(t)
-    }
-
-    /// The custom block of a custom state, `None` for a state of the table.
-    #[inline]
-    pub fn custom_block(self) -> Option<&'static custom::Block> {
-        self.to_custom().map(|c| c.block)
-    }
-
-    /// The light level the block gives off, 0 to 15.
-    #[doc(alias = "Block::getLightLevel")]
-    #[inline]
-    pub fn light_emission(self) -> u8 {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).light_emission,
-            Repr::Custom(c) => c.block.emission(),
-        }
-    }
-
-    /// How much the block reduces light passing through it, 0 to 15.
-    #[doc(alias = "Block::getLightFilter")]
-    #[inline]
-    pub fn light_filter(self) -> u8 {
-        match self.0 {
-            Repr::Vanilla(i) => Self::data(i).light_filter,
-            Repr::Custom(c) => c.block.filter(),
-        }
     }
 
     /// Whether the block stops direct sky light, even if it lets other light through.
@@ -384,27 +168,6 @@ impl State {
         }
     }
 
-    /// Whether the block is solid: entities cannot stand inside it.
-    #[doc(alias = "Block::isSolid")]
-    #[inline]
-    pub fn is_solid(self) -> bool {
-        self.has_flag(flag::SOLID)
-    }
-
-    /// Whether the block lets light through and does not hide the faces next to it.
-    #[doc(alias = "Block::isTransparent")]
-    #[inline]
-    pub fn is_transparent(self) -> bool {
-        self.has_flag(flag::TRANSPARENT)
-    }
-
-    /// Whether placing a block on it replaces it (air, tall grass, liquids).
-    #[doc(alias = "Block::canBeReplaced")]
-    #[inline]
-    pub fn can_be_replaced(self) -> bool {
-        self.has_flag(flag::REPLACEABLE)
-    }
-
     /// Whether a liquid's current reaches into the block.
     ///
     /// It decides where a liquid's current pushes an entity.
@@ -414,37 +177,23 @@ impl State {
         self.has_flag(flag::FLOWABLE)
     }
 
-    /// Whether the block acts on entities inside its cell.
-    #[doc(alias = "Block::hasEntityCollision")]
+    /// Whether placing a block on it replaces it (air, tall grass, liquids).
+    #[doc(alias = "Block::canBeReplaced")]
     #[inline]
-    pub fn has_entity_collision(self) -> bool {
-        self.has_flag(flag::ENTITY_COLLISION)
+    pub fn can_be_replaced(self) -> bool {
+        self.has_flag(flag::REPLACEABLE)
     }
 
-    /// How slippery the block is to stand on (0.6 for most, more for ice).
-    #[doc(alias = "Block::getFrictionFactor")]
+    /// The class of the block, such as [`Class::Wheat`].
+    ///
+    /// A custom block's is [`Class::Transparent`] or [`Class::Opaque`].
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: a class chain holds at least the block's own class"
+    )]
     #[inline]
-    pub fn friction_factor(self) -> f64 {
-        self.info().friction()
-    }
-
-    /// Whether the block's type has the tag.
-    #[doc(alias = "Block::hasTypeTag")]
-    #[inline]
-    pub fn has_type_tag(self, tag: TypeTag) -> bool {
-        self.info().tags & (1 << tag as u16) != 0
-    }
-
-    /// The support the face gives to blocks that need it.
-    #[doc(alias = "Block::getSupportType")]
-    #[inline]
-    pub fn support(self, face: Face) -> SupportType {
-        match (self.info().support >> (2 * face as u16)) & 0b11 {
-            0 => SupportType::Full,
-            1 => SupportType::Center,
-            2 => SupportType::Edge,
-            _ => SupportType::None,
-        }
+    pub fn class(self) -> Class {
+        self.classes()[0]
     }
 
     /// The collision boxes relative to the block's lowest corner.
@@ -464,26 +213,6 @@ impl State {
         let info = self.info();
         let start = usize::from(info.box_start);
         &table::BOXES[start..start + usize::from(info.box_count)]
-    }
-
-    /// The item the block turns into: for a custom block, its block item.
-    #[doc(alias = "Block::asItem")]
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the generated item table has a row per state"
-    )]
-    pub fn item(self) -> ItemForm {
-        let index = match self.0 {
-            Repr::Vanilla(i) => usize::from(i),
-            Repr::Custom(c) => {
-                return ItemForm::Item(item::Type::from_custom_block(c.block, c.item_runtime_id));
-            }
-        };
-        match table::STATE_ITEMS[index] {
-            BLOCK_ENTITY_ITEM => ItemForm::BlockEntity,
-            NO_ITEM => ItemForm::None,
-            i => ItemForm::Item(item::Type::from_index(i)),
-        }
     }
 
     /// The state's part in neighbour connections.
@@ -506,11 +235,35 @@ impl State {
         }
     }
 
-    /// Whether the face toward `face` gives full support.
+    /// The state `index` of the registered custom block `block`, or `None` without such a state.
     ///
-    /// Fences, panes and walls connect to such a face.
-    pub(crate) fn has_full_face(self, face: Facing) -> bool {
-        self.connect() & (u32::from(face.bit()) << 4) != 0
+    /// `item_runtime_id` is the runtime ID of the block's item. Only the custom registry and the
+    /// custom states themselves call it, so every custom state is one of a registered block.
+    pub(crate) fn custom(
+        block: &'static custom::Block,
+        index: u16,
+        item_runtime_id: i16,
+    ) -> Option<Self> {
+        if u32::from(index) >= block.state_count() {
+            return None;
+        }
+        let network_id = network_hash(
+            block.identifier(),
+            (0..block.property_count())
+                .filter_map(|i| Some((block.property_name(i)?, block.property_value(index, i)?))),
+        );
+        Some(Self(Repr::Custom(Custom {
+            block,
+            index,
+            item_runtime_id,
+            network_id,
+        })))
+    }
+
+    /// The custom block of a custom state, `None` for a state of the table.
+    #[inline]
+    pub fn custom_block(self) -> Option<&'static custom::Block> {
+        self.to_custom().map(|c| c.block)
     }
 
     /// The horizontal facing of stairs, fence gates and tripwire hooks.
@@ -519,9 +272,153 @@ impl State {
         Facing::ALL.get(at.checked_sub(1)?).copied()
     }
 
+    /// The state of the table with this name and exactly these properties, given in any order.
+    ///
+    /// It is meant for input from disk or the network: it never allocates, and an unknown name,
+    /// a missing, extra or repeated property, a value of the wrong type or an unknown value gives
+    /// `None`. Custom states are not in the table; they come from their definition
+    /// ([`State::from_network_id`]).
+    #[doc(alias = "BlockStateDictionary::lookupStateIdFromData")]
+    pub fn find(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
+        let at = search(
+            &table::STATES,
+            |d| (d.name, d.first_property, d.property_count),
+            name,
+            properties,
+        )?;
+        u16::try_from(at).ok().map(Self::from_index)
+    }
+
+    /// How slippery the block is to stand on (0.6 for most, more for ice).
+    #[doc(alias = "Block::getFrictionFactor")]
+    #[inline]
+    pub fn friction_factor(self) -> f64 {
+        self.info().friction()
+    }
+
+    /// Whether the block acts on entities inside its cell.
+    #[doc(alias = "Block::hasEntityCollision")]
+    #[inline]
+    pub fn has_entity_collision(self) -> bool {
+        self.has_flag(flag::ENTITY_COLLISION)
+    }
+
+    /// Whether the face toward `face` gives full support.
+    ///
+    /// Fences, panes and walls connect to such a face.
+    pub(crate) fn has_full_face(self, face: Facing) -> bool {
+        self.connect() & (u32::from(face.bit()) << 4) != 0
+    }
+
+    /// Whether the block's class has the trait or interface, such as [`Trait::Fallable`].
+    /// A custom block has none.
+    #[inline]
+    pub fn has_trait(self, t: Trait) -> bool {
+        self.vanilla().is_some() && self.kind().has_trait(t)
+    }
+
+    /// Whether the block's type has the tag.
+    #[doc(alias = "Block::hasTypeTag")]
+    #[inline]
+    pub fn has_type_tag(self, tag: TypeTag) -> bool {
+        self.info().tags & (1 << tag as u16) != 0
+    }
+
+    /// Whether the block is of the class or a subclass of it, such as [`Class::Crops`] for wheat.
+    #[inline]
+    pub fn is(self, class: Class) -> bool {
+        self.classes().contains(&class)
+    }
+
+    /// Whether the block is solid: entities cannot stand inside it.
+    #[doc(alias = "Block::isSolid")]
+    #[inline]
+    pub fn is_solid(self) -> bool {
+        self.has_flag(flag::SOLID)
+    }
+
+    /// Whether the block lets light through and does not hide the faces next to it.
+    #[doc(alias = "Block::isTransparent")]
+    #[inline]
+    pub fn is_transparent(self) -> bool {
+        self.has_flag(flag::TRANSPARENT)
+    }
+
     /// Whether a stair is upside down.
     pub(crate) fn is_upside_down(self) -> bool {
         self.connect() & (1 << 11) != 0
+    }
+
+    /// The item the block turns into: for a custom block, its block item.
+    #[doc(alias = "Block::asItem")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated item table has a row per state"
+    )]
+    pub fn item(self) -> ItemForm {
+        let index = match self.0 {
+            Repr::Vanilla(i) => usize::from(i),
+            Repr::Custom(c) => {
+                return ItemForm::Item(item::Type::from_custom_block(c.block, c.item_runtime_id));
+            }
+        };
+        match table::STATE_ITEMS[index] {
+            BLOCK_ENTITY_ITEM => ItemForm::BlockEntity,
+            NO_ITEM => ItemForm::None,
+            i => ItemForm::Item(item::Type::from_index(i)),
+        }
+    }
+
+    /// The block type, such as [`Kind::OakPlanks`].
+    ///
+    /// A custom block and a state the dump has no type for read as [`Kind::InfoUpdate`].
+    #[doc(alias = "Block::getTypeId")]
+    #[inline]
+    pub fn kind(self) -> Kind {
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generated tables have a kind index per state, and \
+                              each indexes the kind table"
+                )]
+                table::KINDS[usize::from(table::STATE_KIND[usize::from(i)])]
+            }
+            Repr::Custom(_) => Kind::InfoUpdate,
+        }
+    }
+
+    /// The light level the block gives off, 0 to 15.
+    #[doc(alias = "Block::getLightLevel")]
+    #[inline]
+    pub fn light_emission(self) -> u8 {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).light_emission,
+            Repr::Custom(c) => c.block.emission(),
+        }
+    }
+
+    /// How much the block reduces light passing through it, 0 to 15.
+    #[doc(alias = "Block::getLightFilter")]
+    #[inline]
+    pub fn light_filter(self) -> u8 {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).light_filter,
+            Repr::Custom(c) => c.block.filter(),
+        }
+    }
+
+    /// The block name, such as `minecraft:oak_stairs`, or a custom block's identifier.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated state rows index the name table"
+    )]
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            Repr::Vanilla(i) => table::NAMES[usize::from(Self::data(i).name)],
+            Repr::Custom(c) => c.block.identifier(),
+        }
     }
 
     /// Everything the neighbour rules read of a state as a neighbour.
@@ -530,6 +427,76 @@ impl State {
     /// air. Two states with the same view leave their neighbours' states the same.
     pub(crate) fn neighbour_view(self) -> u32 {
         (self.connect() & 0xffff) | (u32::from(self == AIR) << 16)
+    }
+
+    /// The network ID: the block state hash the client uses with `UseBlockNetworkIDHashes`.
+    #[inline]
+    pub fn network_id(self) -> u32 {
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).network_id,
+            Repr::Custom(c) => c.network_id,
+        }
+    }
+
+    /// The properties, sorted by name.
+    #[inline]
+    pub fn properties(self) -> impl ExactSizeIterator<Item = Property> + 'static {
+        match self.0 {
+            Repr::Vanilla(i) => {
+                let d = Self::data(i);
+                PropertyIter::Vanilla(property_rows(d.first_property, d.property_count))
+            }
+            Repr::Custom(c) => PropertyIter::Custom {
+                block: c.block,
+                index: c.index,
+                at: 0,
+            },
+        }
+    }
+
+    /// The state a vanilla block state from outside the server becomes.
+    ///
+    /// It is the state of the table with this name and exactly these properties
+    /// ([`State::find`]), else the state the dump reads it as. The dump ignores some vanilla
+    /// properties and has one value for them, so a pumpkin facing east is the pumpkin facing
+    /// south. `None` for a state the reference list does not have (the caller keeps it as an
+    /// unknown block). It never allocates.
+    pub(crate) fn read(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
+        Self::find(name, properties).or_else(|| {
+            let at = search(
+                &table::ALIASES,
+                |a| (a.name, a.first_property, a.property_count),
+                name,
+                properties,
+            )?;
+            table::ALIASES.get(at).map(|a| Self::from_index(a.state))
+        })
+    }
+
+    /// The support the face gives to blocks that need it.
+    #[doc(alias = "Block::getSupportType")]
+    #[inline]
+    pub fn support(self, face: Face) -> SupportType {
+        match (self.info().support >> (2 * face as u16)) & 0b11 {
+            0 => SupportType::Full,
+            1 => SupportType::Center,
+            2 => SupportType::Edge,
+            _ => SupportType::None,
+        }
+    }
+
+    /// The value of a property, or `None` if the state has no property of that name.
+    #[inline]
+    pub fn value(self, name: &str) -> Option<PropertyValue<'static>> {
+        let found = match self.0 {
+            // The table's rows directly, without the custom branch in every step.
+            Repr::Vanilla(i) => {
+                let d = Self::data(i);
+                properties_of(d.first_property, d.property_count).find(|p| p.name == name)
+            }
+            Repr::Custom(_) => self.properties().find(|p| p.name == name),
+        };
+        found.map(|p| p.value)
     }
 
     /// The variant `index` of this state (see [`State::connect`] for the order).
@@ -553,13 +520,37 @@ impl State {
         table::VARIANTS.get(at).copied().map(Self::from_index)
     }
 
-    /// The custom state this is, `None` for a state of the table.
-    #[inline]
-    fn to_custom(self) -> Option<Custom> {
-        match self.0 {
-            Repr::Vanilla(_) => None,
-            Repr::Custom(c) => Some(c),
+    /// The state with the property `name` set to `value` and the other properties kept.
+    ///
+    /// `None` if the state has no property `name` or no state has that value (a crop's `growth`
+    /// past its last stage). It never allocates.
+    pub fn with(self, name: &str, value: PropertyValue<'_>) -> Option<Self> {
+        let data = match self.0 {
+            Repr::Vanilla(i) => Self::data(i),
+            Repr::Custom(c) => {
+                let index = c.block.with_value(c.index, name, value)?;
+                return Self::custom(c.block, index, c.item_runtime_id);
+            }
+        };
+        let mut buffer = [("", PropertyValue::Byte(0)); table::MAX_PROPERTIES];
+        let mut found = false;
+        let mut count = 0;
+        for (slot, p) in buffer
+            .iter_mut()
+            .zip(properties_of(data.first_property, data.property_count))
+        {
+            *slot = if p.name == name {
+                found = true;
+                (p.name, value)
+            } else {
+                (p.name, p.value)
+            };
+            count += 1;
         }
+        if !found {
+            return None;
+        }
+        Self::find(self.name(), buffer.get(..count)?)
     }
 
     /// The index into the static tables, `None` for a custom state.
@@ -645,6 +636,15 @@ impl State {
                     .fold(0_u32, |bits, f| bits | u32::from(f.bit()));
                 (full << 4) | (NO_VARIANTS << 16)
             }
+        }
+    }
+
+    /// The custom state this is, `None` for a state of the table.
+    #[inline]
+    fn to_custom(self) -> Option<Custom> {
+        match self.0 {
+            Repr::Vanilla(_) => None,
+            Repr::Custom(c) => Some(c),
         }
     }
 }
@@ -746,10 +746,6 @@ pub struct Property {
 }
 
 impl Property {
-    const fn new(name: &'static str, value: PropertyValue<'static>) -> Self {
-        Self { name, value }
-    }
-
     /// The property name, such as `facing_direction`.
     pub fn name(&self) -> &'static str {
         self.name
@@ -759,6 +755,10 @@ impl Property {
     #[inline]
     pub fn value(&self) -> PropertyValue<'static> {
         self.value
+    }
+
+    const fn new(name: &'static str, value: PropertyValue<'static>) -> Self {
+        Self { name, value }
     }
 }
 
@@ -882,52 +882,10 @@ impl BreakInfo {
         }
     }
 
-    /// The base of the break time; negative for blocks that cannot be broken.
-    #[doc(alias = "BlockBreakInfo::getHardness")]
-    pub const fn hardness(self) -> f64 {
-        self.hardness
-    }
-
-    /// Whether a player can break the block in any way (its hardness is not negative).
-    #[doc(alias = "BlockBreakInfo::isBreakable")]
-    pub fn is_breakable(self) -> bool {
-        self.hardness >= 0.0
-    }
-
-    /// Whether the block breaks at once.
-    #[doc(alias = "BlockBreakInfo::breaksInstantly")]
-    pub fn breaks_instantly(self) -> bool {
-        self.hardness == 0.0
-    }
-
     /// The resistance to explosions (usually five times the hardness).
     #[doc(alias = "BlockBreakInfo::getBlastResistance")]
     pub const fn blast_resistance(self) -> f64 {
         self.blast_resistance
-    }
-
-    /// The tools that break the block faster.
-    #[doc(alias = "BlockBreakInfo::getToolType")]
-    pub const fn tool_type(self) -> ToolType {
-        self.tool_type
-    }
-
-    /// The harvest level a tool of the right type needs for the block to drop (0: none).
-    #[doc(alias = "BlockBreakInfo::getToolHarvestLevel")]
-    pub const fn harvest_level(self) -> u8 {
-        self.harvest_level
-    }
-
-    /// Whether `tool` (the empty stack is a hand) is the proper tool.
-    ///
-    /// Then the block drops what a compatible tool gets.
-    #[doc(alias = "BlockBreakInfo::isToolCompatible")]
-    pub fn is_tool_compatible(self, tool: &item::Stack) -> bool {
-        let item = tool.item();
-        self.accepts(
-            item.map_or(ToolType::NONE, item::Type::block_tool_type),
-            item.map_or(0, item::Type::block_tool_harvest_level),
-        )
     }
 
     /// The seconds the block takes to break with `tool` (the empty stack is a hand).
@@ -978,6 +936,48 @@ impl BreakInfo {
             efficiency *= 1.5;
         }
         (efficiency > 0.0).then(|| self.hardness * multiplier / efficiency)
+    }
+
+    /// Whether the block breaks at once.
+    #[doc(alias = "BlockBreakInfo::breaksInstantly")]
+    pub fn breaks_instantly(self) -> bool {
+        self.hardness == 0.0
+    }
+
+    /// The base of the break time; negative for blocks that cannot be broken.
+    #[doc(alias = "BlockBreakInfo::getHardness")]
+    pub const fn hardness(self) -> f64 {
+        self.hardness
+    }
+
+    /// The harvest level a tool of the right type needs for the block to drop (0: none).
+    #[doc(alias = "BlockBreakInfo::getToolHarvestLevel")]
+    pub const fn harvest_level(self) -> u8 {
+        self.harvest_level
+    }
+
+    /// Whether a player can break the block in any way (its hardness is not negative).
+    #[doc(alias = "BlockBreakInfo::isBreakable")]
+    pub fn is_breakable(self) -> bool {
+        self.hardness >= 0.0
+    }
+
+    /// Whether `tool` (the empty stack is a hand) is the proper tool.
+    ///
+    /// Then the block drops what a compatible tool gets.
+    #[doc(alias = "BlockBreakInfo::isToolCompatible")]
+    pub fn is_tool_compatible(self, tool: &item::Stack) -> bool {
+        let item = tool.item();
+        self.accepts(
+            item.map_or(ToolType::NONE, item::Type::block_tool_type),
+            item.map_or(0, item::Type::block_tool_harvest_level),
+        )
+    }
+
+    /// The tools that break the block faster.
+    #[doc(alias = "BlockBreakInfo::getToolType")]
+    pub const fn tool_type(self) -> ToolType {
+        self.tool_type
     }
 
     /// Whether a tool of these tool types and this harvest level is the proper tool.
@@ -1041,19 +1041,6 @@ pub enum Face {
 }
 
 impl Face {
-    /// Every face, in declaration order.
-    ///
-    /// With [`BlockPos::step`](crate::world::BlockPos::step), it gives a block's six neighbours.
-    #[doc(alias = "Block::getAllSides")]
-    pub const ALL: [Self; 6] = [
-        Self::Down,
-        Self::Up,
-        Self::North,
-        Self::South,
-        Self::West,
-        Self::East,
-    ];
-
     /// The four sideways faces, in the order north, south, west, east.
     ///
     /// With [`BlockPos::step`](crate::world::BlockPos::step), they give a block's neighbours on
@@ -1065,19 +1052,35 @@ impl Face {
     pub(crate) fn from_index(index: i32) -> Option<Self> {
         usize::try_from(index)
             .ok()
-            .and_then(|i| Self::ALL.get(i).copied())
+            .and_then(|i| Self::all().get(i).copied())
     }
 
-    /// The face on the other side.
-    #[must_use]
-    pub const fn opposite(self) -> Self {
+    /// Every face, in declaration order.
+    ///
+    /// With [`BlockPos::step`](crate::world::BlockPos::step), it gives a block's six neighbours.
+    #[doc(alias = "Block::getAllSides")]
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Down,
+            Self::Up,
+            Self::North,
+            Self::South,
+            Self::West,
+            Self::East,
+        ]
+    }
+
+    /// The face's number (down 0, up 1, north 2, south 3, west 4, east 5).
+    ///
+    /// Packets, particles and block entities carry it.
+    pub(crate) const fn index(self) -> u8 {
         match self {
-            Self::Down => Self::Up,
-            Self::Up => Self::Down,
-            Self::North => Self::South,
-            Self::South => Self::North,
-            Self::West => Self::East,
-            Self::East => Self::West,
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::North => 2,
+            Self::South => 3,
+            Self::West => 4,
+            Self::East => 5,
         }
     }
 
@@ -1093,17 +1096,16 @@ impl Face {
         }
     }
 
-    /// The face's number (down 0, up 1, north 2, south 3, west 4, east 5).
-    ///
-    /// Packets, particles and block entities carry it.
-    pub(crate) const fn index(self) -> u8 {
+    /// The face on the other side.
+    #[must_use]
+    pub const fn opposite(self) -> Self {
         match self {
-            Self::Down => 0,
-            Self::Up => 1,
-            Self::North => 2,
-            Self::South => 3,
-            Self::West => 4,
-            Self::East => 5,
+            Self::Down => Self::Up,
+            Self::Up => Self::Down,
+            Self::North => Self::South,
+            Self::South => Self::North,
+            Self::West => Self::East,
+            Self::East => Self::West,
         }
     }
 }
@@ -1145,16 +1147,6 @@ impl Facing {
         }
     }
 
-    /// The direction on the other side.
-    pub(crate) const fn opposite(self) -> Self {
-        match self {
-            Self::North => Self::South,
-            Self::East => Self::West,
-            Self::South => Self::North,
-            Self::West => Self::East,
-        }
-    }
-
     /// The direction a quarter turn clockwise seen from above.
     pub(crate) const fn clockwise(self) -> Self {
         match self {
@@ -1182,6 +1174,16 @@ impl Facing {
             Self::East => (1, 0),
             Self::South => (0, 1),
             Self::West => (-1, 0),
+        }
+    }
+
+    /// The direction on the other side.
+    pub(crate) const fn opposite(self) -> Self {
+        match self {
+            Self::North => Self::South,
+            Self::East => Self::West,
+            Self::South => Self::North,
+            Self::West => Self::East,
         }
     }
 }
@@ -1219,7 +1221,7 @@ pub(crate) struct Info {
     tags: u16,
     /// A [`SupportType`] code (full 0, center 1, edge 2, none 3) per face.
     ///
-    /// Two bits each, in [`Face::ALL`] order from the low bits.
+    /// Two bits each, in [`Face::all`] order from the low bits.
     support: u16,
     /// The first of the state's boxes in [`table::BOXES`].
     box_start: u16,
@@ -1227,24 +1229,9 @@ pub(crate) struct Info {
 }
 
 impl Info {
-    const fn new(
-        breaking: BreakInfo,
-        flags: u16,
-        friction: f64,
-        tags: u16,
-        support: u16,
-        box_start: u16,
-        box_count: u8,
-    ) -> Self {
-        Self {
-            breaking,
-            flags,
-            friction,
-            tags,
-            support,
-            box_start,
-            box_count,
-        }
+    /// The break info.
+    pub(crate) const fn breaking(&self) -> BreakInfo {
+        self.breaking
     }
 
     /// The row of a custom block, with `support` in the [`Info::support`] coding.
@@ -1258,6 +1245,16 @@ impl Info {
         support: u16,
     ) -> Self {
         Self::new(breaking, flags, friction, 0, support, 0, 0)
+    }
+
+    /// The friction factor.
+    pub(crate) const fn friction(&self) -> f64 {
+        self.friction
+    }
+
+    /// Whether the flag `bit` is set.
+    pub(crate) const fn has_flag(&self, bit: u16) -> bool {
+        self.flags & bit != 0
     }
 
     /// The same row with `breaking`.
@@ -1288,19 +1285,24 @@ impl Info {
         self
     }
 
-    /// The break info.
-    pub(crate) const fn breaking(&self) -> BreakInfo {
-        self.breaking
-    }
-
-    /// Whether the flag `bit` is set.
-    pub(crate) const fn has_flag(&self, bit: u16) -> bool {
-        self.flags & bit != 0
-    }
-
-    /// The friction factor.
-    pub(crate) const fn friction(&self) -> f64 {
-        self.friction
+    const fn new(
+        breaking: BreakInfo,
+        flags: u16,
+        friction: f64,
+        tags: u16,
+        support: u16,
+        box_start: u16,
+        box_count: u8,
+    ) -> Self {
+        Self {
+            breaking,
+            flags,
+            friction,
+            tags,
+            support,
+            box_start,
+            box_count,
+        }
     }
 }
 
@@ -1393,22 +1395,14 @@ impl Kind {
         &table::KINDS
     }
 
-    /// The kind's name, lowercase, such as `oak_planks`.
+    /// The class.
     #[expect(
         clippy::indexing_slicing,
-        reason = "invariant: the generated name table has a row per kind"
+        reason = "invariant: a class chain holds at least the kind's own class"
     )]
-    pub fn name(self) -> &'static str {
-        table::KIND_NAMES[self as usize]
-    }
-
-    /// The default state of the kind.
-    ///
-    /// A kind whose states share Bedrock states with another kind's (an ominous banner, a potion
-    /// cauldron) gives a state of that other kind.
-    #[doc(alias = "VanillaBlocks")]
-    pub fn default_state(self) -> State {
-        self.data().default
+    #[inline]
+    pub fn class(self) -> Class {
+        self.classes()[0]
     }
 
     /// The class and its parents, leaf first, ending with [`Class::Block`].
@@ -1423,20 +1417,28 @@ impl Kind {
         &table::CLASS_CHAINS[start..start + usize::from(data.class_count)]
     }
 
-    /// The class.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: a class chain holds at least the kind's own class"
-    )]
-    #[inline]
-    pub fn class(self) -> Class {
-        self.classes()[0]
+    /// The default state of the kind.
+    ///
+    /// A kind whose states share Bedrock states with another kind's (an ominous banner, a potion
+    /// cauldron) gives a state of that other kind.
+    #[doc(alias = "VanillaBlocks")]
+    pub fn default_state(self) -> State {
+        self.data().default
     }
 
     /// Whether the kind's class has the trait or interface.
     #[inline]
     pub fn has_trait(self, t: Trait) -> bool {
         self.data().traits & (1 << t as u64) != 0
+    }
+
+    /// The kind's name, lowercase, such as `oak_planks`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "invariant: the generated name table has a row per kind"
+    )]
+    pub fn name(self) -> &'static str {
+        table::KIND_NAMES[self as usize]
     }
 
     #[inline]
@@ -1483,11 +1485,6 @@ impl TypeTag {
 }
 
 impl BannerPattern {
-    /// Every pattern, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::BANNER_PATTERNS
-    }
-
     /// The pattern with this ID, or `None`.
     #[doc(alias = "BannerPatternTypeIdMap::fromId")]
     pub fn from_id(id: &str) -> Option<Self> {
@@ -1495,6 +1492,11 @@ impl BannerPattern {
             .binary_search_by(|(p, _)| (*p).cmp(id))
             .ok()?;
         table::BANNER_PATTERNS_BY_ID.get(at).map(|(_, p)| *p)
+    }
+
+    /// Every pattern, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::BANNER_PATTERNS
     }
 
     /// The ID saves and the network use, such as `bo` for the border.
@@ -1680,7 +1682,7 @@ mod tests {
 
     #[test]
     fn face_numbers_follow_the_face_order_and_read_back() {
-        for (i, face) in Face::ALL.into_iter().enumerate() {
+        for (i, &face) in Face::all().iter().enumerate() {
             assert_eq!(usize::from(face.index()), i);
             assert_eq!(Face::from_index(i32::from(face.index())), Some(face));
         }
@@ -1885,7 +1887,7 @@ mod tests {
     fn support_and_boxes_follow_the_state() {
         let stone = state("minecraft:stone", &[]);
         assert!(
-            Face::ALL
+            Face::all()
                 .iter()
                 .all(|f| stone.support(*f) == SupportType::Full)
         );
@@ -1894,7 +1896,7 @@ mod tests {
         assert_eq!((full.min.y, full.max.y), (0.0, 1.0));
         assert!(AIR.collision_boxes().is_empty());
         assert!(
-            Face::ALL
+            Face::all()
                 .iter()
                 .all(|f| AIR.support(*f) == SupportType::None)
         );
@@ -1925,7 +1927,7 @@ mod tests {
         // A cauldron's rim gives edge support.
         assert_eq!(of(Kind::Cauldron).support(Face::Up), SupportType::Edge);
         assert!(SupportType::Edge.has_edge_support() && !SupportType::Edge.has_center_support());
-        for f in Face::ALL {
+        for &f in Face::all() {
             assert_eq!(f.opposite().opposite(), f);
             let (x, y, z) = f.offset();
             let (ox, oy, oz) = f.opposite().offset();
@@ -1937,7 +1939,7 @@ mod tests {
     #[test]
     fn sides_step_to_the_six_and_the_four_neighbours() {
         let at = crate::world::BlockPos::new(5, 64, -3);
-        let all = Face::ALL.map(|f| at.step(f));
+        let all: Vec<_> = Face::all().iter().map(|&f| at.step(f)).collect();
         assert_eq!(all.iter().flatten().count(), 6);
         assert_eq!(all[0], Some(crate::world::BlockPos::new(5, 63, -3)));
         let level = Face::HORIZONTAL.map(|f| at.step(f).map(|p| (p.x, p.y, p.z)));
@@ -2267,7 +2269,7 @@ mod tests {
         assert_eq!(carpet.light_filter(), 0);
         assert_eq!(carpet.collision_boxes()[0].max.y, 0.0625);
         for (s, support) in [(moss, SupportType::Full), (carpet, SupportType::None)] {
-            for face in Face::ALL {
+            for &face in Face::all() {
                 assert_eq!(s.support(face), support, "{s:?} {face:?}");
             }
         }

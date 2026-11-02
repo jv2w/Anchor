@@ -675,14 +675,14 @@ fn a_trade_sends_the_villagers_viewers_the_keys_it_changed() {
             })
             .collect()
     };
-    let mut recipe = crate::tick::trade::Recipe::new(
+    let mut offer = crate::tick::trade::StoredOffer::new(
         stack("minecraft:emerald", 2),
         Stack::EMPTY,
         stack("minecraft:apple", 4),
         16,
     );
-    recipe.trader_exp = 5;
-    offers_mut(&mut h, v).set(vec![recipe]).unwrap();
+    offer.trader_xp = 5;
+    offers_mut(&mut h, v).set(vec![offer]).unwrap();
     crate::tick::entity::villager_traded(&mut h.state, v, (0, 0));
     assert!(data(&mut h).is_empty(), "nothing changed, nothing sent");
     offers_mut(&mut h, v).apply(0, 1).unwrap();

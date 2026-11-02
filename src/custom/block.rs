@@ -131,11 +131,220 @@ impl Block {
         }
     }
 
+    /// Its behaviour.
+    pub(crate) fn behaviour_hooks(&self) -> Option<&'static dyn Behaviour> {
+        self.behaviour
+    }
+
+    /// Why the definition cannot be registered, if it cannot.
+    pub(crate) fn check(&self) -> Option<&'static str> {
+        if self.properties.len() > Self::MAX_PROPERTIES {
+            return Some("more than 16 properties");
+        }
+        if let Some(reason) = self.properties.iter().find_map(Property::check) {
+            return Some(reason);
+        }
+        if self.properties.windows(2).any(|w| match w {
+            [a, b] => a.name >= b.name,
+            _ => false,
+        }) {
+            return Some("the properties are not in name order or a name is given twice");
+        }
+        if self.state_count() > Self::MAX_STATES {
+            return Some("more than 4,096 states");
+        }
+        let materials = self.material_list();
+        if materials.is_empty()
+            || materials
+                .iter()
+                .any(|m| m.texture.is_empty() || m.texture.len() > Self::MAX_RESOURCE_NAME_BYTES)
+        {
+            return Some("no material, or a texture name that is empty or too long");
+        }
+        if !materials.iter().any(|m| m.target == "*") {
+            return Some("no material for every face (`Material::new`)");
+        }
+        if materials.iter().enumerate().any(|(i, m)| {
+            materials
+                .get(..i)
+                .is_some_and(|before| before.iter().any(|b| b.target == m.target))
+        }) {
+            return Some("a face has two materials");
+        }
+        if let Geometry::Model(g) = self.geometry
+            && (g.is_empty() || g.len() > Self::MAX_RESOURCE_NAME_BYTES)
+        {
+            return Some("the geometry name is empty or too long");
+        }
+        let in_cell = |b: Option<Aabb>| {
+            b.is_none_or(|b| {
+                [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
+                    .iter()
+                    .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
+                    && b.min.x <= b.max.x
+                    && b.min.y <= b.max.y
+                    && b.min.z <= b.max.z
+            })
+        };
+        if !in_cell(self.collision) || !in_cell(self.selection) {
+            return Some("a box is not inside the block's cell");
+        }
+        if self.light_emission > Self::MAX_LIGHT_LEVEL
+            || self.light_filter.is_some_and(|l| l > Self::MAX_LIGHT_LEVEL)
+        {
+            return Some("a light level above 15");
+        }
+        let b = self.info.breaking();
+        let hardness_ok = b.hardness() == -1.0 || (b.hardness().is_finite() && b.hardness() >= 0.0);
+        if !hardness_ok || !b.blast_resistance().is_finite() || b.blast_resistance() < 0.0 {
+            return Some("a hardness or blast resistance that is negative or not finite");
+        }
+        let friction = self.info.friction();
+        if !(Self::MIN_FRICTION..=Self::MAX_FRICTION).contains(&friction) {
+            return Some("a friction outside 0.1 to 1");
+        }
+        if b.harvest_level() > Self::MAX_HARVEST_LEVEL {
+            return Some("a harvest level above 6 (netherite)");
+        }
+        // The count of a drop within its item's stack size is checked once the items are numbered.
+        if let Drops::Items(items) = self.drops
+            && (items.len() > Self::MAX_DROPS || items.iter().any(|(_, count)| *count == 0))
+        {
+            return Some("more than 64 drops, or a drop count of 0");
+        }
+        None
+    }
+
+    /// The collision boxes: none or one.
+    pub(crate) fn collision_boxes(&'static self) -> &'static [Aabb] {
+        self.collision.as_slice()
+    }
+
+    /// Where its item shows in the creative inventory.
+    pub(crate) fn creative_place(&self) -> Option<Creative> {
+        self.creative
+    }
+
+    /// What breaking it drops.
+    pub(crate) fn dropped(&self) -> Drops {
+        self.drops
+    }
+
+    /// The light given off.
+    pub(crate) fn emission(&self) -> u8 {
+        self.light_emission
+    }
+
+    /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
+    /// the property list. `block_id` is the block's ID among the custom blocks' IDs.
+    pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
+        let (category, group) = match self.creative {
+            Some(c) => (c.category.name(), c.group.unwrap_or_default()),
+            None => ("none", ""),
+        };
+        let mut out = Compound::from([
+            (
+                "components".to_owned(),
+                Value::Compound(self.to_components()),
+            ),
+            (
+                "menu_category".to_owned(),
+                Value::Compound(Compound::from([
+                    ("category".to_owned(), Value::String(category.to_owned())),
+                    ("group".to_owned(), Value::String(group.to_owned())),
+                ])),
+            ),
+            ("molangVersion".to_owned(), Value::Int(MOLANG_VERSION)),
+            (
+                "vanilla_block_data".to_owned(),
+                Value::Compound(Compound::from([(
+                    "block_id".to_owned(),
+                    Value::Int(block_id),
+                )])),
+            ),
+        ]);
+        if !self.properties.is_empty() {
+            let list = self.properties.iter().map(Property::nbt).collect();
+            out.insert("properties".to_owned(), Value::List(List::Compound(list)));
+        }
+        out
+    }
+
+    /// The light filter.
+    pub(crate) fn filter(&self) -> u8 {
+        match self.light_filter {
+            Some(level) => level,
+            None if self.info.has_flag(block::flag::TRANSPARENT) => 0,
+            None => Self::MAX_LIGHT_LEVEL,
+        }
+    }
+
+    /// Whether it takes random ticks.
+    pub(crate) fn has_random_ticks(&self) -> bool {
+        self.random_ticks
+    }
+
+    /// The identifier, such as `example:lamp`.
+    pub const fn identifier(&self) -> &'static str {
+        self.identifier
+    }
+
+    /// The state whose properties are exactly `states`, a disk palette entry's `states` (in name
+    /// order, as the properties are); `None` for a missing, extra or repeated property, an
+    /// unknown value or a value of another type.
+    pub(crate) fn index_of(&self, states: &Compound) -> Option<u16> {
+        if states.len() != self.properties.len() {
+            return None;
+        }
+        let mut index = 0_u32;
+        let mut scale = 1_u32;
+        for (p, (name, value)) in self.properties.iter().zip(states) {
+            if p.name != name.as_str() {
+                return None;
+            }
+            let value = match value {
+                Value::Byte(v) => PropertyValue::Byte(*v),
+                Value::Int(v) => PropertyValue::Int(*v),
+                Value::String(v) => PropertyValue::String(v),
+                _ => return None,
+            };
+            index = index.checked_add(p.position(value)?.checked_mul(scale)?)?;
+            scale = scale.checked_mul(p.count())?;
+        }
+        u16::try_from(index).ok()
+    }
+
+    /// The physics row the rules read.
+    pub(crate) fn info(&'static self) -> &'static block::Info {
+        &self.info
+    }
+
     /// The same block that entities can stand inside, such as a plant.
     #[must_use]
     pub const fn non_solid(mut self) -> Self {
         self.info = self.info.with_flag(block::flag::SOLID, false);
         self
+    }
+
+    /// How many properties the block has.
+    pub(crate) fn property_count(&self) -> usize {
+        self.properties.len()
+    }
+
+    /// The name of property `at`.
+    pub(crate) fn property_name(&self, at: usize) -> Option<&'static str> {
+        self.properties.get(at).map(|p| p.name)
+    }
+
+    /// The value of property `at` in the state `index` (properties in definition order, the
+    /// first changing fastest).
+    pub(crate) fn property_value(&self, index: u16, at: usize) -> Option<PropertyValue<'static>> {
+        let mut rest = u32::from(index);
+        for p in self.properties.get(..at)? {
+            rest /= p.count().max(1);
+        }
+        let p = self.properties.get(at)?;
+        p.value(rest % p.count().max(1))
     }
 
     /// The same block taking random ticks, which call its behaviour's
@@ -145,6 +354,14 @@ impl Block {
     pub const fn random_ticks(mut self) -> Self {
         self.random_ticks = true;
         self
+    }
+
+    /// How many states the block has: the product of its properties' value counts.
+    pub(crate) fn state_count(&self) -> u32 {
+        self.properties
+            .iter()
+            .try_fold(1_u32, |n, p| n.checked_mul(p.count()))
+            .unwrap_or(u32::MAX)
     }
 
     /// The same block letting light through and not hiding the faces next to it.
@@ -310,188 +527,6 @@ impl Block {
         self
     }
 
-    /// Its behaviour.
-    pub(crate) fn behaviour_hooks(&self) -> Option<&'static dyn Behaviour> {
-        self.behaviour
-    }
-
-    /// Why the definition cannot be registered, if it cannot.
-    pub(crate) fn check(&self) -> Option<&'static str> {
-        if self.properties.len() > Self::MAX_PROPERTIES {
-            return Some("more than 16 properties");
-        }
-        if let Some(reason) = self.properties.iter().find_map(Property::check) {
-            return Some(reason);
-        }
-        if self.properties.windows(2).any(|w| match w {
-            [a, b] => a.name >= b.name,
-            _ => false,
-        }) {
-            return Some("the properties are not in name order or a name is given twice");
-        }
-        if self.state_count() > Self::MAX_STATES {
-            return Some("more than 4,096 states");
-        }
-        let materials = self.material_list();
-        if materials.is_empty()
-            || materials
-                .iter()
-                .any(|m| m.texture.is_empty() || m.texture.len() > Self::MAX_RESOURCE_NAME_BYTES)
-        {
-            return Some("no material, or a texture name that is empty or too long");
-        }
-        if !materials.iter().any(|m| m.target == "*") {
-            return Some("no material for every face (`Material::new`)");
-        }
-        if materials.iter().enumerate().any(|(i, m)| {
-            materials
-                .get(..i)
-                .is_some_and(|before| before.iter().any(|b| b.target == m.target))
-        }) {
-            return Some("a face has two materials");
-        }
-        if let Geometry::Model(g) = self.geometry
-            && (g.is_empty() || g.len() > Self::MAX_RESOURCE_NAME_BYTES)
-        {
-            return Some("the geometry name is empty or too long");
-        }
-        let in_cell = |b: Option<Aabb>| {
-            b.is_none_or(|b| {
-                [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
-                    .iter()
-                    .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
-                    && b.min.x <= b.max.x
-                    && b.min.y <= b.max.y
-                    && b.min.z <= b.max.z
-            })
-        };
-        if !in_cell(self.collision) || !in_cell(self.selection) {
-            return Some("a box is not inside the block's cell");
-        }
-        if self.light_emission > Self::MAX_LIGHT_LEVEL
-            || self.light_filter.is_some_and(|l| l > Self::MAX_LIGHT_LEVEL)
-        {
-            return Some("a light level above 15");
-        }
-        let b = self.info.breaking();
-        let hardness_ok = b.hardness() == -1.0 || (b.hardness().is_finite() && b.hardness() >= 0.0);
-        if !hardness_ok || !b.blast_resistance().is_finite() || b.blast_resistance() < 0.0 {
-            return Some("a hardness or blast resistance that is negative or not finite");
-        }
-        let friction = self.info.friction();
-        if !(Self::MIN_FRICTION..=Self::MAX_FRICTION).contains(&friction) {
-            return Some("a friction outside 0.1 to 1");
-        }
-        if b.harvest_level() > Self::MAX_HARVEST_LEVEL {
-            return Some("a harvest level above 6 (netherite)");
-        }
-        // The count of a drop within its item's stack size is checked once the items are numbered.
-        if let Drops::Items(items) = self.drops
-            && (items.len() > Self::MAX_DROPS || items.iter().any(|(_, count)| *count == 0))
-        {
-            return Some("more than 64 drops, or a drop count of 0");
-        }
-        None
-    }
-
-    /// The collision boxes: none or one.
-    pub(crate) fn collision_boxes(&'static self) -> &'static [Aabb] {
-        self.collision.as_slice()
-    }
-
-    /// Where its item shows in the creative inventory.
-    pub(crate) fn creative_place(&self) -> Option<Creative> {
-        self.creative
-    }
-
-    /// What breaking it drops.
-    pub(crate) fn dropped(&self) -> Drops {
-        self.drops
-    }
-
-    /// The light given off.
-    pub(crate) fn emission(&self) -> u8 {
-        self.light_emission
-    }
-
-    /// The light filter.
-    pub(crate) fn filter(&self) -> u8 {
-        match self.light_filter {
-            Some(level) => level,
-            None if self.info.has_flag(block::flag::TRANSPARENT) => 0,
-            None => Self::MAX_LIGHT_LEVEL,
-        }
-    }
-
-    /// Whether it takes random ticks.
-    pub(crate) fn has_random_ticks(&self) -> bool {
-        self.random_ticks
-    }
-
-    /// The identifier, such as `example:lamp`.
-    pub const fn identifier(&self) -> &'static str {
-        self.identifier
-    }
-
-    /// The state whose properties are exactly `states`, a disk palette entry's `states` (in name
-    /// order, as the properties are); `None` for a missing, extra or repeated property, an
-    /// unknown value or a value of another type.
-    pub(crate) fn index_of(&self, states: &Compound) -> Option<u16> {
-        if states.len() != self.properties.len() {
-            return None;
-        }
-        let mut index = 0_u32;
-        let mut scale = 1_u32;
-        for (p, (name, value)) in self.properties.iter().zip(states) {
-            if p.name != name.as_str() {
-                return None;
-            }
-            let value = match value {
-                Value::Byte(v) => PropertyValue::Byte(*v),
-                Value::Int(v) => PropertyValue::Int(*v),
-                Value::String(v) => PropertyValue::String(v),
-                _ => return None,
-            };
-            index = index.checked_add(p.position(value)?.checked_mul(scale)?)?;
-            scale = scale.checked_mul(p.count())?;
-        }
-        u16::try_from(index).ok()
-    }
-
-    /// The physics row the rules read.
-    pub(crate) fn info(&'static self) -> &'static block::Info {
-        &self.info
-    }
-
-    /// How many properties the block has.
-    pub(crate) fn property_count(&self) -> usize {
-        self.properties.len()
-    }
-
-    /// The name of property `at`.
-    pub(crate) fn property_name(&self, at: usize) -> Option<&'static str> {
-        self.properties.get(at).map(|p| p.name)
-    }
-
-    /// The value of property `at` in the state `index` (properties in definition order, the
-    /// first changing fastest).
-    pub(crate) fn property_value(&self, index: u16, at: usize) -> Option<PropertyValue<'static>> {
-        let mut rest = u32::from(index);
-        for p in self.properties.get(..at)? {
-            rest /= p.count().max(1);
-        }
-        let p = self.properties.get(at)?;
-        p.value(rest % p.count().max(1))
-    }
-
-    /// How many states the block has: the product of its properties' value counts.
-    pub(crate) fn state_count(&self) -> u32 {
-        self.properties
-            .iter()
-            .try_fold(1_u32, |n, p| n.checked_mul(p.count()))
-            .unwrap_or(u32::MAX)
-    }
-
     /// The state `index` with property `name` set to `value`.
     pub(crate) fn with_value(
         &self,
@@ -511,41 +546,6 @@ impl Block {
             scale = scale.checked_mul(count)?;
         }
         None
-    }
-
-    /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
-    /// the property list. `block_id` is the block's ID among the custom blocks' IDs.
-    pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
-        let (category, group) = match self.creative {
-            Some(c) => (c.category.name(), c.group.unwrap_or_default()),
-            None => ("none", ""),
-        };
-        let mut out = Compound::from([
-            (
-                "components".to_owned(),
-                Value::Compound(self.to_components()),
-            ),
-            (
-                "menu_category".to_owned(),
-                Value::Compound(Compound::from([
-                    ("category".to_owned(), Value::String(category.to_owned())),
-                    ("group".to_owned(), Value::String(group.to_owned())),
-                ])),
-            ),
-            ("molangVersion".to_owned(), Value::Int(MOLANG_VERSION)),
-            (
-                "vanilla_block_data".to_owned(),
-                Value::Compound(Compound::from([(
-                    "block_id".to_owned(),
-                    Value::Int(block_id),
-                )])),
-            ),
-        ]);
-        if !self.properties.is_empty() {
-            let list = self.properties.iter().map(Property::nbt).collect();
-            out.insert("properties".to_owned(), Value::List(List::Compound(list)));
-        }
-        out
     }
 
     /// The materials it is drawn with.
@@ -891,6 +891,7 @@ impl Material {
 
 /// How a material is drawn (Bedrock `render_method`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RenderMethod {
     /// Fully opaque textures.
     Opaque,

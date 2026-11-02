@@ -624,7 +624,7 @@ fn a_listener_selecting_another_hotbar_slot_keeps_its_selection() {
     let (mut w, s) = world_with(
         on(|e: &mut PlayerItemHeld, cx: &mut Context<'_>| {
             if e.slot() == 3 {
-                cx.player_mut(e.player()).unwrap().set_held_slot(0);
+                cx.player_mut(e.player()).unwrap().set_held_slot(0).unwrap();
             }
         }),
         &[],

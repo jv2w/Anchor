@@ -776,7 +776,7 @@ pub(super) fn damage_quiet(
 }
 
 /// Deals `amount` damage (half hearts) for `cause` from `source` (an entity, a projectile and its
-/// owner, a block, or none) after armour, effects and invulnerability, raising
+/// owner, a block, or none) after armor, effects and invulnerability, raising
 /// [`EntityDamage`](crate::event::EntityDamage), which names the source; a player in `source` is
 /// the attacker (its Strength, knockback, thorns). `None` if no damage was taken, otherwise the
 /// knockback force and vertical limit the listeners left.
@@ -1645,20 +1645,20 @@ mod tests {
     }
 
     #[test]
-    fn armour_resistance_and_protection_reduce_damage() {
+    fn armor_resistance_and_protection_reduce_damage() {
         let mut server = Server::new(1, |_| {});
         let chest = stack(ItemKind::DiamondChestplate, 1);
-        let points = f64::from(chest.item().unwrap().defense_points());
+        let points = f64::from(chest.item().unwrap().armor_points());
         inventory::set_armor(server.player_mut(1), 1, chest);
         assert!(server.hurt(1, 10.0, Damage::Contact));
         let want = 20.0 - 10.0 * (1.0 - points * 0.04);
         assert!((server.survival_mut(1).health - want).abs() < 1e-9);
-        // Not reducible by armour: the whole hit lands.
+        // Not reducible by armor: the whole hit lands.
         server.idle(10);
         server.survival_mut(1).health = 20.0;
         assert!(server.hurt(1, 4.0, Damage::Fall));
         assert_eq!(server.survival_mut(1).health, 16.0);
-        // Resistance II takes 40 % of what armour left.
+        // Resistance II takes 40 % of what armor left.
         server.idle(10);
         server.survival_mut(1).health = 20.0;
         effects::add(
@@ -1843,7 +1843,7 @@ mod tests {
     #[test]
     fn a_player_that_may_fly_takes_no_fall_damage() {
         let mut server = Server::new(1, |_| {});
-        server.player_mut(1).set_allow_flight(true);
+        server.player_mut(1).set_can_fly(true);
         assert!(!server.hurt(1, 4.0, Damage::Fall));
         assert!(server.hurt(1, 4.0, Damage::Contact));
     }
@@ -1990,10 +1990,10 @@ mod tests {
         assert!(!server.take(1).iter().any(shown));
     }
 
-    /// `durability = false`: a hit wears neither the weapon nor the armour, which still
+    /// `durability = false`: a hit wears neither the weapon nor the armor, which still
     /// protects; with it both wear.
     #[test]
-    fn durability_off_wears_neither_weapons_nor_armour() {
+    fn durability_off_wears_neither_weapons_nor_armor() {
         for durability in [true, false] {
             let mut server = duel(|c| c.general.durability = durability);
             inventory::set_held(server.player_mut(1), stack(ItemKind::DiamondSword, 1));
@@ -2005,7 +2005,7 @@ mod tests {
             attack_player(&mut server.state, sid(1), sid(2));
             assert!(
                 server.survival_mut(2).health > 20.0 - 8.0,
-                "the armour protects"
+                "the armor protects"
             );
             let worn = (
                 server.player(1).inventory.held().damage(),
@@ -2741,13 +2741,13 @@ mod tests {
             c.general.hardcore = true;
             c.general.difficulty = Difficulty::Hard;
         });
-        server.player_mut(1).set_allow_flight(false);
+        server.player_mut(1).set_can_fly(false);
         server.player_mut(1).set_block_collision(true);
         server.hurt(1, 100.0, Damage::Magic);
         damage::respawn(&mut server.state, sid(1));
         let player = server.player(1);
         assert_eq!(game_mode(&server.state, player), GameMode::Spectator);
-        assert!(player.allow_flight());
+        assert!(player.can_fly());
         assert!(player.is_flying());
         assert!(!player.has_block_collision());
     }
@@ -3290,7 +3290,7 @@ mod tests {
         server.idle(1);
         let sent = server.take(1);
         assert!(level_events(&sent).contains(&i32::from(LevelEvent::SoundExperienceOrbPickup)));
-        // Worn armour mends too; a level that crosses a multiple of 5 plays the level-up sound.
+        // Worn armor mends too; a level that crosses a multiple of 5 plays the level-up sound.
         let helmet = enchanted(ItemKind::DiamondHelmet, &[(Enchantment::Mending, 1)])
             .with_damage(1)
             .unwrap();

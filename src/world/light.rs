@@ -130,72 +130,6 @@ impl Engine {
         }
     }
 
-    /// How light is worked out (setting `lighting`).
-    pub(crate) fn mode(&self) -> Mode {
-        self.mode
-    }
-
-    /// Whether light is worked out at all: not [`Mode::Fixed`].
-    pub(crate) fn is_calculating(&self) -> bool {
-        !matches!(self.mode, Mode::Fixed(_))
-    }
-
-    /// The light of `channel` at `pos`, or `None` where there is none.
-    ///
-    /// There is none if the chunk is not loaded or not lit yet, or `pos` is outside the world
-    /// height. With [`Mode::Fixed`], block light is 0 and sky light the fixed level.
-    pub(crate) fn light(&self, chunks: &Chunks, pos: BlockPos, channel: Channel) -> Option<u8> {
-        let (block, sky) = self.lights(chunks, pos)?;
-        Some(match channel {
-            Channel::Block => block,
-            Channel::Sky => sky,
-        })
-    }
-
-    /// The block light and the sky light at `pos`, from one lookup of the chunk, or `None` where
-    /// [`Self::light`] has none.
-    pub(crate) fn lights(&self, chunks: &Chunks, pos: BlockPos) -> Option<(u8, u8)> {
-        let spot = Spot::of(pos)?;
-        let chunk = chunks.get(spot.chunk)?;
-        if let Mode::Fixed(level) = self.mode {
-            return Some((0, level));
-        }
-        let light = chunk.light()?;
-        Some((
-            light.get(Channel::Block, spot.sub, spot.at),
-            light.get(Channel::Sky, spot.sub, spot.at),
-        ))
-    }
-
-    /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
-    pub(crate) fn is_lit(&self, chunks: &Chunks, pos: ChunkPos) -> bool {
-        chunks
-            .get(pos)
-            .is_some_and(|chunk| !self.is_calculating() || chunk.light().is_some())
-    }
-
-    /// The bytes its queued work holds, about.
-    ///
-    /// These are a node for each queued block, the light of each retired chunk and the working
-    /// memory of each chunk being lit.
-    pub(crate) fn heap_bytes(&self) -> usize {
-        let nodes = self.changes.len() + self.recalc.len() + self.removal.len() + self.spread.len();
-        let retired: usize = self
-            .retired
-            .iter()
-            .map(|retired| retired.light.heap_bytes())
-            .sum();
-        let populations = self
-            .tasks
-            .values()
-            .filter(|task| matches!(task, Task::Populate(..)))
-            .count();
-        nodes
-            .saturating_mul(size_of::<Node>())
-            .saturating_add(retired)
-            .saturating_add(populations.saturating_mul(Population::WORK_BYTES))
-    }
-
     /// Hashes the work waiting: the queues in order, the overflowed chunks and the chunk tasks.
     #[cfg(test)]
     pub(crate) fn hash_into(&self, h: &mut Digest) {
@@ -262,6 +196,40 @@ impl Engine {
         h.word(*next_task);
     }
 
+    /// The bytes its queued work holds, about.
+    ///
+    /// These are a node for each queued block, the light of each retired chunk and the working
+    /// memory of each chunk being lit.
+    pub(crate) fn heap_bytes(&self) -> usize {
+        let nodes = self.changes.len() + self.recalc.len() + self.removal.len() + self.spread.len();
+        let retired: usize = self
+            .retired
+            .iter()
+            .map(|retired| retired.light.heap_bytes())
+            .sum();
+        let populations = self
+            .tasks
+            .values()
+            .filter(|task| matches!(task, Task::Populate(..)))
+            .count();
+        nodes
+            .saturating_mul(size_of::<Node>())
+            .saturating_add(retired)
+            .saturating_add(populations.saturating_mul(Population::WORK_BYTES))
+    }
+
+    /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
+    pub(crate) fn is_lit(&self, chunks: &Chunks, pos: ChunkPos) -> bool {
+        chunks
+            .get(pos)
+            .is_some_and(|chunk| !self.is_calculating() || chunk.light().is_some())
+    }
+
+    /// Whether light is worked out at all: not [`Mode::Fixed`].
+    pub(crate) fn is_calculating(&self) -> bool {
+        !matches!(self.mode, Mode::Fixed(_))
+    }
+
     /// Whether no light work is waiting.
     #[cfg(test)]
     pub(crate) fn is_idle(&self) -> bool {
@@ -273,6 +241,64 @@ impl Engine {
             && self.overflowed.is_empty()
             && self.tasks.is_empty()
             && self.index.is_empty()
+    }
+
+    /// The light of `channel` at `pos`, or `None` where there is none.
+    ///
+    /// There is none if the chunk is not loaded or not lit yet, or `pos` is outside the world
+    /// height. With [`Mode::Fixed`], block light is 0 and sky light the fixed level.
+    pub(crate) fn light(&self, chunks: &Chunks, pos: BlockPos, channel: Channel) -> Option<u8> {
+        let (block, sky) = self.lights(chunks, pos)?;
+        Some(match channel {
+            Channel::Block => block,
+            Channel::Sky => sky,
+        })
+    }
+
+    /// The block light and the sky light at `pos`, from one lookup of the chunk, or `None` where
+    /// [`Self::light`] has none.
+    pub(crate) fn lights(&self, chunks: &Chunks, pos: BlockPos) -> Option<(u8, u8)> {
+        let spot = Spot::of(pos)?;
+        let chunk = chunks.get(spot.chunk)?;
+        if let Mode::Fixed(level) = self.mode {
+            return Some((0, level));
+        }
+        let light = chunk.light()?;
+        Some((
+            light.get(Channel::Block, spot.sub, spot.at),
+            light.get(Channel::Sky, spot.sub, spot.at),
+        ))
+    }
+
+    /// How light is worked out (setting `lighting`).
+    pub(crate) fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// Follows a block change in a loaded chunk.
+    ///
+    /// The block at `pos` of `chunk` changed from `old` to `new`. Only [`Mode::Dynamic`] follows
+    /// block changes.
+    pub(crate) fn changed(&mut self, chunk: &Chunk, pos: BlockPos, old: Entry, new: Entry) {
+        if self.mode != Mode::Dynamic || old.derive() == new.derive() {
+            return;
+        }
+        let at = pos.chunk();
+        if let Some(seq) = self.index.get(&(at, Kind::Populate))
+            && let Some(Task::Populate(_, population)) = self.tasks.get_mut(seq)
+        {
+            if !population.note(pos, self.limits.population_changes) {
+                **population = Population::new(chunk.clone());
+            }
+            return;
+        }
+        if chunk.light().is_some() {
+            if self.changes.len() < self.limits.changes {
+                self.changes.push_back(pos);
+            } else {
+                self.add_task(at, Kind::Reset, Task::Reset(at));
+            }
+        }
     }
 
     /// Replaces the queue bounds (tests force overflows with small ones).
@@ -340,46 +366,6 @@ impl Engine {
         }
     }
 
-    /// Takes in the chunk at `pos` that just left, with its light.
-    ///
-    /// Its tasks go, and the light it gave its lit neighbours is taken out (or, with too many
-    /// chunks already retiring, those neighbours are lit again).
-    pub(crate) fn unloaded(&mut self, chunks: &Chunks, pos: ChunkPos, light: Option<Box<Levels>>) {
-        if !self.is_calculating() {
-            return;
-        }
-        self.forget(pos);
-        if let Some(light) = light {
-            self.retire(chunks, pos, light);
-        }
-    }
-
-    /// Follows a block change in a loaded chunk.
-    ///
-    /// The block at `pos` of `chunk` changed from `old` to `new`. Only [`Mode::Dynamic`] follows
-    /// block changes.
-    pub(crate) fn changed(&mut self, chunk: &Chunk, pos: BlockPos, old: Entry, new: Entry) {
-        if self.mode != Mode::Dynamic || old.derive() == new.derive() {
-            return;
-        }
-        let at = pos.chunk();
-        if let Some(seq) = self.index.get(&(at, Kind::Populate))
-            && let Some(Task::Populate(_, population)) = self.tasks.get_mut(seq)
-        {
-            if !population.note(pos, self.limits.population_changes) {
-                **population = Population::new(chunk.clone());
-            }
-            return;
-        }
-        if chunk.light().is_some() {
-            if self.changes.len() < self.limits.changes {
-                self.changes.push_back(pos);
-            } else {
-                self.add_task(at, Kind::Reset, Task::Reset(at));
-            }
-        }
-    }
-
     /// Does queued work until it is done or `budget` units are spent.
     ///
     /// It returns the units spent. The order is: chunks marked as overflowed (no units), removal,
@@ -416,24 +402,18 @@ impl Engine {
         budget - left
     }
 
-    /// The light of `channel` at `pos`, if its chunk is lit.
-    // `level`, `relax` and `relax_at` run for every block light spreads to. Without the hint the
-    // compiler kept them as calls once `step` grew, and lighting a newly loaded chunk cost about
-    // 40% more.
-    #[inline]
-    fn level(chunks: &Chunks, pos: BlockPos, channel: Channel) -> Option<u8> {
-        let spot = Spot::of(pos)?;
-        Some(
-            chunks
-                .get(spot.chunk)?
-                .light()?
-                .get(channel, spot.sub, spot.at),
-        )
-    }
-
-    /// Whether the chunk at `pos` is loaded and has light.
-    fn has_light(chunks: &Chunks, pos: ChunkPos) -> bool {
-        chunks.get(pos).is_some_and(|chunk| chunk.light().is_some())
+    /// Takes in the chunk at `pos` that just left, with its light.
+    ///
+    /// Its tasks go, and the light it gave its lit neighbours is taken out (or, with too many
+    /// chunks already retiring, those neighbours are lit again).
+    pub(crate) fn unloaded(&mut self, chunks: &Chunks, pos: ChunkPos, light: Option<Box<Levels>>) {
+        if !self.is_calculating() {
+            return;
+        }
+        self.forget(pos);
+        if let Some(light) = light {
+            self.retire(chunks, pos, light);
+        }
     }
 
     /// Whether neither of two chunks can light the other through sub-chunk `sub`.
@@ -452,12 +432,32 @@ impl Engine {
         })
     }
 
+    /// Whether the chunk at `pos` is loaded and has light.
+    fn has_light(chunks: &Chunks, pos: ChunkPos) -> bool {
+        chunks.get(pos).is_some_and(|chunk| chunk.light().is_some())
+    }
+
     /// Whether the node queues and the changed blocks are all empty.
     fn is_queue_empty(&self) -> bool {
         self.removal.is_empty()
             && self.recalc.is_empty()
             && self.spread.is_empty()
             && self.changes.is_empty()
+    }
+
+    /// The light of `channel` at `pos`, if its chunk is lit.
+    // `level`, `relax` and `relax_at` run for every block light spreads to. Without the hint the
+    // compiler kept them as calls once `step` grew, and lighting a newly loaded chunk cost about
+    // 40% more.
+    #[inline]
+    fn level(chunks: &Chunks, pos: BlockPos, channel: Channel) -> Option<u8> {
+        let spot = Spot::of(pos)?;
+        Some(
+            chunks
+                .get(spot.chunk)?
+                .light()?
+                .get(channel, spot.sub, spot.at),
+        )
     }
 
     /// Looks past a block whose light `node.level` is gone.
@@ -1226,11 +1226,6 @@ pub(crate) struct Levels {
 }
 
 impl Levels {
-    /// The bytes it holds on the heap beside its own size.
-    pub(crate) fn heap_bytes(&self) -> usize {
-        self.arrays.iter().flatten().map(Nibbles::heap_bytes).sum()
-    }
-
     /// Hashes every value and sky height: a uniform cube by its value, a full one by its bytes.
     #[cfg(test)]
     pub(crate) fn hash_into(&self, h: &mut Digest) {
@@ -1249,6 +1244,11 @@ impl Levels {
         for height in heights {
             h.word(u64::from(height.cast_unsigned()));
         }
+    }
+
+    /// The bytes it holds on the heap beside its own size.
+    pub(crate) fn heap_bytes(&self) -> usize {
+        self.arrays.iter().flatten().map(Nibbles::heap_bytes).sum()
     }
 
     /// The values of `channel` in sub-chunk `sub`, if the sub-chunk is in the world.

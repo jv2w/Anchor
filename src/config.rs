@@ -74,9 +74,9 @@ xp-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
-# Armour protection and armour wear.
+# Armor protection and armor wear.
 armor = true
-# Tools, weapons and armour wear out with use.
+# Tools, weapons and armor wear out with use.
 durability = true
 # The time of day moving on.
 daylight-cycle = true
@@ -254,46 +254,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Reads the settings file at `path` over these values and checks the result.
-    ///
-    /// A key in the file replaces the value here, and a key left out keeps the value here. A wrong
-    /// type, an out-of-range value or an unknown key is an error naming the key; nothing is fixed
-    /// silently. Unknown tables are kept and rejected when the server is built.
-    ///
-    /// When the file does not exist, the default file is written next to it (a temporary file
-    /// renamed into place) and then read like any other file, so the first start and every later
-    /// start with that file give the same settings.
-    ///
-    /// This does blocking file I/O: call it before the server starts.
-    ///
-    /// Relative `resource-packs` paths, in the file or set in code, resolve against `packs` in the
-    /// data folder (`data/packs`).
-    ///
-    /// When the program was started as `<program> update-config`, the file is first updated as
-    /// [`Config::update_file`] does, and [`Server::run`](crate::Server::run) then reports what
-    /// changed instead of running the server.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Read`] for a file that cannot be read.
-    /// [`Error::Write`] for a default file that cannot be written.
-    /// [`Error::TooLarge`] for a file of more than 1 MiB.
-    /// [`Error::Syntax`] for a file that is not UTF-8 TOML.
-    /// [`Error::UnknownKey`] for a key Anchor does not know.
-    /// [`Error::Invalid`] for a value of the wrong type or form.
-    /// [`Error::Range`] for a whole number outside its range.
-    /// [`Error::Batch`] for a compression setting that [`batch::Settings::new`] rejects.
-    /// [`Error::HeaderlessTable`] for an update that cannot add a key to a table written without
-    /// its header.
-    pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        match crate::args::current() {
-            Ok(crate::args::Task::UpdateConfig) => self.load_updated(path),
-            // A usage error is reported by `Server::run`, which reads the arguments again.
-            _ => self.load_file(path),
-        }
-    }
-
     /// Updates the settings file at `path` to this Anchor's keys and returns what changed.
     ///
     /// Each key of the default file that the file lacks is added with its default value and the
@@ -406,6 +366,46 @@ impl Config {
             return Err(Error::UnknownTable(name.clone()));
         }
         self.check()
+    }
+
+    /// Reads the settings file at `path` over these values and checks the result.
+    ///
+    /// A key in the file replaces the value here, and a key left out keeps the value here. A wrong
+    /// type, an out-of-range value or an unknown key is an error naming the key; nothing is fixed
+    /// silently. Unknown tables are kept and rejected when the server is built.
+    ///
+    /// When the file does not exist, the default file is written next to it (a temporary file
+    /// renamed into place) and then read like any other file, so the first start and every later
+    /// start with that file give the same settings.
+    ///
+    /// This does blocking file I/O: call it before the server starts.
+    ///
+    /// Relative `resource-packs` paths, in the file or set in code, resolve against `packs` in the
+    /// data folder (`data/packs`).
+    ///
+    /// When the program was started as `<program> update-config`, the file is first updated as
+    /// [`Config::update_file`] does, and [`Server::run`](crate::Server::run) then reports what
+    /// changed instead of running the server.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Read`] for a file that cannot be read.
+    /// [`Error::Write`] for a default file that cannot be written.
+    /// [`Error::TooLarge`] for a file of more than 1 MiB.
+    /// [`Error::Syntax`] for a file that is not UTF-8 TOML.
+    /// [`Error::UnknownKey`] for a key Anchor does not know.
+    /// [`Error::Invalid`] for a value of the wrong type or form.
+    /// [`Error::Range`] for a whole number outside its range.
+    /// [`Error::Batch`] for a compression setting that [`batch::Settings::new`] rejects.
+    /// [`Error::HeaderlessTable`] for an update that cannot add a key to a table written without
+    /// its header.
+    pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        match crate::args::current() {
+            Ok(crate::args::Task::UpdateConfig) => self.load_updated(path),
+            // A usage error is reported by `Server::run`, which reads the arguments again.
+            _ => self.load_file(path),
+        }
     }
 
     /// [`Config::load`] after updating the file first, as `<program> update-config` asks.
@@ -627,9 +627,9 @@ pub struct General {
     pub fall_damage: bool,
     /// `drowning`: whether air runs out under water and drowning and suffocation hurt.
     pub drowning: bool,
-    /// `armor`: whether armour protects and wears.
+    /// `armor`: whether armor protects and wears.
     pub armor: bool,
-    /// `durability`: whether tools, weapons and armour wear out with use.
+    /// `durability`: whether tools, weapons and armor wear out with use.
     pub durability: bool,
     /// `daylight-cycle`: whether the time of day moves on.
     pub daylight_cycle: bool,
@@ -1161,6 +1161,15 @@ impl GameMode {
         ("spectator", Self::Spectator),
     ];
 
+    /// The mode of a protocol game type ([`game_type`](Self::game_type) reversed); `None` for
+    /// [`GameType::Default`], which names the world's mode.
+    pub(crate) fn from_game_type(game_type: GameType) -> Option<Self> {
+        Self::NAMES
+            .into_iter()
+            .map(|(_, mode)| mode)
+            .find(|mode| mode.game_type() == game_type)
+    }
+
     /// The game mode a name gives, ignoring ASCII case: the name (`survival`), its letter (`s`,
     /// `c`, `a`, `v` or `view`) or its number (`0` to `3`). The `gamemode` setting takes the full
     /// names only.
@@ -1181,15 +1190,6 @@ impl GameMode {
             Self::Adventure => GameType::Adventure,
             Self::Spectator => GameType::Spectator,
         }
-    }
-
-    /// The mode of a protocol game type ([`game_type`](Self::game_type) reversed); `None` for
-    /// [`GameType::Default`], which names the world's mode.
-    pub(crate) fn from_game_type(game_type: GameType) -> Option<Self> {
-        Self::NAMES
-            .into_iter()
-            .map(|(_, mode)| mode)
-            .find(|mode| mode.game_type() == game_type)
     }
 }
 
@@ -1398,34 +1398,20 @@ struct Key<'a> {
 }
 
 impl<'a> Key<'a> {
-    fn new(table: &'a str, name: &'a str) -> Self {
-        Self { table, name }
-    }
-
-    fn top(name: &'a str) -> Self {
-        Self::new("", name)
+    fn developer(name: &'a str) -> Self {
+        Self::new("developer", name)
     }
 
     fn general(name: &'a str) -> Self {
         Self::new("general", name)
     }
 
-    fn developer(name: &'a str) -> Self {
-        Self::new("developer", name)
+    fn top(name: &'a str) -> Self {
+        Self::new("", name)
     }
 
-    /// The dotted path, such as `general.motd`.
-    fn path(self) -> String {
-        if self.table.is_empty() {
-            self.name.to_owned()
-        } else {
-            format!("{}.{}", self.table, self.name)
-        }
-    }
-
-    /// The error for a key Anchor does not read.
-    fn unknown(self) -> Error {
-        Error::UnknownKey(self.path())
+    fn new(table: &'a str, name: &'a str) -> Self {
+        Self { table, name }
     }
 
     fn invalid(self, expected: impl Into<String>) -> Error {
@@ -1442,6 +1428,20 @@ impl<'a> Key<'a> {
             value,
             min: min.try_into().unwrap_or(i64::MIN),
             max: max.try_into().unwrap_or(i64::MAX),
+        }
+    }
+
+    /// The error for a key Anchor does not read.
+    fn unknown(self) -> Error {
+        Error::UnknownKey(self.path())
+    }
+
+    /// The dotted path, such as `general.motd`.
+    fn path(self) -> String {
+        if self.table.is_empty() {
+            self.name.to_owned()
+        } else {
+            format!("{}.{}", self.table, self.name)
         }
     }
 }
@@ -1741,7 +1741,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         let mut config = Config::default();
-        config.general.resource_packs = vec!["packs/b.zip".into()];
+        config.general.resource_packs = vec![PathBuf::from("packs/b.zip")];
         config.validate().expect("a path under packs is a path");
     }
 

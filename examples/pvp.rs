@@ -52,7 +52,7 @@ const REFILL: [(item::Kind, u8); 3] = [
 ];
 /// What every life starts with besides the refill.
 const WEAPONS: [item::Kind; 2] = [item::Kind::IronSword, item::Kind::Bow];
-/// The armour, helmet to boots (the order of the armour slots).
+/// The armor, helmet to boots (the order of the armor slots).
 const ARMOR: [item::Kind; 4] = [
     item::Kind::IronHelmet,
     item::Kind::IronChestplate,
@@ -145,7 +145,7 @@ fn reset_kit(player: &mut Player) {
     }
     let mut armor = player.inventory_mut(Kind::Armor);
     for (slot, kind) in ARMOR.into_iter().enumerate() {
-        // The four armour slots exist and take one item each.
+        // The four armor slots exist and take one item each.
         let _set = armor.set(slot, stack(kind, 1));
     }
     refill(player);

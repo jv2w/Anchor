@@ -21,14 +21,13 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use super::body::{int_lit, str_lit};
+use super::emit::HEADER;
 use crate::dump::upgrade::{
     BLOCK_LEGACY_IDS, BLOCK_SCHEMAS, ITEM_BLOCKS, ITEM_LEGACY_IDS, ITEM_SCHEMAS, LEGACY_TABLE,
     OUT as DIR,
 };
 use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, read};
-
-use super::body::{int_lit, str_lit};
-use super::emit::HEADER;
 use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
 /// The block schemas that add properties after the dump source's data version, oldest first;

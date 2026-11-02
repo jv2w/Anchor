@@ -258,178 +258,10 @@ impl Survival {
 }
 
 impl Player {
-    /// The player's game mode.
-    #[doc(alias = "Player::getGamemode")]
-    pub fn game_mode(&self) -> GameMode {
-        self.survival.mode()
-    }
-
-    /// Whether the player is in survival or adventure mode, the modes that take damage. Items are
-    /// used up in every mode but creative ([`has_finite_resources`](Self::has_finite_resources)).
-    #[doc(alias = "Player::isSurvival")]
-    pub fn is_survival(&self) -> bool {
-        is_survival(self.game_mode())
-    }
-
-    /// Whether the player is in creative mode.
-    #[doc(alias = "Player::isCreative")]
-    pub fn is_creative(&self) -> bool {
-        self.game_mode() == GameMode::Creative
-    }
-
-    /// Whether the player is in adventure mode.
-    #[doc(alias = "Player::isAdventure")]
-    pub fn is_adventure(&self) -> bool {
-        self.game_mode() == GameMode::Adventure
-    }
-
-    /// Whether the player is in spectator mode.
-    #[doc(alias = "Player::isSpectator")]
-    pub fn is_spectator(&self) -> bool {
-        self.game_mode() == GameMode::Spectator
-    }
-
-    /// Whether placing and using items uses them up: every mode but creative.
-    #[doc(alias = "Player::hasFiniteResources")]
-    pub fn has_finite_resources(&self) -> bool {
-        has_finite_resources(self.game_mode())
-    }
-
-    /// The health in half hearts, 0 when dead.
-    #[doc(alias = "Entity::getHealth")]
-    pub fn health(&self) -> f64 {
-        self.survival.health
-    }
-
-    /// The largest health: [`set_max_health`](Self::set_max_health)'s value (20 at join) and 4
-    /// for each level of health boost.
-    #[doc(alias = "Entity::getMaxHealth")]
-    #[doc(alias = "Living::getMaxHealth")]
-    pub fn max_health(&self) -> f64 {
-        self.survival.max_health()
-    }
-
-    /// Whether the player is alive: not dead and waiting to respawn.
-    #[doc(alias = "Entity::isAlive")]
-    pub fn is_alive(&self) -> bool {
-        super::is_alive(self)
-    }
-
     /// The extra health absorbed first (golden apples, the absorption effect).
     #[doc(alias = "Living::getAbsorption")]
     pub fn absorption(&self) -> f64 {
         self.survival.absorption
-    }
-
-    /// The food level, 0 to 20.
-    #[doc(alias = "HungerManager::getFood")]
-    pub fn food(&self) -> f64 {
-        self.survival.food
-    }
-
-    /// Whether food runs for the player while the `food` setting and its game mode let it.
-    #[doc(alias = "HungerManager::isEnabled")]
-    pub fn food_enabled(&self) -> bool {
-        self.survival.custom.food
-    }
-
-    /// Whether the player's food is below 20. Food that needs food is also eaten at 20 in
-    /// peaceful and creative.
-    #[doc(alias = "HungerManager::isHungry")]
-    pub fn is_hungry(&self) -> bool {
-        self.survival.food < MAX_FOOD
-    }
-
-    /// The saturation, 0 to 20: spent before food.
-    #[doc(alias = "HungerManager::getSaturation")]
-    pub fn saturation(&self) -> f64 {
-        self.survival.saturation
-    }
-
-    /// The exhaustion, 0 to 20: every 4 cost a saturation or food point.
-    #[doc(alias = "HungerManager::getExhaustion")]
-    pub fn exhaustion(&self) -> f64 {
-        self.survival.exhaustion
-    }
-
-    /// The xp level, 0 to 24,791.
-    #[doc(alias = "ExperienceManager::getXpLevel")]
-    pub fn xp_level(&self) -> u32 {
-        super::xp_level(self)
-    }
-
-    /// The progress through the level, 0 to below 1.
-    #[doc(alias = "ExperienceManager::getXpProgress")]
-    pub fn xp_progress(&self) -> f64 {
-        self.survival.xp_progress
-    }
-
-    /// The xp points the level and progress hold, at most those of the highest level.
-    #[doc(alias = "ExperienceManager::getCurrentTotalXp")]
-    pub fn current_total_xp(&self) -> u64 {
-        food::current_xp(&self.survival)
-    }
-
-    /// The xp points collected in all; losing them to death or spending them does not lower it.
-    #[doc(alias = "ExperienceManager::getLifetimeTotalXp")]
-    pub fn lifetime_total_xp(&self) -> u32 {
-        self.survival.xp_lifetime
-    }
-
-    /// The xp points collected into the current level.
-    #[doc(alias = "ExperienceManager::getRemainderXp")]
-    pub fn remainder_xp(&self) -> u64 {
-        let s = &self.survival;
-        food::current_xp(s).saturating_sub(crate::player::xp_to_reach_level(s.xp_level))
-    }
-
-    /// Whether the player may pick up an xp orb now: 2 ticks pass between pickups.
-    #[doc(alias = "ExperienceManager::canPickupXp")]
-    pub fn can_pickup_xp(&self) -> bool {
-        self.survival.xp_cooldown == 0
-    }
-
-    /// Whether xp orbs fly to the player.
-    #[doc(alias = "ExperienceManager::canAttractXpOrbs")]
-    pub fn can_attract_xp_orbs(&self) -> bool {
-        self.survival.custom.attracts_orbs
-    }
-
-    /// The active effects, in the order of [`effect::Type`].
-    #[doc(alias = "Living::getEffects")]
-    #[doc(alias = "EffectCollection::all")]
-    pub fn effects(&self) -> impl Iterator<Item = Instance> + '_ {
-        self.survival
-            .effects
-            .iter()
-            .map(|(&effect, &active)| active.instance(effect))
-    }
-
-    /// The active effect of type `effect`, if any.
-    #[doc(alias = "EffectCollection::get")]
-    pub fn effect(&self, effect: effect::Type) -> Option<Instance> {
-        self.survival
-            .effects
-            .get(&effect)
-            .map(|&active| active.instance(effect))
-    }
-
-    /// Whether an effect of type `effect` is active.
-    #[doc(alias = "EffectCollection::has")]
-    pub fn has_effect(&self, effect: effect::Type) -> bool {
-        self.survival.effects.contains_key(&effect)
-    }
-
-    /// Whether the player burns.
-    #[doc(alias = "Entity::isOnFire")]
-    pub fn is_on_fire(&self) -> bool {
-        self.survival.fire_ticks > 0
-    }
-
-    /// The ticks the player keeps burning.
-    #[doc(alias = "Entity::getFireTicks")]
-    pub fn fire_ticks(&self) -> u32 {
-        u32::from(self.survival.fire_ticks)
     }
 
     /// The air supply in ticks, -20 to [`max_air_supply_ticks`](Self::max_air_supply_ticks);
@@ -439,114 +271,17 @@ impl Player {
         i32::from(self.survival.air)
     }
 
-    /// The full air supply in ticks: 300 unless
-    /// [`set_max_air_supply_ticks`](Self::set_max_air_supply_ticks) changed it.
-    #[doc(alias = "Living::getMaxAirSupplyTicks")]
-    pub fn max_air_supply_ticks(&self) -> i32 {
-        i32::from(self.survival.custom.max_air)
-    }
-
-    /// Whether the player could breathe at its last tick (not under water, or protected).
-    #[doc(alias = "Living::isBreathing")]
-    pub fn is_breathing(&self) -> bool {
-        self.survival.breathing
-    }
-
-    /// The blocks fallen since the player last stood on something.
-    #[doc(alias = "Entity::getFallDistance")]
-    pub fn fall_distance(&self) -> f64 {
-        self.survival.fall_distance
-    }
-
-    /// The ticks since the player last stood on something.
-    #[doc(alias = "Player::getInAirTicks")]
-    pub fn in_air_ticks(&self) -> u32 {
-        self.survival.motion.in_air
-    }
-
-    /// The yaw in degrees, 0 to below 360 (0 looks south, 90 west).
-    pub fn yaw(&self) -> f64 {
-        super::rotation(self).0
-    }
-
-    /// The pitch in degrees: -90 (up) to 90 (down) as the official client and
-    /// [`set_rotation`](Self::set_rotation) give it; a pitch another client sends is kept as
-    /// sent, above -360 and below 360.
-    pub fn pitch(&self) -> f64 {
-        super::rotation(self).1
-    }
-
-    /// Whether [`set_rotation`](Self::set_rotation) takes `yaw` and `pitch` in degrees: both
-    /// finite as floats, the pitch -90 (up) to 90 (down) as a float.
-    pub fn is_rotation(yaw: f64, pitch: f64) -> bool {
-        super::is_float_angle(yaw) && (-90.0..=90.0).contains(&to_f32(pitch))
-    }
-
-    /// The unit vector the player looks along.
-    #[doc(alias = "Entity::getDirectionVector")]
-    pub fn direction(&self) -> Vec3 {
-        super::look_direction(self)
-    }
-
-    /// The side the player faces, from its yaw: south, west, north or east.
-    #[doc(alias = "Entity::getHorizontalFacing")]
-    pub fn horizontal_facing(&self) -> Face {
-        crate::tick::interact::props::horizontal_facing(self.yaw())
-    }
-
-    /// Whether the player may reach `pos`: within `max_distance` of its eyes, and not more than
-    /// √3/2 blocks behind the plane it looks through. False for a position or distance that is not
-    /// finite.
-    #[doc(alias = "Player::canInteract")]
-    pub fn can_interact(&self, pos: Vec3, max_distance: f64) -> bool {
-        pos.is_finite()
-            && max_distance.is_finite()
-            && super::can_interact(self.eye_position(), self.direction(), pos, max_distance)
-    }
-
-    /// Whether the player stands on something.
-    #[doc(alias = "Entity::isOnGround")]
-    pub fn is_on_ground(&self) -> bool {
-        super::is_on_ground(self)
-    }
-
-    /// Whether the player sneaks.
-    #[doc(alias = "Living::isSneaking")]
-    pub fn is_sneaking(&self) -> bool {
-        super::is_sneaking(self)
-    }
-
-    /// Whether the player holds the sneak key.
-    #[doc(alias = "Player::isSneakPressed")]
-    pub fn is_sneak_pressed(&self) -> bool {
-        super::is_sneak_pressed(self)
-    }
-
-    /// Whether the player sprints.
-    #[doc(alias = "Living::isSprinting")]
-    pub fn is_sprinting(&self) -> bool {
-        self.survival.motion.sprinting
-    }
-
-    /// The movement speed before sprinting (× 1.3) and the speed and slowness effects: 0.1
-    /// unless [`set_movement_speed`](Self::set_movement_speed) changed it.
-    #[doc(alias = "Living::getMovementSpeed")]
-    pub fn movement_speed(&self) -> f64 {
-        self.survival.custom.movement_speed
-    }
-
-    /// The armour points of what the player wears, 0 to 30 for vanilla armour: each point takes
-    /// 4 % off the damage armour reduces.
+    /// The armor points of what the player wears, 0 to 30 for vanilla armor: each point takes
+    /// 4 % off the damage armor reduces.
     #[doc(alias = "Living::getArmorPoints")]
     pub fn armor_points(&self) -> u32 {
         damage::armor_points(self)
     }
 
-    /// Why and from what the player last took damage, kept through a respawn; `None` before its
-    /// first damage in this session. Not saved.
-    #[doc(alias = "Entity::getLastDamageCause")]
-    pub fn last_damage_cause(&self) -> Option<(DamageCause, DamageSource)> {
-        self.survival.last_cause
+    /// Whether xp orbs fly to the player.
+    #[doc(alias = "ExperienceManager::canAttractXpOrbs")]
+    pub fn can_attract_xp_orbs(&self) -> bool {
+        self.survival.custom.attracts_orbs
     }
 
     /// Whether the player may climb ladders, vines and the like.
@@ -561,41 +296,85 @@ impl Player {
         self.survival.custom.can_climb_walls
     }
 
-    /// Whether the client jumps up blocks by itself (its auto-jump setting applies).
-    #[doc(alias = "Player::hasAutoJump")]
-    pub fn auto_jump(&self) -> bool {
-        self.survival.custom.auto_jump
-    }
-
-    /// Whether the player swims.
-    #[doc(alias = "Living::isSwimming")]
-    pub fn is_swimming(&self) -> bool {
-        self.survival.motion.swimming
-    }
-
-    /// Whether the player glides with elytra.
-    #[doc(alias = "Living::isGliding")]
-    pub fn is_gliding(&self) -> bool {
-        self.survival.motion.gliding
-    }
-
-    /// Whether the player eats, drinks or uses a bow, trident, goat horn or spyglass.
-    #[doc(alias = "Player::isUsingItem")]
-    pub fn is_using_item(&self) -> bool {
-        self.survival.using.is_some() || self.breaking.is_using()
-    }
-
-    /// Whether the player flies.
-    #[doc(alias = "Player::isFlying")]
-    pub fn is_flying(&self) -> bool {
-        super::is_flying(self)
-    }
-
     /// Whether the player may start flying: its own setting, else creative and spectator.
     /// Stopping needs no right.
     #[doc(alias = "Player::getAllowFlight")]
-    pub fn allow_flight(&self) -> bool {
+    pub fn can_fly(&self) -> bool {
         self.survival.can_fly()
+    }
+
+    /// Whether the player may reach `pos`: within `max_distance` of its eyes, and not more than
+    /// √3/2 blocks behind the plane it looks through. False for a position or distance that is not
+    /// finite.
+    #[doc(alias = "Player::canInteract")]
+    pub fn can_interact(&self, pos: Vec3, max_distance: f64) -> bool {
+        pos.is_finite()
+            && max_distance.is_finite()
+            && super::can_interact(self.eye_position(), self.direction(), pos, max_distance)
+    }
+
+    /// Whether the player may pick up an xp orb now: 2 ticks pass between pickups.
+    #[doc(alias = "ExperienceManager::canPickupXp")]
+    pub fn can_pickup_xp(&self) -> bool {
+        self.survival.xp_cooldown == 0
+    }
+
+    /// The xp points the level and progress hold, at most those of the highest level.
+    #[doc(alias = "ExperienceManager::getCurrentTotalXp")]
+    pub fn current_total_xp(&self) -> u64 {
+        food::current_xp(&self.survival)
+    }
+
+    /// Where the player last died: the world name and block.
+    #[doc(alias = "Player::getDeathPosition")]
+    pub fn death_position(&self) -> Option<(&str, BlockPos)> {
+        self.survival
+            .death
+            .as_ref()
+            .map(|p| (p.world.as_str(), p.pos))
+    }
+
+    /// The unit vector the player looks along.
+    #[doc(alias = "Entity::getDirectionVector")]
+    pub fn direction(&self) -> Vec3 {
+        super::look_direction(self)
+    }
+
+    /// The active effect of type `effect`, if any.
+    #[doc(alias = "EffectCollection::get")]
+    pub fn effect(&self, effect: effect::Type) -> Option<Instance> {
+        self.survival
+            .effects
+            .get(&effect)
+            .map(|&active| active.instance(effect))
+    }
+
+    /// The active effects, in the order of [`effect::Type`].
+    #[doc(alias = "Living::getEffects")]
+    #[doc(alias = "EffectCollection::all")]
+    pub fn effects(&self) -> impl Iterator<Item = Instance> + '_ {
+        self.survival
+            .effects
+            .iter()
+            .map(|(&effect, &active)| active.instance(effect))
+    }
+
+    /// The exhaustion, 0 to 20: every 4 cost a saturation or food point.
+    #[doc(alias = "HungerManager::getExhaustion")]
+    pub fn exhaustion(&self) -> f64 {
+        self.survival.exhaustion
+    }
+
+    /// The blocks fallen since the player last stood on something.
+    #[doc(alias = "Entity::getFallDistance")]
+    pub fn fall_distance(&self) -> f64 {
+        self.survival.fall_distance
+    }
+
+    /// The ticks the player keeps burning.
+    #[doc(alias = "Entity::getFireTicks")]
+    pub fn fire_ticks(&self) -> u32 {
+        u32::from(self.survival.fire_ticks)
     }
 
     /// The flight speed: 0.05 by default; 10 times it is the speed in blocks a tick.
@@ -604,10 +383,262 @@ impl Player {
         self.survival.custom.flight_speed
     }
 
+    /// The food level, 0 to 20.
+    #[doc(alias = "HungerManager::getFood")]
+    pub fn food(&self) -> f64 {
+        self.survival.food
+    }
+
+    /// Whether the client jumps up blocks by itself (its auto-jump setting applies).
+    #[doc(alias = "Player::hasAutoJump")]
+    pub fn has_auto_jump(&self) -> bool {
+        self.survival.custom.auto_jump
+    }
+
     /// Whether blocks stop the player: its own setting, else every mode but spectator.
     #[doc(alias = "Player::hasBlockCollision")]
     pub fn has_block_collision(&self) -> bool {
         self.survival.has_block_collision()
+    }
+
+    /// Whether an effect of type `effect` is active.
+    #[doc(alias = "EffectCollection::has")]
+    pub fn has_effect(&self, effect: effect::Type) -> bool {
+        self.survival.effects.contains_key(&effect)
+    }
+
+    /// Whether placing and using items uses them up: every mode but creative.
+    #[doc(alias = "Player::hasFiniteResources")]
+    pub fn has_finite_resources(&self) -> bool {
+        has_finite_resources(self.game_mode())
+    }
+
+    /// Whether the client is kept from moving the player.
+    #[doc(alias = "Entity::hasNoClientPredictions")]
+    pub fn has_no_client_predictions(&self) -> bool {
+        self.survival.custom.no_client_predictions
+    }
+
+    /// The health in half hearts, 0 when dead.
+    #[doc(alias = "Entity::getHealth")]
+    pub fn health(&self) -> f64 {
+        self.survival.health
+    }
+
+    /// The side the player faces, from its yaw: south, west, north or east.
+    #[doc(alias = "Entity::getHorizontalFacing")]
+    pub fn horizontal_facing(&self) -> Face {
+        crate::tick::interact::props::horizontal_facing(self.yaw())
+    }
+
+    /// The ticks since the player last stood on something.
+    #[doc(alias = "Player::getInAirTicks")]
+    pub fn in_air_ticks(&self) -> u32 {
+        self.survival.motion.in_air
+    }
+
+    /// Whether the player is in adventure mode.
+    #[doc(alias = "Player::isAdventure")]
+    pub fn is_adventure(&self) -> bool {
+        self.game_mode() == GameMode::Adventure
+    }
+
+    /// Whether the player is alive: not dead and waiting to respawn.
+    #[doc(alias = "Entity::isAlive")]
+    pub fn is_alive(&self) -> bool {
+        super::is_alive(self)
+    }
+
+    /// Whether the player could breathe at its last tick (not under water, or protected).
+    #[doc(alias = "Living::isBreathing")]
+    pub fn is_breathing(&self) -> bool {
+        self.survival.breathing
+    }
+
+    /// Whether the player is in creative mode.
+    #[doc(alias = "Player::isCreative")]
+    pub fn is_creative(&self) -> bool {
+        self.game_mode() == GameMode::Creative
+    }
+
+    /// Whether the player flies.
+    #[doc(alias = "Player::isFlying")]
+    pub fn is_flying(&self) -> bool {
+        super::is_flying(self)
+    }
+
+    /// Whether food runs for the player while the `food` setting and its game mode let it.
+    #[doc(alias = "HungerManager::isEnabled")]
+    pub fn is_food_enabled(&self) -> bool {
+        self.survival.custom.food
+    }
+
+    /// Whether the player glides with elytra.
+    #[doc(alias = "Living::isGliding")]
+    pub fn is_gliding(&self) -> bool {
+        self.survival.motion.gliding
+    }
+
+    /// Whether the player's food is below 20. Food that needs food is also eaten at 20 in
+    /// peaceful and creative.
+    #[doc(alias = "HungerManager::isHungry")]
+    pub fn is_hungry(&self) -> bool {
+        self.survival.food < MAX_FOOD
+    }
+
+    /// Whether the player is invisible: set so, or under the invisibility effect.
+    #[doc(alias = "Entity::isInvisible")]
+    pub fn is_invisible(&self) -> bool {
+        self.survival.custom.invisible
+            || self
+                .survival
+                .effects
+                .contains_key(&effect::Type::Invisibility)
+    }
+
+    /// Whether the player burns.
+    #[doc(alias = "Entity::isOnFire")]
+    pub fn is_on_fire(&self) -> bool {
+        self.survival.fire_ticks > 0
+    }
+
+    /// Whether the player stands on something.
+    #[doc(alias = "Entity::isOnGround")]
+    pub fn is_on_ground(&self) -> bool {
+        super::is_on_ground(self)
+    }
+
+    /// Whether [`set_rotation`](Self::set_rotation) takes `yaw` and `pitch` in degrees: both
+    /// finite as floats, the pitch -90 (up) to 90 (down) as a float.
+    pub fn is_rotation(yaw: f64, pitch: f64) -> bool {
+        super::is_float_angle(yaw) && (-90.0..=90.0).contains(&to_f32(pitch))
+    }
+
+    /// Whether the player makes no sounds for its viewers.
+    #[doc(alias = "Entity::isSilent")]
+    pub fn is_silent(&self) -> bool {
+        self.survival.custom.silent
+    }
+
+    /// Whether the player holds the sneak key.
+    #[doc(alias = "Player::isSneakPressed")]
+    pub fn is_sneak_pressed(&self) -> bool {
+        super::is_sneak_pressed(self)
+    }
+
+    /// Whether the player sneaks.
+    #[doc(alias = "Living::isSneaking")]
+    pub fn is_sneaking(&self) -> bool {
+        super::is_sneaking(self)
+    }
+
+    /// Whether the player is in spectator mode.
+    #[doc(alias = "Player::isSpectator")]
+    pub fn is_spectator(&self) -> bool {
+        self.game_mode() == GameMode::Spectator
+    }
+
+    /// Whether the player sprints.
+    #[doc(alias = "Living::isSprinting")]
+    pub fn is_sprinting(&self) -> bool {
+        self.survival.motion.sprinting
+    }
+
+    /// Whether the player is in survival or adventure mode, the modes that take damage. Items are
+    /// used up in every mode but creative ([`has_finite_resources`](Self::has_finite_resources)).
+    #[doc(alias = "Player::isSurvival")]
+    pub fn is_survival(&self) -> bool {
+        is_survival(self.game_mode())
+    }
+
+    /// The player's game mode.
+    #[doc(alias = "Player::getGamemode")]
+    pub fn game_mode(&self) -> GameMode {
+        self.survival.mode()
+    }
+
+    /// Whether the player swims.
+    #[doc(alias = "Living::isSwimming")]
+    pub fn is_swimming(&self) -> bool {
+        self.survival.motion.swimming
+    }
+
+    /// Whether the player eats, drinks or uses a bow, trident, goat horn or spyglass.
+    #[doc(alias = "Player::isUsingItem")]
+    pub fn is_using_item(&self) -> bool {
+        self.survival.using.is_some() || self.breaking.is_using()
+    }
+
+    /// Why and from what the player last took damage, kept through a respawn; `None` before its
+    /// first damage in this session. Not saved.
+    #[doc(alias = "Entity::getLastDamageCause")]
+    pub fn last_damage_cause(&self) -> Option<(DamageCause, DamageSource)> {
+        self.survival.last_cause
+    }
+
+    /// The xp points collected in all; losing them to death or spending them does not lower it.
+    #[doc(alias = "ExperienceManager::getLifetimeTotalXp")]
+    pub fn lifetime_total_xp(&self) -> u32 {
+        self.survival.xp_lifetime
+    }
+
+    /// The full air supply in ticks: 300 unless
+    /// [`set_max_air_supply_ticks`](Self::set_max_air_supply_ticks) changed it.
+    #[doc(alias = "Living::getMaxAirSupplyTicks")]
+    pub fn max_air_supply_ticks(&self) -> i32 {
+        i32::from(self.survival.custom.max_air)
+    }
+
+    /// The largest health: [`set_max_health`](Self::set_max_health)'s value (20 at join) and 4
+    /// for each level of health boost.
+    #[doc(alias = "Entity::getMaxHealth")]
+    #[doc(alias = "Living::getMaxHealth")]
+    pub fn max_health(&self) -> f64 {
+        self.survival.max_health()
+    }
+
+    /// The movement speed before sprinting (× 1.3) and the speed and slowness effects: 0.1
+    /// unless [`set_movement_speed`](Self::set_movement_speed) changed it.
+    #[doc(alias = "Living::getMovementSpeed")]
+    pub fn movement_speed(&self) -> f64 {
+        self.survival.custom.movement_speed
+    }
+
+    /// The name shown above the player: its name unless [`set_name_tag`](Self::set_name_tag)
+    /// changed it.
+    #[doc(alias = "Entity::getNameTag")]
+    pub fn name_tag(&self) -> &str {
+        self.survival
+            .custom
+            .name_tag
+            .as_deref()
+            .unwrap_or(&self.identity.name)
+    }
+
+    /// The pitch in degrees: -90 (up) to 90 (down) as the official client and
+    /// [`set_rotation`](Self::set_rotation) give it; a pitch another client sends is kept as
+    /// sent, above -360 and below 360.
+    pub fn pitch(&self) -> f64 {
+        super::rotation(self).1
+    }
+
+    /// The xp points collected into the current level.
+    #[doc(alias = "ExperienceManager::getRemainderXp")]
+    pub fn remainder_xp(&self) -> u64 {
+        let s = &self.survival;
+        food::current_xp(s).saturating_sub(crate::player::xp_to_reach_level(s.xp_level))
+    }
+
+    /// The saturation, 0 to 20: spent before food.
+    #[doc(alias = "HungerManager::getSaturation")]
+    pub fn saturation(&self) -> f64 {
+        self.survival.saturation
+    }
+
+    /// The line shown under the name tag; empty for none.
+    #[doc(alias = "Entity::getScoreTag")]
+    pub fn score_tag(&self) -> &str {
+        &self.survival.custom.score_tag
     }
 
     /// The player's own respawn point: the world name and block, set by
@@ -623,352 +654,21 @@ impl Player {
             .map(|p| (p.world.as_str(), p.pos))
     }
 
-    /// Where the player last died: the world name and block.
-    #[doc(alias = "Player::getDeathPosition")]
-    pub fn death_position(&self) -> Option<(&str, BlockPos)> {
-        self.survival
-            .death
-            .as_ref()
-            .map(|p| (p.world.as_str(), p.pos))
+    /// The xp level, 0 to 24,791.
+    #[doc(alias = "ExperienceManager::getXpLevel")]
+    pub fn xp_level(&self) -> u32 {
+        super::xp_level(self)
     }
 
-    /// The name shown above the player: its name unless [`set_name_tag`](Self::set_name_tag)
-    /// changed it.
-    #[doc(alias = "Entity::getNameTag")]
-    pub fn name_tag(&self) -> &str {
-        self.survival
-            .custom
-            .name_tag
-            .as_deref()
-            .unwrap_or(&self.identity.name)
+    /// The progress through the level, 0 to below 1.
+    #[doc(alias = "ExperienceManager::getXpProgress")]
+    pub fn xp_progress(&self) -> f64 {
+        self.survival.xp_progress
     }
 
-    /// The line shown under the name tag; empty for none.
-    #[doc(alias = "Entity::getScoreTag")]
-    pub fn score_tag(&self) -> &str {
-        &self.survival.custom.score_tag
-    }
-
-    /// Whether the player is invisible: set so, or under the invisibility effect.
-    #[doc(alias = "Entity::isInvisible")]
-    pub fn is_invisible(&self) -> bool {
-        self.survival.custom.invisible
-            || self
-                .survival
-                .effects
-                .contains_key(&effect::Type::Invisibility)
-    }
-
-    /// Whether the player makes no sounds for its viewers.
-    #[doc(alias = "Entity::isSilent")]
-    pub fn is_silent(&self) -> bool {
-        self.survival.custom.silent
-    }
-
-    /// Whether the client is kept from moving the player.
-    #[doc(alias = "Entity::hasNoClientPredictions")]
-    pub fn has_no_client_predictions(&self) -> bool {
-        self.survival.custom.no_client_predictions
-    }
-
-    /// Changes the player's game mode: creative may fly, spectator flies through blocks, survival
-    /// and adventure stop flying; the client and its abilities follow. Nothing changes if it
-    /// already has `mode`. The mode is saved; with `force-gamemode` the server's mode applies
-    /// again at the next join.
-    #[doc(alias = "Player::setGamemode")]
-    pub fn set_game_mode(&mut self, mode: GameMode) {
-        if self.game_mode() == mode {
-            return;
-        }
-        let s = &mut self.survival;
-        s.game_mode = Some(mode);
-        s.custom.allow_flight = None;
-        s.custom.block_collision = None;
-        // Through `set_flying`: a change of flight forgets the fall.
-        if mode == GameMode::Spectator {
-            self.survival.motion.on_ground = false;
-            self.set_flying(true);
-        } else if is_survival(mode) {
-            self.set_flying(false);
-        }
-        self.survival.touch(ABILITIES | DATA);
-        self.data_dirty = true;
-        let packet = game_type_packet(self, mode);
-        self.send_packet(packet);
-    }
-
-    /// Sets the health, at most [`max_health`](Self::max_health); 0 or less kills the player as
-    /// [`kill`](Self::kill) does. A dead player stays dead until it respawns. Fails for a value
-    /// that is not finite.
-    #[doc(alias = "Entity::setHealth")]
-    #[doc(alias = "Living::setHealth")]
-    pub fn set_health(&mut self, health: f64) -> Result<()> {
-        if !health.is_finite() {
-            return Err(Error::OutOfRange);
-        }
-        if self.survival.is_dead() {
-            return Ok(());
-        }
-        if health <= 0.0 {
-            self.kill();
-            return Ok(());
-        }
-        let s = &mut self.survival;
-        let max = s.max_health();
-        s.health = if health > max { max } else { health };
-        s.touch(HEALTH);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Sets the health without effects; the health above the new maximum is cut. Not saved. Fails
-    /// for 0.
-    #[doc(alias = "Entity::setMaxHealth")]
-    #[doc(alias = "Living::setMaxHealth")]
-    pub fn set_max_health(&mut self, max: u32) -> Result<()> {
-        if max == 0 {
-            return Err(Error::OutOfRange);
-        }
-        let s = &mut self.survival;
-        s.custom.max_health = max;
-        let max = s.max_health();
-        if s.health > max {
-            s.health = max;
-            self.data_dirty = true;
-        }
-        s.touch(HEALTH);
-        Ok(())
-    }
-
-    /// Heals the player by `amount` half hearts up to its maximum; nothing for a dead player or a
-    /// value that is not positive.
-    #[doc(alias = "Entity::heal")]
-    pub fn heal(&mut self, amount: f64) {
-        damage::heal_player(self, amount);
-        self.survival.touch(0);
-    }
-
-    /// Kills the player: its health drops to 0, and once it is spawned it drops what it carries
-    /// and sees the death screen with the generic death message. False if it is already dead.
-    #[doc(alias = "Entity::kill")]
-    pub fn kill(&mut self) -> bool {
-        let s = &mut self.survival;
-        if s.is_dead() {
-            return false;
-        }
-        s.health = 0.0;
-        s.custom.killed = true;
-        s.touch(HEALTH);
-        self.data_dirty = true;
-        true
-    }
-
-    /// Respawns a dead, spawned player at its respawn point by the end of the tick, as the
-    /// respawn button does. False if it is alive or not spawned yet.
-    #[doc(alias = "Player::respawn")]
-    pub fn respawn(&mut self) -> bool {
-        if !self.survival.is_dead() || self.phase != Phase::Spawned {
-            return false;
-        }
-        self.survival.custom.respawn = true;
-        true
-    }
-
-    /// Sets the absorbed health. Fails for a value that is negative, above `f32::MAX` (the most
-    /// the client and the save hold) or not finite.
-    #[doc(alias = "Living::setAbsorption")]
-    pub fn set_absorption(&mut self, absorption: f64) -> Result<()> {
-        within(absorption, 0.0..=f64::from(f32::MAX))?;
-        let s = &mut self.survival;
-        s.absorption = absorption;
-        s.touch(ABSORPTION);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Sets the food level. Fails outside 0 to 20, and with `food = false`.
-    #[doc(alias = "HungerManager::setFood")]
-    pub fn set_food(&mut self, food: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(food, 0.0..=MAX_FOOD)?;
-        food::set_food(&mut self.survival, food);
-        self.survival.touch(0);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Adds food up to 20. Fails for a value that is negative or not finite, and with
-    /// `food = false`.
-    #[doc(alias = "HungerManager::addFood")]
-    pub fn add_food(&mut self, food: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(food, 0.0..=f64::MAX)?;
-        food::add_food(&mut self.survival, food, 0.0);
-        self.survival.touch(0);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Turns food on or off for the player: off, its food and saturation stay as they are. Not
-    /// saved.
-    #[doc(alias = "HungerManager::setEnabled")]
-    pub fn set_food_enabled(&mut self, enabled: bool) {
-        self.survival.custom.food = enabled;
-        self.survival.motion.food &= enabled;
-    }
-
-    /// Sets the saturation. Fails outside 0 to 20, and with `food = false`.
-    #[doc(alias = "HungerManager::setSaturation")]
-    pub fn set_saturation(&mut self, saturation: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(saturation, 0.0..=MAX_SATURATION)?;
-        self.survival.saturation = saturation;
-        self.survival.touch(SATURATION);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Adds saturation up to 20. Fails for a value that is negative or not finite, and with
-    /// `food = false`.
-    #[doc(alias = "HungerManager::addSaturation")]
-    pub fn add_saturation(&mut self, saturation: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(saturation, 0.0..=f64::MAX)?;
-        food::add_food(&mut self.survival, 0.0, saturation);
-        self.survival.touch(0);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Sets the exhaustion; what is over 4 is spent at the next exhaustion. Fails outside 0 to
-    /// 20, and with `food = false`.
-    #[doc(alias = "HungerManager::setExhaustion")]
-    pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(exhaustion, 0.0..=MAX_EXHAUSTION)?;
-        self.survival.exhaustion = exhaustion;
-        self.survival.touch(EXHAUSTION);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Adds exhaustion, spending saturation, then food, for every 4; nothing while the player
-    /// does not get hungry (creative, spectator, [`set_food_enabled`](Self::set_food_enabled)).
-    /// Fails for a value that is negative or not finite, and with `food = false`.
-    #[doc(alias = "HungerManager::exhaust")]
-    pub fn exhaust(&mut self, amount: f64) -> Result<()> {
-        enabled(self.survival.switches.food)?;
-        within(amount, 0.0..=f64::MAX)?;
-        food::exhaust(&mut self.survival, amount);
-        self.survival.touch(0);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Sets the xp level, keeping the progress. Fails above 24,791, and with
-    /// `xp = false`.
-    #[doc(alias = "ExperienceManager::setXpLevel")]
-    pub fn set_xp_level(&mut self, level: u32) -> Result<()> {
-        enabled(self.survival.switches.xp)?;
-        if level > crate::player::MAX_LEVEL {
-            return Err(Error::OutOfRange);
-        }
-        let s = &mut self.survival;
-        s.xp_level = level;
-        s.touch(LEVEL);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Adds xp levels, keeping the progress. Fails if the level would pass 24,791, and
-    /// with `xp = false`.
-    #[doc(alias = "ExperienceManager::addXpLevels")]
-    pub fn add_xp_levels(&mut self, levels: u32) -> Result<()> {
-        let level = self.survival.xp_level.saturating_add(levels);
-        self.set_xp_level(level)
-    }
-
-    /// Takes xp levels, keeping the progress; not below 0. Nothing with `xp = false`.
-    #[doc(alias = "ExperienceManager::subtractXpLevels")]
-    pub fn subtract_xp_levels(&mut self, levels: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
-        let s = &mut self.survival;
-        s.xp_level = s.xp_level.saturating_sub(levels);
-        s.touch(LEVEL);
-        self.data_dirty = true;
-    }
-
-    /// Sets the progress through the level. Fails outside 0 to below 1 (a full bar is the next
-    /// level), and with `xp = false`.
-    #[doc(alias = "ExperienceManager::setXpProgress")]
-    pub fn set_xp_progress(&mut self, progress: f64) -> Result<()> {
-        enabled(self.survival.switches.xp)?;
-        if !(progress.is_finite() && (0.0..1.0).contains(&progress)) {
-            return Err(Error::OutOfRange);
-        }
-        let s = &mut self.survival;
-        s.xp_progress = progress;
-        s.touch(XP);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Adds xp points, raising the level as they fill it, without a sound; the points ever
-    /// collected stay within 2^31 - 1. Nothing with `xp = false`.
-    #[doc(alias = "ExperienceManager::addXp")]
-    pub fn add_xp(&mut self, points: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
-        food::add_xp(self, points);
-        self.survival.touch(0);
-    }
-
-    /// Takes xp points, lowering the level; not below 0. Nothing with `xp = false`.
-    #[doc(alias = "ExperienceManager::subtractXp")]
-    pub fn subtract_xp(&mut self, points: u32) {
-        if !self.survival.switches.xp {
-            return;
-        }
-        let s = &mut self.survival;
-        let total = food::current_xp(s).saturating_sub(u64::from(points));
-        food::set_xp(s, total);
-        s.touch(0);
-        self.data_dirty = true;
-    }
-
-    /// Sets the level and progress from xp points. Fails above the points of the highest
-    /// level, 24,791 (2,761,645,247), and with `xp = false`.
-    #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
-    pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
-        enabled(self.survival.switches.xp)?;
-        if u64::from(points) > crate::player::xp_to_reach_level(crate::player::MAX_LEVEL) {
-            return Err(Error::OutOfRange);
-        }
-        food::set_xp(&mut self.survival, u64::from(points));
-        self.survival.touch(0);
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Sets the xp points collected in all. Fails above 2^31 - 1, and with `xp = false`.
-    #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
-    pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
-        enabled(self.survival.switches.xp)?;
-        if points > food::MAX_LIFETIME_XP {
-            return Err(Error::OutOfRange);
-        }
-        self.survival.xp_lifetime = points;
-        self.data_dirty = true;
-        Ok(())
-    }
-
-    /// Lets xp orbs fly to the player, or not. Not saved.
-    #[doc(alias = "ExperienceManager::setCanAttractXpOrbs")]
-    pub fn set_can_attract_xp_orbs(&mut self, attracts: bool) {
-        self.survival.custom.attracts_orbs = attracts;
+    /// The yaw in degrees, 0 to below 360 (0 looks south, 90 west).
+    pub fn yaw(&self) -> f64 {
+        super::rotation(self).0
     }
 
     /// Gives the player `effect`: its type, duration, amplifier, particles (shown, faint or
@@ -998,13 +698,62 @@ impl Player {
         added
     }
 
-    /// Ends the effect of type `effect`, undoing what it changed. False if none was active.
-    #[doc(alias = "EffectManager::remove")]
-    #[doc(alias = "EffectCollection::remove")]
-    pub fn remove_effect(&mut self, effect: effect::Type) -> bool {
-        let removed = effects::remove_from(self, effect);
+    /// Adds food up to 20. Fails for a value that is negative or not finite, and with
+    /// `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value that is negative or not finite.
+    #[doc(alias = "HungerManager::addFood")]
+    pub fn add_food(&mut self, food: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(food, 0.0..=f64::MAX)?;
+        food::add_food(&mut self.survival, food, 0.0);
         self.survival.touch(0);
-        removed
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Adds saturation up to 20. Fails for a value that is negative or not finite, and with
+    /// `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value that is negative or not finite.
+    #[doc(alias = "HungerManager::addSaturation")]
+    pub fn add_saturation(&mut self, saturation: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(saturation, 0.0..=f64::MAX)?;
+        food::add_food(&mut self.survival, 0.0, saturation);
+        self.survival.touch(0);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Adds xp points, raising the level as they fill it, without a sound; the points ever
+    /// collected stay within 2^31 - 1. Nothing with `xp = false`.
+    #[doc(alias = "ExperienceManager::addXp")]
+    pub fn add_xp(&mut self, points: u32) {
+        if !self.survival.switches.xp {
+            return;
+        }
+        food::add_xp(self, points);
+        self.survival.touch(0);
+    }
+
+    /// Adds xp levels, keeping the progress. Fails if the level would pass 24,791, and
+    /// with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::OutOfRange`] for a level that would pass 24,791.
+    #[doc(alias = "ExperienceManager::addXpLevels")]
+    pub fn add_xp_levels(&mut self, levels: u32) -> Result<()> {
+        let level = self.survival.xp_level.saturating_add(levels);
+        self.set_xp_level(level)
     }
 
     /// Ends every effect.
@@ -1020,32 +769,96 @@ impl Player {
         self.survival.touch(0);
     }
 
-    /// Sets the ticks the player keeps burning; 0 puts the fire out. Fails above 32,767.
-    #[doc(alias = "Entity::setFireTicks")]
-    #[doc(alias = "Entity::extinguish")]
-    pub fn set_fire_ticks(&mut self, ticks: u32) -> Result<()> {
-        let ticks = u16::try_from(ticks)
-            .ok()
-            .filter(|&t| u32::from(t) <= MAX_FIRE_TICKS)
-            .ok_or(Error::OutOfRange)?;
-        self.survival.fire_ticks = ticks;
-        self.survival.touch(DATA);
+    /// Plays the emote `emote_id` (a UUID from the emote catalogue) for the players that see
+    /// the player, at the end of the tick. A second call in the tick wins. Fails for an empty ID
+    /// or one longer than 128 bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for an empty emote ID or one longer than 128 bytes.
+    #[doc(alias = "Human::emote")]
+    pub fn emote(&mut self, emote_id: &str) -> Result<()> {
+        if !appearance::valid_emote(emote_id) {
+            return Err(Error::OutOfRange);
+        }
+        self.survival.custom.emote = Some(emote_id.to_owned());
+        Ok(())
+    }
+
+    /// Adds exhaustion, spending saturation, then food, for every 4; nothing while the player
+    /// does not get hungry (creative, spectator, [`set_food_enabled`](Self::set_food_enabled)).
+    /// Fails for a value that is negative or not finite, and with `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value that is negative or not finite.
+    #[doc(alias = "HungerManager::exhaust")]
+    pub fn exhaust(&mut self, amount: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(amount, 0.0..=f64::MAX)?;
+        food::exhaust(&mut self.survival, amount);
+        self.survival.touch(0);
         self.data_dirty = true;
         Ok(())
     }
 
-    /// Sets the player on fire for `seconds`, shortened by fire protection; a longer burn
-    /// already running stays.
-    #[doc(alias = "Entity::setOnFire")]
-    #[doc(alias = "Living::setOnFire")]
-    pub fn set_on_fire(&mut self, seconds: u32) {
-        damage::set_on_fire(self, seconds);
-        self.survival.touch(DATA);
+    /// Heals the player by `amount` half hearts up to its maximum. False, doing nothing, for a
+    /// dead player and an amount that is not finite or below 0, as for an entity.
+    #[doc(alias = "Entity::heal")]
+    pub fn heal(&mut self, amount: f64) -> bool {
+        if self.survival.is_dead() || !amount.is_finite() || amount < 0.0 {
+            return false;
+        }
+        damage::heal_player(self, amount);
+        self.survival.touch(0);
+        true
+    }
+
+    /// Ends the effect of type `effect`, undoing what it changed. False if none was active.
+    #[doc(alias = "EffectManager::remove")]
+    #[doc(alias = "EffectCollection::remove")]
+    pub fn remove_effect(&mut self, effect: effect::Type) -> bool {
+        let removed = effects::remove_from(self, effect);
+        self.survival.touch(0);
+        removed
+    }
+
+    /// Respawns a dead, spawned player at its respawn point by the end of the tick, as the
+    /// respawn button does. False if it is alive or not spawned yet.
+    #[doc(alias = "Player::respawn")]
+    pub fn respawn(&mut self) -> bool {
+        if !self.survival.is_dead() || self.phase != Phase::Spawned {
+            return false;
+        }
+        self.survival.custom.respawn = true;
+        true
+    }
+
+    /// Sets the absorbed health. Fails for a value that is negative, above `f32::MAX` (the most
+    /// the client and the save hold) or not finite.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a value that is negative, above `f32::MAX` or not finite.
+    #[doc(alias = "Living::setAbsorption")]
+    pub fn set_absorption(&mut self, absorption: f64) -> Result<()> {
+        within(absorption, 0.0..=f64::from(f32::MAX))?;
+        let s = &mut self.survival;
+        s.absorption = absorption;
+        s.touch(ABSORPTION);
+        self.data_dirty = true;
+        Ok(())
     }
 
     /// Sets the air supply in ticks; the client and the viewers see it. Fails outside -20 to
     /// [`max_air_supply_ticks`](Self::max_air_supply_ticks) (the air rules never reach another
     /// number again), and with `drowning = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `drowning = false`.
+    /// [`Error::OutOfRange`] for ticks outside -20 to the maximum air supply.
     #[doc(alias = "Living::setAirSupplyTicks")]
     pub fn set_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
         enabled(self.survival.switches.drowning)?;
@@ -1060,8 +873,330 @@ impl Player {
         Ok(())
     }
 
+    /// Lets the client jump up blocks by itself, or not. Not saved.
+    #[doc(alias = "Player::setAutoJump")]
+    pub fn set_auto_jump(&mut self, auto_jump: bool) {
+        let s = &mut self.survival;
+        if s.custom.auto_jump != auto_jump {
+            s.custom.auto_jump = auto_jump;
+            s.touch(ADVENTURE);
+        }
+    }
+
+    /// Lets the player move through blocks, or not, until its game mode changes. Without block
+    /// collision the client flies.
+    #[doc(alias = "Player::setHasBlockCollision")]
+    pub fn set_block_collision(&mut self, collision: bool) {
+        let s = &mut self.survival;
+        if s.custom.block_collision != Some(collision) {
+            s.custom.block_collision = Some(collision);
+            s.touch(ABILITIES);
+        }
+    }
+
+    /// Sets whether the player counts as breathing (the Breathing entity flag); the client and
+    /// the viewers see it by the end of the tick. Each tick of a living, spawned player sets it
+    /// again from whether it can breathe, as the official server does, so it holds only while the
+    /// player does not tick; the air refills or drops whatever this says. Nothing with
+    /// `drowning = false`: the player then always breathes.
+    #[doc(alias = "Living::setBreathing")]
+    pub fn set_breathing(&mut self, breathing: bool) {
+        if self.survival.switches.drowning {
+            self.survival.breathing = breathing;
+            self.survival.touch(DATA);
+        }
+    }
+
+    /// Lets xp orbs fly to the player, or not. Not saved.
+    #[doc(alias = "ExperienceManager::setCanAttractXpOrbs")]
+    pub fn set_can_attract_xp_orbs(&mut self, attracts: bool) {
+        self.survival.custom.attracts_orbs = attracts;
+    }
+
+    /// Lets the player climb ladders and vines, or not. Not saved.
+    #[doc(alias = "Entity::setCanClimb")]
+    pub fn set_can_climb(&mut self, can: bool) {
+        self.survival.custom.can_climb = can;
+        self.survival.touch(DATA);
+    }
+
+    /// Lets the player climb any wall, or not. Not saved.
+    #[doc(alias = "Entity::setCanClimbWalls")]
+    pub fn set_can_climb_walls(&mut self, can: bool) {
+        self.survival.custom.can_climb_walls = can;
+        self.survival.touch(DATA);
+    }
+
+    /// Lets the player start flying, or not, until its game mode changes. A flight under way goes
+    /// on until the client or [`set_flying`](Self::set_flying) stops it.
+    #[doc(alias = "Player::setAllowFlight")]
+    pub fn set_can_fly(&mut self, allow: bool) {
+        let s = &mut self.survival;
+        if s.custom.allow_flight != Some(allow) {
+            s.custom.allow_flight = Some(allow);
+            s.touch(ABILITIES);
+        }
+    }
+
+    /// Sets the level and progress from xp points. Fails above the points of the highest
+    /// level, 24,791 (2,761,645,247), and with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::OutOfRange`] for points above those of the highest level.
+    #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
+    pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
+        if u64::from(points) > crate::player::xp_to_reach_level(crate::player::MAX_LEVEL) {
+            return Err(Error::OutOfRange);
+        }
+        food::set_xp(&mut self.survival, u64::from(points));
+        self.survival.touch(0);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets or clears where the player last died, which its recovery compass points to. It is
+    /// saved. Fails for a world name longer than 250 bytes, which no world has.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a world name longer than 250 bytes.
+    #[doc(alias = "Player::setDeathPosition")]
+    pub fn set_death_position(&mut self, death: Option<(&str, BlockPos)>) -> Result<()> {
+        self.survival.death = point(death)?;
+        self.survival.touch(DATA);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets the exhaustion; what is over 4 is spent at the next exhaustion. Fails outside 0 to
+    /// 20, and with `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value outside 0 to 20.
+    #[doc(alias = "HungerManager::setExhaustion")]
+    pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(exhaustion, 0.0..=MAX_EXHAUSTION)?;
+        self.survival.exhaustion = exhaustion;
+        self.survival.touch(EXHAUSTION);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets the blocks fallen; the landing hurts for what is beyond 3. It is saved. Fails for a
+    /// value that is negative or not finite.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a value that is negative or not finite.
+    #[doc(alias = "Entity::setFallDistance")]
+    pub fn set_fall_distance(&mut self, distance: f64) -> Result<()> {
+        within(distance, 0.0..=f64::MAX)?;
+        self.survival.fall_distance = distance;
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets the ticks the player keeps burning; 0 puts the fire out. Fails above 32,767.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for ticks above 32,767.
+    #[doc(alias = "Entity::setFireTicks")]
+    #[doc(alias = "Entity::extinguish")]
+    pub fn set_fire_ticks(&mut self, ticks: u32) -> Result<()> {
+        let ticks = u16::try_from(ticks)
+            .ok()
+            .filter(|&t| u32::from(t) <= MAX_FIRE_TICKS)
+            .ok_or(Error::OutOfRange)?;
+        self.survival.fire_ticks = ticks;
+        self.survival.touch(DATA);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets the flight speed; 0 stops horizontal flight and a negative speed reverses the
+    /// controls. Fails for a speed that is not finite or beyond what `f32` holds.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a speed that is not finite or beyond what `f32` holds.
+    #[doc(alias = "Player::setFlightSpeedMultiplier")]
+    pub fn set_flight_speed(&mut self, speed: f64) -> Result<()> {
+        within(speed, -f64::from(f32::MAX)..=f64::from(f32::MAX))?;
+        let s = &mut self.survival;
+        if s.custom.flight_speed.to_bits() != speed.to_bits() {
+            s.custom.flight_speed = speed;
+            s.touch(ABILITIES);
+        }
+        Ok(())
+    }
+
+    /// Sets the food level. Fails outside 0 to 20, and with `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value outside 0 to 20.
+    #[doc(alias = "HungerManager::setFood")]
+    pub fn set_food(&mut self, food: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(food, 0.0..=MAX_FOOD)?;
+        food::set_food(&mut self.survival, food);
+        self.survival.touch(0);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Turns food on or off for the player: off, its food and saturation stay as they are. Not
+    /// saved.
+    #[doc(alias = "HungerManager::setEnabled")]
+    pub fn set_food_enabled(&mut self, enabled: bool) {
+        self.survival.custom.food = enabled;
+        self.survival.motion.food &= enabled;
+    }
+
+    /// Changes the player's game mode: creative may fly, spectator flies through blocks, survival
+    /// and adventure stop flying; the client and its abilities follow. Nothing changes if it
+    /// already has `mode`. The mode is saved; with `force-gamemode` the server's mode applies
+    /// again at the next join.
+    #[doc(alias = "Player::setGamemode")]
+    pub fn set_game_mode(&mut self, mode: GameMode) {
+        if self.game_mode() == mode {
+            return;
+        }
+        let s = &mut self.survival;
+        s.game_mode = Some(mode);
+        s.custom.allow_flight = None;
+        s.custom.block_collision = None;
+        // Through `set_flying`: a change of flight forgets the fall.
+        if mode == GameMode::Spectator {
+            self.survival.motion.on_ground = false;
+            self.set_flying(true);
+        } else if is_survival(mode) {
+            self.set_flying(false);
+        }
+        self.survival.touch(ABILITIES | DATA);
+        self.data_dirty = true;
+        let packet = game_type_packet(self, mode);
+        self.send_packet(packet);
+    }
+
+    /// Starts or stops the player's flight, whether or not it [may fly](Self::can_fly); the
+    /// fall is forgotten.
+    #[doc(alias = "Player::setFlying")]
+    pub fn set_flying(&mut self, flying: bool) {
+        if self.survival.motion.flying != flying {
+            self.survival.motion.flying = flying;
+            self.reset_fall_distance();
+            self.survival.touch(ABILITIES);
+        }
+    }
+
+    /// Forgets the fall, so the landing does not hurt, and restarts the
+    /// [ticks in the air](Self::in_air_ticks).
+    #[doc(alias = "Entity::resetFallDistance")]
+    #[doc(alias = "Player::resetFallDistance")]
+    pub fn reset_fall_distance(&mut self) {
+        self.survival.fall_distance = 0.0;
+        self.survival.motion.in_air = 0;
+        self.data_dirty = true;
+    }
+
+    /// Makes the player glide, or not, until the client reports a change.
+    #[doc(alias = "Living::setGliding")]
+    pub fn set_gliding(&mut self, gliding: bool) {
+        self.survival.motion.gliding = gliding;
+        self.survival.touch(DATA);
+    }
+
+    /// Sets the health, at most [`max_health`](Self::max_health); 0 or less kills the player as
+    /// [`kill`](Self::kill) does. A dead player stays dead until it respawns. Fails for a value
+    /// that is not finite.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a value that is not finite.
+    #[doc(alias = "Entity::setHealth")]
+    #[doc(alias = "Living::setHealth")]
+    pub fn set_health(&mut self, health: f64) -> Result<()> {
+        if !health.is_finite() {
+            return Err(Error::OutOfRange);
+        }
+        if self.survival.is_dead() {
+            return Ok(());
+        }
+        if health <= 0.0 {
+            self.kill();
+            return Ok(());
+        }
+        let s = &mut self.survival;
+        let max = s.max_health();
+        s.health = if health > max { max } else { health };
+        s.touch(HEALTH);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Kills the player: its health drops to 0, and once it is spawned it drops what it carries
+    /// and sees the death screen with the generic death message. False if it is already dead.
+    #[doc(alias = "Entity::kill")]
+    pub fn kill(&mut self) -> bool {
+        let s = &mut self.survival;
+        if s.is_dead() {
+            return false;
+        }
+        s.health = 0.0;
+        s.custom.killed = true;
+        s.touch(HEALTH);
+        self.data_dirty = true;
+        true
+    }
+
+    /// Makes the player invisible to its viewers, or not (the invisibility effect still hides
+    /// it while it lasts).
+    #[doc(alias = "Entity::setInvisible")]
+    pub fn set_invisible(&mut self, invisible: bool) {
+        self.survival.custom.invisible = invisible;
+        self.survival.touch(DATA);
+    }
+
+    /// Sets what [`last_damage_cause`](Self::last_damage_cause) reports, for example before a
+    /// [`kill`](Self::kill) that a death listener should credit to someone.
+    #[doc(alias = "Entity::setLastDamageCause")]
+    pub fn set_last_damage_cause(&mut self, cause: Option<(DamageCause, DamageSource)>) {
+        self.survival.last_cause = cause;
+    }
+
+    /// Sets the xp points collected in all. Fails above 2^31 - 1, and with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::OutOfRange`] for points above 2^31 - 1.
+    #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
+    pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
+        if points > food::MAX_LIFETIME_XP {
+            return Err(Error::OutOfRange);
+        }
+        self.survival.xp_lifetime = points;
+        self.data_dirty = true;
+        Ok(())
+    }
+
     /// Sets the full air supply in ticks: the air refills to it, and the air above it is cut.
     /// Not saved. Fails outside 1 to 32,767, and with `drowning = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `drowning = false`.
+    /// [`Error::OutOfRange`] for ticks outside 1 to 32,767.
     #[doc(alias = "Living::setMaxAirSupplyTicks")]
     pub fn set_max_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
         enabled(self.survival.switches.drowning)?;
@@ -1079,43 +1214,100 @@ impl Player {
         Ok(())
     }
 
-    /// Sets whether the player counts as breathing (the Breathing entity flag); the client and
-    /// the viewers see it by the end of the tick. Each tick of a living, spawned player sets it
-    /// again from whether it can breathe, as the official server does, so it holds only while the
-    /// player does not tick; the air refills or drops whatever this says. Nothing with
-    /// `drowning = false`: the player then always breathes.
-    #[doc(alias = "Living::setBreathing")]
-    pub fn set_breathing(&mut self, breathing: bool) {
-        if self.survival.switches.drowning {
-            self.survival.breathing = breathing;
-            self.survival.touch(DATA);
+    /// Sets the health without effects; the health above the new maximum is cut. Not saved. Fails
+    /// for 0.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for 0.
+    #[doc(alias = "Entity::setMaxHealth")]
+    #[doc(alias = "Living::setMaxHealth")]
+    pub fn set_max_health(&mut self, max: u32) -> Result<()> {
+        if max == 0 {
+            return Err(Error::OutOfRange);
         }
-    }
-
-    /// Sets the blocks fallen; the landing hurts for what is beyond 3. It is saved. Fails for a
-    /// value that is negative or not finite.
-    #[doc(alias = "Entity::setFallDistance")]
-    pub fn set_fall_distance(&mut self, distance: f64) -> Result<()> {
-        within(distance, 0.0..=f64::MAX)?;
-        self.survival.fall_distance = distance;
-        self.data_dirty = true;
+        let s = &mut self.survival;
+        s.custom.max_health = max;
+        let max = s.max_health();
+        if s.health > max {
+            s.health = max;
+            self.data_dirty = true;
+        }
+        s.touch(HEALTH);
         Ok(())
     }
 
-    /// Forgets the fall, so the landing does not hurt, and restarts the
-    /// [ticks in the air](Self::in_air_ticks).
-    #[doc(alias = "Entity::resetFallDistance")]
-    #[doc(alias = "Player::resetFallDistance")]
-    pub fn reset_fall_distance(&mut self) {
-        self.survival.fall_distance = 0.0;
-        self.survival.motion.in_air = 0;
-        self.data_dirty = true;
+    /// Pushes the player: its client moves it by `motion` blocks a tick, and its viewers see
+    /// it, at the end of the tick. Players have no server-side motion, as with knockback, so no
+    /// call reads one. A second call in the tick wins. Fails for a motion that is not finite.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a motion that is not finite.
+    #[doc(alias = "Player::setMotion")]
+    pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
+        if !motion.is_finite() {
+            return Err(Error::OutOfRange);
+        }
+        self.survival.custom.motion = Some(motion);
+        Ok(())
+    }
+
+    /// Sets the movement speed before sprinting and effects; the client walks at it. The speed
+    /// with sprinting and effects is worked out from this base each time. Not saved. Fails for a
+    /// speed that is negative, above `f32::MAX` or not finite.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a speed that is negative, above `f32::MAX` or not finite.
+    #[doc(alias = "Living::setMovementSpeed")]
+    pub fn set_movement_speed(&mut self, speed: f64) -> Result<()> {
+        within(speed, 0.0..=f64::from(f32::MAX))?;
+        self.survival.custom.movement_speed = speed;
+        self.survival.touch(MOVEMENT);
+        Ok(())
+    }
+
+    /// Sets the name shown above the player, for it and its viewers. Not saved. Fails for a tag
+    /// longer than 65,536 bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a tag longer than 65,536 bytes.
+    #[doc(alias = "Entity::setNameTag")]
+    pub fn set_name_tag(&mut self, tag: impl Into<String>) -> Result<()> {
+        let tag = tag.into();
+        check_text(&tag)?;
+        let s = &mut self.survival;
+        s.custom.name_tag = Some(tag);
+        s.touch(TAGS);
+        Ok(())
+    }
+
+    /// Keeps the client from moving the player (it cannot walk, only turn), or lets it again.
+    #[doc(alias = "Entity::setNoClientPredictions")]
+    pub fn set_no_client_predictions(&mut self, frozen: bool) {
+        self.survival.custom.no_client_predictions = frozen;
+        self.survival.touch(DATA);
+    }
+
+    /// Sets the player on fire for `seconds`, shortened by fire protection; a longer burn
+    /// already running stays.
+    #[doc(alias = "Entity::setOnFire")]
+    #[doc(alias = "Living::setOnFire")]
+    pub fn set_on_fire(&mut self, seconds: u32) {
+        damage::ignite(self, seconds);
+        self.survival.touch(DATA);
     }
 
     /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client
     /// sends them: [`yaw`](Self::yaw) and [`pitch`](Self::pitch) read the new rotation at once,
     /// and by the end of the tick the client and the viewers see it, in the tick's teleport if
     /// there is one. Fails for a rotation [`is_rotation`](Self::is_rotation) refuses.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a rotation [`is_rotation`](Self::is_rotation) refuses.
     #[doc(alias = "Entity::setRotation")]
     pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<()> {
         if !Self::is_rotation(yaw, pitch) {
@@ -1127,12 +1319,84 @@ impl Player {
         Ok(())
     }
 
+    /// Sets the saturation. Fails outside 0 to 20, and with `food = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::OutOfRange`] for a value outside 0 to 20.
+    #[doc(alias = "HungerManager::setSaturation")]
+    pub fn set_saturation(&mut self, saturation: f64) -> Result<()> {
+        enabled(self.survival.switches.food)?;
+        within(saturation, 0.0..=MAX_SATURATION)?;
+        self.survival.saturation = saturation;
+        self.survival.touch(SATURATION);
+        self.data_dirty = true;
+        Ok(())
+    }
+
+    /// Sets the line shown under the name tag. Fails for a tag longer than 65,536 bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a tag longer than 65,536 bytes.
+    #[doc(alias = "Entity::setScoreTag")]
+    pub fn set_score_tag(&mut self, tag: impl Into<String>) -> Result<()> {
+        let tag = tag.into();
+        check_text(&tag)?;
+        let s = &mut self.survival;
+        s.custom.score_tag = tag;
+        s.touch(TAGS);
+        Ok(())
+    }
+
+    /// Silences the player, or not.
+    #[doc(alias = "Entity::setSilent")]
+    pub fn set_silent(&mut self, silent: bool) {
+        self.survival.custom.silent = silent;
+        self.survival.touch(DATA);
+    }
+
+    /// Changes the player's skin: every player sees it at the end of the tick, or of a later one
+    /// while the server's budget for skin broadcasts (about 128 KiB a second) is spent. Not
+    /// saved: the client sends its own skin at its next join. Fails for a skin a login would
+    /// refuse (image sizes that do not match their data, more than 4 MiB, a geometry or resource
+    /// patch that is not JSON nested at most 64 deep; a skin without a custom geometry has `{}`).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a skin a login would refuse.
+    #[doc(alias = "Human::setSkin")]
+    pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
+        let skin = Skin::new(std::sync::Arc::new(skin));
+        if !skin.is_acceptable() {
+            return Err(Error::OutOfRange);
+        }
+        self.identity.skin = skin;
+        self.survival.custom.skin = true;
+        Ok(())
+    }
+
     /// Makes the player sneak, or not, for it and its viewers, until the client reports a
     /// change (the client owns its input).
     #[doc(alias = "Living::setSneaking")]
     pub fn set_sneaking(&mut self, sneaking: bool) {
         self.survival.motion.sneaking = sneaking;
         self.survival.touch(DATA);
+    }
+
+    /// Sets or clears the player's respawn point: a world name and the block to respawn on. It is
+    /// saved. A block whose centre lies outside the world border counts as none when the player
+    /// respawns. Fails for a world name longer than 250 bytes, which no world has.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a world name longer than 250 bytes.
+    #[doc(alias = "Player::setSpawn")]
+    pub fn set_spawn(&mut self, spawn: Option<(&str, BlockPos)>) -> Result<()> {
+        self.survival.spawn = point(spawn)?;
+        self.data_dirty = true;
+        Ok(())
     }
 
     /// Makes the player sprint, or not, with the sprinting speed, until the client reports a
@@ -1150,204 +1414,69 @@ impl Player {
         self.survival.touch(DATA);
     }
 
-    /// Makes the player glide, or not, until the client reports a change.
-    #[doc(alias = "Living::setGliding")]
-    pub fn set_gliding(&mut self, gliding: bool) {
-        self.survival.motion.gliding = gliding;
-        self.survival.touch(DATA);
-    }
-
-    /// Sets the movement speed before sprinting and effects; the client walks at it. The speed
-    /// with sprinting and effects is worked out from this base each time. Not saved. Fails for a
-    /// speed that is negative, above `f32::MAX` or not finite.
-    #[doc(alias = "Living::setMovementSpeed")]
-    pub fn set_movement_speed(&mut self, speed: f64) -> Result<()> {
-        within(speed, 0.0..=f64::from(f32::MAX))?;
-        self.survival.custom.movement_speed = speed;
-        self.survival.touch(MOVEMENT);
-        Ok(())
-    }
-
-    /// Sets what [`last_damage_cause`](Self::last_damage_cause) reports, for example before a
-    /// [`kill`](Self::kill) that a death listener should credit to someone.
-    #[doc(alias = "Entity::setLastDamageCause")]
-    pub fn set_last_damage_cause(&mut self, cause: Option<(DamageCause, DamageSource)>) {
-        self.survival.last_cause = cause;
-    }
-
-    /// Lets the player climb ladders and vines, or not. Not saved.
-    #[doc(alias = "Entity::setCanClimb")]
-    pub fn set_can_climb(&mut self, can: bool) {
-        self.survival.custom.can_climb = can;
-        self.survival.touch(DATA);
-    }
-
-    /// Lets the player climb any wall, or not. Not saved.
-    #[doc(alias = "Entity::setCanClimbWalls")]
-    pub fn set_can_climb_walls(&mut self, can: bool) {
-        self.survival.custom.can_climb_walls = can;
-        self.survival.touch(DATA);
-    }
-
-    /// Lets the client jump up blocks by itself, or not. Not saved.
-    #[doc(alias = "Player::setAutoJump")]
-    pub fn set_auto_jump(&mut self, auto_jump: bool) {
-        let s = &mut self.survival;
-        if s.custom.auto_jump != auto_jump {
-            s.custom.auto_jump = auto_jump;
-            s.touch(ADVENTURE);
-        }
-    }
-
-    /// Pushes the player: its client moves it by `motion` blocks a tick, and its viewers see
-    /// it, at the end of the tick. Players have no server-side motion, as with knockback, so no
-    /// call reads one. A second call in the tick wins. Fails for a motion that is not finite.
-    #[doc(alias = "Player::setMotion")]
-    pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
-        if !motion.is_finite() {
+    /// Sets the xp level, keeping the progress. Fails above 24,791, and with
+    /// `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::OutOfRange`] for a level above 24,791.
+    #[doc(alias = "ExperienceManager::setXpLevel")]
+    pub fn set_xp_level(&mut self, level: u32) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
+        if level > crate::player::MAX_LEVEL {
             return Err(Error::OutOfRange);
         }
-        self.survival.custom.motion = Some(motion);
-        Ok(())
-    }
-
-    /// Plays the emote `emote_id` (a UUID from the emote catalogue) for the players that see
-    /// the player, at the end of the tick. A second call in the tick wins. Fails for an empty ID
-    /// or one longer than 128 bytes.
-    #[doc(alias = "Human::emote")]
-    pub fn emote(&mut self, emote_id: &str) -> Result<()> {
-        if !appearance::valid_emote(emote_id) {
-            return Err(Error::OutOfRange);
-        }
-        self.survival.custom.emote = Some(emote_id.to_owned());
-        Ok(())
-    }
-
-    /// Changes the player's skin: every player sees it at the end of the tick, or of a later one
-    /// while the server's budget for skin broadcasts (about 128 KiB a second) is spent. Not
-    /// saved: the client sends its own skin at its next join. Fails for a skin a login would
-    /// refuse (image sizes that do not match their data, more than 4 MiB, a geometry or resource
-    /// patch that is not JSON nested at most 64 deep; a skin without a custom geometry has `{}`).
-    #[doc(alias = "Human::setSkin")]
-    pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
-        let skin = Skin::new(std::sync::Arc::new(skin));
-        if !skin.is_acceptable() {
-            return Err(Error::OutOfRange);
-        }
-        self.identity.skin = skin;
-        self.survival.custom.skin = true;
-        Ok(())
-    }
-
-    /// Starts or stops the player's flight, whether or not it [may fly](Self::allow_flight); the
-    /// fall is forgotten.
-    #[doc(alias = "Player::setFlying")]
-    pub fn set_flying(&mut self, flying: bool) {
-        if self.survival.motion.flying != flying {
-            self.survival.motion.flying = flying;
-            self.reset_fall_distance();
-            self.survival.touch(ABILITIES);
-        }
-    }
-
-    /// Lets the player start flying, or not, until its game mode changes. A flight under way goes
-    /// on until the client or [`set_flying`](Self::set_flying) stops it.
-    #[doc(alias = "Player::setAllowFlight")]
-    pub fn set_allow_flight(&mut self, allow: bool) {
         let s = &mut self.survival;
-        if s.custom.allow_flight != Some(allow) {
-            s.custom.allow_flight = Some(allow);
-            s.touch(ABILITIES);
-        }
-    }
-
-    /// Sets the flight speed; 0 stops horizontal flight and a negative speed reverses the
-    /// controls. Fails for a speed that is not finite or beyond what `f32` holds.
-    #[doc(alias = "Player::setFlightSpeedMultiplier")]
-    pub fn set_flight_speed(&mut self, speed: f64) -> Result<()> {
-        within(speed, -f64::from(f32::MAX)..=f64::from(f32::MAX))?;
-        let s = &mut self.survival;
-        if s.custom.flight_speed.to_bits() != speed.to_bits() {
-            s.custom.flight_speed = speed;
-            s.touch(ABILITIES);
-        }
-        Ok(())
-    }
-
-    /// Lets the player move through blocks, or not, until its game mode changes. Without block
-    /// collision the client flies.
-    #[doc(alias = "Player::setHasBlockCollision")]
-    pub fn set_block_collision(&mut self, collision: bool) {
-        let s = &mut self.survival;
-        if s.custom.block_collision != Some(collision) {
-            s.custom.block_collision = Some(collision);
-            s.touch(ABILITIES);
-        }
-    }
-
-    /// Sets or clears the player's respawn point: a world name and the block to respawn on. It is
-    /// saved. A block whose centre lies outside the world border counts as none when the player
-    /// respawns. Fails for a world name longer than 250 bytes, which no world has.
-    #[doc(alias = "Player::setSpawn")]
-    pub fn set_spawn(&mut self, spawn: Option<(&str, BlockPos)>) -> Result<()> {
-        self.survival.spawn = point(spawn)?;
+        s.xp_level = level;
+        s.touch(LEVEL);
         self.data_dirty = true;
         Ok(())
     }
 
-    /// Sets or clears where the player last died, which its recovery compass points to. It is
-    /// saved. Fails for a world name longer than 250 bytes, which no world has.
-    #[doc(alias = "Player::setDeathPosition")]
-    pub fn set_death_position(&mut self, death: Option<(&str, BlockPos)>) -> Result<()> {
-        self.survival.death = point(death)?;
-        self.survival.touch(DATA);
+    /// Sets the progress through the level. Fails outside 0 to below 1 (a full bar is the next
+    /// level), and with `xp = false`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::OutOfRange`] for a progress outside 0 to below 1 or not finite.
+    #[doc(alias = "ExperienceManager::setXpProgress")]
+    pub fn set_xp_progress(&mut self, progress: f64) -> Result<()> {
+        enabled(self.survival.switches.xp)?;
+        if !(progress.is_finite() && (0.0..1.0).contains(&progress)) {
+            return Err(Error::OutOfRange);
+        }
+        let s = &mut self.survival;
+        s.xp_progress = progress;
+        s.touch(XP);
         self.data_dirty = true;
         Ok(())
     }
 
-    /// Sets the name shown above the player, for it and its viewers. Not saved. Fails for a tag
-    /// longer than 65,536 bytes.
-    #[doc(alias = "Entity::setNameTag")]
-    pub fn set_name_tag(&mut self, tag: impl Into<String>) -> Result<()> {
-        let tag = tag.into();
-        check_text(&tag)?;
+    /// Takes xp points, lowering the level; not below 0. Nothing with `xp = false`.
+    #[doc(alias = "ExperienceManager::subtractXp")]
+    pub fn subtract_xp(&mut self, points: u32) {
+        if !self.survival.switches.xp {
+            return;
+        }
         let s = &mut self.survival;
-        s.custom.name_tag = Some(tag);
-        s.touch(TAGS);
-        Ok(())
+        let total = food::current_xp(s).saturating_sub(u64::from(points));
+        food::set_xp(s, total);
+        s.touch(0);
+        self.data_dirty = true;
     }
 
-    /// Sets the line shown under the name tag. Fails for a tag longer than 65,536 bytes.
-    #[doc(alias = "Entity::setScoreTag")]
-    pub fn set_score_tag(&mut self, tag: impl Into<String>) -> Result<()> {
-        let tag = tag.into();
-        check_text(&tag)?;
+    /// Takes xp levels, keeping the progress; not below 0. Nothing with `xp = false`.
+    #[doc(alias = "ExperienceManager::subtractXpLevels")]
+    pub fn subtract_xp_levels(&mut self, levels: u32) {
+        if !self.survival.switches.xp {
+            return;
+        }
         let s = &mut self.survival;
-        s.custom.score_tag = tag;
-        s.touch(TAGS);
-        Ok(())
-    }
-
-    /// Makes the player invisible to its viewers, or not (the invisibility effect still hides
-    /// it while it lasts).
-    #[doc(alias = "Entity::setInvisible")]
-    pub fn set_invisible(&mut self, invisible: bool) {
-        self.survival.custom.invisible = invisible;
-        self.survival.touch(DATA);
-    }
-
-    /// Silences the player, or not.
-    #[doc(alias = "Entity::setSilent")]
-    pub fn set_silent(&mut self, silent: bool) {
-        self.survival.custom.silent = silent;
-        self.survival.touch(DATA);
-    }
-
-    /// Keeps the client from moving the player (it cannot walk, only turn), or lets it again.
-    #[doc(alias = "Entity::setNoClientPredictions")]
-    pub fn set_no_client_predictions(&mut self, frozen: bool) {
-        self.survival.custom.no_client_predictions = frozen;
-        self.survival.touch(DATA);
+        s.xp_level = s.xp_level.saturating_sub(levels);
+        s.touch(LEVEL);
+        self.data_dirty = true;
     }
 }
 
@@ -1359,6 +1488,25 @@ impl Context<'_> {
     #[doc(alias = "Player::hasItemCooldown")]
     pub fn has_item_cooldown(&self, player: Id, item: item::Type) -> bool {
         self.item_cooldown_expiry(player, item).is_some()
+    }
+
+    /// Whether `player`'s eyes are inside an opaque solid block, where it suffocates; false if it
+    /// is gone.
+    #[doc(alias = "Entity::isInsideOfSolid")]
+    pub fn is_player_inside_solid(&self, player: Id) -> bool {
+        self.state
+            .players
+            .get(&player.session())
+            .is_some_and(|p| super::movement::is_inside_solid(self.state, p))
+    }
+
+    /// Whether `player`'s eyes are under water, below the surface; false if it is gone.
+    #[doc(alias = "Entity::isUnderwater")]
+    pub fn is_player_underwater(&self, player: Id) -> bool {
+        self.state
+            .players
+            .get(&player.session())
+            .is_some_and(|p| super::movement::is_underwater(self.state, p))
     }
 
     /// The engine tick ([`Context::tick`]) `item`'s cooldown for `player` ends at, while it runs.
@@ -1375,25 +1523,6 @@ impl Context<'_> {
         p.survival
             .using
             .map(|u| self.state.tick.saturating_sub(u.since))
-    }
-
-    /// Whether `player`'s eyes are under water, below the surface; false if it is gone.
-    #[doc(alias = "Entity::isUnderwater")]
-    pub fn is_player_underwater(&self, player: Id) -> bool {
-        self.state
-            .players
-            .get(&player.session())
-            .is_some_and(|p| super::movement::is_underwater(self.state, p))
-    }
-
-    /// Whether `player`'s eyes are inside an opaque solid block, where it suffocates; false if it
-    /// is gone.
-    #[doc(alias = "Entity::isInsideOfSolid")]
-    pub fn is_player_inside_solid(&self, player: Id) -> bool {
-        self.state
-            .players
-            .get(&player.session())
-            .is_some_and(|p| super::movement::is_inside_solid(self.state, p))
     }
 
     /// The blocks `player` looks through, from its eyes along its look for at most
@@ -1425,6 +1554,46 @@ impl Context<'_> {
         last
     }
 
+    /// Hurts `player` by `amount` half hearts as [`Mut::attack`](crate::entity::Mut::attack)
+    /// hurts an entity, without the event: armor, effects, invulnerability and the game mode
+    /// count, within the hit cooldown only a stronger hit lands (its difference), and a hit that
+    /// starts the cooldown shows the hurt animation. A death follows at the end of the tick with
+    /// the generic death message. False if no damage was taken, as for a player gone or not
+    /// spawned, or an amount that is below 0, above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) or
+    /// not finite.
+    #[doc(alias = "Player::attack")]
+    pub fn attack_player(&mut self, player: Id, amount: f64) -> bool {
+        damage::damage_quiet(self.state, player.session(), amount, damage::Damage::Custom)
+    }
+
+    /// Makes `player` drop `stack` as Q does: it leaves below its eyes along its look, may be
+    /// picked up after 40 ticks, and the viewers see the arm swing. The stack does not come from
+    /// the inventory. `Err` gives the stack back when it is empty, the player is gone or not
+    /// spawned, or the world is at its entity limit.
+    ///
+    /// # Errors
+    ///
+    /// The stack itself, when it is empty, the player is gone or not spawned, or the world is at
+    /// its entity limit.
+    #[doc(alias = "Player::dropItem")]
+    pub fn drop_from(&mut self, player: Id, stack: Stack) -> std::result::Result<(), Stack> {
+        let session = player.session();
+        let spawned = self
+            .state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.phase == Phase::Spawned);
+        if stack.is_empty() || !spawned {
+            return Err(stack);
+        }
+        let back = stack.clone();
+        if inventory::throw_stack(self.state, session, stack) {
+            Ok(())
+        } else {
+            Err(back)
+        }
+    }
+
     /// Starts `item`'s cooldown for `player` again: `ticks` long, or the item's own cooldown for
     /// `None`; the client shows it, up to 2^31 - 1 ticks. Items sharing a cooldown tag share it.
     /// False, starting nothing, if the player is gone or the cooldown would be 0 ticks.
@@ -1445,41 +1614,6 @@ impl Context<'_> {
         }
         food::start_cooldown(tick, p, item, ticks);
         true
-    }
-
-    /// Makes `player` drop `stack` as Q does: it leaves below its eyes along its look, may be
-    /// picked up after 40 ticks, and the viewers see the arm swing. The stack does not come from
-    /// the inventory. `Err` gives the stack back when it is empty, the player is gone or not
-    /// spawned, or the world is at its entity limit.
-    #[doc(alias = "Player::dropItem")]
-    pub fn drop_from(&mut self, player: Id, stack: Stack) -> std::result::Result<(), Stack> {
-        let session = player.session();
-        let spawned = self
-            .state
-            .players
-            .get(&session)
-            .is_some_and(|p| p.phase == Phase::Spawned);
-        if stack.is_empty() || !spawned {
-            return Err(stack);
-        }
-        let back = stack.clone();
-        if inventory::throw_stack(self.state, session, stack) {
-            Ok(())
-        } else {
-            Err(back)
-        }
-    }
-
-    /// Hurts `player` by `amount` half hearts as [`Mut::attack`](crate::entity::Mut::attack)
-    /// hurts an entity, without the event: armour, effects, invulnerability and the game mode
-    /// count, within the hit cooldown only a stronger hit lands (its difference), and a hit that
-    /// starts the cooldown shows the hurt animation. A death follows at the end of the tick with
-    /// the generic death message. False if no damage was taken, as for a player gone or not
-    /// spawned, or an amount that is below 0, above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) or
-    /// not finite.
-    #[doc(alias = "Player::attack")]
-    pub fn attack_player(&mut self, player: Id, amount: f64) -> bool {
-        damage::damage_quiet(self.state, player.session(), amount, damage::Damage::Custom)
     }
 }
 
@@ -1609,7 +1743,7 @@ mod tests {
 
     use crate::item::{Kind as ItemKind, Stack};
     use crate::nbt::{Compound, Value};
-    use crate::player::MAX_TEXT;
+    use crate::player::MAX_TEXT_BYTES;
     use crate::protocol::consts::{Ability, EntityDataFlag, EntityDataKey};
     use crate::protocol::{FlagSet, MetadataValue};
     use crate::tick::inventory;
@@ -1650,12 +1784,12 @@ mod tests {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
         assert_eq!(p.game_mode(), GameMode::Survival);
-        assert!(p.is_survival() && p.has_finite_resources() && !p.allow_flight());
+        assert!(p.is_survival() && p.has_finite_resources() && !p.can_fly());
         p.data_dirty = false;
         p.set_game_mode(GameMode::Survival);
         assert!(!p.data_dirty, "already survival changes nothing");
         p.set_game_mode(GameMode::Creative);
-        assert!(p.is_creative() && !p.has_finite_resources() && p.allow_flight());
+        assert!(p.is_creative() && !p.has_finite_resources() && p.can_fly());
         run(&mut state, Vec::new());
         let got = received(&mut rx1).0;
         let modes: Vec<i32> = got
@@ -1740,11 +1874,12 @@ mod tests {
         assert_eq!(p.set_max_health(0), Err(Error::OutOfRange));
         p.set_max_health(10).unwrap();
         assert_eq!((p.health(), p.max_health()), (10.0, 10.0));
-        p.heal(5.0);
+        assert!(p.heal(5.0));
         assert_eq!(p.health(), 10.0);
         p.set_max_health(40).unwrap();
-        p.heal(5.0);
-        p.heal(f64::NAN);
+        assert!(p.heal(5.0));
+        assert!(!p.heal(f64::NAN));
+        assert!(!p.heal(f64::INFINITY));
         assert_eq!(p.health(), 15.0);
         assert_eq!(p.set_absorption(-1.0), Err(Error::OutOfRange));
         // The attribute and the save keep an f32: more would be infinite there.
@@ -2000,7 +2135,7 @@ mod tests {
         assert!(p.add_effect(haste.with_duration_ticks(u32::MAX)));
         assert!(p.has_effect(effect::Type::Speed));
         let haste = p.effect(effect::Type::Haste).unwrap();
-        assert_eq!(haste.duration_ticks(), crate::effect::MAX_DURATION);
+        assert_eq!(haste.duration_ticks(), crate::effect::MAX_DURATION_TICKS);
         let all: Vec<effect::Type> = p.effects().map(Instance::effect).collect();
         assert_eq!(all, [effect::Type::Haste, effect::Type::Speed]);
         assert!(p.remove_effect(effect::Type::Speed));
@@ -2169,15 +2304,15 @@ mod tests {
     fn flight_and_block_collision_reach_the_ability_layers() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
-        assert!(!p.allow_flight() && !p.is_flying() && p.has_block_collision());
+        assert!(!p.can_fly() && !p.is_flying() && p.has_block_collision());
         assert_eq!(p.flight_speed(), f64::from(ABILITY_BASE_FLY_SPEED));
-        p.set_allow_flight(true);
+        p.set_can_fly(true);
         p.set_flying(true);
         assert_eq!(p.set_flight_speed(f64::NAN), Err(Error::OutOfRange));
         assert_eq!(p.set_flight_speed(1e39), Err(Error::OutOfRange));
         p.set_flight_speed(0.1).unwrap();
         p.set_block_collision(false);
-        assert!(p.allow_flight() && p.is_flying() && !p.has_block_collision());
+        assert!(p.can_fly() && p.is_flying() && !p.has_block_collision());
         run(&mut state, Vec::new());
         let (values, speed, layers) = abilities(&received(&mut rx1).0).expect("abilities sent");
         assert!(values.contains(Ability::MayFly));
@@ -2189,7 +2324,7 @@ mod tests {
             "the spectator layer without collision"
         );
         let p = player_mut(&mut state, 1);
-        p.set_allow_flight(false);
+        p.set_can_fly(false);
         p.set_flying(false);
         p.set_block_collision(true);
         run(&mut state, Vec::new());
@@ -2236,7 +2371,7 @@ mod tests {
         let p = player_mut(&mut state, 1);
         assert_eq!((p.name_tag(), p.score_tag()), ("player1", ""));
         assert_eq!(
-            p.set_name_tag("x".repeat(MAX_TEXT + 1)),
+            p.set_name_tag("x".repeat(MAX_TEXT_BYTES + 1)),
             Err(Error::TooLong)
         );
         p.set_name_tag("§cRed").unwrap();
@@ -2392,9 +2527,9 @@ mod tests {
         let (mut state, _rx) = two();
         run(&mut state, Vec::new());
         let p = player_mut(&mut state, 1);
-        assert!(p.food_enabled());
+        assert!(p.is_food_enabled());
         p.set_food_enabled(false);
-        assert!(!p.food_enabled());
+        assert!(!p.is_food_enabled());
         p.exhaust(8.0).unwrap();
         assert_eq!((p.saturation(), p.exhaustion()), (5.0, 0.0));
         run(&mut state, Vec::new());
@@ -2407,17 +2542,17 @@ mod tests {
         p.exhaust(8.0).unwrap();
         assert_eq!(p.saturation(), 3.0);
         // The other player was never touched.
-        assert!(player_mut(&mut state, 2).food_enabled());
+        assert!(player_mut(&mut state, 2).is_food_enabled());
     }
 
     // api: Living::getArmorPoints, Entity::getLastDamageCause, Entity::setLastDamageCause
     #[test]
-    fn armour_points_and_the_last_damage_cause() {
+    fn armor_points_and_the_last_damage_cause() {
         let (mut state, _rx) = two();
         let p = player_mut(&mut state, 1);
         assert_eq!(p.armor_points(), 0);
         let helmet = Stack::new(ItemKind::DiamondHelmet.default_type(), 1);
-        let points = u32::from(helmet.item().unwrap().defense_points());
+        let points = u32::from(helmet.item().unwrap().armor_points());
         inventory::set_armor(p, 0, helmet);
         assert_eq!(p.armor_points(), points);
         assert_eq!(p.last_damage_cause(), None);
@@ -2447,7 +2582,7 @@ mod tests {
     fn climbing_auto_jump_and_motion_reach_the_client() {
         let (mut state, [mut rx1, mut rx2]) = two();
         let p = player_mut(&mut state, 1);
-        assert!(p.can_climb() && !p.can_climb_walls() && p.auto_jump());
+        assert!(p.can_climb() && !p.can_climb_walls() && p.has_auto_jump());
         p.set_can_climb(false);
         p.set_can_climb_walls(true);
         p.set_auto_jump(false);
@@ -2457,7 +2592,7 @@ mod tests {
         );
         p.set_motion(Vec3::new(0.0, 5.0, 0.0)).unwrap();
         p.set_motion(Vec3::new(0.0, 1.0, 0.0)).unwrap();
-        assert!(!p.can_climb() && p.can_climb_walls() && !p.auto_jump());
+        assert!(!p.can_climb() && p.can_climb_walls() && !p.has_auto_jump());
         run(&mut state, Vec::new());
         let got = received(&mut rx1).0;
         let flags = flags_of(last_data(&got).expect("data sent"));

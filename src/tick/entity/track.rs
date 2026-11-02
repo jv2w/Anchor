@@ -464,9 +464,9 @@ pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> [u8; 4] {
     crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOUR)
 }
 
-/// The ARGB int of an RGBA colour ([`crate::tile::to_argb`]).
+/// The ARGB int of an RGBA colour ([`crate::block_entity::to_argb`]).
 fn argb([r, g, b, a]: [u8; 4]) -> i32 {
-    crate::tile::to_argb(crate::protocol::Rgba { r, g, b, a })
+    crate::block_entity::to_argb(crate::protocol::Rgba { r, g, b, a })
 }
 
 /// The `SetActorData` of a villager whose tier or trade xp changed from `before`: only
@@ -705,7 +705,9 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
                 icon_size: Some([0.2, 0.2]),
                 // A player's waypoint colour is its player list colour (the official server
                 // gives both, P6 `others`).
-                colour: Some(crate::tile::to_argb(crate::tick::spawn::PLAYER_LIST_COLOUR)),
+                colour: Some(crate::block_entity::to_argb(
+                    crate::tick::spawn::PLAYER_LIST_COLOUR,
+                )),
                 client_position_authority: Some(false),
                 actor_unique_id: Some(unique_id),
             },
@@ -801,9 +803,9 @@ pub(super) fn off_hand(runtime_id: u64, stack: &Stack) -> Packet {
     })
 }
 
-/// The armour of a player.
-pub(super) fn armour(runtime_id: u64, armour: &[Stack; 4]) -> Packet {
-    let [helmet, chestplate, leggings, boots] = armour;
+/// The armor of a player.
+pub(super) fn armor(runtime_id: u64, armor: &[Stack; 4]) -> Packet {
+    let [helmet, chestplate, leggings, boots] = armor;
     Packet::MobArmourEquipment(Box::new(MobArmourEquipment {
         entity_runtime_id: runtime_id,
         helmet: instance(helmet),

@@ -79,7 +79,7 @@ paths:
 - Keep a block state outside the table as stored in a block entity too: a flower pot plant (`PlantBlock`) Anchor does not know stays as it came and never goes to clients. A banner pattern ID Anchor does not know stays and goes to clients.
 - The public API shows only blocks and patterns Anchor knows.
 - Send a block entity whose kind Anchor does not type (`Kind::Other`) to clients as stored when it has an `id`.
-- Drop items Anchor does not know from block entities, with an info log (warn for an item in no valid slot).
+- Drop items Anchor does not know from a saved inventory, block entity, or entity through `inventory::read_saved_stack`, which warns with the owner and says the next save loses the item for good (renaming or removing a custom item ID loses its stored items).
 
 ## Upgrade schemas
 - Use only the generated constant `BLOCK_STATE_VERSION` as the block state version.

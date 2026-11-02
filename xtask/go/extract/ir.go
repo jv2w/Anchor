@@ -42,7 +42,7 @@ package main
 //
 // # Values
 //
-// Constant values (Const.Value, Expr.Value) are strings: decimal integers, Go "g" formatted floats,
+// Constant values (DeclConst.Value, Expr.Value) are strings: decimal integers, Go "g" formatted floats,
 // "true"/"false", or the raw string content. The accompanying Type tells how to parse them.
 
 // IR is the root object of protocol.json.
@@ -63,8 +63,6 @@ type IR struct {
 	Enums []Enum `json:"enums"`
 	// Unions lists the interface variant tables (lookup functions), sorted by name.
 	Unions []Union `json:"unions"`
-	// Constants lists every named constant referenced anywhere in the IR, sorted by name.
-	Constants []Const `json:"constants"`
 	// ConstDecls lists every const declaration of protocol and packet that declares an exported name,
 	// sorted by package, file and position. The generator turns them into the named protocol constants.
 	ConstDecls []ConstDecl `json:"const_decls"`
@@ -72,8 +70,6 @@ type IR struct {
 
 // Source identifies the extracted module snapshot.
 type Source struct {
-	// Module is the Go module path ("github.com/sandertv/gophertunnel").
-	Module string `json:"module"`
 	// Version is the Go module version.
 	Version string `json:"version"`
 	// Commit is the full git commit hash of the snapshot.
@@ -91,10 +87,6 @@ type Source struct {
 type IOMethod struct {
 	// Name is the method name ("Varuint32").
 	Name string `json:"name"`
-	// Params are the parameters in order, with their Go types (the first one is usually a pointer).
-	Params []Param `json:"params"`
-	// Results are the result types, if any.
-	Results []Type `json:"results,omitempty"`
 }
 
 // Packet is one registered packet.
@@ -148,7 +140,7 @@ type Field struct {
 //	{"kind":"basic","name":"uint32"}            bool, uint8 (byte is uint8), int8, uint16, int16, uint32, int32,
 //	                                           uint64, int64, int, uint, float32, float64, string, or
 //	                                           "untyped int"/"untyped float"/"untyped string"/"untyped bool"
-//	                                           for declared constant types (Const.Type) and untyped constants
+//	                                           for declared constant types (DeclConst.Basic) and untyped constants
 //	                                           that stay untyped in an expression
 //	{"kind":"named","name":"protocol.BlockPos"} a type in protocol or packet (see IR.Types)
 //	{"kind":"external","name":"mgl32.Vec3"}     a named type from another package
@@ -242,8 +234,6 @@ type Union struct {
 	IDType Type `json:"id_type"`
 	// Key is "id" or "type" (see Union).
 	Key string `json:"key"`
-	// Params are the function parameters (a reference parameter is an output).
-	Params []Param `json:"params"`
 	// Results are the function results (the last one is the success bool).
 	Results []Type `json:"results"`
 	// Entries are the table rows in source order.
@@ -259,16 +249,6 @@ type UnionEntry struct {
 	Variants []*string `json:"variants"`
 	// Extra are further produced values besides the ID and the bool, in result order (Key "type" only).
 	Extra []Expr `json:"extra,omitempty"`
-}
-
-// Const is a named constant.
-type Const struct {
-	// Name is the qualified name ("packet.TextTypeChat").
-	Name string `json:"name"`
-	// Type is the declared type (often "untyped int" for iota constants).
-	Type Type `json:"type"`
-	// Value is the exact value (see "Values" above).
-	Value string `json:"value"`
 }
 
 // ConstDecl is one const declaration ("const X = 1" or "const ( ... )") with its exported names.

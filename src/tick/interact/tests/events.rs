@@ -448,7 +448,7 @@ fn a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places(
 }
 
 // api: PlayerItemUseEvent
-/// Wearing armour by a click in the air: the client predicts the hand empty and the armour worn.
+/// Wearing armor by a click in the air: the client predicts the hand empty and the armor worn.
 /// A cancelled use sends the inventory back when the click, from either packet, carried that
 /// prediction, and nothing when it carried none.
 #[test]
@@ -708,7 +708,7 @@ fn starting_to_eat_asks_the_item_use_listeners() {
 
 // api: PlayerItemUseEvent
 #[test]
-fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_in_hand() {
+fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in_hand() {
     let helmet = stack(ItemKind::IronHelmet);
     let mut l = listen(move |e: &mut PlayerItemUse, _: &mut Context<'_>| {
         let look = e.direction_vector();
@@ -790,7 +790,7 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
             TARGET,
             empty.clone(),
             hello,
-            crate::tile::Side::Front
+            crate::block_entity::Side::Front
         ))]
     );
     assert_eq!(front_lines(&h), ["a", "b", "§cc", "d"]);
@@ -1111,14 +1111,6 @@ struct Chaos {
 }
 
 impl Chaos {
-    fn next(&mut self) -> u64 {
-        // xorshift64.
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 7;
-        self.seed ^= self.seed << 17;
-        self.seed
-    }
-
     /// Meddles at `at`; true to cancel.
     fn meddle(&mut self, cx: &mut Context<'_>, at: Option<BlockPos>) -> bool {
         self.calls += 1;
@@ -1156,6 +1148,14 @@ impl Chaos {
             _ => {}
         }
         false
+    }
+
+    fn next(&mut self) -> u64 {
+        // xorshift64.
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 7;
+        self.seed ^= self.seed << 17;
+        self.seed
     }
 }
 

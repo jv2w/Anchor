@@ -11,7 +11,7 @@ use crate::math::Vec3;
 use crate::world::BlockPos;
 use crate::{entity, player};
 
-/// The player left-clicks the block at `pos` on `face`.
+/// A player's left click on the block at `pos` on `face`.
 ///
 /// `pos` is in the world the player is in when the action runs. The player starts breaking the
 /// block, after [`PlayerInteract`](crate::event::PlayerInteract).
@@ -24,7 +24,7 @@ pub struct AttackBlock {
 }
 
 impl AttackBlock {
-    /// `player` left-clicks the block at `pos` on `face`.
+    /// A left click by `player` on the block at `pos` on `face`.
     pub fn new(player: player::Id, pos: BlockPos, face: Face) -> Self {
         Self { player, pos, face }
     }
@@ -32,7 +32,7 @@ impl AttackBlock {
 
 impl Action for AttackBlock {}
 
-/// The player breaks the block at `pos` now with the held item.
+/// A player's immediate break of the block at `pos` with the held item.
 ///
 /// It is as if the break time had passed ([`BlockBreak`](crate::event::BlockBreak) starts with
 /// `insta_break` set). The position is in the world the player is in when the action runs, and
@@ -46,7 +46,7 @@ pub struct BreakBlock {
 }
 
 impl BreakBlock {
-    /// `player` breaks the block at `pos`.
+    /// A break of the block at `pos` by `player`.
     pub fn new(player: player::Id, pos: BlockPos) -> Self {
         Self { player, pos }
     }
@@ -54,7 +54,7 @@ impl BreakBlock {
 
 impl Action for BreakBlock {}
 
-/// The player right-clicks the entity `entity`.
+/// A player's right click on the entity `entity`.
 ///
 /// It comes after [`PlayerEntityInteract`](crate::event::PlayerEntityInteract). A villager NPC
 /// opens trading. A custom entity's
@@ -70,7 +70,7 @@ pub struct InteractEntity {
 }
 
 impl InteractEntity {
-    /// `player` right-clicks `entity` at `click`, relative to the entity's position.
+    /// A right click by `player` on `entity` at `click`, relative to the entity's position.
     ///
     /// A part of `click` that is not finite counts as 0.
     pub fn new(player: player::Id, entity: entity::Id, click: Vec3) -> Self {
@@ -84,9 +84,9 @@ impl InteractEntity {
 
 impl Action for InteractEntity {}
 
-/// The player uses the held item in the air.
+/// A player's use of the held item in the air.
 ///
-/// It throws the item, puts armour on, or starts eating or drawing a bow (with
+/// It throws the item, puts armor on, or starts eating or drawing a bow (with
 /// [`PlayerItemUse`](crate::event::PlayerItemUse)). It never releases an item the player has
 /// drawn.
 #[doc(alias = "Player::useHeldItem")]
@@ -96,7 +96,7 @@ pub struct UseItem {
 }
 
 impl UseItem {
-    /// `player` uses the held item in the air.
+    /// A use of the held item in the air by `player`.
     pub fn new(player: player::Id) -> Self {
         Self { player }
     }
@@ -104,7 +104,7 @@ impl UseItem {
 
 impl Action for UseItem {}
 
-/// The player right-clicks the block at `pos` on `face` with the held item.
+/// A player's right click on the block at `pos` on `face` with the held item.
 ///
 /// `pos` is in the world the player is in when the action runs. The block reacts, or the item is
 /// used on it or placed (with [`PlayerInteract`](crate::event::PlayerInteract) and the events
@@ -119,7 +119,7 @@ pub struct UseItemOn {
 }
 
 impl UseItemOn {
-    /// `player` right-clicks the block at `pos` on `face`, at `click` on the face.
+    /// A right click by `player` on the block at `pos` on `face`, at `click` on the face.
     ///
     /// Each part of `click` is 0 to 1 (other values are clamped, a value that is not finite
     /// counts as 0).

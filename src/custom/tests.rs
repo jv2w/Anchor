@@ -5,7 +5,7 @@ use super::*;
 use crate::block::{self, PropertyValue, ToolType};
 use crate::item::{self, Stack};
 use crate::math::{Aabb, Vec3};
-use crate::nbt::{Compound, List, Value};
+use crate::nbt::{Compound, List, Value, child_compound};
 use crate::protocol::consts::CreativeCategory;
 use crate::protocol::packet::Packet;
 use crate::world::{Chunk, Entry};
@@ -156,18 +156,11 @@ fn runtime_ids_follow_the_vanilla_ones_in_registration_order() {
     );
 }
 
-fn compound<'a>(c: &'a Compound, key: &str) -> &'a Compound {
-    match c.get(key) {
-        Some(Value::Compound(c)) => c,
-        other => panic!("{key}: {other:?}"),
-    }
-}
-
 #[test]
 fn item_components_have_the_shape_the_client_reads() {
     let sword = SWORD.to_components();
-    let components = compound(&sword, "components");
-    let properties = compound(components, "item_properties");
+    let components = child_compound(&sword, "components");
+    let properties = child_compound(components, "item_properties");
     assert_eq!(properties.get("max_stack_size"), Some(&Value::Int(1)));
     assert_eq!(properties.get("hand_equipped"), Some(&Value::Byte(1)));
     assert_eq!(properties.get("allow_off_hand"), Some(&Value::Byte(1)));
@@ -180,22 +173,22 @@ fn item_components_have_the_shape_the_client_reads() {
         properties.get("creative_category"),
         Some(&Value::Int(CreativeCategory::Items as i32))
     );
-    let icon = compound(compound(properties, "minecraft:icon"), "textures");
+    let icon = child_compound(child_compound(properties, "minecraft:icon"), "textures");
     assert_eq!(
         icon.get("default"),
         Some(&Value::String("test_sword".to_owned()))
     );
     assert_eq!(
-        compound(components, "minecraft:durability").get("max_durability"),
+        child_compound(components, "minecraft:durability").get("max_durability"),
         Some(&Value::Int(100))
     );
     assert_eq!(
-        compound(components, "minecraft:display_name").get("value"),
+        child_compound(components, "minecraft:display_name").get("value"),
         Some(&Value::String("Ruby Sword".to_owned()))
     );
     let apple = APPLE.to_components();
-    let components = compound(&apple, "components");
-    let properties = compound(components, "item_properties");
+    let components = child_compound(&apple, "components");
+    let properties = child_compound(components, "item_properties");
     assert_eq!(properties.get("foil"), Some(&Value::Byte(1)));
     assert_eq!(properties.get("can_destroy_in_creative"), None);
     assert_eq!(properties.get("use_duration"), Some(&Value::Int(32)));
@@ -204,7 +197,7 @@ fn item_components_have_the_shape_the_client_reads() {
         Some(&Value::String("itemGroup.name.test".to_owned()))
     );
     assert_eq!(
-        compound(components, "minecraft:food").get("can_always_eat"),
+        child_compound(components, "minecraft:food").get("can_always_eat"),
         Some(&Value::Byte(1))
     );
 }
@@ -221,7 +214,7 @@ fn custom_types_answer_the_rules_from_their_definition() {
     let apple = r.item_type(&APPLE).unwrap();
     let food = apple.food().unwrap();
     assert_eq!((food.food_restore(), food.saturation_restore()), (4, 9.6));
-    assert!(!food.requires_food());
+    assert!(food.can_eat_when_full());
     assert!(apple.consumable().is_some() && apple.is(item::Class::Food));
     let ruby = r.item_type(&RUBY).unwrap();
     assert_eq!(ruby.max_stack_size(), 64);
@@ -396,26 +389,26 @@ fn start_game_blocks_carry_the_components_the_client_reads() {
     assert_eq!(blocks[0].name, "test:ruby_ore");
     let ore = &blocks[0].properties;
     assert_eq!(
-        compound(ore, "vanilla_block_data").get("block_id"),
+        child_compound(ore, "vanilla_block_data").get("block_id"),
         Some(&Value::Int(10_000))
     );
     assert_eq!(
-        compound(&blocks[1].properties, "vanilla_block_data").get("block_id"),
+        child_compound(&blocks[1].properties, "vanilla_block_data").get("block_id"),
         Some(&Value::Int(10_001))
     );
     assert_eq!(ore.get("properties"), None);
     assert_eq!(
-        compound(ore, "menu_category").get("category"),
+        child_compound(ore, "menu_category").get("category"),
         Some(&Value::String("nature".to_owned()))
     );
-    let components = compound(ore, "components");
+    let components = child_compound(ore, "components");
     // 3 × 5 seconds by hand without a pickaxe.
     assert_eq!(
-        compound(components, "minecraft:destructible_by_mining").get("value"),
+        child_compound(components, "minecraft:destructible_by_mining").get("value"),
         Some(&Value::Float(15.0))
     );
     assert_eq!(
-        compound(components, "minecraft:geometry").get("identifier"),
+        child_compound(components, "minecraft:geometry").get("identifier"),
         Some(&Value::String("minecraft:geometry.full_block".to_owned()))
     );
     let lamp = &blocks[1].properties;
@@ -431,34 +424,37 @@ fn start_game_blocks_carry_the_components_the_client_reads() {
         properties[2].get("enum"),
         Some(&Value::List(List::Byte(vec![0, 1])))
     );
-    let components = compound(lamp, "components");
-    let materials = compound(
-        compound(components, "minecraft:material_instances"),
+    let components = child_compound(lamp, "components");
+    let materials = child_compound(
+        child_compound(components, "minecraft:material_instances"),
         "materials",
     );
     assert_eq!(materials.len(), 2);
     assert_eq!(
-        compound(materials, "*").get("render_method"),
+        child_compound(materials, "*").get("render_method"),
         Some(&Value::String("alpha_test".to_owned()))
     );
     assert_eq!(
-        compound(materials, "up").get("texture"),
+        child_compound(materials, "up").get("texture"),
         Some(&Value::String("test_lamp_top".to_owned()))
     );
-    let collision = compound(components, "minecraft:collision_box");
+    let collision = child_compound(components, "minecraft:collision_box");
     let Some(Value::List(List::Compound(boxes))) = collision.get("boxes") else {
         panic!("{collision:?}");
     };
     assert_eq!(boxes[0].get("maxY"), Some(&Value::Float(8.0)));
     assert_eq!(boxes[0].get("minX"), Some(&Value::Float(4.0)));
     assert_eq!(
-        compound(components, "minecraft:light_emission").get("emission"),
+        child_compound(components, "minecraft:light_emission").get("emission"),
         Some(&Value::Int(15))
     );
     // Only a block given a flammability carries the component.
-    assert!(!compound(ore, "components").contains_key("minecraft:flammable"));
+    assert!(!child_compound(ore, "components").contains_key("minecraft:flammable"));
     let flammable = FLAMMABLE.entry_nbt(10_002);
-    let flammable = compound(compound(&flammable, "components"), "minecraft:flammable");
+    let flammable = child_compound(
+        child_compound(&flammable, "components"),
+        "minecraft:flammable",
+    );
     assert_eq!(flammable.get("burn_odds"), Some(&Value::Int(5)));
     assert_eq!(flammable.get("flame_odds"), Some(&Value::Int(20)));
     // Every definition round-trips through the codec.

@@ -62,7 +62,9 @@ impl Context<'_> {
     /// runs at most 16,384 deferred callbacks; a callback that keeps deferring more leaves the
     /// rest to the next tick.
     ///
-    /// Fails, queueing nothing, while 4,096 callbacks wait.
+    /// # Errors
+    ///
+    /// [`action::Error::Full`] while 4,096 callbacks wait; nothing is queued.
     pub fn defer(
         &mut self,
         callback: impl FnOnce(&mut Context<'_>) + Send + 'static,
@@ -80,7 +82,9 @@ impl Context<'_> {
     /// such as [`teleport`](Self::teleport) raise no events; this does. The action makes its
     /// checks when it runs, and nothing reports one that fails: it then does nothing.
     ///
-    /// Fails, queueing nothing, while 4,096 callbacks wait.
+    /// # Errors
+    ///
+    /// [`action::Error::Full`] while 4,096 callbacks wait; nothing is queued.
     pub fn perform(&mut self, action: impl Action) -> action::Result<()> {
         self.defer(move |cx| action::Sealed::perform(action, cx))
     }
@@ -168,26 +172,26 @@ mod tests {
             listeners.push(
                 priority,
                 move |e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
-                    let mut reason = e.disconnect_reason().to_owned();
+                    let mut reason = e.kick_reason().to_owned();
                     reason.push_str(", ");
                     reason.push_str(name);
-                    e.set_disconnect_reason(reason);
+                    e.set_kick_reason(reason);
                 },
             );
         }
         listeners.push_monitor(|e: &PlayerDuplicateLogin, cx: &Context<'_>| {
-            assert!(e.disconnect_reason().ends_with("highest"));
+            assert!(e.kick_reason().ends_with("highest"));
             assert_eq!(cx.tick(), 0);
         });
         let mut state = new_state(settings(|_| {}), listeners);
         assert!(heard::<PlayerDuplicateLogin>(&state));
         assert!(listened::<PlayerDuplicateLogin>(&state));
         let mut event = PlayerDuplicateLogin::new(identity("a"), identity("A"));
-        event.set_disconnect_reason("start");
+        event.set_kick_reason("start");
         call(&mut state, &mut event);
         watch(&mut state, &event);
         assert_eq!(
-            event.disconnect_reason(),
+            event.kick_reason(),
             "start, lowest, low, normal 1, normal 2, normal 3, high, highest"
         );
         assert_eq!(

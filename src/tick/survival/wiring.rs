@@ -70,24 +70,8 @@ impl Game {
         game
     }
 
-    fn run(&mut self, mut inputs: Vec<Input>) {
-        crate::tick::tests::tick(&mut self.state, &mut inputs, &mut Output::default());
-    }
-
-    fn idle(&mut self, ticks: u32) {
-        for _ in 0..ticks {
-            self.run(Vec::new());
-        }
-    }
-
-    fn send(&mut self, s: u64, packet_: Packet) -> Input {
-        self.seq += 1;
-        input(s, self.seq, packet(packet_))
-    }
-
-    fn take(&mut self, s: u64) -> Vec<Packet> {
-        let index = usize::try_from(s - 1).unwrap();
-        received(&mut self.receivers[index]).0
+    fn player(&self, s: u64) -> &Player {
+        &self.state.players[&sid(s)]
     }
 
     /// The last packet of session `s`, if it was closed, and what it got before.
@@ -97,16 +81,15 @@ impl Game {
         (packets, close)
     }
 
-    fn player(&self, s: u64) -> &Player {
-        &self.state.players[&sid(s)]
-    }
-
-    fn player_mut(&mut self, s: u64) -> &mut Player {
-        self.state.players.get_mut(&sid(s)).unwrap()
-    }
-
-    fn survival_mut(&mut self, s: u64) -> &mut Survival {
-        &mut self.player_mut(s).survival
+    /// Sends an auth input of session `s` at its position with `flags`.
+    fn flags(&mut self, s: u64, flags: &[InputFlag]) -> Input {
+        let set: FlagSet<InputFlag> = flags.iter().copied().collect();
+        let auth = p::PlayerAuthInput {
+            position: self.player(s).position.to_f32(),
+            input_data: InputFlags::from_set(&set),
+            ..p::PlayerAuthInput::default()
+        };
+        self.send(s, Packet::PlayerAuthInput(Box::new(auth)))
     }
 
     /// Runs `action` as a listener or task would, then one tick.
@@ -119,15 +102,32 @@ impl Game {
         self.idle(1);
     }
 
-    /// Sends an auth input of session `s` at its position with `flags`.
-    fn flags(&mut self, s: u64, flags: &[InputFlag]) -> Input {
-        let set: FlagSet<InputFlag> = flags.iter().copied().collect();
-        let auth = p::PlayerAuthInput {
-            position: self.player(s).position.to_f32(),
-            input_data: InputFlags::from_set(&set),
-            ..p::PlayerAuthInput::default()
-        };
-        self.send(s, Packet::PlayerAuthInput(Box::new(auth)))
+    fn idle(&mut self, ticks: u32) {
+        for _ in 0..ticks {
+            self.run(Vec::new());
+        }
+    }
+
+    fn survival_mut(&mut self, s: u64) -> &mut Survival {
+        &mut self.player_mut(s).survival
+    }
+
+    fn player_mut(&mut self, s: u64) -> &mut Player {
+        self.state.players.get_mut(&sid(s)).unwrap()
+    }
+
+    fn run(&mut self, mut inputs: Vec<Input>) {
+        crate::tick::tests::tick(&mut self.state, &mut inputs, &mut Output::default());
+    }
+
+    fn send(&mut self, s: u64, packet_: Packet) -> Input {
+        self.seq += 1;
+        input(s, self.seq, packet(packet_))
+    }
+
+    fn take(&mut self, s: u64) -> Vec<Packet> {
+        let index = usize::try_from(s - 1).unwrap();
+        received(&mut self.receivers[index]).0
     }
 }
 
@@ -229,14 +229,14 @@ fn damage_listeners_see_the_hit_and_cancel_or_change_it() {
     assert_eq!(
         game.survival_mut(1).health,
         15.0,
-        "the armour modifier was set to 0"
+        "the armor modifier was set to 0"
     );
     let calls = drain(&mut seen);
     assert_eq!(calls.len(), 3);
     assert!(calls.iter().all(|c| c.0 == Actor::Player(pid(1))
         && c.1 == DamageCause::Contact
         && c.2 == DamageSource::None));
-    assert!(calls[2].3 < 0.0, "armour reduces the hit");
+    assert!(calls[2].3 < 0.0, "armor reduces the hit");
 }
 
 // api: EntityDamageByEntityEvent, EntityDamageEvent
@@ -404,7 +404,7 @@ fn a_hit_a_listener_weakens_wastes_neither_a_totem_nor_absorption() {
 fn a_totem_a_listener_takes_out_of_hand_saves_no_one() {
     let listeners = on(|e: &mut EntityDamage, cx: &mut Context<'_>| {
         if let Actor::Player(p) = e.entity() {
-            assert!(cx.player_mut(p).unwrap().set_held_slot(1));
+            cx.player_mut(p).unwrap().set_held_slot(1).unwrap();
         }
     });
     let mut game = Game::new(1, listeners);
@@ -976,7 +976,7 @@ fn toggle_listeners(tx: mpsc::Sender<&'static str>) -> Listeners {
 #[test]
 fn a_client_flight_toggle_forgets_the_fall() {
     let mut game = Game::new(1, Listeners::default());
-    game.player_mut(1).set_allow_flight(true);
+    game.player_mut(1).set_can_fly(true);
     game.player_mut(1).set_flying(true);
     game.idle(1);
     // In the air: no landing ends the fall instead.
@@ -995,7 +995,7 @@ fn a_client_flight_toggle_forgets_the_fall() {
 fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     let (tx, mut seen) = record();
     let mut game = Game::new(2, toggle_listeners(tx));
-    game.player_mut(1).set_allow_flight(true);
+    game.player_mut(1).set_can_fly(true);
     game.idle(1);
     game.take(1);
     let input = game.flags(
@@ -1397,11 +1397,11 @@ fn chat_listeners_change_the_line_its_format_and_recipients() {
 #[test]
 fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
     let mut listeners = on(|e: &mut PlayerKick, _: &mut Context<'_>| {
-        if e.disconnect_reason() == "stay" {
+        if e.kick_reason() == "stay" {
             e.cancel();
         } else {
             e.set_quit_message("player1 was kicked".to_owned());
-            e.set_disconnect_screen_message(Some("bye".to_owned()));
+            e.set_kick_screen_message(Some("bye".to_owned()));
         }
     });
     let (tx, mut seen) = record();
@@ -1527,10 +1527,10 @@ fn the_damage_action_hurts_through_the_rules() {
     assert_eq!(drain(&mut seen), [pid(1)]);
 }
 
-/// The largest hit of a player with the strongest Strength kills through armour, and a totem
+/// The largest hit of a player with the strongest Strength kills through armor, and a totem
 /// still saves from it, leaving one health.
 #[test]
-fn the_largest_hit_of_a_strong_player_kills_through_armour_and_a_totem_saves_from_it() {
+fn the_largest_hit_of_a_strong_player_kills_through_armor_and_a_totem_saves_from_it() {
     for amplifier in [0, 255] {
         for totem in [false, true] {
             let mut game = Game::new(2, Listeners::default());
@@ -2148,7 +2148,7 @@ fn the_thorns_answer_counts_the_wearers_strength() {
 }
 
 #[test]
-fn armour_off_neither_protects_nor_wears_nor_answers_with_thorns() {
+fn armor_off_neither_protects_nor_wears_nor_answers_with_thorns() {
     let (tx, mut seen) = record();
     let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
         let used = [

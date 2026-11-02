@@ -12,16 +12,16 @@ use crate::tick::{Context, SessionId, State};
 use crate::world::BlockPos;
 
 impl Context<'_> {
-    /// The item type of the registered custom item `item`; `None` if the server was not given
-    /// it ([`ServerBuilder::custom_item`](crate::ServerBuilder::custom_item)).
-    pub fn custom_item(&self, item: &custom::Item) -> Option<item::Type> {
-        self.state.custom.item_type(item)
-    }
-
     /// The default state of the registered custom block `block` (the first value of each
     /// property; [`block::State::with`] changes one); `None` if the server was not given it.
     pub fn custom_block(&self, block: &custom::Block) -> Option<block::State> {
         self.state.custom.block_state(block)
+    }
+
+    /// The item type of the registered custom item `item`; `None` if the server was not given
+    /// it ([`ServerBuilder::custom_item`](crate::ServerBuilder::custom_item)).
+    pub fn custom_item(&self, item: &custom::Item) -> Option<item::Type> {
+        self.state.custom.item_type(item)
     }
 
     /// The item type an [`ItemRef`](custom::ItemRef) names: a vanilla one, or a registered

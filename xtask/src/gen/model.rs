@@ -28,13 +28,19 @@ const HAND_CODECS: &[&str] = &[
     "protocol.PackSetting",
 ];
 
-/// Functions written by hand in `src/protocol/union_frame.rs` as `Reader`/`Writer` methods,
-/// with the method name. A Go union value is a pointer, so a body that copies one into a local
-/// and changes it through the copy has no value-type translation.
-const HAND_FUNCTIONS: &[(&str, &str)] = &[(
-    "protocol.StackRequestItemDescriptorCount",
-    "stack_request_item_descriptor_count",
-)];
+/// Functions written by hand as `Reader`/`Writer` methods, with the method name: the first
+/// argument is the place read or written, the others are `Copy` values the method takes after
+/// it. A Go union value is a pointer, so a body that copies one into a local and changes it
+/// through the copy has no value-type translation (`src/protocol/union_frame.rs`); the input
+/// flags are checked for duplicates with a bit mask instead of the quadratic search the Go body
+/// has (`src/protocol/flags.rs`).
+const HAND_FUNCTIONS: &[(&str, &str)] = &[
+    ("protocol.InputFlagList", "input_flag_list"),
+    (
+        "protocol.StackRequestItemDescriptorCount",
+        "stack_request_item_descriptor_count",
+    ),
+];
 
 /// Go types with a hand-written Rust type (`src/protocol/*.rs`): Go name, Rust name, whether the
 /// Rust type is `Copy`, and its size in bytes, which decides boxing; the generated code asserts
@@ -327,6 +333,14 @@ impl<'a> Model<'a> {
         self.types.get(go).is_some_and(|t| t.marshal.is_some())
     }
 
+    /// Whether a union variant or packet type is boxed: its estimated size is past
+    /// [`BOX_OVER`].
+    pub(crate) fn is_boxed(&self, go: &str) -> bool {
+        self.types
+            .get(go)
+            .is_some_and(|d| self.struct_bytes(d) > BOX_OVER)
+    }
+
     /// Whether the Rust type of a Go type is `Copy`.
     pub(crate) fn is_copy(&self, t: &Type) -> bool {
         match t.kind.as_str() {
@@ -346,14 +360,6 @@ impl<'a> Model<'a> {
             "any" => true,
             _ => false,
         }
-    }
-
-    /// Whether a union variant or packet type is boxed: its estimated size is past
-    /// [`BOX_OVER`].
-    pub(crate) fn is_boxed(&self, go: &str) -> bool {
-        self.types
-            .get(go)
-            .is_some_and(|d| self.struct_bytes(d) > BOX_OVER)
     }
 
     /// The Rust type of a Go type, written from `from`.
@@ -410,83 +416,6 @@ impl<'a> Model<'a> {
     /// The fields of a named struct type.
     pub(crate) fn struct_def(&self, go: &str) -> Option<&'a TypeDef> {
         self.types.get(go).copied().filter(|t| t.kind == "struct")
-    }
-
-    fn collect_names(&mut self) -> Result<(), String> {
-        let hand: BTreeSet<&str> = hand_names().collect();
-        let mut seen: BTreeMap<(Module, String), String> = BTreeMap::new();
-        for t in &self.ir.types {
-            if hand_type(&t.name).is_some() {
-                continue;
-            }
-            let module = if self.packets.contains(t.name.as_str()) || package(&t.name) == "packet" {
-                Module::Packet
-            } else {
-                Module::Types
-            };
-            let rust = names::type_name(&t.name)?;
-            if module == Module::Types && hand.contains(rust.as_str()) {
-                return Err(format!(
-                    "{} converts to {rust}, the name of a hand type",
-                    t.name
-                ));
-            }
-            if let Some(other) = seen.insert((module, rust.clone()), t.name.clone()) {
-                return Err(format!("{other} and {} both convert to {rust}", t.name));
-            }
-            self.rust_names.insert(t.name.clone(), (rust, module));
-        }
-        Ok(())
-    }
-
-    fn collect_unions(&mut self) -> Result<(), String> {
-        for u in &self.ir.unions {
-            if u.key != "id" {
-                continue;
-            }
-            let mut go = Vec::new();
-            for entry in &u.entries {
-                let [Some(variant)] = entry.variants.as_slice() else {
-                    return Err(format!("{}: an id row must give one variant", u.name));
-                };
-                if !go.contains(variant) {
-                    go.push(variant.clone());
-                }
-            }
-            let locals: Vec<&str> = go.iter().map(|g| local(g)).collect();
-            let rust_variants = names::variants(&locals);
-            let rust = names::type_name(&u.interface)?;
-            if self.interfaces.contains_key(&u.interface) {
-                return Err(format!("{}: two id lookups", u.interface));
-            }
-            for g in &go {
-                self.variant_of.insert(g.clone(), u.interface.clone());
-            }
-            self.interfaces.insert(
-                u.interface.clone(),
-                UnionInfo {
-                    rust,
-                    variants: go.into_iter().zip(rust_variants).collect(),
-                    by_id: u.name.clone(),
-                    by_type: Vec::new(),
-                },
-            );
-        }
-        for u in &self.ir.unions {
-            if u.key == "type" {
-                let info = self
-                    .interfaces
-                    .get_mut(&u.interface)
-                    .ok_or_else(|| format!("{}: no id lookup for {}", u.name, u.interface))?;
-                info.by_type.push(u.name.clone());
-            }
-        }
-        for t in &self.ir.types {
-            if t.kind == "interface" && !self.interfaces.contains_key(&t.name) {
-                return Err(format!("interface {} has no union table", t.name));
-            }
-        }
-        Ok(())
     }
 
     /// `name` as written from `from`: a protocol type that a packet item shadows is written
@@ -582,6 +511,83 @@ impl<'a> Model<'a> {
         } else {
             self.size(&f.ty)
         }
+    }
+
+    fn collect_names(&mut self) -> Result<(), String> {
+        let hand: BTreeSet<&str> = hand_names().collect();
+        let mut seen: BTreeMap<(Module, String), String> = BTreeMap::new();
+        for t in &self.ir.types {
+            if hand_type(&t.name).is_some() {
+                continue;
+            }
+            let module = if self.packets.contains(t.name.as_str()) || package(&t.name) == "packet" {
+                Module::Packet
+            } else {
+                Module::Types
+            };
+            let rust = names::type_name(&t.name)?;
+            if module == Module::Types && hand.contains(rust.as_str()) {
+                return Err(format!(
+                    "{} converts to {rust}, the name of a hand type",
+                    t.name
+                ));
+            }
+            if let Some(other) = seen.insert((module, rust.clone()), t.name.clone()) {
+                return Err(format!("{other} and {} both convert to {rust}", t.name));
+            }
+            self.rust_names.insert(t.name.clone(), (rust, module));
+        }
+        Ok(())
+    }
+
+    fn collect_unions(&mut self) -> Result<(), String> {
+        for u in &self.ir.unions {
+            if u.key != "id" {
+                continue;
+            }
+            let mut go = Vec::new();
+            for entry in &u.entries {
+                let [Some(variant)] = entry.variants.as_slice() else {
+                    return Err(format!("{}: an id row must give one variant", u.name));
+                };
+                if !go.contains(variant) {
+                    go.push(variant.clone());
+                }
+            }
+            let locals: Vec<&str> = go.iter().map(|g| local(g)).collect();
+            let rust_variants = names::variants(&locals);
+            let rust = names::type_name(&u.interface)?;
+            if self.interfaces.contains_key(&u.interface) {
+                return Err(format!("{}: two id lookups", u.interface));
+            }
+            for g in &go {
+                self.variant_of.insert(g.clone(), u.interface.clone());
+            }
+            self.interfaces.insert(
+                u.interface.clone(),
+                UnionInfo {
+                    rust,
+                    variants: go.into_iter().zip(rust_variants).collect(),
+                    by_id: u.name.clone(),
+                    by_type: Vec::new(),
+                },
+            );
+        }
+        for u in &self.ir.unions {
+            if u.key == "type" {
+                let info = self
+                    .interfaces
+                    .get_mut(&u.interface)
+                    .ok_or_else(|| format!("{}: no id lookup for {}", u.name, u.interface))?;
+                info.by_type.push(u.name.clone());
+            }
+        }
+        for t in &self.ir.types {
+            if t.kind == "interface" && !self.interfaces.contains_key(&t.name) {
+                return Err(format!("interface {} has no union table", t.name));
+            }
+        }
+        Ok(())
     }
 }
 

@@ -82,6 +82,7 @@ pub mod action;
 mod args;
 mod auth;
 pub mod block;
+pub mod block_entity;
 mod bucket;
 mod clock;
 pub mod command;
@@ -121,7 +122,6 @@ mod session;
 mod storage;
 pub mod task;
 mod tick;
-pub mod tile;
 mod udp;
 pub mod world;
 

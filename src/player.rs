@@ -28,7 +28,7 @@ const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
 const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
 /// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
 /// most a message, a command's output and the other texts the API sends take.
-pub const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
+pub const MAX_TEXT_BYTES: usize = TEXT_MESSAGE_MAX_LEN;
 /// The width and depth of a standing player's box in blocks; a human NPC's
 /// too.
 pub const WIDTH: f64 = 0.6;
@@ -335,8 +335,8 @@ impl TitleTimes {
 pub enum HudElement {
     /// The player's figure in the corner of the screen.
     PaperDoll,
-    /// The armour bar.
-    Armour,
+    /// The armor bar.
+    Armor,
     /// The tool tips.
     ToolTips,
     /// The touch controls.
@@ -372,7 +372,7 @@ impl From<HudElement> for consts::HudElement {
     fn from(element: HudElement) -> Self {
         match element {
             HudElement::PaperDoll => Self::PaperDoll,
-            HudElement::Armour => Self::Armour,
+            HudElement::Armor => Self::Armour,
             HudElement::ToolTips => Self::ToolTips,
             HudElement::TouchControls => Self::TouchControls,
             HudElement::Crosshair => Self::Crosshair,
@@ -449,7 +449,7 @@ pub fn xp_to_reach_level(level: u32) -> u64 {
 
 /// Fails for a text longer than a client decodes.
 pub(crate) fn check_text(text: &str) -> Result<()> {
-    if text.len() > MAX_TEXT {
+    if text.len() > MAX_TEXT_BYTES {
         return Err(Error::TooLong);
     }
     Ok(())
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn texts_beyond_what_a_client_decodes_are_refused() {
-        let long = "x".repeat(MAX_TEXT + 1);
+        let long = "x".repeat(MAX_TEXT_BYTES + 1);
         assert_eq!(
             Message::Raw(long.clone()).into_packets(),
             Err(Error::TooLong)
@@ -641,6 +641,10 @@ mod tests {
             .into_packets(),
             Err(Error::TooLong)
         );
-        assert!(Message::Raw("x".repeat(MAX_TEXT)).into_packets().is_ok());
+        assert!(
+            Message::Raw("x".repeat(MAX_TEXT_BYTES))
+                .into_packets()
+                .is_ok()
+        );
     }
 }

@@ -43,22 +43,10 @@ pub(super) struct Network {
 }
 
 impl Network {
-    /// How long the latest measured tick took.
-    pub(super) fn mspt(&self) -> Duration {
-        let latest = self.tick_times.get(self.latest).copied().unwrap_or(0);
-        Duration::from_micros(u64::from(latest))
-    }
-
     /// The mean of the last 20 measured tick times.
     pub(super) fn average_mspt(&self) -> Duration {
         let sum: u64 = self.tick_times.iter().map(|&t| u64::from(t)).sum();
         Duration::from_micros(sum / u64::from(AVERAGED))
-    }
-
-    /// The ticks a second the latest tick time allows, at most
-    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND).
-    pub(super) fn tps(&self) -> f64 {
-        tps_of(self.tick_times.get(self.latest).copied().unwrap_or(0))
     }
 
     /// The mean of the last 20 ticks' [`Self::tps`].
@@ -73,14 +61,39 @@ impl Network {
         (self.connections, self.logged_in)
     }
 
+    /// Hashes every field kept between ticks (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            tick_times,
+            latest,
+            connections,
+            logged_in,
+            memory,
+            uptime_ms,
+            threads: _,
+            controls: _,
+            link: _,
+        } = self;
+        for &t in tick_times {
+            h.u64(u64::from(t));
+        }
+        h.usize(*latest);
+        h.u64(u64::from(*connections));
+        h.u64(u64::from(*logged_in));
+        h.u64(*memory);
+        h.u64(*uptime_ms);
+    }
+
     /// The process's resident memory in bytes at its last measure; 0 if unknown.
     pub(super) fn memory(&self) -> u64 {
         self.memory
     }
 
-    /// How long the server had run at the last process measure, by the wall clock.
-    pub(super) fn uptime(&self) -> Duration {
-        Duration::from_millis(self.uptime_ms)
+    /// How long the latest measured tick took.
+    pub(super) fn mspt(&self) -> Duration {
+        let latest = self.tick_times.get(self.latest).copied().unwrap_or(0);
+        Duration::from_micros(u64::from(latest))
     }
 
     /// The threads the server started with.
@@ -88,20 +101,20 @@ impl Network {
         self.threads
     }
 
+    /// The ticks a second the latest tick time allows, at most
+    /// [`TICKS_PER_SECOND`](crate::Context::TICKS_PER_SECOND).
+    pub(super) fn tps(&self) -> f64 {
+        tps_of(self.tick_times.get(self.latest).copied().unwrap_or(0))
+    }
+
+    /// How long the server had run at the last process measure, by the wall clock.
+    pub(super) fn uptime(&self) -> Duration {
+        Duration::from_millis(self.uptime_ms)
+    }
+
     /// Sends the controls to the networking from now on.
     pub(super) fn connect(&mut self, link: mpsc::Sender<Control>) {
         self.link = Some(link);
-    }
-
-    /// Takes the measures of a checkpoint's `restored` state, keeping where controls go and the
-    /// threads.
-    pub(super) fn restore(&mut self, restored: Self) {
-        let link = self.link.take();
-        *self = Self {
-            link,
-            threads: self.threads,
-            ..restored
-        };
     }
 
     /// Queues `control` for the end of the tick; false, queuing nothing, past
@@ -132,28 +145,15 @@ impl Network {
         }
     }
 
-    /// Hashes every field kept between ticks (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            tick_times,
-            latest,
-            connections,
-            logged_in,
-            memory,
-            uptime_ms,
-            threads: _,
-            controls: _,
-            link: _,
-        } = self;
-        for &t in tick_times {
-            h.u64(u64::from(t));
-        }
-        h.usize(*latest);
-        h.u64(u64::from(*connections));
-        h.u64(u64::from(*logged_in));
-        h.u64(*memory);
-        h.u64(*uptime_ms);
+    /// Takes the measures of a checkpoint's `restored` state, keeping where controls go and the
+    /// threads.
+    pub(super) fn restore(&mut self, restored: Self) {
+        let link = self.link.take();
+        *self = Self {
+            link,
+            threads: self.threads,
+            ..restored
+        };
     }
 }
 
@@ -219,6 +219,7 @@ mod tests {
 
     use crate::event::Listeners;
     use crate::pool::Pool;
+    use crate::task::Error;
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{Input, InputKind, control_queue};
     use crate::tick::tests::{join, new_state, radius, settings, tick};
@@ -331,10 +332,10 @@ mod tests {
         let mut cx = Context { state: &mut state };
         assert_eq!(cx.motd(), "Anchor Server");
         for bad in ["", "a;b", "line\nbreak", &"x".repeat(257)] {
-            assert!(!cx.set_motd(bad), "{bad:?}");
+            assert_eq!(cx.set_motd(bad), Err(Error::InvalidMotd), "{bad:?}");
         }
         assert_eq!(cx.motd(), "Anchor Server");
-        assert!(cx.set_motd("§bNew name"));
+        cx.set_motd("§bNew name").unwrap();
         assert_eq!(cx.motd(), "§bNew name");
         let ip = IpAddr::from([192, 0, 2, 7]);
         cx.block_address(ip, Duration::from_secs(300)).unwrap();
@@ -343,7 +344,7 @@ mod tests {
             cx.unblock_address(ip).unwrap();
         }
         assert!(cx.unblock_address(ip).is_err(), "past the tick's bound");
-        assert!(!cx.set_motd("Late"));
+        assert_eq!(cx.set_motd("Late"), Err(Error::NetworkBusy));
         assert_eq!(cx.motd(), "§bNew name");
         state.network.flush();
         let mut got = Vec::new();
@@ -371,7 +372,7 @@ mod tests {
         listeners.push(
             crate::event::Priority::Normal,
             |_: &mut crate::event::PlayerQuit, cx: &mut Context<'_>| {
-                assert!(cx.set_motd("Bye"));
+                cx.set_motd("Bye").unwrap();
             },
         );
         let mut state = new_state(settings(|_| {}), listeners);

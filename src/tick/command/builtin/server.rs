@@ -91,15 +91,15 @@ fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
 }
 
 /// Turns the periodic save off until the server stops or `/save-on` (`/save-off`;
-/// [`Context::set_auto_save`] says what still saves).
+/// [`Context::set_auto_save_enabled`] says what still saves).
 fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    cx.set_auto_save(false);
+    cx.set_auto_save_enabled(false);
     announce(cx, *sender, SAVE_DISABLED, &[])
 }
 
 /// Turns the periodic save back on (`/save-on`).
 fn save_on(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    cx.set_auto_save(true);
+    cx.set_auto_save_enabled(true);
     announce(cx, *sender, SAVE_ENABLED, &[])
 }
 
@@ -184,7 +184,7 @@ fn version(_: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     VERSION_LINE.output(&[
         Context::NAME,
         Context::ANCHOR_VERSION,
-        Context::VERSION,
+        Context::GAME_VERSION,
         &PROTOCOL_VERSION.to_string(),
         std::env::consts::OS,
     ])

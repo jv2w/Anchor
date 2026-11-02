@@ -8,7 +8,7 @@ use crate::tick::{Context, Settings};
 
 /// How many times longer breaking takes in the air (off the ground and not flying).
 const AIRBORNE_BREAK_SLOWDOWN: f64 = 5.0;
-/// The roll out of 100 that Unbreaking on armour must beat to spare a point of wear, so it spares
+/// The roll out of 100 that Unbreaking on armor must beat to spare a point of wear, so it spares
 /// at most 40% of the points.
 const ARMOR_UNBREAKING_ROLL: i32 = 60;
 /// What each level of Mining Fatigue multiplies the break speed by.
@@ -91,10 +91,10 @@ fn power(base: f64, n: u8) -> f64 {
 
 /// Wears a copy of `tool` by `amount` points.
 ///
-/// Under Unbreaking each point is spared with chance `1 - 1 / (level + 1)`, on armour only on 40%
+/// Under Unbreaking each point is spared with chance `1 - 1 / (level + 1)`, on armor only on 40%
 /// of the points at best. A tool worn to its durability breaks (the stack loses one item). The
 /// stack comes back unchanged for items without durability, unbreakable items and broken ones, and
-/// for every item with `durability = false`: every rule that wears an item (tools, weapons, armour,
+/// for every item with `durability = false`: every rule that wears an item (tools, weapons, armor,
 /// bows, tridents) comes here.
 #[expect(
     clippy::expect_used,

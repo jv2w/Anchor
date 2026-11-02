@@ -29,17 +29,17 @@ impl Chunks {
         }
     }
 
+    /// Whether a chunk is at `pos`.
+    #[inline]
+    pub(crate) fn contains(&self, pos: ChunkPos) -> bool {
+        self.find(pos).is_some()
+    }
+
     /// The chunk at `pos`.
     #[inline]
     pub(crate) fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
         let i = self.find(pos)?;
         self.slots.get(i)?.as_ref().map(|(_, c)| c.as_ref())
-    }
-
-    /// Whether a chunk is at `pos`.
-    #[inline]
-    pub(crate) fn contains(&self, pos: ChunkPos) -> bool {
-        self.find(pos).is_some()
     }
 
     /// The chunk at `pos`, to change it.

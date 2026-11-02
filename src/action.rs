@@ -35,6 +35,7 @@ pub trait Action: Sealed + Send + 'static {}
 
 /// Why an action or a deferred callback was not queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The deferred queue is full, so nothing was queued.
     Full,

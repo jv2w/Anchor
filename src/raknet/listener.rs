@@ -79,8 +79,29 @@ impl Listener {
         self.conns.is_empty()
     }
 
-    pub(super) fn set_pong(&mut self, pong: Arc<[u8]>) {
-        self.pong = pong;
+    /// Closes connection `id` after what is queued has been delivered.
+    pub(super) fn close(&mut self, now: Duration, addr: SocketAddr, id: u64) {
+        if let Some(conn) = self.conns.get_mut(&addr)
+            && conn.id == id
+            && conn.state == State::Open
+        {
+            conn.state = State::Closing {
+                deadline: now.saturating_add(CLOSE_TIMEOUT),
+            };
+        }
+    }
+
+    /// Marks connection `id` as logged in by the session: it no longer counts against the
+    /// pre-login limits.
+    pub(super) fn logged_in(&mut self, addr: SocketAddr, id: u64) {
+        let Some(conn) = self.conns.get_mut(&addr) else {
+            return;
+        };
+        if conn.id == id && conn.pre_login {
+            conn.pre_login = false;
+            let ip = conn.ip;
+            self.release(ip);
+        }
     }
 
     /// Handles one UDP datagram from `from`.
@@ -113,25 +134,6 @@ impl Listener {
         }
     }
 
-    /// Runs timers: ACKs, resends, pings, timeouts, graceful closes and table sweeps.
-    pub(super) fn update(&mut self, now: Duration, sink: &mut impl Sink) {
-        if now >= self.next_sweep {
-            self.pings
-                .retain(|_, bucket| now.saturating_sub(bucket.refilled()) < PING_IDLE);
-            self.next_sweep = now.saturating_add(SWEEP_INTERVAL);
-        }
-        let mut doomed = std::mem::take(&mut self.doomed);
-        for (&addr, conn) in &mut self.conns {
-            if let Err(reason) = conn.update(now, addr, sink) {
-                doomed.push((addr, reason));
-            }
-        }
-        for (addr, reason) in doomed.drain(..) {
-            self.remove(addr, reason, sink);
-        }
-        self.doomed = doomed;
-    }
-
     /// Sends a game message (0xfe is prepended) on connection `id` at `addr`.
     pub(super) fn send(
         &mut self,
@@ -156,29 +158,8 @@ impl Listener {
         }
     }
 
-    /// Marks connection `id` as logged in by the session: it no longer counts against the
-    /// pre-login limits.
-    pub(super) fn logged_in(&mut self, addr: SocketAddr, id: u64) {
-        let Some(conn) = self.conns.get_mut(&addr) else {
-            return;
-        };
-        if conn.id == id && conn.pre_login {
-            conn.pre_login = false;
-            let ip = conn.ip;
-            self.release(ip);
-        }
-    }
-
-    /// Closes connection `id` after what is queued has been delivered.
-    pub(super) fn close(&mut self, now: Duration, addr: SocketAddr, id: u64) {
-        if let Some(conn) = self.conns.get_mut(&addr)
-            && conn.id == id
-            && conn.state == State::Open
-        {
-            conn.state = State::Closing {
-                deadline: now.saturating_add(CLOSE_TIMEOUT),
-            };
-        }
+    pub(super) fn set_pong(&mut self, pong: Arc<[u8]>) {
+        self.pong = pong;
     }
 
     /// Stops accepting connections, drops unfinished handshakes and closes the rest gracefully.
@@ -194,6 +175,25 @@ impl Listener {
                     };
                 }
                 State::Closing { .. } => {}
+            }
+        }
+        for (addr, reason) in doomed.drain(..) {
+            self.remove(addr, reason, sink);
+        }
+        self.doomed = doomed;
+    }
+
+    /// Runs timers: ACKs, resends, pings, timeouts, graceful closes and table sweeps.
+    pub(super) fn update(&mut self, now: Duration, sink: &mut impl Sink) {
+        if now >= self.next_sweep {
+            self.pings
+                .retain(|_, bucket| now.saturating_sub(bucket.refilled()) < PING_IDLE);
+            self.next_sweep = now.saturating_add(SWEEP_INTERVAL);
+        }
+        let mut doomed = std::mem::take(&mut self.doomed);
+        for (&addr, conn) in &mut self.conns {
+            if let Err(reason) = conn.update(now, addr, sink) {
+                doomed.push((addr, reason));
             }
         }
         for (addr, reason) in doomed.drain(..) {

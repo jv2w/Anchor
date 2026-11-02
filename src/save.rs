@@ -461,17 +461,57 @@ pub(crate) struct Thread {
 }
 
 impl Thread {
-    /// Gives the thread the server's custom content and custom entity types (none by default).
-    pub(crate) fn set_custom(&mut self, custom: Arc<Registry>, entity_types: Arc<EntityTypes>) {
-        self.custom = custom;
-        self.entity_types = entity_types;
+    /// Learns the worlds of a [`Request::Worlds`] as the save thread does (a replay's requests).
+    /// A persistent world made under the name of one deleted since the last commit takes its
+    /// file, which then stays, and the next commit of that file first deletes every value of the
+    /// deleted world. Returns the indexes of the worlds whose file did not open.
+    pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) -> Vec<WorldIndex> {
+        let unopened = add_worlds(&mut self.plans, &self.opener, worlds);
+        for world in worlds.iter().filter(|w| w.number.is_some()) {
+            let key = storage::world_name_key(&world.name);
+            let before = self.deleted.len();
+            self.deleted
+                .retain(|name| storage::world_name_key(name) != key);
+            if self.deleted.len() < before
+                && let Some(plan) = self.plans.get_mut(world.index)
+            {
+                plan.clear = true;
+            }
+        }
+        unopened
     }
 
-    /// Sets whether chunks are lit as they load: unless `lighting = "fixed"`
-    /// ([`Lighting::is_calculated`](crate::config::Lighting::is_calculated)). With it off the tick
-    /// ignores light, so lighting here would only waste CPU time.
-    pub(crate) fn set_lighting(&mut self, enabled: bool) {
-        self.lighting = enabled;
+    /// Commits `snapshot` as the save thread does (a replay's files keep it in memory).
+    pub(crate) fn commit(
+        &mut self,
+        pool: &Pool,
+        snapshot: &Snapshot,
+    ) -> Result<(), storage::Error> {
+        commit(self, pool, snapshot)
+    }
+
+    /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; the next commit
+    /// holds their deletion, and their files go after it ([`remove_world_files`]).
+    pub(crate) fn delete_worlds(&mut self, worlds: &[DeletedWorld]) {
+        forget_worlds(&mut self.plans, worlds);
+        self.deleted.extend(worlds.iter().map(|w| w.name.clone()));
+    }
+
+    /// The open file `name`: a server file's name ([`storage::MAIN_FILE`], ...) or a world's.
+    #[cfg(test)]
+    pub(crate) fn file_mut(&mut self, name: &str) -> &mut Storage {
+        let Files { main, players } = &mut self.files;
+        let file = match name {
+            storage::MAIN_FILE => main,
+            storage::PLAYERS_FILE => players,
+            _ => self
+                .plans
+                .iter_mut()
+                .find(|p| p.name == name)
+                .and_then(|p| p.file.as_mut())
+                .expect("an open world file"),
+        };
+        &mut file.storage
     }
 
     /// Loads chunks as the save thread does for a [`Request::Chunks`] (a replay's loads after its
@@ -515,42 +555,6 @@ impl Thread {
         Ok(answers)
     }
 
-    /// Commits `snapshot` as the save thread does (a replay's files keep it in memory).
-    pub(crate) fn commit(
-        &mut self,
-        pool: &Pool,
-        snapshot: &Snapshot,
-    ) -> Result<(), storage::Error> {
-        commit(self, pool, snapshot)
-    }
-
-    /// Learns the worlds of a [`Request::Worlds`] as the save thread does (a replay's requests).
-    /// A persistent world made under the name of one deleted since the last commit takes its
-    /// file, which then stays, and the next commit of that file first deletes every value of the
-    /// deleted world. Returns the indexes of the worlds whose file did not open.
-    pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) -> Vec<WorldIndex> {
-        let unopened = add_worlds(&mut self.plans, &self.opener, worlds);
-        for world in worlds.iter().filter(|w| w.number.is_some()) {
-            let key = storage::world_name_key(&world.name);
-            let before = self.deleted.len();
-            self.deleted
-                .retain(|name| storage::world_name_key(name) != key);
-            if self.deleted.len() < before
-                && let Some(plan) = self.plans.get_mut(world.index)
-            {
-                plan.clear = true;
-            }
-        }
-        unopened
-    }
-
-    /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; the next commit
-    /// holds their deletion, and their files go after it ([`remove_world_files`]).
-    pub(crate) fn delete_worlds(&mut self, worlds: &[DeletedWorld]) {
-        forget_worlds(&mut self.plans, worlds);
-        self.deleted.extend(worlds.iter().map(|w| w.name.clone()));
-    }
-
     /// Reads the user's server data values `names`, before the threads start: the
     /// JSON of each, or `None` for a value never saved. A damaged value fails the start and stays
     /// as it is; values of names not asked for are neither read nor touched.
@@ -572,21 +576,17 @@ impl Thread {
             .collect()
     }
 
-    /// The open file `name`: a server file's name ([`storage::MAIN_FILE`], ...) or a world's.
-    #[cfg(test)]
-    pub(crate) fn file_mut(&mut self, name: &str) -> &mut Storage {
-        let Files { main, players } = &mut self.files;
-        let file = match name {
-            storage::MAIN_FILE => main,
-            storage::PLAYERS_FILE => players,
-            _ => self
-                .plans
-                .iter_mut()
-                .find(|p| p.name == name)
-                .and_then(|p| p.file.as_mut())
-                .expect("an open world file"),
-        };
-        &mut file.storage
+    /// Gives the thread the server's custom content and custom entity types (none by default).
+    pub(crate) fn set_custom(&mut self, custom: Arc<Registry>, entity_types: Arc<EntityTypes>) {
+        self.custom = custom;
+        self.entity_types = entity_types;
+    }
+
+    /// Sets whether chunks are lit as they load: unless `lighting = "fixed"`
+    /// ([`Lighting::is_calculated`](crate::config::Lighting::is_calculated)). With it off the tick
+    /// ignores light, so lighting here would only waste CPU time.
+    pub(crate) fn set_lighting(&mut self, enabled: bool) {
+        self.lighting = enabled;
     }
 
     /// Every open data file: the server's, then the worlds'.

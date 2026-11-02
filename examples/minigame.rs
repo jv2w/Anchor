@@ -54,7 +54,7 @@ const LOBBY_DELAY_TICKS: u32 = 3 * 20;
 const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
 
 /// What a player did in the current round. A player extension: not saved.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Tally {
     packets: u64,
     blocks: u32,
@@ -105,6 +105,35 @@ fn main() -> Result<(), anchor::Error> {
 }
 
 impl Game {
+    /// Ends the round: a form for every player, and a summary made off the tick.
+    fn end_round(&self, cx: &mut Context<'_>, playing: &[player::Id]) {
+        let mut tallies = Vec::with_capacity(playing.len());
+        for &id in playing {
+            cx.remove_boss_bar(id);
+            if let Some(player) = cx.player(id) {
+                let tally = player.extension::<Tally>().copied().unwrap_or_default();
+                tallies.push((player.name().to_owned(), tally));
+            }
+            let form = Modal::new(
+                "Round over",
+                "GG! Play another round?",
+                "Play again",
+                "Leave",
+            );
+            or_log(cx.send_form(id, form, |cx, id, answer| after_round(cx, id, &answer)));
+        }
+        let round = self.round;
+        // The work gets its inputs by value and cannot touch the game; the result comes back to
+        // the tick, which shows it.
+        or_log(cx.spawn_blocking(
+            move || summary(round, tallies),
+            |cx, result| match result {
+                Ok(text) => or_log(cx.broadcast(Message::Raw(text))),
+                Err(error) => debug!(%error, "no round summary"),
+            },
+        ));
+    }
+
     /// One step of the game loop.
     fn second(&mut self, cx: &mut Context<'_>) {
         let Some(arena) = cx.world_named(ARENA).map(World::id) else {
@@ -168,35 +197,6 @@ impl Game {
             }
         }
         Phase::Countdown(left - 1)
-    }
-
-    /// Ends the round: a form for every player, and a summary made off the tick.
-    fn end_round(&self, cx: &mut Context<'_>, playing: &[player::Id]) {
-        let mut tallies = Vec::with_capacity(playing.len());
-        for &id in playing {
-            cx.remove_boss_bar(id);
-            if let Some(player) = cx.player(id) {
-                let tally = player.extension::<Tally>().copied().unwrap_or_default();
-                tallies.push((player.name().to_owned(), tally));
-            }
-            let form = Modal::new(
-                "Round over",
-                "GG! Play another round?",
-                "Play again",
-                "Leave",
-            );
-            or_log(cx.send_form(id, form, |cx, id, answer| after_round(cx, id, &answer)));
-        }
-        let round = self.round;
-        // The work gets its inputs by value and cannot touch the game; the result comes back to
-        // the tick, which shows it.
-        or_log(cx.spawn_blocking(
-            move || summary(round, tallies),
-            |cx, result| match result {
-                Ok(text) => or_log(cx.broadcast(Message::Raw(text))),
-                Err(error) => debug!(%error, "no round summary"),
-            },
-        ));
     }
 }
 

@@ -62,49 +62,6 @@ impl Pool {
         out
     }
 
-    /// [`map`](Self::map) into `out`, which is cleared first and keeps its capacity, so a phase
-    /// that runs every tick allocates once.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
-    )]
-    pub(crate) fn map_into<T, R>(
-        &self,
-        items: &[T],
-        out: &mut Vec<R>,
-        f: impl Fn(&T) -> R + Sync + Send,
-    ) where
-        T: Sync,
-        R: Send,
-    {
-        out.clear();
-        if self.maps_inline(items.len()) {
-            out.extend(items.iter().map(f));
-            return;
-        }
-        self.inner
-            .install(|| items.par_iter().map(f).collect_into_vec(out));
-    }
-
-    /// [`map`](Self::map) of items `f` takes by value: what a phase took out of the tick's state
-    /// before it (the output phase's outboxes) moves to the pool's threads instead of being
-    /// copied there.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
-    )]
-    pub(crate) fn map_owned<T, R>(&self, items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R>
-    where
-        T: Send,
-        R: Send,
-    {
-        if self.maps_inline(items.len()) {
-            return items.into_iter().map(f).collect();
-        }
-        self.inner
-            .install(|| items.into_par_iter().map(f).collect())
-    }
-
     /// [`map`](Self::map) for the save thread: in turns of one item per thread, each mapped after
     /// the last ended, with each turn's first item run on the calling thread. rayon's threads
     /// take work from outside the pool only when none is left to steal, so a tick's map would
@@ -149,6 +106,49 @@ impl Pool {
             );
         }
         out
+    }
+
+    /// [`map`](Self::map) into `out`, which is cleared first and keeps its capacity, so a phase
+    /// that runs every tick allocates once.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
+    )]
+    pub(crate) fn map_into<T, R>(
+        &self,
+        items: &[T],
+        out: &mut Vec<R>,
+        f: impl Fn(&T) -> R + Sync + Send,
+    ) where
+        T: Sync,
+        R: Send,
+    {
+        out.clear();
+        if self.maps_inline(items.len()) {
+            out.extend(items.iter().map(f));
+            return;
+        }
+        self.inner
+            .install(|| items.par_iter().map(f).collect_into_vec(out));
+    }
+
+    /// [`map`](Self::map) of items `f` takes by value: what a phase took out of the tick's state
+    /// before it (the output phase's outboxes) moves to the pool's threads instead of being
+    /// copied there.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "consistency: the pool module is the one user of rayon's parallel iterators"
+    )]
+    pub(crate) fn map_owned<T, R>(&self, items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R>
+    where
+        T: Send,
+        R: Send,
+    {
+        if self.maps_inline(items.len()) {
+            return items.into_iter().map(f).collect();
+        }
+        self.inner
+            .install(|| items.into_par_iter().map(f).collect())
     }
 
     /// Stops the pool and waits until its threads have ended (rayon's drop does not wait).

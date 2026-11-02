@@ -1,24 +1,24 @@
-//! Forms: the modal, menu and custom windows a player answers, with typed answers.
+//! Forms: the modal, button list and custom windows a player answers, with typed answers.
 //!
-//! Build a [`Modal`], [`Menu`] or [`Custom`] form and send it with
+//! Build a [`Modal`], [`Buttons`] or [`Custom`] form and send it with
 //! [`Context::send_form`](crate::Context::send_form); the handler runs once, in the tick, with
 //! the player's [`Response`]:
 //!
 //! ```
 //! use anchor::Context;
-//! use anchor::form::{Button, Custom, Image, Menu, Response, Value};
+//! use anchor::form::{Button, Buttons, Custom, Image, Response, Value};
 //! use anchor::player;
 //!
-//! fn open_menu(cx: &mut Context<'_>, player: player::Id) {
-//!     let menu = Menu::new("Lobby")
+//! fn open_buttons(cx: &mut Context<'_>, player: player::Id) {
+//!     let buttons = Buttons::new("Lobby")
 //!         .with_content("Pick a game")
 //!         .button(
 //!             Button::new("PvP")
 //!                 .with_image(Image::Path("textures/items/iron_sword".to_owned())),
 //!         )
 //!         .button("Settings");
-//!     let sent = cx.send_form(player, menu, |cx, player, response| {
-//!         if response == Response::Menu(1) {
+//!     let sent = cx.send_form(player, buttons, |cx, player, response| {
+//!         if response == Response::Buttons(1) {
 //!             let settings = Custom::new("Settings")
 //!                 .toggle("Music", true)
 //!                 .slider("Volume", 0.0, 100.0, 5.0, 50.0);
@@ -72,7 +72,7 @@ pub enum Form {
     /// A question with two buttons.
     Modal(Modal),
     /// A list of buttons.
-    Menu(Menu),
+    Buttons(Buttons),
     /// A window of inputs the player fills out.
     Custom(Custom),
 }
@@ -91,7 +91,7 @@ impl Form {
                 }),
                 Shape::Modal,
             ),
-            Self::Menu(m) => menu(m)?,
+            Self::Buttons(b) => buttons(b)?,
             Self::Custom(c) => custom(c)?,
         };
         let bytes = encode(&json, MAX_FORM_BYTES, "the JSON is longer than 256 KiB")?;
@@ -99,15 +99,15 @@ impl Form {
     }
 }
 
-impl From<Custom> for Form {
-    fn from(form: Custom) -> Self {
-        Self::Custom(form)
+impl From<Buttons> for Form {
+    fn from(form: Buttons) -> Self {
+        Self::Buttons(form)
     }
 }
 
-impl From<Menu> for Form {
-    fn from(form: Menu) -> Self {
-        Self::Menu(form)
+impl From<Custom> for Form {
+    fn from(form: Custom) -> Self {
+        Self::Custom(form)
     }
 }
 
@@ -144,17 +144,18 @@ impl Modal {
     }
 }
 
-/// A menu: a title, a text and buttons, with headers, labels and dividers between them. The
-/// answer is [`Response::Menu`] with the index of the button clicked, counting buttons only.
+/// A list of buttons: a title, a text and buttons, with headers, labels and dividers between
+/// them. The answer is [`Response::Buttons`] with the index of the button clicked, counting
+/// buttons only.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Menu {
+pub struct Buttons {
     title: String,
     content: String,
-    elements: Vec<MenuElement>,
+    elements: Vec<ButtonsElement>,
 }
 
-impl Menu {
-    /// A menu titled `title`, without text or buttons.
+impl Buttons {
+    /// A button list titled `title`, without text or buttons.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -163,52 +164,52 @@ impl Menu {
         }
     }
 
-    /// The menu with `content` as the text shown above the elements.
-    #[must_use]
-    pub fn with_content(mut self, content: impl Into<String>) -> Self {
-        self.content = content.into();
-        self
-    }
-
     /// Adds a button: a [`Button`], or its text.
     #[must_use]
     pub fn button(mut self, button: impl Into<Button>) -> Self {
-        self.elements.push(MenuElement::Button(button.into()));
+        self.elements.push(ButtonsElement::Button(button.into()));
         self
     }
 
     /// Adds a divider: a horizontal line.
     #[must_use]
     pub fn divider(mut self) -> Self {
-        self.elements.push(MenuElement::Divider);
+        self.elements.push(ButtonsElement::Divider);
         self
     }
 
     /// Adds a header: larger text that starts a section.
     #[must_use]
     pub fn header(mut self, text: impl Into<String>) -> Self {
-        self.elements.push(MenuElement::Header(text.into()));
+        self.elements.push(ButtonsElement::Header(text.into()));
         self
     }
 
     /// Adds a label: a box of text.
     #[must_use]
     pub fn label(mut self, text: impl Into<String>) -> Self {
-        self.elements.push(MenuElement::Label(text.into()));
+        self.elements.push(ButtonsElement::Label(text.into()));
+        self
+    }
+
+    /// The button list with `content` as the text shown above the elements.
+    #[must_use]
+    pub fn with_content(mut self, content: impl Into<String>) -> Self {
+        self.content = content.into();
         self
     }
 }
 
-/// One element of a menu, in order.
+/// One element of a button list, in order.
 #[derive(Debug, Clone, PartialEq)]
-enum MenuElement {
+enum ButtonsElement {
     Button(Button),
     Header(String),
     Label(String),
     Divider,
 }
 
-/// A menu button: its text and an optional image.
+/// A button of a button list: its text and an optional image.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Button {
     text: String,
@@ -244,7 +245,7 @@ impl From<String> for Button {
     }
 }
 
-/// The image of a menu button.
+/// The image of a button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Image {
     /// A texture of the game or of a resource pack, such as `textures/items/apple`.
@@ -424,8 +425,8 @@ pub enum Response {
     Busy,
     /// The button of a [`Modal`]: true for the first, false for the second.
     Modal(bool),
-    /// The index of the [`Menu`] button clicked, counting buttons only.
-    Menu(usize),
+    /// The index of the [`Buttons`] button clicked, counting buttons only.
+    Buttons(usize),
     /// The values of a [`Custom`] form, one per element in order.
     Custom(Vec<Value>),
 }
@@ -484,7 +485,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(crate) enum Shape {
     Modal,
     /// The number of buttons.
-    Menu(usize),
+    Buttons(usize),
     Custom(Vec<Expect>),
 }
 
@@ -498,7 +499,7 @@ impl Shape {
         }
         match self {
             Self::Modal => json.as_bool().map(Response::Modal),
-            Self::Menu(buttons) => index(&json, *buttons).map(Response::Menu),
+            Self::Buttons(count) => index(&json, *count).map(Response::Buttons),
             Self::Custom(expect) => {
                 let Json::Array(values) = json else {
                     return None;
@@ -534,21 +535,21 @@ pub(crate) enum Expect {
     Index(usize),
 }
 
-/// The JSON and answer shape of a menu.
-fn menu(m: &Menu) -> Result<(Json, Shape)> {
-    if m.elements.len() > MAX_ELEMENTS {
+/// The JSON and answer shape of a button list.
+fn buttons(list: &Buttons) -> Result<(Json, Shape)> {
+    if list.elements.len() > MAX_ELEMENTS {
         return Err(Error::Invalid("more than 256 elements"));
     }
-    let buttons = m
+    let count = list
         .elements
         .iter()
-        .filter(|e| matches!(e, MenuElement::Button(_)))
+        .filter(|e| matches!(e, ButtonsElement::Button(_)))
         .count();
-    let elements: Vec<Json> = m
+    let elements: Vec<Json> = list
         .elements
         .iter()
         .map(|e| match e {
-            MenuElement::Button(b) => match &b.image {
+            ButtonsElement::Button(b) => match &b.image {
                 Some(image) => {
                     let (kind, data) = match image {
                         Image::Path(p) => ("path", p),
@@ -563,18 +564,18 @@ fn menu(m: &Menu) -> Result<(Json, Shape)> {
                 // The official server writes the key for a button without an image too.
                 None => json!({ "type": "button", "text": b.text, "image": null }),
             },
-            MenuElement::Header(t) => json!({ "type": "header", "text": t }),
-            MenuElement::Label(t) => json!({ "type": "label", "text": t }),
-            MenuElement::Divider => json!({ "type": "divider", "text": "" }),
+            ButtonsElement::Header(t) => json!({ "type": "header", "text": t }),
+            ButtonsElement::Label(t) => json!({ "type": "label", "text": t }),
+            ButtonsElement::Divider => json!({ "type": "divider", "text": "" }),
         })
         .collect();
     let json = json!({
         "type": "form",
-        "title": m.title,
-        "content": m.content,
+        "title": list.title,
+        "content": list.content,
         "elements": elements,
     });
-    Ok((json, Shape::Menu(buttons)))
+    Ok((json, Shape::Buttons(count)))
 }
 
 /// The JSON and answer shape of a custom form.
@@ -800,7 +801,7 @@ mod tests {
                 "button1": "Yes", "button2": "No",
             })
         );
-        let menu = Menu::new("M")
+        let buttons = Buttons::new("M")
             .with_content("c")
             .header("h")
             .button("plain")
@@ -809,7 +810,7 @@ mod tests {
             .button(Button::new("path").with_image(Image::Path("textures/items/apple".to_owned())))
             .button(Button::new("url").with_image(Image::Url("https://e.x/i.png".to_owned())));
         assert_eq!(
-            json(menu.clone()),
+            json(buttons.clone()),
             json!({
                 "type": "form", "title": "M", "content": "c",
                 "elements": [
@@ -824,7 +825,7 @@ mod tests {
                 ],
             })
         );
-        assert_eq!(shape(menu), Shape::Menu(3));
+        assert_eq!(shape(buttons), Shape::Buttons(3));
         let custom = Custom::new("C")
             .label("l")
             .header("h")
@@ -878,8 +879,11 @@ mod tests {
         assert!(invalid(base().step_slider("d", vec!["x"; 257], 0)));
         let many = (0..257).fold(base(), |c, _| c.divider());
         assert!(invalid(many));
-        let menu = (0..257).fold(Menu::new("M"), |m, _| m.button("b"));
-        assert!(matches!(Form::from(menu).prepare(), Err(Error::Invalid(_))));
+        let buttons = (0..257).fold(Buttons::new("M"), |b, _| b.button("b"));
+        assert!(matches!(
+            Form::from(buttons).prepare(),
+            Err(Error::Invalid(_))
+        ));
         let huge = Modal::new("x".repeat(MAX_FORM_BYTES), "", "", "");
         assert!(matches!(Form::from(huge).prepare(), Err(Error::Invalid(_))));
         assert!(
@@ -915,8 +919,8 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let elements = format!("more than {MAX_ELEMENTS} elements");
-        let menu = (0..=MAX_ELEMENTS).fold(Menu::new("M"), |m, _| m.button("b"));
-        assert_eq!(reason(Form::from(menu)), elements);
+        let buttons = (0..=MAX_ELEMENTS).fold(Buttons::new("M"), |b, _| b.button("b"));
+        assert_eq!(reason(Form::from(buttons)), elements);
         let custom = (0..=MAX_ELEMENTS).fold(Custom::new("C"), |c, _| c.divider());
         assert_eq!(reason(Form::from(custom)), elements);
         let options = format!("1 to {MAX_OPTIONS} options");
@@ -963,9 +967,9 @@ mod tests {
         assert_eq!(modal.parse(b"false\n"), Some(Response::Modal(false)));
         assert_eq!(modal.parse(b"null"), Some(Response::Closed));
         assert_eq!(modal.parse(b"1"), None);
-        let menu = shape(Menu::new("").label("l").button("a").button("b"));
-        assert_eq!(menu.parse(b"1"), Some(Response::Menu(1)));
-        assert_eq!(menu.parse(b"null"), Some(Response::Closed));
+        let buttons = shape(Buttons::new("").label("l").button("a").button("b"));
+        assert_eq!(buttons.parse(b"1"), Some(Response::Buttons(1)));
+        assert_eq!(buttons.parse(b"null"), Some(Response::Closed));
         for bad in [
             &b"2"[..],
             b"-1",
@@ -976,7 +980,7 @@ mod tests {
             b"[0]",
             b"0 0",
         ] {
-            assert_eq!(menu.parse(bad), None, "{}", String::from_utf8_lossy(bad));
+            assert_eq!(buttons.parse(bad), None, "{}", String::from_utf8_lossy(bad));
         }
         let custom = shape(
             Custom::new("")

@@ -175,7 +175,7 @@ pub(super) enum Kind {
     Item(Item),
     /// An xp orb.
     XpOrb(Orb),
-    /// A falling block that the API spawned: sand, gravel…
+    /// A falling block that the API spawned.
     FallingBlock(Falling),
     /// Primed TNT.
     Tnt(Tnt),
@@ -195,6 +195,35 @@ pub(super) enum Kind {
 }
 
 impl Kind {
+    /// Whether an entity of this kind is saved with its chunk by default and may be.
+    /// All are but a temporary custom type's and a firework rocket.
+    pub(super) fn is_saved(&self) -> bool {
+        self.can_be_saved() && self.custom().is_none_or(|c| c.spec.saved)
+    }
+
+    /// Whether an entity of this kind may be saved with its chunk at all.
+    /// Firework rockets never are.
+    pub(super) fn can_be_saved(&self) -> bool {
+        !matches!(self, Self::Firework(_))
+    }
+
+    /// The name tag a new entity of this kind starts with.
+    /// It is a custom type's, and empty for every other kind.
+    pub(super) fn default_name_tag(&self) -> &str {
+        self.custom().map_or("", |c| &c.spec.name_tag)
+    }
+
+    /// The custom entity's type, or `None` for another kind.
+    pub(super) fn custom(&self) -> Option<&Custom> {
+        match self {
+            Self::Npc(Character {
+                form: Form::Custom(c),
+                ..
+            }) => Some(c),
+            _ => None,
+        }
+    }
+
     /// What it is, as the API names it.
     pub(super) fn entity_type(&self) -> Type {
         match self {
@@ -225,54 +254,20 @@ impl Kind {
         }
     }
 
-    /// Whether a new entity of this kind shows its name tag always.
-    /// Human NPCs do, with their name, as a player's shows.
-    pub(super) fn is_name_always_shown(&self) -> bool {
-        matches!(
-            self,
+    /// The saved `identifier`, which is the actor type except for two kinds.
+    /// A lingering potion saves Bedrock's `minecraft:lingering_potion`, so it still lingers after
+    /// a load. A human NPC saves `Human`.
+    pub(super) fn saved_identifier(&self) -> &str {
+        match self {
+            Self::Projectile(Projectile {
+                shot: Shot::Potion { linger: true, .. },
+                ..
+            }) => "minecraft:lingering_potion",
             Self::Npc(Character {
                 form: Form::Human { .. },
                 ..
-            })
-        )
-    }
-
-    /// The physics constants.
-    pub(super) fn physics(&self) -> &Physics {
-        match self {
-            Self::Item(_) => &ITEM,
-            Self::XpOrb(_) => &ORB,
-            Self::FallingBlock(_) => &FALLING,
-            Self::Tnt(_) => &TNT,
-            Self::Projectile(p) => match p.shot {
-                Shot::Arrow(_) => &ARROW,
-                Shot::Snowball | Shot::Egg | Shot::EnderPearl => &THROWN,
-                Shot::Potion { .. } => &POTION,
-                Shot::XpBottle => &BOTTLE,
-                Shot::Trident(_) => &TRIDENT,
-                Shot::IceBomb => &ICE_BOMB,
-            },
-            Self::Cloud(_) => &CLOUD,
-            Self::Npc(n) => match &n.form {
-                Form::Villager { .. } => &VILLAGER,
-                Form::Zombie { .. } => &ZOMBIE,
-                Form::Human { .. } => &HUMAN,
-                Form::Custom(c) => &c.spec.physics,
-            },
-            Self::Painting(_) => &PAINTING,
-            Self::EndCrystal(_) => &END_CRYSTAL,
-            Self::Firework(_) => &FIREWORK,
-        }
-    }
-
-    /// Width and height of the box.
-    /// It is the physics size, except a cloud's, which is as wide as its radius × 2.
-    pub(super) fn size(&self) -> (f64, f64) {
-        if let Self::Cloud(c) = self {
-            (c.radius * 2.0, CLOUD.height)
-        } else {
-            let p = self.physics();
-            (p.width, p.height)
+            }) => "Human",
+            _ => self.identifier(),
         }
     }
 
@@ -306,76 +301,15 @@ impl Kind {
         }
     }
 
-    /// The saved `identifier`, which is the actor type except for two kinds.
-    /// A lingering potion saves Bedrock's `minecraft:lingering_potion`, so it still lingers after
-    /// a load. A human NPC saves `Human`.
-    pub(super) fn saved_identifier(&self) -> &str {
-        match self {
-            Self::Projectile(Projectile {
-                shot: Shot::Potion { linger: true, .. },
-                ..
-            }) => "minecraft:lingering_potion",
+    /// Whether it is a baby: a villager or a zombie made one.
+    pub(super) fn is_baby(&self) -> bool {
+        matches!(
+            self,
             Self::Npc(Character {
-                form: Form::Human { .. },
+                form: Form::Villager { baby: true, .. } | Form::Zombie { baby: true },
                 ..
-            }) => "Human",
-            _ => self.identifier(),
-        }
-    }
-
-    /// How far above its position the client draws it.
-    pub(super) fn network_offset(&self) -> f64 {
-        match self {
-            Self::Item(_) => 0.125,
-            Self::XpOrb(_)
-            | Self::Projectile(_)
-            | Self::Cloud(_)
-            | Self::Painting(_)
-            | Self::EndCrystal(_)
-            | Self::Firework(_) => 0.0,
-            Self::FallingBlock(_) | Self::Tnt(_) => 0.49,
-            Self::Npc(n) => match n.form {
-                Form::Human { .. } => 1.621,
-                Form::Villager { .. } | Form::Zombie { .. } | Form::Custom(_) => 0.0,
-            },
-        }
-    }
-
-    /// The health of a new entity of this kind.
-    /// It is 5 for items, 1 for projectiles, paintings and end crystals, and 20 for the rest; a
-    /// custom type has its own.
-    pub(super) fn max_health(&self) -> f64 {
-        match self {
-            Self::Item(_) => 5.0,
-            Self::XpOrb(_)
-            | Self::FallingBlock(_)
-            | Self::Tnt(_)
-            | Self::Cloud(_)
-            | Self::Firework(_) => 20.0,
-            Self::Projectile(_) | Self::Painting(_) | Self::EndCrystal(_) => 1.0,
-            Self::Npc(n) => match &n.form {
-                Form::Villager { .. } | Form::Zombie { .. } | Form::Human { .. } => 20.0,
-                Form::Custom(c) => c.spec.max_health,
-            },
-        }
-    }
-
-    /// Whether fire and lava leave it alone: netherite items, clouds and end crystals.
-    pub(super) fn is_fire_proof(&self) -> bool {
-        match self {
-            Self::Item(item) => item
-                .stack
-                .item()
-                .is_some_and(crate::item::Type::is_fire_proof),
-            Self::XpOrb(_)
-            | Self::FallingBlock(_)
-            | Self::Tnt(_)
-            | Self::Projectile(_)
-            | Self::Npc(_)
-            | Self::Painting(_)
-            | Self::Firework(_) => false,
-            Self::Cloud(_) | Self::EndCrystal(_) => true,
-        }
+            })
+        )
     }
 
     /// Whether damage of `cause` hurts it.
@@ -399,6 +333,41 @@ impl Kind {
         }
     }
 
+    /// Whether fire and lava leave it alone: netherite items, clouds and end crystals.
+    pub(super) fn is_fire_proof(&self) -> bool {
+        match self {
+            Self::Item(item) => item
+                .stack
+                .item()
+                .is_some_and(crate::item::Type::is_fire_proof),
+            Self::XpOrb(_)
+            | Self::FallingBlock(_)
+            | Self::Tnt(_)
+            | Self::Projectile(_)
+            | Self::Npc(_)
+            | Self::Painting(_)
+            | Self::Firework(_) => false,
+            Self::Cloud(_) | Self::EndCrystal(_) => true,
+        }
+    }
+
+    /// Whether it is a living NPC that projectiles, potions and clouds can hit.
+    pub(super) fn is_living(&self) -> bool {
+        matches!(self, Self::Npc(n) if n.dead_ticks.is_none())
+    }
+
+    /// Whether a new entity of this kind shows its name tag always.
+    /// Human NPCs do, with their name, as a player's shows.
+    pub(super) fn is_name_always_shown(&self) -> bool {
+        matches!(
+            self,
+            Self::Npc(Character {
+                form: Form::Human { .. },
+                ..
+            })
+        )
+    }
+
     /// Whether placing a block in its box is refused.
     /// It is so for what is alive and not an item, orb, projectile, cloud, painting or firework
     /// rocket. An end crystal is alive while its health is above 0, which
@@ -416,49 +385,80 @@ impl Kind {
         }
     }
 
-    /// Whether it is a baby: a villager or a zombie made one.
-    pub(super) fn is_baby(&self) -> bool {
-        matches!(
-            self,
-            Self::Npc(Character {
-                form: Form::Villager { baby: true, .. } | Form::Zombie { baby: true },
-                ..
-            })
-        )
-    }
-
-    /// Whether it is a living NPC that projectiles, potions and clouds can hit.
-    pub(super) fn is_living(&self) -> bool {
-        matches!(self, Self::Npc(n) if n.dead_ticks.is_none())
-    }
-
-    /// Whether an entity of this kind is saved with its chunk by default and may be.
-    /// All are but a temporary custom type's and a firework rocket.
-    pub(super) fn is_saved(&self) -> bool {
-        self.can_be_saved() && self.custom().is_none_or(|c| c.spec.saved)
-    }
-
-    /// Whether an entity of this kind may be saved with its chunk at all.
-    /// Firework rockets never are.
-    pub(super) fn can_be_saved(&self) -> bool {
-        !matches!(self, Self::Firework(_))
-    }
-
-    /// The custom entity's type, or `None` for another kind.
-    pub(super) fn custom(&self) -> Option<&Custom> {
+    /// The health of a new entity of this kind.
+    /// It is 5 for items, 1 for projectiles, paintings and end crystals, and 20 for the rest; a
+    /// custom type has its own.
+    pub(super) fn max_health(&self) -> f64 {
         match self {
-            Self::Npc(Character {
-                form: Form::Custom(c),
-                ..
-            }) => Some(c),
-            _ => None,
+            Self::Item(_) => 5.0,
+            Self::XpOrb(_)
+            | Self::FallingBlock(_)
+            | Self::Tnt(_)
+            | Self::Cloud(_)
+            | Self::Firework(_) => 20.0,
+            Self::Projectile(_) | Self::Painting(_) | Self::EndCrystal(_) => 1.0,
+            Self::Npc(n) => match &n.form {
+                Form::Villager { .. } | Form::Zombie { .. } | Form::Human { .. } => 20.0,
+                Form::Custom(c) => c.spec.max_health,
+            },
         }
     }
 
-    /// The name tag a new entity of this kind starts with.
-    /// It is a custom type's, and empty for every other kind.
-    pub(super) fn default_name_tag(&self) -> &str {
-        self.custom().map_or("", |c| &c.spec.name_tag)
+    /// How far above its position the client draws it.
+    pub(super) fn network_offset(&self) -> f64 {
+        match self {
+            Self::Item(_) => 0.125,
+            Self::XpOrb(_)
+            | Self::Projectile(_)
+            | Self::Cloud(_)
+            | Self::Painting(_)
+            | Self::EndCrystal(_)
+            | Self::Firework(_) => 0.0,
+            Self::FallingBlock(_) | Self::Tnt(_) => 0.49,
+            Self::Npc(n) => match n.form {
+                Form::Human { .. } => 1.621,
+                Form::Villager { .. } | Form::Zombie { .. } | Form::Custom(_) => 0.0,
+            },
+        }
+    }
+
+    /// Width and height of the box.
+    /// It is the physics size, except a cloud's, which is as wide as its radius × 2.
+    pub(super) fn size(&self) -> (f64, f64) {
+        if let Self::Cloud(c) = self {
+            (c.radius * 2.0, CLOUD.height)
+        } else {
+            let p = self.physics();
+            (p.width, p.height)
+        }
+    }
+
+    /// The physics constants.
+    pub(super) fn physics(&self) -> &Physics {
+        match self {
+            Self::Item(_) => &ITEM,
+            Self::XpOrb(_) => &ORB,
+            Self::FallingBlock(_) => &FALLING,
+            Self::Tnt(_) => &TNT,
+            Self::Projectile(p) => match p.shot {
+                Shot::Arrow(_) => &ARROW,
+                Shot::Snowball | Shot::Egg | Shot::EnderPearl => &THROWN,
+                Shot::Potion { .. } => &POTION,
+                Shot::XpBottle => &BOTTLE,
+                Shot::Trident(_) => &TRIDENT,
+                Shot::IceBomb => &ICE_BOMB,
+            },
+            Self::Cloud(_) => &CLOUD,
+            Self::Npc(n) => match &n.form {
+                Form::Villager { .. } => &VILLAGER,
+                Form::Zombie { .. } => &ZOMBIE,
+                Form::Human { .. } => &HUMAN,
+                Form::Custom(c) => &c.spec.physics,
+            },
+            Self::Painting(_) => &PAINTING,
+            Self::EndCrystal(_) => &END_CRYSTAL,
+            Self::Firework(_) => &FIREWORK,
+        }
     }
 }
 
@@ -952,6 +952,16 @@ pub(super) enum Cause {
 }
 
 impl Cause {
+    /// The official server's damage cause number, which the hurt event carries.
+    /// A lightning bolt has the players' number; every other cause follows
+    /// [`survival::actor_cause`] (P6: a trident's hit on a villager 3).
+    pub(super) fn actor_cause(self) -> i32 {
+        match self {
+            Self::Lightning => survival::Damage::Lightning.actor_cause(),
+            _ => survival::actor_cause(self.event_cause()),
+        }
+    }
+
     /// The event's cause of this damage.
     pub(super) fn event_cause(self) -> DamageCause {
         match self {
@@ -968,16 +978,6 @@ impl Cause {
             Self::Fall => DamageCause::Fall,
             Self::Suffocation => DamageCause::Suffocation,
             Self::Lightning | Self::Custom => DamageCause::Custom,
-        }
-    }
-
-    /// The official server's damage cause number, which the hurt event carries.
-    /// A lightning bolt has the players' number; every other cause follows
-    /// [`survival::actor_cause`] (P6: a trident's hit on a villager 3).
-    pub(super) fn actor_cause(self) -> i32 {
-        match self {
-            Self::Lightning => survival::Damage::Lightning.actor_cause(),
-            _ => survival::actor_cause(self.event_cause()),
         }
     }
 }

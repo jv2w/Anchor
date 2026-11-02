@@ -18,21 +18,6 @@ impl Random {
         Self(mix(mix(mix(seed.cast_unsigned()) ^ tick) ^ key))
     }
 
-    /// Draws the next 64 random bits (`SplitMix64`).
-    pub(crate) fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(GOLDEN);
-        mix(self.0)
-    }
-
-    /// Draws a number in `0..n` (`0` when `n` is 0), by multiply-high: the bias is below n / 2^64.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "invariant: the high half of a u64 × u32 product is below 2^32"
-    )]
-    pub(crate) fn below(&mut self, n: u32) -> u32 {
-        ((u128::from(self.next_u64()) * u128::from(n)) >> 64) as u32
-    }
-
     /// Draws a number in `lo..=hi` (`lo` when `hi < lo`).
     pub(crate) fn range(&mut self, lo: i32, hi: i32) -> i32 {
         let span = hi.wrapping_sub(lo).cast_unsigned();
@@ -46,6 +31,15 @@ impl Random {
         lo.wrapping_add(self.below(span + 1).cast_signed())
     }
 
+    /// Draws a number in `0..n` (`0` when `n` is 0), by multiply-high: the bias is below n / 2^64.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "invariant: the high half of a u64 × u32 product is below 2^32"
+    )]
+    pub(crate) fn below(&mut self, n: u32) -> u32 {
+        ((u128::from(self.next_u64()) * u128::from(n)) >> 64) as u32
+    }
+
     /// Draws a float in `[0, 1)` with 53 random bits.
     #[expect(
         clippy::cast_precision_loss,
@@ -53,6 +47,12 @@ impl Random {
     )]
     pub(crate) fn unit(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / (1_u64 << 53) as f64)
+    }
+
+    /// Draws the next 64 random bits (`SplitMix64`).
+    pub(crate) fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(GOLDEN);
+        mix(self.0)
     }
 }
 
@@ -73,23 +73,12 @@ impl Fnv {
         Self(Self::OFFSET)
     }
 
-    /// Mixes `bytes` into the hash.
-    pub(crate) const fn raw(&mut self, mut bytes: &[u8]) {
-        while let [b, rest @ ..] = bytes {
-            self.0 = (self.0 ^ *b as u64).wrapping_mul(Self::PRIME);
-            bytes = rest;
-        }
-    }
-
-    /// Mixes the little-endian bytes of `v` into the hash.
-    pub(crate) const fn u64(&mut self, v: u64) {
-        self.raw(&v.to_le_bytes());
-    }
-
-    /// Mixes `v` as a `u64` into the hash.
+    /// Mixes the three coordinates of `pos` into the hash.
     #[cfg(test)]
-    pub(crate) fn usize(&mut self, v: usize) {
-        self.u64(u64::try_from(v).expect("a usize fits a u64"));
+    pub(crate) fn block_pos(&mut self, pos: crate::world::BlockPos) {
+        for c in [pos.x, pos.y, pos.z] {
+            self.u64(u64::from(c.cast_unsigned()));
+        }
     }
 
     /// Mixes `bytes` with their length in front, so adjacent fields cannot run together.
@@ -99,11 +88,22 @@ impl Fnv {
         self.raw(bytes);
     }
 
-    /// Mixes the three coordinates of `pos` into the hash.
+    /// Mixes `v` as a `u64` into the hash.
     #[cfg(test)]
-    pub(crate) fn block_pos(&mut self, pos: crate::world::BlockPos) {
-        for c in [pos.x, pos.y, pos.z] {
-            self.u64(u64::from(c.cast_unsigned()));
+    pub(crate) fn usize(&mut self, v: usize) {
+        self.u64(u64::try_from(v).expect("a usize fits a u64"));
+    }
+
+    /// Mixes the little-endian bytes of `v` into the hash.
+    pub(crate) const fn u64(&mut self, v: u64) {
+        self.raw(&v.to_le_bytes());
+    }
+
+    /// Mixes `bytes` into the hash.
+    pub(crate) const fn raw(&mut self, mut bytes: &[u8]) {
+        while let [b, rest @ ..] = bytes {
+            self.0 = (self.0 ^ *b as u64).wrapping_mul(Self::PRIME);
+            bytes = rest;
         }
     }
 }

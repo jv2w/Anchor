@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Context, open};
 use crate::display::{
-    BossBar, Error, Holder, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Result, Scoreboard, Slot, Sort,
+    BossBar, Error, Holder, MAX_LABEL_BYTES, MAX_LINES, MAX_SIDEBAR_LINES, Result, Scoreboard,
+    Slot, Sort,
 };
 use crate::player;
 use crate::protocol::consts::{BossEventOverlay, BossEventType, ScoreboardIdentity};
@@ -119,16 +120,87 @@ enum Change {
 }
 
 impl Context<'_> {
+    /// Hides the boss bar `player` sees. False if the player is not in the game or sees none.
+    pub fn remove_boss_bar(&mut self, player: player::Id) -> bool {
+        let Some((p, open)) = open(self.state, player) else {
+            return false;
+        };
+        let Some(old) = open.display.bar.take() else {
+            return false;
+        };
+        let entity = crate::tick::entity::unique_id(p.runtime_id);
+        p.send_packet(boss_event(entity, BossEventType::Hide, &old));
+        true
+    }
+
+    /// Removes the scoreboard `player` sees in `slot`. False if the player is not in the game or
+    /// sees none there.
+    pub fn remove_scoreboard(&mut self, player: player::Id, slot: Slot) -> bool {
+        let Some((p, open)) = open(self.state, player) else {
+            return false;
+        };
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: slot_index is below the three slots"
+        )]
+        if open.display.boards[slot_index(slot)].take().is_none() {
+            return false;
+        }
+        p.send_packet(remove_objective(objective(slot)));
+        true
+    }
+
+    /// Shows `bar` to `player` in place of the boss bar it saw. Only what changed is sent: a new
+    /// title or progress updates the bar, a new colour shows it again.
+    ///
+    /// # Errors
+    ///
+    /// Changes nothing with:
+    /// [`Error::TooLong`] if the title is longer than 256 bytes.
+    /// [`Error::Offline`] if the player is not in the game, checked after the title.
+    pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
+        if bar.title.len() > BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN {
+            return Err(Error::TooLong);
+        }
+        let (p, open) = open(self.state, player).ok_or(Error::Offline)?;
+        let entity = crate::tick::entity::unique_id(p.runtime_id);
+        match &open.display.bar {
+            Some(old) if old.colour == bar.colour => {
+                if old.title != bar.title {
+                    p.send_packet(boss_event(entity, BossEventType::Title, &bar));
+                }
+                if old.progress.to_bits() != bar.progress.to_bits() {
+                    p.send_packet(boss_event(entity, BossEventType::HealthPercentage, &bar));
+                }
+            }
+            old => {
+                if let Some(old) = old {
+                    p.send_packet(boss_event(entity, BossEventType::Hide, old));
+                }
+                p.send_packet(boss_event(entity, BossEventType::Show, &bar));
+            }
+        }
+        open.display.bar = Some(bar);
+        Ok(())
+    }
+
     /// Shows `board` to `player` in its slot, in place of what the slot showed. Only the lines
     /// that changed are sent again, a line being the same when its entry, text or player, and
     /// score are the same wherever it stands in the list; a new title or sort order sends the
     /// whole scoreboard.
     ///
-    /// Fails, changing nothing, if the scoreboard has more lines than its slot shows (15 in the
-    /// sidebar, 1,024 elsewhere), a title or a text is longer than 1,024 bytes, or a player line
-    /// names a player not in the game or one named before; only then if `player` is not in the
-    /// game. A player line stays on the scoreboards of the other players when its player leaves,
-    /// so setting the scoreboard again fails on that line.
+    /// A player line stays on the scoreboards of the other players when its player leaves, so
+    /// setting the scoreboard again fails on that line.
+    ///
+    /// # Errors
+    ///
+    /// Changes nothing with:
+    /// [`Error::TooManyLines`] for more lines than the slot shows (15 in the sidebar, 1,024
+    /// elsewhere).
+    /// [`Error::TooLong`] for a title or a text longer than 1,024 bytes.
+    /// [`Error::UnknownPlayer`] for a player line that names a player not in the game.
+    /// [`Error::DuplicatePlayer`] for a player line that names a player named before.
+    /// [`Error::Offline`] if `player` is not in the game, checked after the scoreboard.
     pub fn set_scoreboard(&mut self, player: player::Id, board: Scoreboard) -> Result<()> {
         let max = if board.slot == Slot::Sidebar {
             MAX_SIDEBAR_LINES
@@ -138,7 +210,7 @@ impl Context<'_> {
         if board.lines.len() > max {
             return Err(Error::TooManyLines);
         }
-        if board.title.len() > MAX_TEXT {
+        if board.title.len() > MAX_LABEL_BYTES {
             return Err(Error::TooLong);
         }
         let index = slot_index(board.slot);
@@ -147,7 +219,7 @@ impl Context<'_> {
         let lines = board.lines.into_iter().zip(BLANKS.iter().cycle());
         for (position, (line, blank)) in lines.enumerate() {
             let (id, who) = match line.holder {
-                Holder::Text(text) if text.len() > MAX_TEXT => return Err(Error::TooLong),
+                Holder::Text(text) if text.len() > MAX_LABEL_BYTES => return Err(Error::TooLong),
                 Holder::Text(text) => {
                     let text = if text.is_empty() {
                         (*blank).to_owned()
@@ -215,67 +287,6 @@ impl Context<'_> {
         }
         *shown = Some(new);
         Ok(())
-    }
-
-    /// Removes the scoreboard `player` sees in `slot`. False if the player is not in the game or
-    /// sees none there.
-    pub fn remove_scoreboard(&mut self, player: player::Id, slot: Slot) -> bool {
-        let Some((p, open)) = open(self.state, player) else {
-            return false;
-        };
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: slot_index is below the three slots"
-        )]
-        if open.display.boards[slot_index(slot)].take().is_none() {
-            return false;
-        }
-        p.send_packet(remove_objective(objective(slot)));
-        true
-    }
-
-    /// Shows `bar` to `player` in place of the boss bar it saw. Only what changed is sent: a new
-    /// title or progress updates the bar, a new colour shows it again.
-    ///
-    /// Fails, changing nothing, if the title is longer than 256 bytes; only then if the player is
-    /// not in the game.
-    pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
-        if bar.title.len() > BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN {
-            return Err(Error::TooLong);
-        }
-        let (p, open) = open(self.state, player).ok_or(Error::Offline)?;
-        let entity = crate::tick::entity::unique_id(p.runtime_id);
-        match &open.display.bar {
-            Some(old) if old.colour == bar.colour => {
-                if old.title != bar.title {
-                    p.send_packet(boss_event(entity, BossEventType::Title, &bar));
-                }
-                if old.progress.to_bits() != bar.progress.to_bits() {
-                    p.send_packet(boss_event(entity, BossEventType::HealthPercentage, &bar));
-                }
-            }
-            old => {
-                if let Some(old) = old {
-                    p.send_packet(boss_event(entity, BossEventType::Hide, old));
-                }
-                p.send_packet(boss_event(entity, BossEventType::Show, &bar));
-            }
-        }
-        open.display.bar = Some(bar);
-        Ok(())
-    }
-
-    /// Hides the boss bar `player` sees. False if the player is not in the game or sees none.
-    pub fn remove_boss_bar(&mut self, player: player::Id) -> bool {
-        let Some((p, open)) = open(self.state, player) else {
-            return false;
-        };
-        let Some(old) = open.display.bar.take() else {
-            return false;
-        };
-        let entity = crate::tick::entity::unique_id(p.runtime_id);
-        p.send_packet(boss_event(entity, BossEventType::Hide, &old));
-        true
     }
 }
 

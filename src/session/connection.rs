@@ -206,6 +206,26 @@ impl Session {
         }
     }
 
+    /// Verifies the connection request: online against the authorization keys (one JWKS
+    /// refresh for an unknown key ID, within the login deadline), offline without them.
+    async fn verify(&self, request: &[u8]) -> Result<Login> {
+        let Some(auth) = &self.shared.auth else {
+            return login::verify(request, Mode::Offline, clock::token_now()).map_err(Error::Login);
+        };
+        let verified = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(self.started + LOGIN_DEADLINE),
+            auth.verify_with_refresh(
+                |keys| login::verify(request, Mode::Online(keys), clock::token_now()),
+                |e| matches!(e, login::Error::UnknownKeyId),
+            ),
+        )
+        .await;
+        match verified {
+            Ok(Some(result)) => result.map_err(Error::Login),
+            Ok(None) | Err(_) => Err(Error::Login(login::Error::UnknownKeyId)),
+        }
+    }
+
     async fn serve(&mut self) -> End {
         let login_deadline = deadline(self.started + LOGIN_DEADLINE);
         let mut spawn_at = self.spawn_at;
@@ -629,26 +649,6 @@ impl Session {
         .await
     }
 
-    /// Verifies the connection request: online against the authorization keys (one JWKS
-    /// refresh for an unknown key ID, within the login deadline), offline without them.
-    async fn verify(&self, request: &[u8]) -> Result<Login> {
-        let Some(auth) = &self.shared.auth else {
-            return login::verify(request, Mode::Offline, clock::token_now()).map_err(Error::Login);
-        };
-        let verified = tokio::time::timeout_at(
-            tokio::time::Instant::from_std(self.started + LOGIN_DEADLINE),
-            auth.verify_with_refresh(
-                |keys| login::verify(request, Mode::Online(keys), clock::token_now()),
-                |e| matches!(e, login::Error::UnknownKeyId),
-            ),
-        )
-        .await;
-        match verified {
-            Ok(Some(result)) => result.map_err(Error::Login),
-            Ok(None) | Err(_) => Err(Error::Login(login::Error::UnknownKeyId)),
-        }
-    }
-
     async fn on_pack_response(&mut self, response: &ResourcePackClientResponse) -> Result<()> {
         let reply = self
             .transfer
@@ -781,20 +781,6 @@ impl Session {
         Ok(())
     }
 
-    /// Batches and compresses `packets` into bodies at the end of `out_bodies`.
-    fn encode<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
-        let batched = batch::encode_bodies(
-            packets,
-            self.encoder.as_mut(),
-            &mut self.out_payload,
-            &mut self.out_bodies,
-        );
-        // Cleared first: `shrink_to` never goes below the length.
-        self.out_payload.clear();
-        self.out_payload.shrink_to(MAX_KEPT_BUFFER_BYTES);
-        batched.map_err(Error::Encode)
-    }
-
     /// Returns the batch bodies of a packet the tick shares among sessions, batched and
     /// compressed by the first session that sends it: every joined session's encoder has the
     /// server's batch settings.
@@ -817,6 +803,20 @@ impl Session {
             self.pending.push_back(Pending::Body(body));
         }
         Ok(())
+    }
+
+    /// Batches and compresses `packets` into bodies at the end of `out_bodies`.
+    fn encode<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
+        let batched = batch::encode_bodies(
+            packets,
+            self.encoder.as_mut(),
+            &mut self.out_payload,
+            &mut self.out_bodies,
+        );
+        // Cleared first: `shrink_to` never goes below the length.
+        self.out_payload.clear();
+        self.out_payload.shrink_to(MAX_KEPT_BUFFER_BYTES);
+        batched.map_err(Error::Encode)
     }
 
     /// Queues the tick's messages in order: runs of packets batched here, a shared packet in
@@ -1600,7 +1600,7 @@ mod tests {
                 .on_response(&shared.packs, &send_packs)
                 .unwrap();
             let chunks = shared.packs.packs()[0]
-                .size()
+                .size_bytes()
                 .div_ceil(u64::from(packs::CHUNK_BYTES));
             assert_eq!(chunks, 8);
             for chunk_index in 0..i32::try_from(chunks).unwrap() {

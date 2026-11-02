@@ -24,7 +24,7 @@ const INFINITE_DURATION: i32 = -1;
 
 /// The longest duration an instance holds, in ticks (`i32::MAX`: the saved and sent
 /// int).
-pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
+pub const MAX_DURATION_TICKS: u32 = i32::MAX.cast_unsigned();
 
 /// The key of an instance's particle flag in its saved form.
 const PARTICLES: &str = "ShowParticles";
@@ -46,8 +46,36 @@ pub struct Instance {
 }
 
 impl Instance {
-    /// An effect instance lasting `duration` ticks, at most [`MAX_DURATION`]; the static tables
-    /// make them.
+    /// The instance a saved compound holds ([`Self::to_nbt`]); `None` for an unknown ID, a
+    /// missing ID, amplifier or duration, or a negative duration other than -1 (infinite). An
+    /// infinite instance lasts [`MAX_DURATION_TICKS`].
+    pub(crate) fn from_nbt(c: &Compound) -> Option<Self> {
+        let byte = |key| match c.get(key) {
+            Some(Value::Byte(b)) => Some(*b),
+            _ => None,
+        };
+        let effect = Type::from_id(i32::from(byte(ID)?))?;
+        let Some(Value::Int(saved)) = c.get(DURATION) else {
+            return None;
+        };
+        let infinite = *saved == INFINITE_DURATION;
+        let duration = if infinite {
+            MAX_DURATION_TICKS
+        } else {
+            u32::try_from(*saved).ok()?
+        };
+        let instance = Self::new(
+            effect,
+            duration,
+            byte(AMPLIFIER)?,
+            byte(PARTICLES).unwrap_or(1) != 0,
+            byte(AMBIENT).unwrap_or(0) != 0,
+        );
+        Some(instance.with_infinite(infinite))
+    }
+
+    /// An effect instance lasting `duration` ticks, at most [`MAX_DURATION_TICKS`]; the static
+    /// tables make them.
     pub(crate) const fn new(
         effect: Type,
         duration: u32,
@@ -66,59 +94,67 @@ impl Instance {
         .with_duration_ticks(duration)
     }
 
-    /// The instance a saved compound holds ([`Self::to_nbt`]); `None` for an unknown ID, a missing ID, amplifier or
-    /// duration, or a negative duration other than -1 (infinite). An
-    /// infinite instance lasts [`MAX_DURATION`].
-    pub(crate) fn from_nbt(c: &Compound) -> Option<Self> {
-        let byte = |key| match c.get(key) {
-            Some(Value::Byte(b)) => Some(*b),
-            _ => None,
-        };
-        let effect = Type::from_id(i32::from(byte(ID)?))?;
-        let Some(Value::Int(saved)) = c.get(DURATION) else {
-            return None;
-        };
-        let infinite = *saved == INFINITE_DURATION;
-        let duration = if infinite {
-            MAX_DURATION
-        } else {
-            u32::try_from(*saved).ok()?
-        };
-        let instance = Self::new(
-            effect,
-            duration,
-            byte(AMPLIFIER)?,
-            byte(PARTICLES).unwrap_or(1) != 0,
-            byte(AMBIENT).unwrap_or(0) != 0,
-        );
-        Some(instance.with_infinite(infinite))
+    /// The amplifier: the level minus one.
+    #[doc(alias = "EffectInstance::getAmplifier")]
+    pub fn amplifier(self) -> u8 {
+        self.amplifier
     }
 
-    /// The same instance lasting `ticks`, at most [`MAX_DURATION`] (a longer one is cut to
-    /// it).
-    #[doc(alias = "EffectInstance::setDuration")]
-    #[must_use]
-    pub const fn with_duration_ticks(self, ticks: u32) -> Self {
-        let duration = if ticks > MAX_DURATION {
-            MAX_DURATION
-        } else {
-            ticks
-        };
-        Self { duration, ..self }
+    /// Whether this instance may replace `old`, an active instance of the same type: not a
+    /// weaker one, nor an equally strong one that ends sooner. An infinite instance never ends,
+    /// so it outlasts any finite one whatever its duration counter holds.
+    #[doc(alias = "EffectCollection::canAdd")]
+    pub fn can_replace(self, old: Self) -> bool {
+        let ends_sooner = !self.infinite && (old.infinite || self.duration < old.duration);
+        !(self.amplifier < old.amplifier || (self.amplifier == old.amplifier && ends_sooner))
     }
 
-    /// The same instance at `amplifier` (0 is level I).
-    #[doc(alias = "EffectInstance::setAmplifier")]
-    #[must_use]
-    pub const fn with_amplifier(self, amplifier: u8) -> Self {
-        Self { amplifier, ..self }
+    /// The particle colour: the effect type's (red, green, blue, alpha).
+    #[doc(alias = "EffectInstance::getColor")]
+    pub fn colour(self) -> [u8; 4] {
+        self.effect.colour()
     }
 
-    /// The same instance showing particles, or not.
-    #[doc(alias = "EffectInstance::setVisible")]
-    #[must_use]
-    pub const fn with_visible(self, visible: bool) -> Self {
-        Self { visible, ..self }
+    /// The duration in ticks.
+    #[doc(alias = "EffectInstance::getDuration")]
+    pub fn duration_ticks(self) -> u32 {
+        self.duration
+    }
+
+    /// The effect type.
+    #[doc(alias = "EffectInstance::getType")]
+    pub fn effect(self) -> Type {
+        self.effect
+    }
+
+    /// Whether the effect shows fainter particles.
+    #[doc(alias = "EffectInstance::isAmbient")]
+    pub fn is_ambient(self) -> bool {
+        self.ambient
+    }
+
+    /// Whether no time is left.
+    #[doc(alias = "EffectInstance::hasExpired")]
+    pub fn is_expired(self) -> bool {
+        self.duration == 0
+    }
+
+    /// Whether the effect never ends.
+    #[doc(alias = "EffectInstance::isInfinite")]
+    pub fn is_infinite(self) -> bool {
+        self.infinite
+    }
+
+    /// Whether the effect shows particles.
+    #[doc(alias = "EffectInstance::isVisible")]
+    pub fn is_visible(self) -> bool {
+        self.visible
+    }
+
+    /// The level: the amplifier plus one.
+    #[doc(alias = "EffectInstance::getEffectLevel")]
+    pub fn level(self) -> u16 {
+        u16::from(self.amplifier) + 1
     }
 
     /// The same instance with faint particles, or not.
@@ -128,79 +164,43 @@ impl Instance {
         Self { ambient, ..self }
     }
 
+    /// The same instance at `amplifier` (0 is level I).
+    #[doc(alias = "EffectInstance::setAmplifier")]
+    #[must_use]
+    pub const fn with_amplifier(self, amplifier: u8) -> Self {
+        Self { amplifier, ..self }
+    }
+
+    /// The same instance lasting `ticks`, at most [`MAX_DURATION_TICKS`] (a longer one is cut to
+    /// it).
+    #[doc(alias = "EffectInstance::setDuration")]
+    #[must_use]
+    pub const fn with_duration_ticks(self, ticks: u32) -> Self {
+        let duration = if ticks > MAX_DURATION_TICKS {
+            MAX_DURATION_TICKS
+        } else {
+            ticks
+        };
+        Self { duration, ..self }
+    }
+
     /// The same instance never ending, or not: its duration counts down and starts again.
     #[must_use]
     pub const fn with_infinite(self, infinite: bool) -> Self {
         Self { infinite, ..self }
     }
 
-    /// The effect type.
-    #[doc(alias = "EffectInstance::getType")]
-    pub fn effect(self) -> Type {
-        self.effect
+    /// The same instance showing particles, or not.
+    #[doc(alias = "EffectInstance::setVisible")]
+    #[must_use]
+    pub const fn with_visible(self, visible: bool) -> Self {
+        Self { visible, ..self }
     }
 
-    /// The duration in ticks.
-    #[doc(alias = "EffectInstance::getDuration")]
-    pub fn duration_ticks(self) -> u32 {
-        self.duration
-    }
-
-    /// The amplifier: the level minus one.
-    #[doc(alias = "EffectInstance::getAmplifier")]
-    pub fn amplifier(self) -> u8 {
-        self.amplifier
-    }
-
-    /// Whether the effect shows particles.
-    #[doc(alias = "EffectInstance::isVisible")]
-    pub fn is_visible(self) -> bool {
-        self.visible
-    }
-
-    /// Whether the effect shows fainter particles.
-    #[doc(alias = "EffectInstance::isAmbient")]
-    pub fn is_ambient(self) -> bool {
-        self.ambient
-    }
-
-    /// Whether the effect never ends.
-    #[doc(alias = "EffectInstance::isInfinite")]
-    pub fn is_infinite(self) -> bool {
-        self.infinite
-    }
-
-    /// The level: the amplifier plus one.
-    #[doc(alias = "EffectInstance::getEffectLevel")]
-    pub fn level(self) -> u16 {
-        u16::from(self.amplifier) + 1
-    }
-
-    /// Whether no time is left.
-    #[doc(alias = "EffectInstance::hasExpired")]
-    pub fn is_expired(self) -> bool {
-        self.duration == 0
-    }
-
-    /// The particle colour: the effect type's (red, green, blue, alpha).
-    #[doc(alias = "EffectInstance::getColor")]
-    pub fn colour(self) -> [u8; 4] {
-        self.effect.colour()
-    }
-
-    /// Whether this instance may replace `old`, an active instance of the same type: not a weaker one, nor an equally strong one that ends
-    /// sooner. An infinite instance never ends, so it outlasts any finite one whatever its
-    /// duration counter holds.
-    #[doc(alias = "EffectCollection::canAdd")]
-    pub fn can_replace(self, old: Self) -> bool {
-        let ends_sooner = !self.infinite && (old.infinite || self.duration < old.duration);
-        !(self.amplifier < old.amplifier || (self.amplifier == old.amplifier && ends_sooner))
-    }
-
-    /// Builds the saved form of the instance, one for players and clouds: `Id` and `Amplifier` (bytes), `Duration`
-    /// (int; -1 for an infinite instance), `Ambient` and `ShowParticles` (bytes).
+    /// The saved form of the instance, one for players and clouds: `Id` and `Amplifier` (bytes),
+    /// `Duration` (int; -1 for an infinite instance), `Ambient` and `ShowParticles` (bytes).
     pub(crate) fn to_nbt(self) -> Compound {
-        // `duration` is at most `MAX_DURATION`, which is `i32::MAX`.
+        // `duration` is at most `MAX_DURATION_TICKS`, which is `i32::MAX`.
         let duration = if self.infinite {
             INFINITE_DURATION
         } else {
@@ -267,11 +267,6 @@ impl PotionData {
 }
 
 impl Type {
-    /// Every effect type, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::TYPES
-    }
-
     /// The effect type with this save and network ID, or `None`.
     #[doc(alias = "EffectIdMap::fromId")]
     pub fn from_id(id: i32) -> Option<Self> {
@@ -279,33 +274,15 @@ impl Type {
         table::TYPES_BY_ID.get(id).copied().flatten()
     }
 
-    /// The save and network ID.
-    #[doc(alias = "EffectIdMap::toId")]
-    pub fn id(self) -> u8 {
-        self.data().id
-    }
-
-    /// The translation key of the name, such as `potion.poison`.
-    #[doc(alias = "Effect::getName")]
-    pub fn translation_key(self) -> &'static str {
-        self.data().text
+    /// Every effect type, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::TYPES
     }
 
     /// The particle colour: red, green, blue, alpha.
     #[doc(alias = "Effect::getColor")]
     pub fn colour(self) -> [u8; 4] {
         self.data().colour
-    }
-
-    /// Whether the effect harms.
-    #[doc(alias = "Effect::isBad")]
-    pub fn is_bad(self) -> bool {
-        self.data().bad
-    }
-
-    /// Whether the effect acts once instead of over time (instant health and damage).
-    pub fn is_instant(self) -> bool {
-        self.data().instant
     }
 
     /// The duration in ticks an instance has when none is given.
@@ -320,12 +297,35 @@ impl Type {
         self.data().bubbles
     }
 
+    /// The save and network ID.
+    #[doc(alias = "EffectIdMap::toId")]
+    pub fn id(self) -> u8 {
+        self.data().id
+    }
+
     /// An instance of the effect with the defaults: the [default
     /// duration](Self::default_duration_ticks), level I, particles shown, not ambient, not infinite.
     /// The [`Instance`] `with_*` methods change the rest.
     #[doc(alias = "EffectInstance::__construct")]
     pub fn instance(self) -> Instance {
         Instance::new(self, self.default_duration_ticks(), 0, true, false)
+    }
+
+    /// Whether the effect harms.
+    #[doc(alias = "Effect::isBad")]
+    pub fn is_bad(self) -> bool {
+        self.data().bad
+    }
+
+    /// Whether the effect acts once instead of over time (instant health and damage).
+    pub fn is_instant(self) -> bool {
+        self.data().instant
+    }
+
+    /// The translation key of the name, such as `potion.poison`.
+    #[doc(alias = "Effect::getName")]
+    pub fn translation_key(self) -> &'static str {
+        self.data().text
     }
 
     fn data(self) -> &'static Data {
@@ -338,11 +338,6 @@ impl Type {
 }
 
 impl Potion {
-    /// Every potion type, in name order.
-    pub fn all() -> &'static [Self] {
-        &table::POTIONS
-    }
-
     /// The potion type with this save and network ID (a potion item's meta), or `None`.
     #[doc(alias = "PotionTypeIdMap::fromId")]
     pub fn from_id(id: i32) -> Option<Self> {
@@ -350,10 +345,9 @@ impl Potion {
         table::POTIONS_BY_ID.get(id).copied().flatten()
     }
 
-    /// The save and network ID.
-    #[doc(alias = "PotionTypeIdMap::toId")]
-    pub fn id(self) -> u8 {
-        self.data().id
+    /// Every potion type, in name order.
+    pub fn all() -> &'static [Self] {
+        &table::POTIONS
     }
 
     /// The English display name, such as `Night Vision`.
@@ -378,6 +372,12 @@ impl Potion {
         &table::POTION_EFFECTS[start..start + usize::from(data.count)]
     }
 
+    /// The save and network ID.
+    #[doc(alias = "PotionTypeIdMap::toId")]
+    pub fn id(self) -> u8 {
+        self.data().id
+    }
+
     fn data(self) -> &'static PotionData {
         #[expect(
             clippy::indexing_slicing,
@@ -387,9 +387,8 @@ impl Potion {
     }
 }
 
-/// The colour of the bubbles `effects` show: the mean of
-/// the colour of each visible effect with bubbles, counted once per level; `None`
-/// (transparent black) without one.
+/// The colour of the bubbles `effects` show: the mean of the colour of each visible effect with
+/// bubbles, counted once per level; `None` (transparent black) without one.
 #[doc(alias = "EffectCollection::getBubbleColor")]
 pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
     mix(effects.iter().filter(|e| shows_bubbles(e)))
@@ -397,7 +396,7 @@ pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
 
 /// Whether every effect with bubbles in `effects` is ambient; false without one.
 #[doc(alias = "EffectCollection::hasOnlyAmbientEffects")]
-pub fn only_ambient(effects: &[Instance]) -> bool {
+pub fn is_only_ambient(effects: &[Instance]) -> bool {
     let mut bubbles = effects.iter().filter(|e| shows_bubbles(e)).peekable();
     bubbles.peek().is_some() && bubbles.all(|e| e.is_ambient())
 }
@@ -551,7 +550,7 @@ mod tests {
             .with_visible(false)
             .with_ambient(true)
             .with_infinite(true);
-        assert_eq!(changed.duration_ticks(), MAX_DURATION);
+        assert_eq!(changed.duration_ticks(), MAX_DURATION_TICKS);
         assert_eq!((changed.amplifier(), changed.level()), (255, 256));
         assert!(!changed.is_visible() && changed.is_ambient() && changed.is_infinite());
         assert!(!speed.is_expired() && speed.with_duration_ticks(0).is_expired());
@@ -573,7 +572,7 @@ mod tests {
         assert!(!weak.with_duration_ticks(50).can_replace(weak));
         assert!(!weak.can_replace(weak.with_amplifier(1).with_duration_ticks(1)));
         assert_eq!(bubble_colour(&[]), None);
-        assert!(!only_ambient(&[]));
+        assert!(!is_only_ambient(&[]));
         // Level II counts twice: (2 × speed + poison) / 3 per channel.
         let poison = Type::Poison.instance();
         let mixed = bubble_colour(&[weak.with_amplifier(1), poison]).unwrap();
@@ -584,8 +583,8 @@ mod tests {
         assert_eq!(bubble_colour(&[weak, poison.with_visible(false)]), Some(s));
         let darkness = Type::Darkness.instance();
         assert_eq!(bubble_colour(&[darkness]), None);
-        assert!(only_ambient(&[weak.with_ambient(true), darkness]));
-        assert!(!only_ambient(&[weak.with_ambient(true), poison]));
+        assert!(is_only_ambient(&[weak.with_ambient(true), darkness]));
+        assert!(!is_only_ambient(&[weak.with_ambient(true), poison]));
     }
 
     /// An infinite instance outlasts any finite one of the same level whatever its counter holds,
@@ -602,7 +601,7 @@ mod tests {
         assert!(infinite.can_replace(infinite));
         assert!(!infinite.can_replace(finite.with_amplifier(1)));
         let long = Instance::new(Type::Speed, u32::MAX, 0, true, false);
-        assert_eq!(long.duration_ticks(), MAX_DURATION);
+        assert_eq!(long.duration_ticks(), MAX_DURATION_TICKS);
         assert_eq!(Instance::from_nbt(&long.to_nbt()), Some(long));
     }
 

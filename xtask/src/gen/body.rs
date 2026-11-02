@@ -46,8 +46,8 @@ impl E {
         }
     }
 
-    fn with_code(mut self, code: String) -> Self {
-        self.code = code;
+    fn effect(mut self) -> Self {
+        self.effects = true;
         self
     }
 
@@ -58,8 +58,8 @@ impl E {
         self
     }
 
-    fn effect(mut self) -> Self {
-        self.effects = true;
+    fn with_code(mut self, code: String) -> Self {
+        self.code = code;
         self
     }
 }
@@ -289,32 +289,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn r(&self) -> &'static str {
-        match self.dir {
-            Dir::Decode => "r",
-            Dir::Encode => "w",
-        }
-    }
-
-    fn rust_type(&self, t: &Type) -> Result<String, String> {
-        self.m.rust_type(t, self.module)
-    }
-
-    /// A function result type: `sum` decides strings (`&str`, `&'static str` or `String`).
-    fn result_type(&self, t: &Type, sum: &str) -> Result<String, String> {
-        if is_string(t) {
-            return Ok(if sum.contains("String") {
-                "String".to_owned()
-            } else {
-                "&str".to_owned()
-            });
-        }
-        if t.kind == "error" {
-            return Ok("Option<&'static str>".to_owned());
-        }
-        self.rust_type(t)
-    }
-
     /// The type of a borrowed local holding a value of `t`.
     fn borrowed_type(&self, t: &Type) -> Result<String, String> {
         if self.m.is_copy(t) {
@@ -333,22 +307,11 @@ impl<'m, 'a> Lower<'m, 'a> {
         })
     }
 
-    fn name(&self, id: usize) -> String {
-        self.vars
-            .get(id)
-            .map(|v| v.name.clone())
-            .unwrap_or_default()
-    }
-
-    fn new_var(&mut self, go: &str, ty: Option<String>) -> Result<usize, String> {
-        let name = param_name(go)?;
-        self.vars.push(Var { name, ty });
-        Ok(self.vars.len() - 1)
-    }
-
-    fn bind(&mut self, go: &str, b: Binding) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(go.to_owned(), b);
+    /// How a local holds its values in this direction: encoders borrow, decoders own.
+    fn direction_holding(&self) -> Holding {
+        match self.dir {
+            Dir::Decode => Holding::Owned,
+            Dir::Encode => Holding::Borrowed,
         }
     }
 
@@ -361,12 +324,70 @@ impl<'m, 'a> Lower<'m, 'a> {
             .ok_or_else(|| format!("unknown variable {go}"))
     }
 
-    /// How a local holds its values in this direction: encoders borrow, decoders own.
-    fn direction_holding(&self) -> Holding {
+    fn name(&self, id: usize) -> String {
+        self.vars
+            .get(id)
+            .map(|v| v.name.clone())
+            .unwrap_or_default()
+    }
+
+    fn r(&self) -> &'static str {
         match self.dir {
-            Dir::Decode => Holding::Owned,
-            Dir::Encode => Holding::Borrowed,
+            Dir::Decode => "r",
+            Dir::Encode => "w",
         }
+    }
+
+    /// A function result type: `sum` decides strings (`&str`, `&'static str` or `String`).
+    fn result_type(&self, t: &Type, sum: &str) -> Result<String, String> {
+        if is_string(t) {
+            return Ok(if sum.contains("String") {
+                "String".to_owned()
+            } else {
+                "&str".to_owned()
+            });
+        }
+        if t.kind == "error" {
+            return Ok("Option<&'static str>".to_owned());
+        }
+        self.rust_type(t)
+    }
+
+    fn rust_type(&self, t: &Type) -> Result<String, String> {
+        self.m.rust_type(t, self.module)
+    }
+
+    /// Encode: declares shadow locals for external places the body assigns and reads after.
+    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
+        let mut locals = BTreeSet::new();
+        collect_locals(stmts, &mut locals);
+        let mut written = Vec::new();
+        let mut needs = BTreeSet::new();
+        self.flow(stmts, &locals, &mut written, &mut needs);
+        for path in needs {
+            let parts: Vec<&str> = path.split('.').collect();
+            let root = self.lookup(parts.first().copied().unwrap_or_default())?;
+            if root.var.is_some() {
+                continue;
+            }
+            let [_, field] = parts.as_slice() else {
+                return Err(format!("the writer assigns {path} and reads it afterwards"));
+            };
+            let (name, t) = self.field_of(&root.ty, field)?;
+            if !self.m.is_copy(&t) {
+                return Err(format!(
+                    "the writer assigns {path} and reads it afterwards; it is not Copy"
+                ));
+            }
+            let id = self.new_var(field, Some(self.rust_type(&t)?))?;
+            self.shadows.insert(path.clone(), id);
+            out.push(S::Let {
+                vars: vec![Some(id)],
+                init: Some(E::new(format!("{}.{name}", root.code))),
+                default_of: None,
+            });
+        }
+        Ok(())
     }
 
     /// Declares a tracked local bound to a Go name, with its type written out unless it is a
@@ -416,42 +437,21 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(id)
     }
 
+    fn bind(&mut self, go: &str, b: Binding) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(go.to_owned(), b);
+        }
+    }
+
+    fn new_var(&mut self, go: &str, ty: Option<String>) -> Result<usize, String> {
+        let name = param_name(go)?;
+        self.vars.push(Var { name, ty });
+        Ok(self.vars.len() - 1)
+    }
+
     fn q(&mut self) -> &'static str {
         self.fallible = true;
         "?"
-    }
-
-    /// Encode: declares shadow locals for external places the body assigns and reads after.
-    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
-        let mut locals = BTreeSet::new();
-        collect_locals(stmts, &mut locals);
-        let mut written = Vec::new();
-        let mut needs = BTreeSet::new();
-        self.flow(stmts, &locals, &mut written, &mut needs);
-        for path in needs {
-            let parts: Vec<&str> = path.split('.').collect();
-            let root = self.lookup(parts.first().copied().unwrap_or_default())?;
-            if root.var.is_some() {
-                continue;
-            }
-            let [_, field] = parts.as_slice() else {
-                return Err(format!("the writer assigns {path} and reads it afterwards"));
-            };
-            let (name, t) = self.field_of(&root.ty, field)?;
-            if !self.m.is_copy(&t) {
-                return Err(format!(
-                    "the writer assigns {path} and reads it afterwards; it is not Copy"
-                ));
-            }
-            let id = self.new_var(field, Some(self.rust_type(&t)?))?;
-            self.shadows.insert(path.clone(), id);
-            out.push(S::Let {
-                vars: vec![Some(id)],
-                init: Some(E::new(format!("{}.{name}", root.code))),
-                default_of: None,
-            });
-        }
-        Ok(())
     }
 
     /// Follows encode-direction writes of external places through the control flow and
@@ -628,6 +628,14 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
+    fn scoped(&mut self, stmts: &[Stmt]) -> Result<Vec<S>, String> {
+        self.scopes.push(BTreeMap::new());
+        let mut out = Vec::new();
+        let result = self.stmts(stmts, &mut out);
+        self.scopes.pop();
+        result.map(|()| out)
+    }
+
     fn stmts(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
         for s in stmts {
             self.stmt(s, out)?;
@@ -637,14 +645,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             }
         }
         Ok(())
-    }
-
-    fn scoped(&mut self, stmts: &[Stmt]) -> Result<Vec<S>, String> {
-        self.scopes.push(BTreeMap::new());
-        let mut out = Vec::new();
-        let result = self.stmts(stmts, &mut out);
-        self.scopes.pop();
-        result.map(|()| out)
     }
 
     fn stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
@@ -964,30 +964,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(format!("{}::decode(r)", type_path(&name)))
     }
 
-    /// Decode: the value a single-statement element body gives its element: `(call, true)` for
-    /// an expression returning `Result`, `(value, false)` for a plain value.
-    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> Result<Option<(E, bool)>, String> {
-        let [s] = body else { return Ok(None) };
-        let on_elem = s
-            .place
-            .as_ref()
-            .is_some_and(|p| p.kind == "var" && p.name == elem.name);
-        if !on_elem {
-            return Ok(None);
-        }
-        Ok(match s.kind.as_str() {
-            "io" if model::io_spec(&s.method).is_some_and(|sp| sp.read == Read::Returns) => {
-                Some((E::new(self.io_read_call(s)?), true))
-            }
-            "marshal" if !s.dynamic && self.m.has_codec(&s.ty) => {
-                Some((E::new(self.marshal_call(&s.ty, None)?), true))
-            }
-            "slice" => Some((self.list_call(s)?, true)),
-            "optional" => Some((self.option_value(s)?, false)),
-            _ => None,
-        })
-    }
-
     /// Decode: `r.list_*(F)` of a slice statement, returning `Result`; `r.list_*_max(N, F)`
     /// when the field holds at most `N` elements.
     fn list_call(&mut self, s: &Stmt) -> Result<E, String> {
@@ -1140,6 +1116,30 @@ impl<'m, 'a> Lower<'m, 'a> {
             "if r.bool()? {{ Some({}) }} else {{ None }}",
             inner.code
         )))
+    }
+
+    /// Decode: the value a single-statement element body gives its element: `(call, true)` for
+    /// an expression returning `Result`, `(value, false)` for a plain value.
+    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> Result<Option<(E, bool)>, String> {
+        let [s] = body else { return Ok(None) };
+        let on_elem = s
+            .place
+            .as_ref()
+            .is_some_and(|p| p.kind == "var" && p.name == elem.name);
+        if !on_elem {
+            return Ok(None);
+        }
+        Ok(match s.kind.as_str() {
+            "io" if model::io_spec(&s.method).is_some_and(|sp| sp.read == Read::Returns) => {
+                Some((E::new(self.io_read_call(s)?), true))
+            }
+            "marshal" if !s.dynamic && self.m.has_codec(&s.ty) => {
+                Some((E::new(self.marshal_call(&s.ty, None)?), true))
+            }
+            "slice" => Some((self.list_call(s)?, true)),
+            "optional" => Some((self.option_value(s)?, false)),
+            _ => None,
+        })
     }
 
     fn slice(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
@@ -1332,21 +1332,32 @@ impl<'m, 'a> Lower<'m, 'a> {
         match s.target.as_str() {
             "function" => {
                 if let Some(method) = Model::hand_function(&s.func) {
-                    let [arg] = s.args.as_slice() else {
-                        return Err(format!("{} takes one argument", s.func));
+                    let Some((place, rest)) = s.args.split_first() else {
+                        return Err(format!("{} takes the place it reads or writes", s.func));
                     };
                     let q = self.q();
+                    let mut call = E::default();
+                    let mut codes = Vec::new();
+                    for arg_expr in rest {
+                        let val = self.expr(arg_expr)?;
+                        let arg = self.copy_value(val)?;
+                        call = call.with(&arg);
+                        codes.push(arg.code);
+                    }
                     return match self.dir {
-                        Dir::Decode => {
-                            self.store(arg, E::new(format!("r.{method}(){q}")).effect(), out)
-                        }
+                        Dir::Decode => self.store(
+                            place,
+                            call.with_code(format!("r.{method}({}){q}", codes.join(", ")))
+                                .effect(),
+                            out,
+                        ),
                         Dir::Encode => {
-                            let val = self.expr(arg)?;
-                            let arg_expr = Self::ref_arg(&val);
+                            let val = self.expr(place)?;
+                            let place_expr = Self::ref_arg(&val);
+                            codes.insert(0, place_expr.code.clone());
                             out.push(S::Expr(
-                                arg_expr
-                                    .clone()
-                                    .with_code(format!("w.{method}({}){q}", arg_expr.code))
+                                call.with(&place_expr)
+                                    .with_code(format!("w.{method}({}){q}", codes.join(", ")))
                                     .effect(),
                             ));
                             Ok(())
@@ -2030,6 +2041,13 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok((field_rust_name(&t.name, &f.name)?, f.ty.clone()))
     }
 
+    fn shadow(&self, e: &Expr) -> Option<E> {
+        let id = *self.shadows.get(&place_path(e)?)?;
+        let mut x = E::new(self.name(id));
+        x.reads.insert(id);
+        Some(x)
+    }
+
     fn val(&self, e: E, ty: Type, form: Form) -> Val {
         let prim = prim_of(&ty);
         let form = if self.m.is_copy(&ty) && form != Form::Ref {
@@ -2038,13 +2056,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             form
         };
         Val { e, ty, form, prim }
-    }
-
-    fn shadow(&self, e: &Expr) -> Option<E> {
-        let id = *self.shadows.get(&place_path(e)?)?;
-        let mut x = E::new(self.name(id));
-        x.reads.insert(id);
-        Some(x)
     }
 
     #[expect(

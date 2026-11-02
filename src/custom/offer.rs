@@ -69,6 +69,61 @@ impl Offer {
         }
     }
 
+    /// The first payment; its count is the price.
+    pub fn buy(&self) -> &Stack {
+        &self.buy_a
+    }
+
+    /// The demand sent with the offer.
+    pub fn demand(&self) -> i32 {
+        self.demand
+    }
+
+    /// The trades the offer allows until its uses are reset.
+    pub fn max_uses(&self) -> u32 {
+        self.max_uses
+    }
+
+    /// The price multipliers sent with the offer.
+    pub fn price_multipliers(&self) -> (f32, f32) {
+        self.price_multipliers
+    }
+
+    /// Whether each trade drops xp orbs for the player.
+    pub fn rewards_xp(&self) -> bool {
+        self.reward_xp
+    }
+
+    /// The second payment, or the empty stack.
+    pub fn second_payment(&self) -> &Stack {
+        &self.buy_b
+    }
+
+    /// What one trade gives.
+    pub fn sell(&self) -> &Stack {
+        &self.sell
+    }
+
+    /// Whether the payments are taken of any damage.
+    pub fn takes_any_damage(&self) -> bool {
+        self.any_damage
+    }
+
+    /// The villager tier that unlocks the offer.
+    pub fn tier(&self) -> u8 {
+        self.tier
+    }
+
+    /// The villager xp per trade.
+    pub fn trader_xp(&self) -> u32 {
+        self.trader_xp
+    }
+
+    /// The trades made since the last reset.
+    pub fn uses(&self) -> u32 {
+        self.uses
+    }
+
     /// The same offer taking its payments of any damage (worn tools, any meta), as the official
     /// server's offers carry `Damage` 32767.
     #[must_use]
@@ -125,61 +180,6 @@ impl Offer {
     pub fn without_reward_xp(mut self) -> Self {
         self.reward_xp = false;
         self
-    }
-
-    /// The first payment; its count is the price.
-    pub fn buy(&self) -> &Stack {
-        &self.buy_a
-    }
-
-    /// The demand sent with the offer.
-    pub fn demand(&self) -> i32 {
-        self.demand
-    }
-
-    /// The trades the offer allows until its uses are reset.
-    pub fn max_uses(&self) -> u32 {
-        self.max_uses
-    }
-
-    /// The price multipliers sent with the offer.
-    pub fn price_multipliers(&self) -> (f32, f32) {
-        self.price_multipliers
-    }
-
-    /// Whether each trade drops xp orbs for the player.
-    pub fn rewards_xp(&self) -> bool {
-        self.reward_xp
-    }
-
-    /// The second payment, or the empty stack.
-    pub fn second_payment(&self) -> &Stack {
-        &self.buy_b
-    }
-
-    /// What one trade gives.
-    pub fn sell(&self) -> &Stack {
-        &self.sell
-    }
-
-    /// Whether the payments are taken of any damage.
-    pub fn takes_any_damage(&self) -> bool {
-        self.any_damage
-    }
-
-    /// The villager tier that unlocks the offer.
-    pub fn tier(&self) -> u8 {
-        self.tier
-    }
-
-    /// The villager xp per trade.
-    pub fn trader_xp(&self) -> u32 {
-        self.trader_xp
-    }
-
-    /// The trades made since the last reset.
-    pub fn uses(&self) -> u32 {
-        self.uses
     }
 }
 

@@ -436,18 +436,6 @@ impl Spec {
         }
     }
 
-    const fn with_prefixes(self, prefixes: &'static [&'static str]) -> Self {
-        Self { prefixes, ..self }
-    }
-
-    const fn with_repr(self, repr: &'static str) -> Self {
-        Self { repr, ..self }
-    }
-
-    const fn with_sentinels(self, sentinels: &'static [&'static str]) -> Self {
-        Self { sentinels, ..self }
-    }
-
     const fn count(self) -> Self {
         Self {
             sentinels: &["Count"],
@@ -460,6 +448,18 @@ impl Spec {
             whole: true,
             ..self
         }
+    }
+
+    const fn with_prefixes(self, prefixes: &'static [&'static str]) -> Self {
+        Self { prefixes, ..self }
+    }
+
+    const fn with_repr(self, repr: &'static str) -> Self {
+        Self { repr, ..self }
+    }
+
+    const fn with_sentinels(self, sentinels: &'static [&'static str]) -> Self {
+        Self { sentinels, ..self }
     }
 }
 
@@ -924,7 +924,7 @@ fn resolve<'a>(g: &'a Group<'a>, ty: IntType) -> Result<Vec<Resolved<'a>>, Strin
     let mut out = Vec::with_capacity(g.members.len());
     let mut variants: BTreeMap<String, String> = BTreeMap::new();
     let mut values: BTreeSet<i128> = BTreeSet::new();
-    let mut seen: BTreeSet<String> = BTreeSet::from(["ALL".to_owned()]);
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     for m in &g.members {
         let value: i128 =
             m.c.value
@@ -1025,7 +1025,7 @@ fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
     }
     put!(
         out.values,
-        "ints(&mut v, &[{}], &{name}::ALL.map(|x| i128::from({r}::from(x))), {});\n",
+        "ints(&mut v, &[{}], &{name}::all().iter().map(|&x| i128::from({r}::from(x))).collect::<Vec<_>>(), {});\n",
         go_names.join(", "),
         ty.unsigned_bits()
     );
@@ -1038,8 +1038,7 @@ fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
     );
     put!(
         out.items,
-        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const ALL: [Self; {}] = [{}];\n{assoc}}}\n\n",
-        all.len(),
+        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n{assoc}}}\n\n",
         all.join(", ")
     );
     let unknown = if ty.bits == 64 && !ty.signed {
@@ -1060,14 +1059,14 @@ fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
             out.items,
             "impl Flag for {name} {{\n    const COUNT: u32 = {count};\n    const NAME: &'static str = {label};\n\n    fn bit(self) -> u32 {{\n        match self {{\n{bits}        }}\n    }}\n\n    fn from_bit(bit: u32) -> Option<Self> {{\n        match bit {{\n{from_bits}            _ => None,\n        }}\n    }}\n}}\n\n"
         );
-        out.checks.push(format!("flag(&{name}::ALL);"));
+        out.checks.push(format!("flag({name}::all());"));
     }
     let unknown = unknown_value(ty, &members).map_or_else(
         || format!("None::<{r}>"),
         |v| format!("Some({}_{r})", lit(v)),
     );
     out.checks
-        .push(format!("int_enum(&{name}::ALL, {unknown});"));
+        .push(format!("int_enum({name}::all(), {unknown});"));
     Ok(())
 }
 
@@ -1155,7 +1154,7 @@ fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
     let mut all = Vec::new();
     let mut arms = String::new();
     let mut sorted: BTreeMap<&str, String> = BTreeMap::new();
-    let mut seen = BTreeSet::from(["ALL".to_owned()]);
+    let mut seen = BTreeSet::new();
     let mut go_names = Vec::new();
     for m in &g.members {
         if m.c.alias.is_some() {
@@ -1180,7 +1179,7 @@ fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
     }
     put!(
         out.values,
-        "strs(&mut v, &[{}], &{name}::ALL.map({name}::as_str));\n",
+        "strs(&mut v, &[{}], &{name}::all().iter().map(|&x| x.as_str()).collect::<Vec<_>>());\n",
         go_names.join(", ")
     );
     let by_name: Vec<String> = sorted
@@ -1196,7 +1195,7 @@ fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
     );
     put!(
         out.items,
-        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const ALL: [Self; {n}] = [{}];\n    /// The values by string, in byte order for binary search.\n    const BY_STR: [(&'static str, Self); {n}] = [{}];\n\n    /// The string on the wire.\n    pub const fn as_str(self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n\n",
+        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n\n    /// The values by string, in byte order for binary search.\n    const BY_STR: [(&'static str, Self); {n}] = [{}];\n\n    /// The string on the wire.\n    pub const fn as_str(self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n\n",
         all.join(", "),
         by_name.join(", ")
     );
@@ -1206,7 +1205,7 @@ fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
         str_lit(&label)
     );
     out.checks
-        .push(format!("str_enum(&{name}::ALL, {name}::as_str);"));
+        .push(format!("str_enum({name}::all(), {name}::as_str);"));
     Ok(())
 }
 

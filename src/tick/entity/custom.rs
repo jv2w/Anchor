@@ -27,7 +27,7 @@ use super::kind::{Character, Custom, Form, Kind, MAX_NAME_TAG_BYTES, Physics};
 use super::{Entities, Entity, Mut, SessionId, State, create};
 use crate::ServerBuilder;
 use crate::custom::is_identifier;
-use crate::entity::{Behaviour, Custom as Definition, Error, Id};
+use crate::entity::{Behaviour, Custom as Definition, Error, Id, Result};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{self, Compound, List, Value};
@@ -64,11 +64,6 @@ impl Customs {
     /// The type named `identifier`.
     pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
         self.types.find(identifier)
-    }
-
-    /// The types without their behaviours.
-    pub(crate) fn types(&self) -> &Arc<EntityTypes> {
-        &self.types
     }
 
     /// The `AvailableActorIdentifiers` list with one entry per type appended to `base`.
@@ -117,6 +112,16 @@ impl Customs {
         let mut w = Writer::new(Vec::with_capacity(base.len().saturating_mul(2)), 0);
         w.nbt(&root, nbt::Encoding::NetworkLittleEndian)?;
         Ok(w.into_inner())
+    }
+
+    /// The types without their behaviours.
+    pub(crate) fn types(&self) -> &Arc<EntityTypes> {
+        &self.types
+    }
+
+    /// Takes the first refused registration, which the build reports.
+    pub(crate) fn finish(&mut self) -> Result<()> {
+        self.refused.take().map_or(Ok(()), Err)
     }
 
     /// Adds a type.
@@ -172,13 +177,8 @@ impl Customs {
         }
     }
 
-    /// Takes the first refused registration, which the build reports.
-    pub(crate) fn finish(&mut self) -> Result<(), Error> {
-        self.refused.take().map_or(Ok(()), Err)
-    }
-
     /// The index a new type would get, or why it is refused.
-    fn check(&self, e: &Definition) -> Result<u16, Error> {
+    fn check(&self, e: &Definition) -> Result<u16> {
         let identifier = &e.identifier;
         if !is_identifier(identifier) {
             return Err(Error::InvalidIdentifier {
@@ -307,13 +307,19 @@ impl Context<'_> {
     /// Spawns an entity of the custom type `identifier` at `pos` (its feet) in `world`.
     /// It is at rest, with the type's health and name tag and empty data, and is shown to the
     /// players who see its chunk at the end of the tick.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownType`] for an `identifier` no registered custom type has.
+    /// [`Error::NotSpawned`] for a world the server does not have, a `pos` that is not finite or
+    /// outside the world border or not loaded, or a world at its entity limit.
     #[doc(alias = "Entity::spawnToAll")]
     pub fn spawn_custom_entity(
         &mut self,
         world: world::Id,
         pos: Vec3,
         identifier: &str,
-    ) -> Result<Id, Error> {
+    ) -> Result<Id> {
         let Some(spec) = self.state.rules.entities.custom.find(identifier).cloned() else {
             return Err(Error::UnknownType {
                 identifier: identifier.to_owned(),
@@ -328,11 +334,6 @@ impl Context<'_> {
 }
 
 impl Entity {
-    /// The identifier of a custom entity's type, such as `"example:ghost"`.
-    pub fn custom_type(&self) -> Option<&str> {
-        self.kind.custom().map(|c| c.spec.identifier.as_str())
-    }
-
     /// An NPC's data, saved with it, empty until set.
     /// It is a custom entity's, a villager's ([`Context::spawn_villager`]), a human's
     /// ([`Context::spawn_human`]) or a zombie's. `None` for another kind. [`Mut::set_custom_data`]
@@ -342,6 +343,11 @@ impl Entity {
             Kind::Npc(c) => Some(&c.data),
             _ => None,
         }
+    }
+
+    /// The identifier of a custom entity's type, such as `"example:ghost"`.
+    pub fn custom_type(&self) -> Option<&str> {
+        self.kind.custom().map(|c| c.spec.identifier.as_str())
     }
 
     /// What an NPC holds in its hand ([`Stack::EMPTY`] for nothing); `None` for another kind.
@@ -360,7 +366,7 @@ impl Mut<'_> {
     ///
     /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for data whose saved form
     /// takes more than 4,096 bytes; nothing changes.
-    pub fn set_custom_data(&mut self, data: Compound) -> Result<(), Error> {
+    pub fn set_custom_data(&mut self, data: Compound) -> Result<()> {
         if !fits(&data) {
             return Err(Error::OutOfRange);
         }
@@ -377,7 +383,7 @@ impl Mut<'_> {
     /// # Errors
     ///
     /// [`Error::WrongKind`] for another kind; nothing changes.
-    pub fn set_held_item(&mut self, stack: Stack) -> Result<(), Error> {
+    pub fn set_held_item(&mut self, stack: Stack) -> Result<()> {
         let Kind::Npc(c) = &mut self.entity_mut().kind else {
             return Err(Error::WrongKind);
         };

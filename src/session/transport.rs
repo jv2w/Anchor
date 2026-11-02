@@ -27,12 +27,35 @@ impl Transport {
         }
     }
 
+    /// Whether the transport carries Minecraft's own encryption after the handshake.
+    /// RakNet does, whether or not `enable-encryption` turns it on; NetherNet relies on DTLS.
+    pub(super) fn can_encrypt(&self) -> bool {
+        matches!(self, Self::Raknet(_))
+    }
+
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(super) fn leave_reason(&self) -> LeaveReason {
+        match self {
+            Self::Raknet(c) => c.leave_reason(),
+            Self::Nethernet(c) => c.leave_reason(),
+        }
+    }
+
     /// The latest round trip time the transport measured; `None` until it measured one.
     /// RakNet measures it with its connected ping, NetherNet with the ICE consent check.
     pub(super) fn ping(&self) -> Option<Duration> {
         match self {
             Self::Raknet(c) => c.ping(),
             Self::Nethernet(c) => c.ping(),
+        }
+    }
+
+    /// The client key the NetherNet offer proved, which the Login must carry.
+    /// `None` for RakNet and for offline offers without an identity.
+    pub(super) fn proven_key(&self) -> Option<&PublicKey> {
+        match self {
+            Self::Raknet(_) => None,
+            Self::Nethernet(c) => c.client_key(),
         }
     }
 
@@ -46,26 +69,19 @@ impl Transport {
         }
     }
 
-    /// Whether the transport carries Minecraft's own encryption after the handshake.
-    /// RakNet does, whether or not `enable-encryption` turns it on; NetherNet relies on DTLS.
-    pub(super) fn can_encrypt(&self) -> bool {
-        matches!(self, Self::Raknet(_))
-    }
-
-    /// The client key the NetherNet offer proved, which the Login must carry.
-    /// `None` for RakNet and for offline offers without an identity.
-    pub(super) fn proven_key(&self) -> Option<&PublicKey> {
+    /// Closes the connection after what is queued has been delivered.
+    pub(super) fn close(&self) {
         match self {
-            Self::Raknet(_) => None,
-            Self::Nethernet(c) => c.client_key(),
+            Self::Raknet(c) => c.close(),
+            Self::Nethernet(c) => c.close(),
         }
     }
 
-    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
-    pub(super) fn leave_reason(&self) -> LeaveReason {
+    /// Moves the connection out of the pre-login limits once the player logged in.
+    pub(super) fn logged_in(&self) {
         match self {
-            Self::Raknet(c) => c.leave_reason(),
-            Self::Nethernet(c) => c.leave_reason(),
+            Self::Raknet(c) => c.logged_in(),
+            Self::Nethernet(c) => c.logged_in(),
         }
     }
 
@@ -82,22 +98,6 @@ impl Transport {
         match self {
             Self::Raknet(c) => c.send(message).await.map_err(Error::Raknet),
             Self::Nethernet(c) => c.send(message).await.map_err(Error::Nethernet),
-        }
-    }
-
-    /// Moves the connection out of the pre-login limits once the player logged in.
-    pub(super) fn logged_in(&self) {
-        match self {
-            Self::Raknet(c) => c.logged_in(),
-            Self::Nethernet(c) => c.logged_in(),
-        }
-    }
-
-    /// Closes the connection after what is queued has been delivered.
-    pub(super) fn close(&self) {
-        match self {
-            Self::Raknet(c) => c.close(),
-            Self::Nethernet(c) => c.close(),
         }
     }
 }

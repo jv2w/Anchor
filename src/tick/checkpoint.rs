@@ -75,17 +75,20 @@ pub(crate) struct Writer {
 }
 
 impl Writer {
+    /// Notes something that has no checkpoint form: `count` of `what` (`count` 0 is nothing).
+    pub(crate) fn opaque(&mut self, what: &str, count: usize) {
+        if count > 0 && self.opaque.is_none() {
+            self.opaque = Some(format!("{count} {what}"));
+        }
+    }
+
     pub(crate) fn raw(&mut self, bytes: &[u8]) {
         self.out.extend_from_slice(bytes);
     }
 
-    pub(crate) fn u8(&mut self, v: u8) {
-        self.out.push(v);
-    }
-
-    /// A collection's length.
-    pub(crate) fn len(&mut self, n: usize) {
-        n.encode(self);
+    /// Text as a [`String`] writes it, without a copy.
+    pub(crate) fn text(&mut self, text: &str) {
+        self.slice(text.as_bytes());
     }
 
     /// A slice as a [`Vec`] writes it: its length, then its items ([`Codec::encode_all`]).
@@ -94,16 +97,13 @@ impl Writer {
         T::encode_all(items, self);
     }
 
-    /// Text as a [`String`] writes it, without a copy.
-    pub(crate) fn text(&mut self, text: &str) {
-        self.slice(text.as_bytes());
+    /// A collection's length.
+    pub(crate) fn len(&mut self, n: usize) {
+        n.encode(self);
     }
 
-    /// Notes something that has no checkpoint form: `count` of `what` (`count` 0 is nothing).
-    pub(crate) fn opaque(&mut self, what: &str, count: usize) {
-        if count > 0 && self.opaque.is_none() {
-            self.opaque = Some(format!("{count} {what}"));
-        }
+    pub(crate) fn u8(&mut self, v: u8) {
+        self.out.push(v);
     }
 
     pub(crate) fn into_parts(self) -> (Vec<u8>, Option<String>) {
@@ -136,17 +136,10 @@ impl<'a> Reader<'a> {
         self.bytes.is_empty()
     }
 
-    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if n > self.bytes.len() {
-            return Err(Error::Format("ends early"));
-        }
-        let (head, rest) = self.bytes.split_at(n);
-        self.bytes = rest;
-        Ok(head)
-    }
-
-    pub(crate) fn u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(self.array()?))
+    /// Bytes as [`Writer::slice`] writes a byte slice.
+    pub(crate) fn bytes(&mut self) -> Result<&'a [u8]> {
+        let n = self.len()?;
+        self.take(n)
     }
 
     /// A collection's length, checked against the bytes left: every element takes at least one.
@@ -159,12 +152,6 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
-    /// Bytes as [`Writer::slice`] writes a byte slice.
-    pub(crate) fn bytes(&mut self) -> Result<&'a [u8]> {
-        let n = self.len()?;
-        self.take(n)
-    }
-
     /// Runs `read` one nesting level deeper.
     pub(crate) fn nested<T>(&mut self, read: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
         if self.depth >= MAX_DEPTH {
@@ -174,6 +161,19 @@ impl<'a> Reader<'a> {
         let value = read(self);
         self.depth -= 1;
         value
+    }
+
+    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        if n > self.bytes.len() {
+            return Err(Error::Format("ends early"));
+        }
+        let (head, rest) = self.bytes.split_at(n);
+        self.bytes = rest;
+        Ok(head)
+    }
+
+    pub(crate) fn u8(&mut self) -> Result<u8> {
+        Ok(u8::from_le_bytes(self.array()?))
     }
 
     fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
@@ -1036,9 +1036,11 @@ impl Checkpoint {
         }
     }
 
-    /// The engine tick of the state.
-    pub(crate) fn tick(&self) -> u64 {
-        self.tick
+    /// The loaded chunks, whose terrain and extras a replay reads from the data files.
+    pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
+        (0..)
+            .zip(&self.saved)
+            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w, p)))
     }
 
     /// What has no checkpoint form, if anything.
@@ -1049,23 +1051,6 @@ impl Checkpoint {
     /// The seed of each world, by world index.
     pub(crate) fn seeds(&self) -> impl Iterator<Item = i64> + '_ {
         self.saved.iter().map(|s| s.seed)
-    }
-
-    /// The worlds the server had, loaded or not, by world index.
-    pub(crate) fn worlds(&self) -> &[super::world_api::WorldSlot] {
-        &self.worlds
-    }
-
-    /// The loaded chunks, whose terrain and extras a replay reads from the data files.
-    pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
-        (0..)
-            .zip(&self.saved)
-            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w, p)))
-    }
-
-    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the data files.
-    pub(crate) fn unsaved(&self) -> impl Iterator<Item = Key> + '_ {
-        self.unsaved.iter().map(|(k, _)| *k)
     }
 
     /// The bytes it holds or will encode to, about: what the input log charges for it. The body
@@ -1083,6 +1068,21 @@ impl Checkpoint {
             .saturating_add(kept)
             .saturating_add(unsaved)
             .saturating_add(positions.saturating_mul(POSITION_BYTES))
+    }
+
+    /// The engine tick of the state.
+    pub(crate) fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the data files.
+    pub(crate) fn unsaved(&self) -> impl Iterator<Item = Key> + '_ {
+        self.unsaved.iter().map(|(k, _)| *k)
+    }
+
+    /// The worlds the server had, loaded or not, by world index.
+    pub(crate) fn worlds(&self) -> &[super::world_api::WorldSlot] {
+        &self.worlds
     }
 
     /// The checkpoint's written form.

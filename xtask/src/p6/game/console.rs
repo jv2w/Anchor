@@ -26,7 +26,7 @@ use anchor::block::State;
 use anchor::config::Difficulty;
 use anchor::custom::Offer;
 use anchor::entity::Id;
-use anchor::form::{Button, Custom, Form, Image, Menu, Modal};
+use anchor::form::{Button, Buttons, Custom, Form, Image, Modal};
 use anchor::item::{Stack, Type};
 use anchor::math::Vec3;
 use anchor::nbt::Compound;
@@ -545,7 +545,7 @@ fn execute(
     match command {
         Command::Teleport { player, feet } => {
             let Some((id, world)) = cx
-                .player_exact(player)
+                .player_by_name(player)
                 .and_then(|id| Some((id, cx.player(id)?.world())))
             else {
                 return not_joined(player);
@@ -694,7 +694,7 @@ fn execute_api(cx: &mut Context<'_>, command: &Command, answers: &SyncSender<Str
 
 /// The player named `name` who has joined, to change.
 fn joined<'c>(cx: &'c mut Context<'_>, name: &str) -> Option<&'c mut Player> {
-    let id = cx.player_exact(name)?;
+    let id = cx.player_by_name(name)?;
     cx.player_mut(id)
 }
 
@@ -708,7 +708,7 @@ fn not_joined(player: &str) -> Outcome {
 fn p6_form(kind: FormKind) -> Form {
     match kind {
         FormKind::Modal => Modal::new("P6 modal", "Modal body", "Yes", "No").into(),
-        FormKind::Menu => Menu::new("P6 menu")
+        FormKind::Menu => Buttons::new("P6 menu")
             .with_content("Menu body")
             .button("First")
             .header("Menu header")

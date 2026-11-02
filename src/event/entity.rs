@@ -16,7 +16,7 @@ use crate::world::{self, BlockPos};
 /// The most damage, in half hearts, a hit may start with and a modifier may add or take away:
 /// 2^24. [`crate::action::Damage`] and [`crate::entity::Mut::attack`] refuse a larger amount, and
 /// [`EntityDamage`]'s setters cut a value to it. It is far above any hit the game deals, and it
-/// keeps every sum of a hit (Strength up to level 256, armour, eleven modifiers) far below 2^53,
+/// keeps every sum of a hit (Strength up to level 256, armor, eleven modifiers) far below 2^53,
 /// where `f64` would round a totem's health − 1 away and the totem would not save its holder.
 pub const MAX_DAMAGE: f64 = 16_777_216.0;
 /// The most a listener may set a hit's knockback force or its upward limit to, either way, in
@@ -123,6 +123,7 @@ cancellable! {
 
 /// What sets something on fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CombustSource {
     /// A block: fire, lava or a lava cauldron at this position.
     Block(BlockPos),
@@ -189,7 +190,7 @@ setters!(EntityDamage {
 });
 
 impl EntityDamage {
-    /// Whether armour reduces damage of this cause.
+    /// Whether armor reduces damage of this cause.
     #[doc(alias = "EntityDamageEvent::canBeReducedByArmor")]
     pub fn can_be_reduced_by_armor(&self) -> bool {
         self.cause.is_reduced_by_armor()
@@ -340,7 +341,7 @@ pub enum DamageCause {
 }
 
 impl DamageCause {
-    /// Whether armour reduces damage of this cause: the one rule for listeners and the tick.
+    /// Whether armor reduces damage of this cause: the one rule for listeners and the tick.
     pub(crate) fn is_reduced_by_armor(self) -> bool {
         !matches!(
             self,
@@ -358,6 +359,7 @@ impl DamageCause {
 
 /// What deals damage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DamageSource {
     /// Nothing in particular: a fall, drowning, food, an effect.
     None,
@@ -378,7 +380,7 @@ pub enum DamageSource {
 /// applicable modifier, so a reduction is negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DamageModifier {
-    /// Armour points.
+    /// Armor points.
     #[doc(alias = "EntityDamageEvent::MODIFIER_ARMOR")]
     Armor,
     /// The attacker's Strength effect.
@@ -393,7 +395,7 @@ pub enum DamageModifier {
     /// Absorption hearts taking the damage.
     #[doc(alias = "EntityDamageEvent::MODIFIER_ABSORPTION")]
     Absorption,
-    /// Protection enchantments on the armour.
+    /// Protection enchantments on the armor.
     #[doc(alias = "EntityDamageEvent::MODIFIER_ARMOR_ENCHANTMENTS")]
     ArmorEnchantments,
     /// A critical hit.
@@ -415,23 +417,25 @@ pub enum DamageModifier {
 
 impl DamageModifier {
     /// Every modifier, in order.
-    pub const ALL: [Self; 11] = [
-        Self::Armor,
-        Self::Strength,
-        Self::Weakness,
-        Self::Resistance,
-        Self::Absorption,
-        Self::ArmorEnchantments,
-        Self::Critical,
-        Self::Totem,
-        Self::WeaponEnchantments,
-        Self::PreviousDamageCooldown,
-        Self::ArmorHelmet,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Armor,
+            Self::Strength,
+            Self::Weakness,
+            Self::Resistance,
+            Self::Absorption,
+            Self::ArmorEnchantments,
+            Self::Critical,
+            Self::Totem,
+            Self::WeaponEnchantments,
+            Self::PreviousDamageCooldown,
+            Self::ArmorHelmet,
+        ]
+    }
 }
 
 /// The modifiers of a hit, by [`DamageModifier`] order; `None` where one does not apply.
-pub(crate) type Modifiers = [Option<f64>; DamageModifier::ALL.len()];
+pub(crate) type Modifiers = [Option<f64>; DamageModifier::all().len()];
 
 /// Raised when an NPC (a human, a villager, a zombie or a custom entity) dies, before it drops what
 /// it carries.
@@ -1099,8 +1103,9 @@ cancellable! {
 
 /// The modifiers that apply, with their values.
 fn applicable(modifiers: &Modifiers) -> impl Iterator<Item = (DamageModifier, f64)> + '_ {
-    DamageModifier::ALL
-        .into_iter()
+    DamageModifier::all()
+        .iter()
+        .copied()
         .zip(modifiers)
         .filter_map(|(m, v)| v.map(|v| (m, v)))
 }
@@ -1194,7 +1199,7 @@ mod tests {
     }
 
     fn none() -> Modifiers {
-        [None; DamageModifier::ALL.len()]
+        [None; DamageModifier::all().len()]
     }
 
     // api: EntityDamageEvent, EntityDamageByEntityEvent, EntityDamageByBlockEvent,
@@ -1364,11 +1369,11 @@ mod tests {
             vertical_knockback_limit: 0.4,
             cancelled: false,
         };
-        for (i, m) in DamageModifier::ALL.into_iter().enumerate() {
+        for (i, &m) in DamageModifier::all().iter().enumerate() {
             assert_eq!(m as usize, i);
             e.set_modifier(m, 1.0);
         }
-        assert_eq!(e.modifiers().count(), DamageModifier::ALL.len());
+        assert_eq!(e.modifiers().count(), DamageModifier::all().len());
         assert_eq!(e.final_damage(), 11.0);
     }
 

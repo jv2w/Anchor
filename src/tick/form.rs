@@ -30,13 +30,6 @@ pub(crate) struct Forms {
 }
 
 impl Forms {
-    /// How many players have an entry and how many forms wait in all.
-    #[cfg(test)]
-    fn counts(&self) -> (usize, usize) {
-        let pending = self.players.values().map(|o| o.pending.len()).sum();
-        (self.players.len(), pending)
-    }
-
     /// Hashes what a replay must reproduce: form IDs, waiting forms and what is shown.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
@@ -56,6 +49,13 @@ impl Forms {
             }
             display.hash_into(h);
         }
+    }
+
+    /// How many players have an entry and how many forms wait in all.
+    #[cfg(test)]
+    fn counts(&self) -> (usize, usize) {
+        let pending = self.players.values().map(|o| o.pending.len()).sum();
+        (self.players.len(), pending)
     }
 }
 
@@ -114,14 +114,40 @@ impl fmt::Debug for Pending {
 }
 
 impl Context<'_> {
+    /// Whether `player` has a form waiting for an answer. False if the player is not in the game.
+    pub fn has_form_open(&self, player: player::Id) -> bool {
+        self.state
+            .forms
+            .players
+            .get(&player.session())
+            .is_some_and(|open| !open.pending.is_empty())
+    }
+
+    /// Closes the form `player` sees and those queued behind it on its client. Their handlers
+    /// never run, and answers that still arrive for them are ignored; the caller is how its own
+    /// close is known. False if the player is not in the game.
+    #[doc(alias = "Player::closeAllForms")]
+    pub fn close_forms(&mut self, player: player::Id) -> bool {
+        let Some((p, open)) = open(self.state, player) else {
+            return false;
+        };
+        open.pending.clear();
+        p.send_packet(Packet::ClientBoundCloseForm(ClientBoundCloseForm {}));
+        true
+    }
+
     /// Sends `form` to `player`; `handler` runs once, in a later tick, with the player's answer:
     /// what the player chose, [`Response::Closed`] if it closed the form, or [`Response::Busy`]
-    /// if the client could not show it. An answer that does not fit the form is dropped, and the handler never runs;
-    /// so does a form whose player leaves first.
+    /// if the client could not show it. An answer that does not fit the form is dropped, and the
+    /// handler never runs; so does a form whose player leaves first.
     ///
-    /// Fails, sending nothing, with the first of these that holds: the form is invalid
-    /// ([`form::Error`]), the player is not in the game, the player has 16 forms waiting, or the
-    /// player was sent 2^32 forms already.
+    /// # Errors
+    ///
+    /// Sends nothing with the first of these that holds:
+    /// [`Error::Invalid`] for a form that breaks a rule of its builder or is too large.
+    /// [`Error::Offline`] if the player is not in the game.
+    /// [`Error::Full`] if the player has 16 forms waiting.
+    /// [`Error::Exhausted`] if the player was sent 2^32 forms already.
     #[doc(alias = "Player::sendForm")]
     #[doc(alias = "Form::handleResponse")]
     pub fn send_form(
@@ -149,28 +175,6 @@ impl Context<'_> {
             form_data: json,
         }));
         Ok(())
-    }
-
-    /// Closes the form `player` sees and those queued behind it on its client. Their handlers
-    /// never run, and answers that still arrive for them are ignored; the caller is how its own
-    /// close is known. False if the player is not in the game.
-    #[doc(alias = "Player::closeAllForms")]
-    pub fn close_forms(&mut self, player: player::Id) -> bool {
-        let Some((p, open)) = open(self.state, player) else {
-            return false;
-        };
-        open.pending.clear();
-        p.send_packet(Packet::ClientBoundCloseForm(ClientBoundCloseForm {}));
-        true
-    }
-
-    /// Whether `player` has a form waiting for an answer. False if the player is not in the game.
-    pub fn has_form_open(&self, player: player::Id) -> bool {
-        self.state
-            .forms
-            .players
-            .get(&player.session())
-            .is_some_and(|open| !open.pending.is_empty())
     }
 }
 

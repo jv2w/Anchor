@@ -74,16 +74,16 @@ getters!(PlayerChangeSkin {
 });
 
 impl PlayerChangeSkin {
-    /// The skin before.
-    #[doc(alias = "PlayerChangeSkinEvent::getOldSkin")]
-    pub fn old_skin(&self) -> &protocol::Skin {
-        self.old_skin.get()
-    }
-
     /// The skin after.
     #[doc(alias = "PlayerChangeSkinEvent::getNewSkin")]
     pub fn new_skin(&self) -> &protocol::Skin {
         self.new_skin.get()
+    }
+
+    /// The skin before.
+    #[doc(alias = "PlayerChangeSkinEvent::getOldSkin")]
+    pub fn old_skin(&self) -> &protocol::Skin {
+        self.old_skin.get()
     }
 
     /// Replaces the skin after. It is checked like a login skin (image sizes, at most 4 MiB in
@@ -104,7 +104,7 @@ cancellable! {
 
 /// Raised when a player sends a chat message. Cancelling sends it to nobody, and so does a
 /// speaker who is not online when the listeners are done or a line longer than
-/// [`player::MAX_TEXT`] bytes; monitors hear none of these.
+/// [`player::MAX_TEXT_BYTES`] bytes; monitors hear none of these.
 #[doc(alias = "PlayerChatEvent")]
 #[derive(Debug)]
 pub struct PlayerChat {
@@ -142,7 +142,7 @@ setters!(PlayerChat {
     /// done (joined and not leaving), the line goes to nobody and no monitor sees it.
     #[doc(alias = "PlayerChatEvent::setPlayer")]
     set_player => player: player::Id,
-    /// Replaces the message; a line over [`player::MAX_TEXT`] bytes goes to nobody and no monitor
+    /// Replaces the message; a line over [`player::MAX_TEXT_BYTES`] bytes goes to nobody and no monitor
     /// sees it.
     #[doc(alias = "PlayerChatEvent::setMessage")]
     set_message => message: String,
@@ -190,6 +190,12 @@ getters!(PlayerDataSave {
 });
 
 impl PlayerDataSave {
+    /// Whether a listener called [`cancel`](Self::cancel); the data is saved either way.
+    #[doc(alias = "PlayerDataSaveEvent::isCancelled")]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+
     /// Marks the event cancelled, which Anchor ignores: the data is saved anyway, because a
     /// snapshot holds the whole state of one tick boundary, and a player's data
     /// left out of it would come back after a crash beside a newer world. `save-player-data`
@@ -203,12 +209,6 @@ impl PlayerDataSave {
     #[doc(alias = "PlayerDataSaveEvent::uncancel")]
     pub fn uncancel(&mut self) {
         self.cancelled = false;
-    }
-
-    /// Whether a listener called [`cancel`](Self::cancel); the data is saved either way.
-    #[doc(alias = "PlayerDataSaveEvent::isCancelled")]
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled
     }
 }
 
@@ -230,7 +230,7 @@ getters!(PlayerDeath {
     #[doc(alias = "PlayerDeathEvent::getPlayer")]
     #[doc(alias = "PlayerDeathEvent::getEntity")]
     player: player::Id,
-    /// What the player drops. Starts as its main slots, armour and off hand without items that
+    /// What the player drops. Starts as its main slots, armor and off hand without items that
     /// vanish or stay on death, or empty for a creative player. Ignored when the player keeps the
     /// inventory or earlier death drops still wait for room (then it starts empty too).
     drops: &[Stack],
@@ -239,11 +239,11 @@ getters!(PlayerDeath {
     /// The message every player sees in chat. With `show-death-messages` it starts as the
     /// death's translation key, which, left so, the client translates with the dead player's and
     /// the attacker's names; otherwise it starts empty. An empty one shows nothing, one longer
-    /// than [`player::MAX_TEXT`] bytes is not sent, any other shows as it is.
+    /// than [`player::MAX_TEXT_BYTES`] bytes is not sent, any other shows as it is.
     #[doc(alias = "PlayerDeathEvent::getDeathMessage")]
     death_message: &str,
     /// The message on the dead player's death screen. Starts empty, which shows the death's
-    /// translated message; so does one longer than [`player::MAX_TEXT`] bytes.
+    /// translated message; so does one longer than [`player::MAX_TEXT_BYTES`] bytes.
     #[doc(alias = "PlayerDeathEvent::getDeathScreenMessage")]
     death_screen_message: &str,
     /// Whether the player keeps the inventory.
@@ -262,10 +262,10 @@ setters!(PlayerDeath {
     set_drops => drops: Vec<Stack>,
     /// Replaces the XP the player drops.
     set_xp_drop_amount => xp_drop_amount: u32,
-    /// Replaces the chat message; one longer than [`player::MAX_TEXT`] bytes shows nothing.
+    /// Replaces the chat message; one longer than [`player::MAX_TEXT_BYTES`] bytes shows nothing.
     #[doc(alias = "PlayerDeathEvent::setDeathMessage")]
     set_death_message => death_message: String,
-    /// Replaces the death screen message; an empty one, or one longer than [`player::MAX_TEXT`]
+    /// Replaces the death screen message; an empty one, or one longer than [`player::MAX_TEXT_BYTES`]
     /// bytes, shows the death's translated message.
     #[doc(alias = "PlayerDeathEvent::setDeathScreenMessage")]
     set_death_screen_message => death_screen_message: String,
@@ -308,8 +308,8 @@ cancellable! {
 /// the existing player is disconnected and the connecting one joins, and if refused, it is
 /// disconnected and the existing player stays. If the event is cancelled, the connecting player
 /// is disconnected at once. A player this event disconnects sees
-/// [`disconnect_screen_message`](Self::disconnect_screen_message), or
-/// [`disconnect_reason`](Self::disconnect_reason) when that is `None`.
+/// [`kick_screen_message`](Self::kick_screen_message), or
+/// [`kick_reason`](Self::kick_reason) when that is `None`.
 #[doc(alias = "PlayerDuplicateLoginEvent")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerDuplicateLogin {
@@ -341,19 +341,6 @@ impl PlayerDuplicateLogin {
         &self.connecting
     }
 
-    /// The reason given to the disconnected player. Starts as the client's key
-    /// `"disconnectionScreen.loggedinOtherLocation"`, which the client shows in its language.
-    #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectReason")]
-    pub fn disconnect_reason(&self) -> &str {
-        &self.reason
-    }
-
-    /// The message the disconnected player sees instead of the reason, if any. Starts as `None`.
-    #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectScreenMessage")]
-    pub fn disconnect_screen_message(&self) -> Option<&str> {
-        self.screen_message.as_deref()
-    }
-
     /// The player already online.
     #[doc(alias = "PlayerDuplicateLoginEvent::getExistingSession")]
     pub fn existing(&self) -> &PlayerInfo {
@@ -368,6 +355,19 @@ impl PlayerDuplicateLogin {
         self.cancelled
     }
 
+    /// The reason given to the disconnected player. Starts as the client's key
+    /// `"disconnectionScreen.loggedinOtherLocation"`, which the client shows in its language.
+    #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectReason")]
+    pub fn kick_reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// The message the disconnected player sees instead of the reason, if any. Starts as `None`.
+    #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectScreenMessage")]
+    pub fn kick_screen_message(&self) -> Option<&str> {
+        self.screen_message.as_deref()
+    }
+
     /// Keeps the existing player and disconnects the connecting one.
     #[doc(alias = "PlayerDuplicateLoginEvent::cancel")]
     #[doc(alias = "CancellableTrait::cancel")]
@@ -376,16 +376,16 @@ impl PlayerDuplicateLogin {
     }
 
     /// Replaces the reason given to the disconnected player. A text longer than
-    /// [`player::MAX_TEXT`] bytes is cut to it when sent.
+    /// [`player::MAX_TEXT_BYTES`] bytes is cut to it when sent.
     #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectReason")]
-    pub fn set_disconnect_reason(&mut self, reason: impl Into<String>) {
+    pub fn set_kick_reason(&mut self, reason: impl Into<String>) {
         self.reason = reason.into();
     }
 
     /// Replaces the message the disconnected player sees; `None` shows the reason. A text longer
-    /// than [`player::MAX_TEXT`] bytes is cut to it when sent.
+    /// than [`player::MAX_TEXT_BYTES`] bytes is cut to it when sent.
     #[doc(alias = "PlayerDuplicateLoginEvent::setDisconnectScreenMessage")]
-    pub fn set_disconnect_screen_message(&mut self, message: Option<String>) {
+    pub fn set_kick_screen_message(&mut self, message: Option<String>) {
         self.screen_message = message;
     }
 
@@ -602,7 +602,7 @@ cancellable! {
         #[doc(alias = "PlayerEntityPickEvent::isCancelled")];
 }
 
-/// Raised when a player gets hungrier. Cancelling keeps the player's exhaustion.
+/// Raised when a player's exhaustion grows, which uses up its food. Cancelling keeps the player's exhaustion.
 #[doc(alias = "PlayerExhaustEvent")]
 #[derive(Debug)]
 pub struct PlayerExhaust {
@@ -639,7 +639,7 @@ cancellable! {
         #[doc(alias = "PlayerExhaustEvent::isCancelled")];
 }
 
-/// Why a player gets hungrier.
+/// Why a player's exhaustion grows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ExhaustCause {
@@ -926,7 +926,7 @@ cancellable! {
 }
 
 /// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking,
-/// putting on armour, sounding a goat horn). A spectator, or an item whose cooldown still runs,
+/// putting on armor, sounding a goat horn). A spectator, or an item whose cooldown still runs,
 /// raises nothing. Cancelling refuses the use: nothing is thrown, drawn, eaten, drunk, worn or
 /// sounded, and no cooldown starts. Monitors hear only a use that worked.
 #[doc(alias = "PlayerItemUseEvent")]
@@ -993,12 +993,12 @@ getters!(PlayerJump {
 });
 
 /// Raised when a player is about to be kicked. Cancelling keeps the player, and so does a text a
-/// listener sets longer than [`player::MAX_TEXT`] bytes.
+/// listener sets longer than [`player::MAX_TEXT_BYTES`] bytes.
 #[doc(alias = "PlayerKickEvent")]
 #[derive(Debug)]
 pub struct PlayerKick {
     pub(crate) player: player::Id,
-    pub(crate) disconnect_reason: String,
+    pub(crate) kick_reason: String,
     pub(crate) screen_message: Option<String>,
     pub(crate) quit_message: String,
     pub(crate) cancelled: bool,
@@ -1010,7 +1010,7 @@ getters!(PlayerKick {
     /// The reason, for the log and the player's screen.
     #[doc(alias = "PlayerKickEvent::getDisconnectReason")]
     #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectReason")]
-    disconnect_reason: &str,
+    kick_reason: &str,
     /// The message every other player sees. Unless the kick gave one, it starts as
     /// `"§e%multiplayer.player.left"`: left so, the client shows its own "left the game" line
     /// with the player's name.
@@ -1022,10 +1022,8 @@ impl PlayerKick {
     /// The message the player sees: the screen message, or the reason when there is none.
     #[doc(alias = "PlayerKickEvent::getDisconnectScreenMessage")]
     #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectScreenMessage")]
-    pub fn disconnect_screen_message(&self) -> &str {
-        self.screen_message
-            .as_deref()
-            .unwrap_or(&self.disconnect_reason)
+    pub fn kick_screen_message(&self) -> &str {
+        self.screen_message.as_deref().unwrap_or(&self.kick_reason)
     }
 }
 
@@ -1034,11 +1032,11 @@ setters!(PlayerKick {
     /// "disconnected" text.
     #[doc(alias = "PlayerKickEvent::setDisconnectReason")]
     #[doc(alias = "PlayerDisconnectEventTrait::setDisconnectReason")]
-    set_disconnect_reason => disconnect_reason: String,
+    set_kick_reason => kick_reason: String,
     /// Replaces the message the player sees instead of the reason; `None` shows the reason.
     #[doc(alias = "PlayerKickEvent::setDisconnectScreenMessage")]
     #[doc(alias = "PlayerDisconnectEventTrait::setDisconnectScreenMessage")]
-    set_disconnect_screen_message => screen_message: Option<String>,
+    set_kick_screen_message => screen_message: Option<String>,
     /// Replaces the message every other player sees; an empty one shows nothing.
     #[doc(alias = "PlayerKickEvent::setQuitMessage")]
     set_quit_message => quit_message: String,
@@ -1064,25 +1062,13 @@ pub struct PlayerLogin {
     pub(crate) info: PlayerInfo,
     pub(crate) ip: Option<IpAddr>,
     pub(crate) port: u16,
-    pub(crate) kicks: [Option<Kick>; KickFlag::ALL.len()],
+    pub(crate) kicks: [Option<Kick>; KickFlag::all().len()],
 }
 
 impl PlayerLogin {
-    /// The reason of `flag`, if it is set.
-    #[doc(alias = "PlayerPreLoginEvent::getDisconnectReason")]
-    pub fn disconnect_reason(&self, flag: KickFlag) -> Option<&str> {
-        self.kick(flag).map(|k| k.reason.as_str())
-    }
-
-    /// The screen message of `flag`, if it is set.
-    #[doc(alias = "PlayerPreLoginEvent::getDisconnectScreenMessage")]
-    pub fn disconnect_screen_message(&self, flag: KickFlag) -> Option<&str> {
-        self.kick(flag).map(|k| k.screen_message.as_str())
-    }
-
     /// The reason of the first set flag, if any.
     #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectReason")]
-    pub fn final_disconnect_reason(&self) -> Option<&str> {
+    pub fn final_kick_reason(&self) -> Option<&str> {
         self.kicks
             .iter()
             .flatten()
@@ -1092,7 +1078,7 @@ impl PlayerLogin {
 
     /// The screen message of the first set flag, if any: what the refused player sees.
     #[doc(alias = "PlayerPreLoginEvent::getFinalDisconnectScreenMessage")]
-    pub fn final_disconnect_screen_message(&self) -> Option<&str> {
+    pub fn final_kick_screen_message(&self) -> Option<&str> {
         self.kicks
             .iter()
             .flatten()
@@ -1128,10 +1114,23 @@ impl PlayerLogin {
     /// The flags set, in order of precedence.
     #[doc(alias = "PlayerPreLoginEvent::getKickFlags")]
     pub fn kick_flags(&self) -> impl Iterator<Item = KickFlag> + '_ {
-        KickFlag::ALL
-            .into_iter()
+        KickFlag::all()
+            .iter()
+            .copied()
             .zip(&self.kicks)
             .filter_map(|(flag, kick)| kick.as_ref().map(|_| flag))
+    }
+
+    /// The reason of `flag`, if it is set.
+    #[doc(alias = "PlayerPreLoginEvent::getDisconnectReason")]
+    pub fn kick_reason(&self, flag: KickFlag) -> Option<&str> {
+        self.kick(flag).map(|k| k.reason.as_str())
+    }
+
+    /// The screen message of `flag`, if it is set.
+    #[doc(alias = "PlayerPreLoginEvent::getDisconnectScreenMessage")]
+    pub fn kick_screen_message(&self, flag: KickFlag) -> Option<&str> {
+        self.kick(flag).map(|k| k.screen_message.as_str())
     }
 
     /// The port the client connected from; 0 only for a player made without a connection
@@ -1154,7 +1153,7 @@ impl PlayerLogin {
     }
 
     /// Sets `flag` with the reason for the log and the message for the player's screen (`None`:
-    /// the reason). A text longer than [`player::MAX_TEXT`] bytes is cut to it when sent.
+    /// the reason). A text longer than [`player::MAX_TEXT_BYTES`] bytes is cut to it when sent.
     #[doc(alias = "PlayerPreLoginEvent::setKickFlag")]
     pub fn set_kick_flag(
         &mut self,
@@ -1174,7 +1173,7 @@ impl PlayerLogin {
     fn kick(&self, flag: KickFlag) -> Option<&Kick> {
         #[expect(
             clippy::indexing_slicing,
-            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::ALL`"
+            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::all`"
         )]
         self.kicks[flag as usize].as_ref()
     }
@@ -1183,7 +1182,7 @@ impl PlayerLogin {
     fn kick_mut(&mut self, flag: KickFlag) -> &mut Option<Kick> {
         #[expect(
             clippy::indexing_slicing,
-            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::ALL`"
+            reason = "invariant: `kicks` has a slot for every flag of `KickFlag::all`"
         )]
         &mut self.kicks[flag as usize]
     }
@@ -1210,12 +1209,16 @@ pub enum KickFlag {
 
 impl KickFlag {
     /// Every flag, in order of precedence.
-    pub const ALL: [Self; 4] = [
-        Self::Listener,
-        Self::ServerFull,
-        Self::ServerWhitelisted,
-        Self::Banned,
-    ];
+    ///
+    /// It is a `const fn` so that [`PlayerLogin`] sizes its flag slots by it.
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Listener,
+            Self::ServerFull,
+            Self::ServerWhitelisted,
+            Self::Banned,
+        ]
+    }
 }
 
 /// The messages of a set kick flag.
@@ -1240,16 +1243,16 @@ impl PlayerInfo {
         &self.0.name
     }
 
-    /// The Xbox user ID, or `None` when Xbox sign-in (`xbox-auth`) is off.
-    #[doc(alias = "XboxLivePlayerInfo::getXuid")]
-    pub fn xuid(&self) -> Option<u64> {
-        self.0.xuid
-    }
-
     /// The identity UUID the client sent.
     #[doc(alias = "PlayerInfo::getUuid")]
     pub fn uuid(&self) -> Uuid {
         self.0.uuid
+    }
+
+    /// The Xbox user ID, or `None` when Xbox sign-in (`xbox-auth`) is off.
+    #[doc(alias = "XboxLivePlayerInfo::getXuid")]
+    pub fn xuid(&self) -> Option<u64> {
+        self.0.xuid
     }
 }
 
@@ -1611,7 +1614,7 @@ cancellable! {
 
 /// Raised when a player is about to be sent to another server. Cancelling keeps the player here,
 /// and so does an empty address or one longer than 253 bytes, or a message longer than
-/// [`player::MAX_TEXT`] bytes.
+/// [`player::MAX_TEXT_BYTES`] bytes.
 #[doc(alias = "PlayerTransferEvent")]
 #[derive(Debug)]
 pub struct PlayerTransfer {
@@ -1881,18 +1884,18 @@ mod tests {
         let event = PlayerDuplicateLogin::new(identity("a"), identity("A"));
         assert_eq!(event.connecting().name(), "a");
         assert_eq!(event.existing().name(), "A");
-        assert_eq!(event.disconnect_screen_message(), None);
+        assert_eq!(event.kick_screen_message(), None);
         let (connecting, outcome) = event.clone().into_outcome();
         assert_eq!(connecting, identity("a"));
         assert_eq!(outcome, DuplicateOutcome::unheard());
         let mut event = event;
-        event.set_disconnect_reason("reason");
-        assert_eq!(event.disconnect_reason(), "reason");
+        event.set_kick_reason("reason");
+        assert_eq!(event.kick_reason(), "reason");
         assert_eq!(event.into_outcome().1.message, "reason");
         let mut event = PlayerDuplicateLogin::new(identity("a"), identity("A"));
-        event.set_disconnect_reason("reason");
-        event.set_disconnect_screen_message(Some("screen".to_owned()));
-        assert_eq!(event.disconnect_screen_message(), Some("screen"));
+        event.set_kick_reason("reason");
+        event.set_kick_screen_message(Some("screen".to_owned()));
+        assert_eq!(event.kick_screen_message(), Some("screen"));
         event.cancel();
         assert!(event.is_cancelled());
         event.uncancel();
@@ -2192,24 +2195,21 @@ mod tests {
     fn kick_screen_message_falls_back_to_the_reason() {
         let mut e = PlayerKick {
             player: player(1),
-            disconnect_reason: "spam".to_owned(),
+            kick_reason: "spam".to_owned(),
             screen_message: None,
             quit_message: "kicked".to_owned(),
             cancelled: false,
         };
-        assert_eq!((e.player(), e.disconnect_reason()), (player(1), "spam"));
+        assert_eq!((e.player(), e.kick_reason()), (player(1), "spam"));
         assert_eq!(
-            (e.disconnect_screen_message(), e.quit_message()),
+            (e.kick_screen_message(), e.quit_message()),
             ("spam", "kicked")
         );
-        e.set_disconnect_reason("flood".to_owned());
+        e.set_kick_reason("flood".to_owned());
         e.set_quit_message(String::new());
-        assert_eq!(
-            (e.disconnect_screen_message(), e.quit_message()),
-            ("flood", "")
-        );
-        e.set_disconnect_screen_message(Some("Bye".to_owned()));
-        assert_eq!(e.disconnect_screen_message(), "Bye");
+        assert_eq!((e.kick_screen_message(), e.quit_message()), ("flood", ""));
+        e.set_kick_screen_message(Some("Bye".to_owned()));
+        assert_eq!(e.kick_screen_message(), "Bye");
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();
@@ -2241,7 +2241,7 @@ mod tests {
         assert_eq!(e.info().name(), "Steve");
         assert_eq!((e.ip(), e.port()), (Some(ip), 19_132));
         assert!(e.is_allowed());
-        assert_eq!(e.final_disconnect_reason(), None);
+        assert_eq!(e.final_kick_reason(), None);
         e.set_kick_flag(
             KickFlag::Banned,
             "banned",
@@ -2255,28 +2255,25 @@ mod tests {
             e.kick_flags().collect::<Vec<_>>(),
             [KickFlag::ServerFull, KickFlag::Banned]
         );
-        assert_eq!(e.disconnect_reason(KickFlag::Banned), Some("banned"));
+        assert_eq!(e.kick_reason(KickFlag::Banned), Some("banned"));
         assert_eq!(
-            e.disconnect_screen_message(KickFlag::Banned),
+            e.kick_screen_message(KickFlag::Banned),
             Some("You are banned")
         );
-        assert_eq!(
-            e.disconnect_screen_message(KickFlag::ServerFull),
-            Some("full")
-        );
-        assert_eq!(e.disconnect_reason(KickFlag::ServerWhitelisted), None);
-        assert_eq!(e.final_disconnect_reason(), Some("full"));
-        assert_eq!(e.final_disconnect_screen_message(), Some("full"));
+        assert_eq!(e.kick_screen_message(KickFlag::ServerFull), Some("full"));
+        assert_eq!(e.kick_reason(KickFlag::ServerWhitelisted), None);
+        assert_eq!(e.final_kick_reason(), Some("full"));
+        assert_eq!(e.final_kick_screen_message(), Some("full"));
         e.clear_kick_flag(KickFlag::ServerFull);
-        assert_eq!(e.final_disconnect_screen_message(), Some("You are banned"));
+        assert_eq!(e.final_kick_screen_message(), Some("You are banned"));
         e.set_kick_flag(KickFlag::Listener, "no", None);
-        assert_eq!(e.final_disconnect_reason(), Some("no"));
+        assert_eq!(e.final_kick_reason(), Some("no"));
         e.clear_all_kick_flags();
         assert!(e.is_allowed());
         assert_eq!(e.kick_flags().count(), 0);
-        let mut sorted = KickFlag::ALL;
+        let mut sorted = KickFlag::all().to_vec();
         sorted.sort();
-        assert_eq!(sorted, KickFlag::ALL);
+        assert_eq!(sorted, KickFlag::all());
     }
 
     // api: PlayerMissSwingEvent, PlayerMoveEvent, PlayerMissSwingEvent::cancel,

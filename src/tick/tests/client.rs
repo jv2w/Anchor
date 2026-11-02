@@ -57,63 +57,6 @@ pub(super) struct Client {
 }
 
 impl Client {
-    /// Learns from a packet the server sent and counts what the run reached.
-    pub(super) fn learn(&mut self, packet: &Packet, seen: &mut Seen) {
-        let mut count = |what: &'static str| *seen.entry(what).or_default() += 1;
-        match packet {
-            Packet::InventoryContent(p) => {
-                for (slot, item) in (0_u8..).zip(&p.content) {
-                    self.set(p.window_id, slot, item);
-                }
-            }
-            Packet::InventorySlot(p) => {
-                count("inventory slot");
-                if let Ok(slot) = u8::try_from(p.slot) {
-                    self.set(p.window_id, slot, &p.new_item);
-                }
-            }
-            Packet::ItemStackResponse(p) => {
-                for r in &p.responses {
-                    if r.status != 0 {
-                        count("stack refused");
-                        continue;
-                    }
-                    count("stack done");
-                    for c in &r.container_info {
-                        let container = match c.container.container_id {
-                            id if id == C::HotBar as u8 || id == C::Inventory as u8 => {
-                                C::CombinedHotBarAndInventory as u8
-                            }
-                            id => id,
-                        };
-                        for s in &c.slot_info {
-                            self.slots
-                                .insert((container, s.slot), (s.stack_network_id, s.count));
-                        }
-                    }
-                }
-            }
-            Packet::ContainerOpen(p) => {
-                count("window opened");
-                self.close_block();
-                self.window = Some(p.window_id);
-            }
-            Packet::ContainerClose(_) => {
-                self.close_block();
-                self.window = None;
-            }
-            Packet::AddItemActor(_) => count("item entity"),
-            Packet::AddActor(p) if p.entity_type == "minecraft:villager_v2" => count("villager"),
-            Packet::AddActor(_) => count("entity"),
-            Packet::UpdateTrade(_) => count("trade window"),
-            Packet::UpdateBlock(_) | Packet::UpdateSubChunkBlocks(_) => count("block update"),
-            Packet::LevelEvent(_) => count("level event"),
-            Packet::ActorEvent(_) => count("actor event"),
-            Packet::MobEquipment(_) => count("equipment"),
-            _ => {}
-        }
-    }
-
     /// Draws the packets of one game input of the spawned `player`: one packet, or a burst for
     /// actions a client sends over several of its ticks (breaking, a craft request from the grid,
     /// choosing an item before using it). Empty when the player lacks what the drawn input needs
@@ -406,21 +349,84 @@ impl Client {
         }
     }
 
+    /// Learns from a packet the server sent and counts what the run reached.
+    pub(super) fn learn(&mut self, packet: &Packet, seen: &mut Seen) {
+        let mut count = |what: &'static str| *seen.entry(what).or_default() += 1;
+        match packet {
+            Packet::InventoryContent(p) => {
+                for (slot, item) in (0_u8..).zip(&p.content) {
+                    self.set(p.window_id, slot, item);
+                }
+            }
+            Packet::InventorySlot(p) => {
+                count("inventory slot");
+                if let Ok(slot) = u8::try_from(p.slot) {
+                    self.set(p.window_id, slot, &p.new_item);
+                }
+            }
+            Packet::ItemStackResponse(p) => {
+                for r in &p.responses {
+                    if r.status != 0 {
+                        count("stack refused");
+                        continue;
+                    }
+                    count("stack done");
+                    for c in &r.container_info {
+                        let container = match c.container.container_id {
+                            id if id == C::HotBar as u8 || id == C::Inventory as u8 => {
+                                C::CombinedHotBarAndInventory as u8
+                            }
+                            id => id,
+                        };
+                        for s in &c.slot_info {
+                            self.slots
+                                .insert((container, s.slot), (s.stack_network_id, s.count));
+                        }
+                    }
+                }
+            }
+            Packet::ContainerOpen(p) => {
+                count("window opened");
+                self.close_block();
+                self.window = Some(p.window_id);
+            }
+            Packet::ContainerClose(_) => {
+                self.close_block();
+                self.window = None;
+            }
+            Packet::AddItemActor(_) => count("item entity"),
+            Packet::AddActor(p) if p.entity_type == "minecraft:villager_v2" => count("villager"),
+            Packet::AddActor(_) => count("entity"),
+            Packet::UpdateTrade(_) => count("trade window"),
+            Packet::UpdateBlock(_) | Packet::UpdateSubChunkBlocks(_) => count("block update"),
+            Packet::LevelEvent(_) => count("level event"),
+            Packet::ActorEvent(_) => count("actor event"),
+            Packet::MobEquipment(_) => count("equipment"),
+            _ => {}
+        }
+    }
+
+    /// A request slot naming the client's ID for it; sometimes a wrong one.
+    fn slot_with_known_id(
+        &self,
+        rng: &mut Rng,
+        (container, slot): (u8, u8),
+    ) -> StackRequestSlotInfo {
+        let known = self.net(container, slot);
+        let stack_network_id = match rng.below(24) {
+            0 => known.wrapping_add(1),
+            1 => -999,
+            _ => known,
+        };
+        slot_info(container, slot, stack_network_id)
+    }
+
     /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
     fn net(&self, container: u8, slot: u8) -> i32 {
         self.slots
             .get(&(container, slot))
             .filter(|(_, count)| *count > 0)
             .map_or(0, |(net, _)| *net)
-    }
-
-    /// The held item as the client sends it.
-    fn held(&self, player: &Player) -> ItemInstance {
-        let slot = player.inventory.held_slot();
-        player
-            .inventory
-            .held()
-            .to_instance(self.net(C::CombinedHotBarAndInventory as u8, slot))
     }
 
     /// A click on `face` of the block at `target` with the held item; sometimes a stale one.
@@ -447,19 +453,13 @@ impl Client {
         }
     }
 
-    /// A request slot naming the client's ID for it; sometimes a wrong one.
-    fn slot_with_known_id(
-        &self,
-        rng: &mut Rng,
-        (container, slot): (u8, u8),
-    ) -> StackRequestSlotInfo {
-        let known = self.net(container, slot);
-        let stack_network_id = match rng.below(24) {
-            0 => known.wrapping_add(1),
-            1 => -999,
-            _ => known,
-        };
-        slot_info(container, slot, stack_network_id)
+    /// The held item as the client sends it.
+    fn held(&self, player: &Player) -> ItemInstance {
+        let slot = player.inventory.held_slot();
+        player
+            .inventory
+            .held()
+            .to_instance(self.net(C::CombinedHotBarAndInventory as u8, slot))
     }
 
     /// Forgets the slots of the block window.
@@ -467,6 +467,73 @@ impl Client {
         self.slots.retain(|(c, _), _| {
             ![C::LevelEntity as u8, C::Barrel as u8, C::ShulkerBox as u8].contains(c)
         });
+    }
+
+    /// Draws a craft the server refuses: a log from the inventory into the 2x2 grid, then the craft
+    /// naming the grid cell by the first request's ID, as a client does before the answer arrives.
+    fn craft_refused(&mut self, rng: &mut Rng, player: &Player) -> Vec<Packet> {
+        let (recipe, made) = (REFUSED_RECIPE, REFUSED_CRAFT_COUNT);
+        let log = block::Kind::OakLog.default_state().item();
+        let block::ItemForm::Item(log) = log else {
+            return Vec::new();
+        };
+        let Some(slot) = (0_u8..36).find(|&i| {
+            player
+                .inventory
+                .main_stack(i)
+                .is_some_and(|s| s.item() == Some(log))
+        }) else {
+            return Vec::new();
+        };
+        let lay = self.request_id(rng);
+        let cell = (C::CraftingInput as u8, GRID_2X2);
+        let first = ItemStackRequest {
+            request_id: lay,
+            actions: vec![place(
+                1,
+                self.slot_with_known_id(rng, (C::CombinedHotBarAndInventory as u8, slot)),
+                slot_info(cell.0, cell.1, self.net(cell.0, cell.1)),
+            )],
+            filter_strings: Vec::new(),
+            filter_cause: 0,
+        };
+        let craft = self.request_id(rng);
+        let empty = (0_u8..36)
+            .find(|&i| player.inventory.main_stack(i).is_some_and(Stack::is_empty))
+            .unwrap_or(35);
+        let second = ItemStackRequest {
+            request_id: craft,
+            actions: vec![
+                StackRequestAction::CraftRecipe(CraftRecipeStackRequestAction {
+                    recipe_network_id: recipe,
+                    number_of_crafts: 1,
+                }),
+                StackRequestAction::CraftResultsDeprecated(
+                    CraftResultsDeprecatedStackRequestAction::default(),
+                ),
+                StackRequestAction::Consume(ConsumeStackRequestAction {
+                    destroy_stack_request_action: DestroyStackRequestAction {
+                        count: 1,
+                        source: slot_info(cell.0, cell.1, lay),
+                    },
+                }),
+                place(
+                    made,
+                    created_slot(craft),
+                    slot_info(C::CombinedHotBarAndInventory as u8, empty, 0),
+                ),
+            ],
+            filter_strings: Vec::new(),
+            filter_cause: 0,
+        };
+        vec![
+            Packet::ItemStackRequest(RequestPacket {
+                requests: vec![first],
+            }),
+            Packet::ItemStackRequest(RequestPacket {
+                requests: vec![second],
+            }),
+        ]
     }
 
     /// Learns a slot of a window.
@@ -488,21 +555,6 @@ impl Client {
         };
         let count = u8::try_from(item.stack.count).unwrap_or(u8::MAX);
         self.slots.insert(key, (item.stack_network_id, count));
-    }
-
-    /// Takes a new request ID; sometimes an old one again (a repeat the server must refuse).
-    fn request_id(&mut self, rng: &mut Rng) -> i32 {
-        if rng.below(16) == 0 && self.next_request < -1 {
-            return self.next_request + 2;
-        }
-        self.next_request_id()
-    }
-
-    /// Takes the next request ID: -1, -3, -5…
-    fn next_request_id(&mut self) -> i32 {
-        let id = self.next_request;
-        self.next_request = self.next_request.wrapping_sub(2);
-        id
     }
 
     /// Draws a request moving, swapping, dropping, destroying or creating items, from what the
@@ -593,71 +645,19 @@ impl Client {
         }
     }
 
-    /// Draws a craft the server refuses: a log from the inventory into the 2x2 grid, then the craft
-    /// naming the grid cell by the first request's ID, as a client does before the answer arrives.
-    fn craft_refused(&mut self, rng: &mut Rng, player: &Player) -> Vec<Packet> {
-        let (recipe, made) = (REFUSED_RECIPE, REFUSED_CRAFT_COUNT);
-        let log = block::Kind::OakLog.default_state().item();
-        let block::ItemForm::Item(log) = log else {
-            return Vec::new();
-        };
-        let Some(slot) = (0_u8..36).find(|&i| {
-            player
-                .inventory
-                .main_stack(i)
-                .is_some_and(|s| s.item() == Some(log))
-        }) else {
-            return Vec::new();
-        };
-        let lay = self.request_id(rng);
-        let cell = (C::CraftingInput as u8, GRID_2X2);
-        let first = ItemStackRequest {
-            request_id: lay,
-            actions: vec![place(
-                1,
-                self.slot_with_known_id(rng, (C::CombinedHotBarAndInventory as u8, slot)),
-                slot_info(cell.0, cell.1, self.net(cell.0, cell.1)),
-            )],
-            filter_strings: Vec::new(),
-            filter_cause: 0,
-        };
-        let craft = self.request_id(rng);
-        let empty = (0_u8..36)
-            .find(|&i| player.inventory.main_stack(i).is_some_and(Stack::is_empty))
-            .unwrap_or(35);
-        let second = ItemStackRequest {
-            request_id: craft,
-            actions: vec![
-                StackRequestAction::CraftRecipe(CraftRecipeStackRequestAction {
-                    recipe_network_id: recipe,
-                    number_of_crafts: 1,
-                }),
-                StackRequestAction::CraftResultsDeprecated(
-                    CraftResultsDeprecatedStackRequestAction::default(),
-                ),
-                StackRequestAction::Consume(ConsumeStackRequestAction {
-                    destroy_stack_request_action: DestroyStackRequestAction {
-                        count: 1,
-                        source: slot_info(cell.0, cell.1, lay),
-                    },
-                }),
-                place(
-                    made,
-                    created_slot(craft),
-                    slot_info(C::CombinedHotBarAndInventory as u8, empty, 0),
-                ),
-            ],
-            filter_strings: Vec::new(),
-            filter_cause: 0,
-        };
-        vec![
-            Packet::ItemStackRequest(RequestPacket {
-                requests: vec![first],
-            }),
-            Packet::ItemStackRequest(RequestPacket {
-                requests: vec![second],
-            }),
-        ]
+    /// Takes a new request ID; sometimes an old one again (a repeat the server must refuse).
+    fn request_id(&mut self, rng: &mut Rng) -> i32 {
+        if rng.below(16) == 0 && self.next_request < -1 {
+            return self.next_request + 2;
+        }
+        self.next_request_id()
+    }
+
+    /// Takes the next request ID: -1, -3, -5 and so on.
+    fn next_request_id(&mut self) -> i32 {
+        let id = self.next_request;
+        self.next_request = self.next_request.wrapping_sub(2);
+        id
     }
 }
 

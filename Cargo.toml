@@ -65,7 +65,6 @@ rust_2018_idioms = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 must_use_candidate = "allow" # would mark nearly every pure function
-missing_errors_doc = "allow" # each Error enum documents its failure modes once
 struct_excessive_bools = "allow" # config structs hold independent switches
 float_cmp = "allow" # tick math is bit-deterministic, so exact equality is intended
 # Safety: non-test code returns errors instead of panicking, exiting, or dropping them.

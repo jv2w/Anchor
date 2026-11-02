@@ -425,7 +425,7 @@ fn a_made_world_uses_the_view_values_of_its_options() {
     );
     settle(&mut state, &mut output);
     let player = crate::player::Id::new(SessionId::new(1));
-    assert_eq!(context(&mut state).set_view_distance(player, 8), Some(8));
+    assert_eq!(context(&mut state).set_view_distance(player, 8), Ok(()));
     let eye = on_spawn(&state, w);
     survival::teleport(&mut state, SessionId::new(1), w, eye);
     assert_eq!(state.players[&SessionId::new(1)].chunk_radius, Some(3));

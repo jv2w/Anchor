@@ -123,6 +123,179 @@ impl World {
         }
     }
 
+    /// The stack network ID the client knows a request slot by.
+    pub(super) fn id(&self, s: SessionId, container: C, slot: u8) -> i32 {
+        self.slot(s, container, slot).id.net
+    }
+
+    /// A request slot as it is now.
+    pub(super) fn slot(&self, s: SessionId, container: C, slot: u8) -> Slot {
+        self.try_slot(s, container, slot).expect("an open slot")
+    }
+
+    pub(super) fn try_slot(&self, s: SessionId, container: C, slot: u8) -> Option<Slot> {
+        let inv = self.inv(s);
+        if let Some(window) = inv.window.as_ref().filter(|w| w.id != 0)
+            && let (WindowKind::Menu { .. }, Some(menu), C::LevelEntity) =
+                (window.kind, &inv.menu, container)
+        {
+            return Some(Slot {
+                stack: menu.stacks.get(usize::from(slot))?.clone(),
+                id: *window.ids.get(usize::from(slot))?,
+            });
+        }
+        match inv.locate(container as u8, slot)? {
+            SlotRef::Block(i) => {
+                let window = inv.window.as_ref()?;
+                let stacks = block_stacks(window.kind, &self.state.rules.block_entities);
+                Some(Slot {
+                    stack: stacks.get(usize::from(i))?.clone(),
+                    id: *window.ids.get(usize::from(i))?,
+                })
+            }
+            r => inv.get(r),
+        }
+    }
+
+    pub(super) fn inv(&self, s: SessionId) -> &Inventory {
+        &self.state.players[&s].inventory
+    }
+
+    pub(super) fn close(&mut self, s: SessionId) {
+        if let Some(id) = self.inv(s).window.as_ref().map(|w| w.id) {
+            self.client_close(s, id);
+        }
+    }
+
+    /// A double chest at `at` and the neighbour it pairs with.
+    pub(super) fn double_chest(&mut self, at: BlockPos) -> BlockPos {
+        let chest = blk::Kind::Chest.default_state();
+        self.place_block(at, chest);
+        for (dx, dz) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
+            let other = BlockPos::new(at.x + dx, at.y, at.z + dz);
+            self.place_block(other, chest);
+            if self.state.rules.block_entities.get(0, at).unwrap().pair() == Some(other) {
+                return other;
+            }
+            self.state.worlds[0].set_block(other, blk::AIR).unwrap();
+            block_entity::removed(&mut self.state, 0, other);
+        }
+        panic!("the chests pair");
+    }
+
+    pub(super) fn give(&mut self, s: SessionId, stack: Stack) {
+        let left = give(self.player_mut(s), stack);
+        assert!(left.is_empty());
+    }
+
+    pub(super) fn join(&mut self, n: u64) -> SessionId {
+        let (j, rx) = join(n, 0);
+        self.receivers.push(rx);
+        self.tick(vec![j, radius(n, 1, 4)]);
+        self.tick(Vec::new());
+        let s = SessionId::new(n);
+        assert!(self.state.players.contains_key(&s));
+        s
+    }
+
+    pub(super) fn open_block(&mut self, s: SessionId, pos: BlockPos) {
+        assert!(open_block(&mut self.state, s, 0, pos));
+        self.ack(s);
+    }
+
+    pub(super) fn open_inventory(&mut self, s: SessionId) {
+        let runtime = self.player_mut(s).runtime_id;
+        on_interact(
+            &mut self.state,
+            s,
+            &Interact {
+                action_type: 6,
+                target_entity_runtime_id: runtime,
+                position: None,
+            },
+        );
+        self.ack(s);
+    }
+
+    /// Acknowledges a close the server started, as the client does.
+    pub(super) fn ack(&mut self, s: SessionId) {
+        if let Some(id) = self.inv(s).pending_close {
+            self.client_close(s, id);
+        }
+    }
+
+    pub(super) fn client_close(&mut self, s: SessionId, window: u8) {
+        on_container_close(
+            &mut self.state,
+            s,
+            &ContainerClose {
+                window_id: window,
+                container_type: 0,
+                server_side: false,
+            },
+        );
+    }
+
+    pub(super) fn place_block(&mut self, pos: BlockPos, block: blk::State) {
+        self.state.worlds[0].set_block(pos, block).unwrap();
+        block_entity::placed(&mut self.state, 0, pos, None, &Stack::EMPTY, blk::Face::Up);
+    }
+
+    /// Sends a request with the next request ID; its response.
+    pub(super) fn request(
+        &mut self,
+        s: SessionId,
+        actions: Vec<StackRequestAction>,
+    ) -> ItemStackResponse {
+        let id = self.next_id(s);
+        self.request_as(s, id, actions)
+    }
+
+    pub(super) fn next_id(&mut self, s: SessionId) -> i32 {
+        let next = self.next_request.entry(s).or_insert(-1);
+        let id = *next;
+        *next -= 2;
+        id
+    }
+
+    pub(super) fn request_as(
+        &mut self,
+        s: SessionId,
+        id: i32,
+        actions: Vec<StackRequestAction>,
+    ) -> ItemStackResponse {
+        self.state.tick += 1;
+        let request = ItemStackRequest {
+            request_id: id,
+            actions,
+            filter_strings: Vec::new(),
+            filter_cause: 0,
+        };
+        on_item_stack_request(&mut self.state, s, &request);
+        let responses: Vec<ItemStackResponse> = self
+            .sent(s)
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::ItemStackResponse(r) => Some(r.responses),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(responses.len(), 1, "one response per request");
+        let r = responses.into_iter().next().unwrap();
+        assert_eq!(r.request_id, id);
+        r
+    }
+
+    /// Takes the packets queued for `s`.
+    pub(super) fn sent(&mut self, s: SessionId) -> Vec<Packet> {
+        std::mem::take(&mut self.player_mut(s).outbox)
+    }
+
+    pub(super) fn player_mut(&mut self, s: SessionId) -> &mut Player {
+        self.state.players.get_mut(&s).unwrap()
+    }
+
     pub(super) fn tick(&mut self, inputs: Vec<Input>) {
         self.tick_delivered(inputs);
     }
@@ -168,179 +341,6 @@ impl World {
             delivered.push(packets);
         }
         delivered
-    }
-
-    pub(super) fn join(&mut self, n: u64) -> SessionId {
-        let (j, rx) = join(n, 0);
-        self.receivers.push(rx);
-        self.tick(vec![j, radius(n, 1, 4)]);
-        self.tick(Vec::new());
-        let s = SessionId::new(n);
-        assert!(self.state.players.contains_key(&s));
-        s
-    }
-
-    pub(super) fn player_mut(&mut self, s: SessionId) -> &mut Player {
-        self.state.players.get_mut(&s).unwrap()
-    }
-
-    pub(super) fn inv(&self, s: SessionId) -> &Inventory {
-        &self.state.players[&s].inventory
-    }
-
-    /// Takes the packets queued for `s`.
-    pub(super) fn sent(&mut self, s: SessionId) -> Vec<Packet> {
-        std::mem::take(&mut self.player_mut(s).outbox)
-    }
-
-    pub(super) fn next_id(&mut self, s: SessionId) -> i32 {
-        let next = self.next_request.entry(s).or_insert(-1);
-        let id = *next;
-        *next -= 2;
-        id
-    }
-
-    /// Sends a request with the next request ID; its response.
-    pub(super) fn request(
-        &mut self,
-        s: SessionId,
-        actions: Vec<StackRequestAction>,
-    ) -> ItemStackResponse {
-        let id = self.next_id(s);
-        self.request_as(s, id, actions)
-    }
-
-    pub(super) fn request_as(
-        &mut self,
-        s: SessionId,
-        id: i32,
-        actions: Vec<StackRequestAction>,
-    ) -> ItemStackResponse {
-        self.state.tick += 1;
-        let request = ItemStackRequest {
-            request_id: id,
-            actions,
-            filter_strings: Vec::new(),
-            filter_cause: 0,
-        };
-        on_item_stack_request(&mut self.state, s, &request);
-        let responses: Vec<ItemStackResponse> = self
-            .sent(s)
-            .into_iter()
-            .filter_map(|p| match p {
-                Packet::ItemStackResponse(r) => Some(r.responses),
-                _ => None,
-            })
-            .flatten()
-            .collect();
-        assert_eq!(responses.len(), 1, "one response per request");
-        let r = responses.into_iter().next().unwrap();
-        assert_eq!(r.request_id, id);
-        r
-    }
-
-    pub(super) fn give(&mut self, s: SessionId, stack: Stack) {
-        let left = give(self.player_mut(s), stack);
-        assert!(left.is_empty());
-    }
-
-    /// The stack network ID the client knows a request slot by.
-    pub(super) fn id(&self, s: SessionId, container: C, slot: u8) -> i32 {
-        self.slot(s, container, slot).id.net
-    }
-
-    /// A request slot as it is now.
-    pub(super) fn slot(&self, s: SessionId, container: C, slot: u8) -> Slot {
-        self.try_slot(s, container, slot).expect("an open slot")
-    }
-
-    pub(super) fn try_slot(&self, s: SessionId, container: C, slot: u8) -> Option<Slot> {
-        let inv = self.inv(s);
-        if let Some(window) = inv.window.as_ref().filter(|w| w.id != 0)
-            && let (WindowKind::Menu { .. }, Some(menu), C::LevelEntity) =
-                (window.kind, &inv.menu, container)
-        {
-            return Some(Slot {
-                stack: menu.stacks.get(usize::from(slot))?.clone(),
-                id: *window.ids.get(usize::from(slot))?,
-            });
-        }
-        match inv.locate(container as u8, slot)? {
-            SlotRef::Block(i) => {
-                let window = inv.window.as_ref()?;
-                let stacks = block_stacks(window.kind, &self.state.rules.block_entities);
-                Some(Slot {
-                    stack: stacks.get(usize::from(i))?.clone(),
-                    id: *window.ids.get(usize::from(i))?,
-                })
-            }
-            r => inv.get(r),
-        }
-    }
-
-    pub(super) fn open_inventory(&mut self, s: SessionId) {
-        let runtime = self.player_mut(s).runtime_id;
-        on_interact(
-            &mut self.state,
-            s,
-            &Interact {
-                action_type: 6,
-                target_entity_runtime_id: runtime,
-                position: None,
-            },
-        );
-        self.ack(s);
-    }
-
-    pub(super) fn open_block(&mut self, s: SessionId, pos: BlockPos) {
-        assert!(open_block(&mut self.state, s, 0, pos));
-        self.ack(s);
-    }
-
-    /// Acknowledges a close the server started, as the client does.
-    pub(super) fn ack(&mut self, s: SessionId) {
-        if let Some(id) = self.inv(s).pending_close {
-            self.client_close(s, id);
-        }
-    }
-
-    pub(super) fn client_close(&mut self, s: SessionId, window: u8) {
-        on_container_close(
-            &mut self.state,
-            s,
-            &ContainerClose {
-                window_id: window,
-                container_type: 0,
-                server_side: false,
-            },
-        );
-    }
-
-    pub(super) fn close(&mut self, s: SessionId) {
-        if let Some(id) = self.inv(s).window.as_ref().map(|w| w.id) {
-            self.client_close(s, id);
-        }
-    }
-
-    pub(super) fn place_block(&mut self, pos: BlockPos, block: blk::State) {
-        self.state.worlds[0].set_block(pos, block).unwrap();
-        block_entity::placed(&mut self.state, 0, pos, None, &Stack::EMPTY, blk::Face::Up);
-    }
-
-    /// A double chest at `at` and the neighbour it pairs with.
-    pub(super) fn double_chest(&mut self, at: BlockPos) -> BlockPos {
-        let chest = blk::Kind::Chest.default_state();
-        self.place_block(at, chest);
-        for (dx, dz) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
-            let other = BlockPos::new(at.x + dx, at.y, at.z + dz);
-            self.place_block(other, chest);
-            if self.state.rules.block_entities.get(0, at).unwrap().pair() == Some(other) {
-                return other;
-            }
-            self.state.worlds[0].set_block(other, blk::AIR).unwrap();
-            block_entity::removed(&mut self.state, 0, other);
-        }
-        panic!("the chests pair");
     }
 }
 
@@ -696,7 +696,7 @@ fn snapshot(state: &State) -> (Vec<PlayerSnapshot>, Vec<Stack>, usize) {
 /// No slot holds more than its stack size, and a slot is empty exactly when its ID is 0.
 pub(super) fn check_slots(state: &State) {
     let check = |s: &Stack, id: Option<StackId>| {
-        assert!(s.count() <= s.max_count(), "{s:?}");
+        assert!(s.count() <= s.max_stack_size(), "{s:?}");
         assert_eq!(s.is_empty(), s.count() == 0);
         if let Some(id) = id {
             assert_eq!(s.is_empty(), id.net == 0, "{s:?} {id:?}");
@@ -786,8 +786,9 @@ fn addressable(inv: &Inventory, rng: &mut Random) -> Vec<(C, u8)> {
     }
     if let Some(w) = window {
         for p in w.kind.parts() {
-            let c = C::ALL
-                .into_iter()
+            let c = C::all()
+                .iter()
+                .copied()
                 .find(|c| *c as u8 == p.container)
                 .unwrap();
             out.extend((p.first..p.first + p.len).map(|i| (c, i)));
@@ -853,8 +854,9 @@ fn expected_change(
             | StackRequestAction::Destroy(d)
                 if !is_created(&d.source) =>
             {
-                let c = C::ALL
-                    .into_iter()
+                let c = C::all()
+                    .iter()
+                    .copied()
                     .find(|c| *c as u8 == d.source.container.container_id);
                 if let Some(slot) = c.and_then(|c| w.try_slot(s, c, d.source.slot)) {
                     *out.entry(total_key(&slot.stack)).or_default() -= i64::from(d.count);
@@ -1978,7 +1980,7 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
     // Distinct items, so none merge: the main slots full and the most waiting stacks.
     let mut items = item_samples()
         .into_values()
-        .filter(|st| st.max_count() > 1)
+        .filter(|st| st.max_stack_size() > 1)
         .map(|st| st.with_count(1));
     for st in items.by_ref().take(MAIN) {
         w.give(s, st);

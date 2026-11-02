@@ -378,6 +378,12 @@ impl Peer {
         })
     }
 
+    /// Whether everything sent has been delivered. A str0m panic leaves nothing that could
+    /// still be delivered.
+    pub(crate) fn is_drained(&mut self) -> bool {
+        !matches!(self.undelivered(), Ok(bytes) if bytes > 0)
+    }
+
     /// ICE credentials and DTLS fingerprint for the answer.
     pub(crate) fn local(&self) -> &Local {
         &self.local
@@ -388,12 +394,6 @@ impl Peer {
     /// spoofed source cannot pass.
     pub(crate) fn remote_addr(&self) -> Option<SocketAddr> {
         self.remote_addr
-    }
-
-    /// Whether everything sent has been delivered. A str0m panic leaves nothing that could
-    /// still be delivered.
-    pub(crate) fn is_drained(&mut self) -> bool {
-        !matches!(self.undelivered(), Ok(bytes) if bytes > 0)
     }
 
     /// The bytes sent that are not delivered yet, as `MAX_UNSENT_BYTES` counts them: queued here
@@ -416,10 +416,40 @@ impl Peer {
         }
     }
 
-    /// Sets the largest message the peer accepts, from the next segment on.
-    pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
-        self.max_message_bytes = max_message_bytes;
-        self.reassembler.set_max_message_bytes(max_message_bytes);
+    /// Closes the peer: str0m sends its close output through `poll`, which then returns `Closed`.
+    pub(crate) fn close(&mut self) {
+        if matches!(self.state, State::Connecting | State::Open) {
+            self.fail(Error::Closed);
+        }
+    }
+
+    /// The next output. Call it until it returns `Timeout` or `Closed`.
+    pub(crate) fn poll(&mut self, now: Instant) -> Output {
+        loop {
+            let output = match std::mem::replace(&mut self.state, State::Closed) {
+                State::Connecting => {
+                    self.state = State::Connecting;
+                    self.step(now)
+                }
+                State::Open if !self.early.is_empty() => {
+                    self.state = State::Open;
+                    self.early.pop_front().map(|message| {
+                        self.early_bytes = self.early_bytes.saturating_sub(message.len());
+                        Output::Message(message)
+                    })
+                }
+                State::Open => {
+                    self.state = State::Open;
+                    self.step(now)
+                }
+                State::Closing(reason) => self.drain(reason),
+                State::Failed(reason) => return Output::Closed(reason),
+                State::Closed => return Output::Closed(Error::Closed),
+            };
+            if let Some(output) = output {
+                return output;
+            }
+        }
     }
 
     /// Takes a datagram from `from`. Datagrams that are not STUN or DTLS, too large, or not
@@ -478,40 +508,10 @@ impl Peer {
         }
     }
 
-    /// The next output. Call it until it returns `Timeout` or `Closed`.
-    pub(crate) fn poll(&mut self, now: Instant) -> Output {
-        loop {
-            let output = match std::mem::replace(&mut self.state, State::Closed) {
-                State::Connecting => {
-                    self.state = State::Connecting;
-                    self.step(now)
-                }
-                State::Open if !self.early.is_empty() => {
-                    self.state = State::Open;
-                    self.early.pop_front().map(|message| {
-                        self.early_bytes = self.early_bytes.saturating_sub(message.len());
-                        Output::Message(message)
-                    })
-                }
-                State::Open => {
-                    self.state = State::Open;
-                    self.step(now)
-                }
-                State::Closing(reason) => self.drain(reason),
-                State::Failed(reason) => return Output::Closed(reason),
-                State::Closed => return Output::Closed(Error::Closed),
-            };
-            if let Some(output) = output {
-                return output;
-            }
-        }
-    }
-
-    /// Closes the peer: str0m sends its close output through `poll`, which then returns `Closed`.
-    pub(crate) fn close(&mut self) {
-        if matches!(self.state, State::Connecting | State::Open) {
-            self.fail(Error::Closed);
-        }
+    /// Sets the largest message the peer accepts, from the next segment on.
+    pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
+        self.max_message_bytes = max_message_bytes;
+        self.reassembler.set_max_message_bytes(max_message_bytes);
     }
 
     /// When the peer times out by its own rules, if ever.
@@ -561,35 +561,6 @@ impl Peer {
         Ok(())
     }
 
-    /// Moves queued segments into str0m while it has room.
-    fn flush(&mut self) -> Result<()> {
-        let Some(id) = self.reliable else {
-            return Ok(());
-        };
-        while let Some(pending) = self.queue.front_mut() {
-            let rest = pending.rest.get(pending.sent..).unwrap_or_default();
-            let payload = rest.get(..self.max_payload).unwrap_or(rest);
-            if !write(
-                &mut self.rtc,
-                id,
-                &mut self.scratch,
-                pending.header,
-                payload,
-            )? {
-                return Ok(());
-            }
-            let len = payload.len();
-            pending.sent = pending.sent.saturating_add(len);
-            pending.header = pending.header.saturating_sub(1);
-            self.queued = self.queued.saturating_sub(len);
-            if pending.sent >= pending.rest.len() {
-                self.queue.pop_front();
-                self.queued = self.queued.saturating_sub(PENDING_COST_BYTES);
-            }
-        }
-        Ok(())
-    }
-
     /// One output while connecting or open, or `None` to look again.
     fn step(&mut self, now: Instant) -> Option<Output> {
         let deadline = self.deadline();
@@ -635,6 +606,35 @@ impl Peer {
             }
             str0m::Output::Event(event) => self.event(event),
         }
+    }
+
+    /// Moves queued segments into str0m while it has room.
+    fn flush(&mut self) -> Result<()> {
+        let Some(id) = self.reliable else {
+            return Ok(());
+        };
+        while let Some(pending) = self.queue.front_mut() {
+            let rest = pending.rest.get(pending.sent..).unwrap_or_default();
+            let payload = rest.get(..self.max_payload).unwrap_or(rest);
+            if !write(
+                &mut self.rtc,
+                id,
+                &mut self.scratch,
+                pending.header,
+                payload,
+            )? {
+                return Ok(());
+            }
+            let len = payload.len();
+            pending.sent = pending.sent.saturating_add(len);
+            pending.header = pending.header.saturating_sub(1);
+            self.queued = self.queued.saturating_sub(len);
+            if pending.sent >= pending.rest.len() {
+                self.queue.pop_front();
+                self.queued = self.queued.saturating_sub(PENDING_COST_BYTES);
+            }
+        }
+        Ok(())
     }
 
     /// The close drain: str0m's transmits until it is quiet, then the reason.

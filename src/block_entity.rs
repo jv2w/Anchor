@@ -1,5 +1,5 @@
-//! Block entities: the data of blocks beyond their state, read through [`Tile`] (the module's main
-//! type, a block entity by the name of the module) and changed through [`Mut`].
+//! Block entities: the data of blocks beyond their state, read through [`BlockEntity`] (the
+//! module's main type) and changed through [`Mut`].
 //!
 //! [`Context::block_entity`](crate::Context) lends the block entity at a position to read and
 //! `block_entity_mut` to change: a sign's text, a banner's patterns, a flower pot's plant, a
@@ -37,16 +37,16 @@ pub const SIGN_LINES: usize = 4;
 /// A block entity to read ([`Context::block_entity`](crate::Context)): its position, its block
 /// and the data of its kind.
 #[derive(Clone, Copy)]
-// api-class: Tile
-pub struct Tile<'a> {
+#[doc(alias = "Tile")]
+pub struct BlockEntity<'a> {
     pub(crate) state: &'a State,
     pub(crate) world: WorldIndex,
     pub(crate) pos: BlockPos,
 }
 
-impl fmt::Debug for Tile<'_> {
+impl fmt::Debug for BlockEntity<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Tile")
+        f.debug_struct("BlockEntity")
             .field("world", &self.world)
             .field("pos", &self.pos)
             .finish_non_exhaustive()
@@ -71,6 +71,7 @@ impl fmt::Debug for Mut<'_> {
 
 /// Why a block entity write did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The block entity is not of the kind the write applies to (a sign's text on a chest).
     WrongKind,
@@ -119,8 +120,12 @@ pub struct SignText {
 }
 
 impl SignText {
-    /// Text of four lines in `colour`; [`Error::Invalid`] if a line holds a newline,
-    /// [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all.
+    /// Text of four lines in `colour`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a line that holds a newline.
+    /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
     pub fn new(lines: [String; SIGN_LINES], colour: Rgba, glowing: bool) -> Result<Self> {
         check_lines(lines.iter().map(String::as_str))?;
         Ok(Self {
@@ -131,7 +136,11 @@ impl SignText {
     }
 
     /// Text from lines joined by newlines (lines past the fourth are left out, missing ones are
-    /// empty); [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`].
+    /// empty).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
     #[doc(alias = "SignText::fromBlob")]
     pub fn from_blob(blob: &str, colour: Rgba, glowing: bool) -> Result<Self> {
         let mut lines: [String; SIGN_LINES] = Default::default();
@@ -218,24 +227,26 @@ pub enum DyeColour {
 
 impl DyeColour {
     /// Every colour, by ID.
-    pub const ALL: [Self; 16] = [
-        Self::White,
-        Self::Orange,
-        Self::Magenta,
-        Self::LightBlue,
-        Self::Yellow,
-        Self::Lime,
-        Self::Pink,
-        Self::Gray,
-        Self::LightGray,
-        Self::Cyan,
-        Self::Purple,
-        Self::Blue,
-        Self::Brown,
-        Self::Green,
-        Self::Red,
-        Self::Black,
-    ];
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::White,
+            Self::Orange,
+            Self::Magenta,
+            Self::LightBlue,
+            Self::Yellow,
+            Self::Lime,
+            Self::Pink,
+            Self::Gray,
+            Self::LightGray,
+            Self::Cyan,
+            Self::Purple,
+            Self::Blue,
+            Self::Brown,
+            Self::Green,
+            Self::Red,
+            Self::Black,
+        ]
+    }
 
     /// The colour of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
     pub(crate) fn from_banner_id(id: i32) -> Option<Self> {
@@ -246,7 +257,7 @@ impl DyeColour {
 
     /// The colour of a Bedrock dye ID, or `None`.
     pub(crate) fn from_id(id: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(id)).copied()
+        Self::all().get(usize::from(id)).copied()
     }
 
     /// The banner ID of the colour.
@@ -254,7 +265,7 @@ impl DyeColour {
         15 - i32::from(self as u8)
     }
 
-    /// The colour's RGB value, opaque (white is `#f0f0f0`, black `#1d1d21`).
+    /// The colour's opaque RGB value, as the dump lists it (white is `#f0f0f0`, black `#1d1d21`).
     #[doc(alias = "DyeColor::getRgbValue")]
     #[expect(
         clippy::missing_panics_doc,
@@ -401,7 +412,7 @@ e",
             (layer.pattern(), layer.colour()),
             (crate::block::BannerPattern::Border, DyeColour::Red)
         );
-        for c in DyeColour::ALL {
+        for &c in DyeColour::all() {
             assert_eq!(DyeColour::from_banner_id(c.banner_id()), Some(c));
             assert_eq!(DyeColour::from_id(c as u8), Some(c));
         }
@@ -418,7 +429,7 @@ e",
             0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
             0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
         ];
-        for (c, rgb) in DyeColour::ALL.into_iter().zip(expected) {
+        for (&c, rgb) in DyeColour::all().iter().zip(expected) {
             let [_, r, g, b] = rgb.to_be_bytes();
             assert_eq!(c.rgb(), Rgba { r, g, b, a: 0xff }, "{c:?}");
         }

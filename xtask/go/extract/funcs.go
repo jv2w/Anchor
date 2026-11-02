@@ -336,7 +336,7 @@ func (ex *extractor) tryUnion(fi *funcInfo) (Union, bool) {
 	u.Interface = qualName(iface.Obj())
 	c.ex.needType(iface)
 	u.IDType = ex.typ(idType, fi.decl.Pos())
-	_, u.Params, u.Results = c.signature(fi)
+	_, _, u.Results = c.signature(fi)
 	return u, true
 }
 

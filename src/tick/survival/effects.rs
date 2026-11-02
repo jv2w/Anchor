@@ -4,7 +4,7 @@
 use super::attributes::{ABSORPTION, HEALTH, MOVEMENT};
 use super::damage::{self, Damage};
 use super::{Survival, food};
-use crate::effect::{self, Instance, MAX_DURATION, Type};
+use crate::effect::{self, Instance, MAX_DURATION_TICKS, Type};
 use crate::event::{Actor, EntityEffectAdd, EntityEffectRemove, ExhaustCause, RegainReason};
 use crate::player::Id;
 use crate::protocol::consts::MobEffectOperation;
@@ -41,17 +41,6 @@ pub(super) struct Active {
 }
 
 impl Active {
-    /// The effect a potion, food or the API gives.
-    pub(super) fn of(instance: Instance) -> Self {
-        Self {
-            duration: instance.duration_ticks().min(MAX_DURATION),
-            amplifier: instance.amplifier(),
-            visible: instance.is_visible(),
-            ambient: instance.is_ambient(),
-            infinite: instance.is_infinite(),
-        }
-    }
-
     /// A plain effect of `duration` ticks at `amplifier`, with particles.
     pub(super) const fn new(duration: u32, amplifier: u8) -> Self {
         Self {
@@ -63,21 +52,15 @@ impl Active {
         }
     }
 
-    /// The level: amplifier + 1.
-    pub(super) fn level(self) -> u32 {
-        u32::from(self.amplifier) + 1
-    }
-
-    /// The public form of the effect of type `effect`.
-    pub(super) fn instance(self, effect: Type) -> Instance {
-        Instance::new(
-            effect,
-            self.duration,
-            self.amplifier,
-            self.visible,
-            self.ambient,
-        )
-        .with_infinite(self.infinite)
+    /// The effect a potion, food or the API gives.
+    pub(super) fn of(instance: Instance) -> Self {
+        Self {
+            duration: instance.duration_ticks().min(MAX_DURATION_TICKS),
+            amplifier: instance.amplifier(),
+            visible: instance.is_visible(),
+            ambient: instance.is_ambient(),
+            infinite: instance.is_infinite(),
+        }
     }
 
     #[cfg(test)]
@@ -92,6 +75,23 @@ impl Active {
         h.u64(u64::from(duration));
         h.u64(u64::from(amplifier));
         h.u64(u64::from(visible) | u64::from(ambient) << 1 | u64::from(infinite) << 2);
+    }
+
+    /// The public form of the effect of type `effect`.
+    pub(super) fn instance(self, effect: Type) -> Instance {
+        Instance::new(
+            effect,
+            self.duration,
+            self.amplifier,
+            self.visible,
+            self.ambient,
+        )
+        .with_infinite(self.infinite)
+    }
+
+    /// The level: amplifier + 1.
+    pub(super) fn level(self) -> u32 {
+        u32::from(self.amplifier) + 1
     }
 }
 
@@ -250,7 +250,7 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         };
         current.duration = match current.duration.checked_sub(1) {
             Some(d) if d > 0 => d,
-            _ if current.infinite => MAX_DURATION,
+            _ if current.infinite => MAX_DURATION_TICKS,
             _ => 0,
         };
         let expired = current.duration == 0;

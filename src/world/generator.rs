@@ -66,6 +66,11 @@ impl Generators {
         self.clash
     }
 
+    /// The names, in order.
+    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.by_name.keys().copied()
+    }
+
     /// The generator a world named `world` that picks the generator named `name` fills its chunks
     /// with, at its start, a load, a remaking or the replay of a crash log alike: the value the
     /// builder gave the world of that name when its generator has that name, else the first
@@ -75,11 +80,6 @@ impl Generators {
             .get(&world_name_key(world))
             .filter(|g| g.name() == name)
             .or_else(|| self.by_name.get(name).map(|(_, g)| g))
-    }
-
-    /// The names, in order.
-    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.by_name.keys().copied()
     }
 
     /// Adds `generator`, the value of the builder's world `world` ([`Self::of_world`]), as

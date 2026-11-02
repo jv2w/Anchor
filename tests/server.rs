@@ -71,10 +71,7 @@ fn listeners_of_every_priority_build_and_run() {
         .on(Priority::Normal, move |e: &mut PlayerDuplicateLogin, _| {
             seen += 1;
             if e.is_cancelled() && e.existing().xuid().is_none() {
-                e.set_disconnect_screen_message(Some(format!(
-                    "{} ({seen})",
-                    e.connecting().name()
-                )));
+                e.set_kick_screen_message(Some(format!("{} ({seen})", e.connecting().name())));
             }
         })
         .build()

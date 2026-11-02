@@ -774,7 +774,7 @@ pub(in crate::tick) fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<A
 /// The base ability layer with `values` and `fly_speed`, every ability defined, as the official
 /// server sends it; the one place that builds it.
 pub(in crate::tick) fn layer_of(values: FlagSet<Ability>, fly_speed: f32) -> AbilityLayer {
-    let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
+    let all: FlagSet<Ability> = Ability::all().iter().copied().collect();
     AbilityLayer {
         r#type: AbilityLayerType::Base.into(),
         abilities: ability_bits(all),

@@ -60,22 +60,6 @@ pub struct CreativeInventory {
 }
 
 impl CreativeInventory {
-    /// An inventory without entries.
-    pub fn empty() -> Self {
-        Self {
-            vanilla: false,
-            changes: Vec::new(),
-        }
-    }
-
-    /// The vanilla creative inventory without the Education Edition items.
-    pub fn vanilla() -> Self {
-        Self {
-            vanilla: true,
-            changes: Vec::new(),
-        }
-    }
-
     /// Adds `item` at the end, in `category` and in `group` (none: the category's anonymous
     /// group).
     #[doc(alias = "CreativeInventory::add")]
@@ -100,6 +84,14 @@ impl CreativeInventory {
     pub fn clear(mut self) -> Self {
         self.changes.push(Change::Clear);
         self
+    }
+
+    /// An inventory without entries.
+    pub fn empty() -> Self {
+        Self {
+            vanilla: false,
+            changes: Vec::new(),
+        }
     }
 
     /// Removes the first entry of `item`'s type and damage (the NBT is not compared); nothing if
@@ -193,6 +185,14 @@ impl CreativeInventory {
         }
         Ok(Resolved::new(entries))
     }
+
+    /// The vanilla creative inventory without the Education Edition items.
+    pub fn vanilla() -> Self {
+        Self {
+            vanilla: true,
+            changes: Vec::new(),
+        }
+    }
 }
 
 impl Default for CreativeInventory {
@@ -281,17 +281,6 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
-    /// The vanilla inventory unchanged.
-    pub(crate) fn vanilla() -> Self {
-        Self::new(vanilla_entries())
-    }
-
-    /// The same inventory registered as the alternative `name`.
-    pub(crate) fn with_name(mut self, name: &'static str) -> Self {
-        self.name = Some(name);
-        self
-    }
-
     /// The `CreativeContent` packet.
     pub(crate) fn content(&self) -> &packet::CreativeContent {
         &self.content
@@ -311,6 +300,17 @@ impl Resolved {
     /// The entries' stacks, by network ID from 1.
     pub(crate) fn stacks(&self) -> &[Stack] {
         &self.stacks
+    }
+
+    /// The vanilla inventory unchanged.
+    pub(crate) fn vanilla() -> Self {
+        Self::new(vanilla_entries())
+    }
+
+    /// The same inventory registered as the alternative `name`.
+    pub(crate) fn with_name(mut self, name: &'static str) -> Self {
+        self.name = Some(name);
+        self
     }
 
     /// Numbers `entries` from 1 and groups them by the rule in the module docs.

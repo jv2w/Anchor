@@ -390,29 +390,6 @@ impl Official {
         })
     }
 
-    /// Waits for the official server's "Server started." line.
-    fn wait_started(&mut self) -> Result<(), String> {
-        let deadline = now() + START_TIMEOUT;
-        loop {
-            if read_text(&self.log)?.contains("Server started.") {
-                return Ok(());
-            }
-            if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
-                return Err(format!(
-                    "the official server exited ({status}) before starting; see {}",
-                    self.log.display()
-                ));
-            }
-            if now() > deadline {
-                return Err(format!(
-                    "the official server did not start within {START_TIMEOUT:?}; see {}",
-                    self.log.display()
-                ));
-            }
-            pause();
-        }
-    }
-
     /// Sends one console command.
     fn command(&mut self, line: &str) -> Result<(), String> {
         let stdin = self
@@ -453,6 +430,29 @@ impl Official {
             &format!("gamerule {rule} {value}"),
             &format!("Game rule {rule} has been updated to {value}"),
         )
+    }
+
+    /// Waits for the official server's "Server started." line.
+    fn wait_started(&mut self) -> Result<(), String> {
+        let deadline = now() + START_TIMEOUT;
+        loop {
+            if read_text(&self.log)?.contains("Server started.") {
+                return Ok(());
+            }
+            if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+                return Err(format!(
+                    "the official server exited ({status}) before starting; see {}",
+                    self.log.display()
+                ));
+            }
+            if now() > deadline {
+                return Err(format!(
+                    "the official server did not start within {START_TIMEOUT:?}; see {}",
+                    self.log.display()
+                ));
+            }
+            pause();
+        }
     }
 
     /// Sends `stop` and waits for the exit; kills the official server, and says why, if `stop` could not be sent

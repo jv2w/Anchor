@@ -57,9 +57,9 @@ xp-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
-# Armour protection and armour wear.
+# Armor protection and armor wear.
 armor = true
-# Tools, weapons and armour wear out with use.
+# Tools, weapons and armor wear out with use.
 durability = true
 # The time of day moving on.
 daylight-cycle = true

@@ -2,7 +2,7 @@
 //! server-authoritative item stack requests that move items between them, with the official
 //! server's window and stack network ID rules (P6, `xtask/data/p6/facts.md`).
 //!
-//! A player holds 36 main slots (the hotbar is 0–8), 4 armour slots, the off hand, the cursor and
+//! A player holds 36 main slots (the hotbar is 0–8), 4 armor slots, the off hand, the cursor and
 //! its ender chest contents. Every slot carries the stack network ID the client knows its stack
 //! by and the request that last changed it. IDs come from one counter per player (the official
 //! server uses one per server, which the client cannot tell apart: it checks IDs per slot) and
@@ -39,6 +39,7 @@ pub(super) use menu::{Handlers as Menus, tick as tick_menus};
 pub(super) use request::on_item_stack_request;
 
 use std::collections::{BTreeSet, VecDeque};
+use std::fmt;
 
 use tracing::warn;
 
@@ -69,13 +70,13 @@ use crate::save::WorldIndex;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::world::BlockPos;
 
-/// Armour slots: helmet, chestplate, leggings, boots.
+/// Armor slots: helmet, chestplate, leggings, boots.
 const ARMOR: usize = crate::inventory::Kind::Armor.size();
-/// Slots of the armour window the client takes (the fifth is a mount's body slot).
+/// Slots of the armor window the client takes (the fifth is a mount's body slot).
 const ARMOR_WINDOW: usize = 5;
 /// A barrel.
 const BARREL: [Part; 1] = [block_part(ContainerId::Barrel, 0, CHEST_SLOTS)];
-/// The slots a player carries items in: the main slots, armour and the off hand.
+/// The slots a player carries items in: the main slots, armor and the off hand.
 pub(super) const CARRIED: usize = MAIN + ARMOR + 1;
 /// A single chest.
 const CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, CHEST_SLOTS)];
@@ -97,7 +98,7 @@ const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, byte(ENDER), S
 const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
 /// The inventory window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
 pub(super) const INVENTORY_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_INVENTORY);
-/// The key of the saved armour list in the saved player data (Bedrock player NBT: armour in
+/// The key of the saved armor list in the saved player data (Bedrock player NBT: armor in
 /// order).
 pub(super) const KEY_ARMOR: &str = "Armor";
 /// The key of the saved ender chest list (slots by `Slot` 0–26).
@@ -230,36 +231,16 @@ pub(super) struct Inventory {
     /// The stacks closes took out while their menu's handlers hear them ([`close_now`]): held
     /// outside the slots ([`MAX_SAVED_PENDING`]). 0 but while such a handler runs.
     closing: usize,
-    /// How many of the cursor's items the open menu lends ([`crate::menu::Menu::lend`]): its
+    /// How many of the cursor's items the open menu lends ([`crate::menu::Menu::lending`]): its
     /// handler's, which the player's saved data leaves out. 0 but while a menu that lends is open
     /// (its close takes them), and at most the cursor's count, all of its item.
     lent: u8,
 }
 
 impl Inventory {
-    /// The stack in the selected hotbar slot.
-    pub(super) fn held(&self) -> &Stack {
-        self.main.stack(self.held)
-    }
-
-    /// The selected hotbar slot, 0 to 8.
-    pub(super) fn held_slot(&self) -> u8 {
-        self.held
-    }
-
-    /// The stack in main slot `slot` (0 to 35).
-    pub(super) fn main_stack(&self, slot: u8) -> Option<&Stack> {
-        self.main.stacks.get(usize::from(slot))
-    }
-
     /// Helmet, chestplate, leggings, boots.
     pub(super) fn armor(&self) -> &[Stack; ARMOR] {
         &self.armor.stacks
-    }
-
-    /// The stack in the off hand.
-    pub(super) fn offhand(&self) -> &Stack {
-        self.offhand.stack(0)
     }
 
     /// The stack on the cursor.
@@ -347,10 +328,39 @@ impl Inventory {
         h.u64(u64::from(*lent));
     }
 
-    /// Whether a window may open: few enough stacks wait for room that what it holds can go back
-    /// (at most [`MAX_PENDING`] less [`MAX_GIVE_BACK`] wait).
-    fn has_room_to_open(&self) -> bool {
-        self.pending.len() + MAX_GIVE_BACK <= MAX_PENDING
+    /// The stack in the selected hotbar slot.
+    pub(super) fn held(&self) -> &Stack {
+        self.main.stack(self.held)
+    }
+
+    /// The selected hotbar slot, 0 to 8.
+    pub(super) fn held_slot(&self) -> u8 {
+        self.held
+    }
+
+    /// The stack in main slot `slot` (0 to 35).
+    pub(super) fn main_stack(&self, slot: u8) -> Option<&Stack> {
+        self.main.stacks.get(usize::from(slot))
+    }
+
+    /// The stack in the off hand.
+    pub(super) fn offhand(&self) -> &Stack {
+        self.offhand.stack(0)
+    }
+
+    /// The first main slot holding the item of `stack` (any count; the extra data counts only if
+    /// `stack` has some: [`crate::inventory::Inventory::first`]).
+    fn first(&self, stack: &Stack) -> Option<u8> {
+        self.main_view()
+            .first(stack)
+            .and_then(|i| u8::try_from(i).ok())
+    }
+
+    /// The first empty main slot.
+    fn first_empty(&self) -> Option<u8> {
+        (0_u8..)
+            .zip(&self.main.stacks)
+            .find_map(|(i, s)| s.is_empty().then_some(i))
     }
 
     /// The player's slot `r` (not a block container slot).
@@ -368,6 +378,12 @@ impl Inventory {
                 id: *self.window.as_ref()?.ids.get(usize::from(i))?,
             }),
         }
+    }
+
+    /// Whether a window may open: few enough stacks wait for room that what it holds can go back
+    /// (at most [`MAX_PENDING`] less [`MAX_GIVE_BACK`] wait).
+    fn has_room_to_open(&self) -> bool {
+        self.pending.len() + MAX_GIVE_BACK <= MAX_PENDING
     }
 
     /// The slot a request's container and slot name, if it exists now: the player's own
@@ -409,19 +425,42 @@ impl Inventory {
         }
     }
 
-    /// The first main slot holding the item of `stack` (any count; the extra data counts only if
-    /// `stack` has some: [`crate::inventory::Inventory::first`]).
-    fn first(&self, stack: &Stack) -> Option<u8> {
-        self.main_view()
-            .first(stack)
-            .and_then(|i| u8::try_from(i).ok())
+    /// The main slots as an inventory to read.
+    fn main_view(&self) -> crate::inventory::Inventory<'_> {
+        crate::inventory::Inventory::new(&self.main.stacks, &[], crate::inventory::MAX_STACK)
     }
 
-    /// The first empty main slot.
-    fn first_empty(&self) -> Option<u8> {
-        (0_u8..)
-            .zip(&self.main.stacks)
-            .find_map(|(i, s)| s.is_empty().then_some(i))
+    /// Puts `stack` where it fits: first onto stacks of the same item with room, in slot order,
+    /// then into empty slots; changed slots get new IDs. Returns what did not fit and the main
+    /// slots changed.
+    fn add(&mut self, stack: Stack) -> (Stack, Vec<u8>) {
+        let (writes, left) = self.main_view().plan_add(&stack);
+        if writes.is_empty() {
+            return (stack, Vec::new());
+        }
+        let mut changed = Vec::with_capacity(writes.len());
+        for (i, s) in writes {
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: plan_add names only the 36 main slots"
+            )]
+            let i = u8::try_from(i).expect("a main slot number is a byte");
+            let net = self.new_id();
+            let put = self.main.put(
+                i,
+                Slot {
+                    stack: s,
+                    id: StackId { net, request: None },
+                },
+            );
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: plan_add names only the 36 main slots"
+            )]
+            put.then_some(()).expect("plan_add names a main slot");
+            changed.push(i);
+        }
+        (left, changed)
     }
 
     /// A new stack network ID ([`take_stack_id`]).
@@ -471,44 +510,6 @@ impl Inventory {
                 }
             }
         }
-    }
-
-    /// Puts `stack` where it fits: first onto stacks of the same item with room, in slot order,
-    /// then into empty slots; changed slots get new IDs. Returns what did not fit and the main
-    /// slots changed.
-    fn add(&mut self, stack: Stack) -> (Stack, Vec<u8>) {
-        let (writes, left) = self.main_view().plan_add(&stack);
-        if writes.is_empty() {
-            return (stack, Vec::new());
-        }
-        let mut changed = Vec::with_capacity(writes.len());
-        for (i, s) in writes {
-            #[expect(
-                clippy::expect_used,
-                reason = "invariant: plan_add names only the 36 main slots"
-            )]
-            let i = u8::try_from(i).expect("a main slot number is a byte");
-            let net = self.new_id();
-            let put = self.main.put(
-                i,
-                Slot {
-                    stack: s,
-                    id: StackId { net, request: None },
-                },
-            );
-            #[expect(
-                clippy::expect_used,
-                reason = "invariant: plan_add names only the 36 main slots"
-            )]
-            put.then_some(()).expect("plan_add names a main slot");
-            changed.push(i);
-        }
-        (left, changed)
-    }
-
-    /// The main slots as an inventory to read.
-    fn main_view(&self) -> crate::inventory::Inventory<'_> {
-        crate::inventory::Inventory::new(&self.main.stacks, &[], crate::inventory::MAX_STACK)
     }
 }
 
@@ -649,6 +650,14 @@ impl<const N: usize> Slots<N> {
         })
     }
 
+    /// The network form of every slot.
+    fn instances(&self) -> impl Iterator<Item = ItemInstance> + '_ {
+        self.stacks
+            .iter()
+            .zip(&self.ids)
+            .map(|(s, id)| s.to_instance(id.net))
+    }
+
     fn stack(&self, i: u8) -> &Stack {
         self.stacks.get(usize::from(i)).unwrap_or(&Stack::EMPTY)
     }
@@ -673,14 +682,6 @@ impl<const N: usize> Slots<N> {
             }
             *id = StackId::default();
         }
-    }
-
-    /// The network form of every slot.
-    fn instances(&self) -> impl Iterator<Item = ItemInstance> + '_ {
-        self.stacks
-            .iter()
-            .zip(&self.ids)
-            .map(|(s, id)| s.to_instance(id.net))
     }
 }
 
@@ -796,6 +797,15 @@ enum WindowKind {
 }
 
 impl WindowKind {
+    /// Block container slots the window shows.
+    fn block_slots(self) -> usize {
+        self.parts()
+            .iter()
+            .filter(|p| matches!(p.store, Store::Block(_)))
+            .map(|p| usize::from(p.len))
+            .sum()
+    }
+
     /// The blocks the window shows: its block, and a double chest's other half.
     fn blocks(self) -> [Option<(WorldIndex, BlockPos)>; 2] {
         match self {
@@ -807,20 +817,25 @@ impl WindowKind {
         }
     }
 
-    /// The request slots of the window; a menu has none here, as [`Inventory::locate`] finds its
-    /// editable slots by the menu.
-    fn parts(self) -> &'static [Part] {
-        match self {
-            Self::Own | Self::Menu { .. } => &[],
-            Self::Container { kind, pair, .. } => match kind {
-                Container::Chest if pair.is_some() => &DOUBLE_CHEST,
-                Container::Chest => &CHEST,
-                Container::Barrel => &BARREL,
-                Container::ShulkerBox => &SHULKER_BOX,
+    /// The `ContainerOpen` type.
+    fn container_type(self) -> u8 {
+        let t = match self {
+            Self::Own => ContainerType::Inventory,
+            Self::Container { .. } | Self::Ender { .. } => ContainerType::Container,
+            Self::Trade { .. } => ContainerType::Trade,
+            Self::Menu { kind, .. } => match kind {
+                crate::menu::Kind::Hopper => ContainerType::Hopper,
+                crate::menu::Kind::Chest | crate::menu::Kind::DoubleChest => {
+                    ContainerType::Container
+                }
             },
-            Self::Ender { .. } => &ENDER_CHEST,
-            Self::Trade { .. } => &TRADE,
-        }
+        };
+        t as u8
+    }
+
+    /// Whether the block shows viewers (a lid, a barrel's `open_bit`).
+    fn is_animated(self) -> bool {
+        matches!(self, Self::Container { .. } | Self::Ender { .. })
     }
 
     /// The UI slot (window 124) the window's own slot `i` is shown in.
@@ -840,34 +855,20 @@ impl WindowKind {
             .sum()
     }
 
-    /// Block container slots the window shows.
-    fn block_slots(self) -> usize {
-        self.parts()
-            .iter()
-            .filter(|p| matches!(p.store, Store::Block(_)))
-            .map(|p| usize::from(p.len))
-            .sum()
-    }
-
-    /// Whether the block shows viewers (a lid, a barrel's `open_bit`).
-    fn is_animated(self) -> bool {
-        matches!(self, Self::Container { .. } | Self::Ender { .. })
-    }
-
-    /// The `ContainerOpen` type.
-    fn container_type(self) -> u8 {
-        let t = match self {
-            Self::Own => ContainerType::Inventory,
-            Self::Container { .. } | Self::Ender { .. } => ContainerType::Container,
-            Self::Trade { .. } => ContainerType::Trade,
-            Self::Menu { kind, .. } => match kind {
-                crate::menu::Kind::Hopper => ContainerType::Hopper,
-                crate::menu::Kind::Chest | crate::menu::Kind::DoubleChest => {
-                    ContainerType::Container
-                }
+    /// The request slots of the window; a menu has none here, as [`Inventory::locate`] finds its
+    /// editable slots by the menu.
+    fn parts(self) -> &'static [Part] {
+        match self {
+            Self::Own | Self::Menu { .. } => &[],
+            Self::Container { kind, pair, .. } => match kind {
+                Container::Chest if pair.is_some() => &DOUBLE_CHEST,
+                Container::Chest => &CHEST,
+                Container::Barrel => &BARREL,
+                Container::ShulkerBox => &SHULKER_BOX,
             },
-        };
-        t as u8
+            Self::Ender { .. } => &ENDER_CHEST,
+            Self::Trade { .. } => &TRADE,
+        }
     }
 }
 
@@ -976,6 +977,29 @@ const fn byte(n: usize) -> u8 {
     b
 }
 
+/// Reads a saved stack through `custom`, or `None` for an unknown item. The warning names whose
+/// item it was (`owner`, with its place) and says the next save does not write the item back, so
+/// an item whose custom definition was renamed or removed is lost for good.
+pub(super) fn read_saved_stack(
+    nbt: &Compound,
+    custom: &crate::custom::Registry,
+    owner: impl fmt::Display,
+) -> Option<Stack> {
+    let stack = Stack::from_nbt_with(nbt, custom);
+    if stack.is_none() {
+        let item = match nbt.get(KEY_NAME) {
+            Some(Value::String(name)) => name.as_str(),
+            _ => "",
+        };
+        warn!(
+            %owner,
+            item,
+            "a saved item is unknown; the next save drops it for good (register it if it is a custom item)"
+        );
+    }
+    stack
+}
+
 /// Reads the player's inventory keys from its saved extra (empty for a new player).
 ///
 /// Keys (Bedrock player NBT): [`KEY_INVENTORY`] (main slots by `Slot` 0–35), [`KEY_ARMOR`] (4
@@ -996,20 +1020,12 @@ pub(super) fn load(
         _ => &[],
     };
     let read = |key: &str, slot: usize, nbt: &Compound| {
-        Stack::from_nbt_with(nbt, custom).unwrap_or_else(|| {
-            let item = match nbt.get(KEY_NAME) {
-                Some(Value::String(name)) => name.as_str(),
-                _ => "",
-            };
-            warn!(
-                player,
-                key,
-                slot,
-                item,
-                "a saved inventory item is unknown; the next save drops it for good (register it if it is a custom item)"
-            );
-            Stack::EMPTY
-        })
+        read_saved_stack(
+            nbt,
+            custom,
+            format_args!("player {player}, {key} slot {slot}"),
+        )
+        .unwrap_or(Stack::EMPTY)
     };
     let by_slot = |key: &str, stacks: &mut [Stack]| {
         for nbt in list(key) {
@@ -1071,7 +1087,7 @@ pub(super) fn load(
 /// holds every item the player carries exactly once, and a crash before the window closes loses
 /// none. A block container's slots are its block entity's, saved with its chunk, so they are not
 /// here, nor are the cursor's lent items, which the menu's handler keeps
-/// ([`crate::menu::Menu::lend`]). A loaded player has no window open: the list comes back as
+/// ([`crate::menu::Menu::lending`]). A loaded player has no window open: the list comes back as
 /// waiting stacks ([`restore`]).
 pub(super) fn save(inventory: &Inventory, extra: &mut Compound) {
     let by_slot = |stacks: &[Stack]| {
@@ -1402,7 +1418,7 @@ pub(super) fn set_held(player: &mut Player, stack: Stack) {
     hand_changed(player);
 }
 
-/// Replaces an armour piece (0 helmet … 3 boots: damage, breaking) and tells the client.
+/// Replaces an armor piece (0 helmet … 3 boots: damage, breaking) and tells the client.
 pub(super) fn set_armor(player: &mut Player, slot: usize, stack: Stack) {
     if let Ok(slot) = u8::try_from(slot)
         && usize::from(slot) < ARMOR
@@ -1550,7 +1566,7 @@ pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
 }
 
 /// Empties everything the player carries (death without `keepInventory`) and returns it: the
-/// main slots, armour, off hand, cursor, the open window's own slots and the stacks waiting for
+/// main slots, armor, off hand, cursor, the open window's own slots and the stacks waiting for
 /// room. None of the cursor's items is lent: a death closes the window first, and only a request
 /// lends.
 pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
@@ -1678,7 +1694,7 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
                 Some(block_entity::Kind::ShulkerBox { facing }) => *facing,
                 _ => 1,
             };
-            let face = block::Face::ALL
+            let face = block::Face::all()
                 .get(usize::from(facing))
                 .copied()
                 .unwrap_or(block::Face::Up);
@@ -2191,7 +2207,7 @@ pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
     }
 }
 
-/// After a client's item click: if any of the player's own slots (main, armour, off hand) the
+/// After a client's item click: if any of the player's own slots (main, armor, off hand) the
 /// client predicted holds another stack than the prediction, [`resend_all`]. The client changed
 /// those slots as it sent the click and keeps them until told otherwise, so a refused click would
 /// leave it a count that fails the held item check of every later click. A right prediction sends
@@ -2268,7 +2284,7 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
 }
 
 /// Appends `InventoryContent` of the four windows a player always has, in the official server's
-/// order: inventory, armour, UI and off hand (P6).
+/// order: inventory, armor, UI and off hand (P6).
 fn own_windows(inv: &Inventory, out: &mut Vec<Packet>) {
     out.push(content_packet(
         WINDOW_ID_INVENTORY,

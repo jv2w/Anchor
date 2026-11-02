@@ -53,7 +53,7 @@ const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
 /// The highest the summed protection factor counts.
 const MAX_EPF: u32 = 25;
 /// No modifier applies.
-const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
+const NO_MODIFIERS: Modifiers = [None; DamageModifier::all().len()];
 /// The random stream (`crate::random`) of protection rolls.
 const PROTECTION: u64 = random::tag("protection");
 /// Ticks a respawned player ignores damage.
@@ -137,6 +137,36 @@ impl Damage {
         }
     }
 
+    /// The official damage cause number, which the hurt event carries ([`actor_cause`]; P6:
+    /// lightning 24, which no event cause names).
+    pub(in crate::tick) fn actor_cause(self) -> i32 {
+        match self {
+            Self::Lightning => 24,
+            _ => actor_cause(self.event_cause()),
+        }
+    }
+
+    /// The translation key of the death message.
+    fn death_message(self) -> &'static str {
+        match self {
+            Self::Attack(_) => "death.attack.player",
+            Self::Entity => "death.attack.arrow",
+            Self::Fall => "death.attack.fall",
+            Self::Fire => "death.attack.inFire",
+            Self::FireTick => "death.attack.onFire",
+            Self::Lava => "death.attack.lava",
+            Self::Drowning => "death.attack.drown",
+            Self::Suffocation => "death.attack.inWall",
+            Self::Explosion | Self::BlockExplosion => "death.attack.explosion",
+            Self::Void => "death.attack.outOfWorld",
+            Self::Magic => "death.attack.magic",
+            Self::Starvation => "death.attack.starve",
+            Self::Contact => "death.attack.cactus",
+            Self::FallingBlock => "death.attack.fallingBlock",
+            Self::Melee | Self::Suicide | Self::Lightning | Self::Custom => GENERIC_DEATH,
+        }
+    }
+
     /// The cause an [`EntityDamage`] names.
     fn event_cause(self) -> DamageCause {
         match self {
@@ -160,39 +190,9 @@ impl Damage {
         }
     }
 
-    /// The official damage cause number, which the hurt event carries ([`actor_cause`]; P6:
-    /// lightning 24, which no event cause names).
-    pub(in crate::tick) fn actor_cause(self) -> i32 {
-        match self {
-            Self::Lightning => 24,
-            _ => actor_cause(self.event_cause()),
-        }
-    }
-
     /// Whether it is fire damage (fire resistance cancels it).
     fn is_fire(self) -> bool {
         matches!(self, Self::Fire | Self::FireTick | Self::Lava)
-    }
-
-    /// The translation key of the death message.
-    fn death_message(self) -> &'static str {
-        match self {
-            Self::Attack(_) => "death.attack.player",
-            Self::Entity => "death.attack.arrow",
-            Self::Fall => "death.attack.fall",
-            Self::Fire => "death.attack.inFire",
-            Self::FireTick => "death.attack.onFire",
-            Self::Lava => "death.attack.lava",
-            Self::Drowning => "death.attack.drown",
-            Self::Suffocation => "death.attack.inWall",
-            Self::Explosion | Self::BlockExplosion => "death.attack.explosion",
-            Self::Void => "death.attack.outOfWorld",
-            Self::Magic => "death.attack.magic",
-            Self::Starvation => "death.attack.starve",
-            Self::Contact => "death.attack.cactus",
-            Self::FallingBlock => "death.attack.fallingBlock",
-            Self::Melee | Self::Suicide | Self::Lightning | Self::Custom => GENERIC_DEATH,
-        }
     }
 }
 
@@ -504,7 +504,7 @@ fn lands(player: &Player, hit: &Hit) -> bool {
 /// is kept for the event as well as added up, in the order the rule adds them. A system the
 /// settings turn off hurts no one, whatever deals the hit (`fall-damage`: an ender pearl's fall
 /// too; `drowning`; `pvp`: another player's melee, projectile or explosion), and with
-/// `armor = false` worn armour reduces nothing.
+/// `armor = false` worn armor reduces nothing.
 fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let tick = state.tick;
     let seed = world_seed(state, session);
@@ -645,7 +645,7 @@ fn set(modifiers: &mut Modifiers, modifier: DamageModifier, value: f64) {
 /// Applies a hit that landed: the health, the cooldown, knockback, hurt animation and the
 /// effects that follow it. A quiet hit raises no events: its death waits for the player's
 /// survival sync, its exhaustion and totem effects go in directly. With `armor = false` worn
-/// armour neither wears nor answers with thorns.
+/// armor neither wears nor answers with thorns.
 fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::Raise) {
     let Landed {
         hit,
@@ -834,18 +834,18 @@ pub(super) fn heal_player(player: &mut Player, amount: f64) {
     }
 }
 
-/// The armour points the player wears.
+/// The armor points the player wears.
 pub(super) fn armor_points(player: &Player) -> u32 {
     player
         .inventory
         .armor()
         .iter()
         .filter_map(Stack::item)
-        .map(|i| u32::from(i.defense_points()))
+        .map(|i| u32::from(i.armor_points()))
         .sum()
 }
 
-/// The highest level of an enchantment on the armour worn.
+/// The highest level of an enchantment on the armor worn.
 pub(in crate::tick) fn highest_armor_level(player: &Player, enchantment: Enchantment) -> u32 {
     player
         .inventory
@@ -856,7 +856,7 @@ pub(in crate::tick) fn highest_armor_level(player: &Player, enchantment: Enchant
         .unwrap_or(0)
 }
 
-/// The protection factor of the armour for a cause: ⌊(6 + level²) × type modifier / 3⌋ for each
+/// The protection factor of the armor for a cause: ⌊(6 + level²) × type modifier / 3⌋ for each
 /// protection enchantment that applies.
 fn protection_factor(player: &Player, cause: Damage) -> u32 {
     let applies = |e: Enchantment| match e {
@@ -965,7 +965,7 @@ pub(super) fn wear(
     (worn != *stack).then_some(worn)
 }
 
-/// Wears the armour after a hit: ⌊damage / 4⌋ points, at least 1.
+/// Wears the armor after a hit: ⌊damage / 4⌋ points, at least 1.
 fn damage_armor(state: &mut State, session: SessionId, base: f64) {
     let tick = state.tick;
     let seed = world_seed(state, session);
@@ -998,7 +998,7 @@ fn damage_armor(state: &mut State, session: SessionId, base: f64) {
     }
 }
 
-/// Lets thorns on the victim's armour hurt the attacker: each piece with level L answers with
+/// Lets thorns on the victim's armor hurt the attacker: each piece with level L answers with
 /// chance 15 % × L, dealing 1 to 4 (L - 10 above level 10) and wearing the piece by 3, else
 /// wearing it by 1; the wearer's Strength adds to the answer as to any hit by it. A thorns hit is
 /// not answered again.
@@ -1078,9 +1078,9 @@ fn knock_back_from(
     entity::knock_player(state, session, away, (force, vertical_limit), raise);
 }
 
-/// Sets the player on fire for `seconds`: fire protection shortens it by 15 % per level of the
+/// Ignites the player for `seconds`: fire protection shortens it by 15 % per level of the
 /// best piece; a longer burn replaces a shorter one. True if the player burns longer than before.
-pub(super) fn set_on_fire(player: &mut Player, seconds: u32) -> bool {
+pub(super) fn ignite(player: &mut Player, seconds: u32) -> bool {
     let level = f64::from(highest_armor_level(player, Enchantment::FireProtection));
     let s = f64::from(seconds);
     let cut = math::min(s, s * level * 0.15).floor();
@@ -1124,7 +1124,7 @@ pub(super) fn combust(state: &mut State, session: SessionId, seconds: u32, sourc
     let longer = state
         .players
         .get_mut(&session)
-        .is_some_and(|player| set_on_fire(player, seconds));
+        .is_some_and(|player| ignite(player, seconds));
     if longer {
         super::watch(state, event.as_ref());
     }
@@ -1451,7 +1451,7 @@ pub(super) fn die(
         session,
         (world, at),
         finite,
-        event.as_ref().zip(original.as_deref()),
+        event.as_mut().zip(original.as_deref()),
     );
     let chat = event
         .as_ref()
@@ -1481,6 +1481,9 @@ pub(super) fn die(
         .as_ref()
         .map(|e| e.death_screen_message.clone())
         .filter(|m| !m.is_empty() && player::check_text(m).is_ok());
+    if let Some(e) = &mut event {
+        e.death_screen_message = screen.clone().unwrap_or_default();
+    }
     show_death(state, session, message, attacker, screen);
     super::watch(state, event.as_ref());
 }
@@ -1517,13 +1520,14 @@ fn broadcast_death_message(
 
 /// Drops what a dead player carries and its xp at `place`, as the [`PlayerDeath`] listeners left
 /// the `event` (with the drops it started with) if one was raised: kept inventory, replaced
-/// drops, kept or changed xp.
+/// drops, kept or changed xp. The event then holds what was applied: the stacks that entered the
+/// world and the xp dropped, for the monitors.
 fn drop_death(
     state: &mut State,
     session: SessionId,
     place: (WorldIndex, Vec3),
     finite: bool,
-    event: Option<(&PlayerDeath, &[Stack])>,
+    mut event: Option<(&mut PlayerDeath, &[Stack])>,
 ) {
     let (world, at) = place;
     let orbs = state.settings.has_orbs();
@@ -1561,8 +1565,10 @@ fn drop_death(
         let xp = if finite && orbs { xp } else { 0 };
         event.as_ref().map_or(xp, |(e, _)| e.xp_drop_amount)
     };
+    let mut dropped = Vec::new();
     let refused = drop_all(to_drop, |stack| {
         if entity::drop_item(state, world, at, stack.clone()) {
+            dropped.push(stack);
             None
         } else {
             Some(stack)
@@ -1575,9 +1581,13 @@ fn drop_death(
     if xp > 0 {
         entity::drop_xp(state, world, at, xp);
     }
+    if let Some((e, _)) = &mut event {
+        e.drops = dropped;
+        e.xp_drop_amount = xp;
+    }
 }
 
-/// What a dead player drops if nothing changes it: its main slots, armour and off hand, without
+/// What a dead player drops if nothing changes it: its main slots, armor and off hand, without
 /// items that vanish or stay on death.
 fn carried(player: &Player) -> Vec<Stack> {
     let inv = &player.inventory;

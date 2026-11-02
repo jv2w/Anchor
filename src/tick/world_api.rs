@@ -93,47 +93,6 @@ impl Context<'_> {
             .map(|(_, w)| w)
     }
 
-    /// Sets the time of `world` to `time_ticks` (its clock; the day cycle follows it) and sends
-    /// its players the clock at once.
-    ///
-    /// # Errors
-    ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    #[doc(alias = "World::setTime")]
-    pub fn set_time(&mut self, world: world::Id, time_ticks: i64) -> world::Result<()> {
-        let w = loaded_index(self.state, world)?;
-        world_at_mut(self.state, w).set_time(time_ticks);
-        let packet = survival::clock_state(self.state, w);
-        send_to_world(self.state, w, &packet);
-        Ok(())
-    }
-
-    /// Sets the weather of `world` and tells its players at once (the level events the official
-    /// server sends for the change; none for the weather it has). It stays until changed or the
-    /// server stops: Anchor has no natural weather and does not save it, so every world is clear
-    /// at start ([`Weather`] shows how to build a cycle and keep it). Raises no event. Players
-    /// who join or arrive later are told when they get there.
-    ///
-    /// # Errors
-    ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    pub fn set_weather(&mut self, world: world::Id, weather: Weather) -> world::Result<()> {
-        let w = loaded_index(self.state, world)?;
-        let world = world_at_mut(self.state, w);
-        let from = world.weather();
-        world.set_weather(weather);
-        for packet in weather::changes(from, weather) {
-            send_to_world(self.state, w, &packet);
-        }
-        Ok(())
-    }
-
-    /// The world `id`, to change it, if it is loaded (the default world always is).
-    pub fn world_mut(&mut self, id: world::Id) -> Option<&mut World> {
-        let i = index(self.state, id)?;
-        Some(world_at_mut(self.state, i))
-    }
-
     /// Shows `particle` at `pos` in `world` to the players who see its chunk, as
     /// [`Self::broadcast_packet`] sends.
     ///
@@ -225,6 +184,41 @@ impl Context<'_> {
         self.explosion(world, center, size, Fire::Set)
     }
 
+    /// Sets the time of `world` to `time_ticks` (its clock; the day cycle follows it) and sends
+    /// its players the clock at once.
+    ///
+    /// # Errors
+    ///
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    #[doc(alias = "World::setTime")]
+    pub fn set_time(&mut self, world: world::Id, time_ticks: i64) -> world::Result<()> {
+        let w = loaded_index(self.state, world)?;
+        world_at_mut(self.state, w).set_time(time_ticks);
+        let packet = survival::clock_state(self.state, w);
+        send_to_world(self.state, w, &packet);
+        Ok(())
+    }
+
+    /// Sets the weather of `world` and tells its players at once (the level events the official
+    /// server sends for the change; none for the weather it has). It stays until changed or the
+    /// server stops: Anchor has no natural weather and does not save it, so every world is clear
+    /// at start ([`Weather`] shows how to build a cycle and keep it). Raises no event. Players
+    /// who join or arrive later are told when they get there.
+    ///
+    /// # Errors
+    ///
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    pub fn set_weather(&mut self, world: world::Id, weather: Weather) -> world::Result<()> {
+        let w = loaded_index(self.state, world)?;
+        let world = world_at_mut(self.state, w);
+        let from = world.weather();
+        world.set_weather(weather);
+        for packet in weather::changes(from, weather) {
+            send_to_world(self.state, w, &packet);
+        }
+        Ok(())
+    }
+
     /// Strikes a lightning bolt at `pos` in `world`: the players who see its chunk see the bolt
     /// and hear its thunder, and it goes after a second. `lightning` says whether it also hurts
     /// ([`Lightning`]); it sets no block on fire. Like every direct call it raises no events. It
@@ -249,6 +243,12 @@ impl Context<'_> {
         } else {
             Err(world::Error::Full)
         }
+    }
+
+    /// The world `id`, to change it, if it is loaded (the default world always is).
+    pub fn world_mut(&mut self, id: world::Id) -> Option<&mut World> {
+        let i = index(self.state, id)?;
+        Some(world_at_mut(self.state, i))
     }
 
     /// Explodes as [`Self::explode`] does, setting fire as `fire` says.

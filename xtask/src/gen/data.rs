@@ -35,13 +35,6 @@ const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
 const LEGACY_USE_TICKS: u16 = 32;
 /// The stack NBT `Type` of an ominous banner.
 const OMINOUS: Tag = Tag::Int(1);
-/// The factor from hardness to blast resistance of a state the dump does not have.
-const UNIMPLEMENTED_BLAST_FACTOR: f64 = 5.0;
-/// The friction of a state the dump does not have: that of air.
-const UNIMPLEMENTED_FRICTION: f64 = 0.6;
-/// The block-local unit cube: a shape of only this box is solid.
-const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-
 /// Bedrock states the dump splits by data Anchor keeps in the block entity: the Bedrock name, the
 /// dump type Anchor's state takes and what it stands for. Only dump states of these names may
 /// differ in type, class, block flags or item form; where their item forms differ, the Anchor
@@ -69,6 +62,12 @@ pub(crate) const SHARED: [(&str, &str, &str); 4] = [
         "the colour and ominous type (banner block entity `Base` and `Type`)",
     ),
 ];
+/// The factor from hardness to blast resistance of a state the dump does not have.
+const UNIMPLEMENTED_BLAST_FACTOR: f64 = 5.0;
+/// The friction of a state the dump does not have: that of air.
+const UNIMPLEMENTED_FRICTION: f64 = 0.6;
+/// The block-local unit cube: a shape of only this box is solid.
+const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 
 /// Where a state's item form comes from, before item types are known.
 #[derive(Debug, Clone, PartialEq)]
@@ -482,120 +481,52 @@ impl Data {
         Ok(data)
     }
 
-    /// Loads the item types of the dump and gives each its runtime ID.
-    fn load_items(
-        &mut self,
-        root: &Path,
-        network: &BTreeMap<StateKey, u32>,
-        vanilla: &[ItemBlock],
-    ) -> Result<(), String> {
-        let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
-        self.runtime_ids = reference
-            .iter()
-            .map(|i| {
-                i16::try_from(i.runtime_id)
-                    .map(|id| (i.name.clone(), id))
-                    .map_err(|_| format!("runtime ID of {} out of range", i.name))
-            })
-            .collect::<Result<_, String>>()?;
-        let reference_data: BTreeMap<&str, &Json> = reference
-            .iter()
-            .map(|i| (i.name.as_str(), &i.data))
-            .collect();
-        let dump: Vec<DumpItem> = read_json(root, DUMP_DIR, DUMP_ITEMS)?;
-        for (i, item) in dump.iter().enumerate() {
-            let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
-            let form = self.item_form(&item.bedrock)?;
-            let runtime_id = self.runtime_id(&form.0)?;
-            let consumed = item.data.food.is_some() || item.data.consumable.is_some();
-            let use_ticks = if consumed {
-                let data = reference_data
-                    .get(form.0.as_str())
-                    .ok_or_else(|| format!("item {} is not in the reference list", form.0))?;
-                use_ticks(&form.0, data)?
-            } else {
-                0
-            };
-            self.item_index
-                .entry((form.0.clone(), form.2))
-                .or_default()
-                .push(index);
-            self.items.push(Item {
-                name: form.0,
-                meta: form.1,
-                block: form.2,
-                block_network_id: 0,
-                nbt: form.3,
-                runtime_id,
-                vanilla: item.vanilla,
-                data: item.data.clone(),
-                consume_residue: None,
-                use_ticks,
-                places: (
-                    self.placed(item.data.places.as_ref())?,
-                    self.placed(item.data.places_on_wall.as_ref())?,
-                ),
-            });
-        }
-        for i in 0..self.items.len() {
-            let item = self.items.get(i).ok_or("item index")?;
-            let data = &item.data;
-            let consume = data.consumable.as_ref().and_then(|c| c.residue.as_ref());
-            let consume = consume.map(|j| self.item_type(j)).transpose()?;
-            for v in [data.tool.efficiency]
-                .into_iter()
-                .chain(data.food.as_ref().map(|f| f.saturation))
-                .chain(data.throw_force)
-            {
-                exact(v)?;
-            }
-            if let Some(item) = self.items.get_mut(i) {
-                item.consume_residue = consume;
-            }
-        }
-        self.use_vanilla_item_blocks(network, vanilla)
+    /// The state index of a dump state in its Bedrock form of the dump's data version: its
+    /// upgraded default form.
+    pub(crate) fn dump_state(&self, key: &StateKey) -> Result<u16, String> {
+        self.dump_state_index
+            .get(key)
+            .copied()
+            .ok_or_else(|| format!("{} {:?} is not a dump state", key.name, key.properties))
     }
 
-    /// The state of a dumped block an item places.
-    fn placed(&self, json: Option<&Json>) -> Result<Option<u16>, String> {
-        json.map(|j| self.dump_state(&bedrock_state(j)?))
-            .transpose()
+    /// The item type of an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`), by
+    /// the rules of [`Data::stack`].
+    pub(crate) fn item_type(&self, json: &Json) -> Result<u16, String> {
+        let (name, meta, block, nbt) = self.item_form(json)?;
+        self.type_of(&name, meta, block, nbt.as_ref())
     }
 
-    /// Sets the block network ID block items are sent with: the vanilla creative state of
-    /// `item_blocks.json`, which the official server sends, where the item name has a single dump
-    /// block item type and a single vanilla state; the dump's own default state otherwise. The
-    /// vanilla state may be one the dump does not have (glazed terracotta facing down); it is only
-    /// the network form, and the item still places the dump's state.
-    fn use_vanilla_item_blocks(
-        &mut self,
-        network: &BTreeMap<StateKey, u32>,
-        vanilla: &[ItemBlock],
-    ) -> Result<(), String> {
-        let block_items = self.block_item_counts();
-        let mut ids = BTreeMap::new();
-        for v in vanilla {
-            if block_items.get(v.item.as_str()) == Some(&1) {
-                let key = state_key(&v.name, &v.states)?;
-                let id = *network
-                    .get(&key)
-                    .ok_or_else(|| format!("vanilla state of item {} is not listed", v.item))?;
-                ids.insert(v.item.clone(), id);
-            }
-        }
-        for item in &mut self.items {
-            let Some(block) = item.block else { continue };
-            item.block_network_id = match ids.get(&item.name) {
-                Some(&id) => id,
-                None => {
-                    self.states
-                        .get(usize::from(block))
-                        .ok_or("item block state out of range")?
-                        .network_id
-                }
-            };
-        }
-        Ok(())
+    /// The runtime ID of an item name of the reference list.
+    pub(crate) fn runtime_id(&self, name: &str) -> Result<i16, String> {
+        self.runtime_ids
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("item {name} is not in the reference list"))
+    }
+
+    /// Reads an item stack of the dumps (`name`, `meta`, optional `block` and `nbt`, `count`)
+    /// and finds its item type the way `item::Type::from_name` does at run time: among the types
+    /// of the name and block, the one with the stack's meta; if several have it, the one with the
+    /// most type NBT that is part of the stack NBT; if none has it and the name and block have a
+    /// single type, that type, as the dump reads such a meta as stack state (a firework star's
+    /// colour). The stack keeps its own meta. A dumped block item always names the state its type
+    /// places, so the fallback `from_name` has for a saved block item with another state (the
+    /// block's item form) never applies here.
+    pub(crate) fn stack(&self, json: &Json) -> Result<Stack, String> {
+        let (name, meta, block, nbt) = self.item_form(json)?;
+        let count = json
+            .get("count")
+            .and_then(Json::as_u64)
+            .and_then(|c| u16::try_from(c).ok())
+            .ok_or_else(|| format!("stack of {name} has no count in range"))?;
+        let item = self.type_of(&name, meta, block, nbt.as_ref())?;
+        Ok(Stack {
+            item,
+            meta,
+            count,
+            nbt,
+        })
     }
 
     /// Fails if the vanilla creative state of an item with a single dump block item type does
@@ -687,44 +618,10 @@ impl Data {
         Ok((name, meta, block, nbt))
     }
 
-    /// The state index of a dump state in its Bedrock form of the dump's data version: its
-    /// upgraded default form.
-    pub(crate) fn dump_state(&self, key: &StateKey) -> Result<u16, String> {
-        self.dump_state_index
-            .get(key)
-            .copied()
-            .ok_or_else(|| format!("{} {:?} is not a dump state", key.name, key.properties))
-    }
-
-    /// Reads an item stack of the dumps (`name`, `meta`, optional `block` and `nbt`, `count`)
-    /// and finds its item type the way `item::Type::from_name` does at run time: among the types
-    /// of the name and block, the one with the stack's meta; if several have it, the one with the
-    /// most type NBT that is part of the stack NBT; if none has it and the name and block have a
-    /// single type, that type, as the dump reads such a meta as stack state (a firework star's
-    /// colour). The stack keeps its own meta. A dumped block item always names the state its type
-    /// places, so the fallback `from_name` has for a saved block item with another state (the
-    /// block's item form) never applies here.
-    pub(crate) fn stack(&self, json: &Json) -> Result<Stack, String> {
-        let (name, meta, block, nbt) = self.item_form(json)?;
-        let count = json
-            .get("count")
-            .and_then(Json::as_u64)
-            .and_then(|c| u16::try_from(c).ok())
-            .ok_or_else(|| format!("stack of {name} has no count in range"))?;
-        let item = self.type_of(&name, meta, block, nbt.as_ref())?;
-        Ok(Stack {
-            item,
-            meta,
-            count,
-            nbt,
-        })
-    }
-
-    /// The item type of an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`), by
-    /// the rules of [`Data::stack`].
-    pub(crate) fn item_type(&self, json: &Json) -> Result<u16, String> {
-        let (name, meta, block, nbt) = self.item_form(json)?;
-        self.type_of(&name, meta, block, nbt.as_ref())
+    /// The state of a dumped block an item places.
+    fn placed(&self, json: Option<&Json>) -> Result<Option<u16>, String> {
+        json.map(|j| self.dump_state(&bedrock_state(j)?))
+            .transpose()
     }
 
     /// The lookup of [`Data::stack`].
@@ -764,12 +661,114 @@ impl Data {
         })
     }
 
-    /// The runtime ID of an item name of the reference list.
-    pub(crate) fn runtime_id(&self, name: &str) -> Result<i16, String> {
-        self.runtime_ids
-            .get(name)
-            .copied()
-            .ok_or_else(|| format!("item {name} is not in the reference list"))
+    /// Loads the item types of the dump and gives each its runtime ID.
+    fn load_items(
+        &mut self,
+        root: &Path,
+        network: &BTreeMap<StateKey, u32>,
+        vanilla: &[ItemBlock],
+    ) -> Result<(), String> {
+        let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
+        self.runtime_ids = reference
+            .iter()
+            .map(|i| {
+                i16::try_from(i.runtime_id)
+                    .map(|id| (i.name.clone(), id))
+                    .map_err(|_| format!("runtime ID of {} out of range", i.name))
+            })
+            .collect::<Result<_, String>>()?;
+        let reference_data: BTreeMap<&str, &Json> = reference
+            .iter()
+            .map(|i| (i.name.as_str(), &i.data))
+            .collect();
+        let dump: Vec<DumpItem> = read_json(root, DUMP_DIR, DUMP_ITEMS)?;
+        for (i, item) in dump.iter().enumerate() {
+            let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
+            let form = self.item_form(&item.bedrock)?;
+            let runtime_id = self.runtime_id(&form.0)?;
+            let consumed = item.data.food.is_some() || item.data.consumable.is_some();
+            let use_ticks = if consumed {
+                let data = reference_data
+                    .get(form.0.as_str())
+                    .ok_or_else(|| format!("item {} is not in the reference list", form.0))?;
+                use_ticks(&form.0, data)?
+            } else {
+                0
+            };
+            self.item_index
+                .entry((form.0.clone(), form.2))
+                .or_default()
+                .push(index);
+            self.items.push(Item {
+                name: form.0,
+                meta: form.1,
+                block: form.2,
+                block_network_id: 0,
+                nbt: form.3,
+                runtime_id,
+                vanilla: item.vanilla,
+                data: item.data.clone(),
+                consume_residue: None,
+                use_ticks,
+                places: (
+                    self.placed(item.data.places.as_ref())?,
+                    self.placed(item.data.places_on_wall.as_ref())?,
+                ),
+            });
+        }
+        for i in 0..self.items.len() {
+            let item = self.items.get(i).ok_or("item index")?;
+            let data = &item.data;
+            let consume = data.consumable.as_ref().and_then(|c| c.residue.as_ref());
+            let consume = consume.map(|j| self.item_type(j)).transpose()?;
+            for v in [data.tool.efficiency]
+                .into_iter()
+                .chain(data.food.as_ref().map(|f| f.saturation))
+                .chain(data.throw_force)
+            {
+                exact(v)?;
+            }
+            if let Some(item) = self.items.get_mut(i) {
+                item.consume_residue = consume;
+            }
+        }
+        self.use_vanilla_item_blocks(network, vanilla)
+    }
+
+    /// Sets the block network ID block items are sent with: the vanilla creative state of
+    /// `item_blocks.json`, which the official server sends, where the item name has a single dump
+    /// block item type and a single vanilla state; the dump's own default state otherwise. The
+    /// vanilla state may be one the dump does not have (glazed terracotta facing down); it is only
+    /// the network form, and the item still places the dump's state.
+    fn use_vanilla_item_blocks(
+        &mut self,
+        network: &BTreeMap<StateKey, u32>,
+        vanilla: &[ItemBlock],
+    ) -> Result<(), String> {
+        let block_items = self.block_item_counts();
+        let mut ids = BTreeMap::new();
+        for v in vanilla {
+            if block_items.get(v.item.as_str()) == Some(&1) {
+                let key = state_key(&v.name, &v.states)?;
+                let id = *network
+                    .get(&key)
+                    .ok_or_else(|| format!("vanilla state of item {} is not listed", v.item))?;
+                ids.insert(v.item.clone(), id);
+            }
+        }
+        for item in &mut self.items {
+            let Some(block) = item.block else { continue };
+            item.block_network_id = match ids.get(&item.name) {
+                Some(&id) => id,
+                None => {
+                    self.states
+                        .get(usize::from(block))
+                        .ok_or("item block state out of range")?
+                        .network_id
+                }
+            };
+        }
+        Ok(())
     }
 }
 

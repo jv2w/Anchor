@@ -203,7 +203,7 @@ fn check_physics(state: State, block: &Json) {
         float(&block["friction"]),
         "{state:?}"
     );
-    let support: Vec<&str> = Face::ALL
+    let support: Vec<&str> = Face::all()
         .iter()
         .map(|f| match state.support(*f) {
             SupportType::Full => "full",

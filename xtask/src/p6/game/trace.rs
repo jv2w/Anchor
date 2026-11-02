@@ -82,7 +82,7 @@ const FIXED_CHECKS: [&str; 6] = [
     "drowned",
     "breathing after surfacing",
 ];
-/// The windows whose IDs mean the same on every server: the inventory, off hand, armour and UI.
+/// The windows whose IDs mean the same on every server: the inventory, off hand, armor and UI.
 const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
 /// The flat world's blocks by height (the official server's and Anchor's default flat world), as
 /// the bot assumes them (`blockAt` in `xtask/go/bot/game.go`); air elsewhere.

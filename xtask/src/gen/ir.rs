@@ -14,8 +14,6 @@ pub(crate) struct Ir {
     pub(crate) functions: Vec<Function>,
     pub(crate) enums: Vec<Enum>,
     pub(crate) unions: Vec<Union>,
-    #[serde(rename = "constants")]
-    _constants: Vec<Const>,
     pub(crate) const_decls: Vec<ConstDecl>,
 }
 
@@ -23,8 +21,6 @@ pub(crate) struct Ir {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
-    #[serde(rename = "module")]
-    _module: String,
     pub(crate) version: String,
     pub(crate) commit: String,
     pub(crate) protocol: i64,
@@ -36,10 +32,6 @@ pub(crate) struct Source {
 #[serde(deny_unknown_fields)]
 pub(crate) struct IoMethod {
     pub(crate) name: String,
-    #[serde(rename = "params")]
-    _params: Vec<Param>,
-    #[serde(default, rename = "results")]
-    _results: Vec<Type>,
 }
 
 /// A registered packet.
@@ -154,8 +146,6 @@ pub(crate) struct Union {
     pub(crate) interface: String,
     pub(crate) id_type: Type,
     pub(crate) key: String,
-    #[serde(rename = "params")]
-    _params: Vec<Param>,
     pub(crate) results: Vec<Type>,
     pub(crate) entries: Vec<UnionEntry>,
 }
@@ -168,18 +158,6 @@ pub(crate) struct UnionEntry {
     pub(crate) variants: Vec<Option<String>>,
     #[serde(default)]
     pub(crate) extra: Vec<Expr>,
-}
-
-/// A named constant.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Const {
-    #[serde(rename = "name")]
-    _name: String,
-    #[serde(rename = "type")]
-    _ty: Type,
-    #[serde(rename = "value")]
-    _value: String,
 }
 
 /// A const declaration with its exported names.

@@ -382,16 +382,6 @@ fn rubies(r: &Registry, count: u8) -> Stack {
 struct Disk(crate::save::tests::TempDir);
 
 impl Disk {
-    fn specs() -> Vec<crate::save::WorldSpec> {
-        vec![crate::save::WorldSpec {
-            name: "world".to_owned(),
-            kind: crate::world::Kind::Persistent,
-            generator: Arc::new(crate::world::Flat),
-            seed: Some(0),
-            spawn: None,
-        }]
-    }
-
     /// Runs the save thread on the file for `requests` of `state`, with its custom content as
     /// the server gives it, and returns its answers.
     #[expect(
@@ -426,47 +416,19 @@ impl Disk {
         }
         out
     }
+
+    fn specs() -> Vec<crate::save::WorldSpec> {
+        vec![crate::save::WorldSpec {
+            name: "world".to_owned(),
+            kind: crate::world::Kind::Persistent,
+            generator: Arc::new(crate::world::Flat),
+            seed: Some(0),
+            spawn: None,
+        }]
+    }
 }
 
 impl Harness {
-    /// [`Harness::run`] with the save thread's requests answered from `disk`.
-    fn run_on(&mut self, disk: &Disk, mut batch: Vec<Input>) {
-        let mut log = InputLog::default();
-        let mut answers = std::mem::take(&mut self.output.answers);
-        POOL.with(|pool| {
-            step(
-                &mut self.state,
-                &mut batch,
-                &mut answers,
-                pool,
-                &mut self.output,
-                &mut log,
-            );
-        });
-        deliver(&mut self.state, &mut self.output, &mut log);
-        boundary(&mut self.state, &mut self.output, &mut log);
-        let requests = std::mem::take(&mut self.output.requests);
-        self.output.answers = disk.serve(&self.state, requests);
-    }
-
-    /// Commits a snapshot of this server to `disk`, as the next tick boundary takes it.
-    fn commit_to(&mut self, disk: &Disk) {
-        self.state.saving.requested = true;
-        let mut output = Output::default();
-        boundary(&mut self.state, &mut output, &mut InputLog::default());
-        let commits: Vec<Request> = output
-            .requests
-            .into_iter()
-            .filter(|r| matches!(r, Request::Commit(_)))
-            .collect();
-        assert_eq!(commits.len(), 1, "one snapshot");
-        let answers = disk.serve(&self.state, commits);
-        assert!(
-            matches!(answers.as_slice(), [Response::Committed { .. }]),
-            "{answers:?}"
-        );
-    }
-
     /// A new server on `disk` with [`registry`] (a restart), session 1 joined and spawned.
     fn restarted(disk: &Disk) -> Self {
         let opened = crate::save::open(&disk.0.0, Disk::specs()).unwrap();
@@ -510,6 +472,44 @@ impl Harness {
         h.run_on(disk, vec![init]);
         assert_eq!(h.player().phase, Phase::Spawned);
         h
+    }
+
+    /// Commits a snapshot of this server to `disk`, as the next tick boundary takes it.
+    fn commit_to(&mut self, disk: &Disk) {
+        self.state.saving.requested = true;
+        let mut output = Output::default();
+        boundary(&mut self.state, &mut output, &mut InputLog::default());
+        let commits: Vec<Request> = output
+            .requests
+            .into_iter()
+            .filter(|r| matches!(r, Request::Commit(_)))
+            .collect();
+        assert_eq!(commits.len(), 1, "one snapshot");
+        let answers = disk.serve(&self.state, commits);
+        assert!(
+            matches!(answers.as_slice(), [Response::Committed { .. }]),
+            "{answers:?}"
+        );
+    }
+
+    /// [`Harness::run`] with the save thread's requests answered from `disk`.
+    fn run_on(&mut self, disk: &Disk, mut batch: Vec<Input>) {
+        let mut log = InputLog::default();
+        let mut answers = std::mem::take(&mut self.output.answers);
+        POOL.with(|pool| {
+            step(
+                &mut self.state,
+                &mut batch,
+                &mut answers,
+                pool,
+                &mut self.output,
+                &mut log,
+            );
+        });
+        deliver(&mut self.state, &mut self.output, &mut log);
+        boundary(&mut self.state, &mut self.output, &mut log);
+        let requests = std::mem::take(&mut self.output.requests);
+        self.output.answers = disk.serve(&self.state, requests);
     }
 }
 

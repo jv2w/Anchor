@@ -212,34 +212,6 @@ pub(in crate::tick) enum Harm {
 }
 
 impl Harm {
-    /// How `block` hurts what is inside it, `None` if it does not.
-    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
-        if block.is(Class::BaseFire) {
-            Some(Self::Fire(if block.is(Class::SoulFire) { 2 } else { 1 }))
-        } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
-            Some(Self::Lava {
-                cauldron: block.is(Class::LavaCauldron),
-            })
-        } else if block.is(Class::Campfire) {
-            let soul = block.is(Class::SoulCampfire);
-            (props::flag(block, "extinguished") == Some(false)).then_some(Self::Campfire(if soul {
-                2
-            } else {
-                1
-            }))
-        } else if block.is(Class::Magma) {
-            Some(Self::Magma)
-        } else if block.is(Class::Cactus) {
-            Some(Self::Cactus)
-        } else if block.is(Class::SweetBerryBush) {
-            props::int(block, "growth")
-                .is_some_and(|growth| growth >= 1)
-                .then_some(Self::BerryBush)
-        } else {
-            None
-        }
-    }
-
     /// The seconds it then sets on fire for, if it does.
     pub(in crate::tick) fn burn_secs(self) -> Option<u8> {
         matches!(self, Self::Fire(_) | Self::Lava { .. }).then_some(BURN_SECS)
@@ -276,6 +248,34 @@ impl Harm {
     /// Whether sneaking or Frost Walker spares a living thing.
     pub(in crate::tick) fn is_spared_by_sneaking(self) -> bool {
         self == Self::Magma
+    }
+
+    /// How `block` hurts what is inside it, `None` if it does not.
+    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
+        if block.is(Class::BaseFire) {
+            Some(Self::Fire(if block.is(Class::SoulFire) { 2 } else { 1 }))
+        } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
+            Some(Self::Lava {
+                cauldron: block.is(Class::LavaCauldron),
+            })
+        } else if block.is(Class::Campfire) {
+            let soul = block.is(Class::SoulCampfire);
+            (props::flag(block, "extinguished") == Some(false)).then_some(Self::Campfire(if soul {
+                2
+            } else {
+                1
+            }))
+        } else if block.is(Class::Magma) {
+            Some(Self::Magma)
+        } else if block.is(Class::Cactus) {
+            Some(Self::Cactus)
+        } else if block.is(Class::SweetBerryBush) {
+            props::int(block, "growth")
+                .is_some_and(|growth| growth >= 1)
+                .then_some(Self::BerryBush)
+        } else {
+            None
+        }
     }
 }
 

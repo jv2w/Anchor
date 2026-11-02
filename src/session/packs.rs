@@ -62,32 +62,28 @@ impl Transfer {
         !self.queue.is_empty()
     }
 
-    /// Handles a `ResourcePackClientResponse`.
-    pub(super) fn on_response(
-        &mut self,
-        offer: &Offer,
-        response: &ResourcePackClientResponse,
-    ) -> Result<Reply> {
-        match PackResponse::try_from(response.response) {
-            Ok(PackResponse::Refused) => Ok(Reply::Refused),
-            Ok(PackResponse::SendPacks) => self.on_send_packs(offer, &response.packs_to_download),
-            Ok(PackResponse::AllPacksDownloaded) => {
-                if self.stacked {
-                    return Err(Error::Order("stack requested twice"));
-                }
-                self.stacked = true;
-                Ok(Reply::Send {
-                    packets: vec![Packet::ResourcePackStack(offer.stack().clone())],
-                    extend: Duration::ZERO,
-                })
-            }
-            Ok(PackResponse::Completed) => {
-                // Chunks still queued are of no use once the client goes on.
-                self.queue = VecDeque::new();
-                Ok(Reply::Join)
-            }
-            Err(_) => Err(Error::Order("unknown pack response")),
-        }
+    /// Takes the next waiting chunk.
+    pub(super) fn next_chunk(&mut self, offer: &Offer) -> Option<Packet> {
+        let (index, chunk) = self.queue.pop_front()?;
+        let start = chunk as usize * CHUNK_BYTES as usize;
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: `on_chunk_request` queues only chunks inside an offered pack"
+        )]
+        let data = offer
+            .packs()
+            .get(index)
+            .map(Pack::bytes)
+            .and_then(|bytes| {
+                bytes.get(start..start.saturating_add(CHUNK_BYTES as usize).min(bytes.len()))
+            })
+            .expect("a queued chunk lies inside its pack");
+        Some(Packet::ResourcePackChunkData(ResourcePackChunkData {
+            uuid: offer.id(index).to_owned(),
+            chunk_index: chunk,
+            data_offset: start as u64,
+            data: data.to_vec(),
+        }))
     }
 
     /// Handles a `ResourcePackChunkRequest`.
@@ -119,28 +115,32 @@ impl Transfer {
         Ok(())
     }
 
-    /// Takes the next waiting chunk.
-    pub(super) fn next_chunk(&mut self, offer: &Offer) -> Option<Packet> {
-        let (index, chunk) = self.queue.pop_front()?;
-        let start = chunk as usize * CHUNK_BYTES as usize;
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: `on_chunk_request` queues only chunks inside an offered pack"
-        )]
-        let data = offer
-            .packs()
-            .get(index)
-            .map(Pack::bytes)
-            .and_then(|bytes| {
-                bytes.get(start..start.saturating_add(CHUNK_BYTES as usize).min(bytes.len()))
-            })
-            .expect("a queued chunk lies inside its pack");
-        Some(Packet::ResourcePackChunkData(ResourcePackChunkData {
-            uuid: offer.id(index).to_owned(),
-            chunk_index: chunk,
-            data_offset: start as u64,
-            data: data.to_vec(),
-        }))
+    /// Handles a `ResourcePackClientResponse`.
+    pub(super) fn on_response(
+        &mut self,
+        offer: &Offer,
+        response: &ResourcePackClientResponse,
+    ) -> Result<Reply> {
+        match PackResponse::try_from(response.response) {
+            Ok(PackResponse::Refused) => Ok(Reply::Refused),
+            Ok(PackResponse::SendPacks) => self.on_send_packs(offer, &response.packs_to_download),
+            Ok(PackResponse::AllPacksDownloaded) => {
+                if self.stacked {
+                    return Err(Error::Order("stack requested twice"));
+                }
+                self.stacked = true;
+                Ok(Reply::Send {
+                    packets: vec![Packet::ResourcePackStack(offer.stack().clone())],
+                    extend: Duration::ZERO,
+                })
+            }
+            Ok(PackResponse::Completed) => {
+                // Chunks still queued are of no use once the client goes on.
+                self.queue = VecDeque::new();
+                Ok(Reply::Join)
+            }
+            Err(_) => Err(Error::Order("unknown pack response")),
+        }
     }
 
     /// `SendPacks`: the data info of each pack the client names.
@@ -173,13 +173,13 @@ impl Transfer {
             if slot.is_some() {
                 return Err(Error::Order("pack requested twice"));
             }
-            let count = chunk_count(pack.size());
+            let count = chunk_count(pack.size_bytes());
             *slot = Some(Bitset::new(count as usize));
             packets.push(Packet::ResourcePackDataInfo(ResourcePackDataInfo {
                 uuid: offer.id(index).to_owned(),
                 data_chunk_size: CHUNK_BYTES,
                 chunk_count: count,
-                size: pack.size(),
+                size: pack.size_bytes(),
                 hash: pack.sha256().to_vec(),
                 premium: false,
                 pack_type: pack.pack_type(),
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(info.uuid, id);
         assert_eq!(info.data_chunk_size, CHUNK_BYTES);
         assert_eq!(info.chunk_count, 3);
-        assert_eq!(info.size, pack.size());
+        assert_eq!(info.size, pack.size_bytes());
         assert_eq!(info.hash, pack.sha256());
         assert_eq!(info.pack_type, u8::from(ResourcePackType::Resources));
         assert_eq!(extend, DOWNLOAD_BASE);

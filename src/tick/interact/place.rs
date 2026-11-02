@@ -97,15 +97,6 @@ pub(super) struct Blocks {
 }
 
 impl Blocks {
-    /// The block `first` and the block `second` with it, if there is one, in position order.
-    fn new(first: (BlockPos, State), second: Option<(BlockPos, State)>) -> Self {
-        let slots = match second {
-            Some(second) if second.0 < first.0 => [Some(second), Some(first)],
-            _ => [Some(first), second],
-        };
-        Self { slots }
-    }
-
     /// The first block in position order.
     pub(super) fn first(&self) -> Option<&(BlockPos, State)> {
         self.iter().next()
@@ -119,6 +110,15 @@ impl Blocks {
     /// The blocks as a list, to hand to an event.
     pub(super) fn to_vec(&self) -> Vec<(BlockPos, State)> {
         self.iter().copied().collect()
+    }
+
+    /// The block `first` and the block `second` with it, if there is one, in position order.
+    fn new(first: (BlockPos, State), second: Option<(BlockPos, State)>) -> Self {
+        let slots = match second {
+            Some(second) if second.0 < first.0 => [Some(second), Some(first)],
+            _ => [Some(first), second],
+        };
+        Self { slots }
     }
 }
 
@@ -580,9 +580,9 @@ fn coral_fan_axis(pos: BlockPos, p: &Placer) -> i32 {
 
 /// The coral state: dead unless water is next to the replaced position.
 fn coral_dead(attempt: &Attempt<'_>, state: State) -> State {
-    let water = Face::ALL
-        .into_iter()
-        .any(|f| attempt.side(f).is(Class::Water));
+    let water = Face::all()
+        .iter()
+        .any(|&f| attempt.side(f).is(Class::Water));
     if water {
         return state;
     }
@@ -605,8 +605,9 @@ fn multi_support(attempt: &Attempt<'_>, state: State) -> Option<State> {
     let placed = if free(opposite) {
         opposite
     } else {
-        Face::ALL
-            .into_iter()
+        Face::all()
+            .iter()
+            .copied()
             .find(|face| free(*face))
             .unwrap_or(opposite)
     };

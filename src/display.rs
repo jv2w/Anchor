@@ -29,12 +29,12 @@ use std::fmt;
 
 use crate::player;
 
+/// The longest title or line text, in bytes.
+pub(crate) const MAX_LABEL_BYTES: usize = 1024;
 /// The most lines of a list or below-name scoreboard: the protocol's list bound.
 pub(crate) const MAX_LINES: usize = crate::protocol::MAX_LIST_LEN;
 /// The most lines of a sidebar: the client shows no more.
 pub(crate) const MAX_SIDEBAR_LINES: usize = 15;
-/// The longest title or line text, in bytes.
-pub(crate) const MAX_TEXT: usize = 1024;
 
 /// A scoreboard: a title and lines, each a text or a player with a score, shown in one slot.
 ///
@@ -61,13 +61,6 @@ impl Scoreboard {
         }
     }
 
-    /// The scoreboard with its lines ordered by score as `sort` says.
-    #[must_use]
-    pub fn with_sort(mut self, sort: Sort) -> Self {
-        self.sort = sort;
-        self
-    }
-
     /// Adds a line showing `text` with `score`.
     #[must_use]
     pub fn line(mut self, text: impl Into<String>, score: i32) -> Self {
@@ -85,6 +78,13 @@ impl Scoreboard {
             holder: Holder::Player(player),
             score,
         });
+        self
+    }
+
+    /// The scoreboard with its lines ordered by score as `sort` says.
+    #[must_use]
+    pub fn with_sort(mut self, sort: Sort) -> Self {
+        self.sort = sort;
         self
     }
 }

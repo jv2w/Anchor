@@ -27,11 +27,31 @@ pub(crate) struct Base64 {
 }
 
 impl Base64 {
+    /// The bytes `text` decodes to, in a buffer of exactly their length.
+    /// Output past `max` is an error, found before anything is allocated.
+    pub(crate) fn decode(self, text: &str, max: usize) -> Result<Vec<u8>> {
+        let symbols = self.symbols(text.as_bytes())?;
+        let len = output_len(symbols);
+        if len > max {
+            return Err(Error::TooLarge);
+        }
+        let mut out = Vec::with_capacity(len);
+        self.walk(symbols, |b| out.push(b))?;
+        Ok(out)
+    }
+
     /// The decoded length of `text`, checking it without allocating.
     pub(crate) fn decoded_len(self, text: &str) -> Result<usize> {
         let symbols = self.symbols(text.as_bytes())?;
         self.walk(symbols, |_| {})?;
         Ok(output_len(symbols))
+    }
+
+    /// The encoding of `data`.
+    pub(crate) fn encode(self, data: &[u8]) -> String {
+        let mut out = String::new();
+        self.encode_into(data, &mut out);
+        out
     }
 
     /// Appends the encoding of `data` to `out`.
@@ -46,26 +66,6 @@ impl Base64 {
             [a, b] => self.push_group([a, b, 0], 3, out),
             _ => {}
         }
-    }
-
-    /// The encoding of `data`.
-    pub(crate) fn encode(self, data: &[u8]) -> String {
-        let mut out = String::new();
-        self.encode_into(data, &mut out);
-        out
-    }
-
-    /// The bytes `text` decodes to, in a buffer of exactly their length.
-    /// Output past `max` is an error, found before anything is allocated.
-    pub(crate) fn decode(self, text: &str, max: usize) -> Result<Vec<u8>> {
-        let symbols = self.symbols(text.as_bytes())?;
-        let len = output_len(symbols);
-        if len > max {
-            return Err(Error::TooLarge);
-        }
-        let mut out = Vec::with_capacity(len);
-        self.walk(symbols, |b| out.push(b))?;
-        Ok(out)
     }
 
     const fn symbol(self, value: u8) -> u8 {

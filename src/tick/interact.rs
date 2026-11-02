@@ -34,6 +34,7 @@ use super::{
 };
 use crate::action;
 use crate::block::{self, Class, Face};
+use crate::block_entity::check_lines;
 use crate::config::GameMode;
 use crate::event::{BlockBreak, ExhaustCause, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
@@ -50,7 +51,6 @@ use crate::protocol::{
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::tile::check_lines;
 use crate::world::{BlockPos, Particle, Sound};
 
 /// Food exhaustion per broken block.
@@ -106,11 +106,6 @@ pub(super) struct Breaking {
 }
 
 impl Breaking {
-    /// Whether a bow, trident, goat horn or spyglass is in use.
-    pub(super) fn is_using(&self) -> bool {
-        self.using_since.is_some()
-    }
-
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -175,15 +170,26 @@ impl Breaking {
         h.u64(using_since.unwrap_or(u64::MAX));
     }
 
+    /// Whether a bow, trident, goat horn or spyglass is in use.
+    pub(super) fn is_using(&self) -> bool {
+        self.using_since.is_some()
+    }
+
+    /// Forgets the block last attacked: after a death the client starts breaking anew.
+    pub(super) fn forget_attacked(&mut self) {
+        self.last_attacked = None;
+    }
+
     /// Stops drawing a bow or trident: the held slot or item changed, or the player did something
     /// else with it.
     pub(super) fn stop_using(&mut self) {
         self.using_since = None;
     }
 
-    /// Forgets the block last attacked: after a death the client starts breaking anew.
-    pub(super) fn forget_attacked(&mut self) {
-        self.last_attacked = None;
+    /// Returns whether a right click [`PlayerInteract`] raised now is the first of the held
+    /// press; the press has raised one from now on.
+    fn first_of_press(&mut self) -> bool {
+        !std::mem::replace(&mut self.press.raised, true)
     }
 
     /// Notes a block click at `tick` that starts a new press.
@@ -202,12 +208,6 @@ impl Breaking {
             last: tick,
             raised: held_on && self.press.raised,
         };
-    }
-
-    /// Returns whether a right click [`PlayerInteract`] raised now is the first of the held
-    /// press; the press has raised one from now on.
-    fn first_of_press(&mut self) -> bool {
-        !std::mem::replace(&mut self.press.raised, true)
     }
 }
 
@@ -336,18 +336,14 @@ struct Actor {
 }
 
 impl Actor {
+    /// Whether `target` is within `max` blocks of the eyes and not behind the player.
+    fn can_interact(&self, target: Vec3, max: f64) -> bool {
+        survival::can_interact(self.eye, self.look, target, max)
+    }
+
     /// Whether items and blocks are used up ([`survival::has_finite_resources`]).
     fn has_finite_resources(&self) -> bool {
         survival::has_finite_resources(self.mode)
-    }
-
-    /// The reach for blocks.
-    fn reach(&self) -> f64 {
-        if self.mode == GameMode::Creative {
-            REACH_CREATIVE
-        } else {
-            REACH_SURVIVAL
-        }
     }
 
     /// What placement reads of the player.
@@ -360,9 +356,13 @@ impl Actor {
         }
     }
 
-    /// Whether `target` is within `max` blocks of the eyes and not behind the player.
-    fn can_interact(&self, target: Vec3, max: f64) -> bool {
-        survival::can_interact(self.eye, self.look, target, max)
+    /// The reach for blocks.
+    fn reach(&self) -> f64 {
+        if self.mode == GameMode::Creative {
+            REACH_CREATIVE
+        } else {
+            REACH_SURVIVAL
+        }
     }
 }
 
@@ -589,9 +589,9 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
             old_text,
             new_text: std::mem::take(&mut lines),
             side: if front {
-                crate::tile::Side::Front
+                crate::block_entity::Side::Front
             } else {
-                crate::tile::Side::Back
+                crate::block_entity::Side::Back
             },
             cancelled: false,
         };
@@ -783,7 +783,7 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
     if center(pos).distance_squared(actor.feet) >= MAX_ACTION_DISTANCE_SQUARED {
         return;
     }
-    let around = |at: BlockPos| Face::ALL.into_iter().filter_map(move |f| at.step(f));
+    let around = |at: BlockPos| Face::all().iter().filter_map(move |&f| at.step(f));
     let side = face.and_then(|f| pos.step(f));
     // Without a block next to the face, the clicked block itself goes too.
     let beside = side.into_iter().flat_map(around);

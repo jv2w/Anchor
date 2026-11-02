@@ -39,12 +39,13 @@ use crate::ServerBuilder;
 /// A creative inventory tab.
 #[doc(alias = "CreativeCategory")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Category {
     /// Building blocks.
     Construction,
     /// Natural blocks and plants.
     Nature,
-    /// Tools, weapons and armour.
+    /// Tools, weapons and armor.
     Equipment,
     /// Everything else.
     Items,
@@ -200,18 +201,17 @@ impl std::error::Error for Error {}
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl ServerBuilder {
-    /// Adds the custom item `item` (checked by [`build`](Self::build)). Its runtime ID follows
-    /// the vanilla ones in registration order.
+    /// Registers `inventory` as the alternative creative inventory `name`, which a player is
+    /// switched to while the server runs. It holds what it lists: no custom item or block place
+    /// is added. [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or
+    /// repeated name, or more than 64 alternatives.
     #[must_use]
-    pub fn custom_item(mut self, item: &'static Item) -> Self {
-        self.setup.custom.add_item(item);
-        self
-    }
-
-    /// Adds the custom block `block` and its item (checked by [`build`](Self::build)).
-    #[must_use]
-    pub fn custom_block(mut self, block: &'static Block) -> Self {
-        self.setup.custom.add_block(block);
+    pub fn alternative_creative_inventory(
+        mut self,
+        name: &'static str,
+        inventory: CreativeInventory,
+    ) -> Self {
+        self.setup.custom.add_creative_inventory(name, inventory);
         self
     }
 
@@ -225,17 +225,18 @@ impl ServerBuilder {
         self
     }
 
-    /// Registers `inventory` as the alternative creative inventory `name`, which a player is
-    /// switched to while the server runs. It holds what it lists: no custom item or block place
-    /// is added. [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or
-    /// repeated name, or more than 64 alternatives.
+    /// Adds the custom block `block` and its item (checked by [`build`](Self::build)).
     #[must_use]
-    pub fn alternative_creative_inventory(
-        mut self,
-        name: &'static str,
-        inventory: CreativeInventory,
-    ) -> Self {
-        self.setup.custom.add_creative_inventory(name, inventory);
+    pub fn custom_block(mut self, block: &'static Block) -> Self {
+        self.setup.custom.add_block(block);
+        self
+    }
+
+    /// Adds the custom item `item` (checked by [`build`](Self::build)). Its runtime ID follows
+    /// the vanilla ones in registration order.
+    #[must_use]
+    pub fn custom_item(mut self, item: &'static Item) -> Self {
+        self.setup.custom.add_item(item);
         self
     }
 }

@@ -46,15 +46,29 @@ const NO_REASON: &str = "disconnectionScreen.noReason";
 const TRANSFERRED: &str = "Moved to another server";
 
 impl Player {
-    /// The handle to keep beyond the tick.
-    pub fn id(&self) -> Id {
-        Id::new(self.session)
+    /// The client's random number, as its login tells (`getExtraData()["ClientRandomId"]`); 0
+    /// when not sent.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn client_random_id(&self) -> i64 {
+        self.identity.client.random_id
     }
 
-    /// The player's name: its Xbox gamertag with Xbox sign-in.
-    #[doc(alias = "Player::getName")]
-    pub fn name(&self) -> &str {
-        &self.identity.name
+    /// The device ID, as its login tells (`getExtraData()["DeviceId"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn device_id(&self) -> &str {
+        &self.identity.client.device_id
+    }
+
+    /// The device model, as its login tells (`getExtraData()["DeviceModel"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn device_model(&self) -> &str {
+        &self.identity.client.device_model
+    }
+
+    /// The device the client runs on, as its login tells (`getExtraData()["DeviceOS"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn device_os(&self) -> DeviceOs {
+        DeviceOs::try_from(self.identity.device_os).unwrap_or(DeviceOs::Unknown)
     }
 
     /// The name chat shows: the player's name unless
@@ -67,107 +81,12 @@ impl Player {
             .unwrap_or(&self.identity.name)
     }
 
-    /// The Xbox user ID; `None` without Xbox sign-in.
-    #[doc(alias = "Player::getXuid")]
-    pub fn xuid(&self) -> Option<u64> {
-        self.identity.xuid
-    }
-
-    /// Whether the player signed in with Xbox.
-    #[doc(alias = "Player::isAuthenticated")]
-    pub fn is_authenticated(&self) -> bool {
-        self.identity.xuid.is_some()
-    }
-
-    /// The player's UUID, from its login.
-    #[doc(alias = "Player::getUniqueId")]
-    pub fn uuid(&self) -> Uuid {
-        self.identity.uuid
-    }
-
-    /// The skin the client sent at login.
-    #[doc(alias = "Human::getSkin")]
-    pub fn skin(&self) -> &crate::protocol::Skin {
-        self.identity.skin.get()
-    }
-
-    /// The device the client runs on, as its login tells (`getExtraData()["DeviceOS"]`).
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn device_os(&self) -> DeviceOs {
-        DeviceOs::try_from(self.identity.device_os).unwrap_or(DeviceOs::Unknown)
-    }
-
-    /// The IP address the client connected from, which IP bans match; `None` only for a player
-    /// made without a connection (tests).
-    #[doc(alias = "NetworkSession::getIp")]
-    pub fn ip(&self) -> Option<IpAddr> {
-        self.identity.address
-    }
-
-    /// The port the client connected from; 0 only for a player made without a connection
-    /// (tests).
-    #[doc(alias = "NetworkSession::getPort")]
-    pub fn port(&self) -> u16 {
-        self.identity.client.port
-    }
-
-    /// The latest round trip time to the client: the RakNet ping, or on NetherNet the ICE
-    /// consent check's; `None` until one was measured. The session reports it every 5 seconds
-    /// when it changed.
-    #[doc(alias = "NetworkSession::getPing")]
-    pub fn ping(&self) -> Option<Duration> {
-        self.presence
-            .ping_ms
-            .map(|ms| Duration::from_millis(u64::from(ms)))
-    }
-
-    /// The language the client runs in, such as `en_US`, as its login tells.
-    #[doc(alias = "Player::getLocale")]
-    #[doc(alias = "PlayerInfo::getLocale")]
-    pub fn locale(&self) -> &str {
-        &self.identity.client.locale
-    }
-
-    /// The input mode the client started in, as its login tells;
-    /// [`InputMode::Undefined`] for a value the protocol
-    /// does not name.
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn input_mode(&self) -> InputMode {
-        self.identity.client.input_mode
-    }
-
-    /// The device model, as its login tells (`getExtraData()["DeviceModel"]`).
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn device_model(&self) -> &str {
-        &self.identity.client.device_model
-    }
-
-    /// The device ID, as its login tells (`getExtraData()["DeviceId"]`).
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn device_id(&self) -> &str {
-        &self.identity.client.device_id
-    }
-
-    /// The UUID the client made for itself, as its login tells (`getExtraData()["SelfSignedId"]`);
-    /// empty when not sent.
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn self_signed_id(&self) -> &str {
-        &self.identity.client.self_signed_id
-    }
-
-    /// The client's random number, as its login tells (`getExtraData()["ClientRandomId"]`); 0
-    /// when not sent.
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn client_random_id(&self) -> i64 {
-        self.identity.client.random_id
-    }
-
-    /// The PlayFab master player ID of the login's identity token (`mid`); empty when not sent,
-    /// as with the legacy login chain. With Xbox sign-in (`xbox-auth`) the token is verified;
-    /// without it, the value is the client's claim.
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn playfab_id(&self) -> &str {
-        &self.identity.client.playfab_id
+    /// When the player first joined this server, by the wall clock (its saved `firstPlayed`, or
+    /// this join for a new player).
+    #[doc(alias = "Player::getFirstPlayed")]
+    #[doc(alias = "IPlayer::getFirstPlayed")]
+    pub fn first_played(&self) -> SystemTime {
+        unix_time(self.presence.first_played)
     }
 
     /// The client's version, such as `1.26.60`, as its login tells
@@ -177,27 +96,10 @@ impl Player {
         &self.identity.client.game_version
     }
 
-    /// The address the client was told to join, such as `play.example.com:19132`, as its login
-    /// tells (`getExtraData()["ServerAddress"]`).
-    #[doc(alias = "PlayerInfo::getExtraData")]
-    pub fn server_address(&self) -> &str {
-        &self.identity.client.server_address
-    }
-
-    /// When the player first joined this server, by the wall clock (its saved `firstPlayed`, or
-    /// this join for a new player).
-    #[doc(alias = "Player::getFirstPlayed")]
-    #[doc(alias = "IPlayer::getFirstPlayed")]
-    pub fn first_played(&self) -> SystemTime {
-        unix_time(self.presence.first_played)
-    }
-
-    /// When the player's data was last saved before this join, by the wall clock (its saved
-    /// `lastPlayed`, or this join for a new player). It does not move while the player plays.
-    #[doc(alias = "Player::getLastPlayed")]
-    #[doc(alias = "IPlayer::getLastPlayed")]
-    pub fn last_played(&self) -> SystemTime {
-        unix_time(self.presence.last_played)
+    /// Whether the player gets what goes to everyone in the game (chat, join and quit messages,
+    /// skins): joined (its saved data has loaded) and not leaving.
+    pub(crate) fn gets_broadcasts(&self) -> bool {
+        self.phase != Phase::Loading && self.is_online()
     }
 
     /// Whether the player played here before this join: its data was saved more than a
@@ -211,20 +113,30 @@ impl Player {
             > 1
     }
 
-    /// The chunk radius the player sees: what its client asked for, at most `view-distance`, or
-    /// what [`Context::set_view_distance`](crate::Context::set_view_distance) set since; `None`
-    /// until it asked.
-    #[doc(alias = "Player::getViewDistance")]
-    pub fn view_distance(&self) -> Option<u8> {
-        self.chunk_radius
+    /// The handle to keep beyond the tick.
+    pub fn id(&self) -> Id {
+        Id::new(self.session)
     }
 
-    /// The lines the player's screen shows at once, for a server's own paged output (Anchor pages
-    /// nothing by it): 7 unless [`set_screen_line_height`](Self::set_screen_line_height) changed
-    /// it.
-    #[doc(alias = "Player::getScreenLineHeight")]
-    pub fn screen_line_height(&self) -> u32 {
-        self.marks.line_height.unwrap_or(DEFAULT_LINE_HEIGHT)
+    /// The input mode the client started in, as its login tells;
+    /// [`InputMode::Undefined`] for a value the protocol
+    /// does not name.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn input_mode(&self) -> InputMode {
+        self.identity.client.input_mode
+    }
+
+    /// The IP address the client connected from, which IP bans match; `None` only for a player
+    /// made without a connection (tests).
+    #[doc(alias = "NetworkSession::getIp")]
+    pub fn ip(&self) -> Option<IpAddr> {
+        self.identity.address
+    }
+
+    /// Whether the player signed in with Xbox.
+    #[doc(alias = "Player::isAuthenticated")]
+    pub fn is_authenticated(&self) -> bool {
+        self.identity.xuid.is_some()
     }
 
     /// Whether the player stays connected: false once it was kicked or transferred, until it
@@ -235,16 +147,50 @@ impl Player {
         self.marks.leave.is_none()
     }
 
-    /// Whether the player gets what goes to everyone in the game (chat, join and quit messages,
-    /// skins): joined (its saved data has loaded) and not leaving.
-    pub(crate) fn gets_broadcasts(&self) -> bool {
-        self.phase != Phase::Loading && self.is_online()
+    /// When the player's data was last saved before this join, by the wall clock (its saved
+    /// `lastPlayed`, or this join for a new player). It does not move while the player plays.
+    #[doc(alias = "Player::getLastPlayed")]
+    #[doc(alias = "IPlayer::getLastPlayed")]
+    pub fn last_played(&self) -> SystemTime {
+        unix_time(self.presence.last_played)
     }
 
-    /// The world the player is in.
-    #[doc(alias = "Entity::getWorld")]
-    pub fn world(&self) -> world::Id {
-        world::Id::of(self.marks.teleport.map_or(self.world, |(world, _)| world))
+    /// The language the client runs in, such as `en_US`, as its login tells.
+    #[doc(alias = "Player::getLocale")]
+    #[doc(alias = "PlayerInfo::getLocale")]
+    pub fn locale(&self) -> &str {
+        &self.identity.client.locale
+    }
+
+    /// The player's name: its Xbox gamertag with Xbox sign-in.
+    #[doc(alias = "Player::getName")]
+    pub fn name(&self) -> &str {
+        &self.identity.name
+    }
+
+    /// The latest round trip time to the client: the RakNet ping, or on NetherNet the ICE
+    /// consent check's; `None` until one was measured. The session reports it every 5 seconds
+    /// when it changed.
+    #[doc(alias = "NetworkSession::getPing")]
+    pub fn ping(&self) -> Option<Duration> {
+        self.presence
+            .ping_ms
+            .map(|ms| Duration::from_millis(u64::from(ms)))
+    }
+
+    /// The PlayFab master player ID of the login's identity token (`mid`); empty when not sent,
+    /// as with the legacy login chain. With Xbox sign-in (`xbox-auth`) the token is verified;
+    /// without it, the value is the client's claim.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn playfab_id(&self) -> &str {
+        &self.identity.client.playfab_id
+    }
+
+    /// The port the client connected from; 0 only for a player made without a connection
+    /// (tests).
+    #[doc(alias = "NetworkSession::getPort")]
+    pub fn port(&self) -> u16 {
+        self.identity.client.port
     }
 
     /// Where the player's feet are: 1.62 below its eyes, rounded to 4 decimals,
@@ -263,54 +209,127 @@ impl Player {
         self.marks.teleport.map_or(self.position, |(_, eye)| eye)
     }
 
-    /// Sets the name chat shows: chat lines and the join and quit lines name the player by it.
-    /// Not saved. Fails for a name longer than 65,536 bytes.
-    #[doc(alias = "Player::setDisplayName")]
-    pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
-        let name = name.into();
-        crate::player::check_text(&name)?;
-        self.marks.display_name = Some(name);
+    /// The lines the player's screen shows at once, for a server's own paged output (Anchor pages
+    /// nothing by it): 7 unless [`set_screen_line_height`](Self::set_screen_line_height) changed
+    /// it.
+    #[doc(alias = "Player::getScreenLineHeight")]
+    pub fn screen_line_height(&self) -> u32 {
+        self.marks.line_height.unwrap_or(DEFAULT_LINE_HEIGHT)
+    }
+
+    /// The UUID the client made for itself, as its login tells (`getExtraData()["SelfSignedId"]`);
+    /// empty when not sent.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn self_signed_id(&self) -> &str {
+        &self.identity.client.self_signed_id
+    }
+
+    /// The address the client was told to join, such as `play.example.com:19132`, as its login
+    /// tells (`getExtraData()["ServerAddress"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn server_address(&self) -> &str {
+        &self.identity.client.server_address
+    }
+
+    /// The skin the client sent at login.
+    #[doc(alias = "Human::getSkin")]
+    pub fn skin(&self) -> &crate::protocol::Skin {
+        self.identity.skin.get()
+    }
+
+    /// The player's UUID, from its login.
+    #[doc(alias = "Player::getUniqueId")]
+    pub fn uuid(&self) -> Uuid {
+        self.identity.uuid
+    }
+
+    /// The chunk radius the player sees: what its client asked for, at most `view-distance`, or
+    /// what [`Context::set_view_distance`](crate::Context::set_view_distance) set since; `None`
+    /// until it asked.
+    #[doc(alias = "Player::getViewDistance")]
+    pub fn view_distance(&self) -> Option<u8> {
+        self.chunk_radius
+    }
+
+    /// The world the player is in.
+    #[doc(alias = "Entity::getWorld")]
+    pub fn world(&self) -> world::Id {
+        world::Id::of(self.marks.teleport.map_or(self.world, |(world, _)| world))
+    }
+
+    /// The Xbox user ID; `None` without Xbox sign-in.
+    #[doc(alias = "Player::getXuid")]
+    pub fn xuid(&self) -> Option<u64> {
+        self.identity.xuid
+    }
+
+    /// [`add_sound`](Self::add_sound) heard at full volume however far `pos` is, so a sound
+    /// played where the player stands keeps up with it while it moves.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
+    /// [`Error::NoFullVolume`] for a sound the client plays from a level event (a door's, a
+    /// click), which has no full-volume form.
+    pub fn add_full_volume_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
+        check_position(pos)?;
+        let packet = sound.full_volume_packet(pos).ok_or(Error::NoFullVolume)?;
+        self.send_packet(packet);
         Ok(())
     }
 
-    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved.
-    /// Fails for 0.
-    #[doc(alias = "Player::setScreenLineHeight")]
-    pub fn set_screen_line_height(&mut self, height: Option<u32>) -> Result<()> {
-        if height == Some(0) {
-            return Err(Error::OutOfRange);
-        }
-        self.marks.line_height = height;
+    /// Plays one of the world's sounds to this player alone at `pos`, as [`Context::add_sound`]
+    /// plays it to everyone who sees the place.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
+    pub fn add_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
+        check_position(pos)?;
+        self.send_packet(sound.packet(pos));
         Ok(())
     }
 
-    /// Shows the player `message`. The packets follow this tick's
-    /// other packets. Fails, sending nothing, for a message a client does not decode ([`Message`]
-    /// gives the bounds). More than 4,096 packets queued in one tick disconnect the player
-    /// ([`send_packet`](Self::send_packet)).
-    #[doc(alias = "Player::sendMessage")]
-    #[doc(alias = "Player::sendTip")]
-    #[doc(alias = "Player::sendPopup")]
-    #[doc(alias = "Player::sendJukeboxPopup")]
-    #[doc(alias = "Player::sendActionBarMessage")]
-    #[doc(alias = "Player::sendTitle")]
-    #[doc(alias = "Player::sendSubTitle")]
-    #[doc(alias = "Player::removeTitles")]
-    #[doc(alias = "Player::resetTitles")]
-    #[doc(alias = "Player::setTitleDuration")]
-    #[doc(alias = "Player::sendToastNotification")]
-    pub fn send(&mut self, message: Message) -> Result<()> {
-        for packet in message.into_packets()?.into_iter().flatten() {
-            self.send_packet(packet);
+    /// Hides `elements` of the player's screen. The packet follows this tick's other packets;
+    /// an element already hidden is not sent again, so a repeated call changes nothing. The
+    /// hidden elements are kept for the connection and not saved, and a new join shows
+    /// everything.
+    pub fn hide_hud(&mut self, elements: &[HudElement]) {
+        self.change_hud(elements, HudVisibility::Hide);
+    }
+
+    /// Disconnects the player at the end of the tick with `reason` on its screen (the client's
+    /// "disconnected" text when empty); the other players see that it left the game.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Leaving`] if the player already leaves.
+    /// [`Error::TooLong`] for a reason longer than 65,536 bytes.
+    #[doc(alias = "Player::kick")]
+    #[doc(alias = "Player::disconnect")]
+    pub fn kick(&mut self, reason: impl Into<String>) -> Result<()> {
+        if self.marks.leave.is_some() {
+            return Err(Error::Leaving);
         }
+        let reason = reason.into();
+        crate::player::check_text(&reason)?;
+        self.marks.leave = Some(Leave::Kick {
+            reason,
+            screen_message: None,
+            quit_message: LEFT.to_owned(),
+        });
         Ok(())
     }
 
     /// Plays the sound named `name` (a vanilla or resource pack sound, such as `random.orb`) to
     /// this player alone at `pos`, once; a `volume` and `pitch` of 1 are the sound's own.
-    /// [`Context::add_sound`] plays the world's sounds to everyone who sees a place. Fails for a
-    /// name longer than 65,536 bytes, a `pos` that is not finite or outside the world border, or
-    /// a volume or pitch that is negative or not finite.
+    /// [`Context::add_sound`] plays the world's sounds to everyone who sees a place.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
+    /// [`Error::OutOfRange`] for a volume or pitch that is negative or not finite.
     pub fn play_sound(&mut self, name: &str, pos: Vec3, volume: f32, pitch: f32) -> Result<()> {
         crate::player::check_text(name)?;
         check_position(pos)?;
@@ -330,31 +349,75 @@ impl Player {
         Ok(())
     }
 
-    /// Plays one of the world's sounds to this player alone at `pos`, as [`Context::add_sound`]
-    /// plays it to everyone who sees the place. Fails for a `pos` that is not finite or outside
-    /// the world border.
-    pub fn add_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
-        check_position(pos)?;
-        self.send_packet(sound.packet(pos));
+    /// Shows the player `message`. The packets follow this tick's
+    /// other packets. More than 4,096 packets queued in one tick disconnect the player
+    /// ([`send_packet`](Self::send_packet)).
+    ///
+    /// # Errors
+    ///
+    /// Sends nothing for a message a client does not decode ([`Message`] gives the bounds):
+    /// [`Error::TooLong`] for a text or chat source name over its bound, and
+    /// [`Error::TooManyParameters`] for more than 4 translation parameters.
+    #[doc(alias = "Player::sendMessage")]
+    #[doc(alias = "Player::sendTip")]
+    #[doc(alias = "Player::sendPopup")]
+    #[doc(alias = "Player::sendJukeboxPopup")]
+    #[doc(alias = "Player::sendActionBarMessage")]
+    #[doc(alias = "Player::sendTitle")]
+    #[doc(alias = "Player::sendSubTitle")]
+    #[doc(alias = "Player::removeTitles")]
+    #[doc(alias = "Player::resetTitles")]
+    #[doc(alias = "Player::setTitleDuration")]
+    #[doc(alias = "Player::sendToastNotification")]
+    pub fn send(&mut self, message: Message) -> Result<()> {
+        for packet in message.into_packets()?.into_iter().flatten() {
+            self.send_packet(packet);
+        }
         Ok(())
     }
 
-    /// [`add_sound`](Self::add_sound) heard at full volume however far `pos` is, so a sound
-    /// played where the player stands keeps up with it while it moves. Fails for a `pos` that is
-    /// not finite or outside the world border, and with [`Error::NoFullVolume`] for a sound the
-    /// client plays from a level event (a door's, a click), which has no full-volume
-    /// form.
-    pub fn add_full_volume_sound(&mut self, pos: Vec3, sound: world::Sound) -> Result<()> {
-        check_position(pos)?;
-        let packet = sound.full_volume_packet(pos).ok_or(Error::NoFullVolume)?;
-        self.send_packet(packet);
+    /// Sets the name chat shows: chat lines and the join and quit lines name the player by it.
+    /// Not saved.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
+    #[doc(alias = "Player::setDisplayName")]
+    pub fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
+        let name = name.into();
+        crate::player::check_text(&name)?;
+        self.marks.display_name = Some(name);
         Ok(())
+    }
+
+    /// Sets the lines the player's screen shows at once; `None` goes back to 7. Not saved.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for 0.
+    #[doc(alias = "Player::setScreenLineHeight")]
+    pub fn set_screen_line_height(&mut self, height: Option<u32>) -> Result<()> {
+        if height == Some(0) {
+            return Err(Error::OutOfRange);
+        }
+        self.marks.line_height = height;
+        Ok(())
+    }
+
+    /// Shows `elements` of the player's screen again, as [`hide_hud`](Self::hide_hud) hides them;
+    /// an element that is shown is not sent again.
+    pub fn show_hud(&mut self, elements: &[HudElement]) {
+        self.change_hud(elements, HudVisibility::Reset);
     }
 
     /// Shows the particle effect named `name` (a vanilla or resource pack effect, such as
     /// `minecraft:totem_particle`) to this player alone at `pos`. [`Context::add_particle`] shows
-    /// the world's particles to everyone who sees a place. Fails for a name longer than 65,536
-    /// bytes or a `pos` that is not finite or outside the world border.
+    /// the world's particles to everyone who sees a place.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a name longer than 65,536 bytes.
+    /// [`Error::OutsideWorld`] for a `pos` that is not finite or outside the world border.
     pub fn show_particle(&mut self, name: &str, pos: Vec3) -> Result<()> {
         crate::player::check_text(name)?;
         check_position(pos)?;
@@ -370,42 +433,13 @@ impl Player {
         Ok(())
     }
 
-    /// Hides `elements` of the player's screen. The packet follows this tick's other packets;
-    /// an element already hidden is not sent again, so a repeated call changes nothing. The
-    /// hidden elements are kept for the connection and not saved, and a new join shows
-    /// everything.
-    pub fn hide_hud(&mut self, elements: &[HudElement]) {
-        self.change_hud(elements, HudVisibility::Hide);
-    }
-
-    /// Shows `elements` of the player's screen again, as [`hide_hud`](Self::hide_hud) hides them;
-    /// an element that is shown is not sent again.
-    pub fn show_hud(&mut self, elements: &[HudElement]) {
-        self.change_hud(elements, HudVisibility::Reset);
-    }
-
-    /// Disconnects the player at the end of the tick with `reason` on its screen (the client's
-    /// "disconnected" text when empty); the other players see that it left the game. Fails if the
-    /// player already leaves, or for a reason longer than 65,536 bytes.
-    #[doc(alias = "Player::kick")]
-    #[doc(alias = "Player::disconnect")]
-    pub fn kick(&mut self, reason: impl Into<String>) -> Result<()> {
-        if self.marks.leave.is_some() {
-            return Err(Error::Leaving);
-        }
-        let reason = reason.into();
-        crate::player::check_text(&reason)?;
-        self.marks.leave = Some(Leave::Kick {
-            reason,
-            screen_message: None,
-            quit_message: LEFT.to_owned(),
-        });
-        Ok(())
-    }
-
     /// Sends the player to the server at `address` (a host name or IP address) and `port` at the
     /// end of the tick; it leaves this one, and the other players see that it left the game.
-    /// Fails if the player already leaves, or for an empty address or one longer than 253 bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Leaving`] if the player already leaves.
+    /// [`Error::InvalidAddress`] for an empty address or one longer than 253 bytes.
     #[doc(alias = "Player::transfer")]
     pub fn transfer(&mut self, address: impl Into<String>, port: u16) -> Result<()> {
         if self.marks.leave.is_some() {
@@ -445,26 +479,6 @@ impl Player {
 }
 
 impl Context<'_> {
-    /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, it
-    /// wakes, its breaking stops, its fall ends, and its client and viewers see it there; another
-    /// world sends its chunks again. [`Player::position`] is the new place at once; a second
-    /// teleport in the tick wins, and a world that unloads before the player moves sends it to
-    /// the default world's spawn as it sends the world's players. The player keeps its rotation
-    /// unless [`Player::set_rotation`] turns it. Fails, changing nothing, with
-    /// [`Error::Offline`] if the player is not in the game, [`Error::WorldNotLoaded`] for a world
-    /// that is not loaded (unloaded, or an ID of another server) and [`Error::OutsideWorld`] for
-    /// a position that is not finite or lies outside the world border.
-    #[doc(alias = "Player::teleport")]
-    #[doc(alias = "Entity::teleport")]
-    pub fn teleport(&mut self, player: Id, world: world::Id, feet: Vec3) -> Result<()> {
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        let checked = survival::check_destination(self.state, world.index(), eye);
-        let p = self.player_mut(player).ok_or(Error::Offline)?;
-        checked?;
-        p.marks.teleport = Some((world.index(), eye));
-        Ok(())
-    }
-
     /// Kicks `player` as [`Player::kick`] does, after asking the [`PlayerKick`] listeners, which
     /// may keep it or change the reason, the screen message and the quit message the other
     /// players see (`quit_message` `None` is the usual "left the game" line, an empty one shows
@@ -500,7 +514,7 @@ impl Context<'_> {
         if dispatch::heard::<PlayerKick>(self.state) {
             let e = event.insert(PlayerKick {
                 player,
-                disconnect_reason: std::mem::take(&mut reason),
+                kick_reason: std::mem::take(&mut reason),
                 screen_message: screen_message.take(),
                 quit_message: std::mem::take(&mut quit_message),
                 cancelled: false,
@@ -510,14 +524,14 @@ impl Context<'_> {
                 || (dispatch::listened::<PlayerKick>(self.state)
                     && !can_kick(
                         self.state,
-                        &e.disconnect_reason,
+                        &e.kick_reason,
                         e.screen_message.as_deref(),
                         &e.quit_message,
                     ))
             {
                 return;
             }
-            reason.clone_from(&e.disconnect_reason);
+            reason.clone_from(&e.kick_reason);
             screen_message.clone_from(&e.screen_message);
             quit_message.clone_from(&e.quit_message);
         }
@@ -531,6 +545,74 @@ impl Context<'_> {
         if let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
+    }
+
+    /// Moves `player`'s feet to `feet` in `world` as [`teleport`](Self::teleport) does, after
+    /// asking the [`EntityTeleport`] listeners, which may keep it where it is or send it
+    /// elsewhere. Nothing happens, and the monitors hear nothing, if the teleport fails before
+    /// the listeners are asked or after they changed it, or if a listener cancels it.
+    pub(crate) fn teleport_player(
+        &mut self,
+        player: Id,
+        world: world::Id,
+        feet: Vec3,
+        cause: TeleportCause,
+    ) {
+        let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
+            return;
+        };
+        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        if survival::check_destination(self.state, world.index(), eye).is_err() {
+            return;
+        }
+        let (mut world, mut feet) = (world, feet);
+        let mut event = None;
+        if dispatch::heard::<EntityTeleport>(self.state) {
+            let e = event.insert(EntityTeleport {
+                entity: Actor::Player(player),
+                cause,
+                origin_world: origin.0,
+                origin: origin.1,
+                target_world: world,
+                target: feet,
+                cancelled: false,
+            });
+            dispatch::call(self.state, e);
+            if e.cancelled {
+                return;
+            }
+            (world, feet) = (e.target_world, e.target);
+        }
+        let moved = self.teleport(player, world, feet).is_ok();
+        if moved && let Some(e) = &event {
+            dispatch::watch(self.state, e);
+        }
+    }
+
+    /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, it
+    /// wakes, its breaking stops, its fall ends, and its client and viewers see it there; another
+    /// world sends its chunks again. [`Player::position`] is the new place at once; a second
+    /// teleport in the tick wins, and a world that unloads before the player moves sends it to
+    /// the default world's spawn as it sends the world's players. The player keeps its rotation
+    /// unless [`Player::set_rotation`] turns it.
+    ///
+    /// # Errors
+    ///
+    /// Changes nothing with:
+    /// [`Error::Offline`] if the player is not in the game.
+    /// [`Error::WorldNotLoaded`] for a world that is not loaded (unloaded, or an ID of another
+    /// server).
+    /// [`Error::OutsideWorld`] for a position that is not finite or lies outside the world
+    /// border.
+    #[doc(alias = "Player::teleport")]
+    #[doc(alias = "Entity::teleport")]
+    pub fn teleport(&mut self, player: Id, world: world::Id, feet: Vec3) -> Result<()> {
+        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
+        let checked = survival::check_destination(self.state, world.index(), eye);
+        let p = self.player_mut(player).ok_or(Error::Offline)?;
+        checked?;
+        p.marks.teleport = Some((world.index(), eye));
+        Ok(())
     }
 
     /// Sends `player` to the server at `address` and `port` as [`Player::transfer`] does, after
@@ -587,48 +669,6 @@ impl Context<'_> {
             });
         }
         if let Some(e) = &event {
-            dispatch::watch(self.state, e);
-        }
-    }
-
-    /// Moves `player`'s feet to `feet` in `world` as [`teleport`](Self::teleport) does, after
-    /// asking the [`EntityTeleport`] listeners, which may keep it where it is or send it
-    /// elsewhere. Nothing happens, and the monitors hear nothing, if the teleport fails before
-    /// the listeners are asked or after they changed it, or if a listener cancels it.
-    pub(crate) fn teleport_player(
-        &mut self,
-        player: Id,
-        world: world::Id,
-        feet: Vec3,
-        cause: TeleportCause,
-    ) {
-        let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
-            return;
-        };
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        if survival::check_destination(self.state, world.index(), eye).is_err() {
-            return;
-        }
-        let (mut world, mut feet) = (world, feet);
-        let mut event = None;
-        if dispatch::heard::<EntityTeleport>(self.state) {
-            let e = event.insert(EntityTeleport {
-                entity: Actor::Player(player),
-                cause,
-                origin_world: origin.0,
-                origin: origin.1,
-                target_world: world,
-                target: feet,
-                cancelled: false,
-            });
-            dispatch::call(self.state, e);
-            if e.cancelled {
-                return;
-            }
-            (world, feet) = (e.target_world, e.target);
-        }
-        let moved = self.teleport(player, world, feet).is_ok();
-        if moved && let Some(e) = &event {
             dispatch::watch(self.state, e);
         }
     }
@@ -808,16 +848,6 @@ pub(super) struct Presence {
 }
 
 impl Presence {
-    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
-    /// reads no wall clock; it dates it from the join time and the ticks since, one
-    /// [`super::TICK`] each).
-    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
-        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
-        let since =
-            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
-        (self.first_played, join_ms.saturating_add(since))
-    }
-
     /// Hashes every field (state hash).
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
@@ -833,9 +863,14 @@ impl Presence {
         h.u64(*placed_tick);
     }
 
-    /// Sets the latest round trip time to `millis` milliseconds.
-    pub(super) fn set_ping(&mut self, millis: u32) {
-        self.ping_ms = Some(millis);
+    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
+    /// reads no wall clock; it dates it from the join time and the ticks since, one
+    /// [`super::TICK`] each).
+    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
+        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
+        let since =
+            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
+        (self.first_played, join_ms.saturating_add(since))
     }
 
     /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
@@ -849,6 +884,11 @@ impl Presence {
         self.first_played = first.unwrap_or(join_ms);
         self.last_played = last.unwrap_or(join_ms);
         self.placed_tick = tick;
+    }
+
+    /// Sets the latest round trip time to `millis` milliseconds.
+    pub(super) fn set_ping(&mut self, millis: u32) {
+        self.ping_ms = Some(millis);
     }
 }
 
@@ -1037,7 +1077,7 @@ pub(super) mod tests {
 
     use crate::event::Listeners;
     use crate::nbt::Value;
-    use crate::player::{MAX_TEXT, TitleTimes};
+    use crate::player::{MAX_TEXT_BYTES, TitleTimes};
     use crate::tick::Context;
     use crate::tick::log::{EntryKind, InputLog};
     use crate::tick::queue::{
@@ -1181,7 +1221,7 @@ pub(super) mod tests {
         assert_eq!(p.skin().skin_image_width, 64);
         assert_eq!(p.device_os(), DeviceOs::Unknown);
         assert_eq!(
-            p.set_display_name("x".repeat(MAX_TEXT + 1)),
+            p.set_display_name("x".repeat(MAX_TEXT_BYTES + 1)),
             Err(Error::TooLong)
         );
         p.set_display_name("§aBoss").unwrap();
@@ -1302,7 +1342,7 @@ pub(super) mod tests {
             p.send(m).unwrap();
         }
         assert_eq!(
-            p.send(Message::Raw("x".repeat(MAX_TEXT + 1))),
+            p.send(Message::Raw("x".repeat(MAX_TEXT_BYTES + 1))),
             Err(Error::TooLong)
         );
         p.send_packet(Packet::Text(Box::new(crate::protocol::packet::Text {
@@ -1327,7 +1367,7 @@ pub(super) mod tests {
         let (mut state, [mut rx1, mut rx2]) = two();
         let p = player_mut(&mut state, 1);
         assert!(p.is_online());
-        assert_eq!(p.kick("x".repeat(MAX_TEXT + 1)), Err(Error::TooLong));
+        assert_eq!(p.kick("x".repeat(MAX_TEXT_BYTES + 1)), Err(Error::TooLong));
         p.kick("bye").unwrap();
         assert!(!p.is_online());
         assert_eq!(p.kick("again"), Err(Error::Leaving));
@@ -1511,7 +1551,7 @@ pub(super) mod tests {
             p.play_sound("random.orb", at, 1.0, -1.0),
             Err(Error::OutOfRange)
         );
-        let long = "x".repeat(MAX_TEXT + 1);
+        let long = "x".repeat(MAX_TEXT_BYTES + 1);
         assert_eq!(p.play_sound(&long, at, 1.0, 1.0), Err(Error::TooLong));
         assert_eq!(p.show_particle(&long, at), Err(Error::TooLong));
         run(&mut state, Vec::new());
@@ -1977,7 +2017,7 @@ pub(super) mod tests {
         let (mut state, _rx) = two_with(listeners);
         let id = Id::new(SessionId::new(1));
         let mut cx = Context { state: &mut state };
-        cx.kick_player(id, "x".repeat(MAX_TEXT + 1), None, None);
+        cx.kick_player(id, "x".repeat(MAX_TEXT_BYTES + 1), None, None);
         cx.transfer_player(id, String::new(), 19_132, None);
         let nowhere = Vec3::new(f64::NAN, 0.0, 0.0);
         cx.teleport_player(id, world::Id::DEFAULT, nowhere, TeleportCause::Action);

@@ -705,9 +705,9 @@ pub(crate) struct Settings {
     fall_damage: bool,
     /// Whether air, drowning and suffocation exist (`drowning`).
     drowning: bool,
-    /// Whether armour protects and wears (`armor`).
+    /// Whether armor protects and wears (`armor`).
     armor: bool,
-    /// Whether tools, weapons and armour wear out (`durability`).
+    /// Whether tools, weapons and armor wear out (`durability`).
     durability: bool,
     /// Whether the time of day moves on (`daylight-cycle`).
     daylight_cycle: bool,
@@ -2669,7 +2669,7 @@ mod tests {
         let Some(Packet::StartGame(start)) =
             packets.iter().find(|p| matches!(p, Packet::StartGame(_)))
         else {
-            panic!("StartGame is sent");
+            panic!("the start game packet is sent");
         };
         assert_eq!(start.entity_runtime_id, 1);
         assert_eq!((start.world_game_mode, start.difficulty), (1, 3));
@@ -2797,7 +2797,7 @@ mod tests {
     fn a_cancelled_duplicate_login_rejects_the_connecting_player() {
         let cancel: Hook = |e| {
             let reason = format!("{} over {}", e.connecting().name(), e.existing().name());
-            e.set_disconnect_reason(reason);
+            e.set_kick_reason(reason);
             e.cancel();
         };
         let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
@@ -2816,8 +2816,8 @@ mod tests {
     #[test]
     fn the_screen_message_replaces_the_reason_on_the_disconnect() {
         let screen: Hook = |e| {
-            e.set_disconnect_reason("logged reason");
-            e.set_disconnect_screen_message(Some("Seen on screen".to_owned()));
+            e.set_kick_reason("logged reason");
+            e.set_kick_screen_message(Some("Seen on screen".to_owned()));
         };
         let (a, mut rx1) = join_as(1, 0, person("Alex", Some(5)));
         let (b, _rx2) = join_as(2, 0, person("Alex", Some(5)));
@@ -3350,7 +3350,7 @@ mod tests {
                     format!("p{}", tick % 64)
                 };
                 let gift = gifts[usize::try_from(tick).unwrap() % gifts.len()].clone();
-                if let Some(player) = cx.player_exact(&name).and_then(|id| cx.player_mut(id)) {
+                if let Some(player) = cx.player_by_name(&name).and_then(|id| cx.player_mut(id)) {
                     player
                         .inventory_mut(crate::inventory::Kind::Main)
                         .add(&gift);
@@ -3375,7 +3375,7 @@ mod tests {
                 }
                 // Network controls: a new server name, and a block that ends.
                 if tick % 100 == 40 {
-                    assert!(cx.set_motd(format!("Anchor {tick}")));
+                    cx.set_motd(format!("Anchor {tick}")).unwrap();
                     let ip = std::net::IpAddr::from([192, 0, 2, 1]);
                     cx.block_address(ip, Duration::from_secs(5)).unwrap();
                 }

@@ -175,6 +175,11 @@ pub enum List {
 }
 
 impl List {
+    /// Whether the list has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The number of elements.
     pub fn len(&self) -> usize {
         match self {
@@ -192,11 +197,6 @@ impl List {
             Self::IntArray(x) => x.len(),
             Self::LongArray(x) => x.len(),
         }
-    }
-
-    /// Whether the list has no elements.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// The element tag type.
@@ -279,138 +279,6 @@ impl Decoder<'_, '_> {
         Ok(())
     }
 
-    fn int32(&mut self) -> Result<i32> {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.r.varint32(),
-            Encoding::LittleEndian => self.r.int32(),
-        }
-    }
-
-    fn int64(&mut self) -> Result<i64> {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.r.varint64(),
-            Encoding::LittleEndian => self.r.int64(),
-        }
-    }
-
-    /// Reads an array or list length: an int32 that may not be negative.
-    fn length(&mut self) -> Result<u64> {
-        u64::try_from(self.int32()?).map_err(|_| Error::Size)
-    }
-
-    fn string(&mut self) -> Result<String> {
-        let len = match self.encoding {
-            Encoding::NetworkLittleEndian => u64::from(self.r.varuint32()?),
-            Encoding::LittleEndian => u64::try_from(self.r.int16()?).map_err(|_| Error::Size)?,
-        };
-        if len > u64::from(MAX_STRING_LEN) {
-            return Err(Error::Size);
-        }
-        self.r.utf8(len)
-    }
-
-    /// Reads `len` elements with `f` after the limit check.
-    fn items<T>(&mut self, len: u64, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
-        let len = self.r.limit(len, usize::MAX, size_of::<T>())?;
-        let mut items = Vec::with_capacity(len);
-        for _ in 0..len {
-            items.push(f(self)?);
-        }
-        Ok(items)
-    }
-
-    fn byte_array(&mut self) -> Result<Vec<u8>> {
-        let len = self.length()?;
-        self.r.byte_vec(len)
-    }
-
-    fn int_array(&mut self) -> Result<Vec<i32>> {
-        let len = self.length()?;
-        self.items(len, Self::int32)
-    }
-
-    fn long_array(&mut self) -> Result<Vec<i64>> {
-        let len = self.length()?;
-        self.items(len, Self::int64)
-    }
-
-    fn tag_type(&mut self) -> Result<u8> {
-        let tag = self.r.uint8()?;
-        if tag > TAG_LONG_ARRAY {
-            return Err(Error::UnknownEnum {
-                name: "nbt tag",
-                value: tag.into(),
-            });
-        }
-        Ok(tag)
-    }
-
-    /// Reads the root tag header and returns its type; the name is dropped.
-    fn root(&mut self) -> Result<u8> {
-        let tag = self.tag_type()?;
-        if tag != TAG_END {
-            self.string()?;
-        }
-        Ok(tag)
-    }
-
-    /// Reads the payload of a tag that is not a container.
-    fn scalar(&mut self, tag: u8) -> Result<Value> {
-        Ok(match tag {
-            TAG_BYTE => Value::Byte(self.r.uint8()?),
-            TAG_SHORT => Value::Short(self.r.int16()?),
-            TAG_INT => Value::Int(self.int32()?),
-            TAG_LONG => Value::Long(self.int64()?),
-            TAG_FLOAT => Value::Float(self.r.float32()?),
-            TAG_DOUBLE => Value::Double(self.r.float64()?),
-            TAG_BYTE_ARRAY => Value::ByteArray(self.byte_array()?),
-            TAG_STRING => Value::String(self.string()?),
-            TAG_INT_ARRAY => Value::IntArray(self.int_array()?),
-            TAG_LONG_ARRAY => Value::LongArray(self.long_array()?),
-            _ => {
-                return Err(Error::InvalidValue {
-                    field: "nbt tag",
-                    reason: "TAG_End has no payload",
-                });
-            }
-        })
-    }
-
-    /// Reads a list header, then the whole list unless its elements are containers.
-    fn open_list(&mut self) -> Result<Opened> {
-        let tag = self.tag_type()?;
-        let len = self.length()?;
-        Ok(Opened::Done(match tag {
-            TAG_END if len == 0 => List::End,
-            TAG_END => {
-                return Err(Error::InvalidValue {
-                    field: "nbt list",
-                    reason: "TAG_End elements",
-                });
-            }
-            TAG_BYTE => List::Byte(self.r.byte_vec(len)?),
-            TAG_SHORT => List::Short(self.items(len, |d| d.r.int16())?),
-            TAG_INT => List::Int(self.items(len, Self::int32)?),
-            TAG_LONG => List::Long(self.items(len, Self::int64)?),
-            TAG_FLOAT => List::Float(self.items(len, |d| d.r.float32())?),
-            TAG_DOUBLE => List::Double(self.items(len, |d| d.r.float64())?),
-            TAG_BYTE_ARRAY => List::ByteArray(self.items(len, Self::byte_array)?),
-            TAG_STRING => List::String(self.items(len, Self::string)?),
-            TAG_INT_ARRAY => List::IntArray(self.items(len, Self::int_array)?),
-            TAG_LONG_ARRAY => List::LongArray(self.items(len, Self::long_array)?),
-            TAG_LIST => {
-                let left = self.r.limit(len, usize::MAX, size_of::<List>())?;
-                let items = Vec::with_capacity(left);
-                return Ok(Opened::Frame(ReadFrame::Lists { left, items }));
-            }
-            _ => {
-                let left = self.r.limit(len, usize::MAX, size_of::<Compound>())?;
-                let items = Vec::with_capacity(left);
-                return Ok(Opened::Frame(ReadFrame::Compounds { left, items }));
-            }
-        }))
-    }
-
     /// Reads the payload of the root compound and everything in it.
     fn compound(&mut self) -> Result<Compound> {
         let mut stack = Vec::with_capacity(FRAME_CAPACITY);
@@ -462,6 +330,138 @@ impl Decoder<'_, '_> {
         }
         Err(STACK_ORDER)
     }
+
+    /// Reads a list header, then the whole list unless its elements are containers.
+    fn open_list(&mut self) -> Result<Opened> {
+        let tag = self.tag_type()?;
+        let len = self.length()?;
+        Ok(Opened::Done(match tag {
+            TAG_END if len == 0 => List::End,
+            TAG_END => {
+                return Err(Error::InvalidValue {
+                    field: "nbt list",
+                    reason: "TAG_End elements",
+                });
+            }
+            TAG_BYTE => List::Byte(self.r.byte_vec(len)?),
+            TAG_SHORT => List::Short(self.items(len, |d| d.r.int16())?),
+            TAG_INT => List::Int(self.items(len, Self::int32)?),
+            TAG_LONG => List::Long(self.items(len, Self::int64)?),
+            TAG_FLOAT => List::Float(self.items(len, |d| d.r.float32())?),
+            TAG_DOUBLE => List::Double(self.items(len, |d| d.r.float64())?),
+            TAG_BYTE_ARRAY => List::ByteArray(self.items(len, Self::byte_array)?),
+            TAG_STRING => List::String(self.items(len, Self::string)?),
+            TAG_INT_ARRAY => List::IntArray(self.items(len, Self::int_array)?),
+            TAG_LONG_ARRAY => List::LongArray(self.items(len, Self::long_array)?),
+            TAG_LIST => {
+                let left = self.r.limit(len, usize::MAX, size_of::<List>())?;
+                let items = Vec::with_capacity(left);
+                return Ok(Opened::Frame(ReadFrame::Lists { left, items }));
+            }
+            _ => {
+                let left = self.r.limit(len, usize::MAX, size_of::<Compound>())?;
+                let items = Vec::with_capacity(left);
+                return Ok(Opened::Frame(ReadFrame::Compounds { left, items }));
+            }
+        }))
+    }
+
+    /// Reads the root tag header and returns its type; the name is dropped.
+    fn root(&mut self) -> Result<u8> {
+        let tag = self.tag_type()?;
+        if tag != TAG_END {
+            self.string()?;
+        }
+        Ok(tag)
+    }
+
+    /// Reads the payload of a tag that is not a container.
+    fn scalar(&mut self, tag: u8) -> Result<Value> {
+        Ok(match tag {
+            TAG_BYTE => Value::Byte(self.r.uint8()?),
+            TAG_SHORT => Value::Short(self.r.int16()?),
+            TAG_INT => Value::Int(self.int32()?),
+            TAG_LONG => Value::Long(self.int64()?),
+            TAG_FLOAT => Value::Float(self.r.float32()?),
+            TAG_DOUBLE => Value::Double(self.r.float64()?),
+            TAG_BYTE_ARRAY => Value::ByteArray(self.byte_array()?),
+            TAG_STRING => Value::String(self.string()?),
+            TAG_INT_ARRAY => Value::IntArray(self.int_array()?),
+            TAG_LONG_ARRAY => Value::LongArray(self.long_array()?),
+            _ => {
+                return Err(Error::InvalidValue {
+                    field: "nbt tag",
+                    reason: "TAG_End has no payload",
+                });
+            }
+        })
+    }
+
+    fn string(&mut self) -> Result<String> {
+        let len = match self.encoding {
+            Encoding::NetworkLittleEndian => u64::from(self.r.varuint32()?),
+            Encoding::LittleEndian => u64::try_from(self.r.int16()?).map_err(|_| Error::Size)?,
+        };
+        if len > u64::from(MAX_STRING_LEN) {
+            return Err(Error::Size);
+        }
+        self.r.utf8(len)
+    }
+
+    fn tag_type(&mut self) -> Result<u8> {
+        let tag = self.r.uint8()?;
+        if tag > TAG_LONG_ARRAY {
+            return Err(Error::UnknownEnum {
+                name: "nbt tag",
+                value: tag.into(),
+            });
+        }
+        Ok(tag)
+    }
+
+    fn byte_array(&mut self) -> Result<Vec<u8>> {
+        let len = self.length()?;
+        self.r.byte_vec(len)
+    }
+
+    fn int32(&mut self) -> Result<i32> {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.r.varint32(),
+            Encoding::LittleEndian => self.r.int32(),
+        }
+    }
+
+    fn int64(&mut self) -> Result<i64> {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.r.varint64(),
+            Encoding::LittleEndian => self.r.int64(),
+        }
+    }
+
+    fn int_array(&mut self) -> Result<Vec<i32>> {
+        let len = self.length()?;
+        self.items(len, Self::int32)
+    }
+
+    /// Reads `len` elements with `f` after the limit check.
+    fn items<T>(&mut self, len: u64, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
+        let len = self.r.limit(len, usize::MAX, size_of::<T>())?;
+        let mut items = Vec::with_capacity(len);
+        for _ in 0..len {
+            items.push(f(self)?);
+        }
+        Ok(items)
+    }
+
+    /// Reads an array or list length: an int32 that may not be negative.
+    fn length(&mut self) -> Result<u64> {
+        u64::try_from(self.int32()?).map_err(|_| Error::Size)
+    }
+
+    fn long_array(&mut self) -> Result<Vec<i64>> {
+        let len = self.length()?;
+        self.items(len, Self::int64)
+    }
 }
 
 /// A container being read. Nesting uses this explicit stack instead of recursion, so the
@@ -481,6 +481,14 @@ impl ReadFrame {
         }
     }
 
+    fn finish(self) -> Value {
+        match self {
+            Self::Compound { map, .. } => Value::Compound(map),
+            Self::Lists { items, .. } => Value::List(List::List(items)),
+            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
+        }
+    }
+
     /// Adds a finished child: any value to a compound, a list or compound to a list of them.
     fn add(&mut self, value: Value) -> Result<()> {
         match (self, value) {
@@ -492,14 +500,6 @@ impl ReadFrame {
             _ => return Err(STACK_ORDER),
         }
         Ok(())
-    }
-
-    fn finish(self) -> Value {
-        match self {
-            Self::Compound { map, .. } => Value::Compound(map),
-            Self::Lists { items, .. } => Value::List(List::List(items)),
-            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
-        }
     }
 }
 
@@ -529,20 +529,6 @@ impl Encoder<'_> {
         Ok(())
     }
 
-    /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
-    fn charge(&mut self, count: usize, size: usize) {
-        self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
-    }
-
-    /// Counts the entries of `map`, as the decoder takes them key by key ([`ENTRY_CHARGES`]).
-    fn charge_entries(&mut self, map: &Compound) {
-        let (first, other) = ENTRY_CHARGES;
-        if !map.is_empty() {
-            self.charge(1, first);
-            self.charge(map.len() - 1, other);
-        }
-    }
-
     /// Fails if `n` more bytes would pass [`Self::end`]; checked before a byte run is copied.
     fn room(&self, n: usize) -> Result<()> {
         if self.w.as_bytes().len().saturating_add(n) > self.end {
@@ -551,79 +537,49 @@ impl Encoder<'_> {
         Ok(())
     }
 
-    fn int32(&mut self, x: i32) {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.varint32(x),
-            Encoding::LittleEndian => self.w.int32(x),
-        }
-    }
-
-    fn int64(&mut self, x: i64) {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.varint64(x),
-            Encoding::LittleEndian => self.w.int64(x),
-        }
-    }
-
-    fn length(&mut self, len: usize) -> Result<()> {
-        self.int32(crate::protocol::length(len)?);
-        Ok(())
-    }
-
-    fn string(&mut self, x: &str) -> Result<()> {
-        if x.len() > usize::from(MAX_STRING_LEN) {
-            return Err(Error::Size);
-        }
-        self.room(x.len())?;
-        self.charge(x.len(), 1);
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.string(x),
-            Encoding::LittleEndian => self.w.string_utf(x),
-        }
-    }
-
-    fn byte_array(&mut self, x: &[u8]) -> Result<()> {
-        self.length(x.len())?;
-        self.room(x.len())?;
-        self.charge(x.len(), 1);
-        self.w.bytes(x);
-        Ok(())
-    }
-
-    fn int_array(&mut self, x: &[i32]) -> Result<()> {
-        self.length(x.len())?;
-        self.charge(x.len(), size_of::<i32>());
-        for v in x {
-            self.int32(*v);
+    /// Writes the payload of the root compound `root` and everything in it.
+    fn compound(&mut self, root: &Compound) -> Result<()> {
+        let mut stack = Vec::with_capacity(FRAME_CAPACITY);
+        self.charge_entries(root);
+        stack.push(WriteFrame::Compound(root.iter()));
+        while let Some(top) = stack.last_mut() {
             self.check()?;
-        }
-        Ok(())
-    }
-
-    fn long_array(&mut self, x: &[i64]) -> Result<()> {
-        self.length(x.len())?;
-        self.charge(x.len(), size_of::<i64>());
-        for v in x {
-            self.int64(*v);
-            self.check()?;
-        }
-        Ok(())
-    }
-
-    /// Writes the payload of a value that is not a container.
-    fn scalar(&mut self, value: &Value) -> Result<()> {
-        match value {
-            Value::Byte(x) => self.w.uint8(*x),
-            Value::Short(x) => self.w.int16(*x),
-            Value::Int(x) => self.int32(*x),
-            Value::Long(x) => self.int64(*x),
-            Value::Float(x) => self.w.float32(*x),
-            Value::Double(x) => self.w.float64(*x),
-            Value::ByteArray(x) => self.byte_array(x)?,
-            Value::String(x) => self.string(x)?,
-            Value::IntArray(x) => self.int_array(x)?,
-            Value::LongArray(x) => self.long_array(x)?,
-            Value::List(_) | Value::Compound(_) => {}
+            let next = match top {
+                WriteFrame::Compound(entries) => {
+                    if let Some((name, value)) = entries.next() {
+                        self.w.uint8(value.tag());
+                        self.string(name)?;
+                        match value {
+                            Value::List(list) => Next::List(list),
+                            Value::Compound(map) => Next::Compound(map),
+                            value => Next::Scalar(value),
+                        }
+                    } else {
+                        self.w.uint8(TAG_END);
+                        Next::End
+                    }
+                }
+                WriteFrame::Lists(items) => items.next().map_or(Next::End, Next::List),
+                WriteFrame::Compounds(items) => items.next().map_or(Next::End, Next::Compound),
+            };
+            match next {
+                Next::Scalar(value) => self.scalar(value)?,
+                Next::End => {
+                    stack.pop();
+                }
+                Next::List(_) | Next::Compound(_) if stack.len() >= MAX_DEPTH => {
+                    return Err(Error::Size);
+                }
+                Next::List(list) => {
+                    if let Some(frame) = self.list(list)? {
+                        stack.push(frame);
+                    }
+                }
+                Next::Compound(map) => {
+                    self.charge_entries(map);
+                    stack.push(WriteFrame::Compound(map.iter()));
+                }
+            }
         }
         Ok(())
     }
@@ -711,49 +667,93 @@ impl Encoder<'_> {
         Ok(None)
     }
 
-    /// Writes the payload of the root compound `root` and everything in it.
-    fn compound(&mut self, root: &Compound) -> Result<()> {
-        let mut stack = Vec::with_capacity(FRAME_CAPACITY);
-        self.charge_entries(root);
-        stack.push(WriteFrame::Compound(root.iter()));
-        while let Some(top) = stack.last_mut() {
+    /// Writes the payload of a value that is not a container.
+    fn scalar(&mut self, value: &Value) -> Result<()> {
+        match value {
+            Value::Byte(x) => self.w.uint8(*x),
+            Value::Short(x) => self.w.int16(*x),
+            Value::Int(x) => self.int32(*x),
+            Value::Long(x) => self.int64(*x),
+            Value::Float(x) => self.w.float32(*x),
+            Value::Double(x) => self.w.float64(*x),
+            Value::ByteArray(x) => self.byte_array(x)?,
+            Value::String(x) => self.string(x)?,
+            Value::IntArray(x) => self.int_array(x)?,
+            Value::LongArray(x) => self.long_array(x)?,
+            Value::List(_) | Value::Compound(_) => {}
+        }
+        Ok(())
+    }
+
+    fn int32(&mut self, x: i32) {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.varint32(x),
+            Encoding::LittleEndian => self.w.int32(x),
+        }
+    }
+
+    fn int64(&mut self, x: i64) {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.varint64(x),
+            Encoding::LittleEndian => self.w.int64(x),
+        }
+    }
+
+    fn length(&mut self, len: usize) -> Result<()> {
+        self.int32(crate::protocol::length(len)?);
+        Ok(())
+    }
+
+    fn string(&mut self, x: &str) -> Result<()> {
+        if x.len() > usize::from(MAX_STRING_LEN) {
+            return Err(Error::Size);
+        }
+        self.room(x.len())?;
+        self.charge(x.len(), 1);
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.string(x),
+            Encoding::LittleEndian => self.w.string_utf(x),
+        }
+    }
+
+    fn byte_array(&mut self, x: &[u8]) -> Result<()> {
+        self.length(x.len())?;
+        self.room(x.len())?;
+        self.charge(x.len(), 1);
+        self.w.bytes(x);
+        Ok(())
+    }
+
+    /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
+    fn charge(&mut self, count: usize, size: usize) {
+        self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
+    }
+
+    /// Counts the entries of `map`, as the decoder takes them key by key ([`ENTRY_CHARGES`]).
+    fn charge_entries(&mut self, map: &Compound) {
+        let (first, other) = ENTRY_CHARGES;
+        if !map.is_empty() {
+            self.charge(1, first);
+            self.charge(map.len() - 1, other);
+        }
+    }
+
+    fn int_array(&mut self, x: &[i32]) -> Result<()> {
+        self.length(x.len())?;
+        self.charge(x.len(), size_of::<i32>());
+        for v in x {
+            self.int32(*v);
             self.check()?;
-            let next = match top {
-                WriteFrame::Compound(entries) => {
-                    if let Some((name, value)) = entries.next() {
-                        self.w.uint8(value.tag());
-                        self.string(name)?;
-                        match value {
-                            Value::List(list) => Next::List(list),
-                            Value::Compound(map) => Next::Compound(map),
-                            value => Next::Scalar(value),
-                        }
-                    } else {
-                        self.w.uint8(TAG_END);
-                        Next::End
-                    }
-                }
-                WriteFrame::Lists(items) => items.next().map_or(Next::End, Next::List),
-                WriteFrame::Compounds(items) => items.next().map_or(Next::End, Next::Compound),
-            };
-            match next {
-                Next::Scalar(value) => self.scalar(value)?,
-                Next::End => {
-                    stack.pop();
-                }
-                Next::List(_) | Next::Compound(_) if stack.len() >= MAX_DEPTH => {
-                    return Err(Error::Size);
-                }
-                Next::List(list) => {
-                    if let Some(frame) = self.list(list)? {
-                        stack.push(frame);
-                    }
-                }
-                Next::Compound(map) => {
-                    self.charge_entries(map);
-                    stack.push(WriteFrame::Compound(map.iter()));
-                }
-            }
+        }
+        Ok(())
+    }
+
+    fn long_array(&mut self, x: &[i64]) -> Result<()> {
+        self.length(x.len())?;
+        self.charge(x.len(), size_of::<i64>());
+        for v in x {
+            self.int64(*v);
+            self.check()?;
         }
         Ok(())
     }
@@ -836,16 +836,6 @@ impl Static {
 }
 
 impl StaticList {
-    fn to_list(&self) -> List {
-        match self {
-            Self::End => List::End,
-            Self::Int(x) => List::Int(x.to_vec()),
-            Self::Float(x) => List::Float(x.to_vec()),
-            Self::String(x) => List::String(x.iter().map(|s| (*s).to_owned()).collect()),
-            Self::Compound(x) => List::Compound(x.iter().map(|c| compound(c)).collect()),
-        }
-    }
-
     fn equals(&self, list: &List) -> bool {
         fn all<A, B>(a: &[A], b: &[B], eq: impl Fn(&A, &B) -> bool) -> bool {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| eq(x, y))
@@ -857,6 +847,16 @@ impl StaticList {
             (Self::String(a), List::String(b)) => all(a, b, |x, y| x == y),
             (Self::Compound(a), List::Compound(b)) => all(a, b, |x, y| equals(y, x)),
             _ => false,
+        }
+    }
+
+    fn to_list(&self) -> List {
+        match self {
+            Self::End => List::End,
+            Self::Int(x) => List::Int(x.to_vec()),
+            Self::Float(x) => List::Float(x.to_vec()),
+            Self::String(x) => List::String(x.iter().map(|s| (*s).to_owned()).collect()),
+            Self::Compound(x) => List::Compound(x.iter().map(|c| compound(c)).collect()),
         }
     }
 }
@@ -935,6 +935,19 @@ pub(crate) fn compound(entries: StaticCompound) -> Compound {
         .iter()
         .map(|(key, value)| ((*key).to_owned(), value.to_value()))
         .collect()
+}
+
+/// The compound stored under `key`, for tests.
+///
+/// # Panics
+///
+/// Panics when `key` is missing or holds another kind of value.
+#[cfg(test)]
+pub(crate) fn child_compound<'a>(parent: &'a Compound, key: &str) -> &'a Compound {
+    match parent.get(key) {
+        Some(Value::Compound(child)) => child,
+        other => panic!("{key}: {other:?}"),
+    }
 }
 
 /// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).

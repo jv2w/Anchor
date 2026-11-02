@@ -21,6 +21,14 @@ pub(super) struct Raised {
 }
 
 impl Raised {
+    /// Whether a listener (not only a monitor) of a raised event ran, so the game may have
+    /// changed.
+    pub(super) fn has_listened(&self, state: &State) -> bool {
+        (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
+            || (self.trade.is_some() && dispatch::listened::<Trade>(state))
+            || (self.drop.is_some() && dispatch::listened::<PlayerDropItem>(state))
+    }
+
     /// The heard events of `session`'s request `plan`.
     pub(super) fn of(state: &State, session: SessionId, plan: &Plan) -> Self {
         let player = crate::player::Id::new(session);
@@ -56,12 +64,22 @@ impl Raised {
         }
     }
 
-    /// Whether a listener (not only a monitor) of a raised event ran, so the game may have
-    /// changed.
-    pub(super) fn has_listened(&self, state: &State) -> bool {
-        (self.transaction.is_some() && dispatch::listened::<InventoryTransaction>(state))
-            || (self.trade.is_some() && dispatch::listened::<Trade>(state))
-            || (self.drop.is_some() && dispatch::listened::<PlayerDropItem>(state))
+    /// Calls the monitors of each raised event, after the request applied.
+    pub(super) fn watch(self, state: &mut State) {
+        let Self {
+            transaction,
+            trade,
+            drop,
+        } = self;
+        if let Some(e) = transaction {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = trade {
+            dispatch::watch(state, &e);
+        }
+        if let Some(e) = drop {
+            dispatch::watch(state, &e);
+        }
     }
 
     /// Calls the listeners of each event in order; a cancelled one refuses the request and the
@@ -83,24 +101,6 @@ impl Raised {
         one(state, self.transaction.as_mut(), |e| e.cancelled)?;
         one(state, self.trade.as_mut(), |e| e.cancelled)?;
         one(state, self.drop.as_mut(), |e| e.cancelled)
-    }
-
-    /// Calls the monitors of each raised event, after the request applied.
-    pub(super) fn watch(self, state: &mut State) {
-        let Self {
-            transaction,
-            trade,
-            drop,
-        } = self;
-        if let Some(e) = transaction {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = trade {
-            dispatch::watch(state, &e);
-        }
-        if let Some(e) = drop {
-            dispatch::watch(state, &e);
-        }
     }
 }
 

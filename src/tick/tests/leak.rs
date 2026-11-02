@@ -241,7 +241,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
 
     // A form the client never answers.
     let mut cx = task::Context { state: &mut *state };
-    let player = cx.player_exact(&format!("player{n}")).unwrap();
+    let player = cx.player_by_name(&format!("player{n}")).unwrap();
     let modal = Modal::new("Kit", "Take a kit?", "Yes", "No");
     assert!(cx.send_form(player, modal, |_, _, _| {}).is_ok());
 

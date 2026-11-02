@@ -8,7 +8,7 @@
 
 #[path = "support/oracle.rs"]
 mod oracle;
-#[path = "support/rng.rs"]
+#[path = "../../tests/support/rng.rs"]
 mod rng;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -261,7 +261,7 @@ fn mutate(rng: &mut Rng, sample: &[u8]) -> Vec<u8> {
             }
             1 => {
                 let at = rng.below(m.len() + 1);
-                let b = rng.byte();
+                let b = rng.next().to_le_bytes()[0];
                 m.insert(at, b);
             }
             2 if !m.is_empty() => {
@@ -644,7 +644,8 @@ fn one_longer(payload: &[u8], fill: u8, len: usize) -> Vec<u8> {
 /// more: a payload over a limit the encoder refuses to write.
 fn one_more(payload: &[u8], count: u8) -> Vec<u8> {
     let (first, elements) = payload.split_first().expect("a count");
-    assert!(*first == count && count < 127, "a one-byte count {count}");
+    assert_eq!(*first, count, "the count byte");
+    assert!(count < 127, "a one-byte count {count}");
     let size = elements.len() / usize::from(count);
     assert_eq!(size * usize::from(count), elements.len(), "equal elements");
     let mut out = vec![count + 1];

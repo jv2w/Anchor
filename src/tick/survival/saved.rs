@@ -8,8 +8,6 @@
 //! [`MAX_LEVEL`](crate::player::MAX_LEVEL), the xp ever collected to [`MAX_LIFETIME_XP`], and
 //! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
-use tracing::warn;
-
 use super::effects::Active;
 use super::food::{FOOD_CYCLE, MAX_LIFETIME_XP};
 use super::{
@@ -206,15 +204,8 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
             .iter()
             .take(MAX_HELD_BACK)
             .filter_map(|nbt| {
-                let stack = Stack::from_nbt_with(nbt, custom);
-                if stack.is_none() {
-                    // The held-back list is written again at the next save, so the item is lost.
-                    warn!(
-                        ?nbt,
-                        "a held-back death drop is unknown; it is left out and lost at the next save"
-                    );
-                }
-                stack.filter(|s| !s.is_empty())
+                crate::tick::inventory::read_saved_stack(nbt, custom, "a held-back death drop")
+                    .filter(|s| !s.is_empty())
             })
             .collect(),
         _ => Vec::new(),
@@ -325,7 +316,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
 mod tests {
     use super::*;
 
-    use crate::effect::{MAX_DURATION, Type as Effect};
+    use crate::effect::{MAX_DURATION_TICKS, Type as Effect};
     use crate::tick::extra::hash_nbt;
 
     /// A state with a value in every saved field.
@@ -356,7 +347,7 @@ mod tests {
             ..Survival::default()
         };
         s.effects.insert(Effect::Speed, Active::new(200, 1));
-        let mut infinite = Active::new(MAX_DURATION, 0);
+        let mut infinite = Active::new(MAX_DURATION_TICKS, 0);
         infinite.infinite = true;
         infinite.ambient = true;
         infinite.visible = false;

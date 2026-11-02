@@ -257,20 +257,6 @@ struct Limits {
 }
 
 impl Limits {
-    /// Counts a new connection, or returns `false` if it would pass a limit.
-    fn try_add(&mut self, group: Group) -> bool {
-        if self.total >= MAX_CONNECTIONS {
-            return false;
-        }
-        let count = self.groups.entry(group).or_default();
-        if *count >= MAX_CONNECTIONS_PER_IP {
-            return false;
-        }
-        *count += 1;
-        self.total += 1;
-        true
-    }
-
     /// Takes a connection that `try_add` counted off the counts.
     #[expect(
         clippy::expect_used,
@@ -286,6 +272,20 @@ impl Limits {
             self.groups.remove(&group);
         }
         self.total -= 1;
+    }
+
+    /// Counts a new connection, or returns `false` if it would pass a limit.
+    fn try_add(&mut self, group: Group) -> bool {
+        if self.total >= MAX_CONNECTIONS {
+            return false;
+        }
+        let count = self.groups.entry(group).or_default();
+        if *count >= MAX_CONNECTIONS_PER_IP {
+            return false;
+        }
+        *count += 1;
+        self.total += 1;
+        true
     }
 }
 

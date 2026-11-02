@@ -116,22 +116,6 @@ impl Pack {
         })
     }
 
-    /// The pack with the key its contents are encrypted with. Anchor does not decrypt the pack:
-    /// players get the key to decrypt it themselves.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Key`] unless the key is 32 bytes.
-    #[doc(alias = "ResourcePackManager::setPackEncryptionKey")]
-    pub fn with_content_key(mut self, key: impl Into<String>) -> Result<Self> {
-        let key = key.into();
-        if key.len() != CONTENT_KEY_BYTES {
-            return Err(Error::Key);
-        }
-        self.content_key = Some(key);
-        Ok(self)
-    }
-
     /// The archive's bytes, as players download them.
     #[doc(alias = "ResourcePack::getPackChunk")]
     #[doc(alias = "ZippedResourcePack::getPackChunk")]
@@ -179,7 +163,7 @@ impl Pack {
     /// The size of the archive in bytes.
     #[doc(alias = "ResourcePack::getPackSize")]
     #[doc(alias = "ZippedResourcePack::getPackSize")]
-    pub fn size(&self) -> u64 {
+    pub fn size_bytes(&self) -> u64 {
         self.size
     }
 
@@ -196,6 +180,22 @@ impl Pack {
     #[doc(alias = "ZippedResourcePack::getPackVersion")]
     pub fn version(&self) -> &str {
         &self.manifest.version
+    }
+
+    /// The pack with the key its contents are encrypted with. Anchor does not decrypt the pack:
+    /// players get the key to decrypt it themselves.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Key`] unless the key is 32 bytes.
+    #[doc(alias = "ResourcePackManager::setPackEncryptionKey")]
+    pub fn with_content_key(mut self, key: impl Into<String>) -> Result<Self> {
+        let key = key.into();
+        if key.len() != CONTENT_KEY_BYTES {
+            return Err(Error::Key);
+        }
+        self.content_key = Some(key);
+        Ok(self)
     }
 
     /// The pack read from the file at `path` with its key file, without naming `path` in an
@@ -230,7 +230,7 @@ impl fmt::Debug for Pack {
             .field("uuid", &self.uuid())
             .field("name", &self.name())
             .field("version", &self.version())
-            .field("size", &self.size())
+            .field("size", &self.size_bytes())
             .field("encrypted", &self.content_key.is_some())
             .finish_non_exhaustive()
     }
@@ -263,7 +263,7 @@ impl Offer {
         for path in paths {
             let pack = Pack::load(path)?;
             // The same limit as `new` checks, so a total over it stops before the rest is read.
-            total = add_to_total(total, pack.size(), path)?;
+            total = add_to_total(total, pack.size_bytes(), path)?;
             packs.push(pack);
         }
         packs.extend(extra);
@@ -273,7 +273,11 @@ impl Offer {
     /// The offer of `packs`, in stack order, with `acceptance` of them.
     pub(crate) fn new(packs: Vec<Pack>, acceptance: Acceptance) -> Result<Self> {
         check_count(packs.len())?;
-        check_total(packs.iter().fold(0_u64, |t, p| t.saturating_add(p.size())))?;
+        check_total(
+            packs
+                .iter()
+                .fold(0_u64, |t, p| t.saturating_add(p.size_bytes())),
+        )?;
         let mut index = BTreeMap::new();
         for (i, pack) in packs.iter().enumerate() {
             if index.insert(pack.uuid(), i).is_some() {
@@ -294,7 +298,7 @@ impl Offer {
                 .map(|p| TexturePackInfo {
                     uuid: p.uuid(),
                     version: p.version().to_owned(),
-                    size: p.size(),
+                    size: p.size_bytes(),
                     content_key: p.content_key().unwrap_or_default().to_owned(),
                     content_identity: p
                         .content_key()
@@ -583,7 +587,7 @@ pub(crate) mod tests {
         assert_eq!(pack.uuid().to_string(), UUID);
         assert_eq!(pack.name(), "Test");
         assert_eq!(pack.version(), "1.2.3");
-        assert_eq!(pack.size(), u64::try_from(bytes.len()).unwrap());
+        assert_eq!(pack.size_bytes(), u64::try_from(bytes.len()).unwrap());
         assert_eq!(pack.sha256(), &crate::crypto::sha256(&[&bytes]));
         assert_eq!(pack.bytes(), bytes.as_slice());
         assert_eq!(pack.pack_type(), u8::from(ResourcePackType::Resources));

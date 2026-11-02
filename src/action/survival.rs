@@ -7,7 +7,7 @@ use crate::math::Vec3;
 use crate::tick::Context;
 use crate::{player, world};
 
-/// A player says something in chat as if it had typed it.
+/// A chat line of a player, as if it had typed it.
 ///
 /// The chat limits apply (2 lines a tick, 512 bytes a line), a line starting with `/` runs as
 /// its command, and each other line raises [`PlayerChat`](crate::event::PlayerChat).
@@ -19,7 +19,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    /// `player` says `message`.
+    /// A chat line `message` of `player`.
     pub fn new(player: player::Id, message: impl Into<String>) -> Self {
         Self {
             player,
@@ -38,7 +38,7 @@ impl Sealed for Chat {
 
 /// Damage to a player as the game would deal it.
 ///
-/// Its armour, effects, enchantments, invulnerability and game mode count (except for
+/// Its armor, effects, enchantments, invulnerability and game mode count (except for
 /// [`DamageCause::Suicide`], which skips them), the [`EntityDamage`](crate::event::EntityDamage)
 /// listeners decide, and a death raises [`PlayerDeath`](crate::event::PlayerDeath). A player in
 /// the source is the attacker: its Strength adds damage, the player is knocked back from it, and

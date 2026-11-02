@@ -109,15 +109,6 @@ impl Command {
         }
     }
 
-    /// The command with `usage` as the usage an [`Error::Usage`] carries, such as
-    /// `/heal [player]`. Without it the usage is made from the overloads.
-    #[doc(alias = "Command::setUsage")]
-    #[must_use]
-    pub fn with_usage(mut self, usage: impl Into<String>) -> Self {
-        self.usage = Some(usage.into());
-        self
-    }
-
     /// The other names.
     #[doc(alias = "Command::getAliases")]
     pub fn aliases(&self) -> &[String] {
@@ -200,6 +191,15 @@ impl Command {
         if !self.permissions.contains(&permission) {
             self.permissions.push(permission);
         }
+        self
+    }
+
+    /// The same command with `usage` as the usage an [`Error::Usage`] carries, such as
+    /// `/heal [player]`. Without it the usage is made from the overloads.
+    #[doc(alias = "Command::setUsage")]
+    #[must_use]
+    pub fn with_usage(mut self, usage: impl Into<String>) -> Self {
+        self.usage = Some(usage.into());
         self
     }
 }
@@ -618,7 +618,12 @@ impl Output {
         Self::default()
     }
 
-    /// The output with `text` as another line.
+    /// The lines, in order.
+    pub fn lines(&self) -> impl Iterator<Item = &Line> {
+        self.lines.iter()
+    }
+
+    /// Adds `text` as another line.
     #[must_use]
     pub fn line(mut self, text: impl Into<String>) -> Self {
         self.lines.push(Line {
@@ -628,7 +633,7 @@ impl Output {
         self
     }
 
-    /// The output with another line: the client's translation of `key` filled with `params`.
+    /// Adds another line: the client's translation of `key` filled with `params`.
     /// The console log shows Anchor's sentence for a key it knows, otherwise the text with the
     /// parameters after it.
     #[must_use]
@@ -638,11 +643,6 @@ impl Output {
             params: params.iter().map(|p| (*p).to_owned()).collect(),
         });
         self
-    }
-
-    /// The lines, in order.
-    pub fn lines(&self) -> impl Iterator<Item = &Line> {
-        self.lines.iter()
     }
 }
 
@@ -666,14 +666,14 @@ pub struct Line {
 }
 
 impl Line {
-    /// The text, or the translation key.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
     /// The parameters the client fills the translation key with; empty for plain text.
     pub fn params(&self) -> &[String] {
         &self.params
+    }
+
+    /// The text, or the translation key.
+    pub fn text(&self) -> &str {
+        &self.text
     }
 }
 
@@ -682,7 +682,9 @@ impl Line {
 ///
 /// The first kinds are what a sender sees (in red): the client's translation where it has a text
 /// for the case, as the official server sends it, and Anchor's text otherwise; a handler fails with
-/// [`Error::failed`] or [`Error::translated`].
+/// [`Error::failed`] or [`Error::translated`]. The kinds from [`Error::InvalidName`] on are
+/// registration errors that no sender sees; they share this type because the builder and
+/// [`Context::set_soft_enum`] report them through the crate's one command error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {

@@ -101,19 +101,19 @@ pub(super) enum Source {
 }
 
 impl Source {
-    /// The exploding entity.
-    fn entity(self) -> Option<Id> {
-        match self {
-            Self::Entity(id) => Some(id),
-            Self::None => None,
-        }
-    }
-
     /// What deals the hurt.
     fn damage_source(self) -> DamageSource {
         match self {
             Self::None => DamageSource::None,
             Self::Entity(id) => DamageSource::Entity(Actor::Entity(id)),
+        }
+    }
+
+    /// The exploding entity.
+    fn entity(self) -> Option<Id> {
+        match self {
+            Self::Entity(id) => Some(id),
+            Self::None => None,
         }
     }
 }
@@ -168,14 +168,6 @@ impl Outcome {
         (!cancelled && state.worlds.get(world).is_some()).then_some(outcome)
     }
 
-    /// The yield in percent the listeners left; `None` when no event was raised.
-    fn yield_percent(&self) -> Option<f64> {
-        match self {
-            Self::Found { .. } => None,
-            Self::Entity(e) => Some(e.yield_percent),
-        }
-    }
-
     /// The blocks that break, at most [`MAX_BLOCKS_PER_TICK`].
     fn blocks(&self) -> &[BlockPos] {
         match self {
@@ -197,6 +189,14 @@ impl Outcome {
         match self {
             Self::Found { .. } => {}
             Self::Entity(e) => dispatch::watch(state, &e),
+        }
+    }
+
+    /// The yield in percent the listeners left; `None` when no event was raised.
+    fn yield_percent(&self) -> Option<f64> {
+        match self {
+            Self::Found { .. } => None,
+            Self::Entity(e) => Some(e.yield_percent),
         }
     }
 }

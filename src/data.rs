@@ -112,6 +112,21 @@ pub(crate) struct Codec {
 }
 
 impl Codec {
+    /// The value saved as `bytes`, or why they do not deserialize into the type.
+    pub(crate) fn decode(&self, bytes: &[u8]) -> serde_json::Result<Value> {
+        (self.decode)(bytes)
+    }
+
+    /// A new value: the type's [`Default`].
+    pub(crate) fn default_value(&self) -> Value {
+        (self.default)()
+    }
+
+    /// The JSON of `value`, at most `limit` bytes, which deserializes back into the type.
+    pub(crate) fn encode(&self, value: &Value, limit: usize) -> Result<Vec<u8>, JsonError> {
+        (self.encode)(value, limit)
+    }
+
     /// Makes the codec of `T` under `name`.
     pub(crate) fn of<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
         name: String,
@@ -133,21 +148,6 @@ impl Codec {
             },
             decode: |bytes| serde_json::from_slice::<T>(bytes).map(|v| Box::new(v) as Value),
         }
-    }
-
-    /// A new value: the type's [`Default`].
-    pub(crate) fn default_value(&self) -> Value {
-        (self.default)()
-    }
-
-    /// The JSON of `value`, at most `limit` bytes, which deserializes back into the type.
-    pub(crate) fn encode(&self, value: &Value, limit: usize) -> Result<Vec<u8>, JsonError> {
-        (self.encode)(value, limit)
-    }
-
-    /// The value saved as `bytes`, or why they do not deserialize into the type.
-    pub(crate) fn decode(&self, bytes: &[u8]) -> serde_json::Result<Value> {
-        (self.decode)(bytes)
     }
 }
 

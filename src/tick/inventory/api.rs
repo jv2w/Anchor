@@ -31,14 +31,10 @@ enum Planned {
 }
 
 impl Player {
-    /// One of the player's inventories, to read.
-    #[doc(alias = "Human::getInventory")]
-    #[doc(alias = "Living::getArmorInventory")]
-    #[doc(alias = "Human::getOffHandInventory")]
-    #[doc(alias = "Player::getCursorInventory")]
-    #[doc(alias = "Human::getEnderInventory")]
-    pub fn inventory(&self, kind: Kind) -> Inventory<'_> {
-        view_of(&self.inventory, kind)
+    /// The stack in the selected hotbar slot.
+    #[doc(alias = "PlayerInventory::getItemInHand")]
+    pub fn held_item(&self) -> &Stack {
+        self.inventory.held()
     }
 
     /// The selected hotbar slot, 0 to 8.
@@ -47,10 +43,14 @@ impl Player {
         self.inventory.held
     }
 
-    /// The stack in the selected hotbar slot.
-    #[doc(alias = "PlayerInventory::getItemInHand")]
-    pub fn held_item(&self) -> &Stack {
-        self.inventory.held()
+    /// One of the player's inventories, to read.
+    #[doc(alias = "Human::getInventory")]
+    #[doc(alias = "Living::getArmorInventory")]
+    #[doc(alias = "Human::getOffHandInventory")]
+    #[doc(alias = "Player::getCursorInventory")]
+    #[doc(alias = "Human::getEnderInventory")]
+    pub fn inventory(&self, kind: Kind) -> Inventory<'_> {
+        view_of(&self.inventory, kind)
     }
 
     /// The window the player has open, if any (its own inventory, a block's, a trade); a menu is
@@ -81,16 +81,20 @@ impl Player {
     }
 
     /// Selects hotbar slot `slot` (0 to 8), stopping the item in use (a drawn bow, eating or
-    /// drinking), and tells the client; false, changing nothing, for another slot.
+    /// drinking), and tells the client.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSlot`] for another slot, changing nothing.
     #[doc(alias = "PlayerInventory::setHeldItemIndex")]
-    pub fn set_held_slot(&mut self, slot: u8) -> bool {
+    pub fn set_held_slot(&mut self, slot: u8) -> Result<()> {
         if slot >= HOTBAR {
-            return false;
+            return Err(Error::NoSlot);
         }
         if slot != self.inventory.held {
             select(self, slot);
         }
-        true
+        Ok(())
     }
 
     /// Shows this player alone the screen animation of a totem of undying saving it (the
@@ -186,30 +190,6 @@ impl Context<'_> {
         })
     }
 
-    /// Switches the creative inventory `player` sees: the alternative registered as `inventory`
-    /// ([`ServerBuilder::alternative_creative_inventory`](crate::ServerBuilder::alternative_creative_inventory)),
-    /// or the default one for `None`. A spawned player's client gets the new list. False,
-    /// changing nothing, if the player has left or no alternative has that name.
-    #[doc(alias = "Player::setCreativeInventory")]
-    pub fn set_creative_inventory(
-        &mut self,
-        player: crate::player::Id,
-        inventory: Option<&str>,
-    ) -> bool {
-        let Some(index) = self.state.custom.creative_index(inventory) else {
-            return false;
-        };
-        let Some(p) = self.state.players.get_mut(&player.session()) else {
-            return false;
-        };
-        if p.inventory.creative != index {
-            p.inventory.creative = index;
-            // Before its chunk radius request the client gets the inventory in its spawn window.
-            p.pending.creative |= p.chunk_radius.is_some();
-        }
-        true
-    }
-
     /// Closes the player's window, a menu too: the cursor (but a lending menu's lent items, which
     /// stay its handler's) and the window's own slots go back to its inventory (the player
     /// throws what does not fit), and a menu's blocks show again. False if the player
@@ -229,6 +209,36 @@ impl Context<'_> {
         }
         open
     }
+
+    /// Switches the creative inventory `player` sees: the alternative registered as `inventory`
+    /// ([`ServerBuilder::alternative_creative_inventory`](crate::ServerBuilder::alternative_creative_inventory)),
+    /// or the default one for `None`. A spawned player's client gets the new list.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NoCreativeInventory`] for a name no alternative has.
+    /// - [`Error::NoPlayer`] for a player who has left.
+    ///
+    /// Both change nothing.
+    #[doc(alias = "Player::setCreativeInventory")]
+    pub fn set_creative_inventory(
+        &mut self,
+        player: crate::player::Id,
+        inventory: Option<&str>,
+    ) -> Result<()> {
+        let Some(index) = self.state.custom.creative_index(inventory) else {
+            return Err(Error::NoCreativeInventory);
+        };
+        let Some(p) = self.state.players.get_mut(&player.session()) else {
+            return Err(Error::NoPlayer);
+        };
+        if p.inventory.creative != index {
+            p.inventory.creative = index;
+            // Before its chunk radius request the client gets the inventory in its spawn window.
+            p.pending.creative |= p.chunk_radius.is_some();
+        }
+        Ok(())
+    }
 }
 
 impl Editor<'_> {
@@ -241,27 +251,52 @@ impl Editor<'_> {
         }
     }
 
-    /// Puts `stack` into `slot` (an empty stack clears it) and tells the clients that show it. A
-    /// changed stack in a player's held slot stops the item in use.
-    #[doc(alias = "Inventory::setItem")]
-    #[doc(alias = "BaseInventory::setItem")]
-    #[doc(alias = "Inventory::clear")]
-    #[doc(alias = "BaseInventory::clear")]
-    #[doc(alias = "ArmorInventory::setHelmet")]
-    #[doc(alias = "ArmorInventory::setChestplate")]
-    #[doc(alias = "ArmorInventory::setLeggings")]
-    #[doc(alias = "ArmorInventory::setBoots")]
-    pub fn set(&mut self, slot: usize, stack: Stack) -> Result<()> {
-        match &mut self.target {
-            Target::Player(p, kind) => put_player(p, *kind, slot, stack),
-            Target::Offline(o, kind) => put_offline(o, *kind, slot, stack),
-            Target::Block(b) => put_block(b, slot, stack),
+    /// Puts `stack` where it fits: onto the stacks it stacks with, in slot order, then into empty
+    /// slots. Returns what did not fit.
+    #[doc(alias = "Inventory::addItem")]
+    #[doc(alias = "BaseInventory::addItem")]
+    pub fn add(&mut self, stack: &Stack) -> Stack {
+        let (writes, left) = self.view().plan_add(stack);
+        self.write(writes, left, Planned::Add)
+    }
+
+    /// Empties every slot.
+    #[doc(alias = "Inventory::clearAll")]
+    #[doc(alias = "BaseInventory::clearAll")]
+    pub fn clear_all(&mut self) {
+        for i in 0..self.view().size() {
+            self.clear(i);
         }
     }
 
-    /// Puts `stacks` into the first slots in order and empties the rest. Fails, changing
-    /// nothing, with more stacks than slots, a stack a slot cannot take, or more stacks than the
-    /// cursor may hold ([`Error::Full`]).
+    /// Takes `stack.count()` of `stack`'s item (its damage, and its extra data when it has some)
+    /// from the slots that hold it, in slot order. Returns what could not be taken.
+    #[doc(alias = "Inventory::removeItem")]
+    #[doc(alias = "BaseInventory::removeItem")]
+    pub fn remove(&mut self, stack: &Stack) -> Stack {
+        let (writes, left) = self.view().plan_remove(stack);
+        self.write(writes, left, Planned::Remove)
+    }
+
+    /// Empties every slot holding `stack`'s item, as [`remove`](Self::remove) matches it.
+    #[doc(alias = "Inventory::remove")]
+    #[doc(alias = "BaseInventory::remove")]
+    pub fn remove_all(&mut self, stack: &Stack) {
+        let slots: Vec<usize> = self.view().all(stack).map(|(i, _)| i).collect();
+        for i in slots {
+            self.clear(i);
+        }
+    }
+
+    /// Puts `stacks` into the first slots in order and empties the rest.
+    ///
+    /// # Errors
+    ///
+    /// Changes nothing with:
+    /// [`Error::TooLong`] for more stacks than slots.
+    /// [`Error::TooMany`] for a stack over what a slot takes.
+    /// [`Error::NotAccepted`] for a stack a slot does not take.
+    /// [`Error::Full`] for more stacks than the cursor may hold.
     #[doc(alias = "Inventory::setContents")]
     #[doc(alias = "BaseInventory::setContents")]
     pub fn set_contents(&mut self, stacks: &[Stack]) -> Result<()> {
@@ -301,44 +336,11 @@ impl Editor<'_> {
         Ok(())
     }
 
-    /// Empties every slot.
-    #[doc(alias = "Inventory::clearAll")]
-    #[doc(alias = "BaseInventory::clearAll")]
-    pub fn clear_all(&mut self) {
-        for i in 0..self.view().size() {
-            self.clear(i);
-        }
-    }
-
-    /// Puts `stack` where it fits: onto the stacks it stacks with, in slot order, then into empty
-    /// slots. Returns what did not fit.
-    #[doc(alias = "Inventory::addItem")]
-    #[doc(alias = "BaseInventory::addItem")]
-    pub fn add(&mut self, stack: &Stack) -> Stack {
-        let (writes, left) = self.view().plan_add(stack);
-        self.write(writes, left, Planned::Add)
-    }
-
-    /// Takes `stack.count()` of `stack`'s item (its damage, and its extra data when it has some)
-    /// from the slots that hold it, in slot order. Returns what could not be taken.
-    #[doc(alias = "Inventory::removeItem")]
-    #[doc(alias = "BaseInventory::removeItem")]
-    pub fn remove(&mut self, stack: &Stack) -> Stack {
-        let (writes, left) = self.view().plan_remove(stack);
-        self.write(writes, left, Planned::Remove)
-    }
-
-    /// Empties every slot holding `stack`'s item, as [`remove`](Self::remove) matches it.
-    #[doc(alias = "Inventory::remove")]
-    #[doc(alias = "BaseInventory::remove")]
-    pub fn remove_all(&mut self, stack: &Stack) {
-        let slots: Vec<usize> = self.view().all(stack).map(|(i, _)| i).collect();
-        for i in slots {
-            self.clear(i);
-        }
-    }
-
     /// Exchanges the stacks of slots `a` and `b`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSlot`] if the inventory lacks slot `a` or `b`.
     #[doc(alias = "Inventory::swap")]
     #[doc(alias = "BaseInventory::swap")]
     pub fn swap(&mut self, a: usize, b: usize) -> Result<()> {
@@ -355,6 +357,32 @@ impl Editor<'_> {
         } else {
             self.set(a, sb)?;
             self.set(b, sa)
+        }
+    }
+
+    /// Puts `stack` into `slot` (an empty stack clears it) and tells the clients that show it. A
+    /// changed stack in a player's held slot stops the item in use.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSlot`] for a slot the inventory does not have.
+    /// [`Error::Full`] for a new stack on the cursor when it holds as many stacks as can be given
+    /// back.
+    /// [`Error::TooMany`] for a stack over what a container block's slot takes.
+    /// [`Error::NotAccepted`] for a stack a shulker box does not take.
+    #[doc(alias = "Inventory::setItem")]
+    #[doc(alias = "BaseInventory::setItem")]
+    #[doc(alias = "Inventory::clear")]
+    #[doc(alias = "BaseInventory::clear")]
+    #[doc(alias = "ArmorInventory::setHelmet")]
+    #[doc(alias = "ArmorInventory::setChestplate")]
+    #[doc(alias = "ArmorInventory::setLeggings")]
+    #[doc(alias = "ArmorInventory::setBoots")]
+    pub fn set(&mut self, slot: usize, stack: Stack) -> Result<()> {
+        match &mut self.target {
+            Target::Player(p, kind) => put_player(p, *kind, slot, stack),
+            Target::Offline(o, kind) => put_offline(o, *kind, slot, stack),
+            Target::Block(b) => put_block(b, slot, stack),
         }
     }
 

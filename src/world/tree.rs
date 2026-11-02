@@ -103,11 +103,6 @@ impl Tree {
         }
     }
 
-    fn with_tall(mut self, tall: bool) -> Self {
-        self.tall = tall;
-        self
-    }
-
     /// Works out the blocks of the tree at `pos`; `None` where it does not fit.
     fn place(&self, world: &World, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
         // The whole room of the tree must be free to grow through.
@@ -359,6 +354,11 @@ impl Tree {
                 }
             }
         }
+    }
+
+    fn with_tall(mut self, tall: bool) -> Self {
+        self.tall = tall;
+        self
     }
 }
 

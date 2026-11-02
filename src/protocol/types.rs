@@ -60,27 +60,6 @@ pub(crate) fn go_index<T, I: TryInto<usize>>(items: &[T], i: I) -> Result<&T> {
         })
 }
 
-/// Go's `items[:n]` without the panic: a length past `items` is an error.
-pub(crate) fn go_prefix<T, I: TryInto<usize>>(items: &[T], n: I) -> Result<&[T]> {
-    n.try_into()
-        .ok()
-        .and_then(|n| items.get(..n))
-        .ok_or(Error::InvalidValue {
-            field: "index",
-            reason: "out of range",
-        })
-}
-
-/// Go's `u32(x)` for a `i64` `x`, which keeps the low bits.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "consistency: Go integer conversions keep the low bits"
-)]
-pub(crate) fn go_i64_to_u32(x: i64) -> u32 {
-    x as u32
-}
-
 /// Go's `u8(x)` for a `u32` `x`, which keeps the low bits.
 #[expect(
     clippy::cast_possible_truncation,
@@ -8761,74 +8740,6 @@ pub(crate) fn encode_command_origin_data(w: &mut Writer, x: &CommandOrigin) -> R
     w.string_max(&x.request_id, 39)?;
     w.actor_unique_id_int64(x.player_unique_id);
     command_origin_from_string(origin_str)?;
-    Ok(())
-}
-
-/// Reads like gophertunnel `InputFlagList`.
-pub(crate) fn decode_input_flag_list(
-    r: &mut Reader<'_>,
-    x: &mut InputFlags,
-    size: i64,
-) -> Result<()> {
-    let count: u32 = r.varuint32()?;
-    if count > go_i64_to_u32(size) {
-        return Err(Error::InvalidValue {
-            field: "player auth input data",
-            reason: "too many flags",
-        });
-    }
-    let ids: Vec<i32> = r.list(u64::from(count), Reader::varint32)?;
-    for (n, &id) in ids.iter().enumerate() {
-        if (id < 0) || (i64::from(id) >= size) {
-            return Err(Error::UnknownEnum {
-                name: "player auth input data",
-                value: i64::from(id),
-            });
-        } else if go_prefix(&ids, n)?.contains(&id) {
-            return Err(Error::InvalidValue {
-                field: "player auth input data",
-                reason: "flags must be unique",
-            });
-        }
-    }
-    *x = InputFlags {
-        set: true,
-        size,
-        ids,
-    };
-    Ok(())
-}
-
-/// Writes like gophertunnel `InputFlagList`.
-pub(crate) fn encode_input_flag_list(w: &mut Writer, x: &InputFlags, size: i64) -> Result<()> {
-    let count: u32 = go_usize_to_u32(x.ids.len());
-    w.varuint32(count);
-    if count > go_i64_to_u32(size) {
-        return Err(Error::InvalidValue {
-            field: "player auth input data",
-            reason: "too many flags",
-        });
-    }
-    let ids: &Vec<i32> = &x.ids;
-    if ids.len() != usize::try_from(count).map_err(|_| Error::Size)? {
-        return Err(Error::Size);
-    }
-    for &v in ids {
-        w.varint32(v);
-    }
-    for (n, &id) in ids.iter().enumerate() {
-        if (id < 0) || (i64::from(id) >= size) {
-            return Err(Error::UnknownEnum {
-                name: "player auth input data",
-                value: i64::from(id),
-            });
-        } else if go_prefix(ids, n)?.contains(&id) {
-            return Err(Error::InvalidValue {
-                field: "player auth input data",
-                reason: "flags must be unique",
-            });
-        }
-    }
     Ok(())
 }
 

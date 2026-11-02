@@ -1,7 +1,7 @@
 //! The typed trade API: [`Context`] methods that read and change a villager NPC's offers as
 //! [`Offer`] values, and the conversion between them and the stored offers.
 
-use super::{Damage, Error, HOOKS, Offers, Recipe, Result, change_offers};
+use super::{Damage, Error, HOOKS, Offers, Result, StoredOffer, change_offers};
 use crate::custom::{self, Offer};
 use crate::entity::Id;
 use crate::nbt::Compound;
@@ -18,7 +18,7 @@ impl Context<'_> {
     /// [`Self::replace_trade_offer`] gives both payments that rule and drops those keys.
     pub fn trade_offers(&self, villager: Id) -> Option<Vec<Offer>> {
         let v = (HOOKS.villager)(self.state, villager)?;
-        Some(v.offers.recipes().iter().map(to_offer).collect())
+        Some(v.offers.list().iter().map(to_offer).collect())
     }
 
     /// The tier (0 to [`custom::MAX_TRADE_TIER`]) of the villager NPC `villager`; `None` if it is
@@ -27,35 +27,15 @@ impl Context<'_> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier())
     }
 
-    /// The trade xp of the villager NPC `villager`; `None` if it is not one or is dying.
-    pub fn trade_xp(&self, villager: Id) -> Option<u32> {
-        (HOOKS.villager)(self.state, villager).map(|v| v.offers.xp())
-    }
-
     /// The trade xp each tier of the villager NPC `villager` needs; `None` if it is not
     /// one or is dying.
     pub fn trade_tier_xp(&self, villager: Id) -> Option<[u32; custom::TRADE_TIERS]> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_xp())
     }
 
-    /// Replaces the offers of the villager NPC `villager`; players trading with it see the new list
-    /// at once.
-    ///
-    /// The saved offers the server cannot read ([`Self::trade_offers`]) are not replaced: they
-    /// stay after the new list, count towards the 2 MiB, and are read again when the villager is
-    /// next loaded with their custom items registered.
-    ///
-    /// # Errors
-    ///
-    /// [`custom::Error::NotVillager`] if it is not one or is dying and [`custom::Error::Offer`]
-    /// for offers [`check_offers`] refuses. Nothing is changed then.
-    pub fn set_trade_offers(
-        &mut self,
-        villager: Id,
-        offers: &[Offer],
-    ) -> Result<(), custom::Error> {
-        let recipes = offers.iter().map(to_recipe).collect();
-        change(self.state, villager, |o| o.set(recipes))
+    /// The trade xp of the villager NPC `villager`; `None` if it is not one or is dying.
+    pub fn trade_xp(&self, villager: Id) -> Option<u32> {
+        (HOOKS.villager)(self.state, villager).map(|v| v.offers.xp())
     }
 
     /// Adds `offer` at the end of the villager's offers.
@@ -63,9 +43,19 @@ impl Context<'_> {
     /// # Errors
     ///
     /// As [`Self::set_trade_offers`] for the list with `offer` added.
-    pub fn add_trade_offer(&mut self, villager: Id, offer: &Offer) -> Result<(), custom::Error> {
-        let recipe = to_recipe(offer);
-        change(self.state, villager, |o| o.add(recipe))
+    pub fn add_trade_offer(&mut self, villager: Id, offer: &Offer) -> custom::Result<()> {
+        let stored = to_stored(offer);
+        change(self.state, villager, |o| o.add(stored))
+    }
+
+    /// Removes and returns the villager's offer at `index`.
+    ///
+    /// # Errors
+    ///
+    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
+    /// when there is no offer at `index`.
+    pub fn remove_trade_offer(&mut self, villager: Id, index: usize) -> custom::Result<Offer> {
+        change(self.state, villager, |o| o.remove(index)).map(|stored| to_offer(&stored))
     }
 
     /// Replaces the villager's offer at `index`.
@@ -79,23 +69,37 @@ impl Context<'_> {
         villager: Id,
         index: usize,
         offer: &Offer,
-    ) -> Result<(), custom::Error> {
-        let recipe = to_recipe(offer);
-        change(self.state, villager, |o| o.replace(index, recipe))
+    ) -> custom::Result<()> {
+        let stored = to_stored(offer);
+        change(self.state, villager, |o| o.replace(index, stored))
     }
 
-    /// Removes and returns the villager's offer at `index`.
+    /// Sets the uses of every offer of the villager back to 0 (a restock).
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
-    /// when there is no offer at `index`.
-    pub fn remove_trade_offer(
-        &mut self,
-        villager: Id,
-        index: usize,
-    ) -> Result<Offer, custom::Error> {
-        change(self.state, villager, |o| o.remove(index)).map(|r| to_offer(&r))
+    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`].
+    pub fn reset_trade_uses(&mut self, villager: Id) -> custom::Result<()> {
+        change(self.state, villager, |o| {
+            o.reset_uses();
+            Ok(())
+        })
+    }
+
+    /// Replaces the offers of the villager NPC `villager`; players trading with it see the new list
+    /// at once.
+    ///
+    /// The saved offers the server cannot read ([`Self::trade_offers`]) are not replaced: they
+    /// stay after the new list, count towards the 2 MiB, and are read again when the villager is
+    /// next loaded with their custom items registered.
+    ///
+    /// # Errors
+    ///
+    /// [`custom::Error::NotVillager`] if it is not one or is dying and [`custom::Error::Offer`]
+    /// for offers [`check_offers`] refuses. Nothing is changed then.
+    pub fn set_trade_offers(&mut self, villager: Id, offers: &[Offer]) -> custom::Result<()> {
+        let stored = offers.iter().map(to_stored).collect();
+        change(self.state, villager, |o| o.set(stored))
     }
 
     /// Sets the villager's tier (0 to [`custom::MAX_TRADE_TIER`]); its trade xp moves to
@@ -107,20 +111,8 @@ impl Context<'_> {
     ///
     /// [`custom::Error::Offer`] for a higher tier and [`custom::Error::NotVillager`] as
     /// [`Self::set_trade_offers`].
-    pub fn set_trade_tier(&mut self, villager: Id, tier: u8) -> Result<(), custom::Error> {
+    pub fn set_trade_tier(&mut self, villager: Id, tier: u8) -> custom::Result<()> {
         change(self.state, villager, |o| o.set_tier(tier))
-    }
-
-    /// Sets the villager's trade xp (at most [`custom::MAX_TRADE_COUNTER`]) and raises
-    /// its tier to the highest one the xp reaches; a lower xp keeps the tier.
-    /// Players who see it are shown the new values.
-    ///
-    /// # Errors
-    ///
-    /// [`custom::Error::Offer`] for a higher xp and [`custom::Error::NotVillager`] as
-    /// [`Self::set_trade_offers`].
-    pub fn set_trade_xp(&mut self, villager: Id, xp: u32) -> Result<(), custom::Error> {
-        change(self.state, villager, |o| o.set_xp(xp))
     }
 
     /// Sets the trade xp each tier needs ([`custom::is_tier_xp`]; the defaults are 0,
@@ -135,20 +127,20 @@ impl Context<'_> {
         &mut self,
         villager: Id,
         tiers: [u32; custom::TRADE_TIERS],
-    ) -> Result<(), custom::Error> {
+    ) -> custom::Result<()> {
         change(self.state, villager, |o| o.set_tier_xp(tiers))
     }
 
-    /// Sets the uses of every offer of the villager back to 0 (a restock).
+    /// Sets the villager's trade xp (at most [`custom::MAX_TRADE_COUNTER`]) and raises
+    /// its tier to the highest one the xp reaches; a lower xp keeps the tier.
+    /// Players who see it are shown the new values.
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`].
-    pub fn reset_trade_uses(&mut self, villager: Id) -> Result<(), custom::Error> {
-        change(self.state, villager, |o| {
-            o.reset_uses();
-            Ok(())
-        })
+    /// [`custom::Error::Offer`] for a higher xp and [`custom::Error::NotVillager`] as
+    /// [`Self::set_trade_offers`].
+    pub fn set_trade_xp(&mut self, villager: Id, xp: u32) -> custom::Result<()> {
+        change(self.state, villager, |o| o.set_xp(xp))
     }
 }
 
@@ -162,15 +154,15 @@ impl Context<'_> {
 /// # Errors
 ///
 /// [`custom::Error::Offer`] for the first rule `offers` breaks.
-pub fn check_offers(offers: &[Offer]) -> Result<(), custom::Error> {
+pub fn check_offers(offers: &[Offer]) -> custom::Result<()> {
     new_offers(offers).map(drop)
 }
 
 /// Builds the stored offers of a new villager trading `offers` ([`check_offers`]).
-pub(in crate::tick) fn new_offers(offers: &[Offer]) -> Result<Offers, custom::Error> {
+pub(in crate::tick) fn new_offers(offers: &[Offer]) -> custom::Result<Offers> {
     let mut stored = Offers::default();
     stored
-        .set(offers.iter().map(to_recipe).collect())
+        .set(offers.iter().map(to_stored).collect())
         .map_err(to_public)?;
     Ok(stored)
 }
@@ -180,13 +172,13 @@ fn change<T>(
     state: &mut State,
     villager: Id,
     f: impl FnOnce(&mut Offers) -> Result<T>,
-) -> Result<T, custom::Error> {
+) -> custom::Result<T> {
     change_offers(state, villager, f).map_err(to_public)
 }
 
 /// Converts an offer into its stored form: the second payment takes any damage when the first
 /// does, and there are no unknown saved keys.
-fn to_recipe(offer: &Offer) -> Recipe {
+fn to_stored(offer: &Offer) -> StoredOffer {
     let Offer {
         buy_a,
         buy_b,
@@ -201,7 +193,7 @@ fn to_recipe(offer: &Offer) -> Recipe {
         demand,
     } = offer;
     let damage = |any: bool| if any { Damage::Any } else { Damage::Exact };
-    Recipe {
+    StoredOffer {
         buy_a: buy_a.clone(),
         buy_b: buy_b.clone(),
         damage_a: damage(*any_damage),
@@ -210,8 +202,8 @@ fn to_recipe(offer: &Offer) -> Recipe {
         max_uses: *max_uses,
         uses: *uses,
         tier: *tier,
-        trader_exp: *trader_xp,
-        reward_exp: *reward_xp,
+        trader_xp: *trader_xp,
+        reward_xp: *reward_xp,
         price_multiplier_a: *price_multiplier_a,
         price_multiplier_b: *price_multiplier_b,
         demand: *demand,
@@ -220,8 +212,8 @@ fn to_recipe(offer: &Offer) -> Recipe {
 }
 
 /// Converts a stored offer into its typed form.
-fn to_offer(recipe: &Recipe) -> Offer {
-    let Recipe {
+fn to_offer(stored: &StoredOffer) -> Offer {
+    let StoredOffer {
         buy_a,
         buy_b,
         damage_a,
@@ -231,14 +223,14 @@ fn to_offer(recipe: &Recipe) -> Offer {
         max_uses,
         uses,
         tier,
-        trader_exp,
-        reward_exp,
+        trader_xp,
+        reward_xp,
         price_multiplier_a,
         price_multiplier_b,
         demand,
         // Unknown saved keys stay with the villager only.
         unknown: _,
-    } = recipe;
+    } = stored;
     Offer {
         buy_a: buy_a.clone(),
         buy_b: buy_b.clone(),
@@ -247,8 +239,8 @@ fn to_offer(recipe: &Recipe) -> Offer {
         max_uses: *max_uses,
         uses: *uses,
         tier: *tier,
-        trader_xp: *trader_exp,
-        reward_xp: *reward_exp,
+        trader_xp: *trader_xp,
+        reward_xp: *reward_xp,
         price_multipliers: (*price_multiplier_a, *price_multiplier_b),
         demand: *demand,
     }

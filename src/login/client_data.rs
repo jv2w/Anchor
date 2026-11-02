@@ -259,18 +259,6 @@ impl ClientData {
         Ok(skin)
     }
 
-    /// Brackets an IPv6 server address the client left bare (gophertunnel `Parse`).
-    fn bracket_ipv6_address(&mut self) {
-        let address = &self.server_address;
-        if !address.contains("://")
-            && address.matches(':').count() > 1
-            && !address.starts_with('[')
-            && let Some((host, port)) = address.rsplit_once(':')
-        {
-            self.server_address = format!("[{host}]:{port}");
-        }
-    }
-
     /// Checks the claims as gophertunnel `ClientData.Validate` does, with its defects fixed: the
     /// version pattern applies to every character, the language code is checked for BCP 47 form
     /// without a registry, and the server address is checked for form instead of being resolved
@@ -344,6 +332,18 @@ impl ClientData {
             return Err(Error::ClientData("UIProfile"));
         }
         Ok(())
+    }
+
+    /// Brackets an IPv6 server address the client left bare (gophertunnel `Parse`).
+    fn bracket_ipv6_address(&mut self) {
+        let address = &self.server_address;
+        if !address.contains("://")
+            && address.matches(':').count() > 1
+            && !address.starts_with('[')
+            && let Some((host, port)) = address.rsplit_once(':')
+        {
+            self.server_address = format!("[{host}]:{port}");
+        }
     }
 }
 

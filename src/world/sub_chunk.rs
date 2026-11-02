@@ -1,11 +1,10 @@
 //! A sub-chunk: a 16×16×16 cube of blocks in two layers (layer 1 holds water
 //! logging), and its network form.
 
+use super::paletted::Paletted;
 use crate::block::{self, State};
 use crate::math::Aabb;
 use crate::protocol::Writer;
-
-use super::paletted::Paletted;
 
 /// The network sub-chunk version Anchor writes (version 9: with the y index).
 const NETWORK_VERSION: u8 = 9;
@@ -70,16 +69,16 @@ pub(crate) struct SubChunk {
 }
 
 impl SubChunk {
+    /// A sub-chunk of these layers (layer 0, then layer 1).
+    pub(crate) fn from_layers(layers: [Paletted<Entry>; 2]) -> Self {
+        Self { layers }
+    }
+
     /// A sub-chunk of air.
     pub(crate) fn new() -> Self {
         Self {
             layers: [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)],
         }
-    }
-
-    /// A sub-chunk of these layers (layer 0, then layer 1).
-    pub(crate) fn from_layers(layers: [Paletted<Entry>; 2]) -> Self {
-        Self { layers }
     }
 
     /// Writes the network form (version 9): the layers in runtime form with network IDs, unknown

@@ -143,17 +143,22 @@ impl Peer {
         })
     }
 
-    pub(super) fn mtu(&self) -> u16 {
-        self.mtu
+    /// Whether any datagram, ACK or NAK arrived yet.
+    pub(super) fn has_received_any(&self) -> bool {
+        self.received_any
+    }
+
+    /// Whether nothing is queued, waiting for a resend or unacknowledged.
+    pub(super) fn is_settled(&self) -> bool {
+        self.queue.is_empty() && self.resend.is_empty() && self.in_flight.is_empty()
     }
 
     pub(super) fn last_received(&self) -> Duration {
         self.last_received
     }
 
-    /// Whether any datagram, ACK or NAK arrived yet.
-    pub(super) fn has_received_any(&self) -> bool {
-        self.received_any
+    pub(super) fn mtu(&self) -> u16 {
+        self.mtu
     }
 
     /// The smoothed round-trip time, zero before the first sample.
@@ -167,14 +172,41 @@ impl Peer {
         self.unsent
     }
 
-    /// Whether nothing is queued, waiting for a resend or unacknowledged.
-    pub(super) fn is_settled(&self) -> bool {
-        self.queue.is_empty() && self.resend.is_empty() && self.in_flight.is_empty()
+    /// Sends queued frames, resends first, as far as the congestion window allows and at most
+    /// `MAX_BURST` datagrams per call.
+    pub(super) fn flush(&mut self, now: Duration, transmit: &mut impl FnMut(&[u8])) -> Result<()> {
+        let max = self.max_datagram();
+        for _ in 0..MAX_BURST {
+            if self.in_flight.len() >= self.cwnd
+                || (self.resend.is_empty() && self.queue.is_empty())
+            {
+                break;
+            }
+            self.buf.clear();
+            self.buf.push(FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS);
+            wire::put_u24(&mut self.buf, wire::low24(self.next_seq));
+            let mut frames = Vec::new();
+            while let Some(frame) = self.pop_fitting(max.saturating_sub(self.buf.len())) {
+                frame.header.write(&mut self.buf, frame.len)?;
+                frame
+                    .message
+                    .put(&mut self.buf, frame.start, usize::from(frame.len))?;
+                frames.push(frame);
+            }
+            if self.buf.len() == DATAGRAM_HEADER_BYTES {
+                return Err(Error::Invariant("frame larger than a datagram"));
+            }
+            transmit(&self.buf);
+            self.in_flight
+                .insert(self.next_seq, Sent { at: now, frames });
+            self.next_seq += 1;
+        }
+        Ok(())
     }
 
-    /// Replaces the receive limits. Bytes already held count against the new ones.
-    pub(super) fn set_limits(&mut self, limits: Limits) {
-        self.limits = limits;
+    /// Sends the pending ACKs.
+    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) {
+        self.flush_ranges(FLAG_ACK, transmit);
     }
 
     /// Handles one connected packet (data datagram, ACK or NAK) and appends the messages it
@@ -285,63 +317,6 @@ impl Peer {
         Ok(())
     }
 
-    /// Moves datagrams unacknowledged past the resend timeout back to the resend queue, and
-    /// doubles the timeout once per round of losses a timeout starts (a NAK's round does not):
-    /// the other datagrams sent before that round share its doubling, or one update's many
-    /// timeouts would jump straight to `MAX_RTO`.
-    pub(super) fn update(&mut self, now: Duration) {
-        let timeout = self.rtt.timeout();
-        while let Some(entry) = self.in_flight.first_entry() {
-            if now.saturating_sub(entry.get().at) < timeout {
-                break;
-            }
-            let seq = *entry.key();
-            // Checked before `lost` starts the next round.
-            if seq >= self.recovery {
-                self.rtt.back_off();
-            }
-            self.resend.extend(entry.remove().frames);
-            self.lost(seq);
-        }
-    }
-
-    /// Sends queued frames, resends first, as far as the congestion window allows and at most
-    /// `MAX_BURST` datagrams per call.
-    pub(super) fn flush(&mut self, now: Duration, transmit: &mut impl FnMut(&[u8])) -> Result<()> {
-        let max = self.max_datagram();
-        for _ in 0..MAX_BURST {
-            if self.in_flight.len() >= self.cwnd
-                || (self.resend.is_empty() && self.queue.is_empty())
-            {
-                break;
-            }
-            self.buf.clear();
-            self.buf.push(FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS);
-            wire::put_u24(&mut self.buf, wire::low24(self.next_seq));
-            let mut frames = Vec::new();
-            while let Some(frame) = self.pop_fitting(max.saturating_sub(self.buf.len())) {
-                frame.header.write(&mut self.buf, frame.len)?;
-                frame
-                    .message
-                    .put(&mut self.buf, frame.start, usize::from(frame.len))?;
-                frames.push(frame);
-            }
-            if self.buf.len() == DATAGRAM_HEADER_BYTES {
-                return Err(Error::Invariant("frame larger than a datagram"));
-            }
-            transmit(&self.buf);
-            self.in_flight
-                .insert(self.next_seq, Sent { at: now, frames });
-            self.next_seq += 1;
-        }
-        Ok(())
-    }
-
-    /// Sends the pending ACKs.
-    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) {
-        self.flush_ranges(FLAG_ACK, transmit);
-    }
-
     /// Sends one small unreliable message at once, outside the queue and the window (the
     /// connected ping and pong, and the disconnect notification): it must neither wait behind
     /// reliable data nor be dropped because some waits.
@@ -370,6 +345,31 @@ impl Peer {
         transmit(&self.buf);
         self.next_seq += 1;
         Ok(())
+    }
+
+    /// Replaces the receive limits. Bytes already held count against the new ones.
+    pub(super) fn set_limits(&mut self, limits: Limits) {
+        self.limits = limits;
+    }
+
+    /// Moves datagrams unacknowledged past the resend timeout back to the resend queue, and
+    /// doubles the timeout once per round of losses a timeout starts (a NAK's round does not):
+    /// the other datagrams sent before that round share its doubling, or one update's many
+    /// timeouts would jump straight to `MAX_RTO`.
+    pub(super) fn update(&mut self, now: Duration) {
+        let timeout = self.rtt.timeout();
+        while let Some(entry) = self.in_flight.first_entry() {
+            if now.saturating_sub(entry.get().at) < timeout {
+                break;
+            }
+            let seq = *entry.key();
+            // Checked before `lost` starts the next round.
+            if seq >= self.recovery {
+                self.rtt.back_off();
+            }
+            self.resend.extend(entry.remove().frames);
+            self.lost(seq);
+        }
     }
 
     fn max_datagram(&self) -> usize {
@@ -837,13 +837,13 @@ struct OutFrame {
 }
 
 impl OutFrame {
+    fn cost(&self) -> usize {
+        usize::from(self.len) + FRAME_COST_BYTES
+    }
+
     fn encoded_len(&self) -> usize {
         Header::encoded_len(self.header.reliability, self.header.split.is_some())
             + usize::from(self.len)
-    }
-
-    fn cost(&self) -> usize {
-        usize::from(self.len) + FRAME_COST_BYTES
     }
 }
 
@@ -907,6 +907,12 @@ impl Rtt {
         base.saturating_mul(1 << self.backoff).min(MAX_RTO)
     }
 
+    fn back_off(&mut self) {
+        if self.timeout() < MAX_RTO {
+            self.backoff += 1;
+        }
+    }
+
     fn sample(&mut self, rtt: Duration) {
         self.backoff = 0;
         if let Some(smoothed) = self.smoothed {
@@ -919,12 +925,6 @@ impl Rtt {
         } else {
             self.smoothed = Some(rtt);
             self.variation = rtt / 2;
-        }
-    }
-
-    fn back_off(&mut self) {
-        if self.timeout() < MAX_RTO {
-            self.backoff += 1;
         }
     }
 }

@@ -36,7 +36,7 @@ pub enum Kind {
     /// The 36 main slots: the hotbar from 0 to 8, then the 27 above it.
     #[doc(alias = "PlayerInventory")]
     Main,
-    /// The four armour slots: helmet, chestplate, leggings, boots.
+    /// The four armor slots: helmet, chestplate, leggings, boots.
     #[doc(alias = "ArmorInventory")]
     Armor,
     /// The off-hand slot.
@@ -64,9 +64,14 @@ impl Kind {
 
 /// Why a write to an inventory did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The inventory has no such slot.
     NoSlot,
+    /// No player has the ID: it has left.
+    NoPlayer,
+    /// No alternative creative inventory has the name.
+    NoCreativeInventory,
     /// The stack holds more than the slot takes.
     TooMany,
     /// The player holds as many stacks outside its slots (cursor, window, a closing menu's while
@@ -85,6 +90,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoSlot => f.write_str("no such slot"),
+            Self::NoPlayer => f.write_str("no such player"),
+            Self::NoCreativeInventory => f.write_str("no such creative inventory"),
             Self::TooMany => f.write_str("more items than the slot takes"),
             Self::Full => f.write_str("too many stacks held outside the slots"),
             Self::TooLong => f.write_str("more stacks than slots"),
@@ -111,7 +118,7 @@ pub struct Inventory<'a> {
 }
 
 impl<'a> Inventory<'a> {
-    /// The slots `first` then `second` (a double chest's two halves), each holding at most `max`
+    /// The slots `first` then `second`, a double chest's two halves, each holding at most `max`
     /// items. Over slots of its own, such as a copy of a player's, a program plans changes of
     /// several steps with [`plan_add`](Self::plan_add) before it writes them.
     pub fn new(first: &'a [Stack], second: &'a [Stack], max: u8) -> Self {
@@ -122,27 +129,19 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
-    pub(crate) fn of_shulker_box(self) -> Self {
-        Self {
-            shulker_box: true,
-            ..self
-        }
-    }
-
     /// Whether all of `stack` would fit.
     #[doc(alias = "Inventory::canAddItem")]
     #[doc(alias = "BaseInventory::canAddItem")]
     #[doc(alias = "ShulkerBoxInventory::canAddItem")]
     pub fn can_add(&self, stack: &Stack) -> bool {
-        self.addable_quantity(stack) == stack.count()
+        self.addable_count(stack) == stack.count()
     }
 
     /// How many of `stack` would fit: onto stacks it stacks with and into empty slots, at most
     /// its count; none of a shulker box into a shulker box.
     #[doc(alias = "Inventory::getAddableItemQuantity")]
     #[doc(alias = "BaseInventory::getAddableItemQuantity")]
-    pub fn addable_quantity(&self, stack: &Stack) -> u8 {
+    pub fn addable_count(&self, stack: &Stack) -> u8 {
         if self.refuses(stack) {
             return 0;
         }
@@ -244,6 +243,14 @@ impl<'a> Inventory<'a> {
         self.max
     }
 
+    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
+    pub(crate) fn of_shulker_box(self) -> Self {
+        Self {
+            shulker_box: true,
+            ..self
+        }
+    }
+
     /// Where `stack` goes: onto the stacks it stacks with that have room, in slot order, then
     /// into empty slots. The slots to write, each with the stack it then holds, and what does not
     /// fit: what [`Editor::add`] writes and returns.
@@ -311,7 +318,7 @@ impl<'a> Inventory<'a> {
 
     /// The most items of `stack` one slot of this inventory holds.
     fn slot_max(&self, stack: &Stack) -> u8 {
-        stack.max_count().min(self.max)
+        stack.max_stack_size().min(self.max)
     }
 }
 
@@ -432,11 +439,11 @@ mod tests {
         let want = stack(ItemKind::Stick, 1);
         assert_eq!(inv.all(&want).map(|(i, _)| i).collect::<Vec<_>>(), [2, 3]);
         // 4 onto the coal, 64 into the empty slot.
-        assert_eq!(inv.addable_quantity(&stack(ItemKind::Coal, 64)), 64);
+        assert_eq!(inv.addable_count(&stack(ItemKind::Coal, 64)), 64);
         assert!(inv.can_add(&stack(ItemKind::Coal, 64)));
         let full = [stack(ItemKind::Coal, 62)];
         let inv = Inventory::new(&full, &[], MAX_STACK);
-        assert_eq!(inv.addable_quantity(&stack(ItemKind::Coal, 5)), 2);
+        assert_eq!(inv.addable_count(&stack(ItemKind::Coal, 5)), 2);
         assert!(!inv.can_add(&stack(ItemKind::Coal, 5)));
     }
 
@@ -481,7 +488,7 @@ mod tests {
         assert!(chest.can_add(&shulker));
         let box_slots = chest.of_shulker_box();
         assert!(!box_slots.can_add(&shulker));
-        assert_eq!(box_slots.addable_quantity(&shulker), 0);
+        assert_eq!(box_slots.addable_count(&shulker), 0);
         assert_eq!(box_slots.plan_add(&shulker), (Vec::new(), shulker.clone()));
         assert!(box_slots.can_add(&stack(ItemKind::Coal, 64)));
     }

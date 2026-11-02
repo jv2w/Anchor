@@ -10,9 +10,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::protocol::{BLOCKS, WIDTHS, Writer, word_count};
-
 use super::{Error, Result};
+use crate::protocol::{BLOCKS, WIDTHS, Writer, word_count};
 
 /// The most bytes a 32-bit varint takes.
 const MAX_VARINT32_BYTES: usize = 5;
@@ -40,19 +39,6 @@ pub(crate) struct Paletted<T: Derive> {
 }
 
 impl<T: Derive> Paletted<T> {
-    /// A cube with `value` in every slot, in width 0 (no words).
-    pub(crate) fn uniform(value: T) -> Self {
-        Self {
-            bits: 0,
-            words: Vec::new(),
-            palette: vec![value],
-            derived: vec![value.derive()],
-            counts: vec![SLOTS],
-            lookup: vec![(value, 0)],
-            dead: 0,
-        }
-    }
-
     /// A cube from stored parts, which are external input: the width must be a Bedrock width,
     /// the word count must match it, the palette must have 1 to 4096 entries the width can
     /// index, and every slot's index must point into the palette. The result is compacted:
@@ -133,26 +119,6 @@ impl<T: Derive> Paletted<T> {
         self.bits
     }
 
-    /// The packed slot indices, as the network and disk forms hold them.
-    pub(crate) fn words(&self) -> &[u32] {
-        &self.words
-    }
-
-    /// The palette. An entry no slot uses stays until a new value takes its place.
-    pub(crate) fn palette(&self) -> &[T] {
-        &self.palette
-    }
-
-    /// The value of a slot (`offset` below [`SLOTS`]).
-    #[inline]
-    pub(crate) fn get(&self, offset: u16) -> T {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: every slot's index points into the palette"
-        )]
-        self.palette[usize::from(self.index(offset))]
-    }
-
     /// What the palette keeps for the value of a slot (`offset` below [`SLOTS`]).
     #[inline]
     pub(crate) fn derived(&self, offset: u16) -> T::Derived {
@@ -161,18 +127,6 @@ impl<T: Derive> Paletted<T> {
             reason = "invariant: every slot's index points into the palette, which `derived` matches"
         )]
         self.derived[usize::from(self.index(offset))]
-    }
-
-    /// Whether every slot holds `value`.
-    pub(crate) fn is_uniform(&self, value: T) -> bool {
-        self.find(value)
-            .is_some_and(|i| self.counts.get(usize::from(i)) == Some(&SLOTS))
-    }
-
-    /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
-    /// entries as varints of at most [`MAX_VARINT32_BYTES`].
-    pub(crate) fn max_encoded_bytes(&self) -> usize {
-        1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
     }
 
     /// Writes the network form (runtime palette): the header, the words, and the palette as
@@ -188,6 +142,51 @@ impl<T: Derive> Paletted<T> {
         for &entry in &self.palette {
             w.varint32(id(entry).cast_signed());
         }
+    }
+
+    /// The value of a slot (`offset` below [`SLOTS`]).
+    #[inline]
+    pub(crate) fn get(&self, offset: u16) -> T {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every slot's index points into the palette"
+        )]
+        self.palette[usize::from(self.index(offset))]
+    }
+
+    /// Whether every slot holds `value`.
+    pub(crate) fn is_uniform(&self, value: T) -> bool {
+        self.find(value)
+            .is_some_and(|i| self.counts.get(usize::from(i)) == Some(&SLOTS))
+    }
+
+    /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
+    /// entries as varints of at most [`MAX_VARINT32_BYTES`].
+    pub(crate) fn max_encoded_bytes(&self) -> usize {
+        1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
+    }
+
+    /// The palette. An entry no slot uses stays until a new value takes its place.
+    pub(crate) fn palette(&self) -> &[T] {
+        &self.palette
+    }
+
+    /// A cube with `value` in every slot, in width 0 (no words).
+    pub(crate) fn uniform(value: T) -> Self {
+        Self {
+            bits: 0,
+            words: Vec::new(),
+            palette: vec![value],
+            derived: vec![value.derive()],
+            counts: vec![SLOTS],
+            lookup: vec![(value, 0)],
+            dead: 0,
+        }
+    }
+
+    /// The packed slot indices, as the network and disk forms hold them.
+    pub(crate) fn words(&self) -> &[u32] {
+        &self.words
     }
 
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which

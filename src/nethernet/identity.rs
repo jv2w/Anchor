@@ -125,6 +125,12 @@ pub(crate) struct ServerIdentity {
 }
 
 impl ServerIdentity {
+    /// An identity with a new key that no file keeps.
+    #[cfg(test)]
+    pub(crate) fn generate() -> Result<Self> {
+        Self::new(ServerKey::generate().map_err(Error::Key)?)
+    }
+
     /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE_BYTES`] bytes), or
     /// creates one there when the file does not exist. A file that cannot be read or parsed is
     /// an error and is left untouched. Blocking: call it on the blocking pool at start.
@@ -145,12 +151,6 @@ impl ServerIdentity {
             key
         };
         Self::new(key)
-    }
-
-    /// An identity with a new key that no file keeps.
-    #[cfg(test)]
-    pub(crate) fn generate() -> Result<Self> {
-        Self::new(ServerKey::generate().map_err(Error::Key)?)
     }
 
     /// The `a=identity` value of an answer whose `a=fingerprint` digest is `answer_fingerprint`

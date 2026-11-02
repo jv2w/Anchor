@@ -120,6 +120,9 @@ getters!(SlotChange {
 });
 
 /// Where a slot of a player's transaction lives.
+///
+/// Unlike [`inventory::Kind`](crate::inventory::Kind), which names only the player's own
+/// inventories, it also names the open container block and the open window's own slots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Inventory {
     /// One of the player's own inventories (the inventory API's names).

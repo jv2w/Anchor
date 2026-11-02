@@ -49,21 +49,21 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
-    /// The fixed tick rate: the ticks the server runs a second while no tick runs late.
-    #[doc(alias = "Server::TARGET_TICKS_PER_SECOND")]
-    pub const TICKS_PER_SECOND: u32 = 20;
+    /// Anchor's own version.
+    #[doc(alias = "Server::getPocketMineVersion")]
+    pub const ANCHOR_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+    /// The Minecraft: Bedrock Edition version the server speaks, such as `1.26.60`.
+    #[doc(alias = "Server::getVersion")]
+    pub const GAME_VERSION: &'static str = GAME_VERSION;
 
     /// The server software's name.
     #[doc(alias = "Server::getName")]
     pub const NAME: &'static str = "Anchor";
 
-    /// The Minecraft: Bedrock Edition version the server speaks, such as `1.26.60`.
-    #[doc(alias = "Server::getVersion")]
-    pub const VERSION: &'static str = GAME_VERSION;
-
-    /// Anchor's own version.
-    #[doc(alias = "Server::getPocketMineVersion")]
-    pub const ANCHOR_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// The fixed tick rate: the ticks the server runs a second while no tick runs late.
+    #[doc(alias = "Server::TARGET_TICKS_PER_SECOND")]
+    pub const TICKS_PER_SECOND: u32 = 20;
 
     /// The engine time: ticks since the world was created
     /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
@@ -162,7 +162,7 @@ impl Context<'_> {
 
     /// Whether player data is loaded and saved (`save-player-data`).
     #[doc(alias = "Server::shouldSavePlayerData")]
-    pub fn should_save_player_data(&self) -> bool {
+    pub fn is_player_data_saved(&self) -> bool {
         self.state.settings.save_player_data
     }
 
@@ -192,7 +192,7 @@ impl Context<'_> {
     /// lookups return an [`Id`](PlayerId), so the context stays free for
     /// [`player_mut`](Self::player_mut).
     #[doc(alias = "Server::getPlayerExact")]
-    pub fn player_exact(&self, name: &str) -> Option<PlayerId> {
+    pub fn player_by_name(&self, name: &str) -> Option<PlayerId> {
         self.state
             .names
             .range((name.to_ascii_lowercase(), SessionId::new(0))..)
@@ -253,19 +253,26 @@ impl Context<'_> {
 
     /// Changes the server name the server list shows (the RakNet pong and NetherNet's
     /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
-    /// False, changing nothing, for a name the `motd` setting refuses (empty, over 256 bytes, or
-    /// with `;` or control characters), or past 256 network changes in one tick.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidMotd`](crate::task::Error::InvalidMotd) for a name the `motd` setting
+    /// refuses (empty, over 256 bytes, or with `;` or control characters).
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
+    /// tick.
+    ///
+    /// Nothing is changed on an error.
     #[doc(alias = "Network::setName")]
     #[doc(alias = "Network::updateName")]
-    pub fn set_motd(&mut self, motd: impl Into<String>) -> bool {
+    pub fn set_motd(&mut self, motd: impl Into<String>) -> crate::task::Result<()> {
         let motd = motd.into();
-        if !crate::config::is_motd(&motd)
-            || !self.state.network.control(Control::Motd(motd.clone()))
-        {
-            return false;
+        if !crate::config::is_motd(&motd) {
+            return Err(crate::task::Error::InvalidMotd);
         }
+        self.network_control(Control::Motd(motd.clone()))?;
         self.state.settings.motd = motd;
-        true
+        Ok(())
     }
 
     /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
@@ -321,8 +328,14 @@ impl Context<'_> {
     }
 
     /// Shows `message` to every player in the game that is not leaving;
-    /// returns how many got it. Fails, sending nothing, for a message a client does not
-    /// decode.
+    /// returns how many got it.
+    ///
+    /// # Errors
+    ///
+    /// Nothing is sent for a message a client does not decode:
+    /// [`Error::TooLong`](crate::player::Error::TooLong) for a text or source over its bound.
+    /// [`Error::TooManyParameters`](crate::player::Error::TooManyParameters) for a translation
+    /// with too many parameters.
     #[doc(alias = "Server::broadcastMessage")]
     #[doc(alias = "Server::broadcastTip")]
     #[doc(alias = "Server::broadcastPopup")]
@@ -378,9 +391,12 @@ impl Context<'_> {
 
     /// Spawns a villager-type NPC (no AI, network actor `minecraft:villager_v2`) at `pos` (its
     /// feet) in `world`, showing `profession` (the actor variant) and trading `offers` in screen
-    /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
+    /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity).
+    ///
+    /// # Errors
+    ///
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for offers
-    /// [`custom::check_offers`](crate::custom::check_offers) refuses, and with
+    /// [`custom::check_offers`](crate::custom::check_offers) refuses.
     /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) where no villager can be
     /// spawned (that variant tells where).
     pub fn spawn_villager(
@@ -591,15 +607,15 @@ mod tests {
         let (mut state, _rx) = state();
         let cx = Context { state: &mut state };
         assert_eq!(
-            cx.player_exact("PLAYER1"),
+            cx.player_by_name("PLAYER1"),
             Some(PlayerId::new(SessionId::new(1)))
         );
         assert_eq!(
-            cx.player_exact("offline"),
+            cx.player_by_name("offline"),
             Some(PlayerId::new(SessionId::new(2)))
         );
-        assert_eq!(cx.player_exact("player"), None);
-        assert_eq!(cx.player_exact(""), None);
+        assert_eq!(cx.player_by_name("player"), None);
+        assert_eq!(cx.player_by_name(""), None);
     }
 
     // api: Server::getOnlinePlayers
@@ -617,7 +633,7 @@ mod tests {
         assert_eq!(cx.player_count(), 1);
         assert!(cx.player(ids[1]).is_none());
         assert!(cx.player_mut(ids[1]).is_none());
-        assert_eq!(cx.player_exact("offline"), None);
+        assert_eq!(cx.player_by_name("offline"), None);
         assert!(cx.player_mut(ids[0]).is_some());
     }
 
@@ -658,7 +674,7 @@ mod tests {
         let (mut state, _rx) = state();
         let cx = Context { state: &mut state };
         assert_eq!(Context::NAME, "Anchor");
-        assert_eq!(Context::VERSION, GAME_VERSION);
+        assert_eq!(Context::GAME_VERSION, GAME_VERSION);
         assert_eq!(Context::ANCHOR_VERSION, env!("CARGO_PKG_VERSION"));
         let config = crate::config::Config::default();
         assert_eq!(cx.motd(), config.general.motd);
@@ -668,7 +684,7 @@ mod tests {
         assert_eq!(cx.is_game_mode_forced(), config.general.force_gamemode);
         assert_eq!(cx.is_hardcore(), config.general.hardcore);
         assert_eq!(cx.view_distance(), config.general.view_distance);
-        assert!(!cx.should_save_player_data());
+        assert!(!cx.is_player_data_saved());
         assert_eq!(cx.tick(), state.tick);
         Context { state: &mut state }.set_max_players(2).unwrap();
         let (third, mut rx3) = join(3, 0);

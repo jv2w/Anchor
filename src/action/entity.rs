@@ -7,7 +7,7 @@ use super::Action;
 use crate::math::Vec3;
 use crate::{entity, player, world};
 
-/// A player hits an entity in melee as its client's hit would.
+/// A player's melee hit on an entity, as its client's hit would be.
 ///
 /// The hit has reach, the damage of the held item with Strength, Weakness, Sharpness and a
 /// critical hit, knockback, Knockback and Fire Aspect, wear and food, with the events of each
@@ -24,7 +24,7 @@ pub struct Attack {
 }
 
 impl Attack {
-    /// `attacker` hits `target`.
+    /// A hit by `attacker` on `target`.
     pub fn new(attacker: player::Id, target: entity::Id) -> Self {
         Self { attacker, target }
     }

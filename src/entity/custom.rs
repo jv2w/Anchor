@@ -101,7 +101,42 @@ impl Custom {
         }
     }
 
-    /// This type driven by `behaviour`.
+    /// Its identifier.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    /// The same type flagged as having a spawn egg in the actor identifier list. It sets the flag
+    /// only: Anchor adds no spawn egg item.
+    #[must_use]
+    pub fn spawn_egg(self) -> Self {
+        Self {
+            spawn_egg: true,
+            ..self
+        }
+    }
+
+    /// The same type flagged summonable in the actor identifier list. It sets the flag only:
+    /// Anchor adds no `/summon` command.
+    #[must_use]
+    pub fn summonable(self) -> Self {
+        Self {
+            summonable: true,
+            ..self
+        }
+    }
+
+    /// The same type with entities that are never saved: they go when their chunk unloads (a
+    /// minigame's props).
+    #[must_use]
+    pub fn temporary(self) -> Self {
+        Self {
+            saved: false,
+            ..self
+        }
+    }
+
+    /// The same type driven by `behaviour`.
     #[must_use]
     pub fn with_behaviour(self, behaviour: impl Behaviour + 'static) -> Self {
         Self {
@@ -110,26 +145,26 @@ impl Custom {
         }
     }
 
-    /// This type losing the share `drag` of its speed per tick in the air (0 up to, not
+    /// The same type losing the share `drag` of its speed per tick in the air (0 up to, not
     /// including, 1).
     #[must_use]
     pub fn with_drag(self, drag: f64) -> Self {
         Self { drag, ..self }
     }
 
-    /// This type with a downward acceleration of `gravity` blocks per tick² (0 to 1).
+    /// The same type with a downward acceleration of `gravity` blocks per tick² (0 to 1).
     #[must_use]
     pub fn with_gravity(self, gravity: f64) -> Self {
         Self { gravity, ..self }
     }
 
-    /// This type with `max_health` (above 0, at most 1,000,000), which new entities start with.
+    /// The same type with `max_health` (above 0, at most 1,000,000), which new entities start with.
     #[must_use]
     pub fn with_max_health(self, max_health: f64) -> Self {
         Self { max_health, ..self }
     }
 
-    /// This type with the name tag new entities start with (at most
+    /// The same type with the name tag new entities start with (at most
     /// [`MAX_NAME_TAG_BYTES`](super::MAX_NAME_TAG_BYTES)).
     #[must_use]
     pub fn with_name_tag(self, name_tag: impl Into<String>) -> Self {
@@ -139,7 +174,7 @@ impl Custom {
         }
     }
 
-    /// This type with a box `width` wide and deep and `height` high, in blocks (above 0, at most
+    /// The same type with a box `width` wide and deep and `height` high, in blocks (above 0, at most
     /// 16), for collisions, hits and what clients draw.
     #[must_use]
     pub fn with_size(self, width: f64, height: f64) -> Self {
@@ -150,48 +185,13 @@ impl Custom {
         }
     }
 
-    /// This type with its behaviour called every `period` ticks of an entity's age.
+    /// The same type with its behaviour called every `period` ticks of an entity's age.
     #[must_use]
     pub fn with_tick_period(self, period: NonZeroU32) -> Self {
         Self {
             tick_period: period,
             ..self
         }
-    }
-
-    /// This type flagged as having a spawn egg in the actor identifier list. It sets the flag
-    /// only: Anchor adds no spawn egg item.
-    #[must_use]
-    pub fn spawn_egg(self) -> Self {
-        Self {
-            spawn_egg: true,
-            ..self
-        }
-    }
-
-    /// This type flagged summonable in the actor identifier list. It sets the flag only: Anchor
-    /// adds no `/summon` command.
-    #[must_use]
-    pub fn summonable(self) -> Self {
-        Self {
-            summonable: true,
-            ..self
-        }
-    }
-
-    /// This type's entities are never saved: they go when their chunk unloads (a minigame's
-    /// props).
-    #[must_use]
-    pub fn temporary(self) -> Self {
-        Self {
-            saved: false,
-            ..self
-        }
-    }
-
-    /// Its identifier.
-    pub fn identifier(&self) -> &str {
-        &self.identifier
     }
 }
 

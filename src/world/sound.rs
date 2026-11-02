@@ -41,28 +41,28 @@ pub enum Sound {
     /// An amethyst block chiming.
     #[doc(alias = "AmethystBlockChimeSound")]
     AmethystBlockChime,
-    /// Chainmail armour being put on.
+    /// Chainmail armor being put on.
     #[doc(alias = "ArmorEquipChainSound")]
     ArmorEquipChain,
-    /// Copper armour being put on.
+    /// Copper armor being put on.
     #[doc(alias = "ArmorEquipCopperSound")]
     ArmorEquipCopper,
-    /// Diamond armour being put on.
+    /// Diamond armor being put on.
     #[doc(alias = "ArmorEquipDiamondSound")]
     ArmorEquipDiamond,
-    /// Other armour being put on.
+    /// Other armor being put on.
     #[doc(alias = "ArmorEquipGenericSound")]
     ArmorEquipGeneric,
-    /// Golden armour being put on.
+    /// Golden armor being put on.
     #[doc(alias = "ArmorEquipGoldSound")]
     ArmorEquipGold,
-    /// Iron armour being put on.
+    /// Iron armor being put on.
     #[doc(alias = "ArmorEquipIronSound")]
     ArmorEquipIron,
-    /// Leather armour being put on.
+    /// Leather armor being put on.
     #[doc(alias = "ArmorEquipLeatherSound")]
     ArmorEquipLeather,
-    /// Netherite armour being put on.
+    /// Netherite armor being put on.
     #[doc(alias = "ArmorEquipNetheriteSound")]
     ArmorEquipNetherite,
     /// An arrow hitting.
@@ -363,6 +363,21 @@ pub enum Sound {
 }
 
 impl Sound {
+    /// A [`packet`](Self::packet) heard at full volume however far `at` is (the `LevelSoundEvent`
+    /// flag Mojang names Is Global); `None` for a sound sent as a `LevelEvent`, which has no such
+    /// flag.
+    pub(crate) fn full_volume_packet(self, at: Vec3) -> Option<Packet> {
+        match self.packet(at) {
+            Packet::LevelSoundEvent(sound) => {
+                Some(Packet::LevelSoundEvent(LevelSoundEventPacket {
+                    disable_relative_volume: true,
+                    ..sound
+                }))
+            }
+            _ => None,
+        }
+    }
+
     /// The packet that plays the sound at `at`.
     pub(crate) fn packet(self, at: Vec3) -> Packet {
         let position = at.to_f32();
@@ -384,21 +399,6 @@ impl Sound {
                 position,
                 event_data,
             }),
-        }
-    }
-
-    /// [`packet`](Self::packet) heard at full volume however far `at` is (the `LevelSoundEvent`
-    /// flag Mojang names Is Global); `None` for a sound sent as a `LevelEvent`, which has no such
-    /// flag.
-    pub(crate) fn full_volume_packet(self, at: Vec3) -> Option<Packet> {
-        match self.packet(at) {
-            Packet::LevelSoundEvent(sound) => {
-                Some(Packet::LevelSoundEvent(LevelSoundEventPacket {
-                    disable_relative_volume: true,
-                    ..sound
-                }))
-            }
-            _ => None,
         }
     }
 

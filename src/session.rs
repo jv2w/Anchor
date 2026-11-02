@@ -43,7 +43,6 @@ use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
 use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, SessionInputs};
 use crate::udp;
-
 use transport::Transport;
 
 /// New connections waiting for the accept task, per transport; when full, the transport closes
@@ -386,6 +385,26 @@ impl Status {
         }
     }
 
+    /// The `GET /v1/join` body for `players` online. `gameType` is the Bedrock game type number
+    /// (spectator is 6; the Mojang guide lists only 0 to 2).
+    fn json(&self, players: usize) -> Arc<[u8]> {
+        let join = Join {
+            name: &self.motd,
+            protocol: PROTOCOL_VERSION,
+            version: GAME_VERSION,
+            level: &self.level_name,
+            players,
+            max_players: self.max_players,
+            game_type: i32::from(self.mode.game_type()),
+        };
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a struct of strings and integers serializes into memory"
+        )]
+        let json = serde_json::to_vec(&join).expect("the join status serializes");
+        Arc::from(json)
+    }
+
     /// The pong for `players` online. Config validation keeps `;` out of motd and level-name,
     /// so the fields stay apart. The IPv6 socket shares the IPv4 port.
     fn pong(&self, players: usize) -> Arc<[u8]> {
@@ -408,26 +427,6 @@ impl Status {
              {level_name};{mode};1;{port};{port};0;1;1;"
         );
         Arc::from(text.into_bytes())
-    }
-
-    /// The `GET /v1/join` body for `players` online. `gameType` is the Bedrock game type number
-    /// (spectator is 6; the Mojang guide lists only 0 to 2).
-    fn json(&self, players: usize) -> Arc<[u8]> {
-        let join = Join {
-            name: &self.motd,
-            protocol: PROTOCOL_VERSION,
-            version: GAME_VERSION,
-            level: &self.level_name,
-            players,
-            max_players: self.max_players,
-            game_type: i32::from(self.mode.game_type()),
-        };
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: a struct of strings and integers serializes into memory"
-        )]
-        let json = serde_json::to_vec(&join).expect("the join status serializes");
-        Arc::from(json)
     }
 }
 

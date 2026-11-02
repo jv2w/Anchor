@@ -216,11 +216,6 @@ impl Source {
         })
     }
 
-    /// The world's `level.dat`.
-    pub(crate) fn world(&self) -> &WorldData {
-        &self.world
-    }
-
     /// Fails with [`Error::SourceChanged`] unless every file of the world is as it was when it
     /// was opened.
     pub(crate) fn unchanged(&self) -> Result<()> {
@@ -231,6 +226,11 @@ impl Source {
             });
         }
         self.db.unchanged()
+    }
+
+    /// The world's `level.dat`.
+    pub(crate) fn world(&self) -> &WorldData {
+        &self.world
     }
 
     /// Lists the overworld chunks and counts what will not be imported.

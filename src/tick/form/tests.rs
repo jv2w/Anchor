@@ -5,11 +5,11 @@ use tokio::sync::mpsc;
 
 use super::*;
 use crate::display::{
-    BossBar, Colour, Error as DisplayError, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Scoreboard,
-    Slot, Sort,
+    BossBar, Colour, Error as DisplayError, MAX_LABEL_BYTES, MAX_LINES, MAX_SIDEBAR_LINES,
+    Scoreboard, Slot, Sort,
 };
 use crate::event::Listeners;
-use crate::form::{Custom, Menu, Modal, Value};
+use crate::form::{Buttons, Custom, Modal, Value};
 use crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
 use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
 use crate::tick::queue::{Input, Outbound};
@@ -95,8 +95,8 @@ fn pending(state: &State, session: u64) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-fn menu() -> Menu {
-    Menu::new("Lobby")
+fn menu() -> Buttons {
+    Buttons::new("Lobby")
         .with_content("Pick")
         .button("a")
         .button("b")
@@ -160,7 +160,7 @@ fn a_valid_answer_calls_the_handler_once_with_the_typed_response() {
             answer(2, 1, 0, Some(b"false"), None),
         ],
     );
-    assert_eq!(calls(&mut menu_calls), [(1, Response::Menu(1))]);
+    assert_eq!(calls(&mut menu_calls), [(1, Response::Buttons(1))]);
     assert_eq!(
         calls(&mut custom_calls),
         [(
@@ -700,7 +700,7 @@ fn the_docs_name_the_limits_the_build_checks() {
             "({MAX_SIDEBAR_LINES} in the sidebar, {} elsewhere)",
             thousands(MAX_LINES)
         ),
-        format!("longer than {} bytes", thousands(MAX_TEXT)),
+        format!("longer than {} bytes", thousands(MAX_LABEL_BYTES)),
         format!("title is longer than {BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN} bytes"),
     ] {
         assert!(display.contains(&text), "{text}");

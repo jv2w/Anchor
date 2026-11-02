@@ -5047,47 +5047,45 @@ pub struct PlayerAuthInput {
 
 impl Codec for PlayerAuthInput {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let mut pk = Self {
+        Ok(Self {
             pitch: r.float32()?,
             yaw: r.float32()?,
             position: r.vec3()?,
             move_vector: r.vec2()?,
             head_yaw: r.float32()?,
-            ..Self::default()
-        };
-        super::types::decode_input_flag_list(r, &mut pk.input_data, 66)?;
-        pk.input_mode = r.varuint32()?;
-        pk.play_mode = r.varuint32()?;
-        pk.interaction_model = r.varint32()?;
-        pk.interact_pitch = r.float32()?;
-        pk.interact_yaw = r.float32()?;
-        pk.tick = r.varuint64()?;
-        pk.delta = r.vec3()?;
-        pk.item_interaction_data = if r.bool()? {
-            Some(r.player_inventory_action()?)
-        } else {
-            None
-        };
-        pk.item_stack_request = if r.bool()? {
-            Some(super::ItemStackRequest::decode(r)?)
-        } else {
-            None
-        };
-        pk.block_actions = if r.bool()? {
-            Some(r.list_varuint32_max(100, PlayerBlockAction::decode)?)
-        } else {
-            None
-        };
-        pk.vehicle_rotation = if r.bool()? { Some(r.vec2()?) } else { None };
-        pk.client_predicted_vehicle = if r.bool()? {
-            Some(r.actor_unique_id()?)
-        } else {
-            None
-        };
-        pk.analogue_move_vector = r.vec2()?;
-        pk.camera_orientation = r.vec3()?;
-        pk.raw_move_vector = r.vec2()?;
-        Ok(pk)
+            input_data: r.input_flag_list(66)?,
+            input_mode: r.varuint32()?,
+            play_mode: r.varuint32()?,
+            interaction_model: r.varint32()?,
+            interact_pitch: r.float32()?,
+            interact_yaw: r.float32()?,
+            tick: r.varuint64()?,
+            delta: r.vec3()?,
+            item_interaction_data: if r.bool()? {
+                Some(r.player_inventory_action()?)
+            } else {
+                None
+            },
+            item_stack_request: if r.bool()? {
+                Some(super::ItemStackRequest::decode(r)?)
+            } else {
+                None
+            },
+            block_actions: if r.bool()? {
+                Some(r.list_varuint32_max(100, PlayerBlockAction::decode)?)
+            } else {
+                None
+            },
+            vehicle_rotation: if r.bool()? { Some(r.vec2()?) } else { None },
+            client_predicted_vehicle: if r.bool()? {
+                Some(r.actor_unique_id()?)
+            } else {
+                None
+            },
+            analogue_move_vector: r.vec2()?,
+            camera_orientation: r.vec3()?,
+            raw_move_vector: r.vec2()?,
+        })
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
@@ -5096,7 +5094,7 @@ impl Codec for PlayerAuthInput {
         w.vec3(self.position);
         w.vec2(self.move_vector);
         w.float32(self.head_yaw);
-        super::types::encode_input_flag_list(w, &self.input_data, 66)?;
+        w.input_flag_list(&self.input_data, 66)?;
         w.varuint32(self.input_mode);
         w.varuint32(self.play_mode);
         w.varint32(self.interaction_model);
@@ -9911,6 +9909,13 @@ impl Packet {
     /// Decodes the payload of a packet with this ID: the bytes after the packet header. Every byte must be part of the packet.
     ///
     /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownEnum`] for an ID that is no packet, or for a selector inside the packet that has no known meaning.
+    /// [`Error::UnexpectedEnd`] for a payload that ends inside a value.
+    /// [`Error::Size`] for a length, count, depth or allocation over its limit, or for bytes left after the packet.
+    /// [`Error::VarintOverflow`], [`Error::InvalidBool`], [`Error::InvalidUtf8`] and [`Error::InvalidValue`] for a value the wire format does not allow.
     pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {
         let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);
         let packet = Self::decode_body(id, &mut r);
@@ -10205,6 +10210,11 @@ impl Packet {
     }
 
     /// Appends the payload of the packet (without the packet header) to `out`. On an error `out` is left as it was.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Size`] for a length or count that does not fit its wire prefix or is over its limit.
+    /// [`Error::InvalidValue`] and [`Error::UnknownEnum`] for a field value the wire format does not allow.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: generated from one gophertunnel body or table"

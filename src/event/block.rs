@@ -4,9 +4,9 @@
 //! in the world while the listeners run, so the event gives their positions only.
 
 use crate::block::State;
+use crate::block_entity::Side;
 use crate::item::Stack;
 use crate::player;
-use crate::tile::Side;
 use crate::world::{self, BlockPos};
 
 /// Raised when a player breaks a block, before it goes. Cancelling keeps the block.

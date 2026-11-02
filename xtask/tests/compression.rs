@@ -6,11 +6,12 @@
 
 #[path = "support/oracle.rs"]
 mod oracle;
-#[path = "support/rng.rs"]
+#[path = "../../tests/support/rng.rs"]
 mod rng;
 
 use anchor::protocol::batch::{self, Decoder, Encoder, Settings};
 use anchor::protocol::compression::{self, Compression};
+
 use oracle::Record;
 use rng::Rng;
 
@@ -44,7 +45,7 @@ fn random_data(len: usize) -> Vec<u8> {
     let mut rng = seeded(len);
     let mut out = Vec::with_capacity(len + 64);
     while out.len() < len {
-        out.push(rng.byte());
+        out.push(rng.next().to_le_bytes()[0]);
     }
     out.truncate(len);
     out
@@ -56,9 +57,12 @@ fn repetitive_data(len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(len + 64);
     while out.len() < len {
         match rng.below(3) {
-            0 => out.extend(std::iter::repeat_n(rng.byte() % 4, rng.below(256))),
+            0 => out.extend(std::iter::repeat_n(
+                rng.next().to_le_bytes()[0] % 4,
+                rng.below(256),
+            )),
             1 => out.extend_from_slice(b"minecraft:stone"),
-            _ => out.extend((0..rng.below(8)).map(|_| rng.byte())),
+            _ => out.extend((0..rng.below(8)).map(|_| rng.next().to_le_bytes()[0])),
         }
     }
     out.truncate(len);

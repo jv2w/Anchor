@@ -118,7 +118,6 @@ type extractor struct {
 	functions map[string]Function
 	enums     map[string]Enum
 	unions    map[string]Union
-	consts    map[string]Const
 }
 
 func newExtractor(pkgs []*packages.Package) *extractor {
@@ -131,7 +130,6 @@ func newExtractor(pkgs []*packages.Package) *extractor {
 		functions: map[string]Function{},
 		enums:     map[string]Enum{},
 		unions:    map[string]Union{},
-		consts:    map[string]Const{},
 	}
 	for _, p := range pkgs {
 		ex.fset = p.Fset
@@ -199,9 +197,6 @@ func (ex *extractor) extract() *IR {
 	for _, k := range sortedKeys(ex.unions) {
 		ir.Unions = append(ir.Unions, ex.unions[k])
 	}
-	for _, k := range sortedKeys(ex.consts) {
-		ir.Constants = append(ir.Constants, ex.consts[k])
-	}
 	ir.ConstDecls = ex.constDecls()
 	return ir
 }
@@ -230,7 +225,6 @@ func (ex *extractor) source() Source {
 		panic(failure{"CurrentProtocol is not an integer"})
 	}
 	return Source{
-		Module:      modulePath,
 		Version:     v,
 		Commit:      commit,
 		Protocol:    proto,
@@ -242,17 +236,7 @@ func (ex *extractor) ioMethods() []IOMethod {
 	iface := ex.ioType.Underlying().(*types.Interface)
 	var out []IOMethod
 	for i := 0; i < iface.NumMethods(); i++ {
-		m := iface.Method(i)
-		sig := m.Type().(*types.Signature)
-		im := IOMethod{Name: m.Name(), Params: []Param{}}
-		for j := 0; j < sig.Params().Len(); j++ {
-			v := sig.Params().At(j)
-			im.Params = append(im.Params, Param{Name: v.Name(), Type: ex.typ(v.Type(), m.Pos())})
-		}
-		for j := 0; j < sig.Results().Len(); j++ {
-			im.Results = append(im.Results, ex.typ(sig.Results().At(j).Type(), m.Pos()))
-		}
-		out = append(out, im)
+		out = append(out, IOMethod{Name: iface.Method(i).Name()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -528,9 +512,6 @@ func (ex *extractor) typ(t types.Type, pos token.Pos) Type {
 // constRef records a named constant and returns its expression.
 func (ex *extractor) constRef(c *types.Const, used types.Type, pos token.Pos) Expr {
 	name := qualName(c)
-	if _, ok := ex.consts[name]; !ok {
-		ex.consts[name] = Const{Name: name, Type: ex.typ(c.Type(), pos), Value: ex.constValue(c.Val(), pos)}
-	}
 	v := ex.constValue(c.Val(), pos)
 	t := ex.typ(used, pos)
 	return Expr{Kind: "const", Name: name, Value: &v, Type: &t}

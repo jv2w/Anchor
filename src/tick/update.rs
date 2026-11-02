@@ -154,7 +154,7 @@ fn run_changes(state: &mut State, world: WorldIndex) {
         if takes_entity || state.rules.block_entities.get(world, pos).is_some() {
             block_entity::block_changed(state, world, pos);
         }
-        let around = std::iter::once(Some(pos)).chain(Face::ALL.map(|f| pos.step(f)));
+        let around = std::iter::once(Some(pos)).chain(Face::all().iter().map(|&f| pos.step(f)));
         for p in around.flatten() {
             if (MIN_Y..=MAX_Y).contains(&p.y) {
                 entity::block_changed(state, world, p);

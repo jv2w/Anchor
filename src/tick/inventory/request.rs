@@ -81,6 +81,19 @@ pub(super) struct Exec<'a> {
 }
 
 impl<'a> Exec<'a> {
+    /// Puts items into the created output; the previous ones must all have been taken, unless
+    /// they came from the creative inventory.
+    pub(super) fn set_created(&mut self, next: Option<Created>) -> Result<()> {
+        if let Some(c) = &self.created
+            && !c.creative
+            && c.taken < c.total
+        {
+            return Err(Error::CreatedLeft);
+        }
+        self.created = next;
+        Ok(())
+    }
+
     fn new(
         inv: &'a Inventory,
         blocks: &'a block_entity::BlockEntities,
@@ -122,95 +135,7 @@ impl<'a> Exec<'a> {
         }
     }
 
-    /// The slot as the request has left it so far.
-    fn slot(&self, r: SlotRef) -> Result<Slot> {
-        match self.overlay.get(&r) {
-            Some(s) => Ok(s.clone()),
-            None => self.base(r).ok_or(Error::NoSlot),
-        }
-    }
-
-    /// The slot a request slot names, after checking its stack network ID.
-    fn resolve(&mut self, info: &StackRequestSlotInfo) -> Result<SlotRef> {
-        let (container, slot) = (info.container.container_id, info.slot);
-        if info.container.dynamic_container_id.is_some() {
-            return Err(Error::NoSlot);
-        }
-        let r = self.inv.locate(container, slot).ok_or(Error::NoSlot)?;
-        self.touch(container, slot);
-        let client = info.stack_network_id;
-        if client != self.request {
-            let before = self.base(r).ok_or(Error::NoSlot)?;
-            let matches = if client < 0 {
-                before.id.request == Some(client)
-            } else {
-                before.id.net == client
-            };
-            if !matches {
-                return Err(Error::StackId);
-            }
-        }
-        Ok(r)
-    }
-
-    /// Takes `count` items from a request slot (the created output included): the slot keeps
-    /// its ID unless it empties. Returns where they came from and what was taken.
-    fn remove(
-        &mut self,
-        info: &StackRequestSlotInfo,
-        count: u8,
-    ) -> Result<(Option<SlotRef>, Stack)> {
-        if count == 0 {
-            return Err(Error::Count);
-        }
-        if is_created_output(info) {
-            return self.take_created(count).map(|s| (None, s));
-        }
-        let r = self.resolve(info)?;
-        let slot = self.slot(r)?;
-        let have = slot.stack.count();
-        if have < count {
-            return Err(Error::Count);
-        }
-        let taken = slot.stack.with_count(count);
-        self.set(r, slot.stack.with_count(have - count), slot.id.net);
-        self.follow_lent(r, have, count, None);
-        Ok((Some(r), taken))
-    }
-
-    /// Puts items into the created output; the previous ones must all have been taken, unless
-    /// they came from the creative inventory.
-    pub(super) fn set_created(&mut self, next: Option<Created>) -> Result<()> {
-        if let Some(c) = &self.created
-            && !c.creative
-            && c.taken < c.total
-        {
-            return Err(Error::CreatedLeft);
-        }
-        self.created = next;
-        Ok(())
-    }
-
-    /// The slot before the request.
-    fn base(&self, r: SlotRef) -> Option<Slot> {
-        match r {
-            SlotRef::Block(i) => {
-                let window = self.window?;
-                let (_, pos, j) = block_slot(window.kind, i)?;
-                let half = match window.kind.blocks() {
-                    [Some((_, p)), _] if p == pos => 0,
-                    _ => 1,
-                };
-                Some(Slot {
-                    stack: self.halves.get(half)?.get(j)?.clone(),
-                    id: window.ids.get(usize::from(i)).copied().unwrap_or_default(),
-                })
-            }
-            r => self.inv.get(r),
-        }
-    }
-
-    /// Whether slot `r` takes `stack`: armour only in its slot (a carved pumpkin or a mob head on
+    /// Whether slot `r` takes `stack`: armor only in its slot (a carved pumpkin or a mob head on
     /// the head), only what [`Stack::can_enter_shulker_box`] in a shulker box.
     fn accepts(&self, r: SlotRef, stack: &Stack) -> Result<()> {
         let Some(item) = stack.item() else {
@@ -240,11 +165,6 @@ impl<'a> Exec<'a> {
         if ok { Ok(()) } else { Err(Error::NotAccepted) }
     }
 
-    /// Whether items moving from `r` onto the cursor are lent: `r` is a slot of a menu that lends.
-    fn is_lent_from(&self, r: SlotRef) -> bool {
-        matches!(r, SlotRef::Menu(_)) && self.inv.menu.as_ref().is_some_and(menu::Open::is_lending)
-    }
-
     /// Whether the stacks held outside the slots afterwards ([`held_count`]) and the waiting
     /// stacks keep the invariant of [`MAX_SAVED_PENDING`]: a close can turn each held stack into
     /// a waiting one.
@@ -256,6 +176,64 @@ impl<'a> Exec<'a> {
             return Err(Error::Unreturnable);
         }
         Ok(())
+    }
+
+    /// Whether items moving from `r` onto the cursor are lent: `r` is a slot of a menu that lends.
+    fn is_lent_from(&self, r: SlotRef) -> bool {
+        matches!(r, SlotRef::Menu(_)) && self.inv.menu.as_ref().is_some_and(menu::Open::is_lending)
+    }
+
+    /// Runs every action, then the end-of-request checks.
+    fn run(mut self, actions: &[StackRequestAction]) -> Result<Plan> {
+        for action in actions {
+            self.action(action)?;
+        }
+        self.finish()?;
+        let before = if self.records_before {
+            self.overlay
+                .keys()
+                .map(|r| self.base(*r).map(|s| s.stack).unwrap_or_default())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(Plan {
+            writes: self.overlay.into_iter().collect(),
+            before,
+            touched: self.touched,
+            next_id: self.next_id,
+            drop: self.drop,
+            traded: self.traded,
+            made: self.made,
+            lent: self.lent,
+        })
+    }
+
+    /// The slot as the request has left it so far.
+    fn slot(&self, r: SlotRef) -> Result<Slot> {
+        match self.overlay.get(&r) {
+            Some(s) => Ok(s.clone()),
+            None => self.base(r).ok_or(Error::NoSlot),
+        }
+    }
+
+    /// The slot before the request.
+    fn base(&self, r: SlotRef) -> Option<Slot> {
+        match r {
+            SlotRef::Block(i) => {
+                let window = self.window?;
+                let (_, pos, j) = block_slot(window.kind, i)?;
+                let half = match window.kind.blocks() {
+                    [Some((_, p)), _] if p == pos => 0,
+                    _ => 1,
+                };
+                Some(Slot {
+                    stack: self.halves.get(half)?.get(j)?.clone(),
+                    id: window.ids.get(usize::from(i)).copied().unwrap_or_default(),
+                })
+            }
+            r => self.inv.get(r),
+        }
     }
 
     fn action(&mut self, action: &StackRequestAction) -> Result<()> {
@@ -316,73 +294,37 @@ impl<'a> Exec<'a> {
         }
     }
 
-    /// Names a request slot for the response.
-    fn touch(&mut self, container: u8, slot: u8) {
-        if self.seen.insert((container, slot)) {
-            self.touched.push((container, slot));
-        }
+    /// The end-of-request checks: every created item taken, a trade consumed exactly its
+    /// payments, and the stacks held outside the slots can go back.
+    fn finish(&mut self) -> Result<()> {
+        self.set_created(None)?;
+        self.check_returnable()?;
+        station::finish(self)
     }
 
-    /// Sets a slot in the scratch copy, as changed by this request.
-    fn set(&mut self, r: SlotRef, stack: Stack, net: i32) {
-        let id = StackId {
-            net: if stack.is_empty() { 0 } else { net },
-            request: Some(self.request),
-        };
-        self.overlay.insert(r, Slot { stack, id });
-    }
-
-    /// A new stack network ID.
-    fn new_id(&mut self) -> i32 {
-        take_stack_id(&mut self.next_id)
-    }
-
-    /// `Take` and `Place`: moves `count` items.
-    fn transfer(&mut self, a: &TransferStackRequestAction) -> Result<()> {
-        let count = a.count;
+    /// Takes `count` items from a request slot (the created output included): the slot keeps
+    /// its ID unless it empties. Returns where they came from and what was taken.
+    fn remove(
+        &mut self,
+        info: &StackRequestSlotInfo,
+        count: u8,
+    ) -> Result<(Option<SlotRef>, Stack)> {
         if count == 0 {
             return Err(Error::Count);
         }
-        let (moved, keep, from) = if is_created_output(&a.source) {
-            (self.take_created(count)?, None, None)
-        } else {
-            let r = self.resolve(&a.source)?;
-            let slot = self.slot(r)?;
-            let have = slot.stack.count();
-            if have < count {
-                return Err(Error::Count);
-            }
-            self.set(r, slot.stack.with_count(have - count), slot.id.net);
-            // A whole stack keeps its ID where it goes.
-            (
-                slot.stack,
-                (have == count).then_some(slot.id.net),
-                Some((r, have)),
-            )
-        };
-        let r = self.resolve(&a.destination)?;
-        if let Some((from, have)) = from {
-            self.follow_lent(from, have, count, Some(r));
+        if is_created_output(info) {
+            return self.take_created(count).map(|s| (None, s));
         }
-        self.accepts(r, &moved)?;
-        let there = self.slot(r)?;
-        let total = u16::from(there.stack.count()) + u16::from(count);
-        if total > u16::from(moved.max_count()) {
-            return Err(Error::NoRoom);
+        let r = self.resolve(info)?;
+        let slot = self.slot(r)?;
+        let have = slot.stack.count();
+        if have < count {
+            return Err(Error::Count);
         }
-        let total = u8::try_from(total).map_err(|_| Error::NoRoom)?;
-        if there.stack.is_empty() {
-            let net = match keep {
-                Some(net) => net,
-                None => self.new_id(),
-            };
-            self.set(r, moved.with_count(total), net);
-        } else if there.stack.can_stack_with(&moved) {
-            self.set(r, there.stack.with_count(total), there.id.net);
-        } else {
-            return Err(Error::NoRoom);
-        }
-        Ok(())
+        let taken = slot.stack.with_count(count);
+        self.set(r, slot.stack.with_count(have - count), slot.id.net);
+        self.follow_lent(r, have, count, None);
+        Ok((Some(r), taken))
     }
 
     /// `Swap`: exchanges two slots; their stacks keep their IDs.
@@ -415,6 +357,54 @@ impl<'a> Exec<'a> {
         Ok(())
     }
 
+    /// `Take` and `Place`: moves `count` items.
+    fn transfer(&mut self, a: &TransferStackRequestAction) -> Result<()> {
+        let count = a.count;
+        if count == 0 {
+            return Err(Error::Count);
+        }
+        let (moved, keep, from) = if is_created_output(&a.source) {
+            (self.take_created(count)?, None, None)
+        } else {
+            let r = self.resolve(&a.source)?;
+            let slot = self.slot(r)?;
+            let have = slot.stack.count();
+            if have < count {
+                return Err(Error::Count);
+            }
+            self.set(r, slot.stack.with_count(have - count), slot.id.net);
+            // A whole stack keeps its ID where it goes.
+            (
+                slot.stack,
+                (have == count).then_some(slot.id.net),
+                Some((r, have)),
+            )
+        };
+        let r = self.resolve(&a.destination)?;
+        if let Some((from, have)) = from {
+            self.follow_lent(from, have, count, Some(r));
+        }
+        self.accepts(r, &moved)?;
+        let there = self.slot(r)?;
+        let total = u16::from(there.stack.count()) + u16::from(count);
+        if total > u16::from(moved.max_stack_size()) {
+            return Err(Error::NoRoom);
+        }
+        let total = u8::try_from(total).map_err(|_| Error::NoRoom)?;
+        if there.stack.is_empty() {
+            let net = match keep {
+                Some(net) => net,
+                None => self.new_id(),
+            };
+            self.set(r, moved.with_count(total), net);
+        } else if there.stack.can_stack_with(&moved) {
+            self.set(r, there.stack.with_count(total), there.id.net);
+        } else {
+            return Err(Error::NoRoom);
+        }
+        Ok(())
+    }
+
     /// Follows the lent items ([`Inventory::lent`]) through `count` items moving from `from`,
     /// which held `had` before, to `to` (`None`: out of the slots, dropped, destroyed or used up).
     /// Of the cursor's items, those going into a menu slot are the lent ones first, those going
@@ -436,10 +426,47 @@ impl<'a> Exec<'a> {
         }
     }
 
+    /// A new stack network ID.
+    fn new_id(&mut self) -> i32 {
+        take_stack_id(&mut self.next_id)
+    }
+
+    /// The slot a request slot names, after checking its stack network ID.
+    fn resolve(&mut self, info: &StackRequestSlotInfo) -> Result<SlotRef> {
+        let (container, slot) = (info.container.container_id, info.slot);
+        if info.container.dynamic_container_id.is_some() {
+            return Err(Error::NoSlot);
+        }
+        let r = self.inv.locate(container, slot).ok_or(Error::NoSlot)?;
+        self.touch(container, slot);
+        let client = info.stack_network_id;
+        if client != self.request {
+            let before = self.base(r).ok_or(Error::NoSlot)?;
+            let matches = if client < 0 {
+                before.id.request == Some(client)
+            } else {
+                before.id.net == client
+            };
+            if !matches {
+                return Err(Error::StackId);
+            }
+        }
+        Ok(r)
+    }
+
+    /// Sets a slot in the scratch copy, as changed by this request.
+    fn set(&mut self, r: SlotRef, stack: Stack, net: i32) {
+        let id = StackId {
+            net: if stack.is_empty() { 0 } else { net },
+            request: Some(self.request),
+        };
+        self.overlay.insert(r, Slot { stack, id });
+    }
+
     /// Takes `count` created items; a stack holds at most its maximum.
     fn take_created(&mut self, count: u8) -> Result<Stack> {
         let created = self.created.as_mut().ok_or(Error::NothingCreated)?;
-        if count == 0 || count > created.stack.max_count() {
+        if count == 0 || count > created.stack.max_stack_size() {
             return Err(Error::Count);
         }
         if !created.creative && u32::from(count) > created.total - created.taken {
@@ -453,38 +480,11 @@ impl<'a> Exec<'a> {
         Ok(taken)
     }
 
-    /// The end-of-request checks: every created item taken, a trade consumed exactly its
-    /// payments, and the stacks held outside the slots can go back.
-    fn finish(&mut self) -> Result<()> {
-        self.set_created(None)?;
-        self.check_returnable()?;
-        station::finish(self)
-    }
-
-    /// Runs every action, then the end-of-request checks.
-    fn run(mut self, actions: &[StackRequestAction]) -> Result<Plan> {
-        for action in actions {
-            self.action(action)?;
+    /// Names a request slot for the response.
+    fn touch(&mut self, container: u8, slot: u8) {
+        if self.seen.insert((container, slot)) {
+            self.touched.push((container, slot));
         }
-        self.finish()?;
-        let before = if self.records_before {
-            self.overlay
-                .keys()
-                .map(|r| self.base(*r).map(|s| s.stack).unwrap_or_default())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        Ok(Plan {
-            writes: self.overlay.into_iter().collect(),
-            before,
-            touched: self.touched,
-            next_id: self.next_id,
-            drop: self.drop,
-            traded: self.traded,
-            made: self.made,
-            lent: self.lent,
-        })
     }
 }
 
@@ -590,7 +590,7 @@ pub(super) enum Error {
     Count,
     /// Items that do not stack together, or more than a stack holds.
     NoRoom,
-    /// An item the slot does not take (armour in the wrong slot, a shulker box in a shulker box).
+    /// An item the slot does not take (armor in the wrong slot, a shulker box in a shulker box).
     NotAccepted,
     /// Destroying or creating items outside creative mode.
     NotCreative,

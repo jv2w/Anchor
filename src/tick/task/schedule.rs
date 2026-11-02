@@ -23,10 +23,17 @@ pub(crate) struct Queue {
 }
 
 impl Queue {
-    /// Whether nothing is scheduled or running (for leak tests).
-    #[cfg(test)]
-    pub(super) fn is_empty(&self) -> bool {
-        self.order.is_empty() && self.tasks.is_empty() && self.running.is_none()
+    /// Writes the next id. A scheduled task is a closure, with no checkpoint form: it makes the
+    /// checkpoint opaque. Nothing runs between ticks.
+    pub(super) fn checkpoint(&self, w: &mut Writer) {
+        let Self {
+            order: _,
+            tasks,
+            next_id,
+            running: _,
+        } = self;
+        w.opaque("scheduled tasks", tasks.len());
+        Codec::encode(next_id, w);
     }
 
     #[cfg(test)]
@@ -52,22 +59,15 @@ impl Queue {
         }
     }
 
+    /// Whether nothing is scheduled or running (for leak tests).
+    #[cfg(test)]
+    pub(super) fn is_empty(&self) -> bool {
+        self.order.is_empty() && self.tasks.is_empty() && self.running.is_none()
+    }
+
     /// How many tasks are scheduled, the running one left out.
     pub(super) fn len(&self) -> usize {
         self.tasks.len()
-    }
-
-    /// Writes the next id. A scheduled task is a closure, with no checkpoint form: it makes the
-    /// checkpoint opaque. Nothing runs between ticks.
-    pub(super) fn checkpoint(&self, w: &mut Writer) {
-        let Self {
-            order: _,
-            tasks,
-            next_id,
-            running: _,
-        } = self;
-        w.opaque("scheduled tasks", tasks.len());
-        Codec::encode(next_id, w);
     }
 
     /// Reads what [`Self::checkpoint`] wrote: no task, and the next id.
@@ -79,15 +79,15 @@ impl Queue {
         Ok(())
     }
 
+    /// Whether task `id` will run again.
+    fn is_scheduled(&self, id: u64) -> bool {
+        self.tasks.contains_key(&id) || self.running.is_some_and(|r| r.id == id && r.can_repeat())
+    }
+
     /// How many tasks are scheduled, the running one included if it runs again.
     fn live(&self) -> usize {
         let running = self.running.is_some_and(Running::can_repeat);
         self.tasks.len().saturating_add(usize::from(running))
-    }
-
-    /// Whether task `id` will run again.
-    fn is_scheduled(&self, id: u64) -> bool {
-        self.tasks.contains_key(&id) || self.running.is_some_and(|r| r.id == id && r.can_repeat())
     }
 
     /// The tick task `id` runs next and its period if it repeats; `None` if it is not
@@ -99,19 +99,6 @@ impl Queue {
         let running = self.running.filter(|r| r.id == id && r.can_repeat())?;
         let period = running.period?;
         Some((now.saturating_add(u64::from(period.get())), Some(period)))
-    }
-
-    /// Schedules `body` to run first at tick `due`.
-    fn push(&mut self, due: u64, body: Body) -> Result<Handle> {
-        if self.live() >= MAX_TASKS {
-            return Err(Error::TooManyTasks);
-        }
-        let id = self.next_id;
-        // 2^64 tasks never get scheduled; refuse rather than reuse an id.
-        self.next_id = id.checked_add(1).ok_or(Error::TooManyTasks)?;
-        self.order.insert((due, id));
-        self.tasks.insert(id, Entry { due, body });
-        Ok(Handle::new(id))
     }
 
     /// Cancels task `id`; false if it will not run again anyway.
@@ -136,6 +123,19 @@ impl Queue {
         if let Some(r) = &mut self.running {
             r.cancelled = true;
         }
+    }
+
+    /// Schedules `body` to run first at tick `due`.
+    fn push(&mut self, due: u64, body: Body) -> Result<Handle> {
+        if self.live() >= MAX_TASKS {
+            return Err(Error::TooManyTasks);
+        }
+        let id = self.next_id;
+        // 2^64 tasks never get scheduled; refuse rather than reuse an id.
+        self.next_id = id.checked_add(1).ok_or(Error::TooManyTasks)?;
+        self.order.insert((due, id));
+        self.tasks.insert(id, Entry { due, body });
+        Ok(Handle::new(id))
     }
 }
 
@@ -184,6 +184,13 @@ impl Running {
 }
 
 impl Context<'_> {
+    /// The scheduled task that is running now, if a scheduled task (and not a listener or a
+    /// build-time task) called this: a repeating task cancels itself with it.
+    #[doc(alias = "Task::getHandler")]
+    pub fn current_task(&self) -> Option<Handle> {
+        self.state.tasks.queue.running.map(|r| Handle::new(r.id))
+    }
+
     /// Whether `task` will run again.
     #[doc(alias = "TaskScheduler::isQueued")]
     pub fn is_task_scheduled(&self, task: Handle) -> bool {
@@ -211,17 +218,27 @@ impl Context<'_> {
             .and_then(|(_, period)| period)
     }
 
-    /// The scheduled task that is running now, if a scheduled task (and not a listener or a
-    /// build-time task) called this: a repeating task cancels itself with it.
-    #[doc(alias = "Task::getHandler")]
-    pub fn current_task(&self) -> Option<Handle> {
-        self.state.tasks.queue.running.map(|r| Handle::new(r.id))
+    /// Cancels every scheduled task (not the build-time tasks of
+    /// [`ServerBuilder::every`](crate::ServerBuilder::every)).
+    #[doc(alias = "TaskScheduler::cancelAllTasks")]
+    pub fn cancel_all_tasks(&mut self) {
+        self.state.tasks.queue.cancel_all();
+    }
+
+    /// Cancels `task`: it never runs again (a task running now finishes this run). False if it
+    /// was not scheduled: it ran for the last time, was cancelled, or never existed.
+    #[doc(alias = "TaskHandler::cancel")]
+    pub fn cancel_task(&mut self, task: Handle) -> bool {
+        self.state.tasks.queue.cancel(task.get())
     }
 
     /// Runs `task` once, in the tick's task step `delay_ticks` ticks from now. With 0 it runs in
     /// this tick's step if the step's scheduled tasks have not started yet (a call from an input's
     /// listener or a build-time task), else in the next tick's. Returns its handle, to cancel it.
-    /// Fails while [`MAX_TASKS`] tasks are scheduled.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleTask")]
     #[doc(alias = "TaskScheduler::scheduleDelayedTask")]
     #[doc(alias = "ClosureTask")]
@@ -236,10 +253,13 @@ impl Context<'_> {
 
     /// Runs `task` from this tick's task step on (as [`Self::schedule`] runs a task with no
     /// delay), then every `period_ticks` ticks until it is cancelled ([`Self::cancel_task`]; the
-    /// task itself can use [`Self::current_task`]). Fails while [`MAX_TASKS`] tasks are
-    /// scheduled. This is the runtime way, counted from now and cancellable;
-    /// [`ServerBuilder::every`](crate::ServerBuilder::every) is the build-time one, fixed for the
-    /// server's life and run on the ticks that are multiples of its period.
+    /// task itself can use [`Self::current_task`]). This is the runtime way, counted from now and
+    /// cancellable; [`ServerBuilder::every`](crate::ServerBuilder::every) is the build-time one,
+    /// fixed for the server's life and run on the ticks that are multiples of its period.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleRepeatingTask")]
     pub fn schedule_repeating(
         &mut self,
@@ -250,6 +270,10 @@ impl Context<'_> {
     }
 
     /// Runs `task` as [`Self::schedule_repeating`] does, first `delay_ticks` ticks from now.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleDelayedRepeatingTask")]
     pub fn schedule_delayed_repeating(
         &mut self,
@@ -263,20 +287,6 @@ impl Context<'_> {
             body: Box::new(task),
         };
         self.state.tasks.queue.push(due, body)
-    }
-
-    /// Cancels `task`: it never runs again (a task running now finishes this run). False if it
-    /// was not scheduled: it ran for the last time, was cancelled, or never existed.
-    #[doc(alias = "TaskHandler::cancel")]
-    pub fn cancel_task(&mut self, task: Handle) -> bool {
-        self.state.tasks.queue.cancel(task.get())
-    }
-
-    /// Cancels every scheduled task (not the build-time tasks of
-    /// [`ServerBuilder::every`](crate::ServerBuilder::every)).
-    #[doc(alias = "TaskScheduler::cancelAllTasks")]
-    pub fn cancel_all_tasks(&mut self) {
-        self.state.tasks.queue.cancel_all();
     }
 }
 

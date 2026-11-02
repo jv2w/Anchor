@@ -94,12 +94,6 @@ impl Sockets {
         &self.local_addrs
     }
 
-    /// The IPv4 socket, for a test that reads it itself.
-    #[cfg(test)]
-    pub(crate) fn v4(&self) -> &UdpSocket {
-        self.v4.as_ref().expect("an IPv4 socket")
-    }
-
     /// Sends `datagram` to `to` without waiting; a full send buffer is an error.
     pub(crate) fn send(&self, to: SocketAddr, datagram: &[u8]) -> io::Result<()> {
         let socket = match to {
@@ -113,6 +107,12 @@ impl Sockets {
             ));
         };
         socket.try_send_to(datagram, to).map(drop)
+    }
+
+    /// The IPv4 socket, for a test that reads it itself.
+    #[cfg(test)]
+    pub(crate) fn v4(&self) -> &UdpSocket {
+        self.v4.as_ref().expect("an IPv4 socket")
     }
 }
 

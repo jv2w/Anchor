@@ -76,12 +76,12 @@ pub(crate) mod id {
 }
 
 use crate::block::{self, Face};
+use crate::block_entity;
 use crate::item;
 use crate::math::Vec3;
 use crate::protocol::Rgba;
 use crate::protocol::consts::LevelEvent;
 use crate::protocol::packet::{LevelEvent as LevelEventPacket, Packet};
-use crate::tile;
 
 /// A particle effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,8 +243,8 @@ impl Particle {
                 LevelEvent::ParticlesDragonEgg,
                 axis(x, 16, 24) | axis(y, 8, 25) | axis(z, 0, 26),
             ),
-            Self::Dust(c) => standard(id::DUST, tile::to_argb(c)),
-            Self::Enchant(c) => standard(id::MOB_SPELL, tile::to_argb(c)),
+            Self::Dust(c) => standard(id::DUST, block_entity::to_argb(c)),
+            Self::Enchant(c) => standard(id::MOB_SPELL, block_entity::to_argb(c)),
             Self::EnchantmentTable => standard(id::ENCHANTMENT_TABLE, 0),
             Self::EndermanTeleport => level(LevelEvent::ParticlesTeleport, 0),
             Self::EntityFlame => standard(id::MOB_FLAME, 0),
@@ -255,7 +255,9 @@ impl Particle {
             Self::HugeExplode => standard(id::HUGE_EXPLODE, 0),
             Self::HugeExplodeSeed => standard(id::HUGE_EXPLODE_SEED, 0),
             Self::Ink(scale) => standard(id::INK, scale),
-            Self::InstantEnchant(c) => standard(id::MOB_SPELL_INSTANTANEOUS, tile::to_argb(c)),
+            Self::InstantEnchant(c) => {
+                standard(id::MOB_SPELL_INSTANTANEOUS, block_entity::to_argb(c))
+            }
             Self::ItemBreak(t) => {
                 let s = item::Stack::new(t, 1).to_network().item_type;
                 let meta = u16::try_from(s.metadata_value).unwrap_or(u16::MAX);
@@ -269,7 +271,9 @@ impl Particle {
                 i32::from(width) | (i32::from(height) << 8),
             ),
             Self::Portal => standard(id::PORTAL, 0),
-            Self::PotionSplash(c) => level(LevelEvent::ParticlesPotionSplash, tile::to_argb(c)),
+            Self::PotionSplash(c) => {
+                level(LevelEvent::ParticlesPotionSplash, block_entity::to_argb(c))
+            }
             Self::RainSplash => standard(id::RAIN_SPLASH, 0),
             Self::Redstone(lifetime) => standard(id::REDSTONE, lifetime),
             Self::Smoke(scale) => standard(id::SMOKE, scale),

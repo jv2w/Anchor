@@ -387,16 +387,18 @@ fn permissions_follow_defaults_operators_and_grants() {
     assert_eq!(cx.ops().collect::<Vec<_>>(), ["player1"]);
     assert!(!cx.has_permission(id(1), Permission::new("x", By::NotOp)));
     // A denial beats operator status; unsetting it brings the default back.
-    assert!(cx.set_permission(player1, FLY, false));
+    cx.set_permission(player1, FLY, false);
     assert!(cx.is_permission_set(player1, FLY));
     assert!(!cx.has_permission(id(1), FLY));
     assert!(cx.unset_permission(player1, FLY));
     assert!(!cx.unset_permission(player1, FLY));
     assert!(cx.has_permission(id(1), FLY));
     assert!(cx.deop("player1") && !cx.deop("player1"));
-    assert!(cx.set_permission(player1, FLY, true));
+    cx.set_permission(player1, FLY, true);
     assert!(cx.has_permission(id(1), FLY));
-    assert!(!cx.set_permission(player::Id::new(SessionId::new(9)), FLY, true));
+    let gone = player::Id::new(SessionId::new(9));
+    cx.set_permission(gone, FLY, true);
+    assert!(!cx.is_permission_set(gone, FLY));
     assert!(
         !cx.has_permission(id(9), Permission::new("x", By::True)),
         "a player who left"
@@ -444,8 +446,8 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
         p == permission::BUILTIN[0] && has == permission::BUILTIN[0].granted_by_default(false)
     }));
     assert_eq!(cx.permission_grants(player1).count(), 0);
-    assert!(cx.set_permission(player1, FLY, true));
-    assert!(cx.set_permission(player1, other, false));
+    cx.set_permission(player1, FLY, true);
+    cx.set_permission(player1, other, false);
     assert_eq!(
         cx.permission_grants(player1).collect::<Vec<_>>(),
         [("lobby.other", false), ("test.fly", true)]
@@ -467,7 +469,7 @@ fn a_permission_nothing_registered_is_not_granted() {
     let player1 = player::Id::new(SessionId::new(1));
     let unregistered = Permission::new("x.unregistered", By::True);
     let mut cx = Context { state: &mut state };
-    assert!(!cx.set_permission(player1, unregistered, false));
+    cx.set_permission(player1, unregistered, false);
     assert!(!cx.is_permission_set(player1, unregistered));
     assert!(cx.has_permission(id(1), unregistered));
     assert!(state.commands.grants.is_empty() && state.commands.resend.is_empty());
@@ -505,7 +507,7 @@ fn a_permission_default_set_at_build_replaces_its_own() {
         Err(Error::Permission { .. })
     ));
     let player1 = player::Id::new(SessionId::new(1));
-    assert!(cx.set_permission(player1, version, true));
+    cx.set_permission(player1, version, true);
     assert!(cx.has_permission(id(1), version), "a grant wins");
 }
 
@@ -1237,7 +1239,7 @@ fn a_command_result_copy_a_client_cannot_decode_is_refused() {
     let (mut state, _rx) = server(Vec::new());
     let mut cx = Context { state: &mut state };
     cx.op("player1").unwrap();
-    let copy = cx.broadcast_command_message(Sender::Console, &"x".repeat(MAX_TEXT + 1));
+    let copy = cx.broadcast_command_message(Sender::Console, &"x".repeat(MAX_TEXT_BYTES + 1));
     assert!(matches!(copy, Err(player::Error::TooLong)), "{copy:?}");
     assert!(copied(&state, 1).is_empty());
 }
@@ -1405,7 +1407,7 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     );
     assert_eq!(cx.ip_ban_entry(ip).map(BanEntry::source), Some("console"));
     assert_eq!(cx.bans().count() + cx.ip_bans().count(), 2);
-    assert!(!cx.whitelist_enabled() && cx.is_whitelisted("anyone"));
+    assert!(!cx.is_whitelist_enabled() && cx.is_whitelisted("anyone"));
     cx.set_whitelist_enabled(true);
     assert!(cx.is_whitelisted("ALEX") && cx.is_whitelisted("steve") && !cx.is_whitelisted("bob"));
     assert_eq!(cx.whitelist().collect::<Vec<_>>(), ["alex"]);
@@ -1434,7 +1436,8 @@ fn list_changes_are_idempotent_and_go_into_the_next_snapshot() {
     let mut cx = Context { state: &mut state };
     cx.ban(BanEntry::new("old").with_expires(2)).unwrap();
     cx.state.tick = 2;
-    assert!(!cx.is_banned("old") && cx.bans().count() == 0);
+    assert!(!cx.is_banned("old"));
+    assert_eq!(cx.bans().count(), 0);
     cx.ban(BanEntry::new("new")).unwrap();
     let names: Vec<_> = state
         .commands
@@ -1600,18 +1603,18 @@ fn command_results_are_bounded_in_lines_parameters_and_bytes() {
     assert_eq!(shown_lines[63].text, "... 37 more lines left out");
     assert_eq!(shown(&Ok(many(MAX_OUTPUT_LINES))).1.len(), MAX_OUTPUT_LINES);
     // A text past one client text is cut at a character boundary; the lines after it go.
-    let wide = "\u{e9}".repeat(MAX_TEXT);
+    let wide = "\u{e9}".repeat(MAX_TEXT_BYTES);
     let (_, shown_lines) = shown(&Ok(Output::new().line(wide).line("after")));
-    assert_eq!(shown_lines[0].text.len(), MAX_TEXT);
+    assert_eq!(shown_lines[0].text.len(), MAX_TEXT_BYTES);
     assert_eq!(shown_lines[1].text, "... 1 more lines left out");
     let params: Vec<String> = (0..40).map(|n| n.to_string()).collect();
     let params: Vec<&str> = params.iter().map(String::as_str).collect();
     let (_, shown_lines) = shown(&Ok(Output::new().translated("key", &params)));
     assert_eq!(shown_lines[0].params.len(), MAX_OUTPUT_PARAMS);
-    let (success, shown_lines) = shown(&Err(Error::failed("x".repeat(MAX_TEXT + 10))));
+    let (success, shown_lines) = shown(&Err(Error::failed("x".repeat(MAX_TEXT_BYTES + 10))));
     assert!(!success);
     assert_eq!(shown_lines.len(), 1);
-    assert_eq!(shown_lines[0].text.len(), MAX_TEXT);
+    assert_eq!(shown_lines[0].text.len(), MAX_TEXT_BYTES);
     // Through the tick: the player's CommandOutput holds the bounded lines.
     let spam = Command::new("spam", "").overload(&[], move |_, _, _| Ok(many(5000)));
     let (mut state, mut rx) = server(vec![spam]);
@@ -1930,7 +1933,7 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
     );
     assert_eq!(listed(&state).1[0].values, ["vip", "red"]);
     // Values over one client text in all are refused, changing nothing.
-    let half = "x".repeat(MAX_TEXT / 2 + 1);
+    let half = "x".repeat(MAX_TEXT_BYTES / 2 + 1);
     assert_eq!(
         Context { state: &mut state }.set_soft_enum("Tags", &[&half, &half]),
         invalid("Tags")
@@ -1968,7 +1971,7 @@ fn the_api_docs_name_the_limits_they_enforce() {
         format!(
             "more than {} or more than {} bytes of",
             thousands(MAX_ENUM_VALUES),
-            thousands(MAX_TEXT)
+            thousands(MAX_TEXT_BYTES)
         ),
         format!("has {} grants.", thousands(MAX_GRANTS)),
     ] {

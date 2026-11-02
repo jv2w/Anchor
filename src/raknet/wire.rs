@@ -93,35 +93,29 @@ impl<'a> Cursor<'a> {
         Self { rest: data }
     }
 
-    pub(super) fn rest(&self) -> &'a [u8] {
-        self.rest
-    }
-
     pub(super) fn is_empty(&self) -> bool {
         self.rest.is_empty()
     }
 
-    pub(super) fn take(&mut self, len: usize) -> Result<&'a [u8]> {
-        let (taken, rest) = self
-            .rest
-            .split_at_checked(len)
-            .ok_or(Error::Malformed("truncated packet"))?;
-        self.rest = rest;
-        Ok(taken)
+    pub(super) fn rest(&self) -> &'a [u8] {
+        self.rest
     }
 
-    pub(super) fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        let (taken, rest) = self
-            .rest
-            .split_first_chunk::<N>()
-            .ok_or(Error::Malformed("truncated packet"))?;
-        self.rest = rest;
-        Ok(*taken)
+    /// Skips an address; its length follows go-raknet `addrSize` (family 0 or 4: IPv4).
+    pub(super) fn address(&mut self) -> Result<()> {
+        let len = match self.u8()? {
+            0 | 4 => IPV4_ADDRESS_BYTES,
+            _ => IPV6_ADDRESS_BYTES,
+        };
+        self.take(len).map(drop)
     }
 
-    pub(super) fn u8(&mut self) -> Result<u8> {
-        let [byte] = self.array()?;
-        Ok(byte)
+    pub(super) fn magic(&mut self) -> Result<()> {
+        if self.array()? == MAGIC {
+            Ok(())
+        } else {
+            Err(Error::Malformed("offline message magic"))
+        }
     }
 
     pub(super) fn u16(&mut self) -> Result<u16> {
@@ -141,21 +135,27 @@ impl<'a> Cursor<'a> {
         Ok(u64::from_be_bytes(self.array()?))
     }
 
-    pub(super) fn magic(&mut self) -> Result<()> {
-        if self.array()? == MAGIC {
-            Ok(())
-        } else {
-            Err(Error::Malformed("offline message magic"))
-        }
+    pub(super) fn u8(&mut self) -> Result<u8> {
+        let [byte] = self.array()?;
+        Ok(byte)
     }
 
-    /// Skips an address; its length follows go-raknet `addrSize` (family 0 or 4: IPv4).
-    pub(super) fn address(&mut self) -> Result<()> {
-        let len = match self.u8()? {
-            0 | 4 => IPV4_ADDRESS_BYTES,
-            _ => IPV6_ADDRESS_BYTES,
-        };
-        self.take(len).map(drop)
+    pub(super) fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
+        let (taken, rest) = self
+            .rest
+            .split_first_chunk::<N>()
+            .ok_or(Error::Malformed("truncated packet"))?;
+        self.rest = rest;
+        Ok(*taken)
+    }
+
+    pub(super) fn take(&mut self, len: usize) -> Result<&'a [u8]> {
+        let (taken, rest) = self
+            .rest
+            .split_at_checked(len)
+            .ok_or(Error::Malformed("truncated packet"))?;
+        self.rest = rest;
+        Ok(taken)
     }
 }
 
@@ -171,6 +171,11 @@ pub(super) enum Reliability {
 }
 
 impl Reliability {
+    /// Whether a frame carries an order index and channel.
+    pub(super) fn has_order(self) -> bool {
+        self.is_sequenced() || self == Self::ReliableOrdered
+    }
+
     /// Whether a frame carries a message index and is resent until acknowledged.
     pub(super) fn is_reliable(self) -> bool {
         matches!(
@@ -181,11 +186,6 @@ impl Reliability {
 
     pub(super) fn is_sequenced(self) -> bool {
         matches!(self, Self::UnreliableSequenced | Self::ReliableSequenced)
-    }
-
-    /// Whether a frame carries an order index and channel.
-    pub(super) fn has_order(self) -> bool {
-        self.is_sequenced() || self == Self::ReliableOrdered
     }
 
     fn from_bits(bits: u8) -> Self {
@@ -229,6 +229,24 @@ pub(super) struct Header {
 }
 
 impl Header {
+    /// The header bytes of a frame with `reliability`, split or not.
+    pub(super) fn encoded_len(reliability: Reliability, split: bool) -> usize {
+        let mut len = 3;
+        if reliability.is_reliable() {
+            len += 3;
+        }
+        if reliability.is_sequenced() {
+            len += 3;
+        }
+        if reliability.has_order() {
+            len += 4;
+        }
+        if split {
+            len += SPLIT_HEADER_BYTES;
+        }
+        len
+    }
+
     /// One frame read from `cur`: its header and body. The length is in bits and rounds up, as in
     /// RakNet.
     pub(super) fn read<'a>(cur: &mut Cursor<'a>) -> Result<(Self, &'a [u8])> {
@@ -267,24 +285,6 @@ impl Header {
             });
         }
         Ok((header, cur.take(len)?))
-    }
-
-    /// The header bytes of a frame with `reliability`, split or not.
-    pub(super) fn encoded_len(reliability: Reliability, split: bool) -> usize {
-        let mut len = 3;
-        if reliability.is_reliable() {
-            len += 3;
-        }
-        if reliability.is_sequenced() {
-            len += 3;
-        }
-        if reliability.has_order() {
-            len += 4;
-        }
-        if split {
-            len += SPLIT_HEADER_BYTES;
-        }
-        len
     }
 
     /// Writes the header of a frame whose body is `len` bytes.

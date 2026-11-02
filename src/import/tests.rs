@@ -96,7 +96,7 @@ fn the_official_fixture_reads_as_raw_chunks_without_writing() {
         (0, 0, 0)
     );
     assert!(catalog.other_keys > 0);
-    // A pig and an armour stand, not imported.
+    // A pig and an armor stand, not imported.
     assert_eq!(catalog.entities, 2);
     let (mut block_entities, mut ticks) = (Vec::new(), 0);
     for &(x, z) in &catalog.chunks {

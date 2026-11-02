@@ -11,7 +11,7 @@
 //!
 //! What it uses: [`ServerBuilder::world`], [`ServerBuilder::every`], [`ServerBuilder::command`],
 //! listeners ([`ServerBuilder::on`]) for [`PlayerItemUse`], [`PlayerInteract`],
-//! [`PlayerExhaust`] and [`EntityDamage`], [`Context::send_form`] with a [`form::Menu`],
+//! [`PlayerExhaust`] and [`EntityDamage`], [`Context::send_form`] with a [`form::Buttons`],
 //! [`Context::open_menu`] with a [`menu::Menu`], [`Player::inventory_mut`],
 //! [`Context::teleport`], [`Player::send`], [`Context::set_scoreboard`] and
 //! [`Context::set_boss_bar`].
@@ -150,13 +150,13 @@ fn welcome(cx: &mut Context<'_>, id: player::Id) {
 
 /// Sends `id` the games menu.
 fn open_games(cx: &mut Context<'_>, id: player::Id) {
-    let games = form::Menu::new("Games")
+    let games = form::Buttons::new("Games")
         .with_content("Pick one")
         .button(Button::new("Arena").with_image(Image::Path("textures/items/iron_sword".into())))
         .button(Button::new("Shop").with_image(Image::Path("textures/items/emerald".into())));
     or_log(cx.send_form(id, games, |cx, id, answer| match answer {
-        Response::Menu(0) => to_arena(cx, id),
-        Response::Menu(1) => open_shop(cx, id),
+        Response::Buttons(0) => to_arena(cx, id),
+        Response::Buttons(1) => open_shop(cx, id),
         _ => {}
     }));
 }

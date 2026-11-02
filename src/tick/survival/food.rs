@@ -138,7 +138,7 @@ enum Worn {
     Held,
     /// The off-hand item.
     OffHand,
-    /// The armour piece in a slot.
+    /// The armor piece in a slot.
     Armor(usize),
 }
 
@@ -160,7 +160,7 @@ pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     }
     let s = &player.survival;
     let start = !has_cooldown(state.tick, s, item)
-        && (!item.food().is_some_and(Food::requires_food) || can_eat(state, player, mode))
+        && (item.food().is_none_or(Food::can_eat_when_full) || can_eat(state, player, mode))
         && medicine_cure(item).is_none_or(|cured| s.effects.contains_key(&cured));
     let tick = state.tick;
     if let Some(player) = state.players.get_mut(&session) {
@@ -592,7 +592,7 @@ pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> b
         return false;
     }
     let mut amount = amount;
-    // The candidates: the held item, the off-hand item, then the armour, each a durable item
+    // The candidates: the held item, the off-hand item, then the armor, each a durable item
     // with mending; one is picked at random.
     let inv = &player.inventory;
     let worn = std::iter::once((Worn::Held, inv.held()))
@@ -842,7 +842,7 @@ fn consumable_now(state: &State, session: SessionId, item: Type) -> Option<Stack
     let mode = player.survival.mode();
     let held = player.inventory.held();
     let ok = held.item() == Some(item)
-        && (!item.food().is_some_and(Food::requires_food) || can_eat(state, player, mode))
+        && (item.food().is_none_or(Food::can_eat_when_full) || can_eat(state, player, mode))
         && !has_cooldown(state.tick, &player.survival, item);
     ok.then(|| held.clone())
 }

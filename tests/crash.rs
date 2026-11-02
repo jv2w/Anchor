@@ -17,6 +17,8 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/local_config.rs"]
+mod local_config;
 #[path = "support/rng.rs"]
 mod rng;
 #[path = "support/temp_path.rs"]
@@ -33,8 +35,9 @@ use std::time::Duration;
 use anchor::block::State;
 use anchor::event::WorldSave;
 use anchor::world::{self, BlockPos, ChunkPos, Options, World};
-use anchor::{Config, Context, Server};
+use anchor::{Context, Server};
 
+use local_config::local_config;
 use rng::Rng;
 use temp_path::TempPath;
 
@@ -69,18 +72,6 @@ fn path(tick: u64) -> BlockPos {
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
-}
-
-/// Settings that run without the network beyond loopback. Port 0 lets the system pick every port
-/// at bind time: nothing connects, and a port picked earlier and released could be taken by
-/// another process first.
-fn local_config() -> Config {
-    let mut config = Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_port = 0;
-    config.developer.console_input = false;
-    config
 }
 
 /// Every gold block on the block's path, by scanning the spawn chunks at y -60.
@@ -234,8 +225,10 @@ fn crash_child() {
         extra: None,
         extra_x: None,
     };
+    let mut config = local_config();
+    config.developer.console_input = false;
     Server::builder()
-        .config(local_config())
+        .config(config)
         .data_dir(&data)
         .every(NonZeroU32::MIN, move |cx| mover.tick(cx))
         // The parent times its kill from the commits.

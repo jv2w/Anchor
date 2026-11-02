@@ -54,28 +54,30 @@ pub enum Ability {
 
 impl Ability {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 20] = [
-        Self::Build,
-        Self::Mine,
-        Self::DoorsAndSwitches,
-        Self::OpenContainers,
-        Self::AttackPlayers,
-        Self::AttackMobs,
-        Self::OperatorCommands,
-        Self::Teleport,
-        Self::Invulnerable,
-        Self::Flying,
-        Self::MayFly,
-        Self::InstantBuild,
-        Self::Lightning,
-        Self::FlySpeed,
-        Self::WalkSpeed,
-        Self::Muted,
-        Self::WorldBuilder,
-        Self::NoClip,
-        Self::PrivilegedBuilder,
-        Self::VerticalFlySpeed,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Build,
+            Self::Mine,
+            Self::DoorsAndSwitches,
+            Self::OpenContainers,
+            Self::AttackPlayers,
+            Self::AttackMobs,
+            Self::OperatorCommands,
+            Self::Teleport,
+            Self::Invulnerable,
+            Self::Flying,
+            Self::MayFly,
+            Self::InstantBuild,
+            Self::Lightning,
+            Self::FlySpeed,
+            Self::WalkSpeed,
+            Self::Muted,
+            Self::WorldBuilder,
+            Self::NoClip,
+            Self::PrivilegedBuilder,
+            Self::VerticalFlySpeed,
+        ]
+    }
 }
 
 impl TryFrom<u32> for Ability {
@@ -193,14 +195,16 @@ pub enum AbilityLayerType {
 
 impl AbilityLayerType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::CustomCache,
-        Self::Base,
-        Self::Spectator,
-        Self::Commands,
-        Self::Editor,
-        Self::LoadingScreen,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::CustomCache,
+            Self::Base,
+            Self::Spectator,
+            Self::Commands,
+            Self::Editor,
+            Self::LoadingScreen,
+        ]
+    }
 }
 
 impl TryFrom<u16> for AbilityLayerType {
@@ -253,12 +257,14 @@ pub enum AttributeModifierOperation {
 
 impl AttributeModifierOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::Addition,
-        Self::MultiplyBase,
-        Self::MultiplyTotal,
-        Self::Cap,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Addition,
+            Self::MultiplyBase,
+            Self::MultiplyTotal,
+            Self::Cap,
+        ]
+    }
 }
 
 impl TryFrom<i32> for AttributeModifierOperation {
@@ -298,7 +304,9 @@ pub enum AttributeModifierOperand {
 
 impl AttributeModifierOperand {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Min, Self::Max, Self::Current];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Min, Self::Max, Self::Current]
+    }
 }
 
 impl TryFrom<i32> for AttributeModifierOperand {
@@ -339,12 +347,14 @@ pub enum AttributeLayerPayloadType {
 
 impl AttributeLayerPayloadType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::UpdateLayers,
-        Self::UpdateSettings,
-        Self::UpdateEnvironment,
-        Self::RemoveEnvironment,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::UpdateLayers,
+            Self::UpdateSettings,
+            Self::UpdateEnvironment,
+            Self::RemoveEnvironment,
+        ]
+    }
 }
 
 impl TryFrom<u32> for AttributeLayerPayloadType {
@@ -384,7 +394,9 @@ pub enum EnvironmentAttributePayloadType {
 
 impl EnvironmentAttributePayloadType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Constant, Self::Transition, Self::NoiseTransition];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Constant, Self::Transition, Self::NoiseTransition]
+    }
 }
 
 impl TryFrom<u32> for EnvironmentAttributePayloadType {
@@ -423,7 +435,9 @@ pub enum AttributeDataType {
 
 impl AttributeDataType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Bool, Self::Float, Self::Colour];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Bool, Self::Float, Self::Colour]
+    }
 }
 
 impl TryFrom<u32> for AttributeDataType {
@@ -472,16 +486,18 @@ pub enum AttributeBoolOperation {
 
 impl AttributeBoolOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 8] = [
-        Self::Override,
-        Self::AlphaBlend,
-        Self::And,
-        Self::Nand,
-        Self::Or,
-        Self::Nor,
-        Self::Xor,
-        Self::Xnor,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Override,
+            Self::AlphaBlend,
+            Self::And,
+            Self::Nand,
+            Self::Or,
+            Self::Nor,
+            Self::Xor,
+            Self::Xnor,
+        ]
+    }
 }
 
 impl TryFrom<i32> for AttributeBoolOperation {
@@ -533,15 +549,17 @@ pub enum AttributeFloatOperation {
 
 impl AttributeFloatOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::Override,
-        Self::AlphaBlend,
-        Self::Add,
-        Self::Subtract,
-        Self::Multiply,
-        Self::Minimum,
-        Self::Maximum,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Override,
+            Self::AlphaBlend,
+            Self::Add,
+            Self::Subtract,
+            Self::Multiply,
+            Self::Minimum,
+            Self::Maximum,
+        ]
+    }
 }
 
 impl TryFrom<i32> for AttributeFloatOperation {
@@ -588,13 +606,15 @@ pub enum AttributeColourOperation {
 
 impl AttributeColourOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Override,
-        Self::AlphaBlend,
-        Self::Add,
-        Self::Subtract,
-        Self::Multiply,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Override,
+            Self::AlphaBlend,
+            Self::Add,
+            Self::Subtract,
+            Self::Multiply,
+        ]
+    }
 }
 
 impl TryFrom<i32> for AttributeColourOperation {
@@ -631,7 +651,9 @@ pub enum NoiseAlignmentType {
 
 impl NoiseAlignmentType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 1] = [Self::MinLocalTransitionEnd];
+    pub const fn all() -> &'static [Self] {
+        &[Self::MinLocalTransitionEnd]
+    }
 }
 
 impl TryFrom<u8> for NoiseAlignmentType {
@@ -882,118 +904,124 @@ pub enum BiomeExpressionOp {
 
 impl BiomeExpressionOp {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 110] = [
-        Self::Unknown,
-        Self::LeftBrace,
-        Self::RightBrace,
-        Self::LeftBracket,
-        Self::RightBracket,
-        Self::LeftParenthesis,
-        Self::RightParenthesis,
-        Self::Negate,
-        Self::LogicalNot,
-        Self::Abs,
-        Self::Add,
-        Self::Acos,
-        Self::Asin,
-        Self::Atan,
-        Self::Atan2,
-        Self::Ceil,
-        Self::Clamp,
-        Self::CopySign,
-        Self::Cos,
-        Self::DieRoll,
-        Self::DieRollInt,
-        Self::Div,
-        Self::Exp,
-        Self::Floor,
-        Self::HermiteBlend,
-        Self::Lerp,
-        Self::LerpRotate,
-        Self::Ln,
-        Self::Max,
-        Self::Min,
-        Self::MinAngle,
-        Self::Mod,
-        Self::Mul,
-        Self::Pow,
-        Self::Random,
-        Self::RandomInt,
-        Self::Round,
-        Self::Sin,
-        Self::Sign,
-        Self::Sqrt,
-        Self::Trunc,
-        Self::QueryFunction,
-        Self::ArrayVariable,
-        Self::ContextVariable,
-        Self::EntityVariable,
-        Self::TempVariable,
-        Self::MemberAccessor,
-        Self::HashedStringHash,
-        Self::GeometryVariable,
-        Self::MaterialVariable,
-        Self::TextureVariable,
-        Self::LessThan,
-        Self::LessEqual,
-        Self::GreaterEqual,
-        Self::GreaterThan,
-        Self::LogicalEqual,
-        Self::LogicalNotEqual,
-        Self::LogicalOr,
-        Self::LogicalAnd,
-        Self::NullCoalescing,
-        Self::Conditional,
-        Self::ConditionalElse,
-        Self::Float,
-        Self::Pi,
-        Self::Array,
-        Self::Geometry,
-        Self::Material,
-        Self::Texture,
-        Self::Loop,
-        Self::ForEach,
-        Self::Break,
-        Self::Continue,
-        Self::Assignment,
-        Self::Pointer,
-        Self::Semicolon,
-        Self::Return,
-        Self::Comma,
-        Self::This,
-        Self::NonEvaluatedArray,
-        Self::InverseLerp,
-        Self::EaseInQuad,
-        Self::EaseOutQuad,
-        Self::EaseInOutQuad,
-        Self::EaseInCubic,
-        Self::EaseOutCubic,
-        Self::EaseInOutCubic,
-        Self::EaseInQuart,
-        Self::EaseOutQuart,
-        Self::EaseInOutQuart,
-        Self::EaseInQuint,
-        Self::EaseOutQuint,
-        Self::EaseInOutQuint,
-        Self::EaseInSine,
-        Self::EaseOutSine,
-        Self::EaseInOutSine,
-        Self::EaseInExpo,
-        Self::EaseOutExpo,
-        Self::EaseInOutExpo,
-        Self::EaseInCirc,
-        Self::EaseOutCirc,
-        Self::EaseInOutCirc,
-        Self::EaseInBounce,
-        Self::EaseOutBounce,
-        Self::EaseInOutBounce,
-        Self::EaseInBack,
-        Self::EaseOutBack,
-        Self::EaseInOutBack,
-        Self::EaseInElastic,
-        Self::EaseOutElastic,
-        Self::EaseInOutElastic,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::LeftBrace,
+            Self::RightBrace,
+            Self::LeftBracket,
+            Self::RightBracket,
+            Self::LeftParenthesis,
+            Self::RightParenthesis,
+            Self::Negate,
+            Self::LogicalNot,
+            Self::Abs,
+            Self::Add,
+            Self::Acos,
+            Self::Asin,
+            Self::Atan,
+            Self::Atan2,
+            Self::Ceil,
+            Self::Clamp,
+            Self::CopySign,
+            Self::Cos,
+            Self::DieRoll,
+            Self::DieRollInt,
+            Self::Div,
+            Self::Exp,
+            Self::Floor,
+            Self::HermiteBlend,
+            Self::Lerp,
+            Self::LerpRotate,
+            Self::Ln,
+            Self::Max,
+            Self::Min,
+            Self::MinAngle,
+            Self::Mod,
+            Self::Mul,
+            Self::Pow,
+            Self::Random,
+            Self::RandomInt,
+            Self::Round,
+            Self::Sin,
+            Self::Sign,
+            Self::Sqrt,
+            Self::Trunc,
+            Self::QueryFunction,
+            Self::ArrayVariable,
+            Self::ContextVariable,
+            Self::EntityVariable,
+            Self::TempVariable,
+            Self::MemberAccessor,
+            Self::HashedStringHash,
+            Self::GeometryVariable,
+            Self::MaterialVariable,
+            Self::TextureVariable,
+            Self::LessThan,
+            Self::LessEqual,
+            Self::GreaterEqual,
+            Self::GreaterThan,
+            Self::LogicalEqual,
+            Self::LogicalNotEqual,
+            Self::LogicalOr,
+            Self::LogicalAnd,
+            Self::NullCoalescing,
+            Self::Conditional,
+            Self::ConditionalElse,
+            Self::Float,
+            Self::Pi,
+            Self::Array,
+            Self::Geometry,
+            Self::Material,
+            Self::Texture,
+            Self::Loop,
+            Self::ForEach,
+            Self::Break,
+            Self::Continue,
+            Self::Assignment,
+            Self::Pointer,
+            Self::Semicolon,
+            Self::Return,
+            Self::Comma,
+            Self::This,
+            Self::NonEvaluatedArray,
+            Self::InverseLerp,
+            Self::EaseInQuad,
+            Self::EaseOutQuad,
+            Self::EaseInOutQuad,
+            Self::EaseInCubic,
+            Self::EaseOutCubic,
+            Self::EaseInOutCubic,
+            Self::EaseInQuart,
+            Self::EaseOutQuart,
+            Self::EaseInOutQuart,
+            Self::EaseInQuint,
+            Self::EaseOutQuint,
+            Self::EaseInOutQuint,
+            Self::EaseInSine,
+            Self::EaseOutSine,
+            Self::EaseInOutSine,
+            Self::EaseInExpo,
+            Self::EaseOutExpo,
+            Self::EaseInOutExpo,
+            Self::EaseInCirc,
+            Self::EaseOutCirc,
+            Self::EaseInOutCirc,
+            Self::EaseInBounce,
+            Self::EaseOutBounce,
+            Self::EaseInOutBounce,
+            Self::EaseInBack,
+            Self::EaseOutBack,
+            Self::EaseInOutBack,
+            Self::EaseInElastic,
+            Self::EaseOutElastic,
+            Self::EaseInOutElastic,
+        ]
+    }
     /// gophertunnel `BiomeExpressionCount`: one past the last value.
     pub const COUNT: i32 = 109;
 }
@@ -1151,14 +1179,16 @@ pub enum BiomeCoordinateEvaluationOrder {
 
 impl BiomeCoordinateEvaluationOrder {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::Xyz,
-        Self::Xzy,
-        Self::Yxz,
-        Self::Yzx,
-        Self::Zxy,
-        Self::Zyx,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Xyz,
+            Self::Xzy,
+            Self::Yxz,
+            Self::Yzx,
+            Self::Zxy,
+            Self::Zyx,
+        ]
+    }
 }
 
 impl TryFrom<i32> for BiomeCoordinateEvaluationOrder {
@@ -1208,15 +1238,17 @@ pub enum BiomeRandomDistributionType {
 
 impl BiomeRandomDistributionType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::SingleValued,
-        Self::Uniform,
-        Self::Gaussian,
-        Self::InverseGaussian,
-        Self::FixedGrid,
-        Self::JitteredGrid,
-        Self::Triangle,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SingleValued,
+            Self::Uniform,
+            Self::Gaussian,
+            Self::InverseGaussian,
+            Self::FixedGrid,
+            Self::JitteredGrid,
+            Self::Triangle,
+        ]
+    }
 }
 
 impl TryFrom<i32> for BiomeRandomDistributionType {
@@ -1257,7 +1289,9 @@ pub enum AimAssistTargetMode {
 
 impl AimAssistTargetMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Angle, Self::Distance];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Angle, Self::Distance]
+    }
 }
 
 impl TryFrom<i32> for AimAssistTargetMode {
@@ -1293,7 +1327,9 @@ pub enum AudioListener {
 
 impl AudioListener {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Camera, Self::Player];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Camera, Self::Player]
+    }
 }
 
 impl TryFrom<u8> for AudioListener {
@@ -1328,7 +1364,10 @@ pub enum AudioContentPlaybackType {
 
 impl AudioContentPlaybackType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Music, Self::Sound];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Music, Self::Sound]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 2] = [("Music", Self::Music), ("Sound", Self::Sound)];
 
@@ -1431,41 +1470,43 @@ pub enum EasingType {
 
 impl EasingType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 33] = [
-        Self::Linear,
-        Self::Spring,
-        Self::InQuad,
-        Self::OutQuad,
-        Self::InOutQuad,
-        Self::InCubic,
-        Self::OutCubic,
-        Self::InOutCubic,
-        Self::InQuart,
-        Self::OutQuart,
-        Self::InOutQuart,
-        Self::InQuint,
-        Self::OutQuint,
-        Self::InOutQuint,
-        Self::InSine,
-        Self::OutSine,
-        Self::InOutSine,
-        Self::InExpo,
-        Self::OutExpo,
-        Self::InOutExpo,
-        Self::InCirc,
-        Self::OutCirc,
-        Self::InOutCirc,
-        Self::InBounce,
-        Self::OutBounce,
-        Self::InOutBounce,
-        Self::InBack,
-        Self::OutBack,
-        Self::InOutBack,
-        Self::InElastic,
-        Self::OutElastic,
-        Self::InOutElastic,
-        Self::InverseLerp,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Linear,
+            Self::Spring,
+            Self::InQuad,
+            Self::OutQuad,
+            Self::InOutQuad,
+            Self::InCubic,
+            Self::OutCubic,
+            Self::InOutCubic,
+            Self::InQuart,
+            Self::OutQuart,
+            Self::InOutQuart,
+            Self::InQuint,
+            Self::OutQuint,
+            Self::InOutQuint,
+            Self::InSine,
+            Self::OutSine,
+            Self::InOutSine,
+            Self::InExpo,
+            Self::OutExpo,
+            Self::InOutExpo,
+            Self::InCirc,
+            Self::OutCirc,
+            Self::InOutCirc,
+            Self::InBounce,
+            Self::OutBounce,
+            Self::InOutBounce,
+            Self::InBack,
+            Self::OutBack,
+            Self::InOutBack,
+            Self::InElastic,
+            Self::OutElastic,
+            Self::InOutElastic,
+            Self::InverseLerp,
+        ]
+    }
 }
 
 impl TryFrom<i32> for EasingType {
@@ -1531,7 +1572,10 @@ pub enum SplineType {
 
 impl SplineType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::CatmullRom, Self::Linear];
+    pub const fn all() -> &'static [Self] {
+        &[Self::CatmullRom, Self::Linear]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 2] =
         [("catmullrom", Self::CatmullRom), ("linear", Self::Linear)];
@@ -1577,12 +1621,14 @@ pub enum ClockPayloadType {
 
 impl ClockPayloadType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::SyncState,
-        Self::InitializeRegistry,
-        Self::AddTimeMarker,
-        Self::RemoveTimeMarker,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SyncState,
+            Self::InitializeRegistry,
+            Self::AddTimeMarker,
+            Self::RemoveTimeMarker,
+        ]
+    }
 }
 
 impl TryFrom<u32> for ClockPayloadType {
@@ -1628,14 +1674,16 @@ pub enum CommandPermissionLevel {
 
 impl CommandPermissionLevel {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::Any,
-        Self::GameDirectors,
-        Self::Admin,
-        Self::Host,
-        Self::Owner,
-        Self::Internal,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Any,
+            Self::GameDirectors,
+            Self::Admin,
+            Self::Host,
+            Self::Owner,
+            Self::Internal,
+        ]
+    }
 }
 
 impl TryFrom<u8> for CommandPermissionLevel {
@@ -1679,7 +1727,9 @@ pub enum CommandArg {
 
 impl CommandArg {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Valid, Self::Enum, Self::Suffixed, Self::SoftEnum];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Valid, Self::Enum, Self::Suffixed, Self::SoftEnum]
+    }
 }
 
 impl TryFrom<u32> for CommandArg {
@@ -1921,100 +1971,102 @@ pub enum CommandArgType {
 
 impl CommandArgType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 92] = [
-        Self::Int,
-        Self::Float,
-        Self::RValue,
-        Self::WildcardInt,
-        Self::Operator,
-        Self::CompareOperator,
-        Self::Target,
-        Self::StandaloneTarget,
-        Self::WildcardTarget,
-        Self::NonIdTarget,
-        Self::ScoreArg,
-        Self::ScoreArgs,
-        Self::ScoreSelectParam,
-        Self::ScoreSelector,
-        Self::TagSelector,
-        Self::Filepath,
-        Self::FilePathVal,
-        Self::FilePathCont,
-        Self::IntRangeVal,
-        Self::IntRangePostVal,
-        Self::IntRange,
-        Self::IntegerRange,
-        Self::RationalRangeVal,
-        Self::RationalRangePostVal,
-        Self::RationalRange,
-        Self::RationalRangeFull,
-        Self::SelectionArgs,
-        Self::Args,
-        Self::Arg,
-        Self::MArg,
-        Self::MValue,
-        Self::Name,
-        Self::Type,
-        Self::Family,
-        Self::Permission,
-        Self::Permissions,
-        Self::PermissionSelector,
-        Self::PermissionElement,
-        Self::PermissionElements,
-        Self::Tag,
-        Self::HasItemElement,
-        Self::HasItemElements,
-        Self::HasItem,
-        Self::HasItems,
-        Self::HasItemSelector,
-        Self::EquipmentSlots,
-        Self::PropertyValue,
-        Self::HasPropertyParamValue,
-        Self::HasPropertyParamEnumValue,
-        Self::HasPropertyArg,
-        Self::HasPropertyArgs,
-        Self::HasPropertyElement,
-        Self::HasPropertyElements,
-        Self::HasPropertySelector,
-        Self::String,
-        Self::IdContinuation,
-        Self::CoordXInt,
-        Self::CoordYInt,
-        Self::CoordZInt,
-        Self::CoordXFloat,
-        Self::CoordYFloat,
-        Self::CoordZFloat,
-        Self::BlockPosition,
-        Self::Position,
-        Self::MessageXp,
-        Self::Message,
-        Self::MessageRoot,
-        Self::PostSelector,
-        Self::RawText,
-        Self::TextContinuation,
-        Self::JsonValue,
-        Self::JsonField,
-        Self::Json,
-        Self::JsonObjectFields,
-        Self::JsonObjectCont,
-        Self::JsonArray,
-        Self::JsonArrayValues,
-        Self::JsonArrayCont,
-        Self::BlockState,
-        Self::BlockStateKey,
-        Self::BlockStateValue,
-        Self::BlockStateValues,
-        Self::BlockStates,
-        Self::BlockStatesCont,
-        Self::ClockTimeMarker,
-        Self::Command,
-        Self::SlashCommand,
-        Self::CodeBuilderArg,
-        Self::CodeBuilderArgs,
-        Self::CodeBuilderSelectParam,
-        Self::CodeBuilderSelector,
-        Self::ChainedCommand,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Int,
+            Self::Float,
+            Self::RValue,
+            Self::WildcardInt,
+            Self::Operator,
+            Self::CompareOperator,
+            Self::Target,
+            Self::StandaloneTarget,
+            Self::WildcardTarget,
+            Self::NonIdTarget,
+            Self::ScoreArg,
+            Self::ScoreArgs,
+            Self::ScoreSelectParam,
+            Self::ScoreSelector,
+            Self::TagSelector,
+            Self::Filepath,
+            Self::FilePathVal,
+            Self::FilePathCont,
+            Self::IntRangeVal,
+            Self::IntRangePostVal,
+            Self::IntRange,
+            Self::IntegerRange,
+            Self::RationalRangeVal,
+            Self::RationalRangePostVal,
+            Self::RationalRange,
+            Self::RationalRangeFull,
+            Self::SelectionArgs,
+            Self::Args,
+            Self::Arg,
+            Self::MArg,
+            Self::MValue,
+            Self::Name,
+            Self::Type,
+            Self::Family,
+            Self::Permission,
+            Self::Permissions,
+            Self::PermissionSelector,
+            Self::PermissionElement,
+            Self::PermissionElements,
+            Self::Tag,
+            Self::HasItemElement,
+            Self::HasItemElements,
+            Self::HasItem,
+            Self::HasItems,
+            Self::HasItemSelector,
+            Self::EquipmentSlots,
+            Self::PropertyValue,
+            Self::HasPropertyParamValue,
+            Self::HasPropertyParamEnumValue,
+            Self::HasPropertyArg,
+            Self::HasPropertyArgs,
+            Self::HasPropertyElement,
+            Self::HasPropertyElements,
+            Self::HasPropertySelector,
+            Self::String,
+            Self::IdContinuation,
+            Self::CoordXInt,
+            Self::CoordYInt,
+            Self::CoordZInt,
+            Self::CoordXFloat,
+            Self::CoordYFloat,
+            Self::CoordZFloat,
+            Self::BlockPosition,
+            Self::Position,
+            Self::MessageXp,
+            Self::Message,
+            Self::MessageRoot,
+            Self::PostSelector,
+            Self::RawText,
+            Self::TextContinuation,
+            Self::JsonValue,
+            Self::JsonField,
+            Self::Json,
+            Self::JsonObjectFields,
+            Self::JsonObjectCont,
+            Self::JsonArray,
+            Self::JsonArrayValues,
+            Self::JsonArrayCont,
+            Self::BlockState,
+            Self::BlockStateKey,
+            Self::BlockStateValue,
+            Self::BlockStateValues,
+            Self::BlockStates,
+            Self::BlockStatesCont,
+            Self::ClockTimeMarker,
+            Self::Command,
+            Self::SlashCommand,
+            Self::CodeBuilderArg,
+            Self::CodeBuilderArgs,
+            Self::CodeBuilderSelectParam,
+            Self::CodeBuilderSelector,
+            Self::ChainedCommand,
+        ]
+    }
 }
 
 impl TryFrom<u32> for CommandArgType {
@@ -2142,11 +2194,13 @@ pub enum ParamOption {
 
 impl ParamOption {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::CollapseEnum,
-        Self::HasSemanticConstraint,
-        Self::AsChainedCommand,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::CollapseEnum,
+            Self::HasSemanticConstraint,
+            Self::AsChainedCommand,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ParamOption {
@@ -2207,11 +2261,13 @@ pub enum CommandEnumConstraint {
 
 impl CommandEnumConstraint {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::CheatsEnabled,
-        Self::OperatorPermissions,
-        Self::HostPermissions,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::CheatsEnabled,
+            Self::OperatorPermissions,
+            Self::HostPermissions,
+        ]
+    }
 }
 
 impl TryFrom<u8> for CommandEnumConstraint {
@@ -2276,24 +2332,26 @@ pub enum CommandOrigin {
 
 impl CommandOrigin {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 16] = [
-        Self::Player,
-        Self::Block,
-        Self::MinecartBlock,
-        Self::DevConsole,
-        Self::Test,
-        Self::AutomationPlayer,
-        Self::ClientAutomation,
-        Self::DedicatedServer,
-        Self::Entity,
-        Self::Virtual,
-        Self::GameArgument,
-        Self::EntityServer,
-        Self::Precompiled,
-        Self::GameDirectorEntityServer,
-        Self::Script,
-        Self::Executor,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Player,
+            Self::Block,
+            Self::MinecartBlock,
+            Self::DevConsole,
+            Self::Test,
+            Self::AutomationPlayer,
+            Self::ClientAutomation,
+            Self::DedicatedServer,
+            Self::Entity,
+            Self::Virtual,
+            Self::GameArgument,
+            Self::EntityServer,
+            Self::Precompiled,
+            Self::GameDirectorEntityServer,
+            Self::Script,
+            Self::Executor,
+        ]
+    }
 }
 
 impl TryFrom<u32> for CommandOrigin {
@@ -2481,79 +2539,81 @@ pub enum ContainerId {
 
 impl ContainerId {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 71] = [
-        Self::AnvilInput,
-        Self::AnvilMaterial,
-        Self::AnvilResultPreview,
-        Self::SmithingTableInput,
-        Self::SmithingTableMaterial,
-        Self::SmithingTableResultPreview,
-        Self::Armor,
-        Self::LevelEntity,
-        Self::BeaconPayment,
-        Self::BrewingStandInput,
-        Self::BrewingStandResult,
-        Self::BrewingStandFuel,
-        Self::CombinedHotBarAndInventory,
-        Self::CraftingInput,
-        Self::CraftingOutputPreview,
-        Self::RecipeConstruction,
-        Self::RecipeNature,
-        Self::RecipeItems,
-        Self::RecipeSearch,
-        Self::RecipeSearchBar,
-        Self::RecipeEquipment,
-        Self::RecipeBook,
-        Self::EnchantingInput,
-        Self::EnchantingMaterial,
-        Self::FurnaceFuel,
-        Self::FurnaceIngredient,
-        Self::FurnaceResult,
-        Self::HorseEquip,
-        Self::HotBar,
-        Self::Inventory,
-        Self::ShulkerBox,
-        Self::TradeIngredientOne,
-        Self::TradeIngredientTwo,
-        Self::TradeResultPreview,
-        Self::Offhand,
-        Self::CompoundCreatorInput,
-        Self::CompoundCreatorOutputPreview,
-        Self::ElementConstructorOutputPreview,
-        Self::MaterialReducerInput,
-        Self::MaterialReducerOutput,
-        Self::LabTableInput,
-        Self::LoomInput,
-        Self::LoomDye,
-        Self::LoomMaterial,
-        Self::LoomResultPreview,
-        Self::BlastFurnaceIngredient,
-        Self::SmokerIngredient,
-        Self::TradeTwoIngredientOne,
-        Self::TradeTwoIngredientTwo,
-        Self::TradeTwoResultPreview,
-        Self::GrindstoneInput,
-        Self::GrindstoneAdditional,
-        Self::GrindstoneResultPreview,
-        Self::StonecutterInput,
-        Self::StonecutterResultPreview,
-        Self::CartographyInput,
-        Self::CartographyAdditional,
-        Self::CartographyResultPreview,
-        Self::Barrel,
-        Self::Cursor,
-        Self::CreatedOutput,
-        Self::SmithingTableTemplate,
-        Self::CrafterLevelEntity,
-        Self::Dynamic,
-        Self::RecipeFood,
-        Self::RecipeBlocks,
-        Self::RecipeFurnaceItems,
-        Self::ReservedA,
-        Self::ReservedB,
-        Self::ReservedC,
-        Self::ReservedD,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::AnvilInput,
+            Self::AnvilMaterial,
+            Self::AnvilResultPreview,
+            Self::SmithingTableInput,
+            Self::SmithingTableMaterial,
+            Self::SmithingTableResultPreview,
+            Self::Armor,
+            Self::LevelEntity,
+            Self::BeaconPayment,
+            Self::BrewingStandInput,
+            Self::BrewingStandResult,
+            Self::BrewingStandFuel,
+            Self::CombinedHotBarAndInventory,
+            Self::CraftingInput,
+            Self::CraftingOutputPreview,
+            Self::RecipeConstruction,
+            Self::RecipeNature,
+            Self::RecipeItems,
+            Self::RecipeSearch,
+            Self::RecipeSearchBar,
+            Self::RecipeEquipment,
+            Self::RecipeBook,
+            Self::EnchantingInput,
+            Self::EnchantingMaterial,
+            Self::FurnaceFuel,
+            Self::FurnaceIngredient,
+            Self::FurnaceResult,
+            Self::HorseEquip,
+            Self::HotBar,
+            Self::Inventory,
+            Self::ShulkerBox,
+            Self::TradeIngredientOne,
+            Self::TradeIngredientTwo,
+            Self::TradeResultPreview,
+            Self::Offhand,
+            Self::CompoundCreatorInput,
+            Self::CompoundCreatorOutputPreview,
+            Self::ElementConstructorOutputPreview,
+            Self::MaterialReducerInput,
+            Self::MaterialReducerOutput,
+            Self::LabTableInput,
+            Self::LoomInput,
+            Self::LoomDye,
+            Self::LoomMaterial,
+            Self::LoomResultPreview,
+            Self::BlastFurnaceIngredient,
+            Self::SmokerIngredient,
+            Self::TradeTwoIngredientOne,
+            Self::TradeTwoIngredientTwo,
+            Self::TradeTwoResultPreview,
+            Self::GrindstoneInput,
+            Self::GrindstoneAdditional,
+            Self::GrindstoneResultPreview,
+            Self::StonecutterInput,
+            Self::StonecutterResultPreview,
+            Self::CartographyInput,
+            Self::CartographyAdditional,
+            Self::CartographyResultPreview,
+            Self::Barrel,
+            Self::Cursor,
+            Self::CreatedOutput,
+            Self::SmithingTableTemplate,
+            Self::CrafterLevelEntity,
+            Self::Dynamic,
+            Self::RecipeFood,
+            Self::RecipeBlocks,
+            Self::RecipeFurnaceItems,
+            Self::ReservedA,
+            Self::ReservedB,
+            Self::ReservedC,
+            Self::ReservedD,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ContainerId {
@@ -2730,46 +2790,48 @@ pub enum ContainerType {
 
 impl ContainerType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 38] = [
-        Self::Inventory,
-        Self::Container,
-        Self::Workbench,
-        Self::Furnace,
-        Self::Enchantment,
-        Self::BrewingStand,
-        Self::Anvil,
-        Self::Dispenser,
-        Self::Dropper,
-        Self::Hopper,
-        Self::Cauldron,
-        Self::CartChest,
-        Self::CartHopper,
-        Self::Horse,
-        Self::Beacon,
-        Self::StructureEditor,
-        Self::Trade,
-        Self::CommandBlock,
-        Self::Jukebox,
-        Self::Armour,
-        Self::Hand,
-        Self::CompoundCreator,
-        Self::ElementConstructor,
-        Self::MaterialReducer,
-        Self::LabTable,
-        Self::Loom,
-        Self::Lectern,
-        Self::Grindstone,
-        Self::BlastFurnace,
-        Self::Smoker,
-        Self::Stonecutter,
-        Self::Cartography,
-        Self::Hud,
-        Self::JigsawEditor,
-        Self::SmithingTable,
-        Self::ChestBoat,
-        Self::DecoratedPot,
-        Self::Crafter,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Inventory,
+            Self::Container,
+            Self::Workbench,
+            Self::Furnace,
+            Self::Enchantment,
+            Self::BrewingStand,
+            Self::Anvil,
+            Self::Dispenser,
+            Self::Dropper,
+            Self::Hopper,
+            Self::Cauldron,
+            Self::CartChest,
+            Self::CartHopper,
+            Self::Horse,
+            Self::Beacon,
+            Self::StructureEditor,
+            Self::Trade,
+            Self::CommandBlock,
+            Self::Jukebox,
+            Self::Armour,
+            Self::Hand,
+            Self::CompoundCreator,
+            Self::ElementConstructor,
+            Self::MaterialReducer,
+            Self::LabTable,
+            Self::Loom,
+            Self::Lectern,
+            Self::Grindstone,
+            Self::BlastFurnace,
+            Self::Smoker,
+            Self::Stonecutter,
+            Self::Cartography,
+            Self::Hud,
+            Self::JigsawEditor,
+            Self::SmithingTable,
+            Self::ChestBoat,
+            Self::DecoratedPot,
+            Self::Crafter,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ContainerType {
@@ -2851,15 +2913,17 @@ pub enum CreativeCategory {
 
 impl CreativeCategory {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::All,
-        Self::Construction,
-        Self::Nature,
-        Self::Equipment,
-        Self::Items,
-        Self::ItemCommandOnly,
-        Self::Undefined,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::All,
+            Self::Construction,
+            Self::Nature,
+            Self::Equipment,
+            Self::Items,
+            Self::ItemCommandOnly,
+            Self::Undefined,
+        ]
+    }
 }
 
 impl TryFrom<u8> for CreativeCategory {
@@ -2902,7 +2966,9 @@ pub enum DataStoreChangeType {
 
 impl DataStoreChangeType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Update, Self::Change, Self::Removal];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Update, Self::Change, Self::Removal]
+    }
 }
 
 impl TryFrom<u32> for DataStoreChangeType {
@@ -2941,7 +3007,9 @@ pub enum DataStoreControl {
 
 impl DataStoreControl {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Double, Self::Boolean, Self::String];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Double, Self::Boolean, Self::String]
+    }
 }
 
 impl TryFrom<u32> for DataStoreControl {
@@ -2988,15 +3056,17 @@ pub enum DataStorePropertyType {
 
 impl DataStorePropertyType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::None,
-        Self::Bool,
-        Self::Int64,
-        Self::Double,
-        Self::String,
-        Self::List,
-        Self::Map,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::Bool,
+            Self::Int64,
+            Self::Double,
+            Self::String,
+            Self::List,
+            Self::Map,
+        ]
+    }
 }
 
 impl TryFrom<i32> for DataStorePropertyType {
@@ -3039,7 +3109,9 @@ pub enum EntityLink {
 
 impl EntityLink {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Remove, Self::Rider, Self::Passenger];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Remove, Self::Rider, Self::Passenger]
+    }
 }
 
 impl TryFrom<u8> for EntityLink {
@@ -3078,7 +3150,9 @@ pub enum PassengerOfBlockEmote {
 
 impl PassengerOfBlockEmote {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Standing, Self::Riding, Self::Laying];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Standing, Self::Riding, Self::Laying]
+    }
 }
 
 impl TryFrom<u8> for PassengerOfBlockEmote {
@@ -3395,150 +3469,156 @@ pub enum EntityDataKey {
 
 impl EntityDataKey {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 142] = [
-        Self::Flags,
-        Self::StructuralIntegrity,
-        Self::Variant,
-        Self::ColorIndex,
-        Self::Name,
-        Self::Owner,
-        Self::Target,
-        Self::AirSupply,
-        Self::EffectColor,
-        Self::EffectAmbience,
-        Self::JumpDuration,
-        Self::Hurt,
-        Self::HurtDirection,
-        Self::RowTimeLeft,
-        Self::RowTimeRight,
-        Self::Value,
-        Self::DisplayBlockState,
-        Self::DisplayOffset,
-        Self::CustomDisplay,
-        Self::Swell,
-        Self::OldSwell,
-        Self::SwellDirection,
-        Self::ChargeAmount,
-        Self::CarryBlockRuntimeId,
-        Self::ClientEvent,
-        Self::UsingItem,
-        Self::PlayerFlags,
-        Self::PlayerIndex,
-        Self::BedPosition,
-        Self::PowerX,
-        Self::PowerY,
-        Self::PowerZ,
-        Self::AuxPower,
-        Self::FishX,
-        Self::FishZ,
-        Self::FishAngle,
-        Self::AuxValueData,
-        Self::LeashHolder,
-        Self::Scale,
-        Self::HasNpc,
-        Self::NpcData,
-        Self::Actions,
-        Self::AirSupplyMax,
-        Self::MarkVariant,
-        Self::ContainerType,
-        Self::ContainerSize,
-        Self::ContainerStrengthModifier,
-        Self::BlockTarget,
-        Self::InvulnerableTicks,
-        Self::TargetA,
-        Self::TargetB,
-        Self::TargetC,
-        Self::AerialAttack,
-        Self::Width,
-        Self::Height,
-        Self::FuseTime,
-        Self::SeatOffset,
-        Self::SeatLockPassengerRotation,
-        Self::SeatLockPassengerRotationDegrees,
-        Self::SeatRotationOffset,
-        Self::SeatRotationOffsetDegrees,
-        Self::DataRadius,
-        Self::DataWaiting,
-        Self::DataParticle,
-        Self::PeekId,
-        Self::AttachFace,
-        Self::Attached,
-        Self::AttachedPosition,
-        Self::TradeTarget,
-        Self::Career,
-        Self::HasCommandBlock,
-        Self::CommandName,
-        Self::LastCommandOutput,
-        Self::TrackCommandOutput,
-        Self::ControllingSeatIndex,
-        Self::Strength,
-        Self::StrengthMax,
-        Self::DataSpellCastingColor,
-        Self::DataLifetimeTicks,
-        Self::PoseIndex,
-        Self::DataTickOffset,
-        Self::AlwaysShowNameTag,
-        Self::ColorTwoIndex,
-        Self::NameAuthor,
-        Self::Score,
-        Self::BalloonAnchor,
-        Self::PuffedState,
-        Self::BubbleTime,
-        Self::Agent,
-        Self::SittingAmount,
-        Self::SittingAmountPrevious,
-        Self::EatingCounter,
-        Self::FlagsTwo,
-        Self::LayingAmount,
-        Self::LayingAmountPrevious,
-        Self::DataDuration,
-        Self::DataSpawnTime,
-        Self::DataChangeRate,
-        Self::DataChangeOnPickup,
-        Self::DataPickupCount,
-        Self::InteractText,
-        Self::TradeTier,
-        Self::MaxTradeTier,
-        Self::TradeExperience,
-        Self::SkinId,
-        Self::SpawningFrames,
-        Self::CommandBlockTickDelay,
-        Self::CommandBlockExecuteOnFirstTick,
-        Self::AmbientSoundInterval,
-        Self::AmbientSoundIntervalRange,
-        Self::AmbientSoundEventName,
-        Self::FallDamageMultiplier,
-        Self::NameRawText,
-        Self::CanRideTarget,
-        Self::LowTierCuredTradeDiscount,
-        Self::HighTierCuredTradeDiscount,
-        Self::NearbyCuredTradeDiscount,
-        Self::NearbyCuredDiscountTimeStamp,
-        Self::HitBox,
-        Self::IsBuoyant,
-        Self::FreezingEffectStrength,
-        Self::BuoyancyData,
-        Self::GoatHornCount,
-        Self::BaseRuntimeId,
-        Self::MovementSoundDistanceOffset,
-        Self::HeartbeatIntervalTicks,
-        Self::HeartbeatSoundEvent,
-        Self::PlayerLastDeathPosition,
-        Self::PlayerLastDeathDimension,
-        Self::PlayerHasDied,
-        Self::CollisionBox,
-        Self::VisibleMobEffects,
-        Self::FilteredName,
-        Self::EnterBedPosition,
-        Self::SeatThirdPersonCameraRadius,
-        Self::SeatCameraRelaxDistanceSmoothing,
-        Self::AimAssistPriorityPresetId,
-        Self::AimAssistPriorityCategoryId,
-        Self::AimAssistPriorityActorId,
-        Self::Reserved139,
-        Self::NameplateRenderDistanceMax,
-        Self::Reserved141,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Flags,
+            Self::StructuralIntegrity,
+            Self::Variant,
+            Self::ColorIndex,
+            Self::Name,
+            Self::Owner,
+            Self::Target,
+            Self::AirSupply,
+            Self::EffectColor,
+            Self::EffectAmbience,
+            Self::JumpDuration,
+            Self::Hurt,
+            Self::HurtDirection,
+            Self::RowTimeLeft,
+            Self::RowTimeRight,
+            Self::Value,
+            Self::DisplayBlockState,
+            Self::DisplayOffset,
+            Self::CustomDisplay,
+            Self::Swell,
+            Self::OldSwell,
+            Self::SwellDirection,
+            Self::ChargeAmount,
+            Self::CarryBlockRuntimeId,
+            Self::ClientEvent,
+            Self::UsingItem,
+            Self::PlayerFlags,
+            Self::PlayerIndex,
+            Self::BedPosition,
+            Self::PowerX,
+            Self::PowerY,
+            Self::PowerZ,
+            Self::AuxPower,
+            Self::FishX,
+            Self::FishZ,
+            Self::FishAngle,
+            Self::AuxValueData,
+            Self::LeashHolder,
+            Self::Scale,
+            Self::HasNpc,
+            Self::NpcData,
+            Self::Actions,
+            Self::AirSupplyMax,
+            Self::MarkVariant,
+            Self::ContainerType,
+            Self::ContainerSize,
+            Self::ContainerStrengthModifier,
+            Self::BlockTarget,
+            Self::InvulnerableTicks,
+            Self::TargetA,
+            Self::TargetB,
+            Self::TargetC,
+            Self::AerialAttack,
+            Self::Width,
+            Self::Height,
+            Self::FuseTime,
+            Self::SeatOffset,
+            Self::SeatLockPassengerRotation,
+            Self::SeatLockPassengerRotationDegrees,
+            Self::SeatRotationOffset,
+            Self::SeatRotationOffsetDegrees,
+            Self::DataRadius,
+            Self::DataWaiting,
+            Self::DataParticle,
+            Self::PeekId,
+            Self::AttachFace,
+            Self::Attached,
+            Self::AttachedPosition,
+            Self::TradeTarget,
+            Self::Career,
+            Self::HasCommandBlock,
+            Self::CommandName,
+            Self::LastCommandOutput,
+            Self::TrackCommandOutput,
+            Self::ControllingSeatIndex,
+            Self::Strength,
+            Self::StrengthMax,
+            Self::DataSpellCastingColor,
+            Self::DataLifetimeTicks,
+            Self::PoseIndex,
+            Self::DataTickOffset,
+            Self::AlwaysShowNameTag,
+            Self::ColorTwoIndex,
+            Self::NameAuthor,
+            Self::Score,
+            Self::BalloonAnchor,
+            Self::PuffedState,
+            Self::BubbleTime,
+            Self::Agent,
+            Self::SittingAmount,
+            Self::SittingAmountPrevious,
+            Self::EatingCounter,
+            Self::FlagsTwo,
+            Self::LayingAmount,
+            Self::LayingAmountPrevious,
+            Self::DataDuration,
+            Self::DataSpawnTime,
+            Self::DataChangeRate,
+            Self::DataChangeOnPickup,
+            Self::DataPickupCount,
+            Self::InteractText,
+            Self::TradeTier,
+            Self::MaxTradeTier,
+            Self::TradeExperience,
+            Self::SkinId,
+            Self::SpawningFrames,
+            Self::CommandBlockTickDelay,
+            Self::CommandBlockExecuteOnFirstTick,
+            Self::AmbientSoundInterval,
+            Self::AmbientSoundIntervalRange,
+            Self::AmbientSoundEventName,
+            Self::FallDamageMultiplier,
+            Self::NameRawText,
+            Self::CanRideTarget,
+            Self::LowTierCuredTradeDiscount,
+            Self::HighTierCuredTradeDiscount,
+            Self::NearbyCuredTradeDiscount,
+            Self::NearbyCuredDiscountTimeStamp,
+            Self::HitBox,
+            Self::IsBuoyant,
+            Self::FreezingEffectStrength,
+            Self::BuoyancyData,
+            Self::GoatHornCount,
+            Self::BaseRuntimeId,
+            Self::MovementSoundDistanceOffset,
+            Self::HeartbeatIntervalTicks,
+            Self::HeartbeatSoundEvent,
+            Self::PlayerLastDeathPosition,
+            Self::PlayerLastDeathDimension,
+            Self::PlayerHasDied,
+            Self::CollisionBox,
+            Self::VisibleMobEffects,
+            Self::FilteredName,
+            Self::EnterBedPosition,
+            Self::SeatThirdPersonCameraRadius,
+            Self::SeatCameraRelaxDistanceSmoothing,
+            Self::AimAssistPriorityPresetId,
+            Self::AimAssistPriorityCategoryId,
+            Self::AimAssistPriorityActorId,
+            Self::Reserved139,
+            Self::NameplateRenderDistanceMax,
+            Self::Reserved141,
+        ]
+    }
     /// gophertunnel `EntityDataKeyDisplayFirework`.
     pub const DISPLAY_FIREWORK: Self = Self::DisplayBlockState;
     /// gophertunnel `EntityDataKeyHorseFlags`.
@@ -3990,139 +4070,145 @@ pub enum EntityDataFlag {
 
 impl EntityDataFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 131] = [
-        Self::OnFire,
-        Self::Sneaking,
-        Self::Riding,
-        Self::Sprinting,
-        Self::UsingItem,
-        Self::Invisible,
-        Self::Tempted,
-        Self::InLove,
-        Self::Saddled,
-        Self::Powered,
-        Self::Ignited,
-        Self::Baby,
-        Self::Converting,
-        Self::Critical,
-        Self::ShowName,
-        Self::AlwaysShowName,
-        Self::NoAi,
-        Self::Silent,
-        Self::WallClimbing,
-        Self::Climb,
-        Self::Swim,
-        Self::Fly,
-        Self::Walk,
-        Self::Resting,
-        Self::Sitting,
-        Self::Angry,
-        Self::Interested,
-        Self::Charged,
-        Self::Tamed,
-        Self::Orphaned,
-        Self::Leashed,
-        Self::Sheared,
-        Self::Gliding,
-        Self::Elder,
-        Self::Moving,
-        Self::Breathing,
-        Self::Chested,
-        Self::Stackable,
-        Self::ShowBottom,
-        Self::Standing,
-        Self::Shaking,
-        Self::Idling,
-        Self::Casting,
-        Self::Charging,
-        Self::KeyboardControlled,
-        Self::PowerJump,
-        Self::Dash,
-        Self::Lingering,
-        Self::HasCollision,
-        Self::HasGravity,
-        Self::FireImmune,
-        Self::Dancing,
-        Self::Enchanted,
-        Self::ReturnTrident,
-        Self::ContainerPrivate,
-        Self::Transforming,
-        Self::DamageNearbyMobs,
-        Self::Swimming,
-        Self::Bribed,
-        Self::Pregnant,
-        Self::LayingEgg,
-        Self::PassengerCanPick,
-        Self::TransitionSitting,
-        Self::Eating,
-        Self::LayingDown,
-        Self::Sneezing,
-        Self::Trusting,
-        Self::Rolling,
-        Self::Scared,
-        Self::InScaffolding,
-        Self::OverScaffolding,
-        Self::DescendThroughBlock,
-        Self::Blocking,
-        Self::TransitionBlocking,
-        Self::BlockedUsingShield,
-        Self::BlockedUsingDamagedShield,
-        Self::Sleeping,
-        Self::WantsToWake,
-        Self::TradeInterest,
-        Self::DoorBreaker,
-        Self::BreakingObstruction,
-        Self::DoorOpener,
-        Self::Captain,
-        Self::Stunned,
-        Self::Roaring,
-        Self::DelayedAttack,
-        Self::AvoidingMobs,
-        Self::AvoidingBlock,
-        Self::FacingTargetToRangeAttack,
-        Self::HiddenWhenInvisible,
-        Self::InUi,
-        Self::Stalking,
-        Self::Emoting,
-        Self::Celebrating,
-        Self::Admiring,
-        Self::CelebratingSpecial,
-        Self::OutOfControl,
-        Self::RamAttack,
-        Self::PlayingDead,
-        Self::InAscendingBlock,
-        Self::OverDescendingBlock,
-        Self::Croaking,
-        Self::DigestMob,
-        Self::JumpGoal,
-        Self::Emerging,
-        Self::Sniffing,
-        Self::Digging,
-        Self::SonicBoom,
-        Self::HasDashTimeout,
-        Self::PushTowardsClosestSpace,
-        Self::Scenting,
-        Self::Rising,
-        Self::FeelingHappy,
-        Self::Searching,
-        Self::Crawling,
-        Self::TimerFlag1,
-        Self::TimerFlag2,
-        Self::TimerFlag3,
-        Self::BodyRotationBlocked,
-        Self::RenderWhenInvisible,
-        Self::BodyRotationAxisAligned,
-        Self::Collidable,
-        Self::WasdAirControlled,
-        Self::DoesServerAuthOnlyDismount,
-        Self::BodyRotationAlwaysFollowsHead,
-        Self::CanUseVerticalMovementAction,
-        Self::RotationLockedToVehicle,
-        Self::UsesLegacyFriction,
-        Self::UsesUniformAirDrag,
-        Self::NameplateDepthTested,
-        Self::NotPickableFromInside,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::OnFire,
+            Self::Sneaking,
+            Self::Riding,
+            Self::Sprinting,
+            Self::UsingItem,
+            Self::Invisible,
+            Self::Tempted,
+            Self::InLove,
+            Self::Saddled,
+            Self::Powered,
+            Self::Ignited,
+            Self::Baby,
+            Self::Converting,
+            Self::Critical,
+            Self::ShowName,
+            Self::AlwaysShowName,
+            Self::NoAi,
+            Self::Silent,
+            Self::WallClimbing,
+            Self::Climb,
+            Self::Swim,
+            Self::Fly,
+            Self::Walk,
+            Self::Resting,
+            Self::Sitting,
+            Self::Angry,
+            Self::Interested,
+            Self::Charged,
+            Self::Tamed,
+            Self::Orphaned,
+            Self::Leashed,
+            Self::Sheared,
+            Self::Gliding,
+            Self::Elder,
+            Self::Moving,
+            Self::Breathing,
+            Self::Chested,
+            Self::Stackable,
+            Self::ShowBottom,
+            Self::Standing,
+            Self::Shaking,
+            Self::Idling,
+            Self::Casting,
+            Self::Charging,
+            Self::KeyboardControlled,
+            Self::PowerJump,
+            Self::Dash,
+            Self::Lingering,
+            Self::HasCollision,
+            Self::HasGravity,
+            Self::FireImmune,
+            Self::Dancing,
+            Self::Enchanted,
+            Self::ReturnTrident,
+            Self::ContainerPrivate,
+            Self::Transforming,
+            Self::DamageNearbyMobs,
+            Self::Swimming,
+            Self::Bribed,
+            Self::Pregnant,
+            Self::LayingEgg,
+            Self::PassengerCanPick,
+            Self::TransitionSitting,
+            Self::Eating,
+            Self::LayingDown,
+            Self::Sneezing,
+            Self::Trusting,
+            Self::Rolling,
+            Self::Scared,
+            Self::InScaffolding,
+            Self::OverScaffolding,
+            Self::DescendThroughBlock,
+            Self::Blocking,
+            Self::TransitionBlocking,
+            Self::BlockedUsingShield,
+            Self::BlockedUsingDamagedShield,
+            Self::Sleeping,
+            Self::WantsToWake,
+            Self::TradeInterest,
+            Self::DoorBreaker,
+            Self::BreakingObstruction,
+            Self::DoorOpener,
+            Self::Captain,
+            Self::Stunned,
+            Self::Roaring,
+            Self::DelayedAttack,
+            Self::AvoidingMobs,
+            Self::AvoidingBlock,
+            Self::FacingTargetToRangeAttack,
+            Self::HiddenWhenInvisible,
+            Self::InUi,
+            Self::Stalking,
+            Self::Emoting,
+            Self::Celebrating,
+            Self::Admiring,
+            Self::CelebratingSpecial,
+            Self::OutOfControl,
+            Self::RamAttack,
+            Self::PlayingDead,
+            Self::InAscendingBlock,
+            Self::OverDescendingBlock,
+            Self::Croaking,
+            Self::DigestMob,
+            Self::JumpGoal,
+            Self::Emerging,
+            Self::Sniffing,
+            Self::Digging,
+            Self::SonicBoom,
+            Self::HasDashTimeout,
+            Self::PushTowardsClosestSpace,
+            Self::Scenting,
+            Self::Rising,
+            Self::FeelingHappy,
+            Self::Searching,
+            Self::Crawling,
+            Self::TimerFlag1,
+            Self::TimerFlag2,
+            Self::TimerFlag3,
+            Self::BodyRotationBlocked,
+            Self::RenderWhenInvisible,
+            Self::BodyRotationAxisAligned,
+            Self::Collidable,
+            Self::WasdAirControlled,
+            Self::DoesServerAuthOnlyDismount,
+            Self::BodyRotationAlwaysFollowsHead,
+            Self::CanUseVerticalMovementAction,
+            Self::RotationLockedToVehicle,
+            Self::UsesLegacyFriction,
+            Self::UsesUniformAirDrag,
+            Self::NameplateDepthTested,
+            Self::NotPickableFromInside,
+        ]
+    }
 }
 
 impl TryFrom<u32> for EntityDataFlag {
@@ -4591,17 +4677,19 @@ pub enum EntityDataType {
 
 impl EntityDataType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Byte,
-        Self::Int16,
-        Self::Int32,
-        Self::Float32,
-        Self::String,
-        Self::CompoundTag,
-        Self::BlockPos,
-        Self::Int64,
-        Self::Vec3,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Byte,
+            Self::Int16,
+            Self::Int32,
+            Self::Float32,
+            Self::String,
+            Self::CompoundTag,
+            Self::BlockPos,
+            Self::Int64,
+            Self::Vec3,
+        ]
+    }
 }
 
 impl TryFrom<u32> for EntityDataType {
@@ -4656,16 +4744,18 @@ pub enum CopperBlockId {
 
 impl CopperBlockId {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 8] = [
-        Self::WaxNotOxidised,
-        Self::WaxExposed,
-        Self::WaxWeathered,
-        Self::WaxOxidised,
-        Self::UnWaxNotOxidised,
-        Self::UnWaxExposed,
-        Self::UnWaxWeathered,
-        Self::UnWaxOxidised,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::WaxNotOxidised,
+            Self::WaxExposed,
+            Self::WaxWeathered,
+            Self::WaxOxidised,
+            Self::UnWaxNotOxidised,
+            Self::UnWaxExposed,
+            Self::UnWaxWeathered,
+            Self::UnWaxOxidised,
+        ]
+    }
 }
 
 impl TryFrom<u16> for CopperBlockId {
@@ -4709,7 +4799,9 @@ pub enum FurnaceLayout {
 
 impl FurnaceLayout {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::None, Self::InventoryOnly, Self::Default];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::InventoryOnly, Self::Default]
+    }
 }
 
 impl TryFrom<i32> for FurnaceLayout {
@@ -4754,14 +4846,16 @@ pub enum FurnaceLeftTab {
 
 impl FurnaceLeftTab {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::None,
-        Self::RecipeFood,
-        Self::RecipeItems,
-        Self::RecipeBlocks,
-        Self::RecipeSearch,
-        Self::Inventory,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::RecipeFood,
+            Self::RecipeItems,
+            Self::RecipeBlocks,
+            Self::RecipeSearch,
+            Self::Inventory,
+        ]
+    }
 }
 
 impl TryFrom<i32> for FurnaceLeftTab {
@@ -4901,60 +4995,62 @@ pub enum GraphicsOverrideParameterType {
 
 impl GraphicsOverrideParameterType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 52] = [
-        Self::SkyZenithColor,
-        Self::SkyHorizonColor,
-        Self::HorizonBlendMin,
-        Self::HorizonBlendMax,
-        Self::HorizonBlendStart,
-        Self::HorizonBlendMieStart,
-        Self::RayleighStrength,
-        Self::SunMieStrength,
-        Self::MoonMieStrength,
-        Self::SunGlareShape,
-        Self::Chlorophyll,
-        Self::Cdom,
-        Self::SuspendedSediment,
-        Self::WavesDepth,
-        Self::WavesFrequency,
-        Self::WavesFrequencyScaling,
-        Self::WavesSpeed,
-        Self::WavesSpeedScaling,
-        Self::WavesShape,
-        Self::WavesOctaves,
-        Self::WavesMix,
-        Self::WavesPull,
-        Self::WavesDirectionIncrement,
-        Self::MidtonesContrast,
-        Self::HighlightsContrast,
-        Self::ShadowsContrast,
-        Self::HighlightsGain,
-        Self::HighlightsGamma,
-        Self::HighlightsOffset,
-        Self::HighlightsSaturation,
-        Self::MidtonesGain,
-        Self::MidtonesGamma,
-        Self::MidtonesOffset,
-        Self::MidtonesSaturation,
-        Self::ShadowsGain,
-        Self::ShadowsGamma,
-        Self::ShadowsOffset,
-        Self::ShadowsSaturation,
-        Self::HighlightsMin,
-        Self::ShadowsMax,
-        Self::Temperature,
-        Self::SunColor,
-        Self::SunIlluminance,
-        Self::MoonColor,
-        Self::MoonIlluminance,
-        Self::FlashColor,
-        Self::FlashIlluminance,
-        Self::AmbientColor,
-        Self::AmbientIlluminance,
-        Self::EmissiveDesaturation,
-        Self::SkyIntensity,
-        Self::OrbitalOffsetDegrees,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SkyZenithColor,
+            Self::SkyHorizonColor,
+            Self::HorizonBlendMin,
+            Self::HorizonBlendMax,
+            Self::HorizonBlendStart,
+            Self::HorizonBlendMieStart,
+            Self::RayleighStrength,
+            Self::SunMieStrength,
+            Self::MoonMieStrength,
+            Self::SunGlareShape,
+            Self::Chlorophyll,
+            Self::Cdom,
+            Self::SuspendedSediment,
+            Self::WavesDepth,
+            Self::WavesFrequency,
+            Self::WavesFrequencyScaling,
+            Self::WavesSpeed,
+            Self::WavesSpeedScaling,
+            Self::WavesShape,
+            Self::WavesOctaves,
+            Self::WavesMix,
+            Self::WavesPull,
+            Self::WavesDirectionIncrement,
+            Self::MidtonesContrast,
+            Self::HighlightsContrast,
+            Self::ShadowsContrast,
+            Self::HighlightsGain,
+            Self::HighlightsGamma,
+            Self::HighlightsOffset,
+            Self::HighlightsSaturation,
+            Self::MidtonesGain,
+            Self::MidtonesGamma,
+            Self::MidtonesOffset,
+            Self::MidtonesSaturation,
+            Self::ShadowsGain,
+            Self::ShadowsGamma,
+            Self::ShadowsOffset,
+            Self::ShadowsSaturation,
+            Self::HighlightsMin,
+            Self::ShadowsMax,
+            Self::Temperature,
+            Self::SunColor,
+            Self::SunIlluminance,
+            Self::MoonColor,
+            Self::MoonIlluminance,
+            Self::FlashColor,
+            Self::FlashIlluminance,
+            Self::AmbientColor,
+            Self::AmbientIlluminance,
+            Self::EmissiveDesaturation,
+            Self::SkyIntensity,
+            Self::OrbitalOffsetDegrees,
+        ]
+    }
 }
 
 impl TryFrom<u8> for GraphicsOverrideParameterType {
@@ -5044,7 +5140,9 @@ pub enum InventoryActionSource {
 
 impl InventoryActionSource {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Container, Self::World, Self::Creative, Self::Todo];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Container, Self::World, Self::Creative, Self::Todo]
+    }
 }
 
 impl TryFrom<u32> for InventoryActionSource {
@@ -5097,12 +5195,14 @@ pub enum UseItemAction {
 
 impl UseItemAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::ClickBlock,
-        Self::ClickAir,
-        Self::BreakBlock,
-        Self::UseAsAttack,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ClickBlock,
+            Self::ClickAir,
+            Self::BreakBlock,
+            Self::UseAsAttack,
+        ]
+    }
 }
 
 impl TryFrom<u32> for UseItemAction {
@@ -5142,7 +5242,9 @@ pub enum TriggerType {
 
 impl TriggerType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Unknown, Self::PlayerInput, Self::SimulationTick];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Unknown, Self::PlayerInput, Self::SimulationTick]
+    }
 }
 
 impl TryFrom<u32> for TriggerType {
@@ -5179,7 +5281,9 @@ pub enum ClientPrediction {
 
 impl ClientPrediction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Failure, Self::Success];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Failure, Self::Success]
+    }
 }
 
 impl TryFrom<u8> for ClientPrediction {
@@ -5215,7 +5319,9 @@ pub enum ClientCooldownState {
 
 impl ClientCooldownState {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Off, Self::On];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Off, Self::On]
+    }
 }
 
 impl TryFrom<u8> for ClientCooldownState {
@@ -5251,7 +5357,9 @@ pub enum HandSlot {
 
 impl HandSlot {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::MainHand, Self::OffHand];
+    pub const fn all() -> &'static [Self] {
+        &[Self::MainHand, Self::OffHand]
+    }
 }
 
 impl TryFrom<u8> for HandSlot {
@@ -5287,7 +5395,9 @@ pub enum UseItemOnEntityAction {
 
 impl UseItemOnEntityAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Interact, Self::Attack];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Interact, Self::Attack]
+    }
 }
 
 impl TryFrom<i32> for UseItemOnEntityAction {
@@ -5323,7 +5433,9 @@ pub enum ReleaseItemAction {
 
 impl ReleaseItemAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Release, Self::Consume];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Release, Self::Consume]
+    }
 }
 
 impl TryFrom<i32> for ReleaseItemAction {
@@ -5361,7 +5473,9 @@ pub enum ItemEntryVersion {
 
 impl ItemEntryVersion {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Legacy, Self::DataDriven, Self::None];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Legacy, Self::DataDriven, Self::None]
+    }
 }
 
 impl TryFrom<i32> for ItemEntryVersion {
@@ -5422,22 +5536,24 @@ pub enum FilterCause {
 
 impl FilterCause {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 14] = [
-        Self::ServerChatPublic,
-        Self::ServerChatWhisper,
-        Self::SignText,
-        Self::AnvilText,
-        Self::BookAndQuillText,
-        Self::CommandBlockText,
-        Self::BlockActorDataText,
-        Self::JoinEventText,
-        Self::LeaveEventText,
-        Self::SlashCommandChat,
-        Self::CartographyText,
-        Self::KickCommand,
-        Self::TitleCommand,
-        Self::SummonCommand,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ServerChatPublic,
+            Self::ServerChatWhisper,
+            Self::SignText,
+            Self::AnvilText,
+            Self::BookAndQuillText,
+            Self::CommandBlockText,
+            Self::BlockActorDataText,
+            Self::JoinEventText,
+            Self::LeaveEventText,
+            Self::SlashCommandChat,
+            Self::CartographyText,
+            Self::KickCommand,
+            Self::TitleCommand,
+            Self::SummonCommand,
+        ]
+    }
 }
 
 impl TryFrom<i32> for FilterCause {
@@ -5617,76 +5733,78 @@ pub enum ItemStackResponseStatus {
 
 impl ItemStackResponseStatus {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 68] = [
-        Self::Ok,
-        Self::Error,
-        Self::InvalidRequestActionType,
-        Self::ActionRequestNotAllowed,
-        Self::ScreenHandlerEndRequestFailed,
-        Self::ItemRequestActionHandlerCommitFailed,
-        Self::InvalidRequestCraftActionType,
-        Self::InvalidCraftRequest,
-        Self::InvalidCraftRequestScreen,
-        Self::InvalidCraftResult,
-        Self::InvalidCraftResultIndex,
-        Self::InvalidCraftResultItem,
-        Self::InvalidItemNetId,
-        Self::MissingCreatedOutputContainer,
-        Self::FailedToSetCreatedItemOutputSlot,
-        Self::RequestAlreadyInProgress,
-        Self::FailedToInitSparseContainer,
-        Self::ResultTransferFailed,
-        Self::ExpectedItemSlotNotFullyConsumed,
-        Self::ExpectedAnywhereItemNotFullyConsumed,
-        Self::ItemAlreadyConsumedFromSlot,
-        Self::ConsumedTooMuchFromSlot,
-        Self::MismatchSlotExpectedConsumedItem,
-        Self::MismatchSlotExpectedConsumedItemNetIdVariant,
-        Self::FailedToMatchExpectedSlotConsumedItem,
-        Self::FailedToMatchExpectedAllowedAnywhereConsumedItem,
-        Self::ConsumedItemOutOfAllowedSlotRange,
-        Self::ConsumedItemNotAllowed,
-        Self::PlayerNotInCreativeMode,
-        Self::InvalidExperimentalRecipeRequest,
-        Self::FailedToCraftCreative,
-        Self::FailedToGetLevelRecipe,
-        Self::FailedToFindRecipeByNetId,
-        Self::MismatchedCraftingSize,
-        Self::MissingInputSparseContainer,
-        Self::MismatchedRecipeForInputGridItems,
-        Self::EmptyCraftResults,
-        Self::FailedToEnchant,
-        Self::MissingInputItem,
-        Self::InsufficientPlayerLevelToEnchant,
-        Self::MissingMaterialItem,
-        Self::MissingActor,
-        Self::UnknownPrimaryEffect,
-        Self::PrimaryEffectOutOfRange,
-        Self::PrimaryEffectUnavailable,
-        Self::SecondaryEffectOutOfRange,
-        Self::SecondaryEffectUnavailable,
-        Self::DstContainerEqualToCreatedOutputContainer,
-        Self::DstContainerAndSlotEqualToSrcContainerAndSlot,
-        Self::FailedToValidateSrcSlot,
-        Self::FailedToValidateDstSlot,
-        Self::InvalidAdjustedAmount,
-        Self::InvalidItemSetType,
-        Self::InvalidTransferAmount,
-        Self::CannotSwapItem,
-        Self::CannotPlaceItem,
-        Self::UnhandledItemSetType,
-        Self::InvalidRemovedAmount,
-        Self::InvalidRegion,
-        Self::CannotDropItem,
-        Self::CannotDestroyItem,
-        Self::InvalidSourceContainer,
-        Self::ItemNotConsumed,
-        Self::InvalidNumCrafts,
-        Self::InvalidCraftResultStackSize,
-        Self::CannotRemoveItem,
-        Self::CannotConsumeItem,
-        Self::ScreenStackError,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Ok,
+            Self::Error,
+            Self::InvalidRequestActionType,
+            Self::ActionRequestNotAllowed,
+            Self::ScreenHandlerEndRequestFailed,
+            Self::ItemRequestActionHandlerCommitFailed,
+            Self::InvalidRequestCraftActionType,
+            Self::InvalidCraftRequest,
+            Self::InvalidCraftRequestScreen,
+            Self::InvalidCraftResult,
+            Self::InvalidCraftResultIndex,
+            Self::InvalidCraftResultItem,
+            Self::InvalidItemNetId,
+            Self::MissingCreatedOutputContainer,
+            Self::FailedToSetCreatedItemOutputSlot,
+            Self::RequestAlreadyInProgress,
+            Self::FailedToInitSparseContainer,
+            Self::ResultTransferFailed,
+            Self::ExpectedItemSlotNotFullyConsumed,
+            Self::ExpectedAnywhereItemNotFullyConsumed,
+            Self::ItemAlreadyConsumedFromSlot,
+            Self::ConsumedTooMuchFromSlot,
+            Self::MismatchSlotExpectedConsumedItem,
+            Self::MismatchSlotExpectedConsumedItemNetIdVariant,
+            Self::FailedToMatchExpectedSlotConsumedItem,
+            Self::FailedToMatchExpectedAllowedAnywhereConsumedItem,
+            Self::ConsumedItemOutOfAllowedSlotRange,
+            Self::ConsumedItemNotAllowed,
+            Self::PlayerNotInCreativeMode,
+            Self::InvalidExperimentalRecipeRequest,
+            Self::FailedToCraftCreative,
+            Self::FailedToGetLevelRecipe,
+            Self::FailedToFindRecipeByNetId,
+            Self::MismatchedCraftingSize,
+            Self::MissingInputSparseContainer,
+            Self::MismatchedRecipeForInputGridItems,
+            Self::EmptyCraftResults,
+            Self::FailedToEnchant,
+            Self::MissingInputItem,
+            Self::InsufficientPlayerLevelToEnchant,
+            Self::MissingMaterialItem,
+            Self::MissingActor,
+            Self::UnknownPrimaryEffect,
+            Self::PrimaryEffectOutOfRange,
+            Self::PrimaryEffectUnavailable,
+            Self::SecondaryEffectOutOfRange,
+            Self::SecondaryEffectUnavailable,
+            Self::DstContainerEqualToCreatedOutputContainer,
+            Self::DstContainerAndSlotEqualToSrcContainerAndSlot,
+            Self::FailedToValidateSrcSlot,
+            Self::FailedToValidateDstSlot,
+            Self::InvalidAdjustedAmount,
+            Self::InvalidItemSetType,
+            Self::InvalidTransferAmount,
+            Self::CannotSwapItem,
+            Self::CannotPlaceItem,
+            Self::UnhandledItemSetType,
+            Self::InvalidRemovedAmount,
+            Self::InvalidRegion,
+            Self::CannotDropItem,
+            Self::CannotDestroyItem,
+            Self::InvalidSourceContainer,
+            Self::ItemNotConsumed,
+            Self::InvalidNumCrafts,
+            Self::InvalidCraftResultStackSize,
+            Self::CannotRemoveItem,
+            Self::CannotConsumeItem,
+            Self::ScreenStackError,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ItemStackResponseStatus {
@@ -5844,38 +5962,40 @@ pub enum MapDecorationType {
 
 impl MapDecorationType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 30] = [
-        Self::MarkerWhite,
-        Self::MarkerGreen,
-        Self::MarkerRed,
-        Self::MarkerBlue,
-        Self::CrossWhite,
-        Self::TriangleRed,
-        Self::SquareWhite,
-        Self::MarkerSign,
-        Self::MarkerPink,
-        Self::MarkerOrange,
-        Self::MarkerYellow,
-        Self::MarkerTeal,
-        Self::TriangleGreen,
-        Self::SmallSquareWhite,
-        Self::Mansion,
-        Self::Monument,
-        Self::NoDraw,
-        Self::VillageDesert,
-        Self::VillagePlains,
-        Self::VillageSavanna,
-        Self::VillageSnowy,
-        Self::VillageTaiga,
-        Self::JungleTemple,
-        Self::WitchHut,
-        Self::TrialChambers,
-        Self::AbandonedCamp,
-        Self::BuriedAncientCity,
-        Self::BuriedMineshaft,
-        Self::DesertPyramid,
-        Self::WarmOceanRuins,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::MarkerWhite,
+            Self::MarkerGreen,
+            Self::MarkerRed,
+            Self::MarkerBlue,
+            Self::CrossWhite,
+            Self::TriangleRed,
+            Self::SquareWhite,
+            Self::MarkerSign,
+            Self::MarkerPink,
+            Self::MarkerOrange,
+            Self::MarkerYellow,
+            Self::MarkerTeal,
+            Self::TriangleGreen,
+            Self::SmallSquareWhite,
+            Self::Mansion,
+            Self::Monument,
+            Self::NoDraw,
+            Self::VillageDesert,
+            Self::VillagePlains,
+            Self::VillageSavanna,
+            Self::VillageSnowy,
+            Self::VillageTaiga,
+            Self::JungleTemple,
+            Self::WitchHut,
+            Self::TrialChambers,
+            Self::AbandonedCamp,
+            Self::BuriedAncientCity,
+            Self::BuriedMineshaft,
+            Self::DesertPyramid,
+            Self::WarmOceanRuins,
+        ]
+    }
 }
 
 impl TryFrom<u8> for MapDecorationType {
@@ -5939,7 +6059,9 @@ pub enum MapObjectType {
 
 impl MapObjectType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Entity, Self::Block];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Entity, Self::Block]
+    }
 }
 
 impl TryFrom<i32> for MapObjectType {
@@ -6193,119 +6315,125 @@ pub enum MemoryCategory {
 
 impl MemoryCategory {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 111] = [
-        Self::Unknown,
-        Self::InvalidSizeUnknown,
-        Self::Actor,
-        Self::ActorAnimation,
-        Self::ActorRendering,
-        Self::BlockTickingQueues,
-        Self::BiomeStorage,
-        Self::Blobs,
-        Self::Cereal,
-        Self::CircuitSystem,
-        Self::Client,
-        Self::Commands,
-        Self::DbStorage,
-        Self::Debug,
-        Self::Documentation,
-        Self::EcsSystems,
-        Self::Fmod,
-        Self::Fonts,
-        Self::ImGui,
-        Self::Input,
-        Self::JsonUi,
-        Self::JsonUiControlFactoryJson,
-        Self::JsonUiControlTree,
-        Self::JsonUiControlTreeControlElement,
-        Self::JsonUiControlTreePopulateDataBinding,
-        Self::JsonUiControlTreePopulateFocus,
-        Self::JsonUiControlTreePopulateLayout,
-        Self::JsonUiControlTreePopulateOther,
-        Self::JsonUiControlTreePopulateSprite,
-        Self::JsonUiControlTreePopulateText,
-        Self::JsonUiControlTreePopulateTts,
-        Self::JsonUiControlTreeVisibility,
-        Self::JsonUiCreateUi,
-        Self::JsonUiDefs,
-        Self::JsonUiLayoutManager,
-        Self::JsonUiLayoutManagerRemoveDependencies,
-        Self::JsonUiLayoutManagerInitVariable,
-        Self::Languages,
-        Self::Level,
-        Self::LevelStructures,
-        Self::LevelChunk,
-        Self::LevelChunkGen,
-        Self::LevelChunkGenThreadLocal,
-        Self::LightVolumeManager,
-        Self::Network,
-        Self::Marketplace,
-        Self::MaterialDragonCompiledDefinition,
-        Self::MaterialDragonMaterial,
-        Self::MaterialDragonResource,
-        Self::MaterialDragonUniformMap,
-        Self::MaterialRenderMaterial,
-        Self::MaterialRenderMaterialGroup,
-        Self::MaterialVariationManager,
-        Self::Molang,
-        Self::OreUi,
-        Self::OreUiClient,
-        Self::PersonaPieces,
-        Self::PersonaAnimations,
-        Self::PersonaCharacters,
-        Self::PersonaSkinPacks,
-        Self::PersonaRepo,
-        Self::Player,
-        Self::RenderChunk,
-        Self::RenderChunkIndexBuffer,
-        Self::RenderChunkVertexBuffer,
-        Self::Rendering,
-        Self::RenderingBgfxInit,
-        Self::RenderingBgfxStartFrame,
-        Self::RenderingBlockTessellator,
-        Self::RenderingEndFrame,
-        Self::RenderingGraphicsTasksInit,
-        Self::RenderingLibrary,
-        Self::RenderingPolygonOperatorPool,
-        Self::RenderingPbrTextureData,
-        Self::RenderingRenderRegistry,
-        Self::RenderingSetup,
-        Self::RenderingVertices,
-        Self::RequestLog,
-        Self::ResourcePacks,
-        Self::Sound,
-        Self::SubChunkBiomeData,
-        Self::SubChunkBlockData,
-        Self::SubChunkLightData,
-        Self::Textures,
-        Self::WeatherRenderer,
-        Self::WorldGenerator,
-        Self::Tasks,
-        Self::Test,
-        Self::TestLoadTestTags,
-        Self::Scripting,
-        Self::ScriptingRuntime,
-        Self::ScriptingContext,
-        Self::ScriptingContextBindingsMc,
-        Self::ScriptingContextBindingsGt,
-        Self::ScriptingContextRun,
-        Self::DataDrivenUi,
-        Self::DataDrivenUiDefs,
-        Self::Gameface,
-        Self::GamefaceSystem,
-        Self::GamefaceDom,
-        Self::GamefaceCss,
-        Self::GamefaceDisplay,
-        Self::GamefaceTempAllocator,
-        Self::GamefacePoolAllocator,
-        Self::GamefaceDump,
-        Self::GamefaceMedia,
-        Self::GamefaceJson,
-        Self::GamefaceScriptEngine,
-        Self::GamefaceScript,
-        Self::GamefaceLayout,
-        Self::Executable,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::InvalidSizeUnknown,
+            Self::Actor,
+            Self::ActorAnimation,
+            Self::ActorRendering,
+            Self::BlockTickingQueues,
+            Self::BiomeStorage,
+            Self::Blobs,
+            Self::Cereal,
+            Self::CircuitSystem,
+            Self::Client,
+            Self::Commands,
+            Self::DbStorage,
+            Self::Debug,
+            Self::Documentation,
+            Self::EcsSystems,
+            Self::Fmod,
+            Self::Fonts,
+            Self::ImGui,
+            Self::Input,
+            Self::JsonUi,
+            Self::JsonUiControlFactoryJson,
+            Self::JsonUiControlTree,
+            Self::JsonUiControlTreeControlElement,
+            Self::JsonUiControlTreePopulateDataBinding,
+            Self::JsonUiControlTreePopulateFocus,
+            Self::JsonUiControlTreePopulateLayout,
+            Self::JsonUiControlTreePopulateOther,
+            Self::JsonUiControlTreePopulateSprite,
+            Self::JsonUiControlTreePopulateText,
+            Self::JsonUiControlTreePopulateTts,
+            Self::JsonUiControlTreeVisibility,
+            Self::JsonUiCreateUi,
+            Self::JsonUiDefs,
+            Self::JsonUiLayoutManager,
+            Self::JsonUiLayoutManagerRemoveDependencies,
+            Self::JsonUiLayoutManagerInitVariable,
+            Self::Languages,
+            Self::Level,
+            Self::LevelStructures,
+            Self::LevelChunk,
+            Self::LevelChunkGen,
+            Self::LevelChunkGenThreadLocal,
+            Self::LightVolumeManager,
+            Self::Network,
+            Self::Marketplace,
+            Self::MaterialDragonCompiledDefinition,
+            Self::MaterialDragonMaterial,
+            Self::MaterialDragonResource,
+            Self::MaterialDragonUniformMap,
+            Self::MaterialRenderMaterial,
+            Self::MaterialRenderMaterialGroup,
+            Self::MaterialVariationManager,
+            Self::Molang,
+            Self::OreUi,
+            Self::OreUiClient,
+            Self::PersonaPieces,
+            Self::PersonaAnimations,
+            Self::PersonaCharacters,
+            Self::PersonaSkinPacks,
+            Self::PersonaRepo,
+            Self::Player,
+            Self::RenderChunk,
+            Self::RenderChunkIndexBuffer,
+            Self::RenderChunkVertexBuffer,
+            Self::Rendering,
+            Self::RenderingBgfxInit,
+            Self::RenderingBgfxStartFrame,
+            Self::RenderingBlockTessellator,
+            Self::RenderingEndFrame,
+            Self::RenderingGraphicsTasksInit,
+            Self::RenderingLibrary,
+            Self::RenderingPolygonOperatorPool,
+            Self::RenderingPbrTextureData,
+            Self::RenderingRenderRegistry,
+            Self::RenderingSetup,
+            Self::RenderingVertices,
+            Self::RequestLog,
+            Self::ResourcePacks,
+            Self::Sound,
+            Self::SubChunkBiomeData,
+            Self::SubChunkBlockData,
+            Self::SubChunkLightData,
+            Self::Textures,
+            Self::WeatherRenderer,
+            Self::WorldGenerator,
+            Self::Tasks,
+            Self::Test,
+            Self::TestLoadTestTags,
+            Self::Scripting,
+            Self::ScriptingRuntime,
+            Self::ScriptingContext,
+            Self::ScriptingContextBindingsMc,
+            Self::ScriptingContextBindingsGt,
+            Self::ScriptingContextRun,
+            Self::DataDrivenUi,
+            Self::DataDrivenUiDefs,
+            Self::Gameface,
+            Self::GamefaceSystem,
+            Self::GamefaceDom,
+            Self::GamefaceCss,
+            Self::GamefaceDisplay,
+            Self::GamefaceTempAllocator,
+            Self::GamefacePoolAllocator,
+            Self::GamefaceDump,
+            Self::GamefaceMedia,
+            Self::GamefaceJson,
+            Self::GamefaceScriptEngine,
+            Self::GamefaceScript,
+            Self::GamefaceLayout,
+            Self::Executable,
+        ]
+    }
 }
 
 impl TryFrom<u8> for MemoryCategory {
@@ -6482,24 +6610,26 @@ pub enum DeviceOs {
 
 impl DeviceOs {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 16] = [
-        Self::Unknown,
-        Self::Android,
-        Self::Ios,
-        Self::Osx,
-        Self::FireOs,
-        Self::GearVr,
-        Self::Hololens,
-        Self::Win10,
-        Self::Win32,
-        Self::Dedicated,
-        Self::Tvos,
-        Self::Orbis,
-        Self::Nx,
-        Self::Xbox,
-        Self::Wp,
-        Self::Linux,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::Android,
+            Self::Ios,
+            Self::Osx,
+            Self::FireOs,
+            Self::GearVr,
+            Self::Hololens,
+            Self::Win10,
+            Self::Win32,
+            Self::Dedicated,
+            Self::Tvos,
+            Self::Orbis,
+            Self::Nx,
+            Self::Xbox,
+            Self::Wp,
+            Self::Linux,
+        ]
+    }
 }
 
 impl TryFrom<i32> for DeviceOs {
@@ -6549,7 +6679,9 @@ pub enum PlayerListAction {
 
 impl PlayerListAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Add, Self::Remove];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Add, Self::Remove]
+    }
 }
 
 impl TryFrom<u8> for PlayerListAction {
@@ -6659,47 +6791,49 @@ pub enum PlayerAction {
 
 impl PlayerAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 39] = [
-        Self::StartBreak,
-        Self::AbortBreak,
-        Self::StopBreak,
-        Self::GetUpdatedBlock,
-        Self::DropItem,
-        Self::StartSleeping,
-        Self::StopSleeping,
-        Self::Respawn,
-        Self::Jump,
-        Self::StartSprint,
-        Self::StopSprint,
-        Self::StartSneak,
-        Self::StopSneak,
-        Self::CreativePlayerDestroyBlock,
-        Self::DimensionChangeDone,
-        Self::StartGlide,
-        Self::StopGlide,
-        Self::BuildDenied,
-        Self::CrackBreak,
-        Self::ChangeSkin,
-        Self::SetEnchantmentSeed,
-        Self::StartSwimming,
-        Self::StopSwimming,
-        Self::StartSpinAttack,
-        Self::StopSpinAttack,
-        Self::InteractWithBlock,
-        Self::PredictDestroyBlock,
-        Self::ContinueDestroyBlock,
-        Self::StartItemUseOn,
-        Self::StopItemUseOn,
-        Self::HandledTeleport,
-        Self::MissedSwing,
-        Self::StartCrawling,
-        Self::StopCrawling,
-        Self::StartFlying,
-        Self::StopFlying,
-        Self::ReceivedServerData,
-        Self::StartUsingItem,
-        Self::InternalUpdate,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::StartBreak,
+            Self::AbortBreak,
+            Self::StopBreak,
+            Self::GetUpdatedBlock,
+            Self::DropItem,
+            Self::StartSleeping,
+            Self::StopSleeping,
+            Self::Respawn,
+            Self::Jump,
+            Self::StartSprint,
+            Self::StopSprint,
+            Self::StartSneak,
+            Self::StopSneak,
+            Self::CreativePlayerDestroyBlock,
+            Self::DimensionChangeDone,
+            Self::StartGlide,
+            Self::StopGlide,
+            Self::BuildDenied,
+            Self::CrackBreak,
+            Self::ChangeSkin,
+            Self::SetEnchantmentSeed,
+            Self::StartSwimming,
+            Self::StopSwimming,
+            Self::StartSpinAttack,
+            Self::StopSpinAttack,
+            Self::InteractWithBlock,
+            Self::PredictDestroyBlock,
+            Self::ContinueDestroyBlock,
+            Self::StartItemUseOn,
+            Self::StopItemUseOn,
+            Self::HandledTeleport,
+            Self::MissedSwing,
+            Self::StartCrawling,
+            Self::StopCrawling,
+            Self::StartFlying,
+            Self::StopFlying,
+            Self::ReceivedServerData,
+            Self::StartUsingItem,
+            Self::InternalUpdate,
+        ]
+    }
     /// gophertunnel `PlayerActionCount`: one past the last value.
     pub const COUNT: i32 = 39;
 }
@@ -6778,12 +6912,14 @@ pub enum RecipeUnlockContext {
 
 impl RecipeUnlockContext {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::None,
-        Self::AlwaysUnlocked,
-        Self::PlayerInWater,
-        Self::PlayerHasManyItems,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::AlwaysUnlocked,
+            Self::PlayerInWater,
+            Self::PlayerHasManyItems,
+        ]
+    }
 }
 
 impl TryFrom<i32> for RecipeUnlockContext {
@@ -6825,7 +6961,9 @@ pub enum PackSettingType {
 
 impl PackSettingType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Float, Self::Bool, Self::String, Self::StringList];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Float, Self::Bool, Self::String, Self::StringList]
+    }
 }
 
 impl TryFrom<u32> for PackSettingType {
@@ -6867,7 +7005,9 @@ pub enum ScoreboardIdentity {
 
 impl ScoreboardIdentity {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Remove, Self::Player, Self::Entity, Self::FakePlayer];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Remove, Self::Player, Self::Entity, Self::FakePlayer]
+    }
 }
 
 impl TryFrom<u8> for ScoreboardIdentity {
@@ -6921,18 +7061,20 @@ pub enum PrimitiveShape {
 
 impl PrimitiveShape {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 10] = [
-        Self::Line,
-        Self::Box,
-        Self::Sphere,
-        Self::Circle,
-        Self::Text,
-        Self::Arrow,
-        Self::Cylinder,
-        Self::Pyramid,
-        Self::Ellipsoid,
-        Self::Cone,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Line,
+            Self::Box,
+            Self::Sphere,
+            Self::Circle,
+            Self::Text,
+            Self::Arrow,
+            Self::Cylinder,
+            Self::Pyramid,
+            Self::Ellipsoid,
+            Self::Cone,
+        ]
+    }
 }
 
 impl TryFrom<u8> for PrimitiveShape {
@@ -6976,7 +7118,9 @@ pub enum ArmSize {
 
 impl ArmSize {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Slim, Self::Wide];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Slim, Self::Wide]
+    }
 }
 
 impl TryFrom<u8> for ArmSize {
@@ -7014,7 +7158,9 @@ pub enum SkinAnimation {
 
 impl SkinAnimation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Head, Self::Body32X32, Self::Body128X128];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Head, Self::Body32X32, Self::Body128X128]
+    }
 }
 
 impl TryFrom<u32> for SkinAnimation {
@@ -7051,7 +7197,9 @@ pub enum ExpressionType {
 
 impl ExpressionType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Linear, Self::Blinking];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Linear, Self::Blinking]
+    }
 }
 
 impl TryFrom<u32> for ExpressionType {
@@ -7143,38 +7291,40 @@ pub enum PieceType {
 
 impl PieceType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 30] = [
-        Self::Unknown,
-        Self::Skeleton,
-        Self::Body,
-        Self::Skin,
-        Self::Bottom,
-        Self::Feet,
-        Self::Dress,
-        Self::Top,
-        Self::HighPants,
-        Self::Hands,
-        Self::Outerwear,
-        Self::FacialHair,
-        Self::Mouth,
-        Self::Eyes,
-        Self::Hair,
-        Self::Hood,
-        Self::Back,
-        Self::FaceAccessory,
-        Self::Head,
-        Self::Legs,
-        Self::LeftLeg,
-        Self::RightLeg,
-        Self::Arms,
-        Self::LeftArm,
-        Self::RightArm,
-        Self::Capes,
-        Self::ClassicSkin,
-        Self::Emote,
-        Self::CoCo,
-        Self::Unsupported,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::Skeleton,
+            Self::Body,
+            Self::Skin,
+            Self::Bottom,
+            Self::Feet,
+            Self::Dress,
+            Self::Top,
+            Self::HighPants,
+            Self::Hands,
+            Self::Outerwear,
+            Self::FacialHair,
+            Self::Mouth,
+            Self::Eyes,
+            Self::Hair,
+            Self::Hood,
+            Self::Back,
+            Self::FaceAccessory,
+            Self::Head,
+            Self::Legs,
+            Self::LeftLeg,
+            Self::RightLeg,
+            Self::Arms,
+            Self::LeftArm,
+            Self::RightArm,
+            Self::Capes,
+            Self::ClassicSkin,
+            Self::Emote,
+            Self::CoCo,
+            Self::Unsupported,
+        ]
+    }
 }
 
 impl TryFrom<u32> for PieceType {
@@ -7248,15 +7398,17 @@ pub enum SoundDataUpdate {
 
 impl SoundDataUpdate {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::Stop,
-        Self::SetVolume,
-        Self::SetPitch,
-        Self::Fade,
-        Self::SeekTo,
-        Self::Pause,
-        Self::Resume,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Stop,
+            Self::SetVolume,
+            Self::SetPitch,
+            Self::Fade,
+            Self::SeekTo,
+            Self::Pause,
+            Self::Resume,
+        ]
+    }
 }
 
 impl TryFrom<i32> for SoundDataUpdate {
@@ -7301,7 +7453,9 @@ pub enum StructureMirror {
 
 impl StructureMirror {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::XAxis, Self::ZAxis, Self::BothAxes];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::XAxis, Self::ZAxis, Self::BothAxes]
+    }
 }
 
 impl TryFrom<u8> for StructureMirror {
@@ -7343,7 +7497,9 @@ pub enum StructureRotation {
 
 impl StructureRotation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::Rotate90, Self::Rotate180, Self::Rotate270];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Rotate90, Self::Rotate180, Self::Rotate270]
+    }
 }
 
 impl TryFrom<u8> for StructureRotation {
@@ -7383,7 +7539,9 @@ pub enum AnimationMode {
 
 impl AnimationMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::None, Self::Layers, Self::Blocks];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Layers, Self::Blocks]
+    }
 }
 
 impl TryFrom<u8> for AnimationMode {
@@ -7426,13 +7584,15 @@ pub enum HeightMapData {
 
 impl HeightMapData {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::None,
-        Self::HasData,
-        Self::TooHigh,
-        Self::TooLow,
-        Self::AllCopied,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::HasData,
+            Self::TooHigh,
+            Self::TooLow,
+            Self::AllCopied,
+        ]
+    }
 }
 
 impl TryFrom<u8> for HeightMapData {
@@ -7481,15 +7641,17 @@ pub enum SubChunkResult {
 
 impl SubChunkResult {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::Undefined,
-        Self::Success,
-        Self::ChunkNotFound,
-        Self::InvalidDimension,
-        Self::PlayerNotFound,
-        Self::IndexOutOfBounds,
-        Self::SuccessAllAir,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Undefined,
+            Self::Success,
+            Self::ChunkNotFound,
+            Self::InvalidDimension,
+            Self::PlayerNotFound,
+            Self::IndexOutOfBounds,
+            Self::SuccessAllAir,
+        ]
+    }
 }
 
 impl TryFrom<u8> for SubChunkResult {
@@ -7534,7 +7696,9 @@ pub enum WaypointAction {
 
 impl WaypointAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::Add, Self::Remove, Self::Update];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Add, Self::Remove, Self::Update]
+    }
 }
 
 impl TryFrom<u8> for WaypointAction {
@@ -7580,14 +7744,16 @@ pub enum WaypointUpdateFlag {
 
 impl WaypointUpdateFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::Visible,
-        Self::Position,
-        Self::TextureId,
-        Self::Colour,
-        Self::ClientPositionAuthority,
-        Self::ActorUniqueId,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Visible,
+            Self::Position,
+            Self::TextureId,
+            Self::Colour,
+            Self::ClientPositionAuthority,
+            Self::ActorUniqueId,
+        ]
+    }
 }
 
 impl TryFrom<u32> for WaypointUpdateFlag {
@@ -7659,12 +7825,14 @@ pub enum WaypointTexture {
 
 impl WaypointTexture {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::Square,
-        Self::Circle,
-        Self::SmallSquare,
-        Self::SmallStar,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Square,
+            Self::Circle,
+            Self::SmallSquare,
+            Self::SmallStar,
+        ]
+    }
 }
 
 impl TryFrom<i32> for WaypointTexture {
@@ -7710,14 +7878,16 @@ pub enum Generator {
 
 impl Generator {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::Legacy,
-        Self::Overworld,
-        Self::Flat,
-        Self::Nether,
-        Self::End,
-        Self::Void,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Legacy,
+            Self::Overworld,
+            Self::Flat,
+            Self::Nether,
+            Self::End,
+            Self::Void,
+        ]
+    }
 }
 
 impl TryFrom<i32> for Generator {
@@ -7877,70 +8047,72 @@ pub enum ActorEvent {
 
 impl ActorEvent {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 62] = [
-        Self::Jump,
-        Self::Hurt,
-        Self::Death,
-        Self::StartAttacking,
-        Self::StopAttacking,
-        Self::TamingFailed,
-        Self::TamingSucceeded,
-        Self::ShakeWetness,
-        Self::UseItem,
-        Self::EatGrass,
-        Self::FishhookBubble,
-        Self::FishhookFishPosition,
-        Self::FishhookHookTime,
-        Self::FishhookTease,
-        Self::SquidFleeing,
-        Self::ZombieConverting,
-        Self::PlayAmbient,
-        Self::SpawnAlive,
-        Self::StartOfferFlower,
-        Self::StopOfferFlower,
-        Self::LoveHearts,
-        Self::VillagerAngry,
-        Self::VillagerHappy,
-        Self::WitchHatMagic,
-        Self::FireworksExplode,
-        Self::InLoveHearts,
-        Self::SilverfishMergeAnimation,
-        Self::GuardianAttackSound,
-        Self::DrinkPotion,
-        Self::ThrowPotion,
-        Self::CartWithPrimeTnt,
-        Self::PrimeCreeper,
-        Self::AirSupply,
-        Self::AddPlayerLevels,
-        Self::GuardianMiningFatigue,
-        Self::AgentSwingArm,
-        Self::DragonStartDeathAnim,
-        Self::GroundDust,
-        Self::Shake,
-        Self::Feed,
-        Self::BabyEat,
-        Self::InstantDeath,
-        Self::NotifyTrade,
-        Self::LeashDestroyed,
-        Self::CaravanUpdated,
-        Self::TalismanActivate,
-        Self::UpdateStructureFeature,
-        Self::PlayerSpawnedMob,
-        Self::Puke,
-        Self::UpdateStackSize,
-        Self::StartSwimming,
-        Self::BalloonPop,
-        Self::TreasureHunt,
-        Self::SummonAgent,
-        Self::FinishedChargingItem,
-        Self::LandedOnGround,
-        Self::ActorGrowUp,
-        Self::VibrationDetected,
-        Self::DrinkMilk,
-        Self::WetnessStop,
-        Self::KineticDamageDealt,
-        Self::HurtWithoutReceivingDamage,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Jump,
+            Self::Hurt,
+            Self::Death,
+            Self::StartAttacking,
+            Self::StopAttacking,
+            Self::TamingFailed,
+            Self::TamingSucceeded,
+            Self::ShakeWetness,
+            Self::UseItem,
+            Self::EatGrass,
+            Self::FishhookBubble,
+            Self::FishhookFishPosition,
+            Self::FishhookHookTime,
+            Self::FishhookTease,
+            Self::SquidFleeing,
+            Self::ZombieConverting,
+            Self::PlayAmbient,
+            Self::SpawnAlive,
+            Self::StartOfferFlower,
+            Self::StopOfferFlower,
+            Self::LoveHearts,
+            Self::VillagerAngry,
+            Self::VillagerHappy,
+            Self::WitchHatMagic,
+            Self::FireworksExplode,
+            Self::InLoveHearts,
+            Self::SilverfishMergeAnimation,
+            Self::GuardianAttackSound,
+            Self::DrinkPotion,
+            Self::ThrowPotion,
+            Self::CartWithPrimeTnt,
+            Self::PrimeCreeper,
+            Self::AirSupply,
+            Self::AddPlayerLevels,
+            Self::GuardianMiningFatigue,
+            Self::AgentSwingArm,
+            Self::DragonStartDeathAnim,
+            Self::GroundDust,
+            Self::Shake,
+            Self::Feed,
+            Self::BabyEat,
+            Self::InstantDeath,
+            Self::NotifyTrade,
+            Self::LeashDestroyed,
+            Self::CaravanUpdated,
+            Self::TalismanActivate,
+            Self::UpdateStructureFeature,
+            Self::PlayerSpawnedMob,
+            Self::Puke,
+            Self::UpdateStackSize,
+            Self::StartSwimming,
+            Self::BalloonPop,
+            Self::TreasureHunt,
+            Self::SummonAgent,
+            Self::FinishedChargingItem,
+            Self::LandedOnGround,
+            Self::ActorGrowUp,
+            Self::VibrationDetected,
+            Self::DrinkMilk,
+            Self::WetnessStop,
+            Self::KineticDamageDealt,
+            Self::HurtWithoutReceivingDamage,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ActorEvent {
@@ -8054,19 +8226,21 @@ pub enum AdventureFlag {
 
 impl AdventureFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 11] = [
-        Self::WorldImmutable,
-        Self::NoPvM,
-        Self::NoMvP,
-        Self::Unused,
-        Self::ShowNameTags,
-        Self::AutoJump,
-        Self::AllowFlight,
-        Self::NoClip,
-        Self::WorldBuilder,
-        Self::Flying,
-        Self::Muted,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::WorldImmutable,
+            Self::NoPvM,
+            Self::NoMvP,
+            Self::Unused,
+            Self::ShowNameTags,
+            Self::AutoJump,
+            Self::AllowFlight,
+            Self::NoClip,
+            Self::WorldBuilder,
+            Self::Flying,
+            Self::Muted,
+        ]
+    }
 }
 
 impl TryFrom<u32> for AdventureFlag {
@@ -8163,17 +8337,19 @@ pub enum ActionPermission {
 
 impl ActionPermission {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Mine,
-        Self::DoorsAndSwitches,
-        Self::OpenContainers,
-        Self::AttackPlayers,
-        Self::AttackMobs,
-        Self::Operator,
-        Self::Teleport,
-        Self::Build,
-        Self::Default,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Mine,
+            Self::DoorsAndSwitches,
+            Self::OpenContainers,
+            Self::AttackPlayers,
+            Self::AttackMobs,
+            Self::Operator,
+            Self::Teleport,
+            Self::Build,
+            Self::Default,
+        ]
+    }
 }
 
 impl TryFrom<u32> for ActionPermission {
@@ -8254,7 +8430,9 @@ pub enum PermissionLevel {
 
 impl PermissionLevel {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Visitor, Self::Member, Self::Operator, Self::Custom];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Visitor, Self::Member, Self::Operator, Self::Custom]
+    }
 }
 
 impl TryFrom<u8> for PermissionLevel {
@@ -8324,26 +8502,28 @@ pub enum AgentActionType {
 
 impl AgentActionType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 18] = [
-        Self::Attack,
-        Self::Collect,
-        Self::Destroy,
-        Self::DetectRedstone,
-        Self::DetectObstacle,
-        Self::Drop,
-        Self::DropAll,
-        Self::Inspect,
-        Self::InspectData,
-        Self::InspectItemCount,
-        Self::InspectItemDetail,
-        Self::InspectItemSpace,
-        Self::Interact,
-        Self::Move,
-        Self::PlaceBlock,
-        Self::Till,
-        Self::TransferItemTo,
-        Self::Turn,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Attack,
+            Self::Collect,
+            Self::Destroy,
+            Self::DetectRedstone,
+            Self::DetectObstacle,
+            Self::Drop,
+            Self::DropAll,
+            Self::Inspect,
+            Self::InspectData,
+            Self::InspectItemCount,
+            Self::InspectItemDetail,
+            Self::InspectItemSpace,
+            Self::Interact,
+            Self::Move,
+            Self::PlaceBlock,
+            Self::Till,
+            Self::TransferItemTo,
+            Self::Turn,
+        ]
+    }
 }
 
 impl TryFrom<i32> for AgentActionType {
@@ -8399,12 +8579,14 @@ pub enum AnimateAction {
 
 impl AnimateAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::SwingArm,
-        Self::StopSleep,
-        Self::CriticalHit,
-        Self::MagicCriticalHit,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SwingArm,
+            Self::StopSleep,
+            Self::CriticalHit,
+            Self::MagicCriticalHit,
+        ]
+    }
 }
 
 impl TryFrom<u8> for AnimateAction {
@@ -8456,17 +8638,19 @@ pub enum AnimateSwingSource {
 
 impl AnimateSwingSource {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::None,
-        Self::Build,
-        Self::Mine,
-        Self::Interact,
-        Self::Attack,
-        Self::UseItem,
-        Self::ThrowItem,
-        Self::DropItem,
-        Self::Event,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::Build,
+            Self::Mine,
+            Self::Interact,
+            Self::Attack,
+            Self::UseItem,
+            Self::ThrowItem,
+            Self::DropItem,
+            Self::Event,
+        ]
+    }
 }
 
 impl TryFrom<u8> for AnimateSwingSource {
@@ -8507,7 +8691,9 @@ pub enum BlockEventType {
 
 impl BlockEventType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 1] = [Self::ChangeChestState];
+    pub const fn all() -> &'static [Self] {
+        &[Self::ChangeChestState]
+    }
 }
 
 impl TryFrom<i32> for BlockEventType {
@@ -8548,13 +8734,15 @@ pub enum BookAction {
 
 impl BookAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::ReplacePage,
-        Self::AddPage,
-        Self::DeletePage,
-        Self::SwapPages,
-        Self::Sign,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ReplacePage,
+            Self::AddPage,
+            Self::DeletePage,
+            Self::SwapPages,
+            Self::Sign,
+        ]
+    }
 }
 
 impl TryFrom<u32> for BookAction {
@@ -8607,17 +8795,19 @@ pub enum BossEventType {
 
 impl BossEventType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Show,
-        Self::RegisterPlayer,
-        Self::Hide,
-        Self::UnregisterPlayer,
-        Self::HealthPercentage,
-        Self::Title,
-        Self::AppearanceProperties,
-        Self::Texture,
-        Self::Request,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Show,
+            Self::RegisterPlayer,
+            Self::Hide,
+            Self::UnregisterPlayer,
+            Self::HealthPercentage,
+            Self::Title,
+            Self::AppearanceProperties,
+            Self::Texture,
+            Self::Request,
+        ]
+    }
 }
 
 impl TryFrom<u8> for BossEventType {
@@ -8672,16 +8862,18 @@ pub enum BossEventColour {
 
 impl BossEventColour {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 8] = [
-        Self::Pink,
-        Self::Blue,
-        Self::Red,
-        Self::Green,
-        Self::Yellow,
-        Self::Purple,
-        Self::RebeccaPurple,
-        Self::White,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Pink,
+            Self::Blue,
+            Self::Red,
+            Self::Green,
+            Self::Yellow,
+            Self::Purple,
+            Self::RebeccaPurple,
+            Self::White,
+        ]
+    }
 }
 
 impl TryFrom<u8> for BossEventColour {
@@ -8729,13 +8921,15 @@ pub enum BossEventOverlay {
 
 impl BossEventOverlay {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Progress,
-        Self::Notched6,
-        Self::Notched10,
-        Self::Notched12,
-        Self::Notched20,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Progress,
+            Self::Notched6,
+            Self::Notched10,
+            Self::Notched12,
+            Self::Notched20,
+        ]
+    }
 }
 
 impl TryFrom<u8> for BossEventOverlay {
@@ -8774,7 +8968,9 @@ pub enum CameraAimAssistAction {
 
 impl CameraAimAssistAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Set, Self::Clear];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Set, Self::Clear]
+    }
 }
 
 impl TryFrom<u8> for CameraAimAssistAction {
@@ -8810,7 +9006,9 @@ pub enum CameraAimAssistPresetOperation {
 
 impl CameraAimAssistPresetOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Set, Self::AddToExisting];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Set, Self::AddToExisting]
+    }
 }
 
 impl TryFrom<u8> for CameraAimAssistPresetOperation {
@@ -8846,7 +9044,9 @@ pub enum CameraShakeType {
 
 impl CameraShakeType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Positional, Self::Rotational];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Positional, Self::Rotational]
+    }
 }
 
 impl TryFrom<u8> for CameraShakeType {
@@ -8882,7 +9082,9 @@ pub enum CameraShakeAction {
 
 impl CameraShakeAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Add, Self::Stop];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Add, Self::Stop]
+    }
 }
 
 impl TryFrom<u8> for CameraShakeAction {
@@ -8920,7 +9122,9 @@ pub enum Dimension {
 
 impl Dimension {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Overworld, Self::Nether, Self::End];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Overworld, Self::Nether, Self::End]
+    }
 }
 
 impl TryFrom<i32> for Dimension {
@@ -8963,13 +9167,15 @@ pub enum ControlScheme {
 
 impl ControlScheme {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::LockedPlayerRelativeStrafe,
-        Self::CameraRelative,
-        Self::CameraRelativeStrafe,
-        Self::PlayerRelative,
-        Self::PlayerRelativeStrafe,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::LockedPlayerRelativeStrafe,
+            Self::CameraRelative,
+            Self::CameraRelativeStrafe,
+            Self::PlayerRelative,
+            Self::PlayerRelativeStrafe,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ControlScheme {
@@ -9008,7 +9214,9 @@ pub enum ClientBoundDebugRendererType {
 
 impl ClientBoundDebugRendererType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Clear, Self::AddCube];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Clear, Self::AddCube]
+    }
 }
 
 impl TryFrom<u32> for ClientBoundDebugRendererType {
@@ -9044,7 +9252,9 @@ pub enum ClientCameraAimAssistAction {
 
 impl ClientCameraAimAssistAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Set, Self::Clear];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Set, Self::Clear]
+    }
 }
 
 impl TryFrom<u8> for ClientCameraAimAssistAction {
@@ -9086,13 +9296,15 @@ pub enum TextureShiftAction {
 
 impl TextureShiftAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Invalid,
-        Self::Initialize,
-        Self::Start,
-        Self::SetEnabled,
-        Self::Sync,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Invalid,
+            Self::Initialize,
+            Self::Start,
+            Self::SetEnabled,
+            Self::Sync,
+        ]
+    }
 }
 
 impl TryFrom<u8> for TextureShiftAction {
@@ -9135,7 +9347,9 @@ pub enum CodeBuilderOperation {
 
 impl CodeBuilderOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::Get, Self::Set, Self::Reset];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Get, Self::Set, Self::Reset]
+    }
 }
 
 impl TryFrom<u8> for CodeBuilderOperation {
@@ -9175,7 +9389,9 @@ pub enum CodeBuilderCategory {
 
 impl CodeBuilderCategory {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::None, Self::Status, Self::Instantiation];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Status, Self::Instantiation]
+    }
 }
 
 impl TryFrom<u8> for CodeBuilderCategory {
@@ -9220,14 +9436,16 @@ pub enum CodeBuilderStatus {
 
 impl CodeBuilderStatus {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::None,
-        Self::NotStarted,
-        Self::InProgress,
-        Self::Paused,
-        Self::Error,
-        Self::Succeeded,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::NotStarted,
+            Self::InProgress,
+            Self::Paused,
+            Self::Error,
+            Self::Succeeded,
+        ]
+    }
 }
 
 impl TryFrom<u8> for CodeBuilderStatus {
@@ -9269,7 +9487,9 @@ pub enum CommandBlockMode {
 
 impl CommandBlockMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Impulse, Self::Repeating, Self::Chain];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Impulse, Self::Repeating, Self::Chain]
+    }
 }
 
 impl TryFrom<u32> for CommandBlockMode {
@@ -9312,13 +9532,15 @@ pub enum CommandOutputType {
 
 impl CommandOutputType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::None,
-        Self::LastOutput,
-        Self::Silent,
-        Self::AllOutput,
-        Self::DataSet,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::LastOutput,
+            Self::Silent,
+            Self::AllOutput,
+            Self::DataSet,
+        ]
+    }
 }
 
 impl TryFrom<u8> for CommandOutputType {
@@ -9387,25 +9609,27 @@ pub enum UseItemMethod {
 
 impl UseItemMethod {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 17] = [
-        Self::EquipArmour,
-        Self::Eat,
-        Self::Attack,
-        Self::Consume,
-        Self::Throw,
-        Self::Shoot,
-        Self::Place,
-        Self::FillBottle,
-        Self::FillBucket,
-        Self::PourBucket,
-        Self::UseTool,
-        Self::Interact,
-        Self::Retrieved,
-        Self::Dyed,
-        Self::Traded,
-        Self::BrushingCompleted,
-        Self::OpenedVault,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::EquipArmour,
+            Self::Eat,
+            Self::Attack,
+            Self::Consume,
+            Self::Throw,
+            Self::Shoot,
+            Self::Place,
+            Self::FillBottle,
+            Self::FillBucket,
+            Self::PourBucket,
+            Self::UseTool,
+            Self::Interact,
+            Self::Retrieved,
+            Self::Dyed,
+            Self::Traded,
+            Self::BrushingCompleted,
+            Self::OpenedVault,
+        ]
+    }
 }
 
 impl TryFrom<i32> for UseItemMethod {
@@ -9456,7 +9680,9 @@ pub enum CursorItemDrag {
 
 impl CursorItemDrag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Start, Self::Stop];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Start, Self::Stop]
+    }
 }
 
 impl TryFrom<u8> for CursorItemDrag {
@@ -9496,12 +9722,14 @@ pub enum ContainerDataFurnace {
 
 impl ContainerDataFurnace {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::TickCount,
-        Self::LitTime,
-        Self::LitDuration,
-        Self::FuelAux,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::TickCount,
+            Self::LitTime,
+            Self::LitDuration,
+            Self::FuelAux,
+        ]
+    }
 }
 
 impl TryFrom<i32> for ContainerDataFurnace {
@@ -9541,7 +9769,9 @@ pub enum ContainerDataBrewingStand {
 
 impl ContainerDataBrewingStand {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::BrewTime, Self::FuelAmount, Self::FuelTotal];
+    pub const fn all() -> &'static [Self] {
+        &[Self::BrewTime, Self::FuelAmount, Self::FuelTotal]
+    }
 }
 
 impl TryFrom<i32> for ContainerDataBrewingStand {
@@ -9578,7 +9808,9 @@ pub enum PredictionType {
 
 impl PredictionType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Player, Self::Vehicle];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Player, Self::Vehicle]
+    }
 }
 
 impl TryFrom<u8> for PredictionType {
@@ -9894,150 +10126,156 @@ pub enum DisconnectReason {
 
 impl DisconnectReason {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 142] = [
-        Self::Unknown,
-        Self::CantConnectNoInternet,
-        Self::NoPermissions,
-        Self::UnrecoverableError,
-        Self::ThirdPartyBlocked,
-        Self::ThirdPartyNoInternet,
-        Self::ThirdPartyBadIp,
-        Self::ThirdPartyNoServerOrServerLocked,
-        Self::VersionMismatch,
-        Self::SkinIssue,
-        Self::InviteSessionNotFound,
-        Self::EduLevelSettingsMissing,
-        Self::LocalServerNotFound,
-        Self::LegacyDisconnect,
-        Self::UserLeaveGameAttempted,
-        Self::PlatformLockedSkinsError,
-        Self::RealmsWorldUnassigned,
-        Self::RealmsServerCantConnect,
-        Self::RealmsServerHidden,
-        Self::RealmsServerDisabledBeta,
-        Self::RealmsServerDisabled,
-        Self::CrossPlatformDisabled,
-        Self::CantConnect,
-        Self::SessionNotFound,
-        Self::ServerFull,
-        Self::InvalidPlatformSkin,
-        Self::EditionVersionMismatch,
-        Self::EditionMismatch,
-        Self::LevelNewerThanExeVersion,
-        Self::NoFailOccurred,
-        Self::BannedSkin,
-        Self::Timeout,
-        Self::ServerNotFound,
-        Self::OutdatedServer,
-        Self::OutdatedClient,
-        Self::MultiplayerDisabled,
-        Self::NoWiFi,
-        Self::NoReason,
-        Self::Disconnected,
-        Self::InvalidPlayer,
-        Self::LoggedInOtherLocation,
-        Self::ServerIdConflict,
-        Self::NotAllowed,
-        Self::NotAuthenticated,
-        Self::InvalidTenant,
-        Self::UnknownPacket,
-        Self::UnexpectedPacket,
-        Self::InvalidCommandRequestPacket,
-        Self::HostSuspended,
-        Self::LoginPacketNoRequest,
-        Self::LoginPacketNoCert,
-        Self::MissingClient,
-        Self::Kicked,
-        Self::KickedForExploit,
-        Self::KickedForIdle,
-        Self::ResourcePackProblem,
-        Self::IncompatiblePack,
-        Self::OutOfStorage,
-        Self::InvalidLevel,
-        Self::BlockMismatch,
-        Self::InvalidHeights,
-        Self::InvalidWidths,
-        Self::Shutdown,
-        Self::LoadingStateTimeout,
-        Self::ResourcePackLoadingFailed,
-        Self::SearchingForSessionLoadingScreenFailed,
-        Self::NetherNetProtocolVersion,
-        Self::SubsystemStatusError,
-        Self::EmptyAuthFromDiscovery,
-        Self::EmptyUrlFromDiscovery,
-        Self::ExpiredAuthFromDiscovery,
-        Self::UnknownSignalServiceSignInFailure,
-        Self::XblJoinLobbyFailure,
-        Self::UnspecifiedClientInstanceDisconnection,
-        Self::NetherNetSessionNotFound,
-        Self::NetherNetCreatePeerConnection,
-        Self::NetherNetIce,
-        Self::NetherNetConnectRequest,
-        Self::NetherNetConnectResponse,
-        Self::NetherNetNegotiationTimeout,
-        Self::NetherNetInactivityTimeout,
-        Self::StaleConnectionBeingReplaced,
-        Self::BadPacket,
-        Self::NetherNetFailedToCreateOffer,
-        Self::NetherNetFailedToCreateAnswer,
-        Self::NetherNetFailedToSetLocalDescription,
-        Self::NetherNetFailedToSetRemoteDescription,
-        Self::NetherNetNegotiationTimeoutWaitingForResponse,
-        Self::NetherNetNegotiationTimeoutWaitingForAccept,
-        Self::NetherNetIncomingConnectionIgnored,
-        Self::NetherNetSignalingParsingFailure,
-        Self::NetherNetSignalingUnknownError,
-        Self::NetherNetSignalingUnicastDeliveryFailed,
-        Self::NetherNetSignalingBroadcastDeliveryFailed,
-        Self::NetherNetSignalingGenericDeliveryFailed,
-        Self::EditorMismatchEditorWorld,
-        Self::EditorMismatchVanillaWorld,
-        Self::WorldTransferNotPrimaryClient,
-        Self::RequestServerShutdown,
-        Self::ClientGameSetupCancelled,
-        Self::ClientGameSetupFailed,
-        Self::NetherNetSignalingSigninFailed,
-        Self::SessionAccessDenied,
-        Self::ServiceSigninIssue,
-        Self::NetherNetNoSignalingChannel,
-        Self::NetherNetNotLoggedIn,
-        Self::NetherNetClientSignalingError,
-        Self::SubClientLoginDisabled,
-        Self::DeepLinkTryingToOpenDemoWorldWhileSignedIn,
-        Self::AsyncJoinTaskDenied,
-        Self::RealmsTimelineRequired,
-        Self::GuestWithoutHost,
-        Self::FailedToJoinExperience,
-        Self::NetherNetDataChannelClosed,
-        Self::DiscoveryEnvironmentMismatch,
-        Self::HostWithoutKeys,
-        Self::HostSignedOut,
-        Self::ScriptWatchdogException,
-        Self::ScriptMemoryLimitExceeded,
-        Self::StorageLowDuringGameplay,
-        Self::StorageFullDuringGameplay,
-        Self::LevelStorageCorruption,
-        Self::EditionMismatchVanillaToEdu,
-        Self::EditionMismatchEduToVanilla,
-        Self::EditorMismatchEditorToVanilla,
-        Self::EditorMismatchVanillaToEditor,
-        Self::DenyListed,
-        Self::NonceMissing,
-        Self::NonceNotFound,
-        Self::NonceExpired,
-        Self::NonceNotValid,
-        Self::HostDisconnected,
-        Self::EditorJoinIntentPolicyFailure,
-        Self::NetherNetIdentityNotAllowed,
-        Self::InvalidName,
-        Self::ExpiredToken,
-        Self::HostAcceptsNoTypeOfAuth,
-        Self::NotAuthenticatedFastFail,
-        Self::EditorNotAllowed,
-        Self::MissingStructureData,
-        Self::UnsupportedTransport,
-        Self::SubClientLoginNotBound,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::CantConnectNoInternet,
+            Self::NoPermissions,
+            Self::UnrecoverableError,
+            Self::ThirdPartyBlocked,
+            Self::ThirdPartyNoInternet,
+            Self::ThirdPartyBadIp,
+            Self::ThirdPartyNoServerOrServerLocked,
+            Self::VersionMismatch,
+            Self::SkinIssue,
+            Self::InviteSessionNotFound,
+            Self::EduLevelSettingsMissing,
+            Self::LocalServerNotFound,
+            Self::LegacyDisconnect,
+            Self::UserLeaveGameAttempted,
+            Self::PlatformLockedSkinsError,
+            Self::RealmsWorldUnassigned,
+            Self::RealmsServerCantConnect,
+            Self::RealmsServerHidden,
+            Self::RealmsServerDisabledBeta,
+            Self::RealmsServerDisabled,
+            Self::CrossPlatformDisabled,
+            Self::CantConnect,
+            Self::SessionNotFound,
+            Self::ServerFull,
+            Self::InvalidPlatformSkin,
+            Self::EditionVersionMismatch,
+            Self::EditionMismatch,
+            Self::LevelNewerThanExeVersion,
+            Self::NoFailOccurred,
+            Self::BannedSkin,
+            Self::Timeout,
+            Self::ServerNotFound,
+            Self::OutdatedServer,
+            Self::OutdatedClient,
+            Self::MultiplayerDisabled,
+            Self::NoWiFi,
+            Self::NoReason,
+            Self::Disconnected,
+            Self::InvalidPlayer,
+            Self::LoggedInOtherLocation,
+            Self::ServerIdConflict,
+            Self::NotAllowed,
+            Self::NotAuthenticated,
+            Self::InvalidTenant,
+            Self::UnknownPacket,
+            Self::UnexpectedPacket,
+            Self::InvalidCommandRequestPacket,
+            Self::HostSuspended,
+            Self::LoginPacketNoRequest,
+            Self::LoginPacketNoCert,
+            Self::MissingClient,
+            Self::Kicked,
+            Self::KickedForExploit,
+            Self::KickedForIdle,
+            Self::ResourcePackProblem,
+            Self::IncompatiblePack,
+            Self::OutOfStorage,
+            Self::InvalidLevel,
+            Self::BlockMismatch,
+            Self::InvalidHeights,
+            Self::InvalidWidths,
+            Self::Shutdown,
+            Self::LoadingStateTimeout,
+            Self::ResourcePackLoadingFailed,
+            Self::SearchingForSessionLoadingScreenFailed,
+            Self::NetherNetProtocolVersion,
+            Self::SubsystemStatusError,
+            Self::EmptyAuthFromDiscovery,
+            Self::EmptyUrlFromDiscovery,
+            Self::ExpiredAuthFromDiscovery,
+            Self::UnknownSignalServiceSignInFailure,
+            Self::XblJoinLobbyFailure,
+            Self::UnspecifiedClientInstanceDisconnection,
+            Self::NetherNetSessionNotFound,
+            Self::NetherNetCreatePeerConnection,
+            Self::NetherNetIce,
+            Self::NetherNetConnectRequest,
+            Self::NetherNetConnectResponse,
+            Self::NetherNetNegotiationTimeout,
+            Self::NetherNetInactivityTimeout,
+            Self::StaleConnectionBeingReplaced,
+            Self::BadPacket,
+            Self::NetherNetFailedToCreateOffer,
+            Self::NetherNetFailedToCreateAnswer,
+            Self::NetherNetFailedToSetLocalDescription,
+            Self::NetherNetFailedToSetRemoteDescription,
+            Self::NetherNetNegotiationTimeoutWaitingForResponse,
+            Self::NetherNetNegotiationTimeoutWaitingForAccept,
+            Self::NetherNetIncomingConnectionIgnored,
+            Self::NetherNetSignalingParsingFailure,
+            Self::NetherNetSignalingUnknownError,
+            Self::NetherNetSignalingUnicastDeliveryFailed,
+            Self::NetherNetSignalingBroadcastDeliveryFailed,
+            Self::NetherNetSignalingGenericDeliveryFailed,
+            Self::EditorMismatchEditorWorld,
+            Self::EditorMismatchVanillaWorld,
+            Self::WorldTransferNotPrimaryClient,
+            Self::RequestServerShutdown,
+            Self::ClientGameSetupCancelled,
+            Self::ClientGameSetupFailed,
+            Self::NetherNetSignalingSigninFailed,
+            Self::SessionAccessDenied,
+            Self::ServiceSigninIssue,
+            Self::NetherNetNoSignalingChannel,
+            Self::NetherNetNotLoggedIn,
+            Self::NetherNetClientSignalingError,
+            Self::SubClientLoginDisabled,
+            Self::DeepLinkTryingToOpenDemoWorldWhileSignedIn,
+            Self::AsyncJoinTaskDenied,
+            Self::RealmsTimelineRequired,
+            Self::GuestWithoutHost,
+            Self::FailedToJoinExperience,
+            Self::NetherNetDataChannelClosed,
+            Self::DiscoveryEnvironmentMismatch,
+            Self::HostWithoutKeys,
+            Self::HostSignedOut,
+            Self::ScriptWatchdogException,
+            Self::ScriptMemoryLimitExceeded,
+            Self::StorageLowDuringGameplay,
+            Self::StorageFullDuringGameplay,
+            Self::LevelStorageCorruption,
+            Self::EditionMismatchVanillaToEdu,
+            Self::EditionMismatchEduToVanilla,
+            Self::EditorMismatchEditorToVanilla,
+            Self::EditorMismatchVanillaToEditor,
+            Self::DenyListed,
+            Self::NonceMissing,
+            Self::NonceNotFound,
+            Self::NonceExpired,
+            Self::NonceNotValid,
+            Self::HostDisconnected,
+            Self::EditorJoinIntentPolicyFailure,
+            Self::NetherNetIdentityNotAllowed,
+            Self::InvalidName,
+            Self::ExpiredToken,
+            Self::HostAcceptsNoTypeOfAuth,
+            Self::NotAuthenticatedFastFail,
+            Self::EditorNotAllowed,
+            Self::MissingStructureData,
+            Self::UnsupportedTransport,
+            Self::SubClientLoginNotBound,
+        ]
+    }
 }
 
 impl TryFrom<i32> for DisconnectReason {
@@ -10217,7 +10455,9 @@ pub enum EmoteFlag {
 
 impl EmoteFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::ServerSide, Self::MuteChat];
+    pub const fn all() -> &'static [Self] {
+        &[Self::ServerSide, Self::MuteChat]
+    }
 }
 
 impl TryFrom<u8> for EmoteFlag {
@@ -10279,13 +10519,15 @@ pub enum GameTestRequestRotation {
 
 impl GameTestRequestRotation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Rotation0,
-        Self::Rotation90,
-        Self::Rotation180,
-        Self::Rotation270,
-        Self::Rotation360,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Rotation0,
+            Self::Rotation90,
+            Self::Rotation180,
+            Self::Rotation270,
+            Self::Rotation360,
+        ]
+    }
 }
 
 impl TryFrom<u8> for GameTestRequestRotation {
@@ -10328,12 +10570,14 @@ pub enum InteractAction {
 
 impl InteractAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::LeaveVehicle,
-        Self::MouseOverEntity,
-        Self::NpcOpen,
-        Self::OpenInventory,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::LeaveVehicle,
+            Self::MouseOverEntity,
+            Self::NpcOpen,
+            Self::OpenInventory,
+        ]
+    }
 }
 
 impl TryFrom<u8> for InteractAction {
@@ -10373,7 +10617,9 @@ pub enum LabTableAction {
 
 impl LabTableAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Combine, Self::React, Self::Reset];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Combine, Self::React, Self::Reset]
+    }
 }
 
 impl TryFrom<u8> for LabTableAction {
@@ -10412,7 +10658,9 @@ pub enum LessonAction {
 
 impl LessonAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Start, Self::Complete, Self::Restart];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Start, Self::Complete, Self::Restart]
+    }
 }
 
 impl TryFrom<i32> for LessonAction {
@@ -10463,17 +10711,19 @@ pub enum MatchmakingState {
 
 impl MatchmakingState {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Idle,
-        Self::Matchmaking,
-        Self::MatchFound,
-        Self::Canceled,
-        Self::PlayerLeftParty,
-        Self::PlayerLeftServer,
-        Self::ServerShutdown,
-        Self::TimedOut,
-        Self::RequeueAsParty,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Idle,
+            Self::Matchmaking,
+            Self::MatchFound,
+            Self::Canceled,
+            Self::PlayerLeftParty,
+            Self::PlayerLeftServer,
+            Self::ServerShutdown,
+            Self::TimedOut,
+            Self::RequeueAsParty,
+        ]
+    }
 }
 
 impl TryFrom<u8> for MatchmakingState {
@@ -10722,113 +10972,119 @@ pub enum ParticleType {
 
 impl ParticleType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 105] = [
-        Self::Undefined,
-        Self::Bubble,
-        Self::BubbleManual,
-        Self::Crit,
-        Self::BlockForceField,
-        Self::Smoke,
-        Self::Explode,
-        Self::Evaporation,
-        Self::Flame,
-        Self::Lava,
-        Self::LargeSmoke,
-        Self::RedDust,
-        Self::RisingBorderDust,
-        Self::IconCrack,
-        Self::SnowballPoof,
-        Self::LargeExplode,
-        Self::HugeExplosion,
-        Self::MobFlame,
-        Self::Heart,
-        Self::Terrain,
-        Self::TownAura,
-        Self::Portal,
-        Self::MobPortal,
-        Self::WaterSplash,
-        Self::WaterSplashManual,
-        Self::WaterWake,
-        Self::DripWater,
-        Self::DripLava,
-        Self::DripHoney,
-        Self::StalactiteDripWater,
-        Self::StalactiteDripLava,
-        Self::FallingDust,
-        Self::MobSpell,
-        Self::MobSpellAmbient,
-        Self::MobSpellInstantaneous,
-        Self::Ink,
-        Self::Slime,
-        Self::RainSplash,
-        Self::VillagerAngry,
-        Self::VillagerHappy,
-        Self::EnchantingTable,
-        Self::TrackerEmitter,
-        Self::Note,
-        Self::WitchSpell,
-        Self::CarrotBoost,
-        Self::MobAppearance,
-        Self::EndRod,
-        Self::DragonBreath,
-        Self::Spit,
-        Self::Totem,
-        Self::Food,
-        Self::FireworksStarter,
-        Self::Fireworks,
-        Self::FireworksOverlay,
-        Self::BalloonGas,
-        Self::ColouredFlame,
-        Self::Sparkler,
-        Self::Conduit,
-        Self::BubbleColumnUp,
-        Self::BubbleColumnDown,
-        Self::Sneeze,
-        Self::ShulkerBullet,
-        Self::Bleach,
-        Self::DragonDestroyBlock,
-        Self::MyceliumDust,
-        Self::FallingBorderDust,
-        Self::CampfireSmoke,
-        Self::CampfireSmokeTall,
-        Self::DragonBreathFire,
-        Self::DragonBreathTrail,
-        Self::BlueFlame,
-        Self::Soul,
-        Self::ObsidianTear,
-        Self::PortalReverse,
-        Self::Snowflake,
-        Self::VibrationSignal,
-        Self::SculkSensorRedstone,
-        Self::SporeBlossomShower,
-        Self::SporeBlossomAmbient,
-        Self::Wax,
-        Self::ElectricSpark,
-        Self::CandleFlame,
-        Self::Shriek,
-        Self::SculkSoul,
-        Self::SonicExplosion,
-        Self::BrushDust,
-        Self::CherryLeaves,
-        Self::DustPlume,
-        Self::WhiteSmoke,
-        Self::WindExplosion,
-        Self::BreezeWindExplosion,
-        Self::VaultConnection,
-        Self::WolfArmourBreak,
-        Self::OminousItemSpawner,
-        Self::CreakingCrumble,
-        Self::PaleOakLeaves,
-        Self::EyeblossomOpen,
-        Self::EyeblossomClose,
-        Self::GreenFlame,
-        Self::PauseMobGrowth,
-        Self::ResetMobGrowth,
-        Self::SulfurCube,
-        Self::OrangePoplarLeaves,
-        Self::RedPoplarLeaves,
-        Self::YellowPoplarLeaves,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Undefined,
+            Self::Bubble,
+            Self::BubbleManual,
+            Self::Crit,
+            Self::BlockForceField,
+            Self::Smoke,
+            Self::Explode,
+            Self::Evaporation,
+            Self::Flame,
+            Self::Lava,
+            Self::LargeSmoke,
+            Self::RedDust,
+            Self::RisingBorderDust,
+            Self::IconCrack,
+            Self::SnowballPoof,
+            Self::LargeExplode,
+            Self::HugeExplosion,
+            Self::MobFlame,
+            Self::Heart,
+            Self::Terrain,
+            Self::TownAura,
+            Self::Portal,
+            Self::MobPortal,
+            Self::WaterSplash,
+            Self::WaterSplashManual,
+            Self::WaterWake,
+            Self::DripWater,
+            Self::DripLava,
+            Self::DripHoney,
+            Self::StalactiteDripWater,
+            Self::StalactiteDripLava,
+            Self::FallingDust,
+            Self::MobSpell,
+            Self::MobSpellAmbient,
+            Self::MobSpellInstantaneous,
+            Self::Ink,
+            Self::Slime,
+            Self::RainSplash,
+            Self::VillagerAngry,
+            Self::VillagerHappy,
+            Self::EnchantingTable,
+            Self::TrackerEmitter,
+            Self::Note,
+            Self::WitchSpell,
+            Self::CarrotBoost,
+            Self::MobAppearance,
+            Self::EndRod,
+            Self::DragonBreath,
+            Self::Spit,
+            Self::Totem,
+            Self::Food,
+            Self::FireworksStarter,
+            Self::Fireworks,
+            Self::FireworksOverlay,
+            Self::BalloonGas,
+            Self::ColouredFlame,
+            Self::Sparkler,
+            Self::Conduit,
+            Self::BubbleColumnUp,
+            Self::BubbleColumnDown,
+            Self::Sneeze,
+            Self::ShulkerBullet,
+            Self::Bleach,
+            Self::DragonDestroyBlock,
+            Self::MyceliumDust,
+            Self::FallingBorderDust,
+            Self::CampfireSmoke,
+            Self::CampfireSmokeTall,
+            Self::DragonBreathFire,
+            Self::DragonBreathTrail,
+            Self::BlueFlame,
+            Self::Soul,
+            Self::ObsidianTear,
+            Self::PortalReverse,
+            Self::Snowflake,
+            Self::VibrationSignal,
+            Self::SculkSensorRedstone,
+            Self::SporeBlossomShower,
+            Self::SporeBlossomAmbient,
+            Self::Wax,
+            Self::ElectricSpark,
+            Self::CandleFlame,
+            Self::Shriek,
+            Self::SculkSoul,
+            Self::SonicExplosion,
+            Self::BrushDust,
+            Self::CherryLeaves,
+            Self::DustPlume,
+            Self::WhiteSmoke,
+            Self::WindExplosion,
+            Self::BreezeWindExplosion,
+            Self::VaultConnection,
+            Self::WolfArmourBreak,
+            Self::OminousItemSpawner,
+            Self::CreakingCrumble,
+            Self::PaleOakLeaves,
+            Self::EyeblossomOpen,
+            Self::EyeblossomClose,
+            Self::GreenFlame,
+            Self::PauseMobGrowth,
+            Self::ResetMobGrowth,
+            Self::SulfurCube,
+            Self::OrangePoplarLeaves,
+            Self::RedPoplarLeaves,
+            Self::YellowPoplarLeaves,
+        ]
+    }
 }
 
 impl TryFrom<i32> for ParticleType {
@@ -11227,138 +11483,144 @@ pub enum LevelEvent {
 
 impl LevelEvent {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 130] = [
-        Self::SoundClick,
-        Self::SoundClickFail,
-        Self::SoundLaunch,
-        Self::SoundOpenDoor,
-        Self::SoundFizz,
-        Self::SoundFuse,
-        Self::SoundPlayRecording,
-        Self::SoundGhastWarning,
-        Self::SoundGhastFireball,
-        Self::SoundBlazeFireball,
-        Self::SoundZombieWoodenDoor,
-        Self::SoundZombieDoorCrash,
-        Self::SoundZombieInfected,
-        Self::SoundZombieConverted,
-        Self::SoundEndermanTeleport,
-        Self::SoundAnvilBroken,
-        Self::SoundAnvilUsed,
-        Self::SoundAnvilLand,
-        Self::SoundInfinityArrowPickup,
-        Self::SoundTeleportEnderPearl,
-        Self::SoundAddItem,
-        Self::SoundItemFrameBreak,
-        Self::SoundItemFramePlace,
-        Self::SoundItemFrameRemoveItem,
-        Self::SoundItemFrameRotateItem,
-        Self::SoundExperienceOrbPickup,
-        Self::SoundTotemUsed,
-        Self::SoundArmorStandBreak,
-        Self::SoundArmorStandHit,
-        Self::SoundArmorStandLand,
-        Self::SoundArmorStandPlace,
-        Self::SoundPointedDripstoneLand,
-        Self::SoundDyeUsed,
-        Self::SoundInkSacUsed,
-        Self::SoundAmethystResonate,
-        Self::QueueCustomMusic,
-        Self::PlayCustomMusic,
-        Self::StopCustomMusic,
-        Self::SetMusicVolume,
-        Self::ParticlesShoot,
-        Self::ParticlesDestroyBlock,
-        Self::ParticlesPotionSplash,
-        Self::ParticlesEyeOfEnderDeath,
-        Self::ParticlesMobBlockSpawn,
-        Self::ParticleCropGrowth,
-        Self::ParticleSoundGuardianGhost,
-        Self::ParticleDeathSmoke,
-        Self::ParticleDenyBlock,
-        Self::ParticleGenericSpawn,
-        Self::ParticlesDragonEgg,
-        Self::ParticlesCropEaten,
-        Self::ParticlesCritical,
-        Self::ParticlesTeleport,
-        Self::ParticlesCrackBlock,
-        Self::ParticlesBubble,
-        Self::ParticlesEvaporate,
-        Self::ParticlesDestroyArmorStand,
-        Self::ParticlesBreakingEgg,
-        Self::ParticleDestroyEgg,
-        Self::ParticlesEvaporateWater,
-        Self::ParticlesDestroyBlockNoSound,
-        Self::ParticlesKnockbackRoar,
-        Self::ParticlesTeleportTrail,
-        Self::ParticlesPointCloud,
-        Self::ParticlesExplosion,
-        Self::ParticlesBlockExplosion,
-        Self::ParticlesVibrationSignal,
-        Self::ParticlesDripstoneDrip,
-        Self::ParticlesFizzEffect,
-        Self::WaxOn,
-        Self::WaxOff,
-        Self::Scrape,
-        Self::ParticlesElectricSpark,
-        Self::ParticleTurtleEgg,
-        Self::ParticleSculkShriek,
-        Self::SculkCatalystBloom,
-        Self::SculkCharge,
-        Self::SculkChargePop,
-        Self::SonicExplosion,
-        Self::DustPlume,
-        Self::StartRaining,
-        Self::StartThunderstorm,
-        Self::StopRaining,
-        Self::StopThunderstorm,
-        Self::GlobalPause,
-        Self::SimTimeStep,
-        Self::SimTimeScale,
-        Self::ActivateBlock,
-        Self::CauldronExplode,
-        Self::CauldronDyeArmor,
-        Self::CauldronCleanArmor,
-        Self::CauldronFillPotion,
-        Self::CauldronTakePotion,
-        Self::CauldronFillWater,
-        Self::CauldronTakeWater,
-        Self::CauldronAddDye,
-        Self::CauldronCleanBanner,
-        Self::CauldronFlush,
-        Self::AgentSpawnEffect,
-        Self::CauldronFillLava,
-        Self::CauldronTakeLava,
-        Self::CauldronFillPowderSnow,
-        Self::CauldronTakePowderSnow,
-        Self::StartBlockCracking,
-        Self::StopBlockCracking,
-        Self::UpdateBlockCracking,
-        Self::ParticlesCrackBlockDown,
-        Self::ParticlesCrackBlockUp,
-        Self::ParticlesCrackBlockNorth,
-        Self::ParticlesCrackBlockSouth,
-        Self::ParticlesCrackBlockWest,
-        Self::ParticlesCrackBlockEast,
-        Self::ParticlesShootWhiteSmoke,
-        Self::ParticlesBreezeWindExplosion,
-        Self::ParticlesTrialSpawnerDetection,
-        Self::ParticlesTrialSpawnerSpawning,
-        Self::ParticlesTrialSpawnerEjecting,
-        Self::ParticlesWindExplosion,
-        Self::ParticlesTrialSpawnerDetectionCharged,
-        Self::ParticlesTrialSpawnerBecomeCharged,
-        Self::AllPlayersSleeping,
-        Self::SleepingPlayers,
-        Self::JumpPrevented,
-        Self::AnimationVaultActivate,
-        Self::AnimationVaultDeactivate,
-        Self::AnimationVaultEjectItem,
-        Self::AnimationSpawnCobweb,
-        Self::ParticleSmashAttackGroundDust,
-        Self::ParticleCreakingHeartTrail,
-        Self::ParticleLegacyEvent,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SoundClick,
+            Self::SoundClickFail,
+            Self::SoundLaunch,
+            Self::SoundOpenDoor,
+            Self::SoundFizz,
+            Self::SoundFuse,
+            Self::SoundPlayRecording,
+            Self::SoundGhastWarning,
+            Self::SoundGhastFireball,
+            Self::SoundBlazeFireball,
+            Self::SoundZombieWoodenDoor,
+            Self::SoundZombieDoorCrash,
+            Self::SoundZombieInfected,
+            Self::SoundZombieConverted,
+            Self::SoundEndermanTeleport,
+            Self::SoundAnvilBroken,
+            Self::SoundAnvilUsed,
+            Self::SoundAnvilLand,
+            Self::SoundInfinityArrowPickup,
+            Self::SoundTeleportEnderPearl,
+            Self::SoundAddItem,
+            Self::SoundItemFrameBreak,
+            Self::SoundItemFramePlace,
+            Self::SoundItemFrameRemoveItem,
+            Self::SoundItemFrameRotateItem,
+            Self::SoundExperienceOrbPickup,
+            Self::SoundTotemUsed,
+            Self::SoundArmorStandBreak,
+            Self::SoundArmorStandHit,
+            Self::SoundArmorStandLand,
+            Self::SoundArmorStandPlace,
+            Self::SoundPointedDripstoneLand,
+            Self::SoundDyeUsed,
+            Self::SoundInkSacUsed,
+            Self::SoundAmethystResonate,
+            Self::QueueCustomMusic,
+            Self::PlayCustomMusic,
+            Self::StopCustomMusic,
+            Self::SetMusicVolume,
+            Self::ParticlesShoot,
+            Self::ParticlesDestroyBlock,
+            Self::ParticlesPotionSplash,
+            Self::ParticlesEyeOfEnderDeath,
+            Self::ParticlesMobBlockSpawn,
+            Self::ParticleCropGrowth,
+            Self::ParticleSoundGuardianGhost,
+            Self::ParticleDeathSmoke,
+            Self::ParticleDenyBlock,
+            Self::ParticleGenericSpawn,
+            Self::ParticlesDragonEgg,
+            Self::ParticlesCropEaten,
+            Self::ParticlesCritical,
+            Self::ParticlesTeleport,
+            Self::ParticlesCrackBlock,
+            Self::ParticlesBubble,
+            Self::ParticlesEvaporate,
+            Self::ParticlesDestroyArmorStand,
+            Self::ParticlesBreakingEgg,
+            Self::ParticleDestroyEgg,
+            Self::ParticlesEvaporateWater,
+            Self::ParticlesDestroyBlockNoSound,
+            Self::ParticlesKnockbackRoar,
+            Self::ParticlesTeleportTrail,
+            Self::ParticlesPointCloud,
+            Self::ParticlesExplosion,
+            Self::ParticlesBlockExplosion,
+            Self::ParticlesVibrationSignal,
+            Self::ParticlesDripstoneDrip,
+            Self::ParticlesFizzEffect,
+            Self::WaxOn,
+            Self::WaxOff,
+            Self::Scrape,
+            Self::ParticlesElectricSpark,
+            Self::ParticleTurtleEgg,
+            Self::ParticleSculkShriek,
+            Self::SculkCatalystBloom,
+            Self::SculkCharge,
+            Self::SculkChargePop,
+            Self::SonicExplosion,
+            Self::DustPlume,
+            Self::StartRaining,
+            Self::StartThunderstorm,
+            Self::StopRaining,
+            Self::StopThunderstorm,
+            Self::GlobalPause,
+            Self::SimTimeStep,
+            Self::SimTimeScale,
+            Self::ActivateBlock,
+            Self::CauldronExplode,
+            Self::CauldronDyeArmor,
+            Self::CauldronCleanArmor,
+            Self::CauldronFillPotion,
+            Self::CauldronTakePotion,
+            Self::CauldronFillWater,
+            Self::CauldronTakeWater,
+            Self::CauldronAddDye,
+            Self::CauldronCleanBanner,
+            Self::CauldronFlush,
+            Self::AgentSpawnEffect,
+            Self::CauldronFillLava,
+            Self::CauldronTakeLava,
+            Self::CauldronFillPowderSnow,
+            Self::CauldronTakePowderSnow,
+            Self::StartBlockCracking,
+            Self::StopBlockCracking,
+            Self::UpdateBlockCracking,
+            Self::ParticlesCrackBlockDown,
+            Self::ParticlesCrackBlockUp,
+            Self::ParticlesCrackBlockNorth,
+            Self::ParticlesCrackBlockSouth,
+            Self::ParticlesCrackBlockWest,
+            Self::ParticlesCrackBlockEast,
+            Self::ParticlesShootWhiteSmoke,
+            Self::ParticlesBreezeWindExplosion,
+            Self::ParticlesTrialSpawnerDetection,
+            Self::ParticlesTrialSpawnerSpawning,
+            Self::ParticlesTrialSpawnerEjecting,
+            Self::ParticlesWindExplosion,
+            Self::ParticlesTrialSpawnerDetectionCharged,
+            Self::ParticlesTrialSpawnerBecomeCharged,
+            Self::AllPlayersSleeping,
+            Self::SleepingPlayers,
+            Self::JumpPrevented,
+            Self::AnimationVaultActivate,
+            Self::AnimationVaultDeactivate,
+            Self::AnimationVaultEjectItem,
+            Self::AnimationSpawnCobweb,
+            Self::ParticleSmashAttackGroundDust,
+            Self::ParticleCreakingHeartTrail,
+            Self::ParticleLegacyEvent,
+        ]
+    }
 }
 
 impl TryFrom<i32> for LevelEvent {
@@ -12675,585 +12937,592 @@ pub enum SoundEvent {
 
 impl SoundEvent {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 577] = [
-        Self::ItemUseOn,
-        Self::Hit,
-        Self::Step,
-        Self::Fly,
-        Self::Jump,
-        Self::Break,
-        Self::Place,
-        Self::HeavyStep,
-        Self::Gallop,
-        Self::Fall,
-        Self::Ambient,
-        Self::AmbientBaby,
-        Self::AmbientInWater,
-        Self::Breathe,
-        Self::Death,
-        Self::DeathInWater,
-        Self::DeathToZombie,
-        Self::Hurt,
-        Self::HurtInWater,
-        Self::Mad,
-        Self::Boost,
-        Self::Bow,
-        Self::SquishBig,
-        Self::SquishSmall,
-        Self::FallBig,
-        Self::FallSmall,
-        Self::Splash,
-        Self::Fizz,
-        Self::Flap,
-        Self::Swim,
-        Self::Drink,
-        Self::Eat,
-        Self::Takeoff,
-        Self::Shake,
-        Self::Plop,
-        Self::Land,
-        Self::Saddle,
-        Self::Armor,
-        Self::ArmorPlace,
-        Self::AddChest,
-        Self::Throw,
-        Self::Attack,
-        Self::AttackNoDamage,
-        Self::AttackStrong,
-        Self::Warn,
-        Self::Shear,
-        Self::Milk,
-        Self::Thunder,
-        Self::Explode,
-        Self::Fire,
-        Self::Ignite,
-        Self::Fuse,
-        Self::Stare,
-        Self::Spawn,
-        Self::Shoot,
-        Self::BreakBlock,
-        Self::Launch,
-        Self::Blast,
-        Self::LargeBlast,
-        Self::Twinkle,
-        Self::Remedy,
-        Self::Unfect,
-        Self::LevelUp,
-        Self::BowHit,
-        Self::BulletHit,
-        Self::ExtinguishFire,
-        Self::ItemFizz,
-        Self::ChestOpen,
-        Self::ChestClosed,
-        Self::ShulkerBoxOpen,
-        Self::ShulkerBoxClosed,
-        Self::EnderChestOpen,
-        Self::EnderChestClosed,
-        Self::PowerOn,
-        Self::PowerOff,
-        Self::Attach,
-        Self::Detach,
-        Self::Deny,
-        Self::Tripod,
-        Self::Pop,
-        Self::DropSlot,
-        Self::Note,
-        Self::Thorns,
-        Self::PistonIn,
-        Self::PistonOut,
-        Self::Portal,
-        Self::Water,
-        Self::LavaPop,
-        Self::Lava,
-        Self::Burp,
-        Self::BucketFillWater,
-        Self::BucketFillLava,
-        Self::BucketEmptyWater,
-        Self::BucketEmptyLava,
-        Self::EquipChain,
-        Self::EquipDiamond,
-        Self::EquipGeneric,
-        Self::EquipGold,
-        Self::EquipIron,
-        Self::EquipLeather,
-        Self::EquipElytra,
-        Self::Record13,
-        Self::RecordCat,
-        Self::RecordBlocks,
-        Self::RecordChirp,
-        Self::RecordFar,
-        Self::RecordMall,
-        Self::RecordMellohi,
-        Self::RecordStal,
-        Self::RecordStrad,
-        Self::RecordWard,
-        Self::Record11,
-        Self::RecordWait,
-        Self::RecordNull,
-        Self::Flop,
-        Self::GuardianCurse,
-        Self::MobWarning,
-        Self::MobWarningBaby,
-        Self::Teleport,
-        Self::ShulkerOpen,
-        Self::ShulkerClose,
-        Self::Haggle,
-        Self::HaggleYes,
-        Self::HaggleNo,
-        Self::HaggleIdle,
-        Self::ChorusGrow,
-        Self::ChorusDeath,
-        Self::Glass,
-        Self::PotionBrewed,
-        Self::CastSpell,
-        Self::PrepareAttackSpell,
-        Self::PrepareSummon,
-        Self::PrepareWololo,
-        Self::Fang,
-        Self::Charge,
-        Self::TakePicture,
-        Self::PlaceLeashKnot,
-        Self::BreakLeashKnot,
-        Self::AmbientGrowl,
-        Self::AmbientWhine,
-        Self::AmbientPant,
-        Self::AmbientPurr,
-        Self::AmbientPurreow,
-        Self::DeathMinVolume,
-        Self::DeathMidVolume,
-        Self::ImitateBlaze,
-        Self::ImitateCaveSpider,
-        Self::ImitateCreeper,
-        Self::ImitateElderGuardian,
-        Self::ImitateEnderDragon,
-        Self::ImitateEnderman,
-        Self::ImitateEndermite,
-        Self::ImitateEvocationIllager,
-        Self::ImitateGhast,
-        Self::ImitateHusk,
-        Self::ImitateIllusionIllager,
-        Self::ImitateMagmaCube,
-        Self::ImitatePolarBear,
-        Self::ImitateShulker,
-        Self::ImitateSilverfish,
-        Self::ImitateSkeleton,
-        Self::ImitateSlime,
-        Self::ImitateSpider,
-        Self::ImitateStray,
-        Self::ImitateVex,
-        Self::ImitateVindicationIllager,
-        Self::ImitateWitch,
-        Self::ImitateWither,
-        Self::ImitateWitherSkeleton,
-        Self::ImitateWolf,
-        Self::ImitateZombie,
-        Self::ImitateZombiePigman,
-        Self::ImitateZombieVillager,
-        Self::EnderEyePlaced,
-        Self::EndPortalCreated,
-        Self::AnvilUse,
-        Self::BottleDragonBreath,
-        Self::PortalTravel,
-        Self::TridentHit,
-        Self::TridentReturn,
-        Self::TridentRiptide1,
-        Self::TridentRiptide2,
-        Self::TridentRiptide3,
-        Self::TridentThrow,
-        Self::TridentThunder,
-        Self::TridentHitGround,
-        Self::Default,
-        Self::FletchingTableUse,
-        Self::ElemConstructOpen,
-        Self::IceBombHit,
-        Self::BalloonPop,
-        Self::LtReactionIceBomb,
-        Self::LtReactionBleach,
-        Self::LtReactionElephantToothpaste,
-        Self::LtReactionElephantToothpaste2,
-        Self::LtReactionGlowStick,
-        Self::LtReactionGlowStick2,
-        Self::LtReactionLuminol,
-        Self::LtReactionSalt,
-        Self::LtReactionFertilizer,
-        Self::LtReactionFireball,
-        Self::LtReactionMagnesiumSalt,
-        Self::LtReactionMiscFire,
-        Self::LtReactionFire,
-        Self::LtReactionMiscExplosion,
-        Self::LtReactionMiscMystical,
-        Self::LtReactionMiscMystical2,
-        Self::LtReactionProduct,
-        Self::SparklerUse,
-        Self::GlowStickUse,
-        Self::SparklerActive,
-        Self::ConvertToDrowned,
-        Self::BucketFillFish,
-        Self::BucketEmptyFish,
-        Self::BubbleColumnUpwards,
-        Self::BubbleColumnDownwards,
-        Self::BubblePop,
-        Self::BubbleUpInside,
-        Self::BubbleDownInside,
-        Self::HurtBaby,
-        Self::DeathBaby,
-        Self::StepBaby,
-        Self::SpawnBaby,
-        Self::Born,
-        Self::TurtleEggBreak,
-        Self::TurtleEggCrack,
-        Self::TurtleEggHatched,
-        Self::LayEgg,
-        Self::TurtleEggAttacked,
-        Self::BeaconActivate,
-        Self::BeaconAmbient,
-        Self::BeaconDeactivate,
-        Self::BeaconPower,
-        Self::ConduitActivate,
-        Self::ConduitAmbient,
-        Self::ConduitAttack,
-        Self::ConduitDeactivate,
-        Self::ConduitShort,
-        Self::Swoop,
-        Self::BambooSaplingPlace,
-        Self::PreSneeze,
-        Self::Sneeze,
-        Self::AmbientTame,
-        Self::Scared,
-        Self::ScaffoldingClimb,
-        Self::CrossbowLoadingStart,
-        Self::CrossbowLoadingMiddle,
-        Self::CrossbowLoadingEnd,
-        Self::CrossbowShoot,
-        Self::CrossbowQuickChargeStart,
-        Self::CrossbowQuickChargeMiddle,
-        Self::CrossbowQuickChargeEnd,
-        Self::AmbientAggressive,
-        Self::AmbientWorried,
-        Self::CantBreed,
-        Self::ShieldBlock,
-        Self::LecternBookPlace,
-        Self::GrindstoneUse,
-        Self::Bell,
-        Self::CampfireCrackle,
-        Self::Roar,
-        Self::Stun,
-        Self::SweetBerryBushHurt,
-        Self::SweetBerryBushPick,
-        Self::CartographyTableUse,
-        Self::StonecutterUse,
-        Self::ComposterEmpty,
-        Self::ComposterFill,
-        Self::ComposterFillLayer,
-        Self::ComposterReady,
-        Self::BarrelOpen,
-        Self::BarrelClose,
-        Self::RaidHorn,
-        Self::LoomUse,
-        Self::AmbientInRaid,
-        Self::UicartographyTableUse,
-        Self::UistonecutterUse,
-        Self::UiloomUse,
-        Self::SmokerUse,
-        Self::BlastFurnaceUse,
-        Self::SmithingTableUse,
-        Self::Screech,
-        Self::Sleep,
-        Self::FurnaceUse,
-        Self::MooshroomConvert,
-        Self::MilkSuspiciously,
-        Self::Celebrate,
-        Self::JumpPrevent,
-        Self::AmbientPollinate,
-        Self::BeehiveDrip,
-        Self::BeehiveEnter,
-        Self::BeehiveExit,
-        Self::BeehiveWork,
-        Self::BeehiveShear,
-        Self::HoneybottleDrink,
-        Self::AmbientCave,
-        Self::Retreat,
-        Self::ConvertToZombified,
-        Self::Admire,
-        Self::StepLava,
-        Self::Tempt,
-        Self::Panic,
-        Self::Angry,
-        Self::AmbientMoodWarpedForest,
-        Self::AmbientMoodSoulsandValley,
-        Self::AmbientMoodNetherWastes,
-        Self::AmbientMoodBasaltDeltas,
-        Self::AmbientMoodCrimsonForest,
-        Self::RespawnAnchorCharge,
-        Self::RespawnAnchorDeplete,
-        Self::RespawnAnchorSetSpawn,
-        Self::RespawnAnchorAmbient,
-        Self::SoulEscapeQuiet,
-        Self::SoulEscapeLoud,
-        Self::RecordPigstep,
-        Self::LinkCompassToLodestone,
-        Self::UseSmithingTable,
-        Self::EquipNetherite,
-        Self::AmbientLoopWarpedForest,
-        Self::AmbientLoopSoulsandValley,
-        Self::AmbientLoopNetherWastes,
-        Self::AmbientLoopBasaltDeltas,
-        Self::AmbientLoopCrimsonForest,
-        Self::AmbientAdditionWarpedForest,
-        Self::AmbientAdditionSoulsandValley,
-        Self::AmbientAdditionNetherWastes,
-        Self::AmbientAdditionBasaltDeltas,
-        Self::AmbientAdditionCrimsonForest,
-        Self::SculkSensorPowerOn,
-        Self::SculkSensorPowerOff,
-        Self::BucketFillPowderSnow,
-        Self::BucketEmptyPowderSnow,
-        Self::PointedDripstoneCauldronDripWater,
-        Self::PointedDripstoneCauldronDripLava,
-        Self::PointedDripstoneDripWater,
-        Self::PointedDripstoneDripLava,
-        Self::CaveVinesPickBerries,
-        Self::BigDripleafTiltDown,
-        Self::BigDripleafTiltUp,
-        Self::CopperWaxOn,
-        Self::CopperWaxOff,
-        Self::Scrape,
-        Self::PlayerHurtDrown,
-        Self::PlayerHurtOnFire,
-        Self::PlayerHurtFreeze,
-        Self::UseSpyglass,
-        Self::StopUsingSpyglass,
-        Self::AmethystBlockChime,
-        Self::AmbientScreamer,
-        Self::HurtScreamer,
-        Self::DeathScreamer,
-        Self::MilkScreamer,
-        Self::JumpToBlock,
-        Self::PreRam,
-        Self::PreRamScreamer,
-        Self::RamImpact,
-        Self::RamImpactScreamer,
-        Self::SquidInkSquirt,
-        Self::GlowSquidInkSquirt,
-        Self::ConvertToStray,
-        Self::CakeAddCandle,
-        Self::ExtinguishCandle,
-        Self::AmbientCandle,
-        Self::BlockClick,
-        Self::BlockClickFail,
-        Self::SculkCatalystBloom,
-        Self::SculkShriekerShriek,
-        Self::WardenNearbyClose,
-        Self::WardenNearbyCloser,
-        Self::WardenNearbyClosest,
-        Self::WardenSlightlyAngry,
-        Self::RecordOtherside,
-        Self::Tongue,
-        Self::CrackIronGolem,
-        Self::RepairIronGolem,
-        Self::Listening,
-        Self::Heartbeat,
-        Self::HornBreak,
-        Self::SculkSpread,
-        Self::SculkCharge,
-        Self::SculkSensorPlace,
-        Self::SculkShriekerPlace,
-        Self::GoatCall0,
-        Self::GoatCall1,
-        Self::GoatCall2,
-        Self::GoatCall3,
-        Self::GoatCall4,
-        Self::GoatCall5,
-        Self::GoatCall6,
-        Self::GoatCall7,
-        Self::ImitateWarden,
-        Self::ListeningAngry,
-        Self::ItemGiven,
-        Self::ItemTaken,
-        Self::Disappeared,
-        Self::Reappeared,
-        Self::DrinkMilk,
-        Self::FrogspawnHatched,
-        Self::LaySpawn,
-        Self::FrogspawnBreak,
-        Self::SonicBoom,
-        Self::SonicCharge,
-        Self::ItemThrown,
-        Self::Record5,
-        Self::ConvertToFrog,
-        Self::RecordPlaying,
-        Self::EnchantingTableUse,
-        Self::StepSand,
-        Self::DashReady,
-        Self::BundleDropContents,
-        Self::BundleInsert,
-        Self::BundleRemoveOne,
-        Self::PressurePlateClickOff,
-        Self::PressurePlateClickOn,
-        Self::ButtonClickOff,
-        Self::ButtonClickOn,
-        Self::DoorOpen,
-        Self::DoorClose,
-        Self::TrapdoorOpen,
-        Self::TrapdoorClose,
-        Self::FenceGateOpen,
-        Self::FenceGateClose,
-        Self::Insert,
-        Self::Pickup,
-        Self::InsertEnchanted,
-        Self::PickupEnchanted,
-        Self::Brush,
-        Self::BrushCompleted,
-        Self::ShatterDecoratedPot,
-        Self::BreakDecoratedPot,
-        Self::SnifferEggCrack,
-        Self::SnifferEggHatched,
-        Self::WaxedSignInteractFail,
-        Self::RecordRelic,
-        Self::Bump,
-        Self::PumpkinCarve,
-        Self::ConvertHuskToZombie,
-        Self::PigDeath,
-        Self::HoglinZombified,
-        Self::AmbientUnderwaterEnter,
-        Self::AmbientUnderwaterExit,
-        Self::BottleFill,
-        Self::BottleEmpty,
-        Self::CrafterCraft,
-        Self::CrafterFail,
-        Self::DecoratedPotInsert,
-        Self::DecoratedPotInsertFail,
-        Self::CrafterDisableSlot,
-        Self::TrialSpawnerOpenShutter,
-        Self::TrialSpawnerEjectItem,
-        Self::TrialSpawnerDetectPlayer,
-        Self::TrialSpawnerSpawnMob,
-        Self::TrialSpawnerCloseShutter,
-        Self::TrialSpawnerAmbient,
-        Self::CopperBulbTurnOn,
-        Self::CopperBulbTurnOff,
-        Self::AmbientInAir,
-        Self::BreezeWindChargeBurst,
-        Self::ImitateBreeze,
-        Self::ArmadilloBrush,
-        Self::ArmadilloScuteDrop,
-        Self::EquipWolf,
-        Self::UnequipWolf,
-        Self::Reflect,
-        Self::VaultOpenShutter,
-        Self::VaultCloseShutter,
-        Self::VaultEjectItem,
-        Self::VaultInsertItem,
-        Self::VaultInsertItemFail,
-        Self::VaultAmbient,
-        Self::VaultActivate,
-        Self::VaultDeactive,
-        Self::HurtReduced,
-        Self::WindChargeBurst,
-        Self::ImitateBogged,
-        Self::WolfArmourCrack,
-        Self::WolfArmourBreak,
-        Self::WolfArmourRepair,
-        Self::MaceSmashAir,
-        Self::MaceSmashGround,
-        Self::TrialSpawnerChargeActivate,
-        Self::TrialSpawnerAmbientOminous,
-        Self::OminiousItemSpawnerSpawnItem,
-        Self::OminousBottleEndUse,
-        Self::MaceHeavySmashGround,
-        Self::OminousItemSpawnerSpawnItemBegin,
-        Self::ApplyEffectBadOmen,
-        Self::ApplyEffectRaidOmen,
-        Self::ApplyEffectTrialOmen,
-        Self::OminousItemSpawnerAboutToSpawnItem,
-        Self::RecordCreator,
-        Self::RecordCreatorMusicBox,
-        Self::RecordPrecipice,
-        Self::VaultRejectRewardedPlayer,
-        Self::ImitateDrowned,
-        Self::ImitateCreaking,
-        Self::BundleInsertFailed,
-        Self::SpongeAbsorb,
-        Self::BlockCreakingHeartTrail,
-        Self::CreakingHeartSpawn,
-        Self::Activate,
-        Self::Deactivate,
-        Self::Freeze,
-        Self::Unfreeze,
-        Self::Open,
-        Self::OpenLong,
-        Self::Close,
-        Self::CloseLong,
-        Self::ImitatePhantom,
-        Self::ImitateZoglin,
-        Self::ImitateGuardian,
-        Self::ImitateRavager,
-        Self::ImitatePillager,
-        Self::PlaceInWater,
-        Self::StateChange,
-        Self::ImitateHappyGhast,
-        Self::UniqueGeneric,
-        Self::RecordTears,
-        Self::TheEndLightFlash,
-        Self::LeadLeash,
-        Self::LeadUnleash,
-        Self::LeadBreak,
-        Self::Unsaddle,
-        Self::EquipCopper,
-        Self::RecordLavaChicken,
-        Self::PlaceItem,
-        Self::SingleItemSwap,
-        Self::MultiItemSwap,
-        Self::ItemEnchantLunge1,
-        Self::ItemEnchantLunge2,
-        Self::ItemEnchantLunge3,
-        Self::AttackCritical,
-        Self::ItemSpearAttackHit,
-        Self::ItemSpearAttackMiss,
-        Self::ItemWoodenSpearAttackHit,
-        Self::ItemWoodenSpearAttackMiss,
-        Self::ImitateParched,
-        Self::ImitateCamelHusk,
-        Self::ItemSpearUse,
-        Self::ItemWoodenSpearUse,
-        Self::SaddleInWater,
-        Self::ItemStoneSpearAttackHit,
-        Self::ItemIronSpearAttackHit,
-        Self::ItemCopperSpearAttackHit,
-        Self::ItemGoldenSpearAttackHit,
-        Self::ItemDiamondSpearAttackHit,
-        Self::ItemNetheriteSpearAttackHit,
-        Self::ItemStoneSpearAttackMiss,
-        Self::ItemIronSpearAttackMiss,
-        Self::ItemCopperSpearAttackMiss,
-        Self::ItemGoldenSpearAttackMiss,
-        Self::ItemDiamondSpearAttackMiss,
-        Self::ItemNetheriteSpearAttackMiss,
-        Self::ItemStoneSpearUse,
-        Self::ItemIronSpearUse,
-        Self::ItemCopperSpearUse,
-        Self::ItemGoldenSpearUse,
-        Self::ItemDiamondSpearUse,
-        Self::ItemNetheriteSpearUse,
-        Self::PauseGrowth,
-        Self::ResetGrowth,
-        Self::PushedByPlayer,
-        Self::Bounce,
-        Self::SlimeLanding,
-        Self::AbsorbBlock,
-        Self::EjectBlock,
-        Self::GeyserEruptionStart,
-        Self::GeyserEruptionActive,
-        Self::RecordBounce,
-        Self::BucketFillLandAnimal,
-        Self::BucketEmptyLandAnimal,
-        Self::GeyserContinuousEruptionStart,
-        Self::GeyserContinuousEruptionActive,
-        Self::Mount,
-        Self::Dismount,
-        Self::StrawBedBreakLeave,
-        Self::Undefined,
-    ];
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: generated from one gophertunnel body or table"
+    )]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ItemUseOn,
+            Self::Hit,
+            Self::Step,
+            Self::Fly,
+            Self::Jump,
+            Self::Break,
+            Self::Place,
+            Self::HeavyStep,
+            Self::Gallop,
+            Self::Fall,
+            Self::Ambient,
+            Self::AmbientBaby,
+            Self::AmbientInWater,
+            Self::Breathe,
+            Self::Death,
+            Self::DeathInWater,
+            Self::DeathToZombie,
+            Self::Hurt,
+            Self::HurtInWater,
+            Self::Mad,
+            Self::Boost,
+            Self::Bow,
+            Self::SquishBig,
+            Self::SquishSmall,
+            Self::FallBig,
+            Self::FallSmall,
+            Self::Splash,
+            Self::Fizz,
+            Self::Flap,
+            Self::Swim,
+            Self::Drink,
+            Self::Eat,
+            Self::Takeoff,
+            Self::Shake,
+            Self::Plop,
+            Self::Land,
+            Self::Saddle,
+            Self::Armor,
+            Self::ArmorPlace,
+            Self::AddChest,
+            Self::Throw,
+            Self::Attack,
+            Self::AttackNoDamage,
+            Self::AttackStrong,
+            Self::Warn,
+            Self::Shear,
+            Self::Milk,
+            Self::Thunder,
+            Self::Explode,
+            Self::Fire,
+            Self::Ignite,
+            Self::Fuse,
+            Self::Stare,
+            Self::Spawn,
+            Self::Shoot,
+            Self::BreakBlock,
+            Self::Launch,
+            Self::Blast,
+            Self::LargeBlast,
+            Self::Twinkle,
+            Self::Remedy,
+            Self::Unfect,
+            Self::LevelUp,
+            Self::BowHit,
+            Self::BulletHit,
+            Self::ExtinguishFire,
+            Self::ItemFizz,
+            Self::ChestOpen,
+            Self::ChestClosed,
+            Self::ShulkerBoxOpen,
+            Self::ShulkerBoxClosed,
+            Self::EnderChestOpen,
+            Self::EnderChestClosed,
+            Self::PowerOn,
+            Self::PowerOff,
+            Self::Attach,
+            Self::Detach,
+            Self::Deny,
+            Self::Tripod,
+            Self::Pop,
+            Self::DropSlot,
+            Self::Note,
+            Self::Thorns,
+            Self::PistonIn,
+            Self::PistonOut,
+            Self::Portal,
+            Self::Water,
+            Self::LavaPop,
+            Self::Lava,
+            Self::Burp,
+            Self::BucketFillWater,
+            Self::BucketFillLava,
+            Self::BucketEmptyWater,
+            Self::BucketEmptyLava,
+            Self::EquipChain,
+            Self::EquipDiamond,
+            Self::EquipGeneric,
+            Self::EquipGold,
+            Self::EquipIron,
+            Self::EquipLeather,
+            Self::EquipElytra,
+            Self::Record13,
+            Self::RecordCat,
+            Self::RecordBlocks,
+            Self::RecordChirp,
+            Self::RecordFar,
+            Self::RecordMall,
+            Self::RecordMellohi,
+            Self::RecordStal,
+            Self::RecordStrad,
+            Self::RecordWard,
+            Self::Record11,
+            Self::RecordWait,
+            Self::RecordNull,
+            Self::Flop,
+            Self::GuardianCurse,
+            Self::MobWarning,
+            Self::MobWarningBaby,
+            Self::Teleport,
+            Self::ShulkerOpen,
+            Self::ShulkerClose,
+            Self::Haggle,
+            Self::HaggleYes,
+            Self::HaggleNo,
+            Self::HaggleIdle,
+            Self::ChorusGrow,
+            Self::ChorusDeath,
+            Self::Glass,
+            Self::PotionBrewed,
+            Self::CastSpell,
+            Self::PrepareAttackSpell,
+            Self::PrepareSummon,
+            Self::PrepareWololo,
+            Self::Fang,
+            Self::Charge,
+            Self::TakePicture,
+            Self::PlaceLeashKnot,
+            Self::BreakLeashKnot,
+            Self::AmbientGrowl,
+            Self::AmbientWhine,
+            Self::AmbientPant,
+            Self::AmbientPurr,
+            Self::AmbientPurreow,
+            Self::DeathMinVolume,
+            Self::DeathMidVolume,
+            Self::ImitateBlaze,
+            Self::ImitateCaveSpider,
+            Self::ImitateCreeper,
+            Self::ImitateElderGuardian,
+            Self::ImitateEnderDragon,
+            Self::ImitateEnderman,
+            Self::ImitateEndermite,
+            Self::ImitateEvocationIllager,
+            Self::ImitateGhast,
+            Self::ImitateHusk,
+            Self::ImitateIllusionIllager,
+            Self::ImitateMagmaCube,
+            Self::ImitatePolarBear,
+            Self::ImitateShulker,
+            Self::ImitateSilverfish,
+            Self::ImitateSkeleton,
+            Self::ImitateSlime,
+            Self::ImitateSpider,
+            Self::ImitateStray,
+            Self::ImitateVex,
+            Self::ImitateVindicationIllager,
+            Self::ImitateWitch,
+            Self::ImitateWither,
+            Self::ImitateWitherSkeleton,
+            Self::ImitateWolf,
+            Self::ImitateZombie,
+            Self::ImitateZombiePigman,
+            Self::ImitateZombieVillager,
+            Self::EnderEyePlaced,
+            Self::EndPortalCreated,
+            Self::AnvilUse,
+            Self::BottleDragonBreath,
+            Self::PortalTravel,
+            Self::TridentHit,
+            Self::TridentReturn,
+            Self::TridentRiptide1,
+            Self::TridentRiptide2,
+            Self::TridentRiptide3,
+            Self::TridentThrow,
+            Self::TridentThunder,
+            Self::TridentHitGround,
+            Self::Default,
+            Self::FletchingTableUse,
+            Self::ElemConstructOpen,
+            Self::IceBombHit,
+            Self::BalloonPop,
+            Self::LtReactionIceBomb,
+            Self::LtReactionBleach,
+            Self::LtReactionElephantToothpaste,
+            Self::LtReactionElephantToothpaste2,
+            Self::LtReactionGlowStick,
+            Self::LtReactionGlowStick2,
+            Self::LtReactionLuminol,
+            Self::LtReactionSalt,
+            Self::LtReactionFertilizer,
+            Self::LtReactionFireball,
+            Self::LtReactionMagnesiumSalt,
+            Self::LtReactionMiscFire,
+            Self::LtReactionFire,
+            Self::LtReactionMiscExplosion,
+            Self::LtReactionMiscMystical,
+            Self::LtReactionMiscMystical2,
+            Self::LtReactionProduct,
+            Self::SparklerUse,
+            Self::GlowStickUse,
+            Self::SparklerActive,
+            Self::ConvertToDrowned,
+            Self::BucketFillFish,
+            Self::BucketEmptyFish,
+            Self::BubbleColumnUpwards,
+            Self::BubbleColumnDownwards,
+            Self::BubblePop,
+            Self::BubbleUpInside,
+            Self::BubbleDownInside,
+            Self::HurtBaby,
+            Self::DeathBaby,
+            Self::StepBaby,
+            Self::SpawnBaby,
+            Self::Born,
+            Self::TurtleEggBreak,
+            Self::TurtleEggCrack,
+            Self::TurtleEggHatched,
+            Self::LayEgg,
+            Self::TurtleEggAttacked,
+            Self::BeaconActivate,
+            Self::BeaconAmbient,
+            Self::BeaconDeactivate,
+            Self::BeaconPower,
+            Self::ConduitActivate,
+            Self::ConduitAmbient,
+            Self::ConduitAttack,
+            Self::ConduitDeactivate,
+            Self::ConduitShort,
+            Self::Swoop,
+            Self::BambooSaplingPlace,
+            Self::PreSneeze,
+            Self::Sneeze,
+            Self::AmbientTame,
+            Self::Scared,
+            Self::ScaffoldingClimb,
+            Self::CrossbowLoadingStart,
+            Self::CrossbowLoadingMiddle,
+            Self::CrossbowLoadingEnd,
+            Self::CrossbowShoot,
+            Self::CrossbowQuickChargeStart,
+            Self::CrossbowQuickChargeMiddle,
+            Self::CrossbowQuickChargeEnd,
+            Self::AmbientAggressive,
+            Self::AmbientWorried,
+            Self::CantBreed,
+            Self::ShieldBlock,
+            Self::LecternBookPlace,
+            Self::GrindstoneUse,
+            Self::Bell,
+            Self::CampfireCrackle,
+            Self::Roar,
+            Self::Stun,
+            Self::SweetBerryBushHurt,
+            Self::SweetBerryBushPick,
+            Self::CartographyTableUse,
+            Self::StonecutterUse,
+            Self::ComposterEmpty,
+            Self::ComposterFill,
+            Self::ComposterFillLayer,
+            Self::ComposterReady,
+            Self::BarrelOpen,
+            Self::BarrelClose,
+            Self::RaidHorn,
+            Self::LoomUse,
+            Self::AmbientInRaid,
+            Self::UicartographyTableUse,
+            Self::UistonecutterUse,
+            Self::UiloomUse,
+            Self::SmokerUse,
+            Self::BlastFurnaceUse,
+            Self::SmithingTableUse,
+            Self::Screech,
+            Self::Sleep,
+            Self::FurnaceUse,
+            Self::MooshroomConvert,
+            Self::MilkSuspiciously,
+            Self::Celebrate,
+            Self::JumpPrevent,
+            Self::AmbientPollinate,
+            Self::BeehiveDrip,
+            Self::BeehiveEnter,
+            Self::BeehiveExit,
+            Self::BeehiveWork,
+            Self::BeehiveShear,
+            Self::HoneybottleDrink,
+            Self::AmbientCave,
+            Self::Retreat,
+            Self::ConvertToZombified,
+            Self::Admire,
+            Self::StepLava,
+            Self::Tempt,
+            Self::Panic,
+            Self::Angry,
+            Self::AmbientMoodWarpedForest,
+            Self::AmbientMoodSoulsandValley,
+            Self::AmbientMoodNetherWastes,
+            Self::AmbientMoodBasaltDeltas,
+            Self::AmbientMoodCrimsonForest,
+            Self::RespawnAnchorCharge,
+            Self::RespawnAnchorDeplete,
+            Self::RespawnAnchorSetSpawn,
+            Self::RespawnAnchorAmbient,
+            Self::SoulEscapeQuiet,
+            Self::SoulEscapeLoud,
+            Self::RecordPigstep,
+            Self::LinkCompassToLodestone,
+            Self::UseSmithingTable,
+            Self::EquipNetherite,
+            Self::AmbientLoopWarpedForest,
+            Self::AmbientLoopSoulsandValley,
+            Self::AmbientLoopNetherWastes,
+            Self::AmbientLoopBasaltDeltas,
+            Self::AmbientLoopCrimsonForest,
+            Self::AmbientAdditionWarpedForest,
+            Self::AmbientAdditionSoulsandValley,
+            Self::AmbientAdditionNetherWastes,
+            Self::AmbientAdditionBasaltDeltas,
+            Self::AmbientAdditionCrimsonForest,
+            Self::SculkSensorPowerOn,
+            Self::SculkSensorPowerOff,
+            Self::BucketFillPowderSnow,
+            Self::BucketEmptyPowderSnow,
+            Self::PointedDripstoneCauldronDripWater,
+            Self::PointedDripstoneCauldronDripLava,
+            Self::PointedDripstoneDripWater,
+            Self::PointedDripstoneDripLava,
+            Self::CaveVinesPickBerries,
+            Self::BigDripleafTiltDown,
+            Self::BigDripleafTiltUp,
+            Self::CopperWaxOn,
+            Self::CopperWaxOff,
+            Self::Scrape,
+            Self::PlayerHurtDrown,
+            Self::PlayerHurtOnFire,
+            Self::PlayerHurtFreeze,
+            Self::UseSpyglass,
+            Self::StopUsingSpyglass,
+            Self::AmethystBlockChime,
+            Self::AmbientScreamer,
+            Self::HurtScreamer,
+            Self::DeathScreamer,
+            Self::MilkScreamer,
+            Self::JumpToBlock,
+            Self::PreRam,
+            Self::PreRamScreamer,
+            Self::RamImpact,
+            Self::RamImpactScreamer,
+            Self::SquidInkSquirt,
+            Self::GlowSquidInkSquirt,
+            Self::ConvertToStray,
+            Self::CakeAddCandle,
+            Self::ExtinguishCandle,
+            Self::AmbientCandle,
+            Self::BlockClick,
+            Self::BlockClickFail,
+            Self::SculkCatalystBloom,
+            Self::SculkShriekerShriek,
+            Self::WardenNearbyClose,
+            Self::WardenNearbyCloser,
+            Self::WardenNearbyClosest,
+            Self::WardenSlightlyAngry,
+            Self::RecordOtherside,
+            Self::Tongue,
+            Self::CrackIronGolem,
+            Self::RepairIronGolem,
+            Self::Listening,
+            Self::Heartbeat,
+            Self::HornBreak,
+            Self::SculkSpread,
+            Self::SculkCharge,
+            Self::SculkSensorPlace,
+            Self::SculkShriekerPlace,
+            Self::GoatCall0,
+            Self::GoatCall1,
+            Self::GoatCall2,
+            Self::GoatCall3,
+            Self::GoatCall4,
+            Self::GoatCall5,
+            Self::GoatCall6,
+            Self::GoatCall7,
+            Self::ImitateWarden,
+            Self::ListeningAngry,
+            Self::ItemGiven,
+            Self::ItemTaken,
+            Self::Disappeared,
+            Self::Reappeared,
+            Self::DrinkMilk,
+            Self::FrogspawnHatched,
+            Self::LaySpawn,
+            Self::FrogspawnBreak,
+            Self::SonicBoom,
+            Self::SonicCharge,
+            Self::ItemThrown,
+            Self::Record5,
+            Self::ConvertToFrog,
+            Self::RecordPlaying,
+            Self::EnchantingTableUse,
+            Self::StepSand,
+            Self::DashReady,
+            Self::BundleDropContents,
+            Self::BundleInsert,
+            Self::BundleRemoveOne,
+            Self::PressurePlateClickOff,
+            Self::PressurePlateClickOn,
+            Self::ButtonClickOff,
+            Self::ButtonClickOn,
+            Self::DoorOpen,
+            Self::DoorClose,
+            Self::TrapdoorOpen,
+            Self::TrapdoorClose,
+            Self::FenceGateOpen,
+            Self::FenceGateClose,
+            Self::Insert,
+            Self::Pickup,
+            Self::InsertEnchanted,
+            Self::PickupEnchanted,
+            Self::Brush,
+            Self::BrushCompleted,
+            Self::ShatterDecoratedPot,
+            Self::BreakDecoratedPot,
+            Self::SnifferEggCrack,
+            Self::SnifferEggHatched,
+            Self::WaxedSignInteractFail,
+            Self::RecordRelic,
+            Self::Bump,
+            Self::PumpkinCarve,
+            Self::ConvertHuskToZombie,
+            Self::PigDeath,
+            Self::HoglinZombified,
+            Self::AmbientUnderwaterEnter,
+            Self::AmbientUnderwaterExit,
+            Self::BottleFill,
+            Self::BottleEmpty,
+            Self::CrafterCraft,
+            Self::CrafterFail,
+            Self::DecoratedPotInsert,
+            Self::DecoratedPotInsertFail,
+            Self::CrafterDisableSlot,
+            Self::TrialSpawnerOpenShutter,
+            Self::TrialSpawnerEjectItem,
+            Self::TrialSpawnerDetectPlayer,
+            Self::TrialSpawnerSpawnMob,
+            Self::TrialSpawnerCloseShutter,
+            Self::TrialSpawnerAmbient,
+            Self::CopperBulbTurnOn,
+            Self::CopperBulbTurnOff,
+            Self::AmbientInAir,
+            Self::BreezeWindChargeBurst,
+            Self::ImitateBreeze,
+            Self::ArmadilloBrush,
+            Self::ArmadilloScuteDrop,
+            Self::EquipWolf,
+            Self::UnequipWolf,
+            Self::Reflect,
+            Self::VaultOpenShutter,
+            Self::VaultCloseShutter,
+            Self::VaultEjectItem,
+            Self::VaultInsertItem,
+            Self::VaultInsertItemFail,
+            Self::VaultAmbient,
+            Self::VaultActivate,
+            Self::VaultDeactive,
+            Self::HurtReduced,
+            Self::WindChargeBurst,
+            Self::ImitateBogged,
+            Self::WolfArmourCrack,
+            Self::WolfArmourBreak,
+            Self::WolfArmourRepair,
+            Self::MaceSmashAir,
+            Self::MaceSmashGround,
+            Self::TrialSpawnerChargeActivate,
+            Self::TrialSpawnerAmbientOminous,
+            Self::OminiousItemSpawnerSpawnItem,
+            Self::OminousBottleEndUse,
+            Self::MaceHeavySmashGround,
+            Self::OminousItemSpawnerSpawnItemBegin,
+            Self::ApplyEffectBadOmen,
+            Self::ApplyEffectRaidOmen,
+            Self::ApplyEffectTrialOmen,
+            Self::OminousItemSpawnerAboutToSpawnItem,
+            Self::RecordCreator,
+            Self::RecordCreatorMusicBox,
+            Self::RecordPrecipice,
+            Self::VaultRejectRewardedPlayer,
+            Self::ImitateDrowned,
+            Self::ImitateCreaking,
+            Self::BundleInsertFailed,
+            Self::SpongeAbsorb,
+            Self::BlockCreakingHeartTrail,
+            Self::CreakingHeartSpawn,
+            Self::Activate,
+            Self::Deactivate,
+            Self::Freeze,
+            Self::Unfreeze,
+            Self::Open,
+            Self::OpenLong,
+            Self::Close,
+            Self::CloseLong,
+            Self::ImitatePhantom,
+            Self::ImitateZoglin,
+            Self::ImitateGuardian,
+            Self::ImitateRavager,
+            Self::ImitatePillager,
+            Self::PlaceInWater,
+            Self::StateChange,
+            Self::ImitateHappyGhast,
+            Self::UniqueGeneric,
+            Self::RecordTears,
+            Self::TheEndLightFlash,
+            Self::LeadLeash,
+            Self::LeadUnleash,
+            Self::LeadBreak,
+            Self::Unsaddle,
+            Self::EquipCopper,
+            Self::RecordLavaChicken,
+            Self::PlaceItem,
+            Self::SingleItemSwap,
+            Self::MultiItemSwap,
+            Self::ItemEnchantLunge1,
+            Self::ItemEnchantLunge2,
+            Self::ItemEnchantLunge3,
+            Self::AttackCritical,
+            Self::ItemSpearAttackHit,
+            Self::ItemSpearAttackMiss,
+            Self::ItemWoodenSpearAttackHit,
+            Self::ItemWoodenSpearAttackMiss,
+            Self::ImitateParched,
+            Self::ImitateCamelHusk,
+            Self::ItemSpearUse,
+            Self::ItemWoodenSpearUse,
+            Self::SaddleInWater,
+            Self::ItemStoneSpearAttackHit,
+            Self::ItemIronSpearAttackHit,
+            Self::ItemCopperSpearAttackHit,
+            Self::ItemGoldenSpearAttackHit,
+            Self::ItemDiamondSpearAttackHit,
+            Self::ItemNetheriteSpearAttackHit,
+            Self::ItemStoneSpearAttackMiss,
+            Self::ItemIronSpearAttackMiss,
+            Self::ItemCopperSpearAttackMiss,
+            Self::ItemGoldenSpearAttackMiss,
+            Self::ItemDiamondSpearAttackMiss,
+            Self::ItemNetheriteSpearAttackMiss,
+            Self::ItemStoneSpearUse,
+            Self::ItemIronSpearUse,
+            Self::ItemCopperSpearUse,
+            Self::ItemGoldenSpearUse,
+            Self::ItemDiamondSpearUse,
+            Self::ItemNetheriteSpearUse,
+            Self::PauseGrowth,
+            Self::ResetGrowth,
+            Self::PushedByPlayer,
+            Self::Bounce,
+            Self::SlimeLanding,
+            Self::AbsorbBlock,
+            Self::EjectBlock,
+            Self::GeyserEruptionStart,
+            Self::GeyserEruptionActive,
+            Self::RecordBounce,
+            Self::BucketFillLandAnimal,
+            Self::BucketEmptyLandAnimal,
+            Self::GeyserContinuousEruptionStart,
+            Self::GeyserContinuousEruptionActive,
+            Self::Mount,
+            Self::Dismount,
+            Self::StrawBedBreakLeave,
+            Self::Undefined,
+        ]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 577] = [
         ("absorb_block", Self::AbsorbBlock),
@@ -14579,7 +14848,9 @@ pub enum MobEffectOperation {
 
 impl MobEffectOperation {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Add, Self::Modify, Self::Remove];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Add, Self::Modify, Self::Remove]
+    }
 }
 
 impl TryFrom<u8> for MobEffectOperation {
@@ -14666,35 +14937,37 @@ pub enum Effect {
 
 impl Effect {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 27] = [
-        Self::Speed,
-        Self::Slowness,
-        Self::Haste,
-        Self::MiningFatigue,
-        Self::Strength,
-        Self::InstantHealth,
-        Self::InstantDamage,
-        Self::JumpBoost,
-        Self::Nausea,
-        Self::Regeneration,
-        Self::Resistance,
-        Self::FireResistance,
-        Self::WaterBreathing,
-        Self::Invisibility,
-        Self::Blindness,
-        Self::NightVision,
-        Self::Hunger,
-        Self::Weakness,
-        Self::Poison,
-        Self::Wither,
-        Self::HealthBoost,
-        Self::Absorption,
-        Self::Saturation,
-        Self::Levitation,
-        Self::FatalPoison,
-        Self::ConduitPower,
-        Self::SlowFalling,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Speed,
+            Self::Slowness,
+            Self::Haste,
+            Self::MiningFatigue,
+            Self::Strength,
+            Self::InstantHealth,
+            Self::InstantDamage,
+            Self::JumpBoost,
+            Self::Nausea,
+            Self::Regeneration,
+            Self::Resistance,
+            Self::FireResistance,
+            Self::WaterBreathing,
+            Self::Invisibility,
+            Self::Blindness,
+            Self::NightVision,
+            Self::Hunger,
+            Self::Weakness,
+            Self::Poison,
+            Self::Wither,
+            Self::HealthBoost,
+            Self::Absorption,
+            Self::Saturation,
+            Self::Levitation,
+            Self::FatalPoison,
+            Self::ConduitPower,
+            Self::SlowFalling,
+        ]
+    }
 }
 
 impl TryFrom<i32> for Effect {
@@ -14755,7 +15028,9 @@ pub enum ModalFormCancelReason {
 
 impl ModalFormCancelReason {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::UserClosed, Self::UserBusy];
+    pub const fn all() -> &'static [Self] {
+        &[Self::UserClosed, Self::UserBusy]
+    }
 }
 
 impl TryFrom<u8> for ModalFormCancelReason {
@@ -14795,12 +15070,14 @@ pub enum MoveFlag {
 
 impl MoveFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::OnGround,
-        Self::Teleport,
-        Self::ForceMove,
-        Self::ForceCompletion,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::OnGround,
+            Self::Teleport,
+            Self::ForceMove,
+            Self::ForceCompletion,
+        ]
+    }
 }
 
 impl TryFrom<u8> for MoveFlag {
@@ -14866,7 +15143,9 @@ pub enum MoveMode {
 
 impl MoveMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Normal, Self::Reset, Self::Teleport, Self::Rotation];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Normal, Self::Reset, Self::Teleport, Self::Rotation]
+    }
 }
 
 impl TryFrom<u8> for MoveMode {
@@ -14910,13 +15189,15 @@ pub enum TeleportCause {
 
 impl TeleportCause {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Unknown,
-        Self::Projectile,
-        Self::ChorusFruit,
-        Self::Command,
-        Self::Behaviour,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Unknown,
+            Self::Projectile,
+            Self::ChorusFruit,
+            Self::Command,
+            Self::Behaviour,
+        ]
+    }
 }
 
 impl TryFrom<i32> for TeleportCause {
@@ -14961,7 +15242,9 @@ pub enum MovementEffectType {
 
 impl MovementEffectType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::GlideBoost, Self::DolphinBoost, Self::GeyserBoost];
+    pub const fn all() -> &'static [Self] {
+        &[Self::GlideBoost, Self::DolphinBoost, Self::GeyserBoost]
+    }
 }
 
 impl TryFrom<i32> for MovementEffectType {
@@ -15000,11 +15283,13 @@ pub enum MultiPlayerSettingsAction {
 
 impl MultiPlayerSettingsAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::EnableMultiPlayer,
-        Self::DisableMultiPlayer,
-        Self::RefreshJoinCode,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::EnableMultiPlayer,
+            Self::DisableMultiPlayer,
+            Self::RefreshJoinCode,
+        ]
+    }
 }
 
 impl TryFrom<i32> for MultiPlayerSettingsAction {
@@ -15043,7 +15328,9 @@ pub enum CompressionAlgorithm {
 
 impl CompressionAlgorithm {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Flate, Self::Snappy, Self::None];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Flate, Self::Snappy, Self::None]
+    }
 }
 
 impl TryFrom<u16> for CompressionAlgorithm {
@@ -15080,7 +15367,9 @@ pub enum NpcDialogueAction {
 
 impl NpcDialogueAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Open, Self::Close];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Open, Self::Close]
+    }
 }
 
 impl TryFrom<i32> for NpcDialogueAction {
@@ -15126,15 +15415,17 @@ pub enum NpcRequestAction {
 
 impl NpcRequestAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::SetActions,
-        Self::ExecuteAction,
-        Self::ExecuteClosingCommands,
-        Self::SetName,
-        Self::SetSkin,
-        Self::SetInteractText,
-        Self::ExecuteOpeningCommands,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SetActions,
+            Self::ExecuteAction,
+            Self::ExecuteClosingCommands,
+            Self::SetName,
+            Self::SetSkin,
+            Self::SetInteractText,
+            Self::ExecuteOpeningCommands,
+        ]
+    }
 }
 
 impl TryFrom<u8> for NpcRequestAction {
@@ -15173,7 +15464,9 @@ pub enum ViolationType {
 
 impl ViolationType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 1] = [Self::Malformed];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Malformed]
+    }
 }
 
 impl TryFrom<i32> for ViolationType {
@@ -15210,11 +15503,13 @@ pub enum ViolationSeverity {
 
 impl ViolationSeverity {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::Warning,
-        Self::FinalWarning,
-        Self::TerminatingConnection,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Warning,
+            Self::FinalWarning,
+            Self::TerminatingConnection,
+        ]
+    }
 }
 
 impl TryFrom<i32> for ViolationSeverity {
@@ -15253,7 +15548,9 @@ pub enum PhotoType {
 
 impl PhotoType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Portfolio, Self::PhotoItem, Self::Book];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Portfolio, Self::PhotoItem, Self::Book]
+    }
 }
 
 impl TryFrom<u8> for PhotoType {
@@ -15306,18 +15603,20 @@ pub enum PlayStatus {
 
 impl PlayStatus {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 10] = [
-        Self::LoginSuccess,
-        Self::LoginFailedClient,
-        Self::LoginFailedServer,
-        Self::PlayerSpawn,
-        Self::LoginFailedInvalidTenant,
-        Self::LoginFailedVanillaEdu,
-        Self::LoginFailedEduVanilla,
-        Self::LoginFailedServerFull,
-        Self::LoginFailedEditorVanilla,
-        Self::LoginFailedVanillaEditor,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::LoginSuccess,
+            Self::LoginFailedClient,
+            Self::LoginFailedServer,
+            Self::PlayerSpawn,
+            Self::LoginFailedInvalidTenant,
+            Self::LoginFailedVanillaEdu,
+            Self::LoginFailedEduVanilla,
+            Self::LoginFailedServerFull,
+            Self::LoginFailedEditorVanilla,
+            Self::LoginFailedVanillaEditor,
+        ]
+    }
 }
 
 impl TryFrom<i32> for PlayStatus {
@@ -15367,13 +15666,15 @@ pub enum PlayerArmourDamageFlag {
 
 impl PlayerArmourDamageFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Helmet,
-        Self::Chestplate,
-        Self::Leggings,
-        Self::Boots,
-        Self::Body,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Helmet,
+            Self::Chestplate,
+            Self::Leggings,
+            Self::Boots,
+            Self::Body,
+        ]
+    }
 }
 
 impl TryFrom<u8> for PlayerArmourDamageFlag {
@@ -15566,74 +15867,76 @@ pub enum InputFlag {
 
 impl InputFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 66] = [
-        Self::Ascend,
-        Self::Descend,
-        Self::NorthJump,
-        Self::JumpDown,
-        Self::SprintDown,
-        Self::ChangeHeight,
-        Self::Jumping,
-        Self::AutoJumpingInWater,
-        Self::Sneaking,
-        Self::SneakDown,
-        Self::Up,
-        Self::Down,
-        Self::Left,
-        Self::Right,
-        Self::UpLeft,
-        Self::UpRight,
-        Self::WantUp,
-        Self::WantDown,
-        Self::WantDownSlow,
-        Self::WantUpSlow,
-        Self::Sprinting,
-        Self::AscendBlock,
-        Self::DescendBlock,
-        Self::SneakToggleDown,
-        Self::PersistSneak,
-        Self::StartSprinting,
-        Self::StopSprinting,
-        Self::StartSneaking,
-        Self::StopSneaking,
-        Self::StartSwimming,
-        Self::StopSwimming,
-        Self::StartJumping,
-        Self::StartGliding,
-        Self::StopGliding,
-        Self::PerformItemInteraction,
-        Self::PerformBlockActions,
-        Self::PerformItemStackRequest,
-        Self::HandledTeleport,
-        Self::Emoting,
-        Self::MissedSwing,
-        Self::StartCrawling,
-        Self::StopCrawling,
-        Self::StartFlying,
-        Self::StopFlying,
-        Self::ClientAckServerData,
-        Self::ClientPredictedVehicle,
-        Self::PaddlingLeft,
-        Self::PaddlingRight,
-        Self::BlockBreakingDelayEnabled,
-        Self::HorizontalCollision,
-        Self::VerticalCollision,
-        Self::DownLeft,
-        Self::DownRight,
-        Self::StartUsingItem,
-        Self::CameraRelativeMovementEnabled,
-        Self::RotControlledByMoveDirection,
-        Self::StartSpinAttack,
-        Self::StopSpinAttack,
-        Self::IsHotbarTouchOnly,
-        Self::JumpReleasedRaw,
-        Self::JumpPressedRaw,
-        Self::JumpCurrentRaw,
-        Self::SneakReleasedRaw,
-        Self::SneakPressedRaw,
-        Self::SneakCurrentRaw,
-        Self::InternalUpdate,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Ascend,
+            Self::Descend,
+            Self::NorthJump,
+            Self::JumpDown,
+            Self::SprintDown,
+            Self::ChangeHeight,
+            Self::Jumping,
+            Self::AutoJumpingInWater,
+            Self::Sneaking,
+            Self::SneakDown,
+            Self::Up,
+            Self::Down,
+            Self::Left,
+            Self::Right,
+            Self::UpLeft,
+            Self::UpRight,
+            Self::WantUp,
+            Self::WantDown,
+            Self::WantDownSlow,
+            Self::WantUpSlow,
+            Self::Sprinting,
+            Self::AscendBlock,
+            Self::DescendBlock,
+            Self::SneakToggleDown,
+            Self::PersistSneak,
+            Self::StartSprinting,
+            Self::StopSprinting,
+            Self::StartSneaking,
+            Self::StopSneaking,
+            Self::StartSwimming,
+            Self::StopSwimming,
+            Self::StartJumping,
+            Self::StartGliding,
+            Self::StopGliding,
+            Self::PerformItemInteraction,
+            Self::PerformBlockActions,
+            Self::PerformItemStackRequest,
+            Self::HandledTeleport,
+            Self::Emoting,
+            Self::MissedSwing,
+            Self::StartCrawling,
+            Self::StopCrawling,
+            Self::StartFlying,
+            Self::StopFlying,
+            Self::ClientAckServerData,
+            Self::ClientPredictedVehicle,
+            Self::PaddlingLeft,
+            Self::PaddlingRight,
+            Self::BlockBreakingDelayEnabled,
+            Self::HorizontalCollision,
+            Self::VerticalCollision,
+            Self::DownLeft,
+            Self::DownRight,
+            Self::StartUsingItem,
+            Self::CameraRelativeMovementEnabled,
+            Self::RotControlledByMoveDirection,
+            Self::StartSpinAttack,
+            Self::StopSpinAttack,
+            Self::IsHotbarTouchOnly,
+            Self::JumpReleasedRaw,
+            Self::JumpPressedRaw,
+            Self::JumpCurrentRaw,
+            Self::SneakReleasedRaw,
+            Self::SneakPressedRaw,
+            Self::SneakCurrentRaw,
+            Self::InternalUpdate,
+        ]
+    }
 }
 
 impl TryFrom<u32> for InputFlag {
@@ -15887,13 +16190,15 @@ pub enum InputMode {
 
 impl InputMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Undefined,
-        Self::Mouse,
-        Self::Touch,
-        Self::GamePad,
-        Self::MotionController,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Undefined,
+            Self::Mouse,
+            Self::Touch,
+            Self::GamePad,
+            Self::MotionController,
+        ]
+    }
     /// gophertunnel `InputModeCount`: one past the last value.
     pub const COUNT: u32 = 5;
 }
@@ -15948,17 +16253,19 @@ pub enum PlayMode {
 
 impl PlayMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Normal,
-        Self::Teaser,
-        Self::Screen,
-        Self::Viewer,
-        Self::Reality,
-        Self::Placement,
-        Self::LivingRoom,
-        Self::ExitLevel,
-        Self::ExitLevelLivingRoom,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Normal,
+            Self::Teaser,
+            Self::Screen,
+            Self::Viewer,
+            Self::Reality,
+            Self::Placement,
+            Self::LivingRoom,
+            Self::ExitLevel,
+            Self::ExitLevelLivingRoom,
+        ]
+    }
     /// gophertunnel `PlayModeNumModes`: one past the last value.
     pub const NUM_MODES: u32 = 9;
 }
@@ -16005,7 +16312,9 @@ pub enum InteractionModel {
 
 impl InteractionModel {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Touch, Self::Crosshair, Self::Classic];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Touch, Self::Crosshair, Self::Classic]
+    }
     /// gophertunnel `InteractionModelCount`: one past the last value.
     pub const COUNT: i32 = 3;
 }
@@ -16044,7 +16353,9 @@ pub enum PlayerLocationType {
 
 impl PlayerLocationType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Coordinates, Self::Hide];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Coordinates, Self::Hide]
+    }
 }
 
 impl TryFrom<i32> for PlayerLocationType {
@@ -16084,7 +16395,9 @@ pub enum PlayerUpdateEntityOverridesType {
 
 impl PlayerUpdateEntityOverridesType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::ClearAll, Self::Remove, Self::Int, Self::Float];
+    pub const fn all() -> &'static [Self] {
+        &[Self::ClearAll, Self::Remove, Self::Int, Self::Float]
+    }
 }
 
 impl TryFrom<u32> for PlayerUpdateEntityOverridesType {
@@ -16122,7 +16435,9 @@ pub enum PlayerVideoCaptureAction {
 
 impl PlayerVideoCaptureAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Stop, Self::Start];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Stop, Self::Start]
+    }
 }
 
 impl TryFrom<u8> for PlayerVideoCaptureAction {
@@ -16156,7 +16471,9 @@ pub enum PositionTrackingDbRequestAction {
 
 impl PositionTrackingDbRequestAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 1] = [Self::Query];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Query]
+    }
 }
 
 impl TryFrom<u8> for PositionTrackingDbRequestAction {
@@ -16193,7 +16510,9 @@ pub enum PositionTrackingDbBroadcastAction {
 
 impl PositionTrackingDbBroadcastAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Update, Self::Destroy, Self::NotFound];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Update, Self::Destroy, Self::NotFound]
+    }
 }
 
 impl TryFrom<u8> for PositionTrackingDbBroadcastAction {
@@ -16234,12 +16553,14 @@ pub enum PackResponse {
 
 impl PackResponse {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::Refused,
-        Self::SendPacks,
-        Self::AllPacksDownloaded,
-        Self::Completed,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Refused,
+            Self::SendPacks,
+            Self::AllPacksDownloaded,
+            Self::Completed,
+        ]
+    }
 }
 
 impl TryFrom<u32> for PackResponse {
@@ -16289,16 +16610,18 @@ pub enum ResourcePackType {
 
 impl ResourcePackType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 8] = [
-        Self::Addon,
-        Self::Cached,
-        Self::CopyProtected,
-        Self::Behaviour,
-        Self::PersonaPiece,
-        Self::Resources,
-        Self::Skins,
-        Self::WorldTemplate,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Addon,
+            Self::Cached,
+            Self::CopyProtected,
+            Self::Behaviour,
+            Self::PersonaPiece,
+            Self::Resources,
+            Self::Skins,
+            Self::WorldTemplate,
+        ]
+    }
 }
 
 impl TryFrom<u8> for ResourcePackType {
@@ -16346,11 +16669,13 @@ pub enum RespawnState {
 
 impl RespawnState {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::SearchingForSpawn,
-        Self::ReadyToSpawn,
-        Self::ClientReadyToSpawn,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::SearchingForSpawn,
+            Self::ReadyToSpawn,
+            Self::ClientReadyToSpawn,
+        ]
+    }
 }
 
 impl TryFrom<u8> for RespawnState {
@@ -16388,7 +16713,10 @@ pub enum PartyDestinationCookieIntent {
 
 impl PartyDestinationCookieIntent {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Notify, Self::OptIn, Self::OptOut];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Notify, Self::OptIn, Self::OptOut]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 3] = [
         ("Notify", Self::Notify),
@@ -16436,7 +16764,9 @@ pub enum LoadingScreenType {
 
 impl LoadingScreenType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Unknown, Self::Start, Self::End];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Unknown, Self::Start, Self::End]
+    }
 }
 
 impl TryFrom<i32> for LoadingScreenType {
@@ -16478,13 +16808,16 @@ pub enum DataDrivenScreenCloseReason {
 
 impl DataDrivenScreenCloseReason {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::ProgrammaticClose,
-        Self::ProgrammaticCloseAll,
-        Self::ClientCanceled,
-        Self::UserBusy,
-        Self::InvalidForm,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ProgrammaticClose,
+            Self::ProgrammaticCloseAll,
+            Self::ClientCanceled,
+            Self::UserBusy,
+            Self::InvalidForm,
+        ]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 5] = [
         ("clientcanceled", Self::ClientCanceled),
@@ -16534,7 +16867,9 @@ pub enum ScoreboardSortOrder {
 
 impl ScoreboardSortOrder {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Ascending, Self::Descending];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Ascending, Self::Descending]
+    }
 }
 
 impl TryFrom<i32> for ScoreboardSortOrder {
@@ -16571,7 +16906,10 @@ pub enum ScoreboardSlot {
 
 impl ScoreboardSlot {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::List, Self::Sidebar, Self::BelowName];
+    pub const fn all() -> &'static [Self] {
+        &[Self::List, Self::Sidebar, Self::BelowName]
+    }
+
     /// The values by string, in byte order for binary search.
     const BY_STR: [(&'static str, Self); 3] = [
         ("belowname", Self::BelowName),
@@ -16639,21 +16977,23 @@ pub enum HudElement {
 
 impl HudElement {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 13] = [
-        Self::PaperDoll,
-        Self::Armour,
-        Self::ToolTips,
-        Self::TouchControls,
-        Self::Crosshair,
-        Self::HotBar,
-        Self::Health,
-        Self::ProgressBar,
-        Self::Hunger,
-        Self::AirBubbles,
-        Self::HorseHealth,
-        Self::StatusEffects,
-        Self::ItemText,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::PaperDoll,
+            Self::Armour,
+            Self::ToolTips,
+            Self::TouchControls,
+            Self::Crosshair,
+            Self::HotBar,
+            Self::Health,
+            Self::ProgressBar,
+            Self::Hunger,
+            Self::AirBubbles,
+            Self::HorseHealth,
+            Self::StatusEffects,
+            Self::ItemText,
+        ]
+    }
 }
 
 impl TryFrom<i32> for HudElement {
@@ -16700,7 +17040,9 @@ pub enum HudVisibility {
 
 impl HudVisibility {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Hide, Self::Reset];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Hide, Self::Reset]
+    }
 }
 
 impl TryFrom<i32> for HudVisibility {
@@ -16740,7 +17082,9 @@ pub enum FurnaceType {
 
 impl FurnaceType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::Furnace, Self::BlastFurnace, Self::Smoker];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Furnace, Self::BlastFurnace, Self::Smoker]
+    }
 }
 
 impl TryFrom<u8> for FurnaceType {
@@ -16784,13 +17128,15 @@ pub enum GameType {
 
 impl GameType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Survival,
-        Self::Creative,
-        Self::Adventure,
-        Self::Default,
-        Self::Spectator,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Survival,
+            Self::Creative,
+            Self::Adventure,
+            Self::Default,
+            Self::Spectator,
+        ]
+    }
 }
 
 impl TryFrom<i32> for GameType {
@@ -16833,12 +17179,14 @@ pub enum InventoryLayout {
 
 impl InventoryLayout {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::None,
-        Self::InventoryOnly,
-        Self::Default,
-        Self::RecipeBookOnly,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::InventoryOnly,
+            Self::Default,
+            Self::RecipeBookOnly,
+        ]
+    }
 }
 
 impl TryFrom<i32> for InventoryLayout {
@@ -16886,15 +17234,17 @@ pub enum InventoryLeftTab {
 
 impl InventoryLeftTab {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 7] = [
-        Self::None,
-        Self::Construction,
-        Self::Equipment,
-        Self::Items,
-        Self::Nature,
-        Self::Search,
-        Self::Survival,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::Construction,
+            Self::Equipment,
+            Self::Items,
+            Self::Nature,
+            Self::Search,
+            Self::Survival,
+        ]
+    }
 }
 
 impl TryFrom<i32> for InventoryLeftTab {
@@ -16939,7 +17289,9 @@ pub enum InventoryRightTab {
 
 impl InventoryRightTab {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::None, Self::FullScreen, Self::Crafting, Self::Armour];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::FullScreen, Self::Crafting, Self::Armour]
+    }
 }
 
 impl TryFrom<i32> for InventoryRightTab {
@@ -16977,7 +17329,9 @@ pub enum ScoreboardIdentityAction {
 
 impl ScoreboardIdentityAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Register, Self::Clear];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Register, Self::Clear]
+    }
 }
 
 impl TryFrom<u8> for ScoreboardIdentityAction {
@@ -17013,7 +17367,9 @@ pub enum SpawnType {
 
 impl SpawnType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Player, Self::World];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Player, Self::World]
+    }
 }
 
 impl TryFrom<i32> for SpawnType {
@@ -17063,17 +17419,19 @@ pub enum TitleAction {
 
 impl TitleAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 9] = [
-        Self::Clear,
-        Self::Reset,
-        Self::SetTitle,
-        Self::SetSubtitle,
-        Self::SetActionBar,
-        Self::SetDurations,
-        Self::TitleTextObject,
-        Self::SubtitleTextObject,
-        Self::ActionbarTextObject,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Clear,
+            Self::Reset,
+            Self::SetTitle,
+            Self::SetSubtitle,
+            Self::SetActionBar,
+            Self::SetDurations,
+            Self::TitleTextObject,
+            Self::SubtitleTextObject,
+            Self::ActionbarTextObject,
+        ]
+    }
 }
 
 impl TryFrom<i32> for TitleAction {
@@ -17116,7 +17474,9 @@ pub enum ShowCreditsStatus {
 
 impl ShowCreditsStatus {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Start, Self::End];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Start, Self::End]
+    }
 }
 
 impl TryFrom<i32> for ShowCreditsStatus {
@@ -17154,7 +17514,9 @@ pub enum StoreOfferType {
 
 impl StoreOfferType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Marketplace, Self::DressingRoom, Self::ServerPage];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Marketplace, Self::DressingRoom, Self::ServerPage]
+    }
 }
 
 impl TryFrom<u8> for StoreOfferType {
@@ -17193,11 +17555,13 @@ pub enum SimpleEvent {
 
 impl SimpleEvent {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::CommandsEnabled,
-        Self::CommandsDisabled,
-        Self::UnlockWorldTemplateSettings,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::CommandsEnabled,
+            Self::CommandsDisabled,
+            Self::UnlockWorldTemplateSettings,
+        ]
+    }
 }
 
 impl TryFrom<u16> for SimpleEvent {
@@ -17238,7 +17602,9 @@ pub enum SimulationType {
 
 impl SimulationType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Game, Self::Editor, Self::Test, Self::Invalid];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Game, Self::Editor, Self::Test, Self::Invalid]
+    }
 }
 
 impl TryFrom<u8> for SimulationType {
@@ -17276,7 +17642,9 @@ pub enum SpawnBiomeType {
 
 impl SpawnBiomeType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Default, Self::UserDefined];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Default, Self::UserDefined]
+    }
 }
 
 impl TryFrom<i16> for SpawnBiomeType {
@@ -17318,13 +17686,15 @@ pub enum XblBroadcastMode {
 
 impl XblBroadcastMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::NoMultiPlay,
-        Self::InviteOnly,
-        Self::FriendsOnly,
-        Self::FriendsOfFriends,
-        Self::Public,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::NoMultiPlay,
+            Self::InviteOnly,
+            Self::FriendsOnly,
+            Self::FriendsOfFriends,
+            Self::Public,
+        ]
+    }
 }
 
 impl TryFrom<i32> for XblBroadcastMode {
@@ -17365,7 +17735,9 @@ pub enum ChatRestrictionLevel {
 
 impl ChatRestrictionLevel {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::None, Self::Dropped, Self::Disabled];
+    pub const fn all() -> &'static [Self] {
+        &[Self::None, Self::Dropped, Self::Disabled]
+    }
 }
 
 impl TryFrom<u8> for ChatRestrictionLevel {
@@ -17406,12 +17778,14 @@ pub enum EditorWorldType {
 
 impl EditorWorldType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::NotEditor,
-        Self::Project,
-        Self::TestLevel,
-        Self::RealmsUpload,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::NotEditor,
+            Self::Project,
+            Self::TestLevel,
+            Self::RealmsUpload,
+        ]
+    }
 }
 
 impl TryFrom<i32> for EditorWorldType {
@@ -17449,7 +17823,9 @@ pub enum EditorLevelMigrationVersion {
 
 impl EditorLevelMigrationVersion {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Legacy, Self::EditorAchievements];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Legacy, Self::EditorAchievements]
+    }
 }
 
 impl TryFrom<i8> for EditorLevelMigrationVersion {
@@ -17493,14 +17869,16 @@ pub enum StructureBlockType {
 
 impl StructureBlockType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 6] = [
-        Self::Data,
-        Self::Save,
-        Self::Load,
-        Self::Corner,
-        Self::Invalid,
-        Self::Export,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Data,
+            Self::Save,
+            Self::Load,
+            Self::Corner,
+            Self::Invalid,
+            Self::Export,
+        ]
+    }
 }
 
 impl TryFrom<i32> for StructureBlockType {
@@ -17540,7 +17918,9 @@ pub enum StructureRedstoneSaveMode {
 
 impl StructureRedstoneSaveMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Memory, Self::Disk];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Memory, Self::Disk]
+    }
 }
 
 impl TryFrom<u8> for StructureRedstoneSaveMode {
@@ -17578,11 +17958,13 @@ pub enum StructureTemplateRequestType {
 
 impl StructureTemplateRequestType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::ExportFromSave,
-        Self::ExportFromLoad,
-        Self::QuerySavedStructure,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::ExportFromSave,
+            Self::ExportFromLoad,
+            Self::QuerySavedStructure,
+        ]
+    }
 }
 
 impl TryFrom<u8> for StructureTemplateRequestType {
@@ -17619,7 +18001,9 @@ pub enum StructureTemplateResponseType {
 
 impl StructureTemplateResponseType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::Export, Self::Query];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Export, Self::Query]
+    }
 }
 
 impl TryFrom<u8> for StructureTemplateResponseType {
@@ -17675,20 +18059,22 @@ pub enum TextType {
 
 impl TextType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 12] = [
-        Self::Raw,
-        Self::Chat,
-        Self::Translation,
-        Self::Popup,
-        Self::JukeboxPopup,
-        Self::Tip,
-        Self::System,
-        Self::Whisper,
-        Self::Announcement,
-        Self::ObjectWhisper,
-        Self::Object,
-        Self::ObjectAnnouncement,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Raw,
+            Self::Chat,
+            Self::Translation,
+            Self::Popup,
+            Self::JukeboxPopup,
+            Self::Tip,
+            Self::System,
+            Self::Whisper,
+            Self::Announcement,
+            Self::ObjectWhisper,
+            Self::Object,
+            Self::ObjectAnnouncement,
+        ]
+    }
 }
 
 impl TryFrom<u8> for TextType {
@@ -17736,11 +18122,13 @@ pub enum TextCategory {
 
 impl TextCategory {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [
-        Self::MessageOnly,
-        Self::AuthoredMessage,
-        Self::MessageWithParameters,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::MessageOnly,
+            Self::AuthoredMessage,
+            Self::MessageWithParameters,
+        ]
+    }
 }
 
 impl TryFrom<i32> for TextCategory {
@@ -17783,13 +18171,15 @@ pub enum UnlockedRecipesType {
 
 impl UnlockedRecipesType {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 5] = [
-        Self::Empty,
-        Self::InitiallyUnlocked,
-        Self::NewlyUnlocked,
-        Self::RemoveUnlocked,
-        Self::RemoveAllUnlocked,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Empty,
+            Self::InitiallyUnlocked,
+            Self::NewlyUnlocked,
+            Self::RemoveUnlocked,
+            Self::RemoveAllUnlocked,
+        ]
+    }
 }
 
 impl TryFrom<u32> for UnlockedRecipesType {
@@ -17832,12 +18222,14 @@ pub enum BlockUpdateFlag {
 
 impl BlockUpdateFlag {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [
-        Self::Neighbours,
-        Self::Network,
-        Self::NoGraphics,
-        Self::Priority,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Neighbours,
+            Self::Network,
+            Self::NoGraphics,
+            Self::Priority,
+        ]
+    }
 }
 
 impl TryFrom<u32> for BlockUpdateFlag {
@@ -17899,7 +18291,9 @@ pub enum BlockSyncedTransition {
 
 impl BlockSyncedTransition {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 2] = [Self::BlockToEntityTransition, Self::EntityToBlockTransition];
+    pub const fn all() -> &'static [Self] {
+        &[Self::BlockToEntityTransition, Self::EntityToBlockTransition]
+    }
 }
 
 impl TryFrom<u64> for BlockSyncedTransition {
@@ -17953,19 +18347,21 @@ pub enum ClientInputLock {
 
 impl ClientInputLock {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 11] = [
-        Self::Camera,
-        Self::Movement,
-        Self::LateralMovement,
-        Self::Sneak,
-        Self::Jump,
-        Self::Mount,
-        Self::Dismount,
-        Self::MoveForward,
-        Self::MoveBackward,
-        Self::MoveLeft,
-        Self::MoveRight,
-    ];
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Camera,
+            Self::Movement,
+            Self::LateralMovement,
+            Self::Sneak,
+            Self::Jump,
+            Self::Mount,
+            Self::Dismount,
+            Self::MoveForward,
+            Self::MoveBackward,
+            Self::MoveLeft,
+            Self::MoveRight,
+        ]
+    }
 }
 
 impl TryFrom<u32> for ClientInputLock {
@@ -18052,7 +18448,9 @@ pub enum GraphicsMode {
 
 impl GraphicsMode {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 4] = [Self::Simple, Self::Fancy, Self::Advanced, Self::RayTraced];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Simple, Self::Fancy, Self::Advanced, Self::RayTraced]
+    }
 }
 
 impl TryFrom<u8> for GraphicsMode {
@@ -18092,7 +18490,9 @@ pub enum SoftEnumAction {
 
 impl SoftEnumAction {
     /// Every value, in gophertunnel's order.
-    pub const ALL: [Self; 3] = [Self::Add, Self::Remove, Self::Set];
+    pub const fn all() -> &'static [Self] {
+        &[Self::Add, Self::Remove, Self::Set]
+    }
 }
 
 impl TryFrom<u8> for SoftEnumAction {
@@ -18524,7 +18924,10 @@ mod tests {
                 "protocol.AbilityPrivilegedBuilder",
                 "protocol.AbilityVerticalFlySpeed",
             ],
-            &Ability::ALL.map(|x| i128::from(u32::from(x))),
+            &Ability::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -18541,7 +18944,10 @@ mod tests {
                 "protocol.AbilityLayerTypeEditor",
                 "protocol.AbilityLayerTypeLoadingScreen",
             ],
-            &AbilityLayerType::ALL.map(|x| i128::from(u16::from(x))),
+            &AbilityLayerType::all()
+                .iter()
+                .map(|&x| i128::from(u16::from(x)))
+                .collect::<Vec<_>>(),
             16,
         );
         v.push((
@@ -18564,7 +18970,10 @@ mod tests {
                 "protocol.AttributeModifierOperationMultiplyTotal",
                 "protocol.AttributeModifierOperationCap",
             ],
-            &AttributeModifierOperation::ALL.map(|x| i128::from(i32::from(x))),
+            &AttributeModifierOperation::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18574,7 +18983,10 @@ mod tests {
                 "protocol.AttributeModifierOperandMax",
                 "protocol.AttributeModifierOperandCurrent",
             ],
-            &AttributeModifierOperand::ALL.map(|x| i128::from(i32::from(x))),
+            &AttributeModifierOperand::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18585,7 +18997,10 @@ mod tests {
                 "protocol.AttributeLayerPayloadTypeUpdateEnvironment",
                 "protocol.AttributeLayerPayloadTypeRemoveEnvironment",
             ],
-            &AttributeLayerPayloadType::ALL.map(|x| i128::from(u32::from(x))),
+            &AttributeLayerPayloadType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -18595,7 +19010,10 @@ mod tests {
                 "protocol.EnvironmentAttributePayloadTypeTransition",
                 "protocol.EnvironmentAttributePayloadTypeNoiseTransition",
             ],
-            &EnvironmentAttributePayloadType::ALL.map(|x| i128::from(u32::from(x))),
+            &EnvironmentAttributePayloadType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -18605,7 +19023,10 @@ mod tests {
                 "protocol.AttributeDataTypeFloat",
                 "protocol.AttributeDataTypeColour",
             ],
-            &AttributeDataType::ALL.map(|x| i128::from(u32::from(x))),
+            &AttributeDataType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -18620,7 +19041,10 @@ mod tests {
                 "protocol.AttributeBoolOperationXor",
                 "protocol.AttributeBoolOperationXnor",
             ],
-            &AttributeBoolOperation::ALL.map(|x| i128::from(i32::from(x))),
+            &AttributeBoolOperation::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18634,7 +19058,10 @@ mod tests {
                 "protocol.AttributeFloatOperationMinimum",
                 "protocol.AttributeFloatOperationMaximum",
             ],
-            &AttributeFloatOperation::ALL.map(|x| i128::from(i32::from(x))),
+            &AttributeFloatOperation::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18646,13 +19073,19 @@ mod tests {
                 "protocol.AttributeColourOperationSubtract",
                 "protocol.AttributeColourOperationMultiply",
             ],
-            &AttributeColourOperation::ALL.map(|x| i128::from(i32::from(x))),
+            &AttributeColourOperation::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
             &mut v,
             &["protocol.NoiseAlignmentTypeMinLocalTransitionEnd"],
-            &NoiseAlignmentType::ALL.map(|x| i128::from(u8::from(x))),
+            &NoiseAlignmentType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -18769,7 +19202,10 @@ mod tests {
                 "protocol.BiomeExpressionEaseOutElastic",
                 "protocol.BiomeExpressionEaseInOutElastic",
             ],
-            &BiomeExpressionOp::ALL.map(|x| i128::from(i32::from(x))),
+            &BiomeExpressionOp::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         v.push((
@@ -18786,7 +19222,10 @@ mod tests {
                 "protocol.BiomeCoordinateEvaluationOrderZXY",
                 "protocol.BiomeCoordinateEvaluationOrderZYX",
             ],
-            &BiomeCoordinateEvaluationOrder::ALL.map(|x| i128::from(i32::from(x))),
+            &BiomeCoordinateEvaluationOrder::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18800,7 +19239,10 @@ mod tests {
                 "protocol.BiomeRandomDistributionTypeJitteredGrid",
                 "protocol.BiomeRandomDistributionTypeTriangle",
             ],
-            &BiomeRandomDistributionType::ALL.map(|x| i128::from(i32::from(x))),
+            &BiomeRandomDistributionType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18809,7 +19251,10 @@ mod tests {
                 "protocol.AimAssistTargetModeAngle",
                 "protocol.AimAssistTargetModeDistance",
             ],
-            &AimAssistTargetMode::ALL.map(|x| i128::from(i32::from(x))),
+            &AimAssistTargetMode::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -18818,7 +19263,10 @@ mod tests {
                 "protocol.AudioListenerCamera",
                 "protocol.AudioListenerPlayer",
             ],
-            &AudioListener::ALL.map(|x| i128::from(u8::from(x))),
+            &AudioListener::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         strs(
@@ -18827,7 +19275,10 @@ mod tests {
                 "protocol.AudioContentPlaybackTypeMusic",
                 "protocol.AudioContentPlaybackTypeSound",
             ],
-            &AudioContentPlaybackType::ALL.map(AudioContentPlaybackType::as_str),
+            &AudioContentPlaybackType::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -18866,13 +19317,19 @@ mod tests {
                 "protocol.EasingTypeInOutElastic",
                 "protocol.EasingTypeInverseLerp",
             ],
-            &EasingType::ALL.map(|x| i128::from(i32::from(x))),
+            &EasingType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         strs(
             &mut v,
             &["protocol.SplineTypeCatmullRom", "protocol.SplineTypeLinear"],
-            &SplineType::ALL.map(SplineType::as_str),
+            &SplineType::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -18882,7 +19339,10 @@ mod tests {
                 "protocol.ClockPayloadTypeAddTimeMarker",
                 "protocol.ClockPayloadTypeRemoveTimeMarker",
             ],
-            &ClockPayloadType::ALL.map(|x| i128::from(u32::from(x))),
+            &ClockPayloadType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -18895,7 +19355,10 @@ mod tests {
                 "protocol.CommandPermissionLevelOwner",
                 "protocol.CommandPermissionLevelInternal",
             ],
-            &CommandPermissionLevel::ALL.map(|x| i128::from(u8::from(x))),
+            &CommandPermissionLevel::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -18906,7 +19369,10 @@ mod tests {
                 "protocol.CommandArgSuffixed",
                 "protocol.CommandArgSoftEnum",
             ],
-            &CommandArg::ALL.map(|x| i128::from(u32::from(x))),
+            &CommandArg::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19005,7 +19471,10 @@ mod tests {
                 "protocol.CommandArgTypeCodeBuilderSelector",
                 "protocol.CommandArgTypeChainedCommand",
             ],
-            &CommandArgType::ALL.map(|x| i128::from(u32::from(x))),
+            &CommandArgType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19015,7 +19484,10 @@ mod tests {
                 "protocol.ParamOptionHasSemanticConstraint",
                 "protocol.ParamOptionAsChainedCommand",
             ],
-            &ParamOption::ALL.map(|x| i128::from(u8::from(x))),
+            &ParamOption::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19025,7 +19497,10 @@ mod tests {
                 "protocol.CommandEnumConstraintOperatorPermissions",
                 "protocol.CommandEnumConstraintHostPermissions",
             ],
-            &CommandEnumConstraint::ALL.map(|x| i128::from(u8::from(x))),
+            &CommandEnumConstraint::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19048,7 +19523,10 @@ mod tests {
                 "protocol.CommandOriginScript",
                 "protocol.CommandOriginExecutor",
             ],
-            &CommandOrigin::ALL.map(|x| i128::from(u32::from(x))),
+            &CommandOrigin::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19126,7 +19604,10 @@ mod tests {
                 "protocol.ContainerReservedC",
                 "protocol.ContainerReservedD",
             ],
-            &ContainerId::ALL.map(|x| i128::from(u8::from(x))),
+            &ContainerId::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19171,7 +19652,10 @@ mod tests {
                 "protocol.ContainerTypeDecoratedPot",
                 "protocol.ContainerTypeCrafter",
             ],
-            &ContainerType::ALL.map(|x| i128::from(u8::from(x))),
+            &ContainerType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19185,7 +19669,10 @@ mod tests {
                 "protocol.CreativeCategoryItemCommandOnly",
                 "protocol.CreativeCategoryUndefined",
             ],
-            &CreativeCategory::ALL.map(|x| i128::from(u8::from(x))),
+            &CreativeCategory::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19195,7 +19682,10 @@ mod tests {
                 "protocol.DataStoreChangeTypeChange",
                 "protocol.DataStoreChangeTypeRemoval",
             ],
-            &DataStoreChangeType::ALL.map(|x| i128::from(u32::from(x))),
+            &DataStoreChangeType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19205,7 +19695,10 @@ mod tests {
                 "protocol.DataStoreControlBoolean",
                 "protocol.DataStoreControlString",
             ],
-            &DataStoreControl::ALL.map(|x| i128::from(u32::from(x))),
+            &DataStoreControl::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19219,7 +19712,10 @@ mod tests {
                 "protocol.DataStorePropertyTypeList",
                 "protocol.DataStorePropertyTypeMap",
             ],
-            &DataStorePropertyType::ALL.map(|x| i128::from(i32::from(x))),
+            &DataStorePropertyType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19229,7 +19725,10 @@ mod tests {
                 "protocol.EntityLinkRider",
                 "protocol.EntityLinkPassenger",
             ],
-            &EntityLink::ALL.map(|x| i128::from(u8::from(x))),
+            &EntityLink::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19239,7 +19738,10 @@ mod tests {
                 "protocol.PassengerOfBlockEmoteRiding",
                 "protocol.PassengerOfBlockEmoteLaying",
             ],
-            &PassengerOfBlockEmote::ALL.map(|x| i128::from(u8::from(x))),
+            &PassengerOfBlockEmote::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19388,7 +19890,10 @@ mod tests {
                 "protocol.EntityDataKeyNameplateRenderDistanceMax",
                 "protocol.EntityDataKeyReserved141",
             ],
-            &EntityDataKey::ALL.map(|x| i128::from(u32::from(x))),
+            &EntityDataKey::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -19563,7 +20068,10 @@ mod tests {
                 "protocol.EntityDataFlagNameplateDepthTested",
                 "protocol.EntityDataFlagNotPickableFromInside",
             ],
-            &EntityDataFlag::ALL.map(|x| i128::from(u32::from(x))),
+            &EntityDataFlag::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -19583,7 +20091,10 @@ mod tests {
                 "protocol.EntityDataTypeInt64",
                 "protocol.EntityDataTypeVec3",
             ],
-            &EntityDataType::ALL.map(|x| i128::from(u32::from(x))),
+            &EntityDataType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19598,7 +20109,10 @@ mod tests {
                 "protocol.UnWaxWeathered",
                 "protocol.UnWaxOxidised",
             ],
-            &CopperBlockId::ALL.map(|x| i128::from(u16::from(x))),
+            &CopperBlockId::all()
+                .iter()
+                .map(|&x| i128::from(u16::from(x)))
+                .collect::<Vec<_>>(),
             16,
         );
         ints(
@@ -19608,7 +20122,10 @@ mod tests {
                 "protocol.FurnaceLayoutInventoryOnly",
                 "protocol.FurnaceLayoutDefault",
             ],
-            &FurnaceLayout::ALL.map(|x| i128::from(i32::from(x))),
+            &FurnaceLayout::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19621,7 +20138,10 @@ mod tests {
                 "protocol.FurnaceLeftTabRecipeSearch",
                 "protocol.FurnaceLeftTabInventory",
             ],
-            &FurnaceLeftTab::ALL.map(|x| i128::from(i32::from(x))),
+            &FurnaceLeftTab::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19680,7 +20200,10 @@ mod tests {
                 "protocol.GraphicsOverrideParameterTypeSkyIntensity",
                 "protocol.GraphicsOverrideParameterTypeOrbitalOffsetDegrees",
             ],
-            &GraphicsOverrideParameterType::ALL.map(|x| i128::from(u8::from(x))),
+            &GraphicsOverrideParameterType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19691,7 +20214,10 @@ mod tests {
                 "protocol.InventoryActionSourceCreative",
                 "protocol.InventoryActionSourceTODO",
             ],
-            &InventoryActionSource::ALL.map(|x| i128::from(u32::from(x))),
+            &InventoryActionSource::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -19718,7 +20244,10 @@ mod tests {
                 "protocol.UseItemActionBreakBlock",
                 "protocol.UseItemActionUseAsAttack",
             ],
-            &UseItemAction::ALL.map(|x| i128::from(u32::from(x))),
+            &UseItemAction::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19728,7 +20257,10 @@ mod tests {
                 "protocol.TriggerTypePlayerInput",
                 "protocol.TriggerTypeSimulationTick",
             ],
-            &TriggerType::ALL.map(|x| i128::from(u32::from(x))),
+            &TriggerType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -19737,7 +20269,10 @@ mod tests {
                 "protocol.ClientPredictionFailure",
                 "protocol.ClientPredictionSuccess",
             ],
-            &ClientPrediction::ALL.map(|x| i128::from(u8::from(x))),
+            &ClientPrediction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19746,13 +20281,19 @@ mod tests {
                 "protocol.ClientCooldownStateOff",
                 "protocol.ClientCooldownStateOn",
             ],
-            &ClientCooldownState::ALL.map(|x| i128::from(u8::from(x))),
+            &ClientCooldownState::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["protocol.HandSlotMainHand", "protocol.HandSlotOffHand"],
-            &HandSlot::ALL.map(|x| i128::from(u8::from(x))),
+            &HandSlot::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19761,7 +20302,10 @@ mod tests {
                 "protocol.UseItemOnEntityActionInteract",
                 "protocol.UseItemOnEntityActionAttack",
             ],
-            &UseItemOnEntityAction::ALL.map(|x| i128::from(i32::from(x))),
+            &UseItemOnEntityAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19770,7 +20314,10 @@ mod tests {
                 "protocol.ReleaseItemActionRelease",
                 "protocol.ReleaseItemActionConsume",
             ],
-            &ReleaseItemAction::ALL.map(|x| i128::from(i32::from(x))),
+            &ReleaseItemAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19780,7 +20327,10 @@ mod tests {
                 "protocol.ItemEntryVersionDataDriven",
                 "protocol.ItemEntryVersionNone",
             ],
-            &ItemEntryVersion::ALL.map(|x| i128::from(i32::from(x))),
+            &ItemEntryVersion::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19801,7 +20351,10 @@ mod tests {
                 "protocol.FilterCauseTitleCommand",
                 "protocol.FilterCauseSummonCommand",
             ],
-            &FilterCause::ALL.map(|x| i128::from(i32::from(x))),
+            &FilterCause::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -19876,7 +20429,10 @@ mod tests {
                 "protocol.ItemStackResponseStatusCannotConsumeItem",
                 "protocol.ItemStackResponseStatusScreenStackError",
             ],
-            &ItemStackResponseStatus::ALL.map(|x| i128::from(u8::from(x))),
+            &ItemStackResponseStatus::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19913,7 +20469,10 @@ mod tests {
                 "protocol.MapDecorationTypeDesertPyramid",
                 "protocol.MapDecorationTypeWarmOceanRuins",
             ],
-            &MapDecorationType::ALL.map(|x| i128::from(u8::from(x))),
+            &MapDecorationType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -19922,7 +20481,10 @@ mod tests {
                 "protocol.MapObjectTypeEntity",
                 "protocol.MapObjectTypeBlock",
             ],
-            &MapObjectType::ALL.map(|x| i128::from(i32::from(x))),
+            &MapObjectType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20040,7 +20602,10 @@ mod tests {
                 "protocol.MemoryCategoryGamefaceLayout",
                 "protocol.MemoryCategoryExecutable",
             ],
-            &MemoryCategory::ALL.map(|x| i128::from(u8::from(x))),
+            &MemoryCategory::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20063,7 +20628,10 @@ mod tests {
                 "protocol.DeviceWP",
                 "protocol.DeviceLinux",
             ],
-            &DeviceOs::ALL.map(|x| i128::from(i32::from(x))),
+            &DeviceOs::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20072,7 +20640,10 @@ mod tests {
                 "protocol.PlayerListActionAdd",
                 "protocol.PlayerListActionRemove",
             ],
-            &PlayerListAction::ALL.map(|x| i128::from(u8::from(x))),
+            &PlayerListAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20118,7 +20689,10 @@ mod tests {
                 "protocol.PlayerActionStartUsingItem",
                 "protocol.PlayerActionInternalUpdate",
             ],
-            &PlayerAction::ALL.map(|x| i128::from(i32::from(x))),
+            &PlayerAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         v.push((
@@ -20133,7 +20707,10 @@ mod tests {
                 "protocol.RecipeUnlockContextPlayerInWater",
                 "protocol.RecipeUnlockContextPlayerHasManyItems",
             ],
-            &RecipeUnlockContext::ALL.map(|x| i128::from(i32::from(x))),
+            &RecipeUnlockContext::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20144,7 +20721,10 @@ mod tests {
                 "protocol.PackSettingTypeString",
                 "protocol.PackSettingTypeStringList",
             ],
-            &PackSettingType::ALL.map(|x| i128::from(u32::from(x))),
+            &PackSettingType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20155,7 +20735,10 @@ mod tests {
                 "protocol.ScoreboardIdentityEntity",
                 "protocol.ScoreboardIdentityFakePlayer",
             ],
-            &ScoreboardIdentity::ALL.map(|x| i128::from(u8::from(x))),
+            &ScoreboardIdentity::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20172,13 +20755,19 @@ mod tests {
                 "protocol.PrimitiveShapeEllipsoid",
                 "protocol.PrimitiveShapeCone",
             ],
-            &PrimitiveShape::ALL.map(|x| i128::from(u8::from(x))),
+            &PrimitiveShape::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["protocol.ArmSizeSlim", "protocol.ArmSizeWide"],
-            &ArmSize::ALL.map(|x| i128::from(u8::from(x))),
+            &ArmSize::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20188,7 +20777,10 @@ mod tests {
                 "protocol.SkinAnimationBody32x32",
                 "protocol.SkinAnimationBody128x128",
             ],
-            &SkinAnimation::ALL.map(|x| i128::from(u32::from(x))),
+            &SkinAnimation::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20197,7 +20789,10 @@ mod tests {
                 "protocol.ExpressionTypeLinear",
                 "protocol.ExpressionTypeBlinking",
             ],
-            &ExpressionType::ALL.map(|x| i128::from(u32::from(x))),
+            &ExpressionType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20234,7 +20829,10 @@ mod tests {
                 "protocol.PieceTypeCoCo",
                 "protocol.PieceTypeUnsupported",
             ],
-            &PieceType::ALL.map(|x| i128::from(u32::from(x))),
+            &PieceType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20248,7 +20846,10 @@ mod tests {
                 "protocol.SoundDataUpdatePause",
                 "protocol.SoundDataUpdateResume",
             ],
-            &SoundDataUpdate::ALL.map(|x| i128::from(i32::from(x))),
+            &SoundDataUpdate::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20259,7 +20860,10 @@ mod tests {
                 "protocol.StructureMirrorZAxis",
                 "protocol.StructureMirrorBothAxes",
             ],
-            &StructureMirror::ALL.map(|x| i128::from(u8::from(x))),
+            &StructureMirror::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20270,7 +20874,10 @@ mod tests {
                 "protocol.StructureRotationRotate180",
                 "protocol.StructureRotationRotate270",
             ],
-            &StructureRotation::ALL.map(|x| i128::from(u8::from(x))),
+            &StructureRotation::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20280,7 +20887,10 @@ mod tests {
                 "protocol.AnimationModeLayers",
                 "protocol.AnimationModeBlocks",
             ],
-            &AnimationMode::ALL.map(|x| i128::from(u8::from(x))),
+            &AnimationMode::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20292,7 +20902,10 @@ mod tests {
                 "protocol.HeightMapDataTooLow",
                 "protocol.HeightMapDataAllCopied",
             ],
-            &HeightMapData::ALL.map(|x| i128::from(u8::from(x))),
+            &HeightMapData::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20306,7 +20919,10 @@ mod tests {
                 "protocol.SubChunkResultIndexOutOfBounds",
                 "protocol.SubChunkResultSuccessAllAir",
             ],
-            &SubChunkResult::ALL.map(|x| i128::from(u8::from(x))),
+            &SubChunkResult::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20317,7 +20933,10 @@ mod tests {
                 "protocol.WaypointActionRemove",
                 "protocol.WaypointActionUpdate",
             ],
-            &WaypointAction::ALL.map(|x| i128::from(u8::from(x))),
+            &WaypointAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20330,7 +20949,10 @@ mod tests {
                 "protocol.WaypointUpdateFlagClientPositionAuthority",
                 "protocol.WaypointUpdateFlagActorUniqueID",
             ],
-            &WaypointUpdateFlag::ALL.map(|x| i128::from(u32::from(x))),
+            &WaypointUpdateFlag::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20341,7 +20963,10 @@ mod tests {
                 "protocol.WaypointTextureSmallSquare",
                 "protocol.WaypointTextureSmallStar",
             ],
-            &WaypointTexture::ALL.map(|x| i128::from(i32::from(x))),
+            &WaypointTexture::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20354,7 +20979,10 @@ mod tests {
                 "protocol.GeneratorEnd",
                 "protocol.GeneratorVoid",
             ],
-            &Generator::ALL.map(|x| i128::from(i32::from(x))),
+            &Generator::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20423,7 +21051,10 @@ mod tests {
                 "packet.ActorEventKineticDamageDealt",
                 "packet.ActorEventHurtWithoutReceivingDamage",
             ],
-            &ActorEvent::ALL.map(|x| i128::from(u8::from(x))),
+            &ActorEvent::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20441,7 +21072,10 @@ mod tests {
                 "packet.AdventureFlagFlying",
                 "packet.AdventureFlagMuted",
             ],
-            &AdventureFlag::ALL.map(|x| i128::from(u32::from(x))),
+            &AdventureFlag::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20457,7 +21091,10 @@ mod tests {
                 "packet.ActionPermissionBuild",
                 "packet.ActionPermissionDefault",
             ],
-            &ActionPermission::ALL.map(|x| i128::from(u32::from(x))),
+            &ActionPermission::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20468,7 +21105,10 @@ mod tests {
                 "packet.PermissionLevelOperator",
                 "packet.PermissionLevelCustom",
             ],
-            &PermissionLevel::ALL.map(|x| i128::from(u8::from(x))),
+            &PermissionLevel::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20493,7 +21133,10 @@ mod tests {
                 "packet.AgentActionTypeTransferItemTo",
                 "packet.AgentActionTypeTurn",
             ],
-            &AgentActionType::ALL.map(|x| i128::from(i32::from(x))),
+            &AgentActionType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20504,7 +21147,10 @@ mod tests {
                 "packet.AnimateActionCriticalHit",
                 "packet.AnimateActionMagicCriticalHit",
             ],
-            &AnimateAction::ALL.map(|x| i128::from(u8::from(x))),
+            &AnimateAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20520,13 +21166,19 @@ mod tests {
                 "packet.AnimateSwingSourceDropItem",
                 "packet.AnimateSwingSourceEvent",
             ],
-            &AnimateSwingSource::ALL.map(|x| i128::from(u8::from(x))),
+            &AnimateSwingSource::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["packet.BlockEventChangeChestState"],
-            &BlockEventType::ALL.map(|x| i128::from(i32::from(x))),
+            &BlockEventType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20538,7 +21190,10 @@ mod tests {
                 "packet.BookActionSwapPages",
                 "packet.BookActionSign",
             ],
-            &BookAction::ALL.map(|x| i128::from(u32::from(x))),
+            &BookAction::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20554,7 +21209,10 @@ mod tests {
                 "packet.BossEventTexture",
                 "packet.BossEventRequest",
             ],
-            &BossEventType::ALL.map(|x| i128::from(u8::from(x))),
+            &BossEventType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20569,7 +21227,10 @@ mod tests {
                 "packet.BossEventColourRebeccaPurple",
                 "packet.BossEventColourWhite",
             ],
-            &BossEventColour::ALL.map(|x| i128::from(u8::from(x))),
+            &BossEventColour::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20581,7 +21242,10 @@ mod tests {
                 "packet.BossEventOverlayNotched12",
                 "packet.BossEventOverlayNotched20",
             ],
-            &BossEventOverlay::ALL.map(|x| i128::from(u8::from(x))),
+            &BossEventOverlay::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20590,7 +21254,10 @@ mod tests {
                 "packet.CameraAimAssistActionSet",
                 "packet.CameraAimAssistActionClear",
             ],
-            &CameraAimAssistAction::ALL.map(|x| i128::from(u8::from(x))),
+            &CameraAimAssistAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20599,7 +21266,10 @@ mod tests {
                 "packet.CameraAunAssistPresetOperationSet",
                 "packet.CameraAunAssistPresetOperationAddToExisting",
             ],
-            &CameraAimAssistPresetOperation::ALL.map(|x| i128::from(u8::from(x))),
+            &CameraAimAssistPresetOperation::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20608,7 +21278,10 @@ mod tests {
                 "packet.CameraShakeTypePositional",
                 "packet.CameraShakeTypeRotational",
             ],
-            &CameraShakeType::ALL.map(|x| i128::from(u8::from(x))),
+            &CameraShakeType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20617,7 +21290,10 @@ mod tests {
                 "packet.CameraShakeActionAdd",
                 "packet.CameraShakeActionStop",
             ],
-            &CameraShakeAction::ALL.map(|x| i128::from(u8::from(x))),
+            &CameraShakeAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20627,7 +21303,10 @@ mod tests {
                 "packet.DimensionNether",
                 "packet.DimensionEnd",
             ],
-            &Dimension::ALL.map(|x| i128::from(i32::from(x))),
+            &Dimension::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20639,7 +21318,10 @@ mod tests {
                 "packet.ControlSchemePlayerRelative",
                 "packet.ControlSchemePlayerRelativeStrafe",
             ],
-            &ControlScheme::ALL.map(|x| i128::from(u8::from(x))),
+            &ControlScheme::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20648,7 +21330,10 @@ mod tests {
                 "packet.ClientBoundDebugRendererClear",
                 "packet.ClientBoundDebugRendererAddCube",
             ],
-            &ClientBoundDebugRendererType::ALL.map(|x| i128::from(u32::from(x))),
+            &ClientBoundDebugRendererType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20657,7 +21342,10 @@ mod tests {
                 "packet.ClientCameraAimAssistActionSet",
                 "packet.ClientCameraAimAssistActionClear",
             ],
-            &ClientCameraAimAssistAction::ALL.map(|x| i128::from(u8::from(x))),
+            &ClientCameraAimAssistAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20669,7 +21357,10 @@ mod tests {
                 "packet.TextureShiftActionSetEnabled",
                 "packet.TextureShiftActionSync",
             ],
-            &TextureShiftAction::ALL.map(|x| i128::from(u8::from(x))),
+            &TextureShiftAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20680,7 +21371,10 @@ mod tests {
                 "packet.CodeBuilderOperationSet",
                 "packet.CodeBuilderOperationReset",
             ],
-            &CodeBuilderOperation::ALL.map(|x| i128::from(u8::from(x))),
+            &CodeBuilderOperation::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20690,7 +21384,10 @@ mod tests {
                 "packet.CodeBuilderCategoryStatus",
                 "packet.CodeBuilderCategoryInstantiation",
             ],
-            &CodeBuilderCategory::ALL.map(|x| i128::from(u8::from(x))),
+            &CodeBuilderCategory::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20703,7 +21400,10 @@ mod tests {
                 "packet.CodeBuilderStatusError",
                 "packet.CodeBuilderStatusSucceeded",
             ],
-            &CodeBuilderStatus::ALL.map(|x| i128::from(u8::from(x))),
+            &CodeBuilderStatus::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20713,7 +21413,10 @@ mod tests {
                 "packet.CommandBlockRepeating",
                 "packet.CommandBlockChain",
             ],
-            &CommandBlockMode::ALL.map(|x| i128::from(u32::from(x))),
+            &CommandBlockMode::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -20725,7 +21428,10 @@ mod tests {
                 "packet.CommandOutputTypeAllOutput",
                 "packet.CommandOutputTypeDataSet",
             ],
-            &CommandOutputType::ALL.map(|x| i128::from(u8::from(x))),
+            &CommandOutputType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20749,13 +21455,19 @@ mod tests {
                 "packet.UseItemBrushingCompleted",
                 "packet.UseItemOpenedVault",
             ],
-            &UseItemMethod::ALL.map(|x| i128::from(i32::from(x))),
+            &UseItemMethod::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
             &mut v,
             &["packet.CursorItemDragStart", "packet.CursorItemDragStop"],
-            &CursorItemDrag::ALL.map(|x| i128::from(u8::from(x))),
+            &CursorItemDrag::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20766,7 +21478,10 @@ mod tests {
                 "packet.ContainerDataFurnaceLitDuration",
                 "packet.ContainerDataFurnaceFuelAux",
             ],
-            &ContainerDataFurnace::ALL.map(|x| i128::from(i32::from(x))),
+            &ContainerDataFurnace::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20776,7 +21491,10 @@ mod tests {
                 "packet.ContainerDataBrewingStandFuelAmount",
                 "packet.ContainerDataBrewingStandFuelTotal",
             ],
-            &ContainerDataBrewingStand::ALL.map(|x| i128::from(i32::from(x))),
+            &ContainerDataBrewingStand::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20785,7 +21503,10 @@ mod tests {
                 "packet.PredictionTypePlayer",
                 "packet.PredictionTypeVehicle",
             ],
-            &PredictionType::ALL.map(|x| i128::from(u8::from(x))),
+            &PredictionType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20934,13 +21655,19 @@ mod tests {
                 "packet.DisconnectReasonUnsupportedTransport",
                 "packet.DisconnectReasonSubClientLoginNotBound",
             ],
-            &DisconnectReason::ALL.map(|x| i128::from(i32::from(x))),
+            &DisconnectReason::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
             &mut v,
             &["packet.EmoteFlagServerSide", "packet.EmoteFlagMuteChat"],
-            &EmoteFlag::ALL.map(|x| i128::from(u8::from(x))),
+            &EmoteFlag::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20952,7 +21679,10 @@ mod tests {
                 "packet.GameTestRequestRotation270",
                 "packet.GameTestRequestRotation360",
             ],
-            &GameTestRequestRotation::ALL.map(|x| i128::from(u8::from(x))),
+            &GameTestRequestRotation::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20963,7 +21693,10 @@ mod tests {
                 "packet.InteractActionNPCOpen",
                 "packet.InteractActionOpenInventory",
             ],
-            &InteractAction::ALL.map(|x| i128::from(u8::from(x))),
+            &InteractAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20973,7 +21706,10 @@ mod tests {
                 "packet.LabTableActionReact",
                 "packet.LabTableActionReset",
             ],
-            &LabTableAction::ALL.map(|x| i128::from(u8::from(x))),
+            &LabTableAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -20983,7 +21719,10 @@ mod tests {
                 "packet.LessonActionComplete",
                 "packet.LessonActionRestart",
             ],
-            &LessonAction::ALL.map(|x| i128::from(i32::from(x))),
+            &LessonAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -20999,7 +21738,10 @@ mod tests {
                 "packet.MatchmakingStateTimedOut",
                 "packet.MatchmakingStateRequeueAsParty",
             ],
-            &MatchmakingState::ALL.map(|x| i128::from(u8::from(x))),
+            &MatchmakingState::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -21111,7 +21853,10 @@ mod tests {
                 "packet.ParticleTypeRedPoplarLeaves",
                 "packet.ParticleTypeYellowPoplarLeaves",
             ],
-            &ParticleType::ALL.map(|x| i128::from(i32::from(x))),
+            &ParticleType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21248,7 +21993,10 @@ mod tests {
                 "packet.LevelEventParticleCreakingHeartTrail",
                 "packet.LevelEventParticleLegacyEvent",
             ],
-            &LevelEvent::ALL.map(|x| i128::from(i32::from(x))),
+            &LevelEvent::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         strs(
@@ -21832,7 +22580,10 @@ mod tests {
                 "packet.SoundEventStrawBedBreakLeave",
                 "packet.SoundEventUndefined",
             ],
-            &SoundEvent::ALL.map(SoundEvent::as_str),
+            &SoundEvent::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -21841,7 +22592,10 @@ mod tests {
                 "packet.MobEffectModify",
                 "packet.MobEffectRemove",
             ],
-            &MobEffectOperation::ALL.map(|x| i128::from(u8::from(x))),
+            &MobEffectOperation::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -21875,7 +22629,10 @@ mod tests {
                 "packet.EffectConduitPower",
                 "packet.EffectSlowFalling",
             ],
-            &Effect::ALL.map(|x| i128::from(i32::from(x))),
+            &Effect::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21884,7 +22641,10 @@ mod tests {
                 "packet.ModalFormCancelReasonUserClosed",
                 "packet.ModalFormCancelReasonUserBusy",
             ],
-            &ModalFormCancelReason::ALL.map(|x| i128::from(u8::from(x))),
+            &ModalFormCancelReason::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -21895,7 +22655,10 @@ mod tests {
                 "packet.MoveFlagForceMove",
                 "packet.MoveFlagForceCompletion",
             ],
-            &MoveFlag::ALL.map(|x| i128::from(u8::from(x))),
+            &MoveFlag::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -21906,7 +22669,10 @@ mod tests {
                 "packet.MoveModeTeleport",
                 "packet.MoveModeRotation",
             ],
-            &MoveMode::ALL.map(|x| i128::from(u8::from(x))),
+            &MoveMode::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -21918,7 +22684,10 @@ mod tests {
                 "packet.TeleportCauseCommand",
                 "packet.TeleportCauseBehaviour",
             ],
-            &TeleportCause::ALL.map(|x| i128::from(i32::from(x))),
+            &TeleportCause::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21928,7 +22697,10 @@ mod tests {
                 "packet.MovementEffectTypeDolphinBoost",
                 "packet.MovementEffectTypeGeyserBoost",
             ],
-            &MovementEffectType::ALL.map(|x| i128::from(i32::from(x))),
+            &MovementEffectType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21938,7 +22710,10 @@ mod tests {
                 "packet.DisableMultiPlayer",
                 "packet.RefreshJoinCode",
             ],
-            &MultiPlayerSettingsAction::ALL.map(|x| i128::from(i32::from(x))),
+            &MultiPlayerSettingsAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21948,7 +22723,10 @@ mod tests {
                 "packet.CompressionAlgorithmSnappy",
                 "packet.CompressionAlgorithmNone",
             ],
-            &CompressionAlgorithm::ALL.map(|x| i128::from(u16::from(x))),
+            &CompressionAlgorithm::all()
+                .iter()
+                .map(|&x| i128::from(u16::from(x)))
+                .collect::<Vec<_>>(),
             16,
         );
         ints(
@@ -21957,7 +22735,10 @@ mod tests {
                 "packet.NPCDialogueActionOpen",
                 "packet.NPCDialogueActionClose",
             ],
-            &NpcDialogueAction::ALL.map(|x| i128::from(i32::from(x))),
+            &NpcDialogueAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21971,13 +22752,19 @@ mod tests {
                 "packet.NPCRequestActionSetInteractText",
                 "packet.NPCRequestActionExecuteOpeningCommands",
             ],
-            &NpcRequestAction::ALL.map(|x| i128::from(u8::from(x))),
+            &NpcRequestAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["packet.ViolationTypeMalformed"],
-            &ViolationType::ALL.map(|x| i128::from(i32::from(x))),
+            &ViolationType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21987,7 +22774,10 @@ mod tests {
                 "packet.ViolationSeverityFinalWarning",
                 "packet.ViolationSeverityTerminatingConnection",
             ],
-            &ViolationSeverity::ALL.map(|x| i128::from(i32::from(x))),
+            &ViolationSeverity::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -21997,7 +22787,10 @@ mod tests {
                 "packet.PhotoTypePhotoItem",
                 "packet.PhotoTypeBook",
             ],
-            &PhotoType::ALL.map(|x| i128::from(u8::from(x))),
+            &PhotoType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22014,7 +22807,10 @@ mod tests {
                 "packet.PlayStatusLoginFailedEditorVanilla",
                 "packet.PlayStatusLoginFailedVanillaEditor",
             ],
-            &PlayStatus::ALL.map(|x| i128::from(i32::from(x))),
+            &PlayStatus::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22026,7 +22822,10 @@ mod tests {
                 "packet.PlayerArmourDamageFlagBoots",
                 "packet.PlayerArmourDamageFlagBody",
             ],
-            &PlayerArmourDamageFlag::ALL.map(|x| i128::from(u8::from(x))),
+            &PlayerArmourDamageFlag::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22099,7 +22898,10 @@ mod tests {
                 "packet.InputFlagSneakCurrentRaw",
                 "packet.InputFlagInternalUpdate",
             ],
-            &InputFlag::ALL.map(|x| i128::from(u32::from(x))),
+            &InputFlag::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -22115,7 +22917,10 @@ mod tests {
                 "packet.InputModeGamePad",
                 "packet.InputModeMotionController",
             ],
-            &InputMode::ALL.map(|x| i128::from(u32::from(x))),
+            &InputMode::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -22135,7 +22940,10 @@ mod tests {
                 "packet.PlayModeExitLevel",
                 "packet.PlayModeExitLevelLivingRoom",
             ],
-            &PlayMode::ALL.map(|x| i128::from(u32::from(x))),
+            &PlayMode::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         v.push((
@@ -22149,7 +22957,10 @@ mod tests {
                 "packet.InteractionModelCrosshair",
                 "packet.InteractionModelClassic",
             ],
-            &InteractionModel::ALL.map(|x| i128::from(i32::from(x))),
+            &InteractionModel::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         v.push((
@@ -22162,7 +22973,10 @@ mod tests {
                 "packet.PlayerLocationTypeCoordinates",
                 "packet.PlayerLocationTypeHide",
             ],
-            &PlayerLocationType::ALL.map(|x| i128::from(i32::from(x))),
+            &PlayerLocationType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22173,7 +22987,10 @@ mod tests {
                 "packet.PlayerUpdateEntityOverridesTypeInt",
                 "packet.PlayerUpdateEntityOverridesTypeFloat",
             ],
-            &PlayerUpdateEntityOverridesType::ALL.map(|x| i128::from(u32::from(x))),
+            &PlayerUpdateEntityOverridesType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -22182,13 +22999,19 @@ mod tests {
                 "packet.PlayerVideoCaptureActionStop",
                 "packet.PlayerVideoCaptureActionStart",
             ],
-            &PlayerVideoCaptureAction::ALL.map(|x| i128::from(u8::from(x))),
+            &PlayerVideoCaptureAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["packet.PositionTrackingDBRequestActionQuery"],
-            &PositionTrackingDbRequestAction::ALL.map(|x| i128::from(u8::from(x))),
+            &PositionTrackingDbRequestAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22198,7 +23021,10 @@ mod tests {
                 "packet.PositionTrackingDBBroadcastActionDestroy",
                 "packet.PositionTrackingDBBroadcastActionNotFound",
             ],
-            &PositionTrackingDbBroadcastAction::ALL.map(|x| i128::from(u8::from(x))),
+            &PositionTrackingDbBroadcastAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22209,7 +23035,10 @@ mod tests {
                 "packet.PackResponseAllPacksDownloaded",
                 "packet.PackResponseCompleted",
             ],
-            &PackResponse::ALL.map(|x| i128::from(u32::from(x))),
+            &PackResponse::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -22224,7 +23053,10 @@ mod tests {
                 "packet.ResourcePackTypeSkins",
                 "packet.ResourcePackTypeWorldTemplate",
             ],
-            &ResourcePackType::ALL.map(|x| i128::from(u8::from(x))),
+            &ResourcePackType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22234,7 +23066,10 @@ mod tests {
                 "packet.RespawnStateReadyToSpawn",
                 "packet.RespawnStateClientReadyToSpawn",
             ],
-            &RespawnState::ALL.map(|x| i128::from(u8::from(x))),
+            &RespawnState::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         strs(
@@ -22244,7 +23079,10 @@ mod tests {
                 "packet.PartyDestinationCookieIntentOptIn",
                 "packet.PartyDestinationCookieIntentOptOut",
             ],
-            &PartyDestinationCookieIntent::ALL.map(PartyDestinationCookieIntent::as_str),
+            &PartyDestinationCookieIntent::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -22253,7 +23091,10 @@ mod tests {
                 "packet.LoadingScreenTypeStart",
                 "packet.LoadingScreenTypeEnd",
             ],
-            &LoadingScreenType::ALL.map(|x| i128::from(i32::from(x))),
+            &LoadingScreenType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         strs(
@@ -22265,7 +23106,10 @@ mod tests {
                 "packet.DataDrivenScreenCloseReasonUserBusy",
                 "packet.DataDrivenScreenCloseReasonInvalidForm",
             ],
-            &DataDrivenScreenCloseReason::ALL.map(DataDrivenScreenCloseReason::as_str),
+            &DataDrivenScreenCloseReason::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -22273,7 +23117,10 @@ mod tests {
                 "packet.ScoreboardSortOrderAscending",
                 "packet.ScoreboardSortOrderDescending",
             ],
-            &ScoreboardSortOrder::ALL.map(|x| i128::from(i32::from(x))),
+            &ScoreboardSortOrder::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         strs(
@@ -22283,7 +23130,10 @@ mod tests {
                 "packet.ScoreboardSlotSidebar",
                 "packet.ScoreboardSlotBelowName",
             ],
-            &ScoreboardSlot::ALL.map(ScoreboardSlot::as_str),
+            &ScoreboardSlot::all()
+                .iter()
+                .map(|&x| x.as_str())
+                .collect::<Vec<_>>(),
         );
         ints(
             &mut v,
@@ -22302,13 +23152,19 @@ mod tests {
                 "packet.HudElementStatusEffects",
                 "packet.HudElementItemText",
             ],
-            &HudElement::ALL.map(|x| i128::from(i32::from(x))),
+            &HudElement::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
             &mut v,
             &["packet.HudVisibilityHide", "packet.HudVisibilityReset"],
-            &HudVisibility::ALL.map(|x| i128::from(i32::from(x))),
+            &HudVisibility::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22319,7 +23175,10 @@ mod tests {
                 "packet.FurnaceTypeBlastFurnace",
                 "packet.FurnaceTypeSmoker",
             ],
-            &FurnaceType::ALL.map(|x| i128::from(u8::from(x))),
+            &FurnaceType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22331,7 +23190,10 @@ mod tests {
                 "packet.GameTypeDefault",
                 "packet.GameTypeSpectator",
             ],
-            &GameType::ALL.map(|x| i128::from(i32::from(x))),
+            &GameType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22342,7 +23204,10 @@ mod tests {
                 "packet.InventoryLayoutDefault",
                 "packet.InventoryLayoutRecipeBookOnly",
             ],
-            &InventoryLayout::ALL.map(|x| i128::from(i32::from(x))),
+            &InventoryLayout::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22356,7 +23221,10 @@ mod tests {
                 "packet.InventoryLeftTabSearch",
                 "packet.InventoryLeftTabSurvival",
             ],
-            &InventoryLeftTab::ALL.map(|x| i128::from(i32::from(x))),
+            &InventoryLeftTab::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22367,7 +23235,10 @@ mod tests {
                 "packet.InventoryRightTabCrafting",
                 "packet.InventoryRightTabArmour",
             ],
-            &InventoryRightTab::ALL.map(|x| i128::from(i32::from(x))),
+            &InventoryRightTab::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22376,13 +23247,19 @@ mod tests {
                 "packet.ScoreboardIdentityActionRegister",
                 "packet.ScoreboardIdentityActionClear",
             ],
-            &ScoreboardIdentityAction::ALL.map(|x| i128::from(u8::from(x))),
+            &ScoreboardIdentityAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
             &mut v,
             &["packet.SpawnTypePlayer", "packet.SpawnTypeWorld"],
-            &SpawnType::ALL.map(|x| i128::from(i32::from(x))),
+            &SpawnType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22398,7 +23275,10 @@ mod tests {
                 "packet.TitleActionSubtitleTextObject",
                 "packet.TitleActionActionbarTextObject",
             ],
-            &TitleAction::ALL.map(|x| i128::from(i32::from(x))),
+            &TitleAction::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22407,7 +23287,10 @@ mod tests {
                 "packet.ShowCreditsStatusStart",
                 "packet.ShowCreditsStatusEnd",
             ],
-            &ShowCreditsStatus::ALL.map(|x| i128::from(i32::from(x))),
+            &ShowCreditsStatus::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22417,7 +23300,10 @@ mod tests {
                 "packet.StoreOfferTypeDressingRoom",
                 "packet.StoreOfferTypeServerPage",
             ],
-            &StoreOfferType::ALL.map(|x| i128::from(u8::from(x))),
+            &StoreOfferType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22427,7 +23313,10 @@ mod tests {
                 "packet.SimpleEventCommandsDisabled",
                 "packet.SimpleEventUnlockWorldTemplateSettings",
             ],
-            &SimpleEvent::ALL.map(|x| i128::from(u16::from(x))),
+            &SimpleEvent::all()
+                .iter()
+                .map(|&x| i128::from(u16::from(x)))
+                .collect::<Vec<_>>(),
             16,
         );
         ints(
@@ -22438,7 +23327,10 @@ mod tests {
                 "packet.SimulationTypeTest",
                 "packet.SimulationTypeInvalid",
             ],
-            &SimulationType::ALL.map(|x| i128::from(u8::from(x))),
+            &SimulationType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22447,7 +23339,10 @@ mod tests {
                 "packet.SpawnBiomeTypeDefault",
                 "packet.SpawnBiomeTypeUserDefined",
             ],
-            &SpawnBiomeType::ALL.map(|x| i128::from(i16::from(x))),
+            &SpawnBiomeType::all()
+                .iter()
+                .map(|&x| i128::from(i16::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22459,7 +23354,10 @@ mod tests {
                 "packet.XBLBroadcastModeFriendsOfFriends",
                 "packet.XBLBroadcastModePublic",
             ],
-            &XblBroadcastMode::ALL.map(|x| i128::from(i32::from(x))),
+            &XblBroadcastMode::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22469,7 +23367,10 @@ mod tests {
                 "packet.ChatRestrictionLevelDropped",
                 "packet.ChatRestrictionLevelDisabled",
             ],
-            &ChatRestrictionLevel::ALL.map(|x| i128::from(u8::from(x))),
+            &ChatRestrictionLevel::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22480,7 +23381,10 @@ mod tests {
                 "packet.EditorWorldTypeTestLevel",
                 "packet.EditorWorldTypeRealmsUpload",
             ],
-            &EditorWorldType::ALL.map(|x| i128::from(i32::from(x))),
+            &EditorWorldType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22489,7 +23393,10 @@ mod tests {
                 "packet.EditorLevelMigrationVersionLegacy",
                 "packet.EditorLevelMigrationVersionEditorAchievements",
             ],
-            &EditorLevelMigrationVersion::ALL.map(|x| i128::from(i8::from(x))),
+            &EditorLevelMigrationVersion::all()
+                .iter()
+                .map(|&x| i128::from(i8::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22502,7 +23409,10 @@ mod tests {
                 "packet.StructureBlockInvalid",
                 "packet.StructureBlockExport",
             ],
-            &StructureBlockType::ALL.map(|x| i128::from(i32::from(x))),
+            &StructureBlockType::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22511,7 +23421,10 @@ mod tests {
                 "packet.StructureRedstoneSaveModeMemory",
                 "packet.StructureRedstoneSaveModeDisk",
             ],
-            &StructureRedstoneSaveMode::ALL.map(|x| i128::from(u8::from(x))),
+            &StructureRedstoneSaveMode::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22521,7 +23434,10 @@ mod tests {
                 "packet.StructureTemplateRequestExportFromLoad",
                 "packet.StructureTemplateRequestQuerySavedStructure",
             ],
-            &StructureTemplateRequestType::ALL.map(|x| i128::from(u8::from(x))),
+            &StructureTemplateRequestType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22530,7 +23446,10 @@ mod tests {
                 "packet.StructureTemplateResponseExport",
                 "packet.StructureTemplateResponseQuery",
             ],
-            &StructureTemplateResponseType::ALL.map(|x| i128::from(u8::from(x))),
+            &StructureTemplateResponseType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22549,7 +23468,10 @@ mod tests {
                 "packet.TextTypeObject",
                 "packet.TextTypeObjectAnnouncement",
             ],
-            &TextType::ALL.map(|x| i128::from(u8::from(x))),
+            &TextType::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22559,7 +23481,10 @@ mod tests {
                 "packet.TextCategoryAuthoredMessage",
                 "packet.TextCategoryMessageWithParameters",
             ],
-            &TextCategory::ALL.map(|x| i128::from(i32::from(x))),
+            &TextCategory::all()
+                .iter()
+                .map(|&x| i128::from(i32::from(x)))
+                .collect::<Vec<_>>(),
             0,
         );
         ints(
@@ -22571,7 +23496,10 @@ mod tests {
                 "packet.UnlockedRecipesTypeRemoveUnlocked",
                 "packet.UnlockedRecipesTypeRemoveAllUnlocked",
             ],
-            &UnlockedRecipesType::ALL.map(|x| i128::from(u32::from(x))),
+            &UnlockedRecipesType::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -22582,7 +23510,10 @@ mod tests {
                 "packet.BlockUpdateNoGraphics",
                 "packet.BlockUpdatePriority",
             ],
-            &BlockUpdateFlag::ALL.map(|x| i128::from(u32::from(x))),
+            &BlockUpdateFlag::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -22591,7 +23522,10 @@ mod tests {
                 "packet.BlockToEntityTransition",
                 "packet.EntityToBlockTransition",
             ],
-            &BlockSyncedTransition::ALL.map(|x| i128::from(u64::from(x))),
+            &BlockSyncedTransition::all()
+                .iter()
+                .map(|&x| i128::from(u64::from(x)))
+                .collect::<Vec<_>>(),
             64,
         );
         ints(
@@ -22609,7 +23543,10 @@ mod tests {
                 "packet.ClientInputLockMoveLeft",
                 "packet.ClientInputLockMoveRight",
             ],
-            &ClientInputLock::ALL.map(|x| i128::from(u32::from(x))),
+            &ClientInputLock::all()
+                .iter()
+                .map(|&x| i128::from(u32::from(x)))
+                .collect::<Vec<_>>(),
             32,
         );
         ints(
@@ -22620,7 +23557,10 @@ mod tests {
                 "packet.GraphicsModeAdvanced",
                 "packet.GraphicsModeRayTraced",
             ],
-            &GraphicsMode::ALL.map(|x| i128::from(u8::from(x))),
+            &GraphicsMode::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
         ints(
@@ -22630,7 +23570,10 @@ mod tests {
                 "packet.SoftEnumActionRemove",
                 "packet.SoftEnumActionSet",
             ],
-            &SoftEnumAction::ALL.map(|x| i128::from(u8::from(x))),
+            &SoftEnumAction::all()
+                .iter()
+                .map(|&x| i128::from(u8::from(x)))
+                .collect::<Vec<_>>(),
             8,
         );
 
@@ -22745,208 +23688,208 @@ mod tests {
         reason = "consistency: generated from one gophertunnel body or table"
     )]
     fn every_enum_round_trips_and_rejects_unknown_values() {
-        flag(&Ability::ALL);
-        int_enum(&Ability::ALL, Some(524_289_u32));
-        int_enum(&AbilityLayerType::ALL, Some(6_u16));
-        int_enum(&AttributeModifierOperation::ALL, Some(4_i32));
-        int_enum(&AttributeModifierOperand::ALL, Some(3_i32));
-        int_enum(&AttributeLayerPayloadType::ALL, Some(4_u32));
-        int_enum(&EnvironmentAttributePayloadType::ALL, Some(3_u32));
-        int_enum(&AttributeDataType::ALL, Some(3_u32));
-        int_enum(&AttributeBoolOperation::ALL, Some(8_i32));
-        int_enum(&AttributeFloatOperation::ALL, Some(7_i32));
-        int_enum(&AttributeColourOperation::ALL, Some(5_i32));
-        int_enum(&NoiseAlignmentType::ALL, Some(1_u8));
-        int_enum(&BiomeExpressionOp::ALL, Some(109_i32));
-        int_enum(&BiomeCoordinateEvaluationOrder::ALL, Some(6_i32));
-        int_enum(&BiomeRandomDistributionType::ALL, Some(7_i32));
-        int_enum(&AimAssistTargetMode::ALL, Some(2_i32));
-        int_enum(&AudioListener::ALL, Some(2_u8));
+        flag(Ability::all());
+        int_enum(Ability::all(), Some(524_289_u32));
+        int_enum(AbilityLayerType::all(), Some(6_u16));
+        int_enum(AttributeModifierOperation::all(), Some(4_i32));
+        int_enum(AttributeModifierOperand::all(), Some(3_i32));
+        int_enum(AttributeLayerPayloadType::all(), Some(4_u32));
+        int_enum(EnvironmentAttributePayloadType::all(), Some(3_u32));
+        int_enum(AttributeDataType::all(), Some(3_u32));
+        int_enum(AttributeBoolOperation::all(), Some(8_i32));
+        int_enum(AttributeFloatOperation::all(), Some(7_i32));
+        int_enum(AttributeColourOperation::all(), Some(5_i32));
+        int_enum(NoiseAlignmentType::all(), Some(1_u8));
+        int_enum(BiomeExpressionOp::all(), Some(109_i32));
+        int_enum(BiomeCoordinateEvaluationOrder::all(), Some(6_i32));
+        int_enum(BiomeRandomDistributionType::all(), Some(7_i32));
+        int_enum(AimAssistTargetMode::all(), Some(2_i32));
+        int_enum(AudioListener::all(), Some(2_u8));
         str_enum(
-            &AudioContentPlaybackType::ALL,
+            AudioContentPlaybackType::all(),
             AudioContentPlaybackType::as_str,
         );
-        int_enum(&EasingType::ALL, Some(33_i32));
-        str_enum(&SplineType::ALL, SplineType::as_str);
-        int_enum(&ClockPayloadType::ALL, Some(4_u32));
-        int_enum(&CommandPermissionLevel::ALL, Some(6_u8));
-        flag(&CommandArg::ALL);
-        int_enum(&CommandArg::ALL, Some(67_108_865_u32));
-        int_enum(&CommandArgType::ALL, Some(134_217_729_u32));
-        flag(&ParamOption::ALL);
-        int_enum(&ParamOption::ALL, Some(5_u8));
-        int_enum(&CommandEnumConstraint::ALL, Some(3_u8));
-        int_enum(&CommandOrigin::ALL, Some(16_u32));
-        int_enum(&ContainerId::ALL, Some(71_u8));
-        int_enum(&ContainerType::ALL, Some(37_u8));
-        int_enum(&CreativeCategory::ALL, Some(7_u8));
-        int_enum(&DataStoreChangeType::ALL, Some(3_u32));
-        int_enum(&DataStoreControl::ALL, Some(3_u32));
-        int_enum(&DataStorePropertyType::ALL, Some(7_i32));
-        int_enum(&EntityLink::ALL, Some(3_u8));
-        int_enum(&PassengerOfBlockEmote::ALL, Some(3_u8));
-        int_enum(&EntityDataKey::ALL, Some(142_u32));
-        flag(&EntityDataFlag::ALL);
-        int_enum(&EntityDataFlag::ALL, Some(131_u32));
-        int_enum(&EntityDataType::ALL, Some(9_u32));
-        int_enum(&CopperBlockId::ALL, Some(64_011_u16));
-        int_enum(&FurnaceLayout::ALL, Some(3_i32));
-        int_enum(&FurnaceLeftTab::ALL, Some(6_i32));
-        int_enum(&GraphicsOverrideParameterType::ALL, Some(52_u8));
-        int_enum(&InventoryActionSource::ALL, Some(100_000_u32));
-        int_enum(&UseItemAction::ALL, Some(4_u32));
-        int_enum(&TriggerType::ALL, Some(3_u32));
-        int_enum(&ClientPrediction::ALL, Some(2_u8));
-        int_enum(&ClientCooldownState::ALL, Some(2_u8));
-        int_enum(&HandSlot::ALL, Some(2_u8));
-        int_enum(&UseItemOnEntityAction::ALL, Some(2_i32));
-        int_enum(&ReleaseItemAction::ALL, Some(2_i32));
-        int_enum(&ItemEntryVersion::ALL, Some(3_i32));
-        int_enum(&FilterCause::ALL, Some(14_i32));
-        int_enum(&ItemStackResponseStatus::ALL, Some(68_u8));
-        int_enum(&MapDecorationType::ALL, Some(30_u8));
-        int_enum(&MapObjectType::ALL, Some(2_i32));
-        int_enum(&MemoryCategory::ALL, Some(111_u8));
-        int_enum(&DeviceOs::ALL, Some(16_i32));
-        int_enum(&PlayerListAction::ALL, Some(2_u8));
-        int_enum(&PlayerAction::ALL, Some(39_i32));
-        int_enum(&RecipeUnlockContext::ALL, Some(4_i32));
-        int_enum(&PackSettingType::ALL, Some(4_u32));
-        int_enum(&ScoreboardIdentity::ALL, Some(4_u8));
-        int_enum(&PrimitiveShape::ALL, Some(10_u8));
-        int_enum(&ArmSize::ALL, Some(2_u8));
-        int_enum(&SkinAnimation::ALL, Some(4_u32));
-        int_enum(&ExpressionType::ALL, Some(2_u32));
-        int_enum(&PieceType::ALL, Some(30_u32));
-        int_enum(&SoundDataUpdate::ALL, Some(7_i32));
-        int_enum(&StructureMirror::ALL, Some(4_u8));
-        int_enum(&StructureRotation::ALL, Some(4_u8));
-        int_enum(&AnimationMode::ALL, Some(3_u8));
-        int_enum(&HeightMapData::ALL, Some(5_u8));
-        int_enum(&SubChunkResult::ALL, Some(7_u8));
-        int_enum(&WaypointAction::ALL, Some(4_u8));
-        flag(&WaypointUpdateFlag::ALL);
-        int_enum(&WaypointUpdateFlag::ALL, Some(33_u32));
-        int_enum(&WaypointTexture::ALL, Some(6_i32));
-        int_enum(&Generator::ALL, Some(6_i32));
-        int_enum(&ActorEvent::ALL, Some(82_u8));
-        flag(&AdventureFlag::ALL);
-        int_enum(&AdventureFlag::ALL, Some(1025_u32));
-        flag(&ActionPermission::ALL);
-        int_enum(&ActionPermission::ALL, Some(257_u32));
-        int_enum(&PermissionLevel::ALL, Some(4_u8));
-        int_enum(&AgentActionType::ALL, Some(19_i32));
-        int_enum(&AnimateAction::ALL, Some(6_u8));
-        int_enum(&AnimateSwingSource::ALL, Some(10_u8));
-        int_enum(&BlockEventType::ALL, Some(2_i32));
-        int_enum(&BookAction::ALL, Some(5_u32));
-        int_enum(&BossEventType::ALL, Some(9_u8));
-        int_enum(&BossEventColour::ALL, Some(8_u8));
-        int_enum(&BossEventOverlay::ALL, Some(5_u8));
-        int_enum(&CameraAimAssistAction::ALL, Some(2_u8));
-        int_enum(&CameraAimAssistPresetOperation::ALL, Some(2_u8));
-        int_enum(&CameraShakeType::ALL, Some(2_u8));
-        int_enum(&CameraShakeAction::ALL, Some(2_u8));
-        int_enum(&Dimension::ALL, Some(3_i32));
-        int_enum(&ControlScheme::ALL, Some(5_u8));
-        int_enum(&ClientBoundDebugRendererType::ALL, Some(2_u32));
-        int_enum(&ClientCameraAimAssistAction::ALL, Some(2_u8));
-        int_enum(&TextureShiftAction::ALL, Some(5_u8));
-        int_enum(&CodeBuilderOperation::ALL, Some(4_u8));
-        int_enum(&CodeBuilderCategory::ALL, Some(3_u8));
-        int_enum(&CodeBuilderStatus::ALL, Some(6_u8));
-        int_enum(&CommandBlockMode::ALL, Some(3_u32));
-        int_enum(&CommandOutputType::ALL, Some(5_u8));
-        int_enum(&UseItemMethod::ALL, Some(17_i32));
-        int_enum(&CursorItemDrag::ALL, Some(2_u8));
-        int_enum(&ContainerDataFurnace::ALL, Some(5_i32));
-        int_enum(&ContainerDataBrewingStand::ALL, Some(3_i32));
-        int_enum(&PredictionType::ALL, Some(2_u8));
-        int_enum(&DisconnectReason::ALL, Some(151_i32));
-        flag(&EmoteFlag::ALL);
-        int_enum(&EmoteFlag::ALL, Some(3_u8));
-        int_enum(&GameTestRequestRotation::ALL, Some(5_u8));
-        int_enum(&InteractAction::ALL, Some(7_u8));
-        int_enum(&LabTableAction::ALL, Some(3_u8));
-        int_enum(&LessonAction::ALL, Some(3_i32));
-        int_enum(&MatchmakingState::ALL, Some(9_u8));
-        int_enum(&ParticleType::ALL, Some(105_i32));
-        int_enum(&LevelEvent::ALL, Some(16_385_i32));
-        str_enum(&SoundEvent::ALL, SoundEvent::as_str);
-        int_enum(&MobEffectOperation::ALL, Some(4_u8));
-        int_enum(&Effect::ALL, Some(28_i32));
-        int_enum(&ModalFormCancelReason::ALL, Some(2_u8));
-        flag(&MoveFlag::ALL);
-        int_enum(&MoveFlag::ALL, Some(9_u8));
-        int_enum(&MoveMode::ALL, Some(4_u8));
-        int_enum(&TeleportCause::ALL, Some(5_i32));
-        int_enum(&MovementEffectType::ALL, Some(3_i32));
-        int_enum(&MultiPlayerSettingsAction::ALL, Some(3_i32));
-        int_enum(&CompressionAlgorithm::ALL, Some(2_u16));
-        int_enum(&NpcDialogueAction::ALL, Some(2_i32));
-        int_enum(&NpcRequestAction::ALL, Some(7_u8));
-        int_enum(&ViolationType::ALL, Some(1_i32));
-        int_enum(&ViolationSeverity::ALL, Some(3_i32));
-        int_enum(&PhotoType::ALL, Some(3_u8));
-        int_enum(&PlayStatus::ALL, Some(10_i32));
-        flag(&PlayerArmourDamageFlag::ALL);
-        int_enum(&PlayerArmourDamageFlag::ALL, Some(5_u8));
-        flag(&InputFlag::ALL);
-        int_enum(&InputFlag::ALL, Some(66_u32));
-        int_enum(&InputMode::ALL, Some(5_u32));
-        int_enum(&PlayMode::ALL, Some(9_u32));
-        int_enum(&InteractionModel::ALL, Some(3_i32));
-        int_enum(&PlayerLocationType::ALL, Some(2_i32));
-        int_enum(&PlayerUpdateEntityOverridesType::ALL, Some(4_u32));
-        int_enum(&PlayerVideoCaptureAction::ALL, Some(2_u8));
-        int_enum(&PositionTrackingDbRequestAction::ALL, Some(1_u8));
-        int_enum(&PositionTrackingDbBroadcastAction::ALL, Some(3_u8));
-        int_enum(&PackResponse::ALL, Some(4_u32));
-        int_enum(&ResourcePackType::ALL, Some(9_u8));
-        int_enum(&RespawnState::ALL, Some(3_u8));
+        int_enum(EasingType::all(), Some(33_i32));
+        str_enum(SplineType::all(), SplineType::as_str);
+        int_enum(ClockPayloadType::all(), Some(4_u32));
+        int_enum(CommandPermissionLevel::all(), Some(6_u8));
+        flag(CommandArg::all());
+        int_enum(CommandArg::all(), Some(67_108_865_u32));
+        int_enum(CommandArgType::all(), Some(134_217_729_u32));
+        flag(ParamOption::all());
+        int_enum(ParamOption::all(), Some(5_u8));
+        int_enum(CommandEnumConstraint::all(), Some(3_u8));
+        int_enum(CommandOrigin::all(), Some(16_u32));
+        int_enum(ContainerId::all(), Some(71_u8));
+        int_enum(ContainerType::all(), Some(37_u8));
+        int_enum(CreativeCategory::all(), Some(7_u8));
+        int_enum(DataStoreChangeType::all(), Some(3_u32));
+        int_enum(DataStoreControl::all(), Some(3_u32));
+        int_enum(DataStorePropertyType::all(), Some(7_i32));
+        int_enum(EntityLink::all(), Some(3_u8));
+        int_enum(PassengerOfBlockEmote::all(), Some(3_u8));
+        int_enum(EntityDataKey::all(), Some(142_u32));
+        flag(EntityDataFlag::all());
+        int_enum(EntityDataFlag::all(), Some(131_u32));
+        int_enum(EntityDataType::all(), Some(9_u32));
+        int_enum(CopperBlockId::all(), Some(64_011_u16));
+        int_enum(FurnaceLayout::all(), Some(3_i32));
+        int_enum(FurnaceLeftTab::all(), Some(6_i32));
+        int_enum(GraphicsOverrideParameterType::all(), Some(52_u8));
+        int_enum(InventoryActionSource::all(), Some(100_000_u32));
+        int_enum(UseItemAction::all(), Some(4_u32));
+        int_enum(TriggerType::all(), Some(3_u32));
+        int_enum(ClientPrediction::all(), Some(2_u8));
+        int_enum(ClientCooldownState::all(), Some(2_u8));
+        int_enum(HandSlot::all(), Some(2_u8));
+        int_enum(UseItemOnEntityAction::all(), Some(2_i32));
+        int_enum(ReleaseItemAction::all(), Some(2_i32));
+        int_enum(ItemEntryVersion::all(), Some(3_i32));
+        int_enum(FilterCause::all(), Some(14_i32));
+        int_enum(ItemStackResponseStatus::all(), Some(68_u8));
+        int_enum(MapDecorationType::all(), Some(30_u8));
+        int_enum(MapObjectType::all(), Some(2_i32));
+        int_enum(MemoryCategory::all(), Some(111_u8));
+        int_enum(DeviceOs::all(), Some(16_i32));
+        int_enum(PlayerListAction::all(), Some(2_u8));
+        int_enum(PlayerAction::all(), Some(39_i32));
+        int_enum(RecipeUnlockContext::all(), Some(4_i32));
+        int_enum(PackSettingType::all(), Some(4_u32));
+        int_enum(ScoreboardIdentity::all(), Some(4_u8));
+        int_enum(PrimitiveShape::all(), Some(10_u8));
+        int_enum(ArmSize::all(), Some(2_u8));
+        int_enum(SkinAnimation::all(), Some(4_u32));
+        int_enum(ExpressionType::all(), Some(2_u32));
+        int_enum(PieceType::all(), Some(30_u32));
+        int_enum(SoundDataUpdate::all(), Some(7_i32));
+        int_enum(StructureMirror::all(), Some(4_u8));
+        int_enum(StructureRotation::all(), Some(4_u8));
+        int_enum(AnimationMode::all(), Some(3_u8));
+        int_enum(HeightMapData::all(), Some(5_u8));
+        int_enum(SubChunkResult::all(), Some(7_u8));
+        int_enum(WaypointAction::all(), Some(4_u8));
+        flag(WaypointUpdateFlag::all());
+        int_enum(WaypointUpdateFlag::all(), Some(33_u32));
+        int_enum(WaypointTexture::all(), Some(6_i32));
+        int_enum(Generator::all(), Some(6_i32));
+        int_enum(ActorEvent::all(), Some(82_u8));
+        flag(AdventureFlag::all());
+        int_enum(AdventureFlag::all(), Some(1025_u32));
+        flag(ActionPermission::all());
+        int_enum(ActionPermission::all(), Some(257_u32));
+        int_enum(PermissionLevel::all(), Some(4_u8));
+        int_enum(AgentActionType::all(), Some(19_i32));
+        int_enum(AnimateAction::all(), Some(6_u8));
+        int_enum(AnimateSwingSource::all(), Some(10_u8));
+        int_enum(BlockEventType::all(), Some(2_i32));
+        int_enum(BookAction::all(), Some(5_u32));
+        int_enum(BossEventType::all(), Some(9_u8));
+        int_enum(BossEventColour::all(), Some(8_u8));
+        int_enum(BossEventOverlay::all(), Some(5_u8));
+        int_enum(CameraAimAssistAction::all(), Some(2_u8));
+        int_enum(CameraAimAssistPresetOperation::all(), Some(2_u8));
+        int_enum(CameraShakeType::all(), Some(2_u8));
+        int_enum(CameraShakeAction::all(), Some(2_u8));
+        int_enum(Dimension::all(), Some(3_i32));
+        int_enum(ControlScheme::all(), Some(5_u8));
+        int_enum(ClientBoundDebugRendererType::all(), Some(2_u32));
+        int_enum(ClientCameraAimAssistAction::all(), Some(2_u8));
+        int_enum(TextureShiftAction::all(), Some(5_u8));
+        int_enum(CodeBuilderOperation::all(), Some(4_u8));
+        int_enum(CodeBuilderCategory::all(), Some(3_u8));
+        int_enum(CodeBuilderStatus::all(), Some(6_u8));
+        int_enum(CommandBlockMode::all(), Some(3_u32));
+        int_enum(CommandOutputType::all(), Some(5_u8));
+        int_enum(UseItemMethod::all(), Some(17_i32));
+        int_enum(CursorItemDrag::all(), Some(2_u8));
+        int_enum(ContainerDataFurnace::all(), Some(5_i32));
+        int_enum(ContainerDataBrewingStand::all(), Some(3_i32));
+        int_enum(PredictionType::all(), Some(2_u8));
+        int_enum(DisconnectReason::all(), Some(151_i32));
+        flag(EmoteFlag::all());
+        int_enum(EmoteFlag::all(), Some(3_u8));
+        int_enum(GameTestRequestRotation::all(), Some(5_u8));
+        int_enum(InteractAction::all(), Some(7_u8));
+        int_enum(LabTableAction::all(), Some(3_u8));
+        int_enum(LessonAction::all(), Some(3_i32));
+        int_enum(MatchmakingState::all(), Some(9_u8));
+        int_enum(ParticleType::all(), Some(105_i32));
+        int_enum(LevelEvent::all(), Some(16_385_i32));
+        str_enum(SoundEvent::all(), SoundEvent::as_str);
+        int_enum(MobEffectOperation::all(), Some(4_u8));
+        int_enum(Effect::all(), Some(28_i32));
+        int_enum(ModalFormCancelReason::all(), Some(2_u8));
+        flag(MoveFlag::all());
+        int_enum(MoveFlag::all(), Some(9_u8));
+        int_enum(MoveMode::all(), Some(4_u8));
+        int_enum(TeleportCause::all(), Some(5_i32));
+        int_enum(MovementEffectType::all(), Some(3_i32));
+        int_enum(MultiPlayerSettingsAction::all(), Some(3_i32));
+        int_enum(CompressionAlgorithm::all(), Some(2_u16));
+        int_enum(NpcDialogueAction::all(), Some(2_i32));
+        int_enum(NpcRequestAction::all(), Some(7_u8));
+        int_enum(ViolationType::all(), Some(1_i32));
+        int_enum(ViolationSeverity::all(), Some(3_i32));
+        int_enum(PhotoType::all(), Some(3_u8));
+        int_enum(PlayStatus::all(), Some(10_i32));
+        flag(PlayerArmourDamageFlag::all());
+        int_enum(PlayerArmourDamageFlag::all(), Some(5_u8));
+        flag(InputFlag::all());
+        int_enum(InputFlag::all(), Some(66_u32));
+        int_enum(InputMode::all(), Some(5_u32));
+        int_enum(PlayMode::all(), Some(9_u32));
+        int_enum(InteractionModel::all(), Some(3_i32));
+        int_enum(PlayerLocationType::all(), Some(2_i32));
+        int_enum(PlayerUpdateEntityOverridesType::all(), Some(4_u32));
+        int_enum(PlayerVideoCaptureAction::all(), Some(2_u8));
+        int_enum(PositionTrackingDbRequestAction::all(), Some(1_u8));
+        int_enum(PositionTrackingDbBroadcastAction::all(), Some(3_u8));
+        int_enum(PackResponse::all(), Some(4_u32));
+        int_enum(ResourcePackType::all(), Some(9_u8));
+        int_enum(RespawnState::all(), Some(3_u8));
         str_enum(
-            &PartyDestinationCookieIntent::ALL,
+            PartyDestinationCookieIntent::all(),
             PartyDestinationCookieIntent::as_str,
         );
-        int_enum(&LoadingScreenType::ALL, Some(3_i32));
+        int_enum(LoadingScreenType::all(), Some(3_i32));
         str_enum(
-            &DataDrivenScreenCloseReason::ALL,
+            DataDrivenScreenCloseReason::all(),
             DataDrivenScreenCloseReason::as_str,
         );
-        int_enum(&ScoreboardSortOrder::ALL, Some(2_i32));
-        str_enum(&ScoreboardSlot::ALL, ScoreboardSlot::as_str);
-        int_enum(&HudElement::ALL, Some(13_i32));
-        int_enum(&HudVisibility::ALL, Some(2_i32));
-        int_enum(&FurnaceType::ALL, Some(4_u8));
-        int_enum(&GameType::ALL, Some(7_i32));
-        int_enum(&InventoryLayout::ALL, Some(4_i32));
-        int_enum(&InventoryLeftTab::ALL, Some(7_i32));
-        int_enum(&InventoryRightTab::ALL, Some(4_i32));
-        int_enum(&ScoreboardIdentityAction::ALL, Some(2_u8));
-        int_enum(&SpawnType::ALL, Some(2_i32));
-        int_enum(&TitleAction::ALL, Some(9_i32));
-        int_enum(&ShowCreditsStatus::ALL, Some(2_i32));
-        int_enum(&StoreOfferType::ALL, Some(3_u8));
-        int_enum(&SimpleEvent::ALL, Some(4_u16));
-        int_enum(&SimulationType::ALL, Some(4_u8));
-        int_enum(&SpawnBiomeType::ALL, Some(2_i16));
-        int_enum(&XblBroadcastMode::ALL, Some(5_i32));
-        int_enum(&ChatRestrictionLevel::ALL, Some(3_u8));
-        int_enum(&EditorWorldType::ALL, Some(4_i32));
-        int_enum(&EditorLevelMigrationVersion::ALL, Some(2_i8));
-        int_enum(&StructureBlockType::ALL, Some(6_i32));
-        int_enum(&StructureRedstoneSaveMode::ALL, Some(2_u8));
-        int_enum(&StructureTemplateRequestType::ALL, Some(4_u8));
-        int_enum(&StructureTemplateResponseType::ALL, Some(3_u8));
-        int_enum(&TextType::ALL, Some(12_u8));
-        int_enum(&TextCategory::ALL, Some(3_i32));
-        int_enum(&UnlockedRecipesType::ALL, Some(5_u32));
-        flag(&BlockUpdateFlag::ALL);
-        int_enum(&BlockUpdateFlag::ALL, Some(9_u32));
-        int_enum(&BlockSyncedTransition::ALL, Some(3_u64));
-        flag(&ClientInputLock::ALL);
-        int_enum(&ClientInputLock::ALL, Some(4097_u32));
-        int_enum(&GraphicsMode::ALL, Some(4_u8));
-        int_enum(&SoftEnumAction::ALL, Some(3_u8));
+        int_enum(ScoreboardSortOrder::all(), Some(2_i32));
+        str_enum(ScoreboardSlot::all(), ScoreboardSlot::as_str);
+        int_enum(HudElement::all(), Some(13_i32));
+        int_enum(HudVisibility::all(), Some(2_i32));
+        int_enum(FurnaceType::all(), Some(4_u8));
+        int_enum(GameType::all(), Some(7_i32));
+        int_enum(InventoryLayout::all(), Some(4_i32));
+        int_enum(InventoryLeftTab::all(), Some(7_i32));
+        int_enum(InventoryRightTab::all(), Some(4_i32));
+        int_enum(ScoreboardIdentityAction::all(), Some(2_u8));
+        int_enum(SpawnType::all(), Some(2_i32));
+        int_enum(TitleAction::all(), Some(9_i32));
+        int_enum(ShowCreditsStatus::all(), Some(2_i32));
+        int_enum(StoreOfferType::all(), Some(3_u8));
+        int_enum(SimpleEvent::all(), Some(4_u16));
+        int_enum(SimulationType::all(), Some(4_u8));
+        int_enum(SpawnBiomeType::all(), Some(2_i16));
+        int_enum(XblBroadcastMode::all(), Some(5_i32));
+        int_enum(ChatRestrictionLevel::all(), Some(3_u8));
+        int_enum(EditorWorldType::all(), Some(4_i32));
+        int_enum(EditorLevelMigrationVersion::all(), Some(2_i8));
+        int_enum(StructureBlockType::all(), Some(6_i32));
+        int_enum(StructureRedstoneSaveMode::all(), Some(2_u8));
+        int_enum(StructureTemplateRequestType::all(), Some(4_u8));
+        int_enum(StructureTemplateResponseType::all(), Some(3_u8));
+        int_enum(TextType::all(), Some(12_u8));
+        int_enum(TextCategory::all(), Some(3_i32));
+        int_enum(UnlockedRecipesType::all(), Some(5_u32));
+        flag(BlockUpdateFlag::all());
+        int_enum(BlockUpdateFlag::all(), Some(9_u32));
+        int_enum(BlockSyncedTransition::all(), Some(3_u64));
+        flag(ClientInputLock::all());
+        int_enum(ClientInputLock::all(), Some(4097_u32));
+        int_enum(GraphicsMode::all(), Some(4_u8));
+        int_enum(SoftEnumAction::all(), Some(3_u8));
     }
 }

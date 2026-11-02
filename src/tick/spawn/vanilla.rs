@@ -310,7 +310,7 @@ mod tests {
     fn the_camera_packets_have_the_official_presets_and_sizes() {
         let [presets, aim, spline] = camera();
         let Packet::CameraPresets(p) = &presets else {
-            panic!("CameraPresets");
+            panic!("camera presets packet");
         };
         let names: Vec<&str> = p.presets.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(

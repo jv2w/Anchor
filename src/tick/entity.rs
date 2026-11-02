@@ -866,16 +866,13 @@ struct Watched {
     held: Stack,
     held_slot: u8,
     off_hand: Stack,
-    armour: [Stack; 4],
+    armor: [Stack; 4],
 }
 
 impl Watched {
-    /// Whether the armour is what `before` holds, piece by piece ([`Stack::same`]).
-    fn has_same_armour(&self, before: &Self) -> bool {
-        self.armour
-            .iter()
-            .zip(&before.armour)
-            .all(|(a, b)| a.same(b))
+    /// Whether the armor is what `before` holds, piece by piece ([`Stack::same`]).
+    fn has_same_armor(&self, before: &Self) -> bool {
+        self.armor.iter().zip(&before.armor).all(|(a, b)| a.same(b))
     }
 
     #[cfg(test)]
@@ -888,7 +885,7 @@ impl Watched {
             held,
             held_slot,
             off_hand,
-            armour,
+            armor,
         } = self;
         h.u64(*runtime_id);
         for v in viewers {
@@ -897,7 +894,7 @@ impl Watched {
         for c in [position.x, position.y, position.z, *yaw, *pitch] {
             h.u64(c.to_bits());
         }
-        for stack in std::iter::once(held).chain([off_hand]).chain(armour) {
+        for stack in std::iter::once(held).chain([off_hand]).chain(armor) {
             super::inventory::hash_stack(h, stack);
         }
         h.u64(u64::from(*held_slot));
@@ -912,7 +909,7 @@ super::checkpoint::fields!(Watched {
     held,
     held_slot,
     off_hand,
-    armour,
+    armor,
 });
 
 /// Every non-player entity, and what players were sent of entities and of each other.
@@ -2597,7 +2594,7 @@ fn damage_event(
 /// [`EntityDamage`] for `blow` on the entity `id`, not cancelled: with the cooldown modifier of a
 /// hit within the cooldown of a `previous` one, and the knockback `knock` gives.
 fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) -> EntityDamage {
-    let mut modifiers = [None; DamageModifier::ALL.len()];
+    let mut modifiers = [None; DamageModifier::all().len()];
     if let Some(previous) = previous
         && let Some(slot) = modifiers.get_mut(DamageModifier::PreviousDamageCooldown as usize)
     {
@@ -3079,7 +3076,7 @@ fn despawn_item(state: &mut State, id: Id) {
 
 /// Whether the item can merge: it can be picked up and its stack is not full.
 fn is_merge_candidate(item: &Item) -> bool {
-    item.pickup_delay != NEVER && item.stack.count() < item.stack.max_count()
+    item.pickup_delay != NEVER && item.stack.count() < item.stack.max_stack_size()
 }
 
 /// Whether two items merge: two candidates of stacking stacks that fit one stack.
@@ -3087,7 +3084,8 @@ fn is_mergeable(a: &Item, b: &Item) -> bool {
     is_merge_candidate(a)
         && is_merge_candidate(b)
         && a.stack.can_stack_with(&b.stack)
-        && u16::from(a.stack.count()) + u16::from(b.stack.count()) <= u16::from(a.stack.max_count())
+        && u16::from(a.stack.count()) + u16::from(b.stack.count())
+            <= u16::from(a.stack.max_stack_size())
 }
 
 /// The item data of an unflagged dropped item.
@@ -3709,7 +3707,7 @@ fn player_actor(session: SessionId) -> Actor {
 fn room(player: &Player, stack: &Stack) -> u8 {
     player
         .inventory(crate::inventory::Kind::Main)
-        .addable_quantity(stack)
+        .addable_count(stack)
 }
 
 /// Removes up to [`MAX_REMOVALS_PER_TICK`] flagged entities, in `Id` order, and tells their
@@ -4075,7 +4073,7 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
             held: inv.held().clone(),
             held_slot: inv.held_slot(),
             off_hand: inv.offhand().clone(),
-            armour: inv.armor().clone(),
+            armor: inv.armor().clone(),
         };
         let game_mode = survival::game_mode(state, target);
         // Built only for a tick that has a new viewer.
@@ -4098,7 +4096,7 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
                 })
             });
             packets.push((s, add.clone()));
-            packets.push((s, track::armour(now.runtime_id, &now.armour)));
+            packets.push((s, track::armor(now.runtime_id, &now.armor)));
             packets.push((s, track::off_hand(now.runtime_id, &now.off_hand)));
             if state.settings.locator_bar {
                 for p in track::locator_shown(now.runtime_id, target.position) {
@@ -4126,8 +4124,8 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
             if !before.off_hand.same(&now.off_hand) {
                 changes.push(track::off_hand(now.runtime_id, &now.off_hand));
             }
-            if !now.has_same_armour(before) {
-                changes.push(track::armour(now.runtime_id, &now.armour));
+            if !now.has_same_armor(before) {
+                changes.push(track::armor(now.runtime_id, &now.armor));
             }
             if !changes.is_empty() {
                 for &s in before.viewers.intersection(&now.viewers) {
@@ -5106,7 +5104,7 @@ mod tests {
                 for _ in 0..3 {
                     let s = stack(kinds[rng.below(3)], 1);
                     let s = s.with_count(
-                        u8::try_from(rng.below(usize::from(s.max_count())) + 1).unwrap(),
+                        u8::try_from(rng.below(usize::from(s.max_stack_size())) + 1).unwrap(),
                     );
                     let x = f64::from(u32::try_from(rng.below(24)).unwrap()) - 12.0;
                     let z = f64::from(u32::try_from(rng.below(24)).unwrap()) - 12.0;
@@ -5145,7 +5143,7 @@ mod tests {
             .count();
         assert!(merges > 0);
         assert!(h.live().iter().all(|e| match &e.kind {
-            Kind::Item(i) => i.stack.count() <= i.stack.max_count(),
+            Kind::Item(i) => i.stack.count() <= i.stack.max_stack_size(),
             _ => true,
         }));
     }
@@ -5562,7 +5560,7 @@ mod tests {
             let mut cx = crate::tick::Context {
                 state: &mut h.state,
             };
-            let world = crate::world::Id::DEFAULT;
+            let world = world::Id::DEFAULT;
             assert_eq!(cx.drop_xp(world, at(2.5, -59.0, 0.5), 100), 0, "{i}");
             assert_eq!(
                 cx.spawn_xp_orb(world, at(2.5, -59.0, 0.5), 5),

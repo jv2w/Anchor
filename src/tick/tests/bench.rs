@@ -107,57 +107,6 @@ impl Bench {
         eprintln!("    per phase (ms): {}", phases.join(", "));
     }
 
-    /// Runs one tick of `inputs` and records its time: the step, the delivery and the boundary.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "consistency: a measurement reads the wall clock"
-    )]
-    fn tick(&mut self, mut inputs: Vec<Input>) {
-        let mut answers = std::mem::take(&mut self.output.answers);
-        let mut log = InputLog::default();
-        let start = Instant::now();
-        let mut lap = start;
-        let phases = &mut self.phases;
-        step_marked(
-            &mut self.state,
-            &mut inputs,
-            &mut answers,
-            &self.pool,
-            &mut self.output,
-            &mut log,
-            |part: Part| {
-                let now = Instant::now();
-                add_phase(phases, part, now - lap);
-                lap = now;
-            },
-        );
-        let delivered = Instant::now();
-        deliver(&mut self.state, &mut self.output, &mut log);
-        boundary(&mut self.state, &mut self.output, &mut log);
-        let end = Instant::now();
-        add_phase(&mut self.phases, Part::Output, end - delivered);
-        self.ticks.push(end - start);
-        let requests = std::mem::take(&mut self.output.requests);
-        self.output.answers = answer(&self.state, &self.pool, requests);
-        for rx in &mut self.receivers {
-            while rx.try_recv().is_ok() {}
-        }
-    }
-
-    /// Runs `at_least` empty ticks, then empty ticks until the world's light work is done (at most
-    /// [`MAX_SETTLE_TICKS`] more).
-    fn settle(&mut self, at_least: u32) {
-        for _ in 0..at_least {
-            self.tick(Vec::new());
-        }
-        for _ in 0..MAX_SETTLE_TICKS {
-            if self.state.worlds[0].is_light_idle() && self.output.answers.is_empty() {
-                break;
-            }
-            self.tick(Vec::new());
-        }
-    }
-
     /// Joins `n` players at the spawn and runs ticks until all of them are spawned.
     fn join(&mut self, n: u64) {
         let mut inputs = Vec::new();
@@ -193,6 +142,57 @@ impl Bench {
     fn reset(&mut self) {
         self.phases.clear();
         self.ticks.clear();
+    }
+
+    /// Runs `at_least` empty ticks, then empty ticks until the world's light work is done (at most
+    /// [`MAX_SETTLE_TICKS`] more).
+    fn settle(&mut self, at_least: u32) {
+        for _ in 0..at_least {
+            self.tick(Vec::new());
+        }
+        for _ in 0..MAX_SETTLE_TICKS {
+            if self.state.worlds[0].is_light_idle() && self.output.answers.is_empty() {
+                break;
+            }
+            self.tick(Vec::new());
+        }
+    }
+
+    /// Runs one tick of `inputs` and records its time: the step, the delivery and the boundary.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "consistency: a measurement reads the wall clock"
+    )]
+    fn tick(&mut self, mut inputs: Vec<Input>) {
+        let mut answers = std::mem::take(&mut self.output.answers);
+        let mut log = InputLog::default();
+        let start = Instant::now();
+        let mut lap = start;
+        let phases = &mut self.phases;
+        step_marked(
+            &mut self.state,
+            &mut inputs,
+            &mut answers,
+            &self.pool,
+            &mut self.output,
+            &mut log,
+            |part: Part| {
+                let now = Instant::now();
+                add_phase(phases, part, now - lap);
+                lap = now;
+            },
+        );
+        let delivered = Instant::now();
+        deliver(&mut self.state, &mut self.output, &mut log);
+        boundary(&mut self.state, &mut self.output, &mut log);
+        let end = Instant::now();
+        add_phase(&mut self.phases, Part::Output, end - delivered);
+        self.ticks.push(end - start);
+        let requests = std::mem::take(&mut self.output.requests);
+        self.output.answers = answer(&self.state, &self.pool, requests);
+        for rx in &mut self.receivers {
+            while rx.try_recv().is_ok() {}
+        }
     }
 }
 

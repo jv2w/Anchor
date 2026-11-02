@@ -1184,7 +1184,14 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
         "/// Decodes the payload of a packet with this ID: the bytes after the packet header. Every \
          byte must be part of the packet.\n///\n/// `budget` is the allocation budget left for the \
          batch the packet came in; decoding takes what the packet allocates from \
-         it.\n\
+         it.\n///\n/// # Errors\n///\n\
+         /// [`Error::UnknownEnum`] for an ID that is no packet, or for a selector inside the \
+         packet that has no known meaning.\n\
+         /// [`Error::UnexpectedEnd`] for a payload that ends inside a value.\n\
+         /// [`Error::Size`] for a length, count, depth or allocation over its limit, or for bytes \
+         left after the packet.\n\
+         /// [`Error::VarintOverflow`], [`Error::InvalidBool`], [`Error::InvalidUtf8`] and \
+         [`Error::InvalidValue`] for a value the wire format does not allow.\n\
          pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {\n\
          let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);\n\
          let packet = Self::decode_body(id, &mut r);\n*budget = r.budget();\nlet packet = packet?;\n\
@@ -1206,7 +1213,11 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
     out.push_str(
         "_ => return Err(Error::UnknownEnum { name: \"packet id\", value: id.into() }),\n})\n}\n\n\
          /// Appends the payload of the packet (without the packet header) to `out`. On an error \
-         `out` is left as it was.\n\
+         `out` is left as it was.\n///\n/// # Errors\n///\n\
+         /// [`Error::Size`] for a length or count that does not fit its wire prefix or is over \
+         its limit.\n\
+         /// [`Error::InvalidValue`] and [`Error::UnknownEnum`] for a field value the wire format \
+         does not allow.\n\
          pub fn encode(&self, out: &mut Vec<u8>) -> Result<()> {\n\
          let start = out.len();\nlet mut w = Writer::new(std::mem::take(out), crate::item::SHIELD_RUNTIME_ID);\n\
          let result = match self {\n",
@@ -1267,7 +1278,7 @@ fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> Result<String, Stri
 /// packets and union variants, so a hand type that changes size fails the build until its table
 /// row is corrected.
 fn hand_size_checks() -> String {
-    let mut out = String::from("// The sizes the generator boxes by (`HAND_TYPES`).\n");
+    let mut out = "// The sizes the generator boxes by (`HAND_TYPES`).\n".to_owned();
     for (rust, bytes) in model::hand_sizes() {
         put!(
             out,

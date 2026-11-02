@@ -55,9 +55,14 @@ impl Writer {
         }
     }
 
-    pub(crate) fn number(&mut self) -> u64 {
-        self.next += 1;
-        self.next
+    /// Writes a log of write batches; `cut` cuts the last record short, as an unfinished write.
+    pub(crate) fn log(&mut self, number: u64, batches: &[Vec<u8>], cut: Option<&mut Rng>) {
+        let mut bytes = log::tests::write(batches);
+        if let Some(rng) = cut {
+            let start = log::tests::write(&batches[..batches.len() - 1]).len();
+            bytes.truncate(start + 1 + rng.below(bytes.len() - start - 1));
+        }
+        self.files.insert(format!("{number:06}.log"), bytes);
     }
 
     /// Writes a table of internal-key `entries` and returns its file number and edit fields.
@@ -83,14 +88,9 @@ impl Writer {
         file
     }
 
-    /// Writes a log of write batches; `cut` cuts the last record short, as an unfinished write.
-    pub(crate) fn log(&mut self, number: u64, batches: &[Vec<u8>], cut: Option<&mut Rng>) {
-        let mut bytes = log::tests::write(batches);
-        if let Some(rng) = cut {
-            let start = log::tests::write(&batches[..batches.len() - 1]).len();
-            bytes.truncate(start + 1 + rng.below(bytes.len() - start - 1));
-        }
-        self.files.insert(format!("{number:06}.log"), bytes);
+    pub(crate) fn number(&mut self) -> u64 {
+        self.next += 1;
+        self.next
     }
 
     /// A version edit adding `file` at `level`.

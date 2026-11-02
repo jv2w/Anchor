@@ -376,13 +376,6 @@ impl Check {
         })
     }
 
-    /// Ends the check early because of `why`, letting go of its read transaction; the next
-    /// [`step`](Self::step) reports it.
-    pub(crate) fn stop(&mut self, why: String) {
-        self.tables.clear();
-        self.failure.get_or_insert(why);
-    }
-
     /// Reads and checks the next step: values while the step stays within [`STEP_BYTES`] (a
     /// larger value is a step alone). Returns what the check found once every table is read.
     /// Damage redb reports while reading a table ends that table, which is counted as one damaged
@@ -428,6 +421,13 @@ impl Check {
             self.tables.pop();
         }
         Some(self.end())
+    }
+
+    /// Ends the check early because of `why`, letting go of its read transaction; the next
+    /// [`step`](Self::step) reports it.
+    pub(crate) fn stop(&mut self, why: String) {
+        self.tables.clear();
+        self.failure.get_or_insert(why);
     }
 
     /// What the check found, once it ended.

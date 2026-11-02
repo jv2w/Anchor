@@ -53,14 +53,14 @@ pub struct Report {
 }
 
 impl Report {
-    /// The number of chunks written: every chunk the world file holds.
-    pub fn chunks(&self) -> u64 {
-        self.chunks
-    }
-
     /// The number of block entities written.
     pub fn block_entities(&self) -> u64 {
         self.block_entities
+    }
+
+    /// The number of chunks written: every chunk the world file holds.
+    pub fn chunks(&self) -> u64 {
+        self.chunks
     }
 
     /// The number of entities left out: Anchor saves them in its own form.

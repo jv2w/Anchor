@@ -8,7 +8,7 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
-#[path = "support/rng.rs"]
+#[path = "../../tests/support/rng.rs"]
 mod rng;
 
 use std::io;
@@ -16,6 +16,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
 use redb::{Builder, ReadableDatabase, ReadableTable, StorageBackend, TableDefinition};
+
 use rng::Rng;
 
 /// The page size of the database file in bytes.
@@ -159,7 +160,7 @@ fn a_small_commit_after_a_compaction_grows_the_file_by_a_step_not_double() {
             let mut table = txn.open_table(TABLE).unwrap();
             for key in 0..512_u32 {
                 let len = 200 + rng.below(1500);
-                let value: Vec<u8> = (0..len).map(|_| rng.byte()).collect();
+                let value: Vec<u8> = (0..len).map(|_| rng.next().to_le_bytes()[0]).collect();
                 table
                     .insert(&(round * 512 + key).to_be_bytes()[..], value.as_slice())
                     .unwrap();

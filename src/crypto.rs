@@ -106,14 +106,22 @@ impl ServerKey {
         })
     }
 
-    /// The public key as base64 SPKI DER.
-    pub(crate) fn public_key_base64(&self) -> &str {
-        &self.public
+    /// The ECDH P-384 shared secret (the x coordinate) with `peer`.
+    pub(crate) fn agree(&self, peer: &PublicKey) -> Result<[u8; P384_COORDINATE_BYTES]> {
+        let peer = agreement::UnparsedPublicKey::new(&ECDH_P384, peer.spki());
+        agreement::agree(&self.agreement, peer, Error::Key, |secret| {
+            <[u8; P384_COORDINATE_BYTES]>::try_from(secret).map_err(|_| Error::Internal)
+        })
     }
 
     /// The public key, parsed to verify signatures or to write as a JWK.
     pub(crate) fn public_key(&self) -> Result<PublicKey> {
         PublicKey::from_base64_spki(&self.public)
+    }
+
+    /// The public key as base64 SPKI DER.
+    pub(crate) fn public_key_base64(&self) -> &str {
+        &self.public
     }
 
     /// An ES384 signature of `message` (randomized nonce).
@@ -128,14 +136,6 @@ impl ServerKey {
             .sign(&rng, message)
             .map_err(|_| Error::Internal)?;
         <[u8; ES384_SIGNATURE_BYTES]>::try_from(signature.as_ref()).map_err(|_| Error::Internal)
-    }
-
-    /// The ECDH P-384 shared secret (the x coordinate) with `peer`.
-    pub(crate) fn agree(&self, peer: &PublicKey) -> Result<[u8; P384_COORDINATE_BYTES]> {
-        let peer = agreement::UnparsedPublicKey::new(&ECDH_P384, peer.spki());
-        agreement::agree(&self.agreement, peer, Error::Key, |secret| {
-            <[u8; P384_COORDINATE_BYTES]>::try_from(secret).map_err(|_| Error::Internal)
-        })
     }
 
     /// The key in a PKCS#8 v1 document, the form [`ServerKey::from_pkcs8`] reads.
@@ -194,6 +194,18 @@ impl PublicKey {
             .map_err(|_| Error::Key)
     }
 
+    /// The JWK coordinates `(x, y)` in base64url without padding.
+    pub(crate) fn p384_jwk(&self) -> Result<(String, String)> {
+        let (x, y) = self
+            .spki()
+            .strip_prefix(&P384_SPKI_PREFIX[..])
+            .and_then(|point| point.strip_prefix(&[UNCOMPRESSED_POINT_TAG][..]))
+            .filter(|xy| xy.len() == 2 * P384_COORDINATE_BYTES)
+            .and_then(|xy| xy.split_at_checked(P384_COORDINATE_BYTES))
+            .ok_or(Error::Key)?;
+        Ok((RAW_URL.encode(x), RAW_URL.encode(y)))
+    }
+
     /// The SPKI DER bytes.
     pub(crate) fn spki(&self) -> &[u8] {
         self.0.as_ref()
@@ -207,18 +219,6 @@ impl PublicKey {
         self.0
             .verify_sig(message, signature)
             .map_err(|_| Error::Signature)
-    }
-
-    /// The JWK coordinates `(x, y)` in base64url without padding.
-    pub(crate) fn p384_jwk(&self) -> Result<(String, String)> {
-        let (x, y) = self
-            .spki()
-            .strip_prefix(&P384_SPKI_PREFIX[..])
-            .and_then(|point| point.strip_prefix(&[UNCOMPRESSED_POINT_TAG][..]))
-            .filter(|xy| xy.len() == 2 * P384_COORDINATE_BYTES)
-            .and_then(|xy| xy.split_at_checked(P384_COORDINATE_BYTES))
-            .ok_or(Error::Key)?;
-        Ok((RAW_URL.encode(x), RAW_URL.encode(y)))
     }
 }
 

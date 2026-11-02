@@ -76,6 +76,42 @@ impl Server {
         self.shutdown.clone()
     }
 
+    /// Deletes the saved record of one player from `data/players.redb` and says whether there
+    /// was one, so a player whose damaged record refuses the join can join again. `record_key` is
+    /// the key the log and [`PlayerDataSave::record_key`](crate::event::PlayerDataSave::record_key)
+    /// give: the player's XUID in decimal, or `offline:` and the name for a player without an
+    /// Xbox sign-in.
+    ///
+    /// Only that record is written; the other players, the worlds and the lists are not touched.
+    /// The record is deleted without being read, so a damaged one goes too, and deleting again
+    /// leaves the same state and answers false. Nothing is restored from a backup. The file is
+    /// checked as a start checks it, so a file that is damaged or of a newer format is refused
+    /// as it was.
+    ///
+    /// It needs the file to itself: a running server holds it, so it is refused
+    /// ([`Error::Storage`]). It blocks the calling thread.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
+    /// [`Error::Storage`] for a file in use, another process's included, or that cannot be read or
+    /// written, or that holds a later save than the main file (one start of the server rolls it
+    /// back). [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a damaged file and one
+    /// of a newer format.
+    pub fn delete_player_data(&self, record_key: &str) -> Result<bool> {
+        let key = crate::storage::PlayerKey::parse(record_key).ok_or_else(|| {
+            Error::InvalidPlayerKey {
+                key: record_key.to_owned(),
+            }
+        })?;
+        let _log = self.console_log().map_err(Error::Start)?;
+        Ok(save::delete_player(
+            &self.data_dir,
+            crate::storage::Start::of(&self.config),
+            &key,
+        )?)
+    }
+
     /// Exports the persistent world `world` as the Bedrock world folder `dir` (a `level.dat` and
     /// its `db` database folder, which the official server and the game open), the reverse of
     /// [`import_world`](Self::import_world).
@@ -190,42 +226,6 @@ impl Server {
             dir.as_ref(),
             world,
         )
-    }
-
-    /// Deletes the saved record of one player from `data/players.redb` and says whether there
-    /// was one, so a player whose damaged record refuses the join can join again. `record_key` is
-    /// the key the log and [`PlayerDataSave::record_key`](crate::event::PlayerDataSave::record_key)
-    /// give: the player's XUID in decimal, or `offline:` and the name for a player without an
-    /// Xbox sign-in.
-    ///
-    /// Only that record is written; the other players, the worlds and the lists are not touched.
-    /// The record is deleted without being read, so a damaged one goes too, and deleting again
-    /// leaves the same state and answers false. Nothing is restored from a backup. The file is
-    /// checked as a start checks it, so a file that is damaged or of a newer format is refused
-    /// as it was.
-    ///
-    /// It needs the file to itself: a running server holds it, so it is refused
-    /// ([`Error::Storage`]). It blocks the calling thread.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
-    /// [`Error::Storage`] for a file in use, another process's included, or that cannot be read or
-    /// written, or that holds a later save than the main file (one start of the server rolls it
-    /// back). [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a damaged file and one
-    /// of a newer format.
-    pub fn delete_player_data(&self, record_key: &str) -> Result<bool> {
-        let key = crate::storage::PlayerKey::parse(record_key).ok_or_else(|| {
-            Error::InvalidPlayerKey {
-                key: record_key.to_owned(),
-            }
-        })?;
-        let _log = self.console_log().map_err(Error::Start)?;
-        Ok(save::delete_player(
-            &self.data_dir,
-            crate::storage::Start::of(&self.config),
-            &key,
-        )?)
     }
 
     /// Replays the crash log at `log` (a `data/crash/input-*.log` the server wrote when it
@@ -379,7 +379,7 @@ impl Server {
         let log = self.console_log().map_err(Error::Start)?;
         info!(
             version = Context::ANCHOR_VERSION,
-            minecraft = Context::VERSION,
+            minecraft = Context::GAME_VERSION,
             protocol = PROTOCOL_VERSION,
             "server starting"
         );
@@ -554,7 +554,7 @@ impl Server {
     }
 }
 
-/// Collects what a [`Server`] needs; [`build`](Self::build) checks it.
+/// The settings, registrations and worlds a [`Server`] needs; [`build`](Self::build) checks them.
 ///
 /// The callbacks registered here (`on`, `monitor`, `every`, and those of the other modules) run
 /// in the tick. A panic in one ends the server without saving: [`Server::run`] writes the input
@@ -787,7 +787,7 @@ impl ServerBuilder {
     }
 }
 
-/// Asks a [`Server`] to stop. Cheap to clone and usable from any thread.
+/// A handle that asks a [`Server`] to stop. Cheap to clone and usable from any thread.
 #[derive(Debug, Clone)]
 pub struct ShutdownHandle(mpsc::Sender<()>);
 

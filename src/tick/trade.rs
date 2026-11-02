@@ -26,7 +26,7 @@ mod offers;
 
 pub use api::check_offers;
 pub(super) use api::new_offers;
-pub(super) use offers::{Damage, Error, Offers, Recipe, Result};
+pub(super) use offers::{Damage, Error, Offers, Result, StoredOffer};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -104,6 +104,27 @@ pub(super) struct Trades {
 }
 
 impl Trades {
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            sessions,
+            // Derived from `sessions`.
+            by_villager: _,
+            next_net_id,
+            fixtures,
+        } = self;
+        h.usize(sessions.len());
+        for (s, t) in sessions {
+            h.u64(s.get());
+            h.u64(u64::from(t.villager.index()));
+            h.u64(u64::from(t.villager.generation()));
+            h.u64(u64::from(t.window));
+        }
+        h.u64(u64::from(*next_net_id));
+        // The stand-in villagers' offers, which the entity module hashes in the game.
+        fixtures.hash_into(h);
+    }
+
     /// The sessions trading with `villager` and their windows.
     fn traders(&self, villager: Id) -> Vec<(SessionId, u8)> {
         self.by_villager
@@ -124,27 +145,6 @@ impl Trades {
         if let Some(s) = self.sessions.remove(&session) {
             self.by_villager.remove(&(s.villager, session));
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            sessions,
-            // Derived from `sessions`.
-            by_villager: _,
-            next_net_id,
-            fixtures,
-        } = self;
-        h.usize(sessions.len());
-        for (s, t) in sessions {
-            h.u64(s.get());
-            h.u64(u64::from(t.villager.index()));
-            h.u64(u64::from(t.villager.generation()));
-            h.u64(u64::from(t.window));
-        }
-        h.u64(u64::from(*next_net_id));
-        // The stand-in villagers' offers, which the entity module hashes in the game.
-        fixtures.hash_into(h);
     }
 }
 
@@ -449,7 +449,7 @@ fn traded_with(
     let applied = (hooks.offers_mut)(state, villager)
         .and_then(|o| o.apply(index, times))
         .expect("the villager found above has the offer");
-    if applied.reward_exp {
+    if applied.reward_xp {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
         // The request ID, unique among the requests the server took from the player, keeps each
         // trade's draw its own: the offer's uses can be set back within a tick.
@@ -471,10 +471,10 @@ fn traded_with(
     (hooks.villager_traded)(state, villager, before);
 }
 
-/// Counts the trades of `recipe` one request may make now: its uses left, at most
+/// Counts the trades of `offer` one request may make now: its uses left, at most
 /// [`MAX_REPEAT`].
-fn times_allowed(recipe: &Recipe) -> u32 {
-    recipe.uses_left().min(MAX_REPEAT)
+fn times_allowed(offer: &StoredOffer) -> u32 {
+    offer.uses_left().min(MAX_REPEAT)
 }
 
 /// Ends the trading of every player whose villager is gone or in another world: closes the

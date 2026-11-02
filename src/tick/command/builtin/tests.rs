@@ -450,7 +450,7 @@ fn whitelist_actions_each_need_their_permission_and_kick_who_is_left_out() {
         ok(&mut state, id(1), "whitelist on"),
         ["commands.allowlist.enabled"]
     );
-    assert!(Context { state: &mut state }.whitelist_enabled());
+    assert!(Context { state: &mut state }.is_whitelist_enabled());
     // Player 1 is an operator and stays; player 2 is not listed.
     let (_, last) = chat(&mut state, &mut rx[1]);
     assert_eq!(kicked_with(last), "disconnectionScreen.notAllowed");
@@ -463,7 +463,7 @@ fn whitelist_actions_each_need_their_permission_and_kick_who_is_left_out() {
         ok(&mut state, Sender::Console, "whitelist off"),
         ["commands.allowlist.disabled"]
     );
-    assert!(!Context { state: &mut state }.whitelist_enabled());
+    assert!(!Context { state: &mut state }.is_whitelist_enabled());
 }
 
 #[test]
@@ -880,7 +880,7 @@ fn list_status_and_version_report_the_server() {
         "Anchor {} for Minecraft ",
         Context::ANCHOR_VERSION
     )));
-    assert!(version[0].contains(Context::VERSION));
+    assert!(version[0].contains(Context::GAME_VERSION));
 }
 
 /// `/status` shows, in Anchor's own lines, the measured uptime, tick load and memory, the
@@ -1017,7 +1017,7 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
         ok(&mut state, id(1), "save-off"),
         ["commands.save.disabled"]
     );
-    assert!(!Context { state: &mut state }.auto_save_enabled());
+    assert!(!Context { state: &mut state }.is_auto_save_enabled());
     // Far past the save interval: nothing is due while saves are off.
     state.tick += 1_000_000;
     let mut log = InputLog::default();
@@ -1033,7 +1033,7 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
         ok(&mut state, Sender::Console, "save-on"),
         ["commands.save.enabled"]
     );
-    assert!(Context { state: &mut state }.auto_save_enabled());
+    assert!(Context { state: &mut state }.is_auto_save_enabled());
     state.tick += 1_000_000;
     assert!(save::snapshot(&mut state, &mut log, false).is_some());
     assert!(is_refused(&run(&mut state, id(2), "save-all")));

@@ -69,19 +69,19 @@ pub struct Report {
 }
 
 impl Report {
-    /// The overworld chunks imported.
-    pub fn chunks(&self) -> u64 {
-        self.chunks
-    }
-
     /// The block entities imported.
     pub fn block_entities(&self) -> u64 {
         self.block_entities
     }
 
-    /// The block states and item stacks in block entities that were upgraded.
-    pub fn upgraded_nbt(&self) -> u64 {
-        self.upgraded_nbt
+    /// The overworld chunks imported.
+    pub fn chunks(&self) -> u64 {
+        self.chunks
+    }
+
+    /// The End chunks, left out.
+    pub fn end_chunks(&self) -> u64 {
+        self.end_chunks
     }
 
     /// The entities stored one per key (`actorprefix`, since 1.18.30; the key does not say
@@ -105,14 +105,14 @@ impl Report {
         self.nether_chunks
     }
 
-    /// The End chunks, left out.
-    pub fn end_chunks(&self) -> u64 {
-        self.end_chunks
-    }
-
     /// The chunks of other dimension numbers, left out.
     pub fn other_dimension_chunks(&self) -> u64 {
         self.other_dimension_chunks
+    }
+
+    /// The other world-level keys (scoreboard, maps, villages, ...), left out.
+    pub fn other_keys(&self) -> u64 {
+        self.other_keys
     }
 
     /// The player keys, left out: Bedrock files players by device, with no Xbox user ID to
@@ -121,9 +121,12 @@ impl Report {
         self.players
     }
 
-    /// The other world-level keys (scoreboard, maps, villages, ...), left out.
-    pub fn other_keys(&self) -> u64 {
-        self.other_keys
+    /// The vanilla world's spawn, from `level.dat`, which the imported world keeps as its spawn; a
+    /// spawn without a height stands on the highest block of its column (the generator's height
+    /// if the column is empty). Anchor takes no setting of `level.dat` (seed, game mode,
+    /// difficulty, game rules): the world runs with the settings of the server.
+    pub fn spawn(&self) -> BlockPos {
+        self.spawn
     }
 
     /// Blocks Anchor does not know, by name (`legacy:<id>:<meta>` for a legacy value without
@@ -141,12 +144,9 @@ impl Report {
         self.unlisted_unknown_blocks
     }
 
-    /// The vanilla world's spawn, from `level.dat`, which the imported world keeps as its spawn; a
-    /// spawn without a height stands on the highest block of its column (the generator's height
-    /// if the column is empty). Anchor takes no setting of `level.dat` (seed, game mode,
-    /// difficulty, game rules): the world runs with the settings of the server.
-    pub fn spawn(&self) -> BlockPos {
-        self.spawn
+    /// The block states and item stacks in block entities that were upgraded.
+    pub fn upgraded_nbt(&self) -> u64 {
+        self.upgraded_nbt
     }
 }
 

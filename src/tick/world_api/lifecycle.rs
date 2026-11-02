@@ -264,8 +264,8 @@ checkpoint::fields!(WorldSlot {
 });
 
 impl Context<'_> {
-    /// Whether a world named `name` exists: the server runs it, or its file was in
-    /// `data/worlds/` at start and could be read. A temporary world unloaded does not.
+    /// Whether a world named `name` has been generated, so it exists: the server runs it, or its
+    /// file was in `data/worlds/` at start and could be read. A temporary world unloaded has not.
     #[doc(alias = "WorldManager::isWorldGenerated")]
     pub fn is_world_generated(&self, name: &str) -> bool {
         name_taken(self.state, name)
@@ -278,49 +278,6 @@ impl Context<'_> {
         named(self.state, name).is_some_and(|i| self.state.catalog.is_loaded(i))
     }
 
-    /// Makes `world` the default world, where players without a saved place join and dead
-    /// players without a spawn point respawn, until the server stops (`level-name` stays as it
-    /// is).
-    ///
-    /// # Errors
-    ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
-    #[doc(alias = "WorldManager::setDefaultWorld")]
-    pub fn set_default_world(&mut self, world: world::Id) -> world::Result<()> {
-        let index = super::loaded_index(self.state, world)?;
-        self.state.catalog.default = index;
-        Ok(())
-    }
-
-    /// Gives `world` its own difficulty, or `None` to follow the server's
-    /// ([`difficulty`](Self::difficulty)), and tells its players. Its rules use it until the
-    /// server stops: it is not saved, and a restart takes the difficulty of the settings again.
-    ///
-    /// # Errors
-    ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`Hardcore`](world::Error::Hardcore) for a difficulty other than hard on a `hardcore`
-    /// server. Nothing is changed then.
-    #[doc(alias = "World::setDifficulty")]
-    pub fn set_world_difficulty(
-        &mut self,
-        world: world::Id,
-        difficulty: Option<Difficulty>,
-    ) -> world::Result<()> {
-        let w = super::loaded_index(self.state, world)?;
-        let settings = &self.state.settings;
-        if settings.hardcore && difficulty.unwrap_or(settings.difficulty) != Difficulty::Hard {
-            return Err(world::Error::Hardcore);
-        }
-        super::world_at_mut(self.state, w).set_difficulty(difficulty);
-        let applied = difficulty_of(&self.state.settings, super::world_at(self.state, w));
-        let packet = Packet::SetDifficulty(SetDifficulty {
-            difficulty: crate::tick::spawn::difficulty_id(applied).cast_unsigned(),
-        });
-        super::send_to_world(self.state, w, &packet);
-        Ok(())
-    }
-
     /// Makes a world named `name` with `options` and loads it: its spawn chunks load from the next
     /// view phase on, where [`WorldInit`] and [`WorldLoad`] are raised. A persistent world is
     /// saved from the next commit on; a temporary one never. The generator is the first one
@@ -330,7 +287,10 @@ impl Context<'_> {
     /// restart takes them again. A world made again under the name of a temporary world unloaded
     /// or of a persistent world deleted this run takes its [`world::Id`].
     ///
-    /// A persistent world is its file `data/worlds/<name>.redb`, made by the save thread.
+    /// A persistent world is its file `data/worlds/<name>.redb`, made by the save thread after
+    /// this returns. If the file cannot be opened, the save thread logs an error and the world is
+    /// force-unloaded at the next view phase; loading it again tries the
+    /// file again. This call cannot report that, since the tick never touches the disk.
     ///
     /// The world keeps the difficulty of [`Options::difficulty`](world::Options::difficulty) as
     /// its own, but a `hardcore` server plays every world on hard.
@@ -454,6 +414,9 @@ impl Context<'_> {
     /// phase is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a
     /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
     ///
+    /// The file opens on the save thread after this returns, so a file that cannot be opened is
+    /// not an error here: see [`create_world`](Self::create_world).
+    ///
     /// # Errors
     ///
     /// [`world::Error::NotGenerated`] if the server runs no world of that name and `data/worlds/`
@@ -490,6 +453,49 @@ impl Context<'_> {
         state.catalog.stored.remove(&key);
         let index = state.worlds.len();
         Ok(install(state, index, world, options, false))
+    }
+
+    /// Makes `world` the default world, where players without a saved place join and dead
+    /// players without a spawn point respawn, until the server stops (`level-name` stays as it
+    /// is).
+    ///
+    /// # Errors
+    ///
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    #[doc(alias = "WorldManager::setDefaultWorld")]
+    pub fn set_default_world(&mut self, world: world::Id) -> world::Result<()> {
+        let index = super::loaded_index(self.state, world)?;
+        self.state.catalog.default = index;
+        Ok(())
+    }
+
+    /// Gives `world` its own difficulty, or `None` to follow the server's
+    /// ([`difficulty`](Self::difficulty)), and tells its players. Its rules use it until the
+    /// server stops: it is not saved, and a restart takes the difficulty of the settings again.
+    ///
+    /// # Errors
+    ///
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
+    /// [`Hardcore`](world::Error::Hardcore) for a difficulty other than hard on a `hardcore`
+    /// server. Nothing is changed then.
+    #[doc(alias = "World::setDifficulty")]
+    pub fn set_world_difficulty(
+        &mut self,
+        world: world::Id,
+        difficulty: Option<Difficulty>,
+    ) -> world::Result<()> {
+        let w = super::loaded_index(self.state, world)?;
+        let settings = &self.state.settings;
+        if settings.hardcore && difficulty.unwrap_or(settings.difficulty) != Difficulty::Hard {
+            return Err(world::Error::Hardcore);
+        }
+        super::world_at_mut(self.state, w).set_difficulty(difficulty);
+        let applied = difficulty_of(&self.state.settings, super::world_at(self.state, w));
+        let packet = Packet::SetDifficulty(SetDifficulty {
+            difficulty: crate::tick::spawn::difficulty_id(applied).cast_unsigned(),
+        });
+        super::send_to_world(self.state, w, &packet);
+        Ok(())
     }
 
     /// Starts the time of `world` again after [`stop_time`](Self::stop_time).

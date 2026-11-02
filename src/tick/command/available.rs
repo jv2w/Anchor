@@ -135,14 +135,14 @@ impl Catalog {
         b.error.map_or(Ok(b.catalog), Err)
     }
 
-    /// The position of the soft enum of type `name` among [`Self::soft_count`].
-    pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
-        self.soft_index.get(name).map(|&index| slice_index(index))
-    }
-
     /// How many soft enum types the commands use.
     pub(crate) fn soft_count(&self) -> usize {
         self.soft.len()
+    }
+
+    /// The position of the soft enum of type `name` among [`Self::soft_count`].
+    pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
+        self.soft_index.get(name).map(|&index| slice_index(index))
     }
 
     /// The type name of soft enum `index`, a position among [`Self::soft_count`].

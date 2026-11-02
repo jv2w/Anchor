@@ -54,37 +54,6 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    /// An empty chunk: air, plains biomes. A generator gets one to fill; a test of a generator
-    /// can make its own.
-    pub fn new() -> Self {
-        let plains = Arc::new(Paletted::uniform(PLAINS));
-        Self {
-            sub_chunks: Default::default(),
-            biomes: std::array::from_fn(|_| Arc::clone(&plains)),
-            heights: Box::new([NO_HEIGHT; COLUMNS]),
-            unknown: Arc::new(Vec::new()),
-            dirty: 0,
-            split: false,
-            light: None,
-        }
-    }
-
-    /// Generates the chunk at `pos` (a pure function of the seed and the position),
-    /// then compacts its palettes: the order of first use, as the official server writes them,
-    /// whatever order the generator wrote in.
-    pub(crate) fn generate(generator: &dyn Generator, seed: i64, pos: ChunkPos) -> Self {
-        let mut chunk = Self::new();
-        generator.generate(seed, pos, &mut chunk);
-        for sub in chunk.sub_chunks.iter_mut().flatten() {
-            Arc::make_mut(sub).compact();
-        }
-        // A width 0 storage is compact already; the untouched ones stay shared.
-        for biomes in chunk.biomes.iter_mut().filter(|b| b.bits() != 0) {
-            Arc::make_mut(biomes).compact();
-        }
-        chunk
-    }
-
     /// A chunk from stored parts (external input): the sub-chunks from the bottom,
     /// the biomes of each, and the unknown states the layers' unknown entries index.
     /// Fails if an entry indexes past the unknown list or the list is longer than one per slot.
@@ -109,11 +78,19 @@ impl Chunk {
         ))
     }
 
-    /// The block at local (x, y, z), or `None` if the position is outside the chunk or the
-    /// block is a state Anchor does not know.
-    #[doc(alias = "Chunk::getBlockStateId")]
-    pub fn block(&self, x: u8, y: i32, z: u8) -> Option<State> {
-        self.entry(x, y, z)?.state()
+    /// An empty chunk: air, plains biomes. A generator gets one to fill; a test of a generator
+    /// can make its own.
+    pub fn new() -> Self {
+        let plains = Arc::new(Paletted::uniform(PLAINS));
+        Self {
+            sub_chunks: Default::default(),
+            biomes: std::array::from_fn(|_| Arc::clone(&plains)),
+            heights: Box::new([NO_HEIGHT; COLUMNS]),
+            unknown: Arc::new(Vec::new()),
+            dirty: 0,
+            split: false,
+            light: None,
+        }
     }
 
     /// The biome ID at local (x, y, z), or `None` if the position is outside the chunk.
@@ -123,15 +100,16 @@ impl Chunk {
         Some(self.biomes.get(index)?.get(offset(x, y, z)))
     }
 
-    /// The top y in the local column (x, z) that holds a block other than air, or `None` if the
-    /// column is all air or outside the chunk.
-    #[doc(alias = "Chunk::getHighestBlockAt")]
-    pub fn highest_block(&self, x: u8, z: u8) -> Option<i32> {
-        if x >= 16 || z >= 16 {
-            return None;
-        }
-        let h = *self.heights.get(column(x, z))?;
-        (h != NO_HEIGHT).then_some(i32::from(h))
+    /// The biomes of the sub-chunk at `index` (0 is the lowest).
+    pub(crate) fn biome_storage(&self, index: usize) -> Option<&Paletted<u32>> {
+        self.biomes.get(index).map(AsRef::as_ref)
+    }
+
+    /// The block at local (x, y, z), or `None` if the position is outside the chunk or the
+    /// block is a state Anchor does not know.
+    #[doc(alias = "Chunk::getBlockStateId")]
+    pub fn block(&self, x: u8, y: i32, z: u8) -> Option<State> {
+        self.entry(x, y, z)?.state()
     }
 
     /// The block at local (x, y, z) as the chunk holds it, or `None` outside the chunk.
@@ -163,19 +141,20 @@ impl Chunk {
         })
     }
 
-    /// The sub-chunk at `index` (0 is the lowest), or `None` if it is air.
-    pub(crate) fn sub_chunk(&self, index: usize) -> Option<&SubChunk> {
-        self.sub_chunks.get(index)?.as_deref()
-    }
-
-    /// The biomes of the sub-chunk at `index` (0 is the lowest).
-    pub(crate) fn biome_storage(&self, index: usize) -> Option<&Paletted<u32>> {
-        self.biomes.get(index).map(AsRef::as_ref)
-    }
-
-    /// The original NBT of the unknown states, by [`Entry::unknown_index`].
-    pub(crate) fn unknown(&self) -> &[nbt::Compound] {
-        &self.unknown
+    /// Generates the chunk at `pos` (a pure function of the seed and the position),
+    /// then compacts its palettes: the order of first use, as the official server writes them,
+    /// whatever order the generator wrote in.
+    pub(crate) fn generate(generator: &dyn Generator, seed: i64, pos: ChunkPos) -> Self {
+        let mut chunk = Self::new();
+        generator.generate(seed, pos, &mut chunk);
+        for sub in chunk.sub_chunks.iter_mut().flatten() {
+            Arc::make_mut(sub).compact();
+        }
+        // A width 0 storage is compact already; the untouched ones stay shared.
+        for biomes in chunk.biomes.iter_mut().filter(|b| b.bits() != 0) {
+            Arc::make_mut(biomes).compact();
+        }
+        chunk
     }
 
     /// The highest non-air layer 0 block of each column, indexed `z × 16 + x`, or
@@ -184,24 +163,32 @@ impl Chunk {
         &self.heights
     }
 
+    /// The top y in the local column (x, z) that holds a block other than air, or `None` if the
+    /// column is all air or outside the chunk.
+    #[doc(alias = "Chunk::getHighestBlockAt")]
+    pub fn highest_block(&self, x: u8, z: u8) -> Option<i32> {
+        if x >= 16 || z >= 16 {
+            return None;
+        }
+        let h = *self.heights.get(column(x, z))?;
+        (h != NO_HEIGHT).then_some(i32::from(h))
+    }
+
     /// Whether the chunk changed since the world's last save snapshot.
     pub(crate) fn is_dirty(&self) -> bool {
         self.dirty != 0
     }
 
-    /// The sub-chunks a save of this snapshot writes, one bit per index: the changed ones, or
-    /// all of them when the file does not hold the chunk yet.
-    pub(crate) fn saved_sub_chunks(&self) -> u32 {
-        if self.split {
-            self.dirty
-        } else {
-            (1 << SUB_CHUNKS) - 1
-        }
-    }
-
     /// The chunk's light, if it is worked out.
     pub(super) fn light(&self) -> Option<&Levels> {
         self.light.as_deref()
+    }
+
+    /// The light values of the layer 0 block at local (x, y, z), or `None` outside the chunk.
+    #[inline]
+    pub(super) fn light_values(&self, x: u8, y: i32, z: u8) -> Option<light::Values> {
+        let (index, y) = split_y(y).filter(|_| x < 16 && z < 16)?;
+        Some(self.light_values_at(index, offset(x, y, z)))
     }
 
     /// The light values of the layer 0 block at an offset of sub-chunk `index` (air's in an
@@ -214,11 +201,14 @@ impl Chunk {
         }
     }
 
-    /// The light values of the layer 0 block at local (x, y, z), or `None` outside the chunk.
-    #[inline]
-    pub(super) fn light_values(&self, x: u8, y: i32, z: u8) -> Option<light::Values> {
-        let (index, y) = split_y(y).filter(|_| x < 16 && z < 16)?;
-        Some(self.light_values_at(index, offset(x, y, z)))
+    /// The sub-chunks a save of this snapshot writes, one bit per index: the changed ones, or
+    /// all of them when the file does not hold the chunk yet.
+    pub(crate) fn saved_sub_chunks(&self) -> u32 {
+        if self.split {
+            self.dirty
+        } else {
+            (1 << SUB_CHUNKS) - 1
+        }
     }
 
     /// The sub-chunks from the bottom up to the highest one that is not air (`SubChunkLimit`).
@@ -244,18 +234,51 @@ impl Chunk {
         Some(w.into_inner())
     }
 
-    /// Sets the block at local (x, y, z). Neighbour connections (fences, stairs) are not worked
-    /// out here: a generator writes the states it means. The slot's water (the stored water
-    /// logging of a block, which the chunk keeps apart from the block) is cleared.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a position outside the chunk.
-    #[doc(alias = "Chunk::setBlockStateId")]
-    pub fn set_block(&mut self, x: u8, y: i32, z: u8, state: State) -> Result<()> {
-        self.put(x, y, z, Entry::Known(state))
-            .map(|_| ())
-            .ok_or(Error::OutOfRange)
+    /// The sub-chunk at `index` (0 is the lowest), or `None` if it is air.
+    pub(crate) fn sub_chunk(&self, index: usize) -> Option<&SubChunk> {
+        self.sub_chunks.get(index)?.as_deref()
+    }
+
+    /// The original NBT of the unknown states, by [`Entry::unknown_index`].
+    pub(crate) fn unknown(&self) -> &[nbt::Compound] {
+        &self.unknown
+    }
+
+    /// The chunk's light, to change it.
+    pub(super) fn light_mut(&mut self) -> Option<&mut Levels> {
+        self.light.as_deref_mut()
+    }
+
+    /// Marks the sub-chunk holding height `y` changed (nothing outside the world height).
+    pub(super) fn mark_dirty(&mut self, y: i32) {
+        if let Some((index, _)) = split_y(y) {
+            self.dirty |= 1 << index;
+        }
+    }
+
+    /// Works out the chunk's light alone, as if its neighbours were dark: a pure function of the
+    /// chunk for the CPU pool, done when a chunk is loaded or generated. The world connects it to
+    /// its neighbours when the chunk is loaded.
+    pub(crate) fn populate_light(&mut self) {
+        self.light = Some(Box::new(light::populate(self)));
+    }
+
+    /// Puts the stored state `nbt`, which Anchor does not know, at local (x, y, z) as a chunk read
+    /// from the server file holds it; the entry, or `None` outside the chunk.
+    #[cfg(test)]
+    pub(crate) fn put_unknown(
+        &mut self,
+        x: u8,
+        y: i32,
+        z: u8,
+        nbt: nbt::Compound,
+    ) -> Option<Entry> {
+        let mut list = self.unknown.to_vec();
+        let entry = Entry::Unknown(u32::try_from(list.len()).ok()?);
+        list.push(nbt);
+        self.unknown = Arc::new(list);
+        self.put(x, y, z, entry)?;
+        Some(entry)
     }
 
     /// Sets the biome ID at local (x, y, z), such as 1 for plains (the client's biome
@@ -274,36 +297,18 @@ impl Chunk {
         Ok(())
     }
 
-    /// Finds or adds the entry of `block` in this chunk: its index here if it was read from this
-    /// chunk's list, else that of an equal stored state, else a new one at the end. Fails with
-    /// [`Error::Full`] when the list holds [`MAX_UNKNOWN`] states.
-    pub(super) fn unknown_entry(&mut self, block: &UnknownBlock) -> Result<Entry> {
-        let nbt = block.nbt();
-        let found = if Arc::ptr_eq(&block.list, &self.unknown) {
-            Some(block.index)
-        } else {
-            // A linear scan of a list that holds one state per unknown palette entry the chunk
-            // was read with (a state in several palettes once for each) and each distinct state
-            // written here once, at most `MAX_UNKNOWN`.
-            self.unknown.iter().position(|n| n == nbt)
-        };
-        let index = if let Some(index) = found {
-            index
-        } else {
-            if self.unknown.len() >= MAX_UNKNOWN {
-                return Err(Error::Full);
-            }
-            // The list grows in place unless a snapshot or a stored block still shares it.
-            let list = Arc::make_mut(&mut self.unknown);
-            list.push(nbt.clone());
-            list.len().saturating_sub(1)
-        };
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
-        )]
-        let index = u32::try_from(index).expect("an unknown state index past u32");
-        Ok(Entry::Unknown(index))
+    /// Sets the block at local (x, y, z). Neighbour connections (fences, stairs) are not worked
+    /// out here: a generator writes the states it means. The slot's water (the stored water
+    /// logging of a block, which the chunk keeps apart from the block) is cleared.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a position outside the chunk.
+    #[doc(alias = "Chunk::setBlockStateId")]
+    pub fn set_block(&mut self, x: u8, y: i32, z: u8, state: State) -> Result<()> {
+        self.put(x, y, z, Entry::Known(state))
+            .map(|_| ())
+            .ok_or(Error::OutOfRange)
     }
 
     /// Sets the layer 0 entry at local (x, y, z), clears the slot's layer 1 water, and returns the
@@ -343,29 +348,19 @@ impl Chunk {
         Some(old)
     }
 
-    /// Puts the stored state `nbt`, which Anchor does not know, at local (x, y, z) as a chunk read
-    /// from the server file holds it; the entry, or `None` outside the chunk.
-    #[cfg(test)]
-    pub(crate) fn put_unknown(
-        &mut self,
-        x: u8,
-        y: i32,
-        z: u8,
-        nbt: nbt::Compound,
-    ) -> Option<Entry> {
-        let mut list = self.unknown.to_vec();
-        let entry = Entry::Unknown(u32::try_from(list.len()).ok()?);
-        list.push(nbt);
-        self.unknown = Arc::new(list);
-        self.put(x, y, z, entry)?;
-        Some(entry)
+    /// Gives the chunk its worked out light.
+    pub(super) fn set_light(&mut self, light: Levels) {
+        self.light = Some(Box::new(light));
     }
 
-    /// Marks the sub-chunk holding height `y` changed (nothing outside the world height).
-    pub(super) fn mark_dirty(&mut self, y: i32) {
-        if let Some((index, _)) = split_y(y) {
-            self.dirty |= 1 << index;
-        }
+    /// Notes that the chunk was read from the server file.
+    pub(crate) fn set_split(&mut self) {
+        self.split = true;
+    }
+
+    /// Takes the chunk's light away.
+    pub(super) fn take_light(&mut self) -> Option<Box<Levels>> {
+        self.light.take()
     }
 
     /// Takes the copy a save snapshot takes (its sub-chunks shared) with the changes it must
@@ -377,31 +372,36 @@ impl Chunk {
         save
     }
 
-    /// Notes that the chunk was read from the server file.
-    pub(crate) fn set_split(&mut self) {
-        self.split = true;
-    }
-
-    /// Works out the chunk's light alone, as if its neighbours were dark: a pure function of the
-    /// chunk for the CPU pool, done when a chunk is loaded or generated. The world connects it to
-    /// its neighbours when the chunk is loaded.
-    pub(crate) fn populate_light(&mut self) {
-        self.light = Some(Box::new(light::populate(self)));
-    }
-
-    /// The chunk's light, to change it.
-    pub(super) fn light_mut(&mut self) -> Option<&mut Levels> {
-        self.light.as_deref_mut()
-    }
-
-    /// Gives the chunk its worked out light.
-    pub(super) fn set_light(&mut self, light: Levels) {
-        self.light = Some(Box::new(light));
-    }
-
-    /// Takes the chunk's light away.
-    pub(super) fn take_light(&mut self) -> Option<Box<Levels>> {
-        self.light.take()
+    /// Finds or adds the entry of `block` in this chunk: its index here if it was read from this
+    /// chunk's list, else that of an equal stored state, else a new one at the end. Fails with
+    /// [`Error::Full`] when the list holds [`MAX_UNKNOWN`] states.
+    pub(super) fn unknown_entry(&mut self, block: &UnknownBlock) -> Result<Entry> {
+        let nbt = block.nbt();
+        let found = if Arc::ptr_eq(&block.list, &self.unknown) {
+            Some(block.index)
+        } else {
+            // A linear scan of a list that holds one state per unknown palette entry the chunk
+            // was read with (a state in several palettes once for each) and each distinct state
+            // written here once, at most `MAX_UNKNOWN`.
+            self.unknown.iter().position(|n| n == nbt)
+        };
+        let index = if let Some(index) = found {
+            index
+        } else {
+            if self.unknown.len() >= MAX_UNKNOWN {
+                return Err(Error::Full);
+            }
+            // The list grows in place unless a snapshot or a stored block still shares it.
+            let list = Arc::make_mut(&mut self.unknown);
+            list.push(nbt.clone());
+            list.len().saturating_sub(1)
+        };
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
+        )]
+        let index = u32::try_from(index).expect("an unknown state index past u32");
+        Ok(Entry::Unknown(index))
     }
 
     /// Encodes the `LevelChunk` payload of the sub-chunk request system: the biomes of the 24

@@ -192,16 +192,6 @@ impl<'a> Index<'a> {
         rows
     }
 
-    /// How aliases name `class`.
-    fn class_alias(&self, class: &Class) -> String {
-        let short = short(&class.name);
-        if self.by_short.get(short).is_some_and(|c| c.len() > 1) {
-            class.name.clone()
-        } else {
-            short.to_owned()
-        }
-    }
-
     /// Checks that `alias` is spelled as the table expects and names an API item.
     fn check(&self, alias: &str) -> Result<(), String> {
         let (class_name, member) = match alias.split_once("::") {
@@ -277,6 +267,16 @@ impl<'a> Index<'a> {
                 Err(format!("`{name}` is @internal"))
             }
             None => Err(format!("no class-like `{name}`")),
+        }
+    }
+
+    /// How aliases name `class`.
+    fn class_alias(&self, class: &Class) -> String {
+        let short = short(&class.name);
+        if self.by_short.get(short).is_some_and(|c| c.len() > 1) {
+            class.name.clone()
+        } else {
+            short.to_owned()
         }
     }
 }

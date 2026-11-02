@@ -75,28 +75,6 @@ impl Msg {
         }
     }
 
-    /// Fills the own text with `params`, in one pass so that a parameter's own text is kept as
-    /// it is; `None` for a client key.
-    fn render(self, params: &[&str]) -> Option<String> {
-        self.own.then(|| text::fill(self.key, params))
-    }
-
-    /// Turns the message into a command result line.
-    fn output(self, params: &[&str]) -> Output {
-        match self.render(params) {
-            Some(text) => Output::from(text),
-            None => Output::new().translated(self.key, params),
-        }
-    }
-
-    /// Turns the message into a command failure.
-    fn error(self, params: &[&str]) -> Error {
-        match self.render(params) {
-            Some(text) => Error::failed(text),
-            None => Error::translated(self.key, params),
-        }
-    }
-
     /// Turns the message into a chat line with `prefix` (format codes) before it. A client key
     /// goes as `<prefix>%<key>`, which the client translates in place.
     fn chat(self, prefix: &str, params: &[&str]) -> Message {
@@ -111,6 +89,28 @@ impl Msg {
                 parameters: params.iter().map(|p| (*p).to_owned()).collect(),
             },
         }
+    }
+
+    /// Turns the message into a command failure.
+    fn error(self, params: &[&str]) -> Error {
+        match self.render(params) {
+            Some(text) => Error::failed(text),
+            None => Error::translated(self.key, params),
+        }
+    }
+
+    /// Turns the message into a command result line.
+    fn output(self, params: &[&str]) -> Output {
+        match self.render(params) {
+            Some(text) => Output::from(text),
+            None => Output::new().translated(self.key, params),
+        }
+    }
+
+    /// Fills the own text with `params`, in one pass so that a parameter's own text is kept as
+    /// it is; `None` for a client key.
+    fn render(self, params: &[&str]) -> Option<String> {
+        self.own.then(|| text::fill(self.key, params))
     }
 }
 
@@ -278,9 +278,9 @@ fn usage(cx: &Context<'_>, command: &str) -> Error {
     }
 }
 
-/// Finds the players a command acts on: those the target parameter `param` named, or the sender itself when the line left it out (a
-/// usage failure for the console). The sender needs `own` to act on itself and `other` to act on
-/// anyone else, for every player, before anything changes.
+/// Finds the players a command acts on: those the target parameter `param` named, or the sender
+/// itself when the line left it out (a usage failure for the console). The sender needs `own` to
+/// act on itself and `other` to act on anyone else, for every player, before anything changes.
 fn permitted_targets(
     cx: &Context<'_>,
     sender: Sender,

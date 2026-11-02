@@ -2,10 +2,10 @@
 
 use super::open_sign_editor;
 use super::using::{Use, sign_front};
+use crate::block_entity::SIGN_LINES;
 use crate::save::WorldIndex;
 use crate::tick::State;
 use crate::tick::block_entity::{self, BlockEntity, Kind};
-use crate::tile::SIGN_LINES;
 use crate::world::BlockPos;
 
 /// What a sign's block entity holds of its text: the lines of each side and whether it is waxed.

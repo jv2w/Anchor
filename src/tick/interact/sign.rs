@@ -5,10 +5,10 @@
 //! editor opens when a player places or uses a sign, or through [`Context::open_sign_editor`].
 
 use crate::block::Class;
+use crate::block_entity::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::nbt::{Compound, Value};
 use crate::player;
 use crate::tick::Context;
-use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
 /// The NBT key of a sign's back side.

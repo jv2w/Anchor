@@ -1,18 +1,20 @@
-//! The public block entity API: [`Context::block_entity`] lends a [`Tile`] to read and
-//! [`Context::block_entity_mut`] a [`Mut`] to change.
+//! The public block entity API: [`Context::block_entity`] lends a
+//! [`BlockEntity`](block_entity::BlockEntity) to read and [`Context::block_entity_mut`] a [`Mut`]
+//! to change.
 //!
-//! A read looks the block entity up by position (two ordered-map steps) each time, so a [`Tile`]
-//! holds no borrow of the store's insides. A write checks its value, changes the block entity (its
+//! A read looks the block entity up by position (two ordered-map steps) each time, so the
+//! [`BlockEntity`](block_entity::BlockEntity) holds no borrow of the store's insides. A write checks its value, changes the block entity (its
 //! chunk is saved at the next commit) and marks its client data, which the players who see the
 //! chunk get once at the end of the tick. Writes raise no events: a direct API call never
 //! re-enters the listeners.
 
 use super::{BlockEntity, Kind, Plant, block_at, chests_pair, decor, mark_spawn};
 use crate::block::{self, Face, TypeTag};
-use crate::tick::{Context, State, inventory};
-use crate::tile::{
-    BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText, Tile,
+use crate::block_entity::{
+    self, BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText,
 };
+use crate::tick::interact::props;
+use crate::tick::{Context, State, inventory};
 use crate::world::{self, BlockPos, ChunkPos};
 
 impl Context<'_> {
@@ -22,14 +24,34 @@ impl Context<'_> {
     #[doc(alias = "World::getTile")]
     #[doc(alias = "World::getTileAt")]
     #[doc(alias = "Chunk::getTile")]
-    pub fn block_entity(&self, world: world::Id, pos: BlockPos) -> Option<Tile<'_>> {
+    pub fn block_entity(
+        &self,
+        world: world::Id,
+        pos: BlockPos,
+    ) -> Option<block_entity::BlockEntity<'_>> {
         let world = world.index();
         self.state.rules.block_entities.get(world, pos)?;
-        Some(Tile {
+        Some(block_entity::BlockEntity {
             state: self.state,
             world,
             pos,
         })
+    }
+
+    /// The block entities of a loaded chunk of `world`, by position; none if it is not loaded.
+    #[doc(alias = "Chunk::getTiles")]
+    pub fn chunk_block_entities(
+        &self,
+        world: world::Id,
+        chunk: ChunkPos,
+    ) -> impl Iterator<Item = block_entity::BlockEntity<'_>> {
+        let world = world.index();
+        let state: &State = self.state;
+        state
+            .rules
+            .block_entities
+            .positions(world, chunk)
+            .map(move |pos| block_entity::BlockEntity { state, world, pos })
     }
 
     /// The block entity at `pos` in `world` to change; `None` where
@@ -43,117 +65,9 @@ impl Context<'_> {
             pos,
         })
     }
-
-    /// The block entities of a loaded chunk of `world`, by position; none if it is not loaded.
-    #[doc(alias = "Chunk::getTiles")]
-    pub fn chunk_block_entities(
-        &self,
-        world: world::Id,
-        chunk: ChunkPos,
-    ) -> impl Iterator<Item = Tile<'_>> {
-        let world = world.index();
-        let state: &State = self.state;
-        state
-            .rules
-            .block_entities
-            .positions(world, chunk)
-            .map(move |pos| Tile { state, world, pos })
-    }
 }
 
-impl<'a> Tile<'a> {
-    /// The world it is in.
-    pub fn world(&self) -> world::Id {
-        world::Id::of(self.world)
-    }
-
-    /// Its position.
-    #[doc(alias = "Tile::getPosition")]
-    pub fn position(&self) -> BlockPos {
-        self.pos
-    }
-
-    /// Its block; `None` for a block Anchor does not know (an imported block it keeps without
-    /// rules, whose block entity it keeps as saved).
-    #[doc(alias = "Tile::getBlock")]
-    pub fn block(&self) -> Option<block::State> {
-        block_at(self.state, self.world, self.pos)
-    }
-
-    /// The custom name of a container (from a renamed item), shown as its window's title; `None`
-    /// without one (the client shows its own name for the block).
-    #[doc(alias = "Nameable::getName")]
-    #[doc(alias = "NameableTrait::getName")]
-    pub fn name(&self) -> Option<&'a str> {
-        self.entity()?.name.as_deref()
-    }
-
-    /// Whether a held item named `key` opens it: true without a `Lock`.
-    #[doc(alias = "Container::canOpenWith")]
-    #[doc(alias = "ContainerTrait::canOpenWith")]
-    pub fn can_open_with(&self, key: &str) -> bool {
-        self.entity()
-            .and_then(BlockEntity::lock)
-            .is_none_or(|lock| lock == key)
-    }
-
-    /// How many players have a window open on it.
-    #[doc(alias = "block\\tile\\EnderChest::getViewerCount")]
-    pub fn viewer_count(&self) -> usize {
-        self.state
-            .rules
-            .block_entities
-            .viewers(self.world, self.pos)
-            .len()
-    }
-
-    /// The other half of a double chest; `None` for a single chest or another kind.
-    #[doc(alias = "block\\tile\\Chest::getPair")]
-    pub fn chest_pair(&self) -> Option<BlockPos> {
-        self.entity()?.pair()
-    }
-
-    /// The face a shulker box opens toward.
-    #[doc(alias = "block\\tile\\ShulkerBox::getFacing")]
-    pub fn shulker_facing(&self) -> Option<Face> {
-        match self.kind()? {
-            Kind::ShulkerBox { facing } => Face::ALL.get(usize::from(*facing)).copied(),
-            _ => None,
-        }
-    }
-
-    /// The text of one side of a sign.
-    #[doc(alias = "BaseSign::getText")]
-    #[doc(alias = "BaseSign::getFaceText")]
-    #[doc(alias = "Sign::getText")]
-    #[doc(alias = "Sign::getBackText")]
-    pub fn sign_text(&self, side: Side) -> Option<&'a SignText> {
-        match self.kind()? {
-            Kind::Sign(s) => Some(match side {
-                Side::Front => &s.front,
-                Side::Back => &s.back,
-            }),
-            _ => None,
-        }
-    }
-
-    /// Whether a sign is waxed (players cannot edit it); false for other kinds.
-    #[doc(alias = "BaseSign::isWaxed")]
-    #[doc(alias = "Sign::isWaxed")]
-    pub fn is_sign_waxed(&self) -> bool {
-        matches!(self.kind(), Some(Kind::Sign(s)) if s.waxed)
-    }
-
-    /// A bed half's colour (each half of a bed has its own block entity).
-    #[doc(alias = "block\\Bed::getColor")]
-    #[doc(alias = "block\\tile\\Bed::getColor")]
-    pub fn bed_colour(&self) -> Option<DyeColour> {
-        match self.kind()? {
-            Kind::Bed { colour } => DyeColour::from_id(*colour),
-            _ => None,
-        }
-    }
-
+impl<'a> block_entity::BlockEntity<'a> {
     /// A banner's base colour.
     #[doc(alias = "BaseBanner::getColor")]
     #[doc(alias = "block\\tile\\Banner::getBaseColor")]
@@ -180,7 +94,7 @@ impl<'a> Tile<'a> {
         }
     }
 
-    /// Whether a banner is ominous.
+    /// The banner's type: normal or ominous.
     #[doc(alias = "block\\tile\\Banner::getType")]
     pub fn banner_type(&self) -> Option<BannerType> {
         match self.kind()? {
@@ -188,6 +102,59 @@ impl<'a> Tile<'a> {
             Kind::Banner(_) => Some(BannerType::Normal),
             _ => None,
         }
+    }
+
+    /// A bed half's colour (each half of a bed has its own block entity).
+    #[doc(alias = "block\\Bed::getColor")]
+    #[doc(alias = "block\\tile\\Bed::getColor")]
+    pub fn bed_colour(&self) -> Option<DyeColour> {
+        match self.kind()? {
+            Kind::Bed { colour } => DyeColour::from_id(*colour),
+            _ => None,
+        }
+    }
+
+    /// Its block; `None` for a block Anchor does not know (an imported block it keeps without
+    /// rules, whose block entity it keeps as saved).
+    #[doc(alias = "Tile::getBlock")]
+    pub fn block(&self) -> Option<block::State> {
+        block_at(self.state, self.world, self.pos)
+    }
+
+    /// Whether a held item named `key` opens it: true without a `Lock`.
+    #[doc(alias = "Container::canOpenWith")]
+    #[doc(alias = "ContainerTrait::canOpenWith")]
+    pub fn can_open_with(&self, key: &str) -> bool {
+        self.entity()
+            .and_then(BlockEntity::lock)
+            .is_none_or(|lock| lock == key)
+    }
+
+    /// The other half of a double chest; `None` for a single chest or another kind.
+    #[doc(alias = "block\\tile\\Chest::getPair")]
+    pub fn chest_pair(&self) -> Option<BlockPos> {
+        self.entity()?.pair()
+    }
+
+    /// Whether a sign is waxed (players cannot edit it); false for other kinds.
+    #[doc(alias = "BaseSign::isWaxed")]
+    #[doc(alias = "Sign::isWaxed")]
+    pub fn is_sign_waxed(&self) -> bool {
+        matches!(self.kind(), Some(Kind::Sign(s)) if s.waxed)
+    }
+
+    /// The custom name of a container (from a renamed item), shown as its window's title; `None`
+    /// without one (the client shows its own name for the block).
+    #[doc(alias = "Nameable::getName")]
+    #[doc(alias = "NameableTrait::getName")]
+    pub fn name(&self) -> Option<&'a str> {
+        self.entity()?.name.as_deref()
+    }
+
+    /// Its position.
+    #[doc(alias = "Tile::getPosition")]
+    pub fn position(&self) -> BlockPos {
+        self.pos
     }
 
     /// The plant in a flower pot; `None` for an empty pot, a saved plant Anchor does not know
@@ -203,6 +170,30 @@ impl<'a> Tile<'a> {
         }
     }
 
+    /// The face a shulker box opens toward.
+    #[doc(alias = "block\\tile\\ShulkerBox::getFacing")]
+    pub fn shulker_facing(&self) -> Option<Face> {
+        match self.kind()? {
+            Kind::ShulkerBox { facing } => Face::all().get(usize::from(*facing)).copied(),
+            _ => None,
+        }
+    }
+
+    /// The text of one side of a sign.
+    #[doc(alias = "BaseSign::getText")]
+    #[doc(alias = "BaseSign::getFaceText")]
+    #[doc(alias = "Sign::getText")]
+    #[doc(alias = "Sign::getBackText")]
+    pub fn sign_text(&self, side: Side) -> Option<&'a SignText> {
+        match self.kind()? {
+            Kind::Sign(s) => Some(match side {
+                Side::Front => &s.front,
+                Side::Back => &s.back,
+            }),
+            _ => None,
+        }
+    }
+
     /// A mob head's rotation on the floor, in sixteenths of a turn (0 to 15).
     #[doc(alias = "block\\MobHead::getRotation")]
     #[doc(alias = "block\\tile\\MobHead::getRotation")]
@@ -213,47 +204,50 @@ impl<'a> Tile<'a> {
         }
     }
 
-    /// The block entity (present: the state is borrowed since it was found).
-    fn entity(&self) -> Option<&'a BlockEntity> {
-        self.state.rules.block_entities.get(self.world, self.pos)
+    /// How many players have a window open on it.
+    #[doc(alias = "block\\tile\\EnderChest::getViewerCount")]
+    pub fn viewer_count(&self) -> usize {
+        self.state
+            .rules
+            .block_entities
+            .viewers(self.world, self.pos)
+            .len()
+    }
+
+    /// The world it is in.
+    pub fn world(&self) -> world::Id {
+        world::Id::of(self.world)
     }
 
     /// The kind of the block entity, with its data.
     fn kind(&self) -> Option<&'a Kind> {
         self.entity().map(|e| &e.kind)
     }
+
+    /// The block entity (present: the state is borrowed since it was found).
+    fn entity(&self) -> Option<&'a BlockEntity> {
+        self.state.rules.block_entities.get(self.world, self.pos)
+    }
 }
 
 impl Mut<'_> {
     /// The block entity to read.
-    pub fn view(&self) -> Tile<'_> {
-        Tile {
+    pub fn view(&self) -> block_entity::BlockEntity<'_> {
+        block_entity::BlockEntity {
             state: self.state,
             world: self.world,
             pos: self.pos,
         }
     }
 
-    /// Names a container (`None` or an empty name clears it): a chest, a barrel or a shulker box.
-    /// A window open on it keeps its old title.
-    #[doc(alias = "Nameable::setName")]
-    #[doc(alias = "NameableTrait::setName")]
-    pub fn set_name(&mut self, name: Option<&str>) -> Result<()> {
-        let name = name.filter(|n| !n.is_empty());
-        if name.is_some_and(|n| n.len() > MAX_NAME_BYTES) {
-            return Err(Error::TooLong);
-        }
-        self.edit(|e| {
-            e.kind.is_nameable().then(|| {
-                e.name = name.map(str::to_owned);
-                Ok(())
-            })
-        })
-    }
-
     /// Pairs a single chest with the single chest at `other` into a double chest: `other` must
     /// be the same block, facing the same way, beside it on its left or right (as a placed chest
     /// pairs). The windows open on either close first.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a chest, or `other` not being one.
+    /// [`Error::Invalid`] for a chest that is already paired, or chests that are not side by side.
     #[doc(alias = "block\\tile\\Chest::pairWith")]
     pub fn pair_with(&mut self, other: BlockPos) -> Result<()> {
         let (world, pos) = (self.world, self.pos);
@@ -272,83 +266,11 @@ impl Mut<'_> {
         Ok(())
     }
 
-    /// Splits a double chest into two single chests; `Invalid` for a single chest, or while the
-    /// other half's chunk is not loaded (its saved half would stay paired). The windows open on
-    /// either close first.
-    #[doc(alias = "block\\tile\\Chest::unpair")]
-    pub fn unpair(&mut self) -> Result<()> {
-        let (world, pos) = (self.world, self.pos);
-        let entities = &self.state.rules.block_entities;
-        let other = match entities.get(world, pos).map(|e| &e.kind) {
-            Some(Kind::Chest { pair: Some(other) }) => *other,
-            Some(Kind::Chest { pair: None }) => return Err(Error::Invalid),
-            _ => return Err(Error::WrongKind),
-        };
-        if !entities.is_loaded(world, other) {
-            return Err(Error::Invalid);
-        }
-        self.set_pairs([(pos, None), (other, None)]);
-        Ok(())
-    }
-
-    /// Turns a shulker box to open toward `facing`.
-    #[doc(alias = "block\\tile\\ShulkerBox::setFacing")]
-    pub fn set_shulker_facing(&mut self, facing: Face) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::ShulkerBox { facing: f } => {
-                *f = facing.index();
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Writes one side of a sign (a waxed sign takes it too: only players are kept out).
-    #[doc(alias = "BaseSign::setText")]
-    #[doc(alias = "BaseSign::setFaceText")]
-    #[doc(alias = "Sign::setText")]
-    #[doc(alias = "Sign::setBackText")]
-    pub fn set_sign_text(&mut self, side: Side, text: SignText) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::Sign(s) => {
-                match side {
-                    Side::Front => s.front = text,
-                    Side::Back => s.back = text,
-                }
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Waxes a sign so players cannot edit it, or takes the wax off.
-    #[doc(alias = "BaseSign::setWaxed")]
-    #[doc(alias = "Sign::setWaxed")]
-    pub fn set_sign_waxed(&mut self, waxed: bool) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::Sign(s) => {
-                s.waxed = waxed;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
-    /// Colours a bed half (each half of a bed has its own block entity; a broken half drops a
-    /// bed of its colour).
-    #[doc(alias = "block\\Bed::setColor")]
-    #[doc(alias = "block\\tile\\Bed::setColor")]
-    pub fn set_bed_colour(&mut self, colour: DyeColour) -> Result<()> {
-        self.edit(|e| match &mut e.kind {
-            Kind::Bed { colour: c } => {
-                *c = colour as u8;
-                Some(Ok(()))
-            }
-            _ => None,
-        })
-    }
-
     /// Sets a banner's base colour.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a banner.
     #[doc(alias = "BaseBanner::setColor")]
     #[doc(alias = "block\\tile\\Banner::setBaseColor")]
     pub fn set_banner_colour(&mut self, colour: DyeColour) -> Result<()> {
@@ -363,6 +285,11 @@ impl Mut<'_> {
 
     /// Replaces every pattern layer of a banner, even those Anchor does not know, bottom first
     /// (at most 16).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for more than 16 layers.
+    /// [`Error::WrongKind`] for a block entity that is not a banner.
     #[doc(alias = "BaseBanner::setPatterns")]
     #[doc(alias = "block\\tile\\Banner::setPatterns")]
     pub fn set_banner_patterns(&mut self, patterns: &[BannerLayer]) -> Result<()> {
@@ -382,6 +309,10 @@ impl Mut<'_> {
     }
 
     /// Makes a banner normal or ominous.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a banner.
     #[doc(alias = "block\\tile\\Banner::setType")]
     pub fn set_banner_type(&mut self, ty: BannerType) -> Result<()> {
         self.edit(|e| match &mut e.kind {
@@ -393,8 +324,53 @@ impl Mut<'_> {
         })
     }
 
+    /// Colours a bed half (each half of a bed has its own block entity; a broken half drops a
+    /// bed of its colour).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a bed half.
+    #[doc(alias = "block\\Bed::setColor")]
+    #[doc(alias = "block\\tile\\Bed::setColor")]
+    pub fn set_bed_colour(&mut self, colour: DyeColour) -> Result<()> {
+        self.edit(|e| match &mut e.kind {
+            Kind::Bed { colour: c } => {
+                *c = colour as u8;
+                Some(Ok(()))
+            }
+            _ => None,
+        })
+    }
+
+    /// Names a container (`None` or an empty name clears it): a chest, a barrel or a shulker box.
+    /// A window open on it keeps its old title.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] for a name longer than [`MAX_NAME_BYTES`].
+    /// [`Error::WrongKind`] for a block entity that is not a container.
+    #[doc(alias = "Nameable::setName")]
+    #[doc(alias = "NameableTrait::setName")]
+    pub fn set_name(&mut self, name: Option<&str>) -> Result<()> {
+        let name = name.filter(|n| !n.is_empty());
+        if name.is_some_and(|n| n.len() > MAX_NAME_BYTES) {
+            return Err(Error::TooLong);
+        }
+        self.edit(|e| {
+            e.kind.is_nameable().then(|| {
+                e.name = name.map(str::to_owned);
+                Ok(())
+            })
+        })
+    }
+
     /// Puts a plant into a flower pot (`None` empties it): a block the pot takes (the pottable
     /// type tag). The plant before, even one Anchor does not know, is replaced and not dropped.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a block the pot does not take.
+    /// [`Error::WrongKind`] for a block entity that is not a flower pot.
     #[doc(alias = "block\\FlowerPot::setPlant")]
     #[doc(alias = "block\\tile\\FlowerPot::setPlant")]
     pub fn set_potted_plant(&mut self, plant: Option<block::State>) -> Result<()> {
@@ -410,11 +386,71 @@ impl Mut<'_> {
         })
     }
 
+    /// Turns a shulker box to open toward `facing`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a shulker box.
+    #[doc(alias = "block\\tile\\ShulkerBox::setFacing")]
+    pub fn set_shulker_facing(&mut self, facing: Face) -> Result<()> {
+        self.edit(|e| match &mut e.kind {
+            Kind::ShulkerBox { facing: f } => {
+                *f = facing.index();
+                Some(Ok(()))
+            }
+            _ => None,
+        })
+    }
+
+    /// Writes one side of a sign (a waxed sign takes it too: only players are kept out).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a sign.
+    #[doc(alias = "BaseSign::setText")]
+    #[doc(alias = "BaseSign::setFaceText")]
+    #[doc(alias = "Sign::setText")]
+    #[doc(alias = "Sign::setBackText")]
+    pub fn set_sign_text(&mut self, side: Side, text: SignText) -> Result<()> {
+        self.edit(|e| match &mut e.kind {
+            Kind::Sign(s) => {
+                match side {
+                    Side::Front => s.front = text,
+                    Side::Back => s.back = text,
+                }
+                Some(Ok(()))
+            }
+            _ => None,
+        })
+    }
+
+    /// Waxes a sign so players cannot edit it, or takes the wax off.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a block entity that is not a sign.
+    #[doc(alias = "BaseSign::setWaxed")]
+    #[doc(alias = "Sign::setWaxed")]
+    pub fn set_sign_waxed(&mut self, waxed: bool) -> Result<()> {
+        self.edit(|e| match &mut e.kind {
+            Kind::Sign(s) => {
+                s.waxed = waxed;
+                Some(Ok(()))
+            }
+            _ => None,
+        })
+    }
+
     /// Turns a mob head on the floor to `rotation` sixteenths of a turn (0 to 15).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a rotation above 15.
+    /// [`Error::WrongKind`] for a block entity that is not a mob head.
     #[doc(alias = "block\\MobHead::setRotation")]
     #[doc(alias = "block\\tile\\MobHead::setRotation")]
     pub fn set_skull_rotation(&mut self, rotation: u8) -> Result<()> {
-        if rotation >= decor::SKULL_ROTATIONS {
+        if rotation >= props::ROTATION_STEPS {
             return Err(Error::Invalid);
         }
         self.edit(|e| match &mut e.kind {
@@ -424,6 +460,30 @@ impl Mut<'_> {
             }
             _ => None,
         })
+    }
+
+    /// Splits a double chest into two single chests; `Invalid` for a single chest, or while the
+    /// other half's chunk is not loaded (its saved half would stay paired). The windows open on
+    /// either close first.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a single chest, or an other half whose chunk is not loaded.
+    /// [`Error::WrongKind`] for a block entity that is not a chest.
+    #[doc(alias = "block\\tile\\Chest::unpair")]
+    pub fn unpair(&mut self) -> Result<()> {
+        let (world, pos) = (self.world, self.pos);
+        let entities = &self.state.rules.block_entities;
+        let other = match entities.get(world, pos).map(|e| &e.kind) {
+            Some(Kind::Chest { pair: Some(other) }) => *other,
+            Some(Kind::Chest { pair: None }) => return Err(Error::Invalid),
+            _ => return Err(Error::WrongKind),
+        };
+        if !entities.is_loaded(world, other) {
+            return Err(Error::Invalid);
+        }
+        self.set_pairs([(pos, None), (other, None)]);
+        Ok(())
     }
 
     /// Changes the block entity with `f` (`None`: not its kind, nothing changed), then marks its
@@ -480,7 +540,7 @@ mod tests {
 
     use crate::event::Listeners;
     use crate::item::{self, Stack};
-    use crate::nbt::{Compound, Value};
+    use crate::nbt::{Compound, Value, child_compound};
     use crate::pool::Pool;
     use crate::protocol::Rgba;
     use crate::protocol::packet::Packet;
@@ -612,15 +672,8 @@ mod tests {
     }
 
     fn text(lines: [&str; 4], argb: u32) -> SignText {
-        let colour = crate::tile::from_argb(argb.cast_signed());
+        let colour = block_entity::from_argb(argb.cast_signed());
         SignText::new(lines.map(str::to_owned), colour, false).unwrap()
-    }
-
-    fn compound<'a>(nbt: &'a Compound, key: &str) -> &'a Compound {
-        match nbt.get(key) {
-            Some(Value::Compound(c)) => c,
-            other => panic!("{key}: {other:?}"),
-        }
     }
 
     // api: World::setBlock
@@ -708,7 +761,7 @@ mod tests {
         let sent = h.actor_data(pos);
         assert_eq!(sent.len(), 1, "one update for the writes of a tick");
         assert_eq!(
-            compound(&sent[0], "FrontText").get("Text"),
+            child_compound(&sent[0], "FrontText").get("Text"),
             Some(&Value::String("Hello".to_owned()))
         );
         assert_eq!(sent[0].get("IsWaxed"), Some(&Value::Byte(1)));

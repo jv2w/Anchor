@@ -546,7 +546,8 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     };
     #[cfg(test)]
     crate::tick::rules::reads::add(|r| r.stacks += 1);
-    let stack = Stack::from_nbt_with(stack, content).filter(|s| !s.is_empty())?;
+    let stack = crate::tick::inventory::read_saved_stack(stack, content, "a dropped item")
+        .filter(|s| !s.is_empty())?;
     let pickup_delay = match c.get("PickupDelay") {
         Some(Value::Short(d)) => (*d).max(NEVER),
         _ => 0,
@@ -626,7 +627,8 @@ fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
     };
     #[cfg(test)]
     crate::tick::rules::reads::add(|r| r.stacks += 1);
-    let item = Stack::from_nbt_with(item, content).filter(|s| !s.is_empty())?;
+    let item = crate::tick::inventory::read_saved_stack(item, content, "a thrown trident")
+        .filter(|s| !s.is_empty())?;
     Some(Trident {
         item,
         creative: matches!(c.get("isCreative"), Some(Value::Byte(1))),
@@ -785,7 +787,7 @@ fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
     };
     let held = match c.get(MAINHAND) {
         Some(Value::List(List::Compound(list))) => match list.as_slice() {
-            [item] => Stack::from_nbt_with(item, content)?,
+            [item] => crate::tick::inventory::read_saved_stack(item, content, "an npc")?,
             _ => return None,
         },
         Some(_) => return None,
@@ -1211,7 +1213,7 @@ pub(super) mod tests {
         cloud.effects = vec![
             speed
                 .with_infinite(true)
-                .with_duration_ticks(effect::MAX_DURATION),
+                .with_duration_ticks(effect::MAX_DURATION_TICKS),
             speed.with_duration_ticks(2_000_000),
         ];
         let e = entity(Kind::Cloud(cloud.clone()), Vec3::new(5.25, -59.5, -3.75));

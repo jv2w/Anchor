@@ -9,8 +9,11 @@ use std::marker::PhantomData;
 
 use super::common::Bitset;
 use super::consts::InputFlag;
-use super::io::{Error, Result};
+use super::io::{Error, Reader, Result, Writer, length};
 use super::types::InputFlags;
+
+/// The name of the input flags in errors.
+const INPUT_FLAGS_NAME: &str = "player auth input data";
 
 /// The 64-bit words of a [`FlagSet`]: room for 192 bit positions.
 ///
@@ -43,18 +46,17 @@ pub struct FlagSet<F> {
 }
 
 impl<F: Flag> FlagSet<F> {
-    /// The empty set.
-    pub const fn new() -> Self {
-        const {
-            assert!(
-                F::COUNT as usize <= WORDS * 64,
-                "the flag group does not fit a FlagSet"
-            );
+    /// The set of the flags at the bit positions set in a [`Bitset`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownEnum`] like [`Self::from_words`].
+    pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
+        let mut set = Self::new();
+        for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {
+            set.insert(Self::flag_at(i)?);
         }
-        Self {
-            words: [0; WORDS],
-            flag: PhantomData,
-        }
+        Ok(set)
     }
 
     /// The set of the flags at the bit positions set in `words`.
@@ -80,17 +82,18 @@ impl<F: Flag> FlagSet<F> {
         Ok(set)
     }
 
-    /// The set of the flags at the bit positions set in a [`Bitset`].
-    ///
-    /// # Errors
-    ///
-    /// [`Error::UnknownEnum`] like [`Self::from_words`].
-    pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
-        let mut set = Self::new();
-        for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {
-            set.insert(Self::flag_at(i)?);
+    /// The empty set.
+    pub const fn new() -> Self {
+        const {
+            assert!(
+                F::COUNT as usize <= WORDS * 64,
+                "the flag group does not fit a FlagSet"
+            );
         }
-        Ok(set)
+        Self {
+            words: [0; WORDS],
+            flag: PhantomData,
+        }
     }
 
     /// Whether the set holds `flag`.
@@ -217,11 +220,78 @@ impl InputFlags {
     }
 }
 
+impl Reader<'_> {
+    /// Reads `InputFlags` of `size` (at most 128) bit positions: a count and that many IDs.
+    ///
+    /// Fails if there are more IDs than positions, an ID is outside them, or one repeats.
+    pub(crate) fn input_flag_list(&mut self, size: i64) -> Result<InputFlags> {
+        let count = self.varuint32()?;
+        if i64::from(count) > size {
+            return Err(too_many_input_flags());
+        }
+        let ids = self.list(u64::from(count), Reader::varint32)?;
+        check_input_flags(&ids, size)?;
+        Ok(InputFlags {
+            set: true,
+            size,
+            ids,
+        })
+    }
+}
+
+impl Writer {
+    /// Writes `InputFlags` of `size` (at most 128) bit positions, under the checks of
+    /// [`Reader::input_flag_list`].
+    pub(crate) fn input_flag_list(&mut self, x: &InputFlags, size: i64) -> Result<()> {
+        let count = length::<u32>(x.ids.len())?;
+        if i64::from(count) > size {
+            return Err(too_many_input_flags());
+        }
+        check_input_flags(&x.ids, size)?;
+        self.varuint32(count);
+        for &id in &x.ids {
+            self.varint32(id);
+        }
+        Ok(())
+    }
+}
+
+fn too_many_input_flags() -> Error {
+    Error::InvalidValue {
+        field: INPUT_FLAGS_NAME,
+        reason: "too many flags",
+    }
+}
+
+/// Checks that every ID is below `size` and appears once, with a bit mask of the seen IDs.
+fn check_input_flags(ids: &[i32], size: i64) -> Result<()> {
+    let mut seen = 0_u128;
+    for &id in ids {
+        let bit = u32::try_from(id)
+            .ok()
+            .filter(|&position| i64::from(position) < size)
+            .and_then(|position| 1_u128.checked_shl(position))
+            .ok_or(Error::UnknownEnum {
+                name: INPUT_FLAGS_NAME,
+                value: id.into(),
+            })?;
+        if seen & bit != 0 {
+            return Err(Error::InvalidValue {
+                field: INPUT_FLAGS_NAME,
+                reason: "flags must be unique",
+            });
+        }
+        seen |= bit;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::protocol::consts::{Ability, EntityDataFlag, MoveFlag};
+    use crate::protocol::io::tests::{reader, writer};
 
     #[test]
     fn a_set_holds_what_was_inserted() {
@@ -298,5 +368,28 @@ mod tests {
             ids: vec![66],
         };
         assert!(bad.to_set().is_err());
+    }
+
+    #[test]
+    fn input_flag_lists_round_trip_and_reject_repeats_and_ids_past_the_size() {
+        let flags = InputFlags {
+            set: true,
+            size: 66,
+            ids: vec![65, 0, 6],
+        };
+        let mut w = writer();
+        w.input_flag_list(&flags, 66).unwrap();
+        let bytes = w.into_inner();
+        assert_eq!(reader(&bytes).input_flag_list(66), Ok(flags));
+        for ids in [vec![6, 6], vec![66], vec![-1]] {
+            let bad = InputFlags {
+                set: true,
+                size: 66,
+                ids,
+            };
+            assert!(writer().input_flag_list(&bad, 66).is_err());
+        }
+        assert!(reader(&[67]).input_flag_list(66).is_err());
+        assert!(reader(&[2, 6, 6]).input_flag_list(66).is_err());
     }
 }

@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use super::*;
-use crate::menu::{self as m, Action, Click, Kind as MenuKind, Menu, Response};
+use crate::menu::{self as m, Click, Kind as MenuKind, Menu, Response, SlotAction};
 use crate::protocol::consts::ContainerType;
 use crate::protocol::packet::SubChunkRequest;
 use crate::tick::inventory::{load, restore, save};
@@ -475,7 +475,7 @@ fn a_click_calls_the_handler_once_and_moves_nothing() {
     assert_eq!(clicks[0].slot(), 13);
     assert_eq!(clicks[0].item(), &sword());
     assert_eq!(clicks[0].cursor(), &Stack::EMPTY);
-    assert_eq!(clicks[0].action(), Action::Take);
+    assert_eq!(clicks[0].action(), SlotAction::Take);
     assert_eq!(totals(&w.state), before);
     assert!(w.inv(s).cursor.stack(0).is_empty());
     assert_eq!(w.inv(s).menu.as_ref().unwrap().stacks[13], sword());
@@ -500,7 +500,7 @@ fn a_click_calls_the_handler_once_and_moves_nothing() {
     assert!(!ok(&r));
     let clicks = heard();
     assert_eq!(clicks.len(), 1);
-    assert_eq!(clicks[0].action(), Action::Place);
+    assert_eq!(clicks[0].action(), SlotAction::Place);
     assert_eq!(clicks[0].slot(), 0);
     assert_eq!(totals(&w.state), before);
     assert_eq!(w.inv(s).main.stack(0).count(), 10);
@@ -804,7 +804,7 @@ fn editable_slots_move_items_as_a_chest_and_the_handler_hears_each_change() {
             .iter()
             .map(|c| (c.slot(), c.action()))
             .collect::<Vec<_>>(),
-        [(5, Action::Place), (5, Action::Place)]
+        [(5, SlotAction::Place), (5, SlotAction::Place)]
     );
     // Items only moved: the player has the sword and six sticks, the menu four sticks.
     let mut after = totals(&w.state);
@@ -1600,7 +1600,7 @@ fn open_lending(
     let menu = stacks
         .iter()
         .enumerate()
-        .fold(Menu::new(MenuKind::Chest).lend(), |menu, (i, stack)| {
+        .fold(Menu::new(MenuKind::Chest).lending(), |menu, (i, stack)| {
             menu.item(i, stack.clone()).editable(i)
         })
         .item(26, sword());

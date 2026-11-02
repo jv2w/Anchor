@@ -27,11 +27,11 @@ use crate::udp::Sockets;
 use listener::{Config, Listener, Sink};
 use peer::Limits;
 
-/// Commands handled before the UDP task serves its other inputs.
-const COMMAND_BATCH: usize = 256;
-/// Messages from all sessions to the driver. Sends wait when it is full, which slows sessions to
-/// the pace of the UDP task instead of buffering without bound.
-const COMMAND_QUEUE: usize = 4096;
+/// Commands a driver (RakNet or NetherNet) handles before the UDP task serves its other inputs.
+pub(crate) const COMMAND_BATCH: usize = 256;
+/// Messages from sessions to a driver. Sends wait when it is full, which slows sessions to the
+/// pace of the UDP task instead of buffering without bound.
+pub(crate) const COMMAND_QUEUE: usize = 4096;
 /// Messages received on one connection that its session has not taken yet. Bytes are bounded
 /// separately ([`Inbox`]); a full queue disconnects.
 const INBOUND_QUEUE: usize = 1024;
@@ -153,6 +153,13 @@ impl Driver {
         true
     }
 
+    /// Handles the stop: stops accepting and closes every connection.
+    pub(crate) fn stop(&mut self) {
+        self.drain();
+        let now = self.now();
+        self.listener.shutdown(now, &mut self.io);
+    }
+
     /// Handles the timer: reads the connections' flags, sends what sessions queued, then applies
     /// the flags and runs the listener's timers. The flags are read first because a session
     /// queues its last messages before it sets a flag: whatever was queued before a flag read
@@ -162,13 +169,6 @@ impl Driver {
         self.collect_signals();
         self.drain();
         self.update();
-    }
-
-    /// Handles the stop: stops accepting and closes every connection.
-    pub(crate) fn stop(&mut self) {
-        self.drain();
-        let now = self.now();
-        self.listener.shutdown(now, &mut self.io);
     }
 
     fn now(&self) -> Duration {
@@ -352,6 +352,11 @@ impl Connection {
         self.addr
     }
 
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(crate) fn leave_reason(&self) -> LeaveReason {
+        *self.reason.borrow()
+    }
+
     /// The round trip time of the latest connected ping the client answered; `None` until one
     /// was (RakNet's ping measure).
     pub(crate) fn ping(&self) -> Option<Duration> {
@@ -364,9 +369,15 @@ impl Connection {
         self.undelivered.clone()
     }
 
-    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
-    pub(crate) fn leave_reason(&self) -> LeaveReason {
-        *self.reason.borrow()
+    /// Closes the connection after what is queued has been delivered.
+    pub(crate) fn close(&self) {
+        self.signal.send_modify(|flags| flags.closed = true);
+    }
+
+    /// Marks the player as logged in by the session: the connection stops counting against the
+    /// pre-login limits.
+    pub(crate) fn logged_in(&self) {
+        self.signal.send_modify(|flags| flags.logged_in = true);
     }
 
     /// Receives the next game message (after its 0xfe byte), or `None` once the connection is
@@ -390,17 +401,6 @@ impl Connection {
             .send(outbound)
             .await
             .map_err(|_| Error::Closed)
-    }
-
-    /// Marks the player as logged in by the session: the connection stops counting against the
-    /// pre-login limits.
-    pub(crate) fn logged_in(&self) {
-        self.signal.send_modify(|flags| flags.logged_in = true);
-    }
-
-    /// Closes the connection after what is queued has been delivered.
-    pub(crate) fn close(&self) {
-        self.signal.send_modify(|flags| flags.closed = true);
     }
 }
 

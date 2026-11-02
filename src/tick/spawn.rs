@@ -34,7 +34,7 @@ use crate::event::{
 use crate::item;
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 use crate::math::Vec3;
-use crate::player::{self, MAX_TEXT, Message as Text};
+use crate::player::{self, MAX_TEXT_BYTES, Message as Text};
 use crate::pool::Pool;
 use crate::protocol::consts::{
     self, DisconnectReason, GameType, Generator, PermissionLevel, PlayerListAction, SpawnType,
@@ -62,9 +62,9 @@ const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// (8,971 bytes), sent as it is; the official server 1.26.52 sent the file byte for byte (P6).
 const ENTITY_IDENTIFIERS: &[u8] =
     include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
-/// The join message, the yellow "joined the game" line: the official server sends a translated `Text`
-/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
-/// any other as it is (like [`LEFT`](super::player::LEFT)).
+/// The join message, the yellow "joined the game" line: the official server sends a translated
+/// `Text` with the name (P6 duplicate capture). Listeners see this key; a message left at it is
+/// sent so, any other as it is (like [`LEFT`](super::player::LEFT)).
 const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
 /// The limited world size the official server sends (P6); the client ignores it for infinite worlds.
 const LIMITED_WORLD_SIZE: i32 = 16;
@@ -325,16 +325,16 @@ impl Window {
         }
     }
 
-    /// The packets of `world`, if a window this tick is in it.
-    fn world(&self, world: WorldIndex) -> Option<&WorldPackets> {
-        self.worlds.get(&world)
-    }
-
     /// The player list of the window, shared.
     fn player_list(&self) -> impl Iterator<Item = Message> + '_ {
         self.player_list
             .iter()
             .map(|p| Message::SpawnList(Arc::clone(p)))
+    }
+
+    /// The packets of `world`, if a window this tick is in it.
+    fn world(&self, world: WorldIndex) -> Option<&WorldPackets> {
+        self.worlds.get(&world)
     }
 }
 
@@ -415,12 +415,20 @@ impl super::Context<'_> {
     /// setting changes, and that request wins. A direct call: it raises no
     /// [`PlayerViewDistanceChange`].
     ///
-    /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
+    /// [`Player::view_distance`](crate::player::Player::view_distance) reads the radius set.
+    ///
+    /// # Errors
+    ///
+    /// [`player::Error::Offline`], changing nothing, if the player is not in the game or its
     /// client has not asked for a radius yet (the first answer opens the spawn window).
     #[doc(alias = "Player::setViewDistance")]
-    pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> Option<u8> {
+    pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> player::Result<()> {
         let session = player.session();
-        let mut p = self.state.players.remove(&session)?;
+        let mut p = self
+            .state
+            .players
+            .remove(&session)
+            .ok_or(player::Error::Offline)?;
         let asked = distance.max(1);
         let radius = granted_radius(&self.state.settings, p.world, asked);
         let ready = p.phase != Phase::Loading && p.chunk_radius.is_some();
@@ -429,7 +437,11 @@ impl super::Context<'_> {
             grant_radius(self.state, &mut p, radius);
         }
         self.state.players.insert(session, p);
-        ready.then_some(radius)
+        if ready {
+            Ok(())
+        } else {
+            Err(player::Error::Offline)
+        }
     }
 }
 
@@ -466,7 +478,7 @@ fn voxel_shapes() -> VoxelShapes {
     }
 }
 
-/// Builds the armour trim patterns and materials the official server sends, from
+/// Builds the armor trim patterns and materials the official server sends, from
 /// [`item::TRIM_PATTERNS`] and [`item::TRIM_MATERIAL_TABLE`].
 fn trim_data() -> TrimData {
     TrimData {
@@ -1212,10 +1224,10 @@ fn login(
         }
     }
     let refused = event.kick_flags().next().map(|flag| {
-        let reason = bounded(event.disconnect_reason(flag).unwrap_or_default().to_owned());
+        let reason = bounded(event.kick_reason(flag).unwrap_or_default().to_owned());
         let screen = bounded(
             event
-                .disconnect_screen_message(flag)
+                .kick_screen_message(flag)
                 .unwrap_or_default()
                 .to_owned(),
         );
@@ -1255,9 +1267,9 @@ fn kick_flag(refusal: &Refusal) -> KickFlag {
     }
 }
 
-/// Cuts a listener's disconnect text to [`MAX_TEXT`] bytes, at a character boundary.
+/// Cuts a listener's disconnect text to [`MAX_TEXT_BYTES`] bytes, at a character boundary.
 fn bounded(mut text: String) -> String {
-    text.truncate(text.floor_char_boundary(MAX_TEXT));
+    text.truncate(text.floor_char_boundary(MAX_TEXT_BYTES));
     text
 }
 
@@ -1541,7 +1553,7 @@ mod tests {
             PlayerViewDistanceChange, Priority,
         };
         use crate::permission::BanEntry;
-        use crate::player::{Id, MAX_TEXT};
+        use crate::player::{self, Id, MAX_TEXT_BYTES};
         use crate::protocol::consts::TextType;
         use crate::protocol::packet::Packet;
         use crate::tick::queue::{Identity, Outbound};
@@ -1914,8 +1926,8 @@ mod tests {
         fn the_replaced_player_quits_with_the_reason_a_listener_gave() {
             for (screen, shown) in [(None, "moved"), (Some("bye"), "bye")] {
                 let mut listeners = on(move |e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
-                    e.set_disconnect_reason("moved");
-                    e.set_disconnect_screen_message(screen.map(str::to_owned));
+                    e.set_kick_reason("moved");
+                    e.set_kick_screen_message(screen.map(str::to_owned));
                 });
                 listeners.push(
                     Priority::Normal,
@@ -1942,7 +1954,7 @@ mod tests {
         #[test]
         fn a_duplicate_login_message_is_cut_to_the_text_limit() {
             let listeners = on(|e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
-                e.set_disconnect_screen_message(Some("\u{e9}".repeat(MAX_TEXT)));
+                e.set_kick_screen_message(Some("\u{e9}".repeat(MAX_TEXT_BYTES)));
             });
             let mut state = state(|_| {}, listeners);
             let (a, mut rx1) = join_as(1, identity("Alex", None));
@@ -1954,14 +1966,14 @@ mod tests {
             let Some(Packet::Disconnect(d)) = close else {
                 panic!("the replaced player got no disconnect");
             };
-            assert_eq!(d.message.len(), MAX_TEXT);
+            assert_eq!(d.message.len(), MAX_TEXT_BYTES);
         }
 
         // api: PlayerPreLoginEvent::setKickFlag
         #[test]
         fn a_login_refusal_message_is_cut_to_the_text_limit() {
             let listeners = on(|e: &mut PlayerLogin, _: &mut Context<'_>| {
-                e.set_kick_flag(KickFlag::Listener, "x".repeat(MAX_TEXT + 1), None);
+                e.set_kick_flag(KickFlag::Listener, "x".repeat(MAX_TEXT_BYTES + 1), None);
             });
             let mut state = state(|_| {}, listeners);
             let (a, mut rx) = join_as(1, identity("Alex", None));
@@ -1970,7 +1982,7 @@ mod tests {
             let Some(Packet::Disconnect(d)) = close else {
                 panic!("the refused player got no disconnect");
             };
-            assert_eq!(d.message.len(), MAX_TEXT);
+            assert_eq!(d.message.len(), MAX_TEXT_BYTES);
         }
 
         // api: PlayerViewDistanceChangeEvent
@@ -2017,16 +2029,19 @@ mod tests {
             let mut cx = Context { state: &mut state };
             assert_eq!(
                 cx.set_view_distance(two, 4),
-                None,
+                Err(player::Error::Offline),
                 "its client has not asked"
             );
-            assert_eq!(cx.set_view_distance(Id::new(SessionId::new(9)), 4), None);
             assert_eq!(
-                cx.set_view_distance(one, 99),
+                cx.set_view_distance(Id::new(SessionId::new(9)), 4),
+                Err(player::Error::Offline)
+            );
+            assert_eq!(cx.set_view_distance(one, 99), Ok(()));
+            assert_eq!(
+                cx.player(one).unwrap().view_distance(),
                 Some(6),
                 "at most view-distance"
             );
-            assert_eq!(cx.player(one).unwrap().view_distance(), Some(6));
             assert_eq!(state.players[&SessionId::new(1)].view.radius(), 6);
             run(&mut state, Vec::new());
             let told = |rx: &mut mpsc::Receiver<Outbound>| -> Vec<i32> {
@@ -2041,8 +2056,12 @@ mod tests {
             };
             assert_eq!(told(&mut rx), [6]);
             let mut cx = Context { state: &mut state };
-            assert_eq!(cx.set_view_distance(one, 0), Some(1), "at least 1");
-            assert_eq!(state.players[&SessionId::new(1)].view.radius(), 1);
+            assert_eq!(cx.set_view_distance(one, 0), Ok(()));
+            assert_eq!(
+                state.players[&SessionId::new(1)].view.radius(),
+                1,
+                "at least 1"
+            );
             run(&mut state, Vec::new());
             assert_eq!(told(&mut rx), [1]);
             assert!(logged().is_empty(), "a direct call raises no event");

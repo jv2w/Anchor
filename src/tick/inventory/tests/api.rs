@@ -1,6 +1,7 @@
 //! Tests of the public inventory API.
 //!
-//! They cover a player's inventories, the hotbar, the window and container blocks. Every write reaches the clients with a new stack network ID and raises no event.
+//! They cover a player's inventories, the hotbar, the window and container blocks. Every write
+//! reaches the clients with a new stack network ID and raises no event.
 
 use std::cell::Cell;
 
@@ -158,8 +159,8 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
     let p = w.player_mut(s);
     p.inventory_mut(Kind::Main).set(4, sticks(9)).unwrap();
     assert_eq!(p.held_slot(), 0);
-    assert!(p.set_held_slot(4));
-    assert!(!p.set_held_slot(9));
+    p.set_held_slot(4).unwrap();
+    assert_eq!(p.set_held_slot(9), Err(Error::NoSlot));
     assert_eq!((p.held_slot(), p.held_item()), (4, &sticks(9)));
     assert!(
         w.sent(s)
@@ -303,7 +304,7 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
     let largest = padded(it::MAX_NBT_BYTES).expect("a stack at the limit is made");
     assert_eq!(padded(it::MAX_NBT_BYTES + 1), Err(it::Error::TooLarge));
     let named = largest.with_extra(Some(Extra {
-        custom_name: Some("n".repeat(crate::tile::MAX_NAME_BYTES + 1)),
+        custom_name: Some("n".repeat(crate::block_entity::MAX_NAME_BYTES + 1)),
         ..Extra::default()
     }));
     assert_eq!(named, Err(it::Error::NameTooLong));
@@ -311,7 +312,7 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
 }
 
 /// A player holding the largest stack everywhere commits and reads back.
-/// It holds the largest stack in every slot (main, armour, offhand, ender chest, cursor) and in
+/// It holds the largest stack in every slot (main, armor, offhand, ender chest, cursor) and in
 /// the stacks waiting for room, and 16 user data values of the largest size.
 /// Its extra compound is over one NBT root (4 MiB) but within its record.
 #[test]
@@ -447,7 +448,7 @@ fn a_chest_of_full_shulker_boxes_of_the_largest_items_commits_and_reads_back() {
     for i in 0..27 {
         inv.set(i, most.clone()).unwrap();
     }
-    let name = "n".repeat(crate::tile::MAX_NAME_BYTES);
+    let name = "n".repeat(crate::block_entity::MAX_NAME_BYTES);
     cx.block_entity_mut(here, box_pos)
         .unwrap()
         .set_name(Some(&name))
@@ -576,9 +577,15 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
         state: &mut w.state,
     };
     assert_eq!(cx.creative_inventory(p), None, "the default");
-    assert!(!cx.set_creative_inventory(p, Some("other")));
-    assert!(!cx.set_creative_inventory(crate::player::Id::new(SessionId::new(9)), None));
-    assert!(cx.set_creative_inventory(p, Some("kits")));
+    assert_eq!(
+        cx.set_creative_inventory(p, Some("other")),
+        Err(Error::NoCreativeInventory)
+    );
+    assert_eq!(
+        cx.set_creative_inventory(crate::player::Id::new(SessionId::new(9)), None),
+        Err(Error::NoPlayer)
+    );
+    cx.set_creative_inventory(p, Some("kits")).unwrap();
     assert_eq!(cx.creative_inventory(p), Some("kits"));
     assert_eq!(
         cx.creative_items(Some("kits")),
@@ -607,8 +614,9 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
     let mut cx = Context {
         state: &mut w.state,
     };
-    assert!(cx.set_creative_inventory(p, None));
-    assert!(cx.set_creative_inventory(p, None), "already the default");
+    cx.set_creative_inventory(p, None).unwrap();
+    cx.set_creative_inventory(p, None)
+        .expect("already the default");
     assert_eq!(cx.creative_inventory(p), None);
     assert_eq!(sent(&mut w), [0]);
     check_slots(&w.state);

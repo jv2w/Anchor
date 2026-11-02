@@ -70,33 +70,6 @@ impl Skin {
         })
     }
 
-    /// This skin with a cape image of 64 × 32 RGBA pixels, or without one for an empty `cape`.
-    /// `None` for another size.
-    pub fn with_cape(self, cape: Vec<u8>) -> Option<Self> {
-        (cape.is_empty() || cape.len() == CAPE_BYTES).then_some(Self { cape, ..self })
-    }
-
-    /// This skin drawn on the geometry `name` (such as `geometry.humanoid.customSlim`), defined by
-    /// the JSON `data` when it is a custom one (empty for a vanilla geometry). `None` if `name` is
-    /// empty, over 256 bytes or not made of ASCII letters, digits and `._:-`, or `data` is over
-    /// 1 MiB, not JSON or nested more than 64 objects and arrays deep.
-    pub fn with_geometry(self, name: impl Into<String>, data: Vec<u8>) -> Option<Self> {
-        let name = name.into();
-        let valid_name = !name.is_empty()
-            && name.len() <= MAX_NAME_BYTES
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
-        let valid_data = data.is_empty()
-            || (data.len() <= MAX_GEOMETRY_BYTES
-                && crypto::is_json_within_depth(&data, MAX_SKIN_JSON_DEPTH));
-        (valid_name && valid_data).then_some(Self {
-            geometry_name: name,
-            geometry_data: data,
-            ..self
-        })
-    }
-
     /// The RGBA cape image, empty without a cape.
     #[doc(alias = "Skin::getCapeData")]
     pub fn cape(&self) -> &[u8] {
@@ -125,6 +98,33 @@ impl Skin {
     #[doc(alias = "Skin::getSkinId")]
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// The same skin with a cape image of 64 × 32 RGBA pixels, or without one for an empty
+    /// `cape`. `None` for another size.
+    pub fn with_cape(self, cape: Vec<u8>) -> Option<Self> {
+        (cape.is_empty() || cape.len() == CAPE_BYTES).then_some(Self { cape, ..self })
+    }
+
+    /// The same skin drawn on the geometry `name` (such as `geometry.humanoid.customSlim`),
+    /// defined by the JSON `data` when it is a custom one (empty for a vanilla geometry). `None`
+    /// if `name` is empty, over 256 bytes or not made of ASCII letters, digits and `._:-`, or
+    /// `data` is over 1 MiB, not JSON or nested more than 64 objects and arrays deep.
+    pub fn with_geometry(self, name: impl Into<String>, data: Vec<u8>) -> Option<Self> {
+        let name = name.into();
+        let valid_name = !name.is_empty()
+            && name.len() <= MAX_NAME_BYTES
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
+        let valid_data = data.is_empty()
+            || (data.len() <= MAX_GEOMETRY_BYTES
+                && crypto::is_json_within_depth(&data, MAX_SKIN_JSON_DEPTH));
+        (valid_name && valid_data).then_some(Self {
+            geometry_name: name,
+            geometry_data: data,
+            ..self
+        })
     }
 
     /// The skin as the protocol carries it (the player list and `PlayerSkin`).

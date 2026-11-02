@@ -85,6 +85,12 @@ pub struct Db {
 impl Db {
     /// Opens the database of the Bedrock world in folder `dir` (`dir/db`), reading `CURRENT`,
     /// the `MANIFEST` and the live logs.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::File`] for a file of the folder that cannot be read, is damaged, or is over a
+    /// limit.
+    /// [`Error::TooLarge`] for live logs over 64 MiB together.
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
         Self::from_files(Files::disk(dir.as_ref().join("db")))
     }
@@ -198,6 +204,11 @@ impl Db {
     }
 
     /// The live value of `key`, if any.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::File`] for a table that cannot be read or is damaged.
+    /// [`Error::TooLarge`] for a read that holds over 256 MiB of blocks.
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut end = Vec::with_capacity(key.len() + 1);
         end.extend_from_slice(key);
@@ -211,6 +222,11 @@ impl Db {
     }
 
     /// Calls `f` with each live key starting with `prefix` and its value, in key order.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::File`] for a table that cannot be read or is damaged.
+    /// [`Error::TooLarge`] for a scan that holds over 256 MiB of blocks.
     pub fn scan_prefix(&mut self, prefix: &[u8], mut f: impl FnMut(&[u8], &[u8])) -> Result<()> {
         let end = super::chunk::after(prefix);
         self.scan(prefix, end.as_deref(), |key, value| {

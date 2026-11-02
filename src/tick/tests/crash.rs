@@ -203,7 +203,7 @@ fn put_chest(state: &mut State, mut stack: Stack) {
             if !fits {
                 continue;
             }
-            let room = stack.max_count() - slot.count().min(stack.max_count());
+            let room = stack.max_stack_size() - slot.count().min(stack.max_stack_size());
             let k = room.min(stack.count());
             *slot = stack.with_count(slot.count() + k);
             stack = stack.with_count(stack.count() - k);

@@ -69,10 +69,36 @@ impl Extras {
         Ok(Self { chunks, dirty })
     }
 
+    /// Writes each loaded chunk's [`Held::checkpoint`].
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        // The dirty set repeats the marks of the chunks, which `Held::checkpoint` writes.
+        let Self { chunks, dirty: _ } = self;
+        w.len(chunks.len());
+        for (key, held) in chunks {
+            key.encode(w);
+            held.checkpoint(w);
+        }
+    }
+
     /// The extras of a loaded chunk.
     #[cfg(test)]
     pub(super) fn get(&self, key: Key) -> Option<&ChunkExtras> {
         self.chunks.get(&key).map(|h| &h.extras)
+    }
+
+    /// Hashes the extras of every loaded chunk, for the state hash of tests.
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        // The dirty set repeats the marks of the chunks, which `Held::hash_into` hashes.
+        let Self { chunks, dirty: _ } = self;
+        h.usize(chunks.len());
+        for (&(world, pos), held) in chunks {
+            h.usize(world);
+            h.u64(u64::from(pos.x.cast_unsigned()));
+            h.u64(u64::from(pos.z.cast_unsigned()));
+            held.hash_into(h);
+        }
     }
 
     /// The number of chunks with an entry: the loaded ones (for leak tests).
@@ -88,13 +114,6 @@ impl Extras {
         self.dirty.remove(&key);
     }
 
-    /// Gives back the extras of a chunk that unloads (or is quarantined) as NBT with their marks,
-    /// if it was loaded.
-    pub(super) fn chunk_unloaded(&mut self, key: Key) -> Option<Held> {
-        self.dirty.remove(&key);
-        self.chunks.remove(&key)
-    }
-
     /// Takes the extras of a chunk that unloaded before a commit held them and is loaded again
     /// from memory.
     pub(super) fn chunk_restored(&mut self, key: Key, held: Held) {
@@ -104,6 +123,13 @@ impl Extras {
             self.dirty.remove(&key);
         }
         self.chunks.insert(key, held);
+    }
+
+    /// Gives back the extras of a chunk that unloads (or is quarantined) as NBT with their marks,
+    /// if it was loaded.
+    pub(super) fn chunk_unloaded(&mut self, key: Key) -> Option<Held> {
+        self.dirty.remove(&key);
+        self.chunks.remove(&key)
     }
 
     /// The `kind` list of a loaded chunk to change, marked dirty; `None` if the chunk is not
@@ -144,32 +170,6 @@ impl Extras {
         }
         out
     }
-
-    /// Writes each loaded chunk's [`Held::checkpoint`].
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
-        // The dirty set repeats the marks of the chunks, which `Held::checkpoint` writes.
-        let Self { chunks, dirty: _ } = self;
-        w.len(chunks.len());
-        for (key, held) in chunks {
-            key.encode(w);
-            held.checkpoint(w);
-        }
-    }
-
-    /// Hashes the extras of every loaded chunk, for the state hash of tests.
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The dirty set repeats the marks of the chunks, which `Held::hash_into` hashes.
-        let Self { chunks, dirty: _ } = self;
-        h.usize(chunks.len());
-        for (&(world, pos), held) in chunks {
-            h.usize(world);
-            h.u64(u64::from(pos.x.cast_unsigned()));
-            h.u64(u64::from(pos.z.cast_unsigned()));
-            held.hash_into(h);
-        }
-    }
 }
 
 /// One chunk's extras and which kinds changed since a snapshot took them.
@@ -201,28 +201,6 @@ impl Held {
         Ok(Self { extras, dirty })
     }
 
-    /// The lists as held.
-    pub(super) fn extras(&self) -> &ChunkExtras {
-        &self.extras
-    }
-
-    /// Whether a kind changed since a snapshot last took it.
-    pub(super) fn is_dirty(&self) -> bool {
-        self.dirty != 0
-    }
-
-    /// Takes the changed lists, cloned for a snapshot, and clears their marks.
-    pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Vec<Compound>)> {
-        let mut out = Vec::new();
-        for kind in ChunkKind::EXTRAS {
-            if self.dirty & bit(kind) != 0 {
-                out.push((kind, self.extras.get(kind).to_vec()));
-            }
-        }
-        self.dirty = 0;
-        out
-    }
-
     /// Writes the marks, and the lists when a kind is marked: an unmarked list is the world
     /// file's or the generator's (`Self::hash_into`), which a replay reads again.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
@@ -234,6 +212,11 @@ impl Held {
                 w.slice(extras.get(kind));
             }
         }
+    }
+
+    /// The lists as held.
+    pub(super) fn extras(&self) -> &ChunkExtras {
+        &self.extras
     }
 
     /// Hashes the marks and the changed lists, for the state hash of tests.
@@ -253,6 +236,23 @@ impl Held {
                 hash_nbt(h, entry);
             }
         }
+    }
+
+    /// Whether a kind changed since a snapshot last took it.
+    pub(super) fn is_dirty(&self) -> bool {
+        self.dirty != 0
+    }
+
+    /// Takes the changed lists, cloned for a snapshot, and clears their marks.
+    pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Vec<Compound>)> {
+        let mut out = Vec::new();
+        for kind in ChunkKind::EXTRAS {
+            if self.dirty & bit(kind) != 0 {
+                out.push((kind, self.extras.get(kind).to_vec()));
+            }
+        }
+        self.dirty = 0;
+        out
     }
 }
 
@@ -282,20 +282,6 @@ impl Player {
         })
     }
 
-    /// The compound as saved, for the modules that own keys in it to read on load.
-    pub(super) fn raw(&self) -> &Compound {
-        &self.raw
-    }
-
-    /// Keeps the value of `key` in `saved`, which a save wrote, as the one kept as saved, so a
-    /// later save that cannot write that key keeps the newest saved form.
-    pub(super) fn keep_saved(&mut self, key: &str, saved: &Compound) {
-        match saved.get(key) {
-            Some(value) => self.raw.insert(key.to_owned(), value.clone()),
-            None => self.raw.remove(key),
-        };
-    }
-
     /// Writes the compound as saved and the user's values ([`UserData::checkpoint_player`]).
     ///
     /// [`UserData::checkpoint_player`]: super::task::UserData::checkpoint_player
@@ -316,6 +302,20 @@ impl Player {
         // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).
         let Self { raw, user: _ } = self;
         hash_nbt(h, raw);
+    }
+
+    /// The compound as saved, for the modules that own keys in it to read on load.
+    pub(super) fn raw(&self) -> &Compound {
+        &self.raw
+    }
+
+    /// Keeps the value of `key` in `saved`, which a save wrote, as the one kept as saved, so a
+    /// later save that cannot write that key keeps the newest saved form.
+    pub(super) fn keep_saved(&mut self, key: &str, saved: &Compound) {
+        match saved.get(key) {
+            Some(value) => self.raw.insert(key.to_owned(), value.clone()),
+            None => self.raw.remove(key),
+        };
     }
 }
 

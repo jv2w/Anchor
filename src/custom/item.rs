@@ -73,6 +73,58 @@ impl Item {
         }
     }
 
+    /// Whether a player in creative mode breaks blocks with it.
+    pub(crate) fn can_break_in_creative(&self) -> bool {
+        self.breaks_in_creative
+    }
+
+    /// Why the definition cannot be registered, if it cannot.
+    pub(crate) fn check(&self) -> Option<&'static str> {
+        if self.display_name.is_empty() || self.display_name.len() > Self::MAX_DISPLAY_NAME_BYTES {
+            return Some("the display name is empty or longer than 256 bytes");
+        }
+        if self.icon.is_empty() || self.icon.len() > Self::MAX_ICON_BYTES {
+            return Some("the icon name is empty or longer than 256 bytes");
+        }
+        let stack = self.info.max_stack();
+        if stack == 0 || stack > MAX_STACK {
+            return Some("a stack size outside 1 to 64");
+        }
+        if self.info.max_durability() > 0 && stack != 1 {
+            return Some("an item with durability stacks to more than 1");
+        }
+        if let Some(food) = self.info.food() {
+            if self.info.max_durability() > 0 {
+                return Some("an item with durability is also food");
+            }
+            if !food.saturation_restore().is_finite() || food.saturation_restore() < 0.0 {
+                return Some("a food saturation that is negative or not finite");
+            }
+        }
+        None
+    }
+
+    /// The classes the rules see: a food, a durable item or a plain item.
+    pub(crate) fn classes(&self) -> &'static [Class] {
+        if self.info.food().is_some() {
+            &Self::CLASSES_FOOD
+        } else if self.info.max_durability() > 0 {
+            &Self::CLASSES_DURABLE
+        } else {
+            &Self::CLASSES_ITEM
+        }
+    }
+
+    /// Where it shows in the creative inventory.
+    pub(crate) fn creative_place(&self) -> Option<Creative> {
+        self.creative
+    }
+
+    /// The name the client shows for it, such as `Ruby`.
+    pub const fn display_name(&self) -> &'static str {
+        self.display_name
+    }
+
     /// The same item with the enchantment glint.
     #[must_use]
     pub const fn glint(mut self) -> Self {
@@ -85,6 +137,16 @@ impl Item {
     pub const fn hand_equipped(mut self) -> Self {
         self.hand_equipped = true;
         self
+    }
+
+    /// The identifier, such as `example:ruby`.
+    pub const fn identifier(&self) -> &'static str {
+        self.identifier
+    }
+
+    /// The data row the rules read.
+    pub(crate) fn info(&'static self) -> &'static item::Info {
+        &self.info
     }
 
     /// The same item, allowed in the off-hand slot.
@@ -168,68 +230,6 @@ impl Item {
         self
     }
 
-    /// Whether a player in creative mode breaks blocks with it.
-    pub(crate) fn can_break_in_creative(&self) -> bool {
-        self.breaks_in_creative
-    }
-
-    /// Why the definition cannot be registered, if it cannot.
-    pub(crate) fn check(&self) -> Option<&'static str> {
-        if self.display_name.is_empty() || self.display_name.len() > Self::MAX_DISPLAY_NAME_BYTES {
-            return Some("the display name is empty or longer than 256 bytes");
-        }
-        if self.icon.is_empty() || self.icon.len() > Self::MAX_ICON_BYTES {
-            return Some("the icon name is empty or longer than 256 bytes");
-        }
-        let stack = self.info.max_stack();
-        if stack == 0 || stack > MAX_STACK {
-            return Some("a stack size outside 1 to 64");
-        }
-        if self.info.max_durability() > 0 && stack != 1 {
-            return Some("an item with durability stacks to more than 1");
-        }
-        if let Some(food) = self.info.food() {
-            if self.info.max_durability() > 0 {
-                return Some("an item with durability is also food");
-            }
-            if !food.saturation_restore().is_finite() || food.saturation_restore() < 0.0 {
-                return Some("a food saturation that is negative or not finite");
-            }
-        }
-        None
-    }
-
-    /// The classes the rules see: a food, a durable item or a plain item.
-    pub(crate) fn classes(&self) -> &'static [Class] {
-        if self.info.food().is_some() {
-            &Self::CLASSES_FOOD
-        } else if self.info.max_durability() > 0 {
-            &Self::CLASSES_DURABLE
-        } else {
-            &Self::CLASSES_ITEM
-        }
-    }
-
-    /// Where it shows in the creative inventory.
-    pub(crate) fn creative_place(&self) -> Option<Creative> {
-        self.creative
-    }
-
-    /// The name the client shows for it, such as `Ruby`.
-    pub const fn display_name(&self) -> &'static str {
-        self.display_name
-    }
-
-    /// The identifier, such as `example:ruby`.
-    pub const fn identifier(&self) -> &'static str {
-        self.identifier
-    }
-
-    /// The data row the rules read.
-    pub(crate) fn info(&'static self) -> &'static item::Info {
-        &self.info
-    }
-
     /// The `ItemRegistry` data of the item: the item properties (icon, creative place, stack
     /// size and the flags), the display name, and the durability and food components.
     pub(crate) fn to_components(&self) -> Compound {
@@ -298,7 +298,7 @@ impl Item {
                 "minecraft:food".to_owned(),
                 Value::Compound(Compound::from([(
                     "can_always_eat".to_owned(),
-                    Value::Byte(u8::from(!food.requires_food())),
+                    Value::Byte(u8::from(food.can_eat_when_full())),
                 )])),
             );
         }

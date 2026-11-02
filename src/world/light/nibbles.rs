@@ -59,19 +59,19 @@ impl Nibbles {
         }
     }
 
-    /// The value of a uniform cube.
-    pub(crate) fn uniform(&self) -> Option<u8> {
-        match self {
-            Self::Uniform(value) => Some(*value),
-            Self::Full(_) => None,
-        }
-    }
-
     /// The heap bytes the cube holds.
     pub(crate) fn heap_bytes(&self) -> usize {
         match self {
             Self::Uniform(_) => 0,
             Self::Full(_) => FULL_BYTES,
+        }
+    }
+
+    /// The value of a uniform cube.
+    pub(crate) fn uniform(&self) -> Option<u8> {
+        match self {
+            Self::Uniform(value) => Some(*value),
+            Self::Full(_) => None,
         }
     }
 

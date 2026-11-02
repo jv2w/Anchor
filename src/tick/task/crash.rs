@@ -95,7 +95,7 @@ impl Writer {
             count: server.count + 1,
         };
         let server = *server;
-        let id = cx.player_exact(NAME).expect("the player is in");
+        let id = cx.player_by_name(NAME).expect("the player is in");
         let player = cx.player_mut(id).expect("the player is in");
         let mine = player.data_mut::<Progress>().expect("registered");
         *mine = Progress {

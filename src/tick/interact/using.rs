@@ -66,14 +66,14 @@ impl Use {
         self.pos.step(self.face)
     }
 
-    /// Takes one item.
-    fn pop(&mut self) {
-        self.item = self.item.with_count(self.item.count().saturating_sub(1));
-    }
-
     /// Plays `sound` at `at` once the use is applied ([`finish`]).
     fn play(&mut self, at: Vec3, sound: Sound) {
         self.sound = Some((at, sound));
+    }
+
+    /// Takes one item.
+    fn pop(&mut self) {
+        self.item = self.item.with_count(self.item.count().saturating_sub(1));
     }
 }
 
@@ -544,7 +544,7 @@ fn usable(state: &State, actor: &Actor) -> Option<Stack> {
     (!survival::has_item_cooldown(state, player, item)).then(|| held.clone())
 }
 
-/// Applies the held item's own use in the air: armour goes on, a goat horn sounds, a projectile is
+/// Applies the held item's own use in the air: armor goes on, a goat horn sounds, a projectile is
 /// thrown (one used up with finite resources), a bow starts drawing.
 fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -> bool {
     let Some(player) = state.players.get(&actor.session) else {

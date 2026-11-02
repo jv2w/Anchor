@@ -124,54 +124,6 @@ pub struct BanEntry {
 }
 
 impl BanEntry {
-    /// A ban of the player named `name` (ASCII case does not matter), without reason or end.
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_ascii_lowercase(),
-            ip: None,
-            reason: String::new(),
-            source: UNKNOWN_SOURCE.to_owned(),
-            created: 0,
-            expires: None,
-        }
-    }
-
-    /// A ban of the IP address `ip`, without reason or end. An IPv4 address written as IPv6
-    /// (`::ffff:1.2.3.4`) is the IPv4 address.
-    pub fn ip(ip: IpAddr) -> Self {
-        let ip = ip.to_canonical();
-        Self {
-            name: ip.to_string(),
-            ip: Some(ip),
-            ..Self::new("")
-        }
-    }
-
-    /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
-    /// that has passed when the ban is added refuses it ([`Error::Expired`]).
-    #[doc(alias = "BanEntry::setExpires")]
-    #[must_use]
-    pub fn with_expires(mut self, tick: u64) -> Self {
-        self.expires = Some(tick);
-        self
-    }
-
-    /// The ban with `reason`, which a banned player sees when refused.
-    #[doc(alias = "BanEntry::setReason")]
-    #[must_use]
-    pub fn with_reason(mut self, reason: &str) -> Self {
-        reason.clone_into(&mut self.reason);
-        self
-    }
-
-    /// The ban with `source`: who or what banned (`(Unknown)` by default).
-    #[doc(alias = "BanEntry::setSource")]
-    #[must_use]
-    pub fn with_source(mut self, source: &str) -> Self {
-        source.clone_into(&mut self.source);
-        self
-    }
-
     /// An entry as the data files store it.
     pub(crate) fn from_parts(
         name: String,
@@ -188,6 +140,29 @@ impl BanEntry {
             source,
             created,
             expires,
+        }
+    }
+
+    /// A ban of the IP address `ip`, without reason or end. An IPv4 address written as IPv6
+    /// (`::ffff:1.2.3.4`) is the IPv4 address.
+    pub fn ip(ip: IpAddr) -> Self {
+        let ip = ip.to_canonical();
+        Self {
+            name: ip.to_string(),
+            ip: Some(ip),
+            ..Self::new("")
+        }
+    }
+
+    /// A ban of the player named `name` (ASCII case does not matter), without reason or end.
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_ascii_lowercase(),
+            ip: None,
+            reason: String::new(),
+            source: UNKNOWN_SOURCE.to_owned(),
+            created: 0,
+            expires: None,
         }
     }
 
@@ -245,10 +220,36 @@ impl BanEntry {
         self.created = tick;
         Ok(self)
     }
+
+    /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
+    /// that has passed when the ban is added refuses it ([`Error::Expired`]).
+    #[doc(alias = "BanEntry::setExpires")]
+    #[must_use]
+    pub fn with_expires(mut self, tick: u64) -> Self {
+        self.expires = Some(tick);
+        self
+    }
+
+    /// The ban with `reason`, which a banned player sees when refused.
+    #[doc(alias = "BanEntry::setReason")]
+    #[must_use]
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = reason.into();
+        self
+    }
+
+    /// The ban with `source`: who or what banned (`(Unknown)` by default).
+    #[doc(alias = "BanEntry::setSource")]
+    #[must_use]
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = source.into();
+        self
+    }
 }
 
 /// Why a list did not change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The name is empty, longer than 64 bytes or holds control characters.
     InvalidName,

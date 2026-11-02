@@ -138,140 +138,15 @@ impl View {
         self.sent.contains(&pos)
     }
 
-    /// Whether the view has a radius yet.
-    pub(super) fn is_open(&self) -> bool {
-        self.radius > 0
-    }
-
-    /// The granted chunk radius, 0 before the client asked.
-    pub(super) fn radius(&self) -> u8 {
-        self.radius
-    }
-
-    /// Whether every chunk of the view was sent (tests).
-    #[cfg(test)]
-    pub(super) fn is_complete(&self) -> bool {
-        self.first_unsent().is_none()
-    }
-
-    /// The chunks not sent yet, in sending order (tests).
-    #[cfg(test)]
-    pub(super) fn unsent_chunks(&self, disc: &Disc) -> Vec<ChunkPos> {
-        set_bits(&self.unsent, 0)
-            .map(|rank| at(self.center, disc.offset(rank)))
-            .collect()
-    }
-
-    /// The fake block the player is shown at `pos`, if any: the open menu's, else the user's.
-    pub(super) fn shown(&self, pos: BlockPos) -> Option<block::State> {
-        self.menu
-            .iter()
-            .flatten()
-            .find(|(p, _)| *p == pos)
-            .map(|(_, b)| *b)
-            .or_else(|| self.fakes.get(&fake_key(pos)).copied())
-    }
-
-    /// The user's fake blocks in sub-chunk `sub_y` of `chunk`.
-    fn fakes_in(
-        &self,
-        chunk: ChunkPos,
-        sub_y: i32,
-    ) -> impl Iterator<Item = (BlockPos, block::State)> + '_ {
-        let low = (chunk, sub_y, BlockPos::new(i32::MIN, i32::MIN, i32::MIN));
-        let high = (chunk, sub_y, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
-        self.fakes
-            .range(low..=high)
-            .map(|(&(_, _, pos), &b)| (pos, b))
-    }
-
-    /// Whether the player is shown a fake block in sub-chunk `sub_y` of `chunk`.
-    fn shows_in(&self, chunk: ChunkPos, sub_y: i32) -> bool {
-        self.fakes_in(chunk, sub_y).next().is_some()
-            || self
-                .menu
-                .iter()
-                .flatten()
-                .any(|(p, _)| fake_key(*p).0 == chunk && p.y >> 4 == sub_y)
-    }
-
-    /// The fake blocks the player is shown in sub-chunk `sub_y` of `chunk` with their network
-    /// IDs, in position order.
-    fn shown_in(&self, chunk: ChunkPos, sub_y: i32) -> Vec<(BlockPos, u32)> {
-        let mut out: Vec<(BlockPos, u32)> = self
-            .fakes_in(chunk, sub_y)
-            .map(|(pos, b)| (pos, b.network_id()))
-            .collect();
-        for &(pos, b) in self.menu.iter().flatten() {
-            if pos.chunk() != chunk || pos.y >> 4 != sub_y {
-                continue;
-            }
-            match out.binary_search_by_key(&pos, |(p, _)| *p) {
-                Ok(i) => {
-                    if let Some(e) = out.get_mut(i) {
-                        e.1 = b.network_id();
-                    }
-                }
-                Err(i) => out.insert(i, (pos, b.network_id())),
-            }
-        }
-        out
-    }
-
-    /// Whether `n` more changes of what the player is shown fit this tick.
-    pub(super) fn has_room_to_show(&self, n: usize) -> bool {
-        self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
-    }
-
-    /// Whether `pos` is marked to be sent again this tick ([`Self::resync`]).
-    pub(super) fn is_resynced(&self, pos: BlockPos) -> bool {
-        self.out.resynced.contains(&pos)
-    }
-
-    /// Marks `pos` for the output phase to send again with what it shows then (a refused change);
-    /// false if [`MAX_RESYNCS`] other positions are marked this tick already.
-    pub(super) fn resync(&mut self, pos: BlockPos) -> bool {
-        if self.out.resynced.len() >= MAX_RESYNCS && !self.out.resynced.contains(&pos) {
-            return false;
-        }
-        self.out.resynced.insert(pos);
-        true
-    }
-
-    /// Shows the open menu's container blocks (none: the menu closed) over the user's fake
-    /// blocks and returns the ones shown before; the output phase sends both the old and the new
-    /// positions.
-    pub(super) fn set_menu_blocks(
-        &mut self,
-        blocks: [Option<(BlockPos, block::State)>; 2],
-    ) -> [Option<(BlockPos, block::State)>; 2] {
-        for (pos, _) in self.menu.iter().chain(&blocks).flatten() {
-            self.out.shown.insert(*pos);
-        }
-        std::mem::replace(&mut self.menu, blocks)
-    }
-
-    /// The menu's container blocks shown (tests).
-    #[cfg(test)]
-    pub(super) fn menu_blocks(&self) -> [Option<(BlockPos, block::State)>; 2] {
-        self.menu
-    }
-
     /// How many fake blocks the user set (tests).
     #[cfg(test)]
     pub(super) fn fake_count(&self) -> usize {
         self.fakes.len()
     }
 
-    /// The rank of the nearest chunk not sent yet, if any.
-    fn first_unsent(&self) -> Option<usize> {
-        set_bits(&self.unsent, self.first_word).next()
-    }
-
-    /// Whether every chunk within `radius` of the center was sent.
-    fn has_sent_within(&self, radius: u8, disc: &Disc) -> bool {
-        self.first_unsent()
-            .is_none_or(|rank| rank >= disc.size(radius))
+    /// Whether `n` more changes of what the player is shown fit this tick.
+    pub(super) fn has_room_to_show(&self, n: usize) -> bool {
+        self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
     }
 
     /// Hashes what the view decides, for the state hash of tests.
@@ -336,6 +211,131 @@ impl View {
                 None => h.u64(0),
             }
         }
+    }
+
+    /// Whether every chunk of the view was sent (tests).
+    #[cfg(test)]
+    pub(super) fn is_complete(&self) -> bool {
+        self.first_unsent().is_none()
+    }
+
+    /// Whether the view has a radius yet.
+    pub(super) fn is_open(&self) -> bool {
+        self.radius > 0
+    }
+
+    /// Whether `pos` is marked to be sent again this tick ([`Self::resync`]).
+    pub(super) fn is_resynced(&self, pos: BlockPos) -> bool {
+        self.out.resynced.contains(&pos)
+    }
+
+    /// The menu's container blocks shown (tests).
+    #[cfg(test)]
+    pub(super) fn menu_blocks(&self) -> [Option<(BlockPos, block::State)>; 2] {
+        self.menu
+    }
+
+    /// The granted chunk radius, 0 before the client asked.
+    pub(super) fn radius(&self) -> u8 {
+        self.radius
+    }
+
+    /// The fake block the player is shown at `pos`, if any: the open menu's, else the user's.
+    pub(super) fn shown(&self, pos: BlockPos) -> Option<block::State> {
+        self.menu
+            .iter()
+            .flatten()
+            .find(|(p, _)| *p == pos)
+            .map(|(_, b)| *b)
+            .or_else(|| self.fakes.get(&fake_key(pos)).copied())
+    }
+
+    /// The chunks not sent yet, in sending order (tests).
+    #[cfg(test)]
+    pub(super) fn unsent_chunks(&self, disc: &Disc) -> Vec<ChunkPos> {
+        set_bits(&self.unsent, 0)
+            .map(|rank| at(self.center, disc.offset(rank)))
+            .collect()
+    }
+
+    /// Marks `pos` for the output phase to send again with what it shows then (a refused change);
+    /// false if [`MAX_RESYNCS`] other positions are marked this tick already.
+    pub(super) fn resync(&mut self, pos: BlockPos) -> bool {
+        if self.out.resynced.len() >= MAX_RESYNCS && !self.out.resynced.contains(&pos) {
+            return false;
+        }
+        self.out.resynced.insert(pos);
+        true
+    }
+
+    /// Shows the open menu's container blocks (none: the menu closed) over the user's fake
+    /// blocks and returns the ones shown before; the output phase sends both the old and the new
+    /// positions.
+    pub(super) fn set_menu_blocks(
+        &mut self,
+        blocks: [Option<(BlockPos, block::State)>; 2],
+    ) -> [Option<(BlockPos, block::State)>; 2] {
+        for (pos, _) in self.menu.iter().chain(&blocks).flatten() {
+            self.out.shown.insert(*pos);
+        }
+        std::mem::replace(&mut self.menu, blocks)
+    }
+
+    /// Whether every chunk within `radius` of the center was sent.
+    fn has_sent_within(&self, radius: u8, disc: &Disc) -> bool {
+        self.first_unsent()
+            .is_none_or(|rank| rank >= disc.size(radius))
+    }
+
+    /// The rank of the nearest chunk not sent yet, if any.
+    fn first_unsent(&self) -> Option<usize> {
+        set_bits(&self.unsent, self.first_word).next()
+    }
+
+    /// The fake blocks the player is shown in sub-chunk `sub_y` of `chunk` with their network
+    /// IDs, in position order.
+    fn shown_in(&self, chunk: ChunkPos, sub_y: i32) -> Vec<(BlockPos, u32)> {
+        let mut out: Vec<(BlockPos, u32)> = self
+            .fakes_in(chunk, sub_y)
+            .map(|(pos, b)| (pos, b.network_id()))
+            .collect();
+        for &(pos, b) in self.menu.iter().flatten() {
+            if pos.chunk() != chunk || pos.y >> 4 != sub_y {
+                continue;
+            }
+            match out.binary_search_by_key(&pos, |(p, _)| *p) {
+                Ok(i) => {
+                    if let Some(e) = out.get_mut(i) {
+                        e.1 = b.network_id();
+                    }
+                }
+                Err(i) => out.insert(i, (pos, b.network_id())),
+            }
+        }
+        out
+    }
+
+    /// Whether the player is shown a fake block in sub-chunk `sub_y` of `chunk`.
+    fn shows_in(&self, chunk: ChunkPos, sub_y: i32) -> bool {
+        self.fakes_in(chunk, sub_y).next().is_some()
+            || self
+                .menu
+                .iter()
+                .flatten()
+                .any(|(p, _)| fake_key(*p).0 == chunk && p.y >> 4 == sub_y)
+    }
+
+    /// The user's fake blocks in sub-chunk `sub_y` of `chunk`.
+    fn fakes_in(
+        &self,
+        chunk: ChunkPos,
+        sub_y: i32,
+    ) -> impl Iterator<Item = (BlockPos, block::State)> + '_ {
+        let low = (chunk, sub_y, BlockPos::new(i32::MIN, i32::MIN, i32::MIN));
+        let high = (chunk, sub_y, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
+        self.fakes
+            .range(low..=high)
+            .map(|(&(_, _, pos), &b)| (pos, b))
     }
 }
 
@@ -488,13 +488,6 @@ pub(super) struct Disc {
 }
 
 impl Disc {
-    /// How many chunks the view of `radius` has: the ranks below it.
-    fn size(&self, radius: u8) -> usize {
-        let origin = ChunkPos::new(0, 0);
-        self.offsets
-            .partition_point(|&o| in_disc(origin, o, radius))
-    }
-
     /// The chunks of the view of `radius` (at most [`MAX_RADIUS`]) around `center`, in sending
     /// order.
     pub(super) fn around(&self, center: ChunkPos, radius: u8) -> impl Iterator<Item = ChunkPos> {
@@ -518,6 +511,13 @@ impl Disc {
     fn rank(&self, offset: ChunkPos) -> Option<usize> {
         let rank = *self.ranks.get(cell(offset)?)?;
         (rank != u16::MAX).then_some(usize::from(rank))
+    }
+
+    /// How many chunks the view of `radius` has: the ranks below it.
+    fn size(&self, radius: u8) -> usize {
+        let origin = ChunkPos::new(0, 0);
+        self.offsets
+            .partition_point(|&o| in_disc(origin, o, radius))
     }
 }
 
@@ -643,138 +643,6 @@ impl Chunks {
         stale.encode(w);
     }
 
-    /// Reads what [`Self::checkpoint`] wrote into the chunks of a new state (which keeps the
-    /// events it heard and its view order); `ground` gives what the server file or the generator
-    /// has.
-    pub(super) fn restore(
-        &mut self,
-        r: &mut super::checkpoint::Reader<'_>,
-        ground: &mut super::checkpoint::Ground,
-    ) -> super::checkpoint::Result<()> {
-        use super::checkpoint::{Codec, Error};
-        let interest = Codec::decode(r)?;
-        let requested = Codec::decode(r)?;
-        let n = r.len()?;
-        let mut unsaved = BTreeMap::new();
-        for _ in 0..n {
-            let key = Key::decode(r)?;
-            let chunk = ground.chunks.remove(&key).ok_or(Error::Format(
-                "unsaved terrain the checkpoint does not keep",
-            ))?;
-            let restored = Unsaved::restore(r, chunk, ground.extras.remove(&key))?;
-            if unsaved.insert(key, restored).is_some() {
-                return Err(Error::Format("repeated unsaved chunk"));
-            }
-        }
-        *self = Self {
-            interest,
-            requested,
-            unsaved,
-            batch: Vec::new(),
-            extras: Extras::restore(r, &mut ground.extras)?,
-            spawns: Codec::decode(r)?,
-            heard: self.heard,
-            loads: Codec::decode(r)?,
-            unloading: Codec::decode(r)?,
-            kept: Codec::decode(r)?,
-            sent: Vec::new(),
-            tickets: Codec::decode(r)?,
-            next_ticket: Codec::decode(r)?,
-            by_chunk: BTreeSet::new(),
-            // Filled from the players' views once they are back ([`Self::index_views`]).
-            viewers: BTreeMap::new(),
-            waiting: Codec::decode(r)?,
-            stale: Codec::decode(r)?,
-            // Moved over rather than built again.
-            disc: Disc {
-                offsets: std::mem::take(&mut self.disc.offsets),
-                ranks: std::mem::take(&mut self.disc.ranks),
-            },
-        };
-        for (&n, ticket) in &self.tickets {
-            self.by_chunk
-                .extend(ticket.area().map(|pos| ((ticket.world, pos), n)));
-        }
-        Ok(())
-    }
-
-    /// Notes the chunks every view of `players` has ([`Self::viewers`]), after a restore.
-    pub(super) fn index_views(&mut self, players: &BTreeMap<SessionId, Player>) {
-        for (&session, player) in players {
-            for &pos in &player.view.sent {
-                self.see(session, pos);
-            }
-        }
-    }
-
-    /// The chunk positions some view has ([`Self::viewers`]), for leak tests.
-    #[cfg(test)]
-    pub(super) fn viewed(&self) -> usize {
-        self.viewers.len()
-    }
-
-    /// Whether [`Self::viewers`] holds exactly the chunks each view of `players` has (tests).
-    #[cfg(test)]
-    pub(super) fn viewers_match(&self, players: &BTreeMap<SessionId, Player>) -> bool {
-        let mut viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>> = BTreeMap::new();
-        for (&session, player) in players {
-            for &pos in &player.view.sent {
-                viewers.entry(pos).or_default().insert(session);
-            }
-        }
-        viewers == self.viewers
-    }
-
-    /// The sessions whose view has chunk `pos`, in whatever world they are, in session order.
-    pub(super) fn viewers_of(&self, pos: ChunkPos) -> impl Iterator<Item = SessionId> + Clone + '_ {
-        self.viewers.get(&pos).into_iter().flatten().copied()
-    }
-
-    /// Notes that the view of `session` has chunk `pos` now.
-    fn see(&mut self, session: SessionId, pos: ChunkPos) {
-        self.viewers.entry(pos).or_default().insert(session);
-    }
-
-    /// Notes that the view of `session` lost chunk `pos`.
-    fn unsee(&mut self, session: SessionId, pos: ChunkPos) {
-        if let Some(sessions) = self.viewers.get_mut(&pos) {
-            sessions.remove(&session);
-            if sessions.is_empty() {
-                self.viewers.remove(&pos);
-            }
-        }
-    }
-
-    /// Whether no chunk is held, wanted, in flight or unsaved (for leak tests).
-    #[cfg(test)]
-    pub(super) fn is_idle(&self) -> bool {
-        self.requested.is_empty()
-            && self.unsaved.is_empty()
-            && self.batch.is_empty()
-            && self.loads.is_empty()
-            && self.unloading.is_empty()
-            && self.kept.is_empty()
-            && self.sent.is_empty()
-            && self.tickets.is_empty()
-            && self.by_chunk.is_empty()
-            && self.waiting.is_empty()
-            && self.stale.is_empty()
-    }
-
-    /// The chunks with loads in flight: those asked for and those of unloaded worlds (a chunk of
-    /// an unloaded world counts once, however many of its loads are in flight: only unloading the
-    /// same world again before an answer repeats one, and the save thread's bounded queues bound
-    /// those).
-    fn in_flight(&self) -> usize {
-        self.requested.len().saturating_add(self.stale.len())
-    }
-
-    /// The chunks held, wanted or in flight, for tests.
-    #[cfg(test)]
-    pub(super) fn held(&self) -> usize {
-        self.interest.len()
-    }
-
     /// Whether `key` is held, wanted or in flight, for tests.
     #[cfg(test)]
     pub(super) fn has_chunk(&self, key: Key) -> bool {
@@ -861,6 +729,138 @@ impl Chunks {
             h.u64(u64::from(*n));
         }
     }
+
+    /// The chunks held, wanted or in flight, for tests.
+    #[cfg(test)]
+    pub(super) fn held(&self) -> usize {
+        self.interest.len()
+    }
+
+    /// Whether no chunk is held, wanted, in flight or unsaved (for leak tests).
+    #[cfg(test)]
+    pub(super) fn is_idle(&self) -> bool {
+        self.requested.is_empty()
+            && self.unsaved.is_empty()
+            && self.batch.is_empty()
+            && self.loads.is_empty()
+            && self.unloading.is_empty()
+            && self.kept.is_empty()
+            && self.sent.is_empty()
+            && self.tickets.is_empty()
+            && self.by_chunk.is_empty()
+            && self.waiting.is_empty()
+            && self.stale.is_empty()
+    }
+
+    /// The chunk positions some view has ([`Self::viewers`]), for leak tests.
+    #[cfg(test)]
+    pub(super) fn viewed(&self) -> usize {
+        self.viewers.len()
+    }
+
+    /// Whether [`Self::viewers`] holds exactly the chunks each view of `players` has (tests).
+    #[cfg(test)]
+    pub(super) fn viewers_match(&self, players: &BTreeMap<SessionId, Player>) -> bool {
+        let mut viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>> = BTreeMap::new();
+        for (&session, player) in players {
+            for &pos in &player.view.sent {
+                viewers.entry(pos).or_default().insert(session);
+            }
+        }
+        viewers == self.viewers
+    }
+
+    /// The sessions whose view has chunk `pos`, in whatever world they are, in session order.
+    pub(super) fn viewers_of(&self, pos: ChunkPos) -> impl Iterator<Item = SessionId> + Clone + '_ {
+        self.viewers.get(&pos).into_iter().flatten().copied()
+    }
+
+    /// Notes the chunks every view of `players` has ([`Self::viewers`]), after a restore.
+    pub(super) fn index_views(&mut self, players: &BTreeMap<SessionId, Player>) {
+        for (&session, player) in players {
+            for &pos in &player.view.sent {
+                self.see(session, pos);
+            }
+        }
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote into the chunks of a new state (which keeps the
+    /// events it heard and its view order); `ground` gives what the server file or the generator
+    /// has.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut super::checkpoint::Reader<'_>,
+        ground: &mut super::checkpoint::Ground,
+    ) -> super::checkpoint::Result<()> {
+        use super::checkpoint::{Codec, Error};
+        let interest = Codec::decode(r)?;
+        let requested = Codec::decode(r)?;
+        let n = r.len()?;
+        let mut unsaved = BTreeMap::new();
+        for _ in 0..n {
+            let key = Key::decode(r)?;
+            let chunk = ground.chunks.remove(&key).ok_or(Error::Format(
+                "unsaved terrain the checkpoint does not keep",
+            ))?;
+            let restored = Unsaved::restore(r, chunk, ground.extras.remove(&key))?;
+            if unsaved.insert(key, restored).is_some() {
+                return Err(Error::Format("repeated unsaved chunk"));
+            }
+        }
+        *self = Self {
+            interest,
+            requested,
+            unsaved,
+            batch: Vec::new(),
+            extras: Extras::restore(r, &mut ground.extras)?,
+            spawns: Codec::decode(r)?,
+            heard: self.heard,
+            loads: Codec::decode(r)?,
+            unloading: Codec::decode(r)?,
+            kept: Codec::decode(r)?,
+            sent: Vec::new(),
+            tickets: Codec::decode(r)?,
+            next_ticket: Codec::decode(r)?,
+            by_chunk: BTreeSet::new(),
+            // Filled from the players' views once they are back ([`Self::index_views`]).
+            viewers: BTreeMap::new(),
+            waiting: Codec::decode(r)?,
+            stale: Codec::decode(r)?,
+            // Moved over rather than built again.
+            disc: Disc {
+                offsets: std::mem::take(&mut self.disc.offsets),
+                ranks: std::mem::take(&mut self.disc.ranks),
+            },
+        };
+        for (&n, ticket) in &self.tickets {
+            self.by_chunk
+                .extend(ticket.area().map(|pos| ((ticket.world, pos), n)));
+        }
+        Ok(())
+    }
+
+    /// The chunks with loads in flight: those asked for and those of unloaded worlds (a chunk of
+    /// an unloaded world counts once, however many of its loads are in flight: only unloading the
+    /// same world again before an answer repeats one, and the save thread's bounded queues bound
+    /// those).
+    fn in_flight(&self) -> usize {
+        self.requested.len().saturating_add(self.stale.len())
+    }
+
+    /// Notes that the view of `session` has chunk `pos` now.
+    fn see(&mut self, session: SessionId, pos: ChunkPos) {
+        self.viewers.entry(pos).or_default().insert(session);
+    }
+
+    /// Notes that the view of `session` lost chunk `pos`.
+    fn unsee(&mut self, session: SessionId, pos: ChunkPos) {
+        if let Some(sessions) = self.viewers.get_mut(&pos) {
+            sessions.remove(&session);
+            if sessions.is_empty() {
+                self.viewers.remove(&pos);
+            }
+        }
+    }
 }
 
 /// The chunks a ticket holds: the square of `radius` chunks around `center` in `world`.
@@ -904,44 +904,22 @@ struct Heard {
 }
 
 impl Context<'_> {
-    /// Shows `block` at `pos` to `player` instead of the block of its world there, until the
-    /// fake block is cleared or the player changes world or leaves. The client is told at the
-    /// end of the tick, again whenever it is sent the sub-chunk again, and is not told of the
-    /// world's changes there while the fake block stands. A menu's container blocks show over
-    /// it while the menu is open.
-    ///
-    /// Only the client sees it: the server keeps playing by the world's block, so the player
-    /// collides with, breaks and uses the real one, and a refused interaction there may show the
-    /// real block again.
-    ///
-    /// Fails, changing nothing, if the player is not in the game, `pos` is outside the world
-    /// height, the player has 4,096 fake blocks, or 4,096 fake block changes wait to be sent to
-    /// it this tick.
-    #[doc(alias = "World::createBlockUpdatePackets")]
-    pub fn send_fake_block(
-        &mut self,
-        player: player::Id,
-        pos: BlockPos,
-        block: block::State,
-    ) -> MenuResult<()> {
-        if !World::is_in_world(pos) {
-            return Err(MenuError::OutsideWorld);
-        }
-        let view = &mut self.player_mut(player).ok_or(MenuError::Offline)?.view;
-        let key = fake_key(pos);
-        let had = view.fakes.get(&key).copied();
-        if had == Some(block) {
-            return Ok(());
-        }
-        if had.is_none() && view.fakes.len() >= MAX_FAKE_BLOCKS {
-            return Err(MenuError::Full);
-        }
-        if !view.out.shown.contains(&pos) && !view.has_room_to_show(1) {
-            return Err(MenuError::Busy);
-        }
-        view.fakes.insert(key, block);
-        view.out.shown.insert(pos);
-        Ok(())
+    /// The tickets that hold chunk `chunk` of `world`, in the order they were given. Players' views and the 3 × 3 spawn chunks hold chunks too
+    /// without a ticket, so a chunk with none may still be in use;
+    /// [`World::is_chunk_loaded`] tells whether it is loaded.
+    #[doc(alias = "World::getChunkLoaders")]
+    #[doc(alias = "World::isChunkInUse")]
+    pub fn chunk_tickets(
+        &self,
+        world: crate::world::Id,
+        chunk: ChunkPos,
+    ) -> impl Iterator<Item = crate::world::Ticket> + '_ {
+        let key = (world.index(), chunk);
+        self.state
+            .chunks
+            .by_chunk
+            .range((key, 0)..=(key, u64::MAX))
+            .map(|&(_, n)| crate::world::Ticket::new(n))
     }
 
     /// The fake block `player` is shown at `pos` ([`send_fake_block`](Self::send_fake_block)),
@@ -993,11 +971,16 @@ impl Context<'_> {
     /// each has, but for a damaged chunk, which is quarantined instead
     /// ([`World::is_quarantined`]). A world that unloads drops its tickets.
     ///
-    /// Fails, holding nothing, with [`world::Error::WorldNotLoaded`](crate::world::Error) for a
-    /// world that is not loaded, [`OutOfRange`](crate::world::Error::OutOfRange) for a center
-    /// outside the world border, and [`Full`](crate::world::Error::Full) for a radius over
-    /// [`MAX_TICKET_RADIUS`], past [`MAX_TICKETS`] tickets, or past [`MAX_TICKET_CHUNKS`] chunks
-    /// the tickets hold together.
+    /// # Errors
+    ///
+    /// Nothing is held:
+    /// [`world::Error::WorldNotLoaded`](crate::world::Error::WorldNotLoaded) for a world that is
+    /// not loaded.
+    /// [`world::Error::OutOfRange`](crate::world::Error::OutOfRange) for a center outside the
+    /// world border.
+    /// [`world::Error::Full`](crate::world::Error::Full) for a radius over [`MAX_TICKET_RADIUS`],
+    /// past [`MAX_TICKETS`] tickets, or past [`MAX_TICKET_CHUNKS`] chunks the tickets hold
+    /// together.
     #[doc(alias = "World::registerChunkLoader")]
     #[doc(alias = "World::loadChunk")]
     #[doc(alias = "World::requestChunkPopulation")]
@@ -1055,22 +1038,50 @@ impl Context<'_> {
         release_ticket(&mut self.state.chunks, ticket.get())
     }
 
-    /// The tickets that hold chunk `chunk` of `world`, in the order they were given. Players' views and the 3 × 3 spawn chunks hold chunks too
-    /// without a ticket, so a chunk with none may still be in use;
-    /// [`World::is_chunk_loaded`] tells whether it is loaded.
-    #[doc(alias = "World::getChunkLoaders")]
-    #[doc(alias = "World::isChunkInUse")]
-    pub fn chunk_tickets(
-        &self,
-        world: crate::world::Id,
-        chunk: ChunkPos,
-    ) -> impl Iterator<Item = crate::world::Ticket> + '_ {
-        let key = (world.index(), chunk);
-        self.state
-            .chunks
-            .by_chunk
-            .range((key, 0)..=(key, u64::MAX))
-            .map(|&(_, n)| crate::world::Ticket::new(n))
+    /// Shows `block` at `pos` to `player` instead of the block of its world there, until the
+    /// fake block is cleared or the player changes world or leaves. The client is told at the
+    /// end of the tick, again whenever it is sent the sub-chunk again, and is not told of the
+    /// world's changes there while the fake block stands. A menu's container blocks show over
+    /// it while the menu is open.
+    ///
+    /// Only the client sees it: the server keeps playing by the world's block, so the player
+    /// collides with, breaks and uses the real one, and a refused interaction there may show the
+    /// real block again.
+    ///
+    /// # Errors
+    ///
+    /// Nothing is changed:
+    /// [`menu::Error::Offline`](crate::menu::Error::Offline) if the player is not in the game.
+    /// [`menu::Error::OutsideWorld`](crate::menu::Error::OutsideWorld) if `pos` is outside the
+    /// world height.
+    /// [`menu::Error::Full`](crate::menu::Error::Full) if the player has 4,096 fake blocks.
+    /// [`menu::Error::Busy`](crate::menu::Error::Busy) if 4,096 fake block changes wait to be sent
+    /// to it this tick.
+    #[doc(alias = "World::createBlockUpdatePackets")]
+    pub fn send_fake_block(
+        &mut self,
+        player: player::Id,
+        pos: BlockPos,
+        block: block::State,
+    ) -> MenuResult<()> {
+        if !World::is_in_world(pos) {
+            return Err(MenuError::OutsideWorld);
+        }
+        let view = &mut self.player_mut(player).ok_or(MenuError::Offline)?.view;
+        let key = fake_key(pos);
+        let had = view.fakes.get(&key).copied();
+        if had == Some(block) {
+            return Ok(());
+        }
+        if had.is_none() && view.fakes.len() >= MAX_FAKE_BLOCKS {
+            return Err(MenuError::Full);
+        }
+        if !view.out.shown.contains(&pos) && !view.has_room_to_show(1) {
+            return Err(MenuError::Busy);
+        }
+        view.fakes.insert(key, block);
+        view.out.shown.insert(pos);
+        Ok(())
     }
 }
 
@@ -1119,8 +1130,9 @@ pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(Bl
 
 /// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, its
 /// terrain and extras with their dirty marks, so a load never reads a file older than the tick's
-/// data. The rules read such a chunk's extras again on the tick, which the chunks waiting for a
-/// commit (`MAX_UNSAVED_CHUNKS`) bound.
+/// data. The rules read such a chunk's extras again on the tick, and the world lights it again
+/// within its per-tick light budget; the chunks waiting for a commit (`MAX_UNSAVED_CHUNKS`) bound
+/// both.
 fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) {
     let count = chunks.interest.entry(key).or_insert(0);
     *count = count.saturating_add(1);
@@ -2465,7 +2477,8 @@ mod tests {
             .count();
         assert_eq!(again, 0);
         let view = &state.players[&session].view;
-        assert!(view.radius() == 6 && view.is_complete());
+        assert_eq!(view.radius(), 6);
+        assert!(view.is_complete());
     }
 
     fn log(line: String) {

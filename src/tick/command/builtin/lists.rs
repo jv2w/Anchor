@@ -139,7 +139,7 @@ fn list_error(e: permission::Error) -> Error {
 fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = args.string("name").unwrap_or_default();
     let reason = args.string("reason").unwrap_or_default();
-    let online = cx.player_exact(name);
+    let online = cx.player_by_name(name);
     has_room(cx, usize::from(online.is_some()))?;
     let source = name_of(cx, *sender);
     cx.ban(BanEntry::new(name).with_reason(reason).with_source(&source))
@@ -162,7 +162,7 @@ fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     let (ip, owner) = if let Some(ip) = parse_ip(value) {
         (ip, None)
     } else {
-        let address = cx.player_exact(value).and_then(|id| {
+        let address = cx.player_by_name(value).and_then(|id| {
             let p = cx.state.players.get(&id.session())?;
             Some((p.identity.address?, p.identity.name.clone()))
         });
@@ -266,7 +266,7 @@ fn listed_name<'a>(cx: &Context<'_>, args: &'a Args, command: &str) -> Result<&'
 fn op(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = listed_name(cx, args, "op")?;
     cx.op(name).map_err(list_error)?;
-    if let Some(id) = cx.player_exact(name) {
+    if let Some(id) = cx.player_by_name(name) {
         tell(cx, id, OP_MESSAGE.chat(OP_CHANGE_PREFIX, &[]));
     }
     Ok(announce(cx, *sender, OP_SUCCESS, &[name]))
@@ -276,7 +276,7 @@ fn op(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = listed_name(cx, args, "deop")?;
     cx.deop(name);
-    if let Some(id) = cx.player_exact(name) {
+    if let Some(id) = cx.player_by_name(name) {
         tell(cx, id, DEOP_MESSAGE.chat(OP_CHANGE_PREFIX, &[]));
     }
     Ok(announce(cx, *sender, DEOP_SUCCESS, &[name]))
@@ -337,7 +337,7 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
             has_room(cx, 1)?;
             cx.remove_from_whitelist(name);
             if !cx.is_whitelisted(name)
-                && let Some(id) = cx.player_exact(name)
+                && let Some(id) = cx.player_by_name(name)
             {
                 kick(cx, id, &Refusal::NotWhitelisted.to_message())?;
             }

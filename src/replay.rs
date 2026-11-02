@@ -58,6 +58,11 @@ impl Replay {
         self.base_tick
     }
 
+    /// How it ended.
+    pub fn end(&self) -> &End {
+        &self.end
+    }
+
     /// The last tick it applied (the one that panicked, for [`End::Panicked`]); `None` if it
     /// applied none.
     pub fn last_tick(&self) -> Option<u64> {
@@ -67,11 +72,6 @@ impl Replay {
     /// How many ticks it applied, the one that panicked included.
     pub fn ticks(&self) -> u64 {
         self.ticks
-    }
-
-    /// How it ended.
-    pub fn end(&self) -> &End {
-        &self.end
     }
 }
 
@@ -196,6 +196,21 @@ struct Replayer {
 }
 
 impl Replayer {
+    /// Checks that the replay started `segment` too, at its tick and with its state.
+    fn compare(&self, segment: &Segment) -> Result<()> {
+        let tick = segment.start();
+        let own = self.own.last_segment();
+        if own.start() != tick {
+            return Err(Error::Diverged { tick });
+        }
+        match (segment.checkpoint(), own.taken()) {
+            (Some(logged), Some(replayed)) if logged != replayed.to_bytes().as_slice() => {
+                Err(Error::Diverged { tick })
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Applies the ticks of `log` from segment `from` on; shuts the pool down at the end.
     fn run(mut self, log: &InputLog, from: usize) -> Result<(Option<u64>, u64, End)> {
         let result = self.ticks(log, from);
@@ -251,21 +266,6 @@ impl Replayer {
             }
         }
         Ok(End::Completed)
-    }
-
-    /// Checks that the replay started `segment` too, at its tick and with its state.
-    fn compare(&self, segment: &Segment) -> Result<()> {
-        let tick = segment.start();
-        let own = self.own.last_segment();
-        if own.start() != tick {
-            return Err(Error::Diverged { tick });
-        }
-        match (segment.checkpoint(), own.taken()) {
-            (Some(logged), Some(replayed)) if logged != replayed.to_bytes().as_slice() => {
-                Err(Error::Diverged { tick })
-            }
-            _ => Ok(()),
-        }
     }
 
     /// The logged inputs of tick `t` as the sessions gave them; a join gets a new outbound queue.

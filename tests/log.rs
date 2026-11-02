@@ -180,7 +180,7 @@ fn the_console_log_writes_start_listening_world_and_stop_lines_at_its_level() {
     let version = format!(
         "server starting (version={} minecraft={} protocol=",
         anchor::Context::ANCHOR_VERSION,
-        anchor::Context::VERSION
+        anchor::Context::GAME_VERSION
     );
     for wanted in [
         version.as_str(),

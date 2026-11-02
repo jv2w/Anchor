@@ -45,8 +45,12 @@ pub enum Error {
     /// holds is damaged. A start refuses such a file, an export that reads one fails with this,
     /// and a running server whose save keeps failing on a corrupted file stops with it. The file
     /// is left exactly as it was; a backup from its folder in `data/backups/` can replace it.
+    /// The error does not name the file; the error log line written where the file is refused
+    /// does (field `path`).
     WorldDamaged(Box<dyn std::error::Error + Send + Sync>),
-    /// A data file was last saved by a newer Anchor; the file is left as it was.
+    /// A data file was last saved by a newer Anchor; the file is left as it was. The error does
+    /// not name the file; the error log line written where the file is refused does (field
+    /// `path`).
     WorldNewerFormat {
         /// The file's format version.
         version: u16,
@@ -54,7 +58,8 @@ pub enum Error {
         supported: u16,
     },
     /// A data file could not be opened, read or saved: another process has it open, I/O failed,
-    /// a save still failed after its retries, or the save thread panicked.
+    /// a save still failed after its retries, or the save thread panicked. The error does not
+    /// name the file; the data file's own log lines do (field `path`).
     Storage(Box<dyn std::error::Error + Send + Sync>),
     /// Two worlds have the same name, or names that differ only in letter case. The default world
     /// (`level-name`) is one of the worlds, so [`ServerBuilder::world`](crate::ServerBuilder::world)

@@ -126,6 +126,14 @@ impl Names {
         }
     }
 
+    /// The block kind named `name` (with or without `minecraft:`).
+    pub(crate) fn block(name: &str) -> Option<block::Kind> {
+        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
+        let kinds = block::Kind::all();
+        let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
+        kinds.get(i).copied()
+    }
+
     /// The effect named `name`.
     pub(crate) fn effect(&self, name: &str) -> Option<effect::Type> {
         let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
@@ -168,22 +176,17 @@ impl Names {
         self.items.binary_search(&name).ok()?;
         item::Type::find(name)
     }
-
-    /// The block kind named `name` (with or without `minecraft:`).
-    pub(crate) fn block(name: &str) -> Option<block::Kind> {
-        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
-        let kinds = block::Kind::all();
-        let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
-        kinds.get(i).copied()
-    }
 }
 
 /// Splits `line` into words as commands are split:
 /// whitespace separates words; a word that starts with `"` ends at the next `"` not escaped, and
-/// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is. Fails
-/// with [`Error::UnclosedQuote`] for an unclosed quote and
-/// with [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
+/// inside it `\"` and `\\` stand for `"` and `\`; a quote inside a word is kept as it is.
 /// A line within the bounds has at most 256 words.
+///
+/// # Errors
+///
+/// [`Error::UnclosedQuote`] for an unclosed quote.
+/// [`Error::TooLong`] for a line over 2,048 bytes or 512 characters, which no command runs.
 pub fn split(line: &str) -> Result<Vec<Word<'_>>> {
     check_length(line)?;
     let mut words = Vec::new();

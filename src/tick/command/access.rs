@@ -67,50 +67,10 @@ impl Access {
         access
     }
 
-    /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is
-    /// on it or an operator.
-    pub(super) fn can_join(&self, name: &str) -> bool {
-        !self.whitelist_enabled || self.is_op(name) || self.is_listed(name)
-    }
-
-    /// Whether `name` (any ASCII case) is an operator. Asked for every permission check, so it
-    /// does not allocate ([`folded`]).
-    pub(super) fn is_op(&self, name: &str) -> bool {
-        folded(name, |n| self.ops.contains(n)).unwrap_or(false)
-    }
-
-    /// Whether `name` (any ASCII case) is on the whitelist.
-    pub(super) fn is_listed(&self, name: &str) -> bool {
-        folded(name, |n| self.whitelist.contains(n)).unwrap_or(false)
-    }
-
-    /// The operators, ASCII lowercase, in name order.
-    pub(super) fn ops(&self) -> impl Iterator<Item = &str> {
-        self.ops.iter().map(String::as_str)
-    }
-
-    /// The whitelisted names, ASCII lowercase, in name order.
-    pub(super) fn whitelisted(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.whitelist.iter().map(String::as_str)
-    }
-
-    /// Whether the whitelist is on.
-    pub(super) fn is_whitelist_enabled(&self) -> bool {
-        self.whitelist_enabled
-    }
-
     /// The ban of `name` (any ASCII case) in force at `tick`.
     pub(super) fn ban_entry(&self, name: &str, tick: u64) -> Option<&BanEntry> {
         folded(name, |n| self.bans.get(n))
             .flatten()
-            .filter(|e| !e.has_expired(tick))
-    }
-
-    /// The ban of `ip` in force at `tick`; an IPv4 address written as IPv6 is the IPv4 address,
-    /// the form [`BanEntry::ip`] keeps.
-    pub(super) fn ip_ban_entry(&self, ip: IpAddr, tick: u64) -> Option<&BanEntry> {
-        self.ip_bans
-            .get(&ip.to_canonical())
             .filter(|e| !e.has_expired(tick))
     }
 
@@ -119,9 +79,10 @@ impl Access {
         self.bans.values().filter(move |e| !e.has_expired(tick))
     }
 
-    /// The IP bans in force at `tick`, in address order.
-    pub(super) fn ip_bans(&self, tick: u64) -> impl Iterator<Item = &BanEntry> {
-        self.ip_bans.values().filter(move |e| !e.has_expired(tick))
+    /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is
+    /// on it or an operator.
+    pub(super) fn can_join(&self, name: &str) -> bool {
+        !self.whitelist_enabled || self.is_op(name) || self.is_listed(name)
     }
 
     /// Hashes every field but the end indexes, which the bans give (state hash).
@@ -177,29 +138,43 @@ impl Access {
         }
     }
 
-    /// Makes `name` an operator; true if it was not one.
-    pub(super) fn op(&mut self, name: &str) -> permission::Result<bool> {
-        self.add_name(AccessKind::Op, name)
+    /// The ban of `ip` in force at `tick`; an IPv4 address written as IPv6 is the IPv4 address,
+    /// the form [`BanEntry::ip`] keeps.
+    pub(super) fn ip_ban_entry(&self, ip: IpAddr, tick: u64) -> Option<&BanEntry> {
+        self.ip_bans
+            .get(&ip.to_canonical())
+            .filter(|e| !e.has_expired(tick))
     }
 
-    /// Takes operator status from `name`; true if it had it.
-    pub(super) fn deop(&mut self, name: &str) -> bool {
-        self.remove_name(AccessKind::Op, name)
+    /// The IP bans in force at `tick`, in address order.
+    pub(super) fn ip_bans(&self, tick: u64) -> impl Iterator<Item = &BanEntry> {
+        self.ip_bans.values().filter(move |e| !e.has_expired(tick))
     }
 
-    /// Whitelists `name`; true if it was not listed.
-    pub(super) fn whitelist_add(&mut self, name: &str) -> permission::Result<bool> {
-        self.add_name(AccessKind::Whitelist, name)
+    /// Whether `name` (any ASCII case) is on the whitelist.
+    pub(super) fn is_listed(&self, name: &str) -> bool {
+        folded(name, |n| self.whitelist.contains(n)).unwrap_or(false)
     }
 
-    /// Removes `name` from the whitelist; true if it was listed.
-    pub(super) fn whitelist_remove(&mut self, name: &str) -> bool {
-        self.remove_name(AccessKind::Whitelist, name)
+    /// Whether `name` (any ASCII case) is an operator. Asked for every permission check, so it
+    /// does not allocate ([`folded`]).
+    pub(super) fn is_op(&self, name: &str) -> bool {
+        folded(name, |n| self.ops.contains(n)).unwrap_or(false)
     }
 
-    /// Turns the whitelist on or off.
-    pub(super) fn set_whitelist_enabled(&mut self, enabled: bool) {
-        self.whitelist_enabled = enabled;
+    /// Whether the whitelist is on.
+    pub(super) fn is_whitelist_enabled(&self) -> bool {
+        self.whitelist_enabled
+    }
+
+    /// The operators, ASCII lowercase, in name order.
+    pub(super) fn ops(&self) -> impl Iterator<Item = &str> {
+        self.ops.iter().map(String::as_str)
+    }
+
+    /// The whitelisted names, ASCII lowercase, in name order.
+    pub(super) fn whitelisted(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.whitelist.iter().map(String::as_str)
     }
 
     /// Adds or replaces a ban made at engine tick `tick`, after dropping the bans of its list
@@ -247,6 +222,27 @@ impl Access {
         Ok(())
     }
 
+    /// Takes operator status from `name`; true if it had it.
+    pub(super) fn deop(&mut self, name: &str) -> bool {
+        self.remove_name(AccessKind::Op, name)
+    }
+
+    /// Makes `name` an operator; true if it was not one.
+    pub(super) fn op(&mut self, name: &str) -> permission::Result<bool> {
+        self.add_name(AccessKind::Op, name)
+    }
+
+    /// Turns the whitelist on or off.
+    pub(super) fn set_whitelist_enabled(&mut self, enabled: bool) {
+        self.whitelist_enabled = enabled;
+    }
+
+    /// Takes the changes since the last snapshot, each entry once with its last value, in key
+    /// order.
+    pub(super) fn take_changes(&mut self) -> Vec<(AccessKey, AccessWrite)> {
+        std::mem::take(&mut self.changes).into_iter().collect()
+    }
+
     /// Lifts the ban of `name`; true if there was one, ended or not.
     pub(super) fn unban(&mut self, name: &str) -> bool {
         let name = name.to_ascii_lowercase();
@@ -274,10 +270,14 @@ impl Access {
         true
     }
 
-    /// Takes the changes since the last snapshot, each entry once with its last value, in key
-    /// order.
-    pub(super) fn take_changes(&mut self) -> Vec<(AccessKey, AccessWrite)> {
-        std::mem::take(&mut self.changes).into_iter().collect()
+    /// Whitelists `name`; true if it was not listed.
+    pub(super) fn whitelist_add(&mut self, name: &str) -> permission::Result<bool> {
+        self.add_name(AccessKind::Whitelist, name)
+    }
+
+    /// Removes `name` from the whitelist; true if it was listed.
+    pub(super) fn whitelist_remove(&mut self, name: &str) -> bool {
+        self.remove_name(AccessKind::Whitelist, name)
     }
 
     /// Records `write` as the last write of the entry `name` of `kind`.

@@ -1189,7 +1189,7 @@ mod tests {
             crate::event::Priority::Normal,
             |e: &mut PlayerToggleFlight, cx: &mut crate::tick::Context<'_>| {
                 if let Some(p) = cx.player_mut(e.player()) {
-                    p.set_allow_flight(false);
+                    p.set_can_fly(false);
                 }
             },
         );
@@ -1199,7 +1199,7 @@ mod tests {
         let (mut state, _output, _rx) = walker(l);
         let session = SessionId::new(1);
         let player = state.players.get_mut(&session).unwrap();
-        player.set_allow_flight(true);
+        player.set_can_fly(true);
         let flags = [InputFlag::StartFlying].into_iter().collect();
         input_flags(&mut state, session, flags, 0);
         assert!(!state.players[&session].survival.motion.flying);

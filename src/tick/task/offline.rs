@@ -267,10 +267,16 @@ impl Context<'_> {
     /// reading the file.
     ///
     /// `done` gets [`Error::Online`] if the player joined meanwhile, [`Error::NotSaved`] if no data
-    /// is saved for it, and [`Error::Damaged`] if its data is damaged (it stays as saved). Fails,
-    /// asking nothing, with [`Error::Disabled`] when `save-player-data` is false, [`Error::Online`]
-    /// for a player online or joining, [`Error::NotSaved`] for a name no player can have, and
+    /// is saved for it, and [`Error::Damaged`] if its data is damaged (it stays as saved).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Disabled`] when `save-player-data` is false.
+    /// [`Error::Online`] for a player online or joining.
+    /// [`Error::NotSaved`] for a name no player can have.
     /// [`Error::Full`] past 64 tickets held or asked for.
+    ///
+    /// None of them asks the save thread.
     #[doc(alias = "Server::getOfflinePlayerData")]
     pub fn hold_offline_player<D>(&mut self, xuid: Option<u64>, name: &str, done: D) -> Result<()>
     where

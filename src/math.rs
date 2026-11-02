@@ -83,14 +83,19 @@ impl Vec3 {
     /// (0, 0, 0).
     pub const ZERO: Self = Self::new(0.0, 0.0, 0.0);
 
+    /// The vector of a packet's `f32` components.
+    pub fn from_f32(v: [f32; 3]) -> Self {
+        Self::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2]))
+    }
+
     /// The vector (x, y, z).
     pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
 
-    /// The vector of a packet's `f32` components.
-    pub fn from_f32(v: [f32; 3]) -> Self {
-        Self::new(f64::from(v[0]), f64::from(v[1]), f64::from(v[2]))
+    /// The squared distance to `other`.
+    pub fn distance_squared(self, other: Self) -> f64 {
+        (self - other).length_squared()
     }
 
     /// Whether every component is finite (tick state never holds NaN or infinity).
@@ -98,9 +103,9 @@ impl Vec3 {
         self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
     }
 
-    /// The dot product.
-    pub fn dot(self, other: Self) -> f64 {
-        self.x * other.x + self.y * other.y + self.z * other.z
+    /// The length.
+    pub fn length(self) -> f64 {
+        self.length_squared().sqrt()
     }
 
     /// The squared length.
@@ -108,14 +113,9 @@ impl Vec3 {
         self.dot(self)
     }
 
-    /// The length.
-    pub fn length(self) -> f64 {
-        self.length_squared().sqrt()
-    }
-
-    /// The squared distance to `other`.
-    pub fn distance_squared(self, other: Self) -> f64 {
-        (self - other).length_squared()
+    /// The dot product.
+    pub fn dot(self, other: Self) -> f64 {
+        self.x * other.x + self.y * other.y + self.z * other.z
     }
 
     /// Each component rounded down.
@@ -207,58 +207,6 @@ impl Aabb {
         }
     }
 
-    /// The box moved by `by`.
-    #[must_use]
-    pub fn offset(self, by: Vec3) -> Self {
-        Self {
-            min: self.min + by,
-            max: self.max + by,
-        }
-    }
-
-    /// The box grown by `by` on each side (shrunk for negative components).
-    #[must_use]
-    pub fn grow(self, by: Vec3) -> Self {
-        Self {
-            min: self.min - by,
-            max: self.max + by,
-        }
-    }
-
-    /// Whether the two boxes overlap with a positive volume (touching faces do not count).
-    pub fn intersects(self, o: Self) -> bool {
-        self.overlaps(o, 0.0)
-    }
-
-    /// Whether the boxes overlap by more than `epsilon` on every axis.
-    pub fn overlaps(self, o: Self, epsilon: f64) -> bool {
-        o.max.x - self.min.x > epsilon
-            && self.max.x - o.min.x > epsilon
-            && o.max.y - self.min.y > epsilon
-            && self.max.y - o.min.y > epsilon
-            && o.max.z - self.min.z > epsilon
-            && self.max.z - o.min.z > epsilon
-    }
-
-    /// The box stretched toward `by`: the side each component points to moves by it, so the
-    /// result covers every place the box passes moving by `by`.
-    #[must_use]
-    pub fn stretch(self, by: Vec3) -> Self {
-        let (mut min, mut max) = (self.min, self.max);
-        for (lo, hi, d) in [
-            (&mut min.x, &mut max.x, by.x),
-            (&mut min.y, &mut max.y, by.y),
-            (&mut min.z, &mut max.z, by.z),
-        ] {
-            if d < 0.0 {
-                *lo += d;
-            } else if d > 0.0 {
-                *hi += d;
-            }
-        }
-        Self { min, max }
-    }
-
     /// How far `moving` may go along x, up to `dx`, before it hits this box: `dx` itself when
     /// they do not share the y and z ranges or this box is not ahead.
     pub fn clip_x(self, moving: Self, dx: f64) -> f64 {
@@ -294,6 +242,58 @@ impl Aabb {
             return dz;
         }
         clip(self.min.z, self.max.z, moving.min.z, moving.max.z, dz)
+    }
+
+    /// The box grown by `by` on each side (shrunk for negative components).
+    #[must_use]
+    pub fn grow(self, by: Vec3) -> Self {
+        Self {
+            min: self.min - by,
+            max: self.max + by,
+        }
+    }
+
+    /// Whether the two boxes overlap with a positive volume (touching faces do not count).
+    pub fn intersects(self, o: Self) -> bool {
+        self.overlaps(o, 0.0)
+    }
+
+    /// The box moved by `by`.
+    #[must_use]
+    pub fn offset(self, by: Vec3) -> Self {
+        Self {
+            min: self.min + by,
+            max: self.max + by,
+        }
+    }
+
+    /// Whether the boxes overlap by more than `epsilon` on every axis.
+    pub fn overlaps(self, o: Self, epsilon: f64) -> bool {
+        o.max.x - self.min.x > epsilon
+            && self.max.x - o.min.x > epsilon
+            && o.max.y - self.min.y > epsilon
+            && self.max.y - o.min.y > epsilon
+            && o.max.z - self.min.z > epsilon
+            && self.max.z - o.min.z > epsilon
+    }
+
+    /// The box stretched toward `by`: the side each component points to moves by it, so the
+    /// result covers every place the box passes moving by `by`.
+    #[must_use]
+    pub fn stretch(self, by: Vec3) -> Self {
+        let (mut min, mut max) = (self.min, self.max);
+        for (lo, hi, d) in [
+            (&mut min.x, &mut max.x, by.x),
+            (&mut min.y, &mut max.y, by.y),
+            (&mut min.z, &mut max.z, by.z),
+        ] {
+            if d < 0.0 {
+                *lo += d;
+            } else if d > 0.0 {
+                *hi += d;
+            }
+        }
+        Self { min, max }
     }
 }
 

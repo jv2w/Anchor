@@ -22,28 +22,28 @@ pub(super) use decor::Plant;
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::ops::Bound;
 
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use super::view::Key;
 use super::{SessionId, State, checkpoint, dispatch, entity, interact, inventory, survival};
 use crate::block::{self, Class, Face, Facing, PropertyValue};
+use crate::block_entity::DyeColour;
 use crate::custom::Registry;
 use crate::event::ChestPair;
 use crate::inventory::CHEST_SLOTS;
 use crate::item::{self, Stack};
-use crate::math::{Vec3, to_f32};
+use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
 use crate::save::WorldIndex;
 use crate::storage::codec::{MAX_RAW_BLOCK_ENTITIES, MAX_SPILLS};
-use crate::tile::DyeColour;
 use crate::world::{BlockPos, ChunkPos};
 
-/// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
-pub(crate) const SPILL_ID: &str = "AnchorSpill";
 /// The most spilled stacks dropped per tick, over every world.
 const SPILL_DROPS_PER_TICK: usize = 64;
+/// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
+pub(crate) const SPILL_ID: &str = "AnchorSpill";
 /// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
 const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
 
@@ -63,32 +63,15 @@ pub(super) struct BlockEntities {
 }
 
 impl BlockEntities {
-    /// The block entity at `pos`.
-    pub(super) fn get(&self, world: WorldIndex, pos: BlockPos) -> Option<&BlockEntity> {
-        self.chunks.get(&(world, pos.chunk()))?.entities.get(&pos)
-    }
-
-    /// Whether the block entities of the chunk of `pos` are loaded.
-    fn is_loaded(&self, world: WorldIndex, pos: BlockPos) -> bool {
-        self.chunks.contains_key(&(world, pos.chunk()))
-    }
-
-    /// The block entities of the loaded chunks of `world`.
-    pub(super) fn count(&self, world: WorldIndex) -> usize {
-        let chunks =
-            (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
-        self.chunks
-            .range(chunks)
-            .map(|(_, c)| c.entities.len())
-            .sum()
-    }
-
-    /// The positions of the block entities of a loaded chunk, in order.
-    fn positions(&self, world: WorldIndex, pos: ChunkPos) -> impl Iterator<Item = BlockPos> + '_ {
-        self.chunks
-            .get(&(world, pos))
-            .into_iter()
-            .flat_map(|c| c.entities.keys().copied())
+    /// Every item the block entities and spills of the loaded chunks hold (for item counts).
+    #[cfg(test)]
+    pub(super) fn all_items(&self) -> impl Iterator<Item = &Stack> {
+        self.chunks.values().flat_map(|c| {
+            c.entities
+                .values()
+                .flat_map(|e| e.items.iter())
+                .chain(c.spills.iter().flat_map(|s| s.items.iter()))
+        })
     }
 
     /// What clients get of the block entities of a loaded chunk.
@@ -103,15 +86,73 @@ impl BlockEntities {
         })
     }
 
-    /// Every item the block entities and spills of the loaded chunks hold (for item counts).
+    /// The block entities of the loaded chunks of `world`.
+    pub(super) fn count(&self, world: WorldIndex) -> usize {
+        let chunks =
+            (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
+        self.chunks
+            .range(chunks)
+            .map(|(_, c)| c.entities.len())
+            .sum()
+    }
+
+    /// The block entity at `pos`.
+    pub(super) fn get(&self, world: WorldIndex, pos: BlockPos) -> Option<&BlockEntity> {
+        self.chunks.get(&(world, pos.chunk()))?.entities.get(&pos)
+    }
+
     #[cfg(test)]
-    pub(super) fn all_items(&self) -> impl Iterator<Item = &Stack> {
-        self.chunks.values().flat_map(|c| {
-            c.entities
-                .values()
-                .flat_map(|e| e.items.iter())
-                .chain(c.spills.iter().flat_map(|s| s.items.iter()))
-        })
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            chunks,
+            changed,
+            viewers,
+            // The chunks with spills, derived from `chunks`.
+            spilling: _,
+            // Empty between ticks, as the checkpoint leaves it out.
+            marked: _,
+        } = self;
+        h.usize(chunks.len());
+        for (&(world, pos), chunk) in chunks {
+            let Chunk {
+                entities,
+                spills,
+                raw,
+            } = chunk;
+            h.usize(world);
+            h.u64(u64::from(pos.x.cast_unsigned()) << 32 | u64::from(pos.z.cast_unsigned()));
+            h.usize(entities.len());
+            for (p, e) in entities {
+                h.block_pos(*p);
+                e.hash_into(h, *p);
+            }
+            h.usize(spills.len());
+            for s in spills {
+                h.block_pos(s.pos);
+                h.usize(s.items.len());
+                for i in &s.items {
+                    inventory::hash_stack(h, i);
+                }
+            }
+            h.usize(raw.len());
+            for r in raw {
+                super::extra::hash_nbt(h, r);
+            }
+        }
+        h.usize(changed.len());
+        for (world, pos) in changed {
+            h.usize(*world);
+            h.u64(u64::from(pos.x.cast_unsigned()) << 32 | u64::from(pos.z.cast_unsigned()));
+        }
+        h.usize(viewers.len());
+        for ((world, pos), list) in viewers {
+            h.usize(*world);
+            h.block_pos(*pos);
+            h.usize(list.len());
+            for s in list {
+                h.u64(s.get());
+            }
+        }
     }
 
     /// The number of loaded chunks, viewer entries and waiting spills (for leak tests).
@@ -127,208 +168,6 @@ impl BlockEntities {
             .get(&(world, pos))
             .map(Vec::as_slice)
             .unwrap_or_default()
-    }
-
-    /// The block entity at `pos` to change; its chunk is marked changed.
-    pub(super) fn get_mut(&mut self, world: WorldIndex, pos: BlockPos) -> Option<&mut BlockEntity> {
-        let key = (world, pos.chunk());
-        let entity = self.chunks.get_mut(&key)?.entities.get_mut(&pos)?;
-        self.changed.insert(key);
-        Some(entity)
-    }
-
-    /// Changes the block entity at `pos` with `f`; its chunk is marked changed when `f` gives
-    /// `Some` (`None`: `f` changed nothing).
-    fn update<T>(
-        &mut self,
-        world: WorldIndex,
-        pos: BlockPos,
-        f: impl FnOnce(&mut BlockEntity) -> Option<T>,
-    ) -> Option<T> {
-        let key = (world, pos.chunk());
-        let out = f(self.chunks.get_mut(&key)?.entities.get_mut(&pos)?)?;
-        self.changed.insert(key);
-        Some(out)
-    }
-
-    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its block entities
-    /// enter the store, and the chunk is saved again if reading removed any. A chest paired with
-    /// one that is not paired back is unpaired ([`Self::unpair_orphans`]).
-    pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
-        let Parsed { chunk, removed } = parsed;
-        if chunk.spills.is_empty() {
-            self.spilling.remove(&key);
-        } else {
-            self.spilling.insert(key);
-        }
-        self.chunks.insert(key, chunk);
-        if removed {
-            self.changed.insert(key);
-        } else {
-            self.changed.remove(&key);
-        }
-        self.unpair_orphans(key);
-    }
-
-    /// [`Parsed::read`] and [`Self::load`] in one, the blocks read from `world` (none when it
-    /// does not hold the chunk, so none is checked).
-    #[cfg(test)]
-    pub(super) fn load_list(
-        &mut self,
-        key: Key,
-        list: &[Compound],
-        world: &crate::world::World,
-        custom: &Registry,
-    ) {
-        let parsed = Parsed::read(key, list, |pos| world.block(pos), custom);
-        self.load(key, parsed.expect("the list is not damaged"));
-    }
-
-    /// A chunk leaves: drops its state; its list if it changed since [`Self::take_changed`].
-    pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
-        self.spilling.remove(&key);
-        let chunk = self.chunks.remove(&key)?;
-        self.changed.remove(&key).then(|| chunk.write())
-    }
-
-    /// The lists of the chunks that changed since the last call, for a save snapshot.
-    pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
-        let changed = std::mem::take(&mut self.changed);
-        changed
-            .into_iter()
-            .filter_map(|key| Some((key, self.chunks.get(&key)?.write())))
-            .collect()
-    }
-
-    /// Unpairs the chests of chunk `key` and of its four neighbours whose partner is in a loaded
-    /// chunk and does not pair back. A pair is a fact of two chests that point at each other; a
-    /// half whose partner was broken, replaced or unpaired while its own chunk was not loaded
-    /// (or was never a chest) would otherwise stay paired for ever and never pair again. A
-    /// partner in a chunk that is not loaded is left: the check runs again when that chunk loads.
-    fn unpair_orphans(&mut self, key: Key) {
-        let (world, chunk) = key;
-        let near = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]
-            .into_iter()
-            .filter_map(|(dx, dz)| {
-                Some((
-                    world,
-                    ChunkPos::new(chunk.x.checked_add(dx)?, chunk.z.checked_add(dz)?),
-                ))
-            });
-        let mut orphans = Vec::new();
-        for near_key in near {
-            let Some(near_chunk) = self.chunks.get(&near_key) else {
-                continue;
-            };
-            for (&at, e) in &near_chunk.entities {
-                if let Kind::Chest {
-                    pair: Some(partner),
-                } = e.kind
-                    && self.is_orphan(world, at, partner)
-                {
-                    orphans.push(at);
-                }
-            }
-        }
-        for at in orphans {
-            let chunk_key = (world, at.chunk());
-            if let Some(Kind::Chest { pair }) = self
-                .chunks
-                .get_mut(&chunk_key)
-                .and_then(|c| c.entities.get_mut(&at))
-                .map(|e| &mut e.kind)
-            {
-                *pair = None;
-            }
-            self.changed.insert(chunk_key);
-            self.marked.insert((world, at));
-        }
-    }
-
-    /// Whether the chest at `at`, paired with `partner`, has a partner that is loaded and does
-    /// not point back at it.
-    fn is_orphan(&self, world: WorldIndex, at: BlockPos, partner: BlockPos) -> bool {
-        self.is_loaded(world, partner)
-            && !matches!(
-                self.get(world, partner).map(|e| &e.kind),
-                Some(Kind::Chest { pair: Some(back) }) if *back == at
-            )
-    }
-
-    /// Puts a block entity at `pos` of a loaded chunk, where there is none.
-    fn insert(&mut self, world: WorldIndex, pos: BlockPos, entity: BlockEntity) {
-        let key = (world, pos.chunk());
-        let Some(chunk) = self.chunks.get_mut(&key) else {
-            return;
-        };
-        self.changed.insert(key);
-        chunk.entities.insert(pos, entity);
-    }
-
-    /// Removes the block entity at `pos`.
-    fn remove(&mut self, world: WorldIndex, pos: BlockPos) -> Option<BlockEntity> {
-        let key = (world, pos.chunk());
-        let entity = self.chunks.get_mut(&key)?.entities.remove(&pos)?;
-        self.changed.insert(key);
-        Some(entity)
-    }
-
-    /// `session` opened a window on the block at `pos`; returns the number of viewers.
-    pub(super) fn add_viewer(
-        &mut self,
-        world: WorldIndex,
-        pos: BlockPos,
-        session: SessionId,
-    ) -> usize {
-        let list = self.viewers.entry((world, pos)).or_default();
-        if !list.contains(&session) {
-            list.push(session);
-        }
-        list.len()
-    }
-
-    /// `session` closed its window on the block at `pos`; returns the number left.
-    pub(super) fn remove_viewer(
-        &mut self,
-        world: WorldIndex,
-        pos: BlockPos,
-        session: SessionId,
-    ) -> usize {
-        let Some(list) = self.viewers.get_mut(&(world, pos)) else {
-            return 0;
-        };
-        list.retain(|s| *s != session);
-        let left = list.len();
-        if left == 0 {
-            self.viewers.remove(&(world, pos));
-        }
-        left
-    }
-
-    /// Keeps items of a broken block to drop later, in the chunk of `pos`.
-    pub(super) fn spill(&mut self, world: WorldIndex, pos: BlockPos, items: Vec<Stack>) {
-        let key = (world, pos.chunk());
-        let Some(chunk) = self.chunks.get_mut(&key) else {
-            error!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                "container items lost: the chunk is gone"
-            );
-            return;
-        };
-        if chunk.spills.len() >= MAX_SPILLS {
-            error!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                "container items lost: too many spills waiting"
-            );
-            return;
-        }
-        chunk.spills.push(Spill { pos, items });
-        self.changed.insert(key);
-        self.spilling.insert(key);
     }
 
     /// Appends to `out` the client form of the block entities in sub-chunk `index` (0 is the
@@ -385,58 +224,219 @@ impl BlockEntities {
         }
     }
 
+    /// `session` opened a window on the block at `pos`; returns the number of viewers.
+    pub(super) fn add_viewer(
+        &mut self,
+        world: WorldIndex,
+        pos: BlockPos,
+        session: SessionId,
+    ) -> usize {
+        let list = self.viewers.entry((world, pos)).or_default();
+        if !list.contains(&session) {
+            list.push(session);
+        }
+        list.len()
+    }
+
+    /// The block entity at `pos` to change; its chunk is marked changed.
+    pub(super) fn get_mut(&mut self, world: WorldIndex, pos: BlockPos) -> Option<&mut BlockEntity> {
+        let key = (world, pos.chunk());
+        let entity = self.chunks.get_mut(&key)?.entities.get_mut(&pos)?;
+        self.changed.insert(key);
+        Some(entity)
+    }
+
+    /// [`Parsed::read`] and [`Self::load`] in one, the blocks read from `world` (none when it
+    /// does not hold the chunk, so none is checked).
     #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            chunks,
-            changed,
-            viewers,
-            // The chunks with spills, derived from `chunks`.
-            spilling: _,
-            // Empty between ticks, as the checkpoint leaves it out.
-            marked: _,
-        } = self;
-        h.usize(chunks.len());
-        for (&(world, pos), chunk) in chunks {
-            let Chunk {
-                entities,
-                spills,
-                raw,
-            } = chunk;
-            h.usize(world);
-            h.u64(u64::from(pos.x.cast_unsigned()) << 32 | u64::from(pos.z.cast_unsigned()));
-            h.usize(entities.len());
-            for (p, e) in entities {
-                h.block_pos(*p);
-                e.hash_into(h, *p);
-            }
-            h.usize(spills.len());
-            for s in spills {
-                h.block_pos(s.pos);
-                h.usize(s.items.len());
-                for i in &s.items {
-                    inventory::hash_stack(h, i);
+    pub(super) fn load_list(
+        &mut self,
+        key: Key,
+        list: &[Compound],
+        world: &crate::world::World,
+        custom: &Registry,
+    ) {
+        let parsed = Parsed::read(key, list, |pos| world.block(pos), custom);
+        self.load(key, parsed.expect("the list is not damaged"));
+    }
+
+    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its block entities
+    /// enter the store, and the chunk is saved again if reading removed any. A chest paired with
+    /// one that is not paired back is unpaired ([`Self::unpair_orphans`]).
+    pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
+        let Parsed { chunk, removed } = parsed;
+        if chunk.spills.is_empty() {
+            self.spilling.remove(&key);
+        } else {
+            self.spilling.insert(key);
+        }
+        self.chunks.insert(key, chunk);
+        if removed {
+            self.changed.insert(key);
+        } else {
+            self.changed.remove(&key);
+        }
+        self.unpair_orphans(key);
+    }
+
+    /// `session` closed its window on the block at `pos`; returns the number left.
+    pub(super) fn remove_viewer(
+        &mut self,
+        world: WorldIndex,
+        pos: BlockPos,
+        session: SessionId,
+    ) -> usize {
+        let Some(list) = self.viewers.get_mut(&(world, pos)) else {
+            return 0;
+        };
+        list.retain(|s| *s != session);
+        let left = list.len();
+        if left == 0 {
+            self.viewers.remove(&(world, pos));
+        }
+        left
+    }
+
+    /// Keeps items of a broken block to drop later, in the chunk of `pos`.
+    pub(super) fn spill(&mut self, world: WorldIndex, pos: BlockPos, items: Vec<Stack>) {
+        let key = (world, pos.chunk());
+        let Some(chunk) = self.chunks.get_mut(&key) else {
+            error!(
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                "container items lost: the chunk is gone"
+            );
+            return;
+        };
+        if chunk.spills.len() >= MAX_SPILLS {
+            error!(
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                "container items lost: too many spills waiting"
+            );
+            return;
+        }
+        chunk.spills.push(Spill { pos, items });
+        self.changed.insert(key);
+        self.spilling.insert(key);
+    }
+
+    /// The lists of the chunks that changed since the last call, for a save snapshot.
+    pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
+        let changed = std::mem::take(&mut self.changed);
+        changed
+            .into_iter()
+            .filter_map(|key| Some((key, self.chunks.get(&key)?.write())))
+            .collect()
+    }
+
+    /// A chunk leaves: drops its state; its list if it changed since [`Self::take_changed`].
+    pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
+        self.spilling.remove(&key);
+        let chunk = self.chunks.remove(&key)?;
+        self.changed.remove(&key).then(|| chunk.write())
+    }
+
+    /// Whether the chest at `at`, paired with `partner`, has a partner that is loaded and does
+    /// not point back at it.
+    fn is_orphan(&self, world: WorldIndex, at: BlockPos, partner: BlockPos) -> bool {
+        self.is_loaded(world, partner)
+            && !matches!(
+                self.get(world, partner).map(|e| &e.kind),
+                Some(Kind::Chest { pair: Some(back) }) if *back == at
+            )
+    }
+
+    /// Whether the block entities of the chunk of `pos` are loaded.
+    fn is_loaded(&self, world: WorldIndex, pos: BlockPos) -> bool {
+        self.chunks.contains_key(&(world, pos.chunk()))
+    }
+
+    /// The positions of the block entities of a loaded chunk, in order.
+    fn positions(&self, world: WorldIndex, pos: ChunkPos) -> impl Iterator<Item = BlockPos> + '_ {
+        self.chunks
+            .get(&(world, pos))
+            .into_iter()
+            .flat_map(|c| c.entities.keys().copied())
+    }
+
+    /// Puts a block entity at `pos` of a loaded chunk, where there is none.
+    fn insert(&mut self, world: WorldIndex, pos: BlockPos, entity: BlockEntity) {
+        let key = (world, pos.chunk());
+        let Some(chunk) = self.chunks.get_mut(&key) else {
+            return;
+        };
+        self.changed.insert(key);
+        chunk.entities.insert(pos, entity);
+    }
+
+    /// Removes the block entity at `pos`.
+    fn remove(&mut self, world: WorldIndex, pos: BlockPos) -> Option<BlockEntity> {
+        let key = (world, pos.chunk());
+        let entity = self.chunks.get_mut(&key)?.entities.remove(&pos)?;
+        self.changed.insert(key);
+        Some(entity)
+    }
+
+    /// Unpairs the chests of chunk `key` and of its four neighbours whose partner is in a loaded
+    /// chunk and does not pair back. A pair is a fact of two chests that point at each other; a
+    /// half whose partner was broken, replaced or unpaired while its own chunk was not loaded
+    /// (or was never a chest) would otherwise stay paired for ever and never pair again. A
+    /// partner in a chunk that is not loaded is left: the check runs again when that chunk loads.
+    fn unpair_orphans(&mut self, key: Key) {
+        let (world, chunk) = key;
+        let near = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]
+            .into_iter()
+            .filter_map(|(dx, dz)| {
+                Some((
+                    world,
+                    ChunkPos::new(chunk.x.checked_add(dx)?, chunk.z.checked_add(dz)?),
+                ))
+            });
+        let mut orphans = Vec::new();
+        for near_key in near {
+            let Some(near_chunk) = self.chunks.get(&near_key) else {
+                continue;
+            };
+            for (&at, e) in &near_chunk.entities {
+                if let Kind::Chest {
+                    pair: Some(partner),
+                } = e.kind
+                    && self.is_orphan(world, at, partner)
+                {
+                    orphans.push(at);
                 }
             }
-            h.usize(raw.len());
-            for r in raw {
-                super::extra::hash_nbt(h, r);
+        }
+        for at in orphans {
+            let chunk_key = (world, at.chunk());
+            if let Some(Kind::Chest { pair }) = self
+                .chunks
+                .get_mut(&chunk_key)
+                .and_then(|c| c.entities.get_mut(&at))
+                .map(|e| &mut e.kind)
+            {
+                *pair = None;
             }
+            self.changed.insert(chunk_key);
+            self.marked.insert((world, at));
         }
-        h.usize(changed.len());
-        for (world, pos) in changed {
-            h.usize(*world);
-            h.u64(u64::from(pos.x.cast_unsigned()) << 32 | u64::from(pos.z.cast_unsigned()));
-        }
-        h.usize(viewers.len());
-        for ((world, pos), list) in viewers {
-            h.usize(*world);
-            h.block_pos(*pos);
-            h.usize(list.len());
-            for s in list {
-                h.u64(s.get());
-            }
-        }
+    }
+
+    /// Changes the block entity at `pos` with `f`; its chunk is marked changed when `f` gives
+    /// `Some` (`None`: `f` changed nothing).
+    fn update<T>(
+        &mut self,
+        world: WorldIndex,
+        pos: BlockPos,
+        f: impl FnOnce(&mut BlockEntity) -> Option<T>,
+    ) -> Option<T> {
+        let key = (world, pos.chunk());
+        let out = f(self.chunks.get_mut(&key)?.entities.get_mut(&pos)?)?;
+        self.changed.insert(key);
+        Some(out)
     }
 }
 
@@ -683,6 +683,52 @@ pub(super) struct BlockEntity {
 }
 
 impl BlockEntity {
+    /// Whether clients get it. A kind Anchor does not type goes when it has an id, as the blocks
+    /// drawn from one show nothing without it.
+    pub(super) fn is_spawnable(&self) -> bool {
+        match &self.kind {
+            Kind::Other(_) => !self.kind.id().is_empty(),
+            _ => true,
+        }
+    }
+
+    /// The `Lock` key a held item's custom name must match to open the container.
+    pub(super) fn lock(&self) -> Option<&str> {
+        match self.rest.get("Lock") {
+            Some(Value::String(lock)) => Some(lock),
+            _ => None,
+        }
+    }
+
+    /// The other half of a double chest.
+    pub(super) fn pair(&self) -> Option<BlockPos> {
+        match self.kind {
+            Kind::Chest { pair } => pair,
+            _ => None,
+        }
+    }
+
+    /// What clients get of it: id, position, the custom name and the kind's client keys (a
+    /// chest's pair, a sign's text, a bed's colour…). A kind Anchor does not type goes as saved:
+    /// the client draws some blocks (a decorated pot, a bell) only from their block entity's
+    /// keys, which Anchor cannot pick out.
+    pub(super) fn spawn_nbt(&self, pos: BlockPos) -> Compound {
+        if matches!(self.kind, Kind::Other(_)) {
+            return self.write(pos);
+        }
+        let mut nbt = Compound::from([
+            ("id".to_owned(), Value::String(self.kind.id().to_owned())),
+            ("x".to_owned(), Value::Int(pos.x)),
+            ("y".to_owned(), Value::Int(pos.y)),
+            ("z".to_owned(), Value::Int(pos.z)),
+        ]);
+        self.write_kind(Form::Client, &mut nbt);
+        if let Some(name) = &self.name {
+            nbt.insert("CustomName".to_owned(), Value::String(name.clone()));
+        }
+        nbt
+    }
+
     /// A new block entity of `kind` with its slots empty.
     fn new(kind: Kind) -> Self {
         let slots = kind.slots();
@@ -692,6 +738,18 @@ impl BlockEntity {
             name: None,
             rest: Compound::new(),
         }
+    }
+
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv, pos: BlockPos) {
+        let Self {
+            kind: _,
+            items: _,
+            name: _,
+            rest: _,
+        } = self;
+        // The saved form holds every field.
+        super::extra::hash_nbt(h, &self.write(pos));
     }
 
     /// Reads a saved compound at `pos` (its `x`, `y`, `z`, already checked).
@@ -744,7 +802,7 @@ impl BlockEntity {
         if entity.kind.is_nameable()
             && let Some(Value::String(name)) = nbt.get("CustomName")
             && !name.is_empty()
-            && name.len() <= crate::tile::MAX_NAME_BYTES
+            && name.len() <= crate::block_entity::MAX_NAME_BYTES
         {
             entity.name = Some(name.clone());
             nbt.remove("CustomName");
@@ -776,45 +834,6 @@ impl BlockEntity {
         entity
     }
 
-    /// The other half of a double chest.
-    pub(super) fn pair(&self) -> Option<BlockPos> {
-        match self.kind {
-            Kind::Chest { pair } => pair,
-            _ => None,
-        }
-    }
-
-    /// The `Lock` key a held item's custom name must match to open the container.
-    pub(super) fn lock(&self) -> Option<&str> {
-        match self.rest.get("Lock") {
-            Some(Value::String(lock)) => Some(lock),
-            _ => None,
-        }
-    }
-
-    /// Whether clients get it. A kind Anchor does not type goes when it has an id, as the blocks
-    /// drawn from one show nothing without it.
-    pub(super) fn is_spawnable(&self) -> bool {
-        match &self.kind {
-            Kind::Other(_) => !self.kind.id().is_empty(),
-            _ => true,
-        }
-    }
-
-    /// Takes the stacks a shulker box's slots do not take ([`Stack::can_enter_shulker_box`]) out of
-    /// it: what a box item made by a developer held, or an Anchor before the limit saved. None for
-    /// other kinds.
-    fn take_unfit(&mut self) -> Vec<Stack> {
-        if !matches!(self.kind, Kind::ShulkerBox { .. }) {
-            return Vec::new();
-        }
-        self.items
-            .iter_mut()
-            .filter(|s| !s.can_enter_shulker_box())
-            .map(std::mem::take)
-            .collect()
-    }
-
     /// The saved compound at `pos`.
     fn write(&self, pos: BlockPos) -> Compound {
         let mut nbt = match &self.kind {
@@ -832,27 +851,6 @@ impl BlockEntity {
         nbt.insert("x".to_owned(), Value::Int(pos.x));
         nbt.insert("y".to_owned(), Value::Int(pos.y));
         nbt.insert("z".to_owned(), Value::Int(pos.z));
-        if let Some(name) = &self.name {
-            nbt.insert("CustomName".to_owned(), Value::String(name.clone()));
-        }
-        nbt
-    }
-
-    /// What clients get of it: id, position, the custom name and the kind's client keys (a
-    /// chest's pair, a sign's text, a bed's colour…). A kind Anchor does not type goes as saved:
-    /// the client draws some blocks (a decorated pot, a bell) only from their block entity's
-    /// keys, which Anchor cannot pick out.
-    pub(super) fn spawn_nbt(&self, pos: BlockPos) -> Compound {
-        if matches!(self.kind, Kind::Other(_)) {
-            return self.write(pos);
-        }
-        let mut nbt = Compound::from([
-            ("id".to_owned(), Value::String(self.kind.id().to_owned())),
-            ("x".to_owned(), Value::Int(pos.x)),
-            ("y".to_owned(), Value::Int(pos.y)),
-            ("z".to_owned(), Value::Int(pos.z)),
-        ]);
-        self.write_kind(Form::Client, &mut nbt);
         if let Some(name) = &self.name {
             nbt.insert("CustomName".to_owned(), Value::String(name.clone()));
         }
@@ -881,16 +879,18 @@ impl BlockEntity {
         }
     }
 
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut super::Fnv, pos: BlockPos) {
-        let Self {
-            kind: _,
-            items: _,
-            name: _,
-            rest: _,
-        } = self;
-        // The saved form holds every field.
-        super::extra::hash_nbt(h, &self.write(pos));
+    /// Takes the stacks a shulker box's slots do not take ([`Stack::can_enter_shulker_box`]) out of
+    /// it: what a box item made by a developer held, or an Anchor before the limit saved. None for
+    /// other kinds.
+    fn take_unfit(&mut self) -> Vec<Stack> {
+        if !matches!(self.kind, Kind::ShulkerBox { .. }) {
+            return Vec::new();
+        }
+        self.items
+            .iter_mut()
+            .filter(|s| !s.can_enter_shulker_box())
+            .map(std::mem::take)
+            .collect()
     }
 }
 
@@ -929,7 +929,7 @@ pub(super) enum Kind {
     Skull {
         /// The `SkullType` byte ([`decor::SKULL_TYPES`]).
         skull: u8,
-        /// The rotation, below [`decor::SKULL_ROTATIONS`].
+        /// The rotation, below [`interact::props::ROTATION_STEPS`].
         rotation: u8,
     },
     /// A kind no module types: the saved compound without `x`, `y`, `z`, kept as it came.
@@ -937,6 +937,39 @@ pub(super) enum Kind {
 }
 
 impl Kind {
+    /// The Bedrock block entity id.
+    fn id(&self) -> &str {
+        match self {
+            Self::Chest { .. } => "Chest",
+            Self::Barrel => "Barrel",
+            Self::ShulkerBox { .. } => "ShulkerBox",
+            Self::EnderChest => "EnderChest",
+            Self::Sign(s) if s.hanging => "HangingSign",
+            Self::Sign(_) => "Sign",
+            Self::Bed { .. } => "Bed",
+            Self::Banner(_) => "Banner",
+            Self::FlowerPot { .. } => "FlowerPot",
+            Self::Skull { .. } => "Skull",
+            Self::Other(nbt) => match nbt.get("id") {
+                Some(Value::String(id)) => id,
+                _ => "",
+            },
+        }
+    }
+
+    /// Whether it takes a custom name.
+    fn is_nameable(&self) -> bool {
+        self.has_item_list()
+    }
+
+    /// Whether the kind's slots are saved as a `Slot`-numbered `Items` list.
+    fn has_item_list(&self) -> bool {
+        matches!(
+            self,
+            Self::Chest { .. } | Self::Barrel | Self::ShulkerBox { .. }
+        )
+    }
+
     /// The kind a block state gets a block entity of; `None` for a block without one.
     fn of(state: block::State) -> Option<Self> {
         let classes = state.kind().classes();
@@ -974,26 +1007,6 @@ impl Kind {
         })
     }
 
-    /// The Bedrock block entity id.
-    fn id(&self) -> &str {
-        match self {
-            Self::Chest { .. } => "Chest",
-            Self::Barrel => "Barrel",
-            Self::ShulkerBox { .. } => "ShulkerBox",
-            Self::EnderChest => "EnderChest",
-            Self::Sign(s) if s.hanging => "HangingSign",
-            Self::Sign(_) => "Sign",
-            Self::Bed { .. } => "Bed",
-            Self::Banner(_) => "Banner",
-            Self::FlowerPot { .. } => "FlowerPot",
-            Self::Skull { .. } => "Skull",
-            Self::Other(nbt) => match nbt.get("id") {
-                Some(Value::String(id)) => id,
-                _ => "",
-            },
-        }
-    }
-
     /// The number of slots ([`BlockEntity::items`]): the kind decides it, a write never changes
     /// it.
     fn slots(&self) -> usize {
@@ -1007,19 +1020,6 @@ impl Kind {
             | Self::Skull { .. }
             | Self::Other(_) => 0,
         }
-    }
-
-    /// Whether the kind's slots are saved as a `Slot`-numbered `Items` list.
-    fn has_item_list(&self) -> bool {
-        matches!(
-            self,
-            Self::Chest { .. } | Self::Barrel | Self::ShulkerBox { .. }
-        )
-    }
-
-    /// Whether it takes a custom name.
-    fn is_nameable(&self) -> bool {
-        self.has_item_list()
     }
 }
 
@@ -1123,7 +1123,7 @@ fn create(
             if face == Face::Up
                 && let Some(yaw) = yaw
             {
-                *rotation = decor::skull_rotation(to_f32(yaw));
+                *rotation = interact::props::rotation_nearest(yaw);
             }
         }
         _ => {}
@@ -1414,7 +1414,7 @@ pub(super) fn with_block_data(
     }
     #[expect(
         clippy::expect_used,
-        reason = "invariant: a block entity's name is at most tile::MAX_NAME_BYTES and a shulker \
+        reason = "invariant: a block entity's name is at most block_entity::MAX_NAME_BYTES and a shulker \
                   box holds only stacks that fit it (every write, placing and loading check), so \
                   27 of them with the name are one stack (item::MAX_NBT_BYTES)"
     )]
@@ -1596,8 +1596,8 @@ pub(super) fn send_marked(state: &mut State) {
 }
 
 /// Reads an `Items` list into `slots` by `Slot` (custom items through `custom`). An entry of an
-/// unknown item or in no slot is dropped, and gone from the chunk's next save: the log says where
-/// it was and which item it was.
+/// unknown item ([`inventory::read_saved_stack`]) or in no slot is dropped, and gone from the
+/// chunk's next save: the log says where it was and which item it was.
 fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &Registry) {
     for entry in items {
         let slot = match entry.get("Slot") {
@@ -1621,17 +1621,12 @@ fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &R
         };
         #[cfg(test)]
         crate::tick::rules::reads::add(|r| r.stacks += 1);
-        if let Some(stack) = Stack::from_nbt_with(entry, custom) {
+        if let Some(stack) = inventory::read_saved_stack(
+            entry,
+            custom,
+            format_args!("container at {} {} {}, slot {slot}", pos.x, pos.y, pos.z),
+        ) {
             *target = stack;
-        } else {
-            info!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                slot,
-                item,
-                "a container item is unknown; it is dropped and gone from the next save"
-            );
         }
     }
 }
@@ -1884,7 +1879,7 @@ pub(in crate::tick) mod tests {
         let mut entity = BlockEntity::new(Kind::ShulkerBox { facing: 1 });
         entity.items[0] = stick.clone();
         entity.items[1] = big.clone();
-        let long = "n".repeat(crate::tile::MAX_NAME_BYTES + 1);
+        let long = "n".repeat(crate::block_entity::MAX_NAME_BYTES + 1);
         entity.name = Some(long.clone());
         let list = vec![entity.write(pos)];
         let mut store = BlockEntities::default();
@@ -2393,12 +2388,12 @@ pub(in crate::tick) mod tests {
             (Kind::EnderChest, Vec::new()),
             (
                 Kind::Sign(Box::new(decor::Sign {
-                    front: crate::tile::SignText {
+                    front: crate::block_entity::SignText {
                         lines: ["hi".to_owned(), String::new(), String::new(), String::new()],
                         colour: 7,
                         glowing: true,
                     },
-                    back: crate::tile::SignText::default(),
+                    back: crate::block_entity::SignText::default(),
                     waxed: true,
                     hanging: true,
                 })),

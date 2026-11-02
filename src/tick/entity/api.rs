@@ -32,7 +32,7 @@ use super::{
 use crate::action;
 use crate::block::{self, Face};
 use crate::effect::{Instance, Potion};
-use crate::entity::{Animation, ArrowPickup, Error, Id, PaintingMotive, Skin, Type};
+use crate::entity::{Animation, ArrowPickup, Error, Id, PaintingMotive, Result, Skin, Type};
 use crate::event::Actor;
 use crate::item::Stack;
 use crate::math::{self, Aabb, Vec3, to_f32};
@@ -64,54 +64,102 @@ impl Mut<'_> {
         self.id
     }
 
-    /// The entity, to change.
-    /// Its chunk is marked for the next save. While the entity tick applies its steps (a
-    /// listener's change), it moves again from its new state rather than by the step computed
-    /// before the change.
-    pub(super) fn entity_mut(&mut self) -> &mut Entity {
-        self.parts().0
+    /// Hurts it by `amount`, as damage dealt through the API, without the event.
+    /// An NPC follows its hit cooldown and shows the hit, and dies at 0 health; anything else
+    /// that reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs
+    /// take no damage but the void's. False if nothing was taken, as for an amount that is below
+    /// 0 or above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE), or not finite.
+    #[doc(alias = "Entity::attack")]
+    #[doc(alias = "Living::attack")]
+    pub fn attack(&mut self, amount: f64) -> bool {
+        let id = self.id;
+        let key = (self.world, self.chunk);
+        let result = hurt_in(self.entities, self.players, id, Cause::Custom, amount, None);
+        self.entities.changed.insert(key);
+        result != Hurt::Ignored
     }
 
-    /// The entity, to change what its viewers see too.
-    pub(super) fn shown_mut(&mut self) -> &mut Entity {
-        let e = self.entity_mut();
-        e.resend = true;
-        e
+    /// Removes it at the end of the tick, with its removal sent to its viewers.
+    /// Nothing if it is gone already.
+    #[doc(alias = "Entity::flagForDespawn")]
+    #[doc(alias = "Entity::close")]
+    pub fn flag_for_despawn(&mut self) {
+        let id = self.id;
+        self.entities.doom(id);
     }
 
-    /// Sets its motion in blocks per tick, each component cut to ±10; it replaces the motion,
-    /// not adds to it.
-    /// A projectile stuck in a block stays there until the block goes.
+    /// Adds `amount` to its health, at most its maximum.
+    /// False for an amount that is not finite or below 0, and for an entity that does not live.
+    #[doc(alias = "Entity::heal")]
+    pub fn heal(&mut self, amount: f64) -> bool {
+        amount.is_finite() && amount >= 0.0 && self.set_health(self.health + amount).is_ok()
+    }
+
+    /// Sets its health, at most its maximum.
+    /// 0 or less kills it.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a motion that is not finite.
-    #[doc(alias = "Entity::setMotion")]
-    #[doc(alias = "Entity::addMotion")]
-    pub fn set_motion(&mut self, motion: Vec3) -> Result<(), Error> {
-        if !motion.is_finite() {
+    /// [`Error::OutOfRange`] for a value that is not a number and [`Error::NotAlive`] for an
+    /// entity that does not live (a dying NPC).
+    #[doc(alias = "Entity::setHealth")]
+    #[doc(alias = "Living::setHealth")]
+    pub fn set_health(&mut self, health: f64) -> Result<()> {
+        if health.is_nan() {
             return Err(Error::OutOfRange);
         }
+        if !self.is_alive() {
+            return Err(Error::NotAlive);
+        }
+        if health <= 0.0 {
+            self.kill();
+            return Ok(());
+        }
         let e = self.entity_mut();
-        e.body.motion = physics::bounded(motion);
-        e.forced = true;
+        e.health = math::min(health, e.kind.max_health());
         Ok(())
     }
 
-    /// Sets its yaw and pitch in degrees, kept to float precision as saved.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for an angle that is not finite as a float.
-    #[doc(alias = "Entity::setRotation")]
-    pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<(), Error> {
-        if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
-            return Err(Error::OutOfRange);
+    /// Kills it: its health becomes 0.
+    /// An NPC shows its death and goes 25 ticks later, a hurt end crystal explodes at its next
+    /// tick, anything else goes at the end of the tick (a painting drops its item). False, doing
+    /// nothing, for an entity that does not live.
+    #[doc(alias = "Entity::kill")]
+    pub fn kill(&mut self) -> bool {
+        if !self.is_alive() {
+            return false;
         }
-        let e = self.entity_mut();
-        e.yaw = f64::from(to_f32(yaw));
-        e.pitch = f64::from(to_f32(pitch));
-        Ok(())
+        let id = self.id;
+        let (e, players) = self.parts();
+        e.health = 0.0;
+        if let Kind::Npc(c) = &mut e.kind {
+            c.dead_ticks = Some(0);
+            send_to(players, &e.viewers, &Animation::Death.packet(e.runtime_id));
+        } else if !matches!(&e.kind, Kind::EndCrystal(c) if c.primed) {
+            self.entities.doom(id);
+        }
+        self.entities.note_ending(id);
+        true
+    }
+
+    /// Knocks a living NPC back away along (`x`, `z`) with `force`.
+    /// It goes up at most `vertical_limit`; the usual force and limit are 0.4 and 0.4. False for
+    /// another kind, values that are not finite, or no horizontal direction.
+    #[doc(alias = "Living::knockBack")]
+    pub fn knock_back(&mut self, x: f64, z: f64, force: f64, vertical_limit: f64) -> bool {
+        if !self.kind.is_living() || ![x, z, force, vertical_limit].iter().all(|v| v.is_finite()) {
+            return false;
+        }
+        let knock = Knock {
+            x,
+            z,
+            force,
+            vertical: vertical_limit,
+        };
+        let Some(motion) = knock.applied_to(self.motion()) else {
+            return false;
+        };
+        self.set_motion(motion).is_ok()
     }
 
     /// Turns its eyes to `target`. False for a target that is not finite.
@@ -130,6 +178,684 @@ impl Mut<'_> {
             yaw += 360.0;
         }
         self.set_rotation(yaw, pitch).is_ok()
+    }
+
+    /// Makes a villager or a zombie a baby or a grown-up.
+    /// Viewers see the change (the `Baby` flag).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    pub fn set_baby(&mut self, baby: bool) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::Npc(Character {
+                form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
+                ..
+            }) => {
+                *b = baby;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets a projectile's base damage, from 0 to the most an arrow of a strong bow deals.
+    /// That is an arrow shot from a bow of Power
+    /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). A potion, an xp bottle and
+    /// an ice bomb deal no damage, so it changes nothing for them.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a damage outside that range and [`Error::WrongKind`] for another
+    /// kind.
+    #[doc(alias = "Projectile::setBaseDamage")]
+    pub fn set_base_damage(&mut self, damage: f64) -> Result<()> {
+        if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.entity_mut().kind {
+            Kind::Projectile(p) => {
+                p.damage = damage;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets the block an end crystal's beam points at, or none.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\object\\EndCrystal::setBeamTarget")]
+    pub fn set_beam_target(&mut self, target: Option<BlockPos>) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::EndCrystal(c) => {
+                c.beam_target = target;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets whether it is saved with its chunk (a minigame's entities need not be).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for `true` on a kind that is never saved with its chunk: a firework
+    /// rocket, or an entity of a temporary custom type.
+    #[doc(alias = "Entity::setCanSaveWithChunk")]
+    pub fn set_can_save_with_chunk(&mut self, saved: bool) -> Result<()> {
+        if saved && !self.kind.is_saved() {
+            return Err(Error::WrongKind);
+        }
+        self.entity_mut().saved = saved;
+        Ok(())
+    }
+
+    /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
+    pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> Result<()> {
+        if !(-MAX_CLOUD_AGE_TICKS..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+            return Err(Error::OutOfRange);
+        }
+        self.cloud_mut(|c| c.max_age_on_use = ticks)
+    }
+
+    /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setMaxAge")]
+    pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> Result<()> {
+        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+            return Err(Error::OutOfRange);
+        }
+        self.shown_cloud_mut(|c| c.max_age = ticks)
+    }
+
+    /// Sets the change of a cloud's radius when a bottle takes from it, -64 to 64 blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
+    pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> Result<()> {
+        let blocks = f64::from(to_f32(blocks));
+        if !is_radius_change(blocks) {
+            return Err(Error::OutOfRange);
+        }
+        self.shown_cloud_mut(|c| c.radius_on_pickup = blocks)
+    }
+
+    /// Sets the change of a cloud's radius for each entity it affects, -64 to 64 blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
+    pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> Result<()> {
+        let blocks = f64::from(to_f32(blocks));
+        if !is_radius_change(blocks) {
+            return Err(Error::OutOfRange);
+        }
+        self.cloud_mut(|c| c.radius_on_use = blocks)
+    }
+
+    /// Sets the change of a cloud's radius per tick, -64 to 64 blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
+    pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> Result<()> {
+        let blocks = f64::from(to_f32(blocks));
+        if !is_radius_change(blocks) {
+            return Err(Error::OutOfRange);
+        }
+        self.cloud_mut(|c| c.radius_per_tick = blocks)
+    }
+
+    /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
+    pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> Result<()> {
+        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+            return Err(Error::OutOfRange);
+        }
+        self.cloud_mut(|c| c.reapplication_delay = ticks)
+    }
+
+    /// Sets whether an arrow is critical.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\projectile\\Arrow::setCritical")]
+    pub fn set_critical(&mut self, critical: bool) -> Result<()> {
+        self.arrow_mut(|a| a.critical = critical)
+    }
+
+    /// Sets a dropped item's or orb's ticks until it disappears.
+    /// It is -1 never, otherwise 0 to 38,767 (what the saved `Age` holds); a dropped item may
+    /// also take up to `item-despawn-ticks` when that is more.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a value outside that, and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "ItemEntity::setDespawnDelay")]
+    #[doc(alias = "ExperienceOrb::setDespawnDelay")]
+    pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> Result<()> {
+        let longest = match &self.kind {
+            Kind::Item(_) => MAX_DESPAWN_DELAY_TICKS.max(self.item_despawn_delay_ticks),
+            _ => MAX_DESPAWN_DELAY_TICKS,
+        };
+        if ticks != i32::from(NEVER) && !(0..=longest).contains(&ticks) {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.entity_mut().kind {
+            Kind::Item(Item { despawn_delay, .. }) | Kind::XpOrb(Orb { despawn_delay, .. }) => {
+                *despawn_delay = ticks;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets the ticks it burns, at most 32,767; 0 puts its fire out.
+    /// A fire-proof entity burns none. A direct call raises no event.
+    #[doc(alias = "Entity::setFireTicks")]
+    #[doc(alias = "Entity::extinguish")]
+    pub fn set_fire_ticks(&mut self, ticks: u16) {
+        let e = self.entity_mut();
+        if !e.kind.is_fire_proof() {
+            e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
+        }
+    }
+
+    /// Sets a firework rocket's explosions (see [`Entity::firework_explosions`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`], changing nothing, for
+    /// more than 256 explosions, a compound that is no explosion (a shape byte 0 to 4, at least
+    /// one colour, colours 0 to 15) or one bigger than Anchor takes (more than 16 colours in a
+    /// list, or a key other than `FireworkType`, `FireworkColor`, `FireworkFade`,
+    /// `FireworkFlicker` and `FireworkTrail`).
+    #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
+    pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> Result<()> {
+        if !matches!(self.kind, Kind::Firework(_)) {
+            return Err(Error::WrongKind);
+        }
+        let Some(explosions) = object::checked_explosions(explosions) else {
+            return Err(Error::OutOfRange);
+        };
+        if let Kind::Firework(f) = &mut self.shown_mut().kind {
+            f.explosions = explosions;
+        }
+        Ok(())
+    }
+
+    /// Sets primed TNT's ticks until it explodes, at most 32,767.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a longer fuse and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "PrimedTNT::setFuse")]
+    pub fn set_fuse_ticks(&mut self, ticks: u16) -> Result<()> {
+        if ticks > Tnt::MAX_FUSE {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.shown_mut().kind {
+            Kind::Tnt(t) => {
+                t.fuse = ticks;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets whether gravity pulls it.
+    /// Flowing liquid still pushes the kinds it pushes; no setting stops that.
+    #[doc(alias = "Entity::setHasGravity")]
+    pub fn set_has_gravity(&mut self, gravity: bool) {
+        let e = self.entity_mut();
+        e.gravity = gravity;
+        e.forced = true;
+    }
+
+    /// Sets whether clients draw it.
+    #[doc(alias = "Entity::setInvisible")]
+    pub fn set_invisible(&mut self, invisible: bool) {
+        self.entity_mut().invisible = invisible;
+    }
+
+    /// Sets whether only the void hurts an NPC or a custom entity.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    pub fn set_invulnerable(&mut self, invulnerable: bool) -> Result<()> {
+        match &mut self.entity_mut().kind {
+            Kind::Npc(c) => {
+                c.invulnerable = invulnerable;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets the item a thrown trident holds, which a player who picks it up gets.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for an empty stack.
+    #[doc(alias = "entity\\projectile\\Trident::setItem")]
+    pub fn set_item(&mut self, item: Stack) -> Result<()> {
+        let Kind::Projectile(Projectile {
+            shot: Shot::Trident(_),
+            ..
+        }) = self.kind
+        else {
+            return Err(Error::WrongKind);
+        };
+        if item.is_empty() {
+            return Err(Error::OutOfRange);
+        }
+        if let Kind::Projectile(Projectile {
+            shot: Shot::Trident(t),
+            ..
+        }) = &mut self.entity_mut().kind
+        {
+            t.item = item;
+        }
+        Ok(())
+    }
+
+    /// Sets whether a thrown potion leaves a cloud.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
+    pub fn set_linger(&mut self, linger: bool) -> Result<()> {
+        match &mut self.entity_mut().kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { linger: l, .. },
+                ..
+            }) => {
+                *l = linger;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets the age in ticks at which a firework rocket bursts.
+    /// An age it has reached bursts it at its next tick. Its item shows the flight multiplier of
+    /// the new time.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\object\\FireworkRocket::setMaxFlightTimeTicks")]
+    pub fn set_max_flight_time_ticks(&mut self, ticks: u32) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::Firework(f) => {
+                f.max_flight = ticks;
+                f.flight = object::flight_multiplier(ticks);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets its motion in blocks per tick, each component cut to ±10; it replaces the motion,
+    /// not adds to it.
+    /// A projectile stuck in a block stays there until the block goes.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a motion that is not finite.
+    #[doc(alias = "Entity::setMotion")]
+    #[doc(alias = "Entity::addMotion")]
+    pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
+        if !motion.is_finite() {
+            return Err(Error::OutOfRange);
+        }
+        let e = self.entity_mut();
+        e.body.motion = physics::bounded(motion);
+        e.forced = true;
+        Ok(())
+    }
+
+    /// Sets its name tag (a human NPC's name).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`].
+    #[doc(alias = "Entity::setNameTag")]
+    pub fn set_name_tag(&mut self, name: &str) -> Result<()> {
+        if name.len() > MAX_NAME_TAG_BYTES {
+            return Err(Error::OutOfRange);
+        }
+        name.clone_into(&mut self.shown_mut().name_tag);
+        Ok(())
+    }
+
+    /// Sets whether the name tag always shows.
+    #[doc(alias = "Entity::setNameTagAlwaysVisible")]
+    pub fn set_name_tag_always_visible(&mut self, visible: bool) {
+        self.shown_mut().name_tag_always_visible = visible;
+    }
+
+    /// Sets whether the name tag shows when a player looks at it.
+    #[doc(alias = "Entity::setNameTagVisible")]
+    pub fn set_name_tag_visible(&mut self, visible: bool) {
+        self.shown_mut().name_tag_visible = visible;
+    }
+
+    /// Sets it on fire for `seconds`.
+    /// Nothing changes if it burns longer already or is fire-proof.
+    #[doc(alias = "Entity::setOnFire")]
+    #[doc(alias = "Living::setOnFire")]
+    pub fn set_on_fire(&mut self, seconds: u16) {
+        let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
+        self.entity_mut().set_on_fire(seconds);
+    }
+
+    /// Sets a dropped item's owner (a player name).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
+    /// kind.
+    #[doc(alias = "ItemEntity::setOwner")]
+    pub fn set_owner(&mut self, owner: &str) -> Result<()> {
+        if owner.len() > MAX_NAME_TAG_BYTES {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.entity_mut().kind {
+            Kind::Item(item) => {
+                owner.clone_into(&mut item.owner);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets who a projectile counts as shot or thrown by, or a firework rocket as launched by.
+    /// A projectile's hit is credited to that player, and an ender pearl teleports it; none
+    /// clears it.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
+    /// kind.
+    #[doc(alias = "Entity::setOwningEntity")]
+    pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> Result<()> {
+        let runtime_id = match owner {
+            Some(id) => match self.players.get(&id.session()) {
+                Some(p) if p.phase != Phase::Loading => p.runtime_id,
+                _ => return Err(Error::NotOnline),
+            },
+            None => 0,
+        };
+        match &mut self.shown_mut().kind {
+            Kind::Projectile(p) => {
+                p.owner = owner.map(player::Id::session);
+                p.owner_runtime_id = runtime_id;
+                Ok(())
+            }
+            Kind::Firework(f) => {
+                f.owner = owner.map(player::Id::session);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets a dropped item's ticks until a player may pick it up; -1 never.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "ItemEntity::setPickupDelay")]
+    pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> Result<()> {
+        match &mut self.entity_mut().kind {
+            Kind::Item(item) => {
+                item.pickup_delay = ticks.max(NEVER);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets who may pick up an arrow once stuck.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\projectile\\Arrow::setPickupMode")]
+    pub fn set_pickup_mode(&mut self, pickup: ArrowPickup) -> Result<()> {
+        self.arrow_mut(|a| a.pickup = pickup)
+    }
+
+    /// Sets a thrown potion's type.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\projectile\\SplashPotion::setPotionType")]
+    pub fn set_potion(&mut self, potion: Potion) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { potion: p, .. },
+                ..
+            }) => {
+                *p = potion;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets a villager NPC's profession (the actor variant).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "Villager::setProfession")]
+    pub fn set_profession(&mut self, profession: u8) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::Npc(Character {
+                form: Form::Villager { profession: p, .. },
+                ..
+            }) => {
+                *p = profession;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets an arrow's Punch level.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\projectile\\Arrow::setPunchKnockback")]
+    pub fn set_punch_knockback(&mut self, level: u8) -> Result<()> {
+        self.arrow_mut(|a| a.punch = level)
+    }
+
+    /// Sets its yaw and pitch in degrees, kept to float precision as saved.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for an angle that is not finite as a float.
+    #[doc(alias = "Entity::setRotation")]
+    pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<()> {
+        if !survival::is_float_angle(yaw) || !survival::is_float_angle(pitch) {
+            return Err(Error::OutOfRange);
+        }
+        let e = self.entity_mut();
+        e.yaw = f64::from(to_f32(yaw));
+        e.pitch = f64::from(to_f32(pitch));
+        Ok(())
+    }
+
+    /// Sets the size multiplier of its box and model, kept to float precision as saved.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for a painting, whose box is its picture on the wall, and
+    /// [`Error::OutOfRange`] unless the scale is above 0 and the scaled box is at most 16 blocks
+    /// wide and high.
+    #[doc(alias = "Entity::setScale")]
+    pub fn set_scale(&mut self, scale: f64) -> Result<()> {
+        let scale = f64::from(to_f32(scale));
+        if matches!(self.kind, Kind::Painting(_)) {
+            return Err(Error::WrongKind);
+        }
+        if !is_valid_scale(scale, &self.kind) {
+            return Err(Error::OutOfRange);
+        }
+        let e = self.shown_mut();
+        e.scale = scale;
+        e.forced = true;
+        Ok(())
+    }
+
+    /// Sets whether an end crystal shows its bedrock base.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
+    pub fn set_show_base(&mut self, show: bool) -> Result<()> {
+        match &mut self.entity_mut().kind {
+            Kind::EndCrystal(c) => {
+                c.show_base = show;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets how many items a dropped item holds, 1 to the item's stack size.
+    /// Viewers see the new count.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another count and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "ItemEntity::setStackSize")]
+    pub fn set_stack_size(&mut self, count: u8) -> Result<()> {
+        let max = match &self.kind {
+            Kind::Item(item) => item
+                .stack
+                .item()
+                .map_or(0, crate::item::Type::max_stack_size),
+            _ => return Err(Error::WrongKind),
+        };
+        if count == 0 || count > max {
+            return Err(Error::OutOfRange);
+        }
+        let (e, players) = self.parts();
+        if let Kind::Item(item) = &mut e.kind {
+            item.stack = item.stack.with_count(count);
+        }
+        let packet = Animation::ItemStackSize { count }.packet(e.runtime_id);
+        send_to(players, &e.viewers, &packet);
+        Ok(())
+    }
+
+    /// Sets the player an orb flies to, or none.
+    /// With none it looks for the nearest again within a second.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
+    /// kind.
+    #[doc(alias = "ExperienceOrb::setTargetPlayer")]
+    pub fn set_target_player(&mut self, target: Option<player::Id>) -> Result<()> {
+        if target.is_some_and(|id| {
+            self.players
+                .get(&id.session())
+                .is_none_or(|p| p.phase == Phase::Loading)
+        }) {
+            return Err(Error::NotOnline);
+        }
+        match &mut self.entity_mut().kind {
+            Kind::XpOrb(orb) => {
+                orb.target = target.map(player::Id::session);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets who threw a dropped item (a player name).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
+    /// kind.
+    #[doc(alias = "ItemEntity::setThrower")]
+    pub fn set_thrower(&mut self, thrower: &str) -> Result<()> {
+        if thrower.len() > MAX_NAME_TAG_BYTES {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.entity_mut().kind {
+            Kind::Item(item) => {
+                thrower.clone_into(&mut item.thrower);
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets whether primed TNT is shown as underwater TNT.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongKind`] for another kind.
+    #[doc(alias = "PrimedTNT::setWorksUnderwater")]
+    pub fn set_works_underwater(&mut self, underwater: bool) -> Result<()> {
+        match &mut self.shown_mut().kind {
+            Kind::Tnt(t) => {
+                t.underwater = underwater;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
+    }
+
+    /// Sets an orb's xp points, 1 to 32,767 (the saved short).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    #[doc(alias = "ExperienceOrb::setXpValue")]
+    pub fn set_xp_value(&mut self, value: u16) -> Result<()> {
+        if value == 0 || value > Orb::MAX_VALUE {
+            return Err(Error::OutOfRange);
+        }
+        match &mut self.shown_mut().kind {
+            Kind::XpOrb(orb) => {
+                orb.value = value;
+                Ok(())
+            }
+            _ => Err(Error::WrongKind),
+        }
     }
 
     /// Moves it to `pos` in `world`, at rest.
@@ -166,744 +892,55 @@ impl Mut<'_> {
         true
     }
 
-    /// Sets its name tag (a human NPC's name).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`].
-    #[doc(alias = "Entity::setNameTag")]
-    pub fn set_name_tag(&mut self, name: &str) -> Result<(), Error> {
-        if name.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
-        }
-        name.clone_into(&mut self.shown_mut().name_tag);
-        Ok(())
+    /// The entity, to change.
+    /// Its chunk is marked for the next save. While the entity tick applies its steps (a
+    /// listener's change), it moves again from its new state rather than by the step computed
+    /// before the change.
+    pub(super) fn entity_mut(&mut self) -> &mut Entity {
+        self.parts().0
     }
 
-    /// Sets whether the name tag shows when a player looks at it.
-    #[doc(alias = "Entity::setNameTagVisible")]
-    pub fn set_name_tag_visible(&mut self, visible: bool) {
-        self.shown_mut().name_tag_visible = visible;
-    }
-
-    /// Sets whether the name tag always shows.
-    #[doc(alias = "Entity::setNameTagAlwaysVisible")]
-    pub fn set_name_tag_always_visible(&mut self, visible: bool) {
-        self.shown_mut().name_tag_always_visible = visible;
-    }
-
-    /// Sets the size multiplier of its box and model, kept to float precision as saved.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for a painting, whose box is its picture on the wall, and
-    /// [`Error::OutOfRange`] unless the scale is above 0 and the scaled box is at most 16 blocks
-    /// wide and high.
-    #[doc(alias = "Entity::setScale")]
-    pub fn set_scale(&mut self, scale: f64) -> Result<(), Error> {
-        let scale = f64::from(to_f32(scale));
-        if matches!(self.kind, Kind::Painting(_)) {
-            return Err(Error::WrongKind);
-        }
-        if !is_valid_scale(scale, &self.kind) {
-            return Err(Error::OutOfRange);
-        }
-        let e = self.shown_mut();
-        e.scale = scale;
-        e.forced = true;
-        Ok(())
-    }
-
-    /// Sets whether clients draw it.
-    #[doc(alias = "Entity::setInvisible")]
-    pub fn set_invisible(&mut self, invisible: bool) {
-        self.entity_mut().invisible = invisible;
-    }
-
-    /// Sets whether gravity pulls it.
-    /// Flowing liquid still pushes the kinds it pushes; no setting stops that.
-    #[doc(alias = "Entity::setHasGravity")]
-    pub fn set_has_gravity(&mut self, gravity: bool) {
+    /// The entity, to change what its viewers see too.
+    pub(super) fn shown_mut(&mut self) -> &mut Entity {
         let e = self.entity_mut();
-        e.gravity = gravity;
-        e.forced = true;
+        e.resend = true;
+        e
     }
 
-    /// Sets whether it is saved with its chunk (a minigame's entities need not be).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for `true` on a kind that is never saved with its chunk: a firework
-    /// rocket, or an entity of a temporary custom type.
-    #[doc(alias = "Entity::setCanSaveWithChunk")]
-    pub fn set_can_save_with_chunk(&mut self, saved: bool) -> Result<(), Error> {
-        if saved && !self.kind.is_saved() {
-            return Err(Error::WrongKind);
-        }
-        self.entity_mut().saved = saved;
-        Ok(())
-    }
-
-    /// Sets it on fire for `seconds`.
-    /// Nothing changes if it burns longer already or is fire-proof.
-    #[doc(alias = "Entity::setOnFire")]
-    #[doc(alias = "Living::setOnFire")]
-    pub fn set_on_fire(&mut self, seconds: u16) {
-        let seconds = i16::try_from(seconds).unwrap_or(i16::MAX);
-        self.entity_mut().set_on_fire(seconds);
-    }
-
-    /// Sets the ticks it burns, at most 32,767; 0 puts its fire out.
-    /// A fire-proof entity burns none. A direct call raises no event.
-    #[doc(alias = "Entity::setFireTicks")]
-    #[doc(alias = "Entity::extinguish")]
-    pub fn set_fire_ticks(&mut self, ticks: u16) {
-        let e = self.entity_mut();
-        if !e.kind.is_fire_proof() {
-            e.fire_ticks = i16::try_from(ticks).unwrap_or(i16::MAX);
-        }
-    }
-
-    /// Sets its health, at most its maximum.
-    /// 0 or less kills it.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a value that is not a number and [`Error::NotAlive`] for an
-    /// entity that does not live (a dying NPC).
-    #[doc(alias = "Entity::setHealth")]
-    #[doc(alias = "Living::setHealth")]
-    pub fn set_health(&mut self, health: f64) -> Result<(), Error> {
-        if health.is_nan() {
-            return Err(Error::OutOfRange);
-        }
-        if !self.is_alive() {
-            return Err(Error::NotAlive);
-        }
-        if health <= 0.0 {
-            self.kill();
-            return Ok(());
-        }
-        let e = self.entity_mut();
-        e.health = math::min(health, e.kind.max_health());
-        Ok(())
-    }
-
-    /// Adds `amount` to its health, at most its maximum.
-    /// False for an amount that is not finite or below 0, and for an entity that does not live.
-    #[doc(alias = "Entity::heal")]
-    pub fn heal(&mut self, amount: f64) -> bool {
-        amount.is_finite() && amount >= 0.0 && self.set_health(self.health + amount).is_ok()
-    }
-
-    /// Hurts it by `amount`, as damage dealt through the API, without the event.
-    /// An NPC follows its hit cooldown and shows the hit, and dies at 0 health; anything else
-    /// that reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs
-    /// take no damage but the void's. False if nothing was taken, as for an amount that is below
-    /// 0 or above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE), or not finite.
-    #[doc(alias = "Entity::attack")]
-    #[doc(alias = "Living::attack")]
-    pub fn attack(&mut self, amount: f64) -> bool {
-        let id = self.id;
-        let key = (self.world, self.chunk);
-        let result = hurt_in(self.entities, self.players, id, Cause::Custom, amount, None);
-        self.entities.changed.insert(key);
-        result != Hurt::Ignored
-    }
-
-    /// Kills it: its health becomes 0.
-    /// An NPC shows its death and goes 25 ticks later, a hurt end crystal explodes at its next
-    /// tick, anything else goes at the end of the tick (a painting drops its item). Nothing for
-    /// an entity that does not live.
-    #[doc(alias = "Entity::kill")]
-    pub fn kill(&mut self) {
-        if !self.is_alive() {
-            return;
-        }
-        let id = self.id;
-        let (e, players) = self.parts();
-        e.health = 0.0;
-        if let Kind::Npc(c) = &mut e.kind {
-            c.dead_ticks = Some(0);
-            send_to(players, &e.viewers, &Animation::Death.packet(e.runtime_id));
-        } else if !matches!(&e.kind, Kind::EndCrystal(c) if c.primed) {
-            self.entities.doom(id);
-        }
-        self.entities.note_ending(id);
-    }
-
-    /// Knocks a living NPC back away along (`x`, `z`) with `force`.
-    /// It goes up at most `vertical_limit`; the usual force and limit are 0.4 and 0.4. False for
-    /// another kind, values that are not finite, or no horizontal direction.
-    #[doc(alias = "Living::knockBack")]
-    pub fn knock_back(&mut self, x: f64, z: f64, force: f64, vertical_limit: f64) -> bool {
-        if !self.kind.is_living() || ![x, z, force, vertical_limit].iter().all(|v| v.is_finite()) {
-            return false;
-        }
-        let knock = Knock {
-            x,
-            z,
-            force,
-            vertical: vertical_limit,
-        };
-        let Some(motion) = knock.applied_to(self.motion()) else {
-            return false;
-        };
-        self.set_motion(motion).is_ok()
-    }
-
-    /// Removes it at the end of the tick, with its removal sent to its viewers.
-    /// Nothing if it is gone already.
-    #[doc(alias = "Entity::flagForDespawn")]
-    #[doc(alias = "Entity::close")]
-    pub fn flag_for_despawn(&mut self) {
-        let id = self.id;
-        self.entities.doom(id);
-    }
-
-    /// Sets whether only the void hurts an NPC or a custom entity.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    pub fn set_invulnerable(&mut self, invulnerable: bool) -> Result<(), Error> {
-        match &mut self.entity_mut().kind {
-            Kind::Npc(c) => {
-                c.invulnerable = invulnerable;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a dropped item's ticks until a player may pick it up; -1 never.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "ItemEntity::setPickupDelay")]
-    pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> Result<(), Error> {
-        match &mut self.entity_mut().kind {
-            Kind::Item(item) => {
-                item.pickup_delay = ticks.max(NEVER);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a dropped item's or orb's ticks until it disappears.
-    /// It is -1 never, otherwise 0 to 38,767 (what the saved `Age` holds); a dropped item may
-    /// also take up to `item-despawn-ticks` when that is more.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a value outside that, and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "ItemEntity::setDespawnDelay")]
-    #[doc(alias = "ExperienceOrb::setDespawnDelay")]
-    pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> Result<(), Error> {
-        let longest = match &self.kind {
-            Kind::Item(_) => MAX_DESPAWN_DELAY_TICKS.max(self.item_despawn_delay_ticks),
-            _ => MAX_DESPAWN_DELAY_TICKS,
-        };
-        if ticks != i32::from(NEVER) && !(0..=longest).contains(&ticks) {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.entity_mut().kind {
-            Kind::Item(Item { despawn_delay, .. }) | Kind::XpOrb(Orb { despawn_delay, .. }) => {
-                *despawn_delay = ticks;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a dropped item's owner (a player name).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
-    /// kind.
-    #[doc(alias = "ItemEntity::setOwner")]
-    pub fn set_owner(&mut self, owner: &str) -> Result<(), Error> {
-        if owner.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.entity_mut().kind {
-            Kind::Item(item) => {
-                owner.clone_into(&mut item.owner);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets who threw a dropped item (a player name).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
-    /// kind.
-    #[doc(alias = "ItemEntity::setThrower")]
-    pub fn set_thrower(&mut self, thrower: &str) -> Result<(), Error> {
-        if thrower.len() > MAX_NAME_TAG_BYTES {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.entity_mut().kind {
-            Kind::Item(item) => {
-                thrower.clone_into(&mut item.thrower);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets an orb's xp points, 1 to 32,767 (the saved short).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "ExperienceOrb::setXpValue")]
-    pub fn set_xp_value(&mut self, value: u16) -> Result<(), Error> {
-        if value == 0 || value > Orb::MAX_VALUE {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.shown_mut().kind {
-            Kind::XpOrb(orb) => {
-                orb.value = value;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets primed TNT's ticks until it explodes, at most 32,767.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a longer fuse and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "PrimedTNT::setFuse")]
-    pub fn set_fuse_ticks(&mut self, ticks: u16) -> Result<(), Error> {
-        if ticks > Tnt::MAX_FUSE {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.shown_mut().kind {
-            Kind::Tnt(t) => {
-                t.fuse = ticks;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets whether primed TNT is shown as underwater TNT.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "PrimedTNT::setWorksUnderwater")]
-    pub fn set_works_underwater(&mut self, underwater: bool) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::Tnt(t) => {
-                t.underwater = underwater;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a projectile's base damage, from 0 to the most an arrow of a strong bow deals.
-    /// That is an arrow shot from a bow of Power
-    /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). A potion, an xp bottle and
-    /// an ice bomb deal no damage, so it changes nothing for them.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for a damage outside that range and [`Error::WrongKind`] for another
-    /// kind.
-    #[doc(alias = "Projectile::setBaseDamage")]
-    pub fn set_base_damage(&mut self, damage: f64) -> Result<(), Error> {
-        if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
-            return Err(Error::OutOfRange);
-        }
-        match &mut self.entity_mut().kind {
-            Kind::Projectile(p) => {
-                p.damage = damage;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets whether an arrow is critical.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\projectile\\Arrow::setCritical")]
-    pub fn set_critical(&mut self, critical: bool) -> Result<(), Error> {
-        self.arrow_mut(|a| a.critical = critical)
-    }
-
-    /// Sets who may pick up an arrow once stuck.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\projectile\\Arrow::setPickupMode")]
-    pub fn set_pickup_mode(&mut self, pickup: ArrowPickup) -> Result<(), Error> {
-        self.arrow_mut(|a| a.pickup = pickup)
-    }
-
-    /// Sets an arrow's Punch level.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\projectile\\Arrow::setPunchKnockback")]
-    pub fn set_punch_knockback(&mut self, level: u8) -> Result<(), Error> {
-        self.arrow_mut(|a| a.punch = level)
-    }
-
-    /// Sets whether a thrown potion leaves a cloud.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\projectile\\SplashPotion::setLinger")]
-    pub fn set_linger(&mut self, linger: bool) -> Result<(), Error> {
+    /// An arrow's own data, lent to `f`; [`Error::WrongKind`] for another kind.
+    fn arrow_mut(&mut self, f: impl FnOnce(&mut Arrow)) -> Result<()> {
         match &mut self.entity_mut().kind {
             Kind::Projectile(Projectile {
-                shot: Shot::Potion { linger: l, .. },
+                shot: Shot::Arrow(a),
                 ..
             }) => {
-                *l = linger;
+                f(a);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
         }
     }
 
-    /// Makes a villager or a zombie a baby or a grown-up.
-    /// Viewers see the change (the `Baby` flag).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    pub fn set_baby(&mut self, baby: bool) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::Npc(Character {
-                form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
-                ..
-            }) => {
-                *b = baby;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a villager NPC's profession (the actor variant).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "Villager::setProfession")]
-    pub fn set_profession(&mut self, profession: u8) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::Npc(Character {
-                form: Form::Villager { profession: p, .. },
-                ..
-            }) => {
-                *p = profession;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets who a projectile counts as shot or thrown by, or a firework rocket as launched by.
-    /// A projectile's hit is credited to that player, and an ender pearl teleports it; none
-    /// clears it.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
-    /// kind.
-    #[doc(alias = "Entity::setOwningEntity")]
-    pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> Result<(), Error> {
-        let runtime_id = match owner {
-            Some(id) => match self.players.get(&id.session()) {
-                Some(p) if p.phase != Phase::Loading => p.runtime_id,
-                _ => return Err(Error::NotOnline),
-            },
-            None => 0,
-        };
-        match &mut self.shown_mut().kind {
-            Kind::Projectile(p) => {
-                p.owner = owner.map(player::Id::session);
-                p.owner_runtime_id = runtime_id;
-                Ok(())
-            }
-            Kind::Firework(f) => {
-                f.owner = owner.map(player::Id::session);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets the player an orb flies to, or none.
-    /// With none it looks for the nearest again within a second.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
-    /// kind.
-    #[doc(alias = "ExperienceOrb::setTargetPlayer")]
-    pub fn set_target_player(&mut self, target: Option<player::Id>) -> Result<(), Error> {
-        if target.is_some_and(|id| {
-            self.players
-                .get(&id.session())
-                .is_none_or(|p| p.phase == Phase::Loading)
-        }) {
-            return Err(Error::NotOnline);
-        }
+    /// A cloud's own data, lent to `f`; [`Error::WrongKind`] for another kind.
+    fn cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> Result<()> {
         match &mut self.entity_mut().kind {
-            Kind::XpOrb(orb) => {
-                orb.target = target.map(player::Id::session);
+            Kind::Cloud(c) => {
+                f(c);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
         }
     }
 
-    /// Sets how many items a dropped item holds, 1 to the item's stack size.
-    /// Viewers see the new count.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another count and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "ItemEntity::setStackSize")]
-    pub fn set_stack_size(&mut self, count: u8) -> Result<(), Error> {
-        let max = match &self.kind {
-            Kind::Item(item) => item
-                .stack
-                .item()
-                .map_or(0, crate::item::Type::max_stack_size),
-            _ => return Err(Error::WrongKind),
-        };
-        if count == 0 || count > max {
-            return Err(Error::OutOfRange);
-        }
-        let (e, players) = self.parts();
-        if let Kind::Item(item) = &mut e.kind {
-            item.stack = item.stack.with_count(count);
-        }
-        let packet = Animation::ItemStackSize { count }.packet(e.runtime_id);
-        send_to(players, &e.viewers, &packet);
-        Ok(())
-    }
-
-    /// Sets a thrown potion's type.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\projectile\\SplashPotion::setPotionType")]
-    pub fn set_potion(&mut self, potion: Potion) -> Result<(), Error> {
+    /// A cloud's own data, which viewers see, lent to `f`; [`Error::WrongKind`] for another kind.
+    fn shown_cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> Result<()> {
         match &mut self.shown_mut().kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { potion: p, .. },
-                ..
-            }) => {
-                *p = potion;
+            Kind::Cloud(c) => {
+                f(c);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
         }
-    }
-
-    /// Sets whether an end crystal shows its bedrock base.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\object\\EndCrystal::setShowBase")]
-    pub fn set_show_base(&mut self, show: bool) -> Result<(), Error> {
-        match &mut self.entity_mut().kind {
-            Kind::EndCrystal(c) => {
-                c.show_base = show;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets the block an end crystal's beam points at, or none.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\object\\EndCrystal::setBeamTarget")]
-    pub fn set_beam_target(&mut self, target: Option<BlockPos>) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::EndCrystal(c) => {
-                c.beam_target = target;
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets a firework rocket's explosions (see [`Entity::firework_explosions`]).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`], changing nothing, for
-    /// more than 256 explosions, a compound that is no explosion (a shape byte 0 to 4, at least
-    /// one colour, colours 0 to 15) or one bigger than Anchor takes (more than 16 colours in a
-    /// list, or a key other than `FireworkType`, `FireworkColor`, `FireworkFade`,
-    /// `FireworkFlicker` and `FireworkTrail`).
-    #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
-    pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> Result<(), Error> {
-        if !matches!(self.kind, Kind::Firework(_)) {
-            return Err(Error::WrongKind);
-        }
-        let Some(explosions) = object::checked_explosions(explosions) else {
-            return Err(Error::OutOfRange);
-        };
-        if let Kind::Firework(f) = &mut self.shown_mut().kind {
-            f.explosions = explosions;
-        }
-        Ok(())
-    }
-
-    /// Sets the age in ticks at which a firework rocket bursts.
-    /// An age it has reached bursts it at its next tick. Its item shows the flight multiplier of
-    /// the new time.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind.
-    #[doc(alias = "entity\\object\\FireworkRocket::setMaxFlightTimeTicks")]
-    pub fn set_max_flight_time_ticks(&mut self, ticks: u32) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::Firework(f) => {
-                f.max_flight = ticks;
-                f.flight = object::flight_multiplier(ticks);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// Sets the item a thrown trident holds, which a player who picks it up gets.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for an empty stack.
-    #[doc(alias = "entity\\projectile\\Trident::setItem")]
-    pub fn set_item(&mut self, item: Stack) -> Result<(), Error> {
-        let Kind::Projectile(Projectile {
-            shot: Shot::Trident(_),
-            ..
-        }) = self.kind
-        else {
-            return Err(Error::WrongKind);
-        };
-        if item.is_empty() {
-            return Err(Error::OutOfRange);
-        }
-        if let Kind::Projectile(Projectile {
-            shot: Shot::Trident(t),
-            ..
-        }) = &mut self.entity_mut().kind
-        {
-            t.item = item;
-        }
-        Ok(())
-    }
-
-    /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setMaxAge")]
-    pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> Result<(), Error> {
-        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
-            return Err(Error::OutOfRange);
-        }
-        self.shown_cloud_mut(|c| c.max_age = ticks)
-    }
-
-    /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
-    pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> Result<(), Error> {
-        if !(-MAX_CLOUD_AGE_TICKS..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
-            return Err(Error::OutOfRange);
-        }
-        self.cloud_mut(|c| c.max_age_on_use = ticks)
-    }
-
-    /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
-    pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> Result<(), Error> {
-        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
-            return Err(Error::OutOfRange);
-        }
-        self.cloud_mut(|c| c.reapplication_delay = ticks)
-    }
-
-    /// Sets the change of a cloud's radius when a bottle takes from it, -64 to 64 blocks.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
-    pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> Result<(), Error> {
-        let blocks = f64::from(to_f32(blocks));
-        if !is_radius_change(blocks) {
-            return Err(Error::OutOfRange);
-        }
-        self.shown_cloud_mut(|c| c.radius_on_pickup = blocks)
-    }
-
-    /// Sets the change of a cloud's radius for each entity it affects, -64 to 64 blocks.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
-    pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> Result<(), Error> {
-        let blocks = f64::from(to_f32(blocks));
-        if !is_radius_change(blocks) {
-            return Err(Error::OutOfRange);
-        }
-        self.cloud_mut(|c| c.radius_on_use = blocks)
-    }
-
-    /// Sets the change of a cloud's radius per tick, -64 to 64 blocks.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
-    #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
-    pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> Result<(), Error> {
-        let blocks = f64::from(to_f32(blocks));
-        if !is_radius_change(blocks) {
-            return Err(Error::OutOfRange);
-        }
-        self.cloud_mut(|c| c.radius_per_tick = blocks)
     }
 
     /// The entity and the players, to change both.
@@ -927,42 +964,6 @@ impl Mut<'_> {
             .get_mut(self.id)
             .expect("the lent entity is in the store");
         (entity, &mut *self.players)
-    }
-
-    /// An arrow's own data, lent to `f`; [`Error::WrongKind`] for another kind.
-    fn arrow_mut(&mut self, f: impl FnOnce(&mut Arrow)) -> Result<(), Error> {
-        match &mut self.entity_mut().kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Arrow(a),
-                ..
-            }) => {
-                f(a);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// A cloud's own data, lent to `f`; [`Error::WrongKind`] for another kind.
-    fn cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> Result<(), Error> {
-        match &mut self.entity_mut().kind {
-            Kind::Cloud(c) => {
-                f(c);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
-    }
-
-    /// A cloud's own data, which viewers see, lent to `f`; [`Error::WrongKind`] for another kind.
-    fn shown_cloud_mut(&mut self, f: impl FnOnce(&mut Cloud)) -> Result<(), Error> {
-        match &mut self.shown_mut().kind {
-            Kind::Cloud(c) => {
-                f(c);
-                Ok(())
-            }
-            _ => Err(Error::WrongKind),
-        }
     }
 }
 
@@ -995,55 +996,123 @@ impl Entity {
     /// No kind steps up blocks.
     const STEP_HEIGHT: f64 = 0.0;
 
-    /// The runtime ID clients know it by, or `None` before it has one.
-    /// An entity whose chunk loaded this tick gets one at the next entity tick.
-    #[doc(alias = "Entity::getId")]
-    pub fn runtime_id(&self) -> Option<u64> {
-        (self.runtime_id != 0).then_some(self.runtime_id)
+    /// A projectile's base damage.
+    #[doc(alias = "Projectile::getBaseDamage")]
+    pub fn base_damage(&self) -> Option<f64> {
+        match &self.kind {
+            Kind::Projectile(p) => Some(p.damage),
+            _ => None,
+        }
+    }
+
+    /// The block an end crystal's beam points at, if any.
+    #[doc(alias = "entity\\object\\EndCrystal::getBeamTarget")]
+    pub fn beam_target(&self) -> Option<BlockPos> {
+        match &self.kind {
+            Kind::EndCrystal(c) => c.beam_target,
+            _ => None,
+        }
+    }
+
+    /// Whether it blocks placing a block in its box.
+    /// Falling blocks, primed TNT, living NPCs and end crystals do.
+    #[doc(alias = "Entity::canBeCollidedWith")]
+    pub fn can_be_collided_with(&self) -> bool {
+        self.is_obstacle()
+    }
+
+    /// Whether it is saved with its chunk; one that is not goes when its chunk unloads.
+    #[doc(alias = "Entity::canSaveWithChunk")]
+    pub fn can_save_with_chunk(&self) -> bool {
+        self.saved
+    }
+
+    /// A cloud's ticks since it appeared.
+    #[doc(alias = "AreaEffectCloud::getAge")]
+    pub fn cloud_age_ticks(&self) -> Option<u32> {
+        self.cloud().map(|c| c.age)
+    }
+
+    /// A cloud's effects.
+    /// Each entity in it gets them for a quarter of their duration, instant ones at half
+    /// strength.
+    #[doc(alias = "AreaEffectCloud::getEffects")]
+    pub fn cloud_effects(&self) -> Option<&[Instance]> {
+        self.cloud().map(|c| c.effects.as_slice())
+    }
+
+    /// The radius a cloud started with, in blocks.
+    #[doc(alias = "AreaEffectCloud::getInitialRadius")]
+    pub fn cloud_initial_radius(&self) -> Option<f64> {
+        self.cloud().map(|c| c.initial_radius)
+    }
+
+    /// The change of a cloud's maximum age for each entity it affects.
+    #[doc(alias = "AreaEffectCloud::getMaxAgeChangeOnUse")]
+    pub fn cloud_max_age_change_on_use_ticks(&self) -> Option<i32> {
+        self.cloud().map(|c| c.max_age_on_use)
+    }
+
+    /// The age at which a cloud goes.
+    #[doc(alias = "AreaEffectCloud::getMaxAge")]
+    pub fn cloud_max_age_ticks(&self) -> Option<i32> {
+        self.cloud().map(|c| c.max_age)
+    }
+
+    /// A cloud's radius, in blocks.
+    #[doc(alias = "AreaEffectCloud::getRadius")]
+    pub fn cloud_radius(&self) -> Option<f64> {
+        match &self.kind {
+            Kind::Cloud(c) => Some(c.radius),
+            _ => None,
+        }
+    }
+
+    /// The change of a cloud's radius when a bottle takes from it.
+    /// Anchor keeps it for the saved form: it has no dragon's breath.
+    #[doc(alias = "AreaEffectCloud::getRadiusChangeOnPickup")]
+    pub fn cloud_radius_change_on_pickup(&self) -> Option<f64> {
+        self.cloud().map(|c| c.radius_on_pickup)
+    }
+
+    /// The change of a cloud's radius for each entity it affects.
+    #[doc(alias = "AreaEffectCloud::getRadiusChangeOnUse")]
+    pub fn cloud_radius_change_on_use(&self) -> Option<f64> {
+        self.cloud().map(|c| c.radius_on_use)
+    }
+
+    /// The change of a cloud's radius per tick.
+    #[doc(alias = "AreaEffectCloud::getRadiusChangePerTick")]
+    pub fn cloud_radius_change_per_tick(&self) -> Option<f64> {
+        self.cloud().map(|c| c.radius_per_tick)
+    }
+
+    /// The ticks before a cloud affects the same entity again.
+    #[doc(alias = "AreaEffectCloud::getReapplicationDelay")]
+    pub fn cloud_reapplication_delay_ticks(&self) -> Option<i32> {
+        self.cloud().map(|c| c.reapplication_delay)
+    }
+
+    /// A dropped item's or orb's ticks until it disappears; -1 never.
+    #[doc(alias = "ItemEntity::getDespawnDelay")]
+    #[doc(alias = "ExperienceOrb::getDespawnDelay")]
+    pub fn despawn_delay_ticks(&self) -> Option<i32> {
+        match &self.kind {
+            Kind::Item(item) => Some(item.despawn_delay),
+            Kind::XpOrb(orb) => Some(orb.despawn_delay),
+            _ => None,
+        }
+    }
+
+    /// The unit vector it looks along.
+    #[doc(alias = "Entity::getDirectionVector")]
+    pub fn direction(&self) -> Vec3 {
+        super::direction(self.yaw, self.pitch)
     }
 
     /// What it is.
     pub fn entity_type(&self) -> Type {
         self.kind.entity_type()
-    }
-
-    /// The Bedrock actor type clients draw, such as `minecraft:item`.
-    #[doc(alias = "Entity::getNetworkTypeId")]
-    #[doc(alias = "Zombie::getNetworkTypeId")]
-    pub fn network_type(&self) -> &str {
-        self.kind.identifier()
-    }
-
-    /// The world it is in.
-    #[doc(alias = "Entity::getWorld")]
-    #[doc(alias = "Position::getWorld")]
-    pub fn world(&self) -> world::Id {
-        world::Id::of(self.world)
-    }
-
-    /// Where it is: the centre of the bottom of its box.
-    #[doc(alias = "Entity::getPosition")]
-    #[doc(alias = "Entity::getLocation")]
-    pub fn position(&self) -> Vec3 {
-        self.body.position
-    }
-
-    /// Its yaw in degrees.
-    #[doc(alias = "Location::getYaw")]
-    pub fn yaw(&self) -> f64 {
-        self.yaw
-    }
-
-    /// Its pitch in degrees (negative is up).
-    #[doc(alias = "Location::getPitch")]
-    pub fn pitch(&self) -> f64 {
-        self.pitch
-    }
-
-    /// Its motion, in blocks per tick.
-    #[doc(alias = "Entity::getMotion")]
-    pub fn motion(&self) -> Vec3 {
-        self.body.motion
     }
 
     /// The height of its eyes above its position, times its scale.
@@ -1067,10 +1136,59 @@ impl Entity {
         self.body.position + Vec3::new(0.0, self.eye_height(), 0.0)
     }
 
-    /// The unit vector it looks along.
-    #[doc(alias = "Entity::getDirectionVector")]
-    pub fn direction(&self) -> Vec3 {
-        super::direction(self.yaw, self.pitch)
+    /// Blocks fallen since it last stood on something.
+    #[doc(alias = "Entity::getFallDistance")]
+    pub fn fall_distance(&self) -> f64 {
+        self.body.fall_distance
+    }
+
+    /// The block a falling block is.
+    #[doc(alias = "FallingBlock::getBlock")]
+    pub fn falling_block(&self) -> Option<block::State> {
+        match &self.kind {
+            Kind::FallingBlock(f) => Some(f.block),
+            _ => None,
+        }
+    }
+
+    /// Ticks it keeps burning.
+    #[doc(alias = "Entity::getFireTicks")]
+    pub fn fire_ticks(&self) -> u16 {
+        self.fire_ticks.cast_unsigned()
+    }
+
+    /// A firework rocket's explosions, as a firework item's `Explosions` holds them.
+    /// They are compounds of `FireworkType`, `FireworkColor`, `FireworkFade`, `FireworkFlicker`
+    /// and `FireworkTrail`.
+    #[doc(alias = "entity\\object\\FireworkRocket::getExplosions")]
+    pub fn firework_explosions(&self) -> Option<&[Compound]> {
+        match &self.kind {
+            Kind::Firework(f) => Some(&f.explosions),
+            _ => None,
+        }
+    }
+
+    /// Primed TNT's ticks until it explodes.
+    #[doc(alias = "PrimedTNT::getFuse")]
+    pub fn fuse_ticks(&self) -> Option<u16> {
+        match &self.kind {
+            Kind::Tnt(t) => Some(t.fuse),
+            _ => None,
+        }
+    }
+
+    /// The downward acceleration its kind falls with, in blocks per tick².
+    /// It is per kind: 0.04 for items, 0.05 for arrows, 0.03 for thrown items... Gravity may not
+    /// pull it now ([`Self::has_gravity`]).
+    #[doc(alias = "Entity::getGravity")]
+    pub fn gravity(&self) -> f64 {
+        self.kind.physics().gravity
+    }
+
+    /// Whether gravity pulls it.
+    #[doc(alias = "Entity::hasGravity")]
+    pub fn has_gravity(&self) -> bool {
+        self.gravity
     }
 
     /// Its health.
@@ -1079,23 +1197,56 @@ impl Entity {
         self.health
     }
 
-    /// The health it starts with: its kind's, or a custom type's own.
-    #[doc(alias = "Entity::getMaxHealth")]
-    #[doc(alias = "Living::getMaxHealth")]
-    pub fn max_health(&self) -> f64 {
-        self.kind.max_health()
-    }
-
     /// Whether it lives: health above 0 and, for an NPC, not dying.
     #[doc(alias = "Entity::isAlive")]
     pub fn is_alive(&self) -> bool {
         self.health > 0.0 && !matches!(&self.kind, Kind::Npc(c) if c.dead_ticks.is_some())
     }
 
-    /// Ticks it keeps burning.
-    #[doc(alias = "Entity::getFireTicks")]
-    pub fn fire_ticks(&self) -> u16 {
-        self.fire_ticks.cast_unsigned()
+    /// Whether it is a baby.
+    /// A villager or a zombie is one if [`Mut::set_baby`] made it so; false for every other kind.
+    #[doc(alias = "entity\\Ageable")]
+    #[doc(alias = "entity\\Ageable::isBaby")]
+    #[doc(alias = "Villager::isBaby")]
+    pub fn is_baby(&self) -> bool {
+        self.kind.is_baby()
+    }
+
+    /// Whether it is a critical arrow (more damage, a trail).
+    #[doc(alias = "entity\\projectile\\Arrow::isCritical")]
+    pub fn is_critical(&self) -> bool {
+        matches!(arrow(&self.kind), Some(a) if a.critical)
+    }
+
+    /// Whether fire and lava leave it alone (netherite items, clouds, end crystals).
+    #[doc(alias = "Entity::isFireProof")]
+    pub fn is_fire_proof(&self) -> bool {
+        self.kind.is_fire_proof()
+    }
+
+    /// Whether clients do not draw it.
+    #[doc(alias = "Entity::isInvisible")]
+    pub fn is_invisible(&self) -> bool {
+        self.invisible
+    }
+
+    /// Whether an NPC takes no damage but the void's.
+    /// Villager and human NPCs spawn so, zombies and custom entities do not. It is false for
+    /// every other kind, whatever it takes ([`Mut::attack`] says which).
+    pub fn is_invulnerable(&self) -> bool {
+        matches!(&self.kind, Kind::Npc(c) if c.invulnerable)
+    }
+
+    /// Whether the name tag always shows.
+    #[doc(alias = "Entity::isNameTagAlwaysVisible")]
+    pub fn is_name_tag_always_visible(&self) -> bool {
+        self.name_tag_always_visible
+    }
+
+    /// Whether the name tag shows when a player looks at it.
+    #[doc(alias = "Entity::isNameTagVisible")]
+    pub fn is_name_tag_visible(&self) -> bool {
+        self.name_tag_visible
     }
 
     /// Whether it burns.
@@ -1108,80 +1259,6 @@ impl Entity {
     #[doc(alias = "Entity::isOnGround")]
     pub fn is_on_ground(&self) -> bool {
         self.body.on_ground
-    }
-
-    /// Blocks fallen since it last stood on something.
-    #[doc(alias = "Entity::getFallDistance")]
-    pub fn fall_distance(&self) -> f64 {
-        self.body.fall_distance
-    }
-
-    /// Whether fire and lava leave it alone (netherite items, clouds, end crystals).
-    #[doc(alias = "Entity::isFireProof")]
-    pub fn is_fire_proof(&self) -> bool {
-        self.kind.is_fire_proof()
-    }
-
-    /// Its name tag; a human NPC's is its name. Empty without one.
-    #[doc(alias = "Entity::getNameTag")]
-    pub fn name_tag(&self) -> &str {
-        &self.name_tag
-    }
-
-    /// Whether the name tag shows when a player looks at it.
-    #[doc(alias = "Entity::isNameTagVisible")]
-    pub fn is_name_tag_visible(&self) -> bool {
-        self.name_tag_visible
-    }
-
-    /// Whether the name tag always shows.
-    #[doc(alias = "Entity::isNameTagAlwaysVisible")]
-    pub fn is_name_tag_always_visible(&self) -> bool {
-        self.name_tag_always_visible
-    }
-
-    /// The size multiplier of its box and model (1 normally).
-    #[doc(alias = "Entity::getScale")]
-    pub fn scale(&self) -> f64 {
-        self.scale
-    }
-
-    /// Whether clients do not draw it.
-    #[doc(alias = "Entity::isInvisible")]
-    pub fn is_invisible(&self) -> bool {
-        self.invisible
-    }
-
-    /// Whether gravity pulls it.
-    #[doc(alias = "Entity::hasGravity")]
-    pub fn has_gravity(&self) -> bool {
-        self.gravity
-    }
-
-    /// Whether it is saved with its chunk; one that is not goes when its chunk unloads.
-    #[doc(alias = "Entity::canSaveWithChunk")]
-    pub fn can_save_with_chunk(&self) -> bool {
-        self.saved
-    }
-
-    /// Whether it blocks placing a block in its box.
-    /// Falling blocks, primed TNT, living NPCs and end crystals do.
-    #[doc(alias = "Entity::canBeCollidedWith")]
-    pub fn can_be_collided_with(&self) -> bool {
-        self.is_obstacle()
-    }
-
-    /// Whether an NPC takes no damage but the void's.
-    /// Villager and human NPCs spawn so, zombies and custom entities do not. It is false for
-    /// every other kind, whatever it takes ([`Mut::attack`] says which).
-    pub fn is_invulnerable(&self) -> bool {
-        matches!(&self.kind, Kind::Npc(c) if c.invulnerable)
-    }
-
-    /// The players it was sent to, in `Id` order.
-    #[doc(alias = "Entity::getViewers")]
-    pub fn viewers(&self) -> impl Iterator<Item = player::Id> + '_ {
-        self.viewers.iter().map(|&s| player::Id::new(s))
     }
 
     /// A dropped item's stack, or the trident item a thrown trident holds.
@@ -1199,196 +1276,26 @@ impl Entity {
         }
     }
 
-    /// A dropped item's ticks until a player may pick it up; -1 never.
-    #[doc(alias = "ItemEntity::getPickupDelay")]
-    pub fn pickup_delay_ticks(&self) -> Option<i16> {
+    /// The age in ticks at which a firework rocket bursts.
+    #[doc(alias = "entity\\object\\FireworkRocket::getMaxFlightTimeTicks")]
+    pub fn max_flight_time_ticks(&self) -> Option<u32> {
         match &self.kind {
-            Kind::Item(item) => Some(item.pickup_delay),
+            Kind::Firework(f) => Some(f.max_flight),
             _ => None,
         }
     }
 
-    /// A dropped item's or orb's ticks until it disappears; -1 never.
-    #[doc(alias = "ItemEntity::getDespawnDelay")]
-    #[doc(alias = "ExperienceOrb::getDespawnDelay")]
-    pub fn despawn_delay_ticks(&self) -> Option<i32> {
-        match &self.kind {
-            Kind::Item(item) => Some(item.despawn_delay),
-            Kind::XpOrb(orb) => Some(orb.despawn_delay),
-            _ => None,
-        }
+    /// The health it starts with: its kind's, or a custom type's own.
+    #[doc(alias = "Entity::getMaxHealth")]
+    #[doc(alias = "Living::getMaxHealth")]
+    pub fn max_health(&self) -> f64 {
+        self.kind.max_health()
     }
 
-    /// A dropped item's owner (a player name, saved; empty without one).
-    #[doc(alias = "ItemEntity::getOwner")]
-    pub fn owner(&self) -> Option<&str> {
-        match &self.kind {
-            Kind::Item(item) => Some(&item.owner),
-            _ => None,
-        }
-    }
-
-    /// Who threw a dropped item (a player name, saved; empty without one).
-    #[doc(alias = "ItemEntity::getThrower")]
-    pub fn thrower(&self) -> Option<&str> {
-        match &self.kind {
-            Kind::Item(item) => Some(&item.thrower),
-            _ => None,
-        }
-    }
-
-    /// An orb's xp points.
-    #[doc(alias = "ExperienceOrb::getXpValue")]
-    pub fn xp_value(&self) -> Option<u16> {
-        match &self.kind {
-            Kind::XpOrb(orb) => Some(orb.value),
-            _ => None,
-        }
-    }
-
-    /// The player an orb follows.
-    #[doc(alias = "ExperienceOrb::getTargetPlayer")]
-    #[doc(alias = "ExperienceOrb::hasTargetPlayer")]
-    pub fn target_player(&self) -> Option<player::Id> {
-        match &self.kind {
-            Kind::XpOrb(orb) => orb.target.map(player::Id::new),
-            _ => None,
-        }
-    }
-
-    /// The item a player gets who picks it with a middle click.
-    /// It is an end crystal, the block of a falling block or primed TNT, a painting, or the spawn
-    /// egg of a villager or a zombie; `None` for the other kinds.
-    #[doc(alias = "Entity::getPickedItem")]
-    #[doc(alias = "entity\\object\\EndCrystal::getPickedItem")]
-    #[doc(alias = "FallingBlock::getPickedItem")]
-    #[doc(alias = "Painting::getPickedItem")]
-    #[doc(alias = "PrimedTNT::getPickedItem")]
-    #[doc(alias = "Villager::getPickedItem")]
-    #[doc(alias = "Zombie::getPickedItem")]
-    pub fn picked_item(&self) -> Option<Stack> {
-        super::pick::picked_item(&self.kind)
-    }
-
-    /// The block a falling block is.
-    #[doc(alias = "FallingBlock::getBlock")]
-    pub fn falling_block(&self) -> Option<block::State> {
-        match &self.kind {
-            Kind::FallingBlock(f) => Some(f.block),
-            _ => None,
-        }
-    }
-
-    /// Primed TNT's ticks until it explodes.
-    #[doc(alias = "PrimedTNT::getFuse")]
-    pub fn fuse_ticks(&self) -> Option<u16> {
-        match &self.kind {
-            Kind::Tnt(t) => Some(t.fuse),
-            _ => None,
-        }
-    }
-
-    /// Whether it is underwater TNT.
-    #[doc(alias = "PrimedTNT::worksUnderwater")]
-    pub fn works_underwater(&self) -> bool {
-        matches!(&self.kind, Kind::Tnt(t) if t.underwater)
-    }
-
-    /// A projectile's base damage.
-    #[doc(alias = "Projectile::getBaseDamage")]
-    pub fn base_damage(&self) -> Option<f64> {
-        match &self.kind {
-            Kind::Projectile(p) => Some(p.damage),
-            _ => None,
-        }
-    }
-
-    /// The player who shot or threw a projectile or launched a firework rocket.
-    /// It is `None` once the player has left the server.
-    #[doc(alias = "Entity::getOwningEntity")]
-    #[doc(alias = "Entity::getOwningEntityId")]
-    pub fn owning_player(&self) -> Option<player::Id> {
-        match &self.kind {
-            Kind::Projectile(p) => p.owner.map(player::Id::new),
-            Kind::Firework(f) => f.owner.map(player::Id::new),
-            _ => None,
-        }
-    }
-
-    /// Whether it is a critical arrow (more damage, a trail).
-    #[doc(alias = "entity\\projectile\\Arrow::isCritical")]
-    pub fn is_critical(&self) -> bool {
-        matches!(arrow(&self.kind), Some(a) if a.critical)
-    }
-
-    /// Who may pick up an arrow once stuck.
-    #[doc(alias = "entity\\projectile\\Arrow::getPickupMode")]
-    pub fn pickup_mode(&self) -> Option<ArrowPickup> {
-        arrow(&self.kind).map(|a| a.pickup)
-    }
-
-    /// An arrow's Punch level.
-    #[doc(alias = "entity\\projectile\\Arrow::getPunchKnockback")]
-    pub fn punch_knockback(&self) -> Option<u8> {
-        arrow(&self.kind).map(|a| a.punch)
-    }
-
-    /// A thrown potion's type.
-    #[doc(alias = "entity\\projectile\\SplashPotion::getPotionType")]
-    pub fn potion(&self) -> Option<Potion> {
-        match &self.kind {
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { potion, .. },
-                ..
-            }) => Some(*potion),
-            _ => None,
-        }
-    }
-
-    /// Whether a thrown potion leaves a cloud.
-    #[doc(alias = "entity\\projectile\\SplashPotion::willLinger")]
-    pub fn will_linger(&self) -> bool {
-        matches!(
-            &self.kind,
-            Kind::Projectile(Projectile {
-                shot: Shot::Potion { linger: true, .. },
-                ..
-            })
-        )
-    }
-
-    /// A cloud's radius, in blocks.
-    #[doc(alias = "AreaEffectCloud::getRadius")]
-    pub fn cloud_radius(&self) -> Option<f64> {
-        match &self.kind {
-            Kind::Cloud(c) => Some(c.radius),
-            _ => None,
-        }
-    }
-
-    /// A villager NPC's profession (the actor variant, such as 1 for a farmer).
-    #[doc(alias = "Villager::getProfession")]
-    pub fn profession(&self) -> Option<u8> {
-        match &self.kind {
-            Kind::Npc(Character {
-                form: Form::Villager { profession, .. },
-                ..
-            }) => Some(*profession),
-            _ => None,
-        }
-    }
-
-    /// A human NPC's skin; `None` for the default skin and for other kinds.
-    /// It is fixed when the NPC is spawned ([`Context::spawn_human`]); to change it, remove the
-    /// NPC and spawn another.
-    pub fn skin(&self) -> Option<&Skin> {
-        match &self.kind {
-            Kind::Npc(Character {
-                form: Form::Human { skin, .. },
-                ..
-            }) => skin.as_deref(),
-            _ => None,
-        }
+    /// Its motion, in blocks per tick.
+    #[doc(alias = "Entity::getMotion")]
+    pub fn motion(&self) -> Vec3 {
+        self.body.motion
     }
 
     /// The name of an NPC, or `None` for kinds that do not live.
@@ -1408,44 +1315,36 @@ impl Entity {
         }
     }
 
-    /// Whether it is a baby.
-    /// A villager or a zombie is one if [`Mut::set_baby`] made it so; false for every other kind.
-    #[doc(alias = "entity\\Ageable")]
-    #[doc(alias = "entity\\Ageable::isBaby")]
-    #[doc(alias = "Villager::isBaby")]
-    pub fn is_baby(&self) -> bool {
-        self.kind.is_baby()
+    /// Its name tag; a human NPC's is its name. Empty without one.
+    #[doc(alias = "Entity::getNameTag")]
+    pub fn name_tag(&self) -> &str {
+        &self.name_tag
     }
 
-    /// The downward acceleration its kind falls with, in blocks per tick².
-    /// It is per kind: 0.04 for items, 0.05 for arrows, 0.03 for thrown items... Gravity may not
-    /// pull it now ([`Self::has_gravity`]).
-    #[doc(alias = "Entity::getGravity")]
-    pub fn gravity(&self) -> f64 {
-        self.kind.physics().gravity
+    /// The Bedrock actor type clients draw, such as `minecraft:item`.
+    #[doc(alias = "Entity::getNetworkTypeId")]
+    #[doc(alias = "Zombie::getNetworkTypeId")]
+    pub fn network_type(&self) -> &str {
+        self.kind.identifier()
     }
 
-    /// How high it steps up blocks while moving (0 for every kind).
-    #[doc(alias = "Entity::getStepHeight")]
-    #[expect(
-        clippy::unused_self,
-        reason = "consistency: an entity's value, read like its other physics getters"
-    )]
-    pub fn step_height(&self) -> f64 {
-        Self::STEP_HEIGHT
-    }
-
-    /// A thrown potion's effects: the potion type's, none for water.
-    #[doc(alias = "entity\\projectile\\SplashPotion::getPotionEffects")]
-    pub fn potion_effects(&self) -> Option<&'static [Instance]> {
-        self.potion().map(Potion::effects)
-    }
-
-    /// A painting's picture.
-    #[doc(alias = "Painting::getMotive")]
-    pub fn painting_motive(&self) -> Option<PaintingMotive> {
+    /// A dropped item's owner (a player name, saved; empty without one).
+    #[doc(alias = "ItemEntity::getOwner")]
+    pub fn owner(&self) -> Option<&str> {
         match &self.kind {
-            Kind::Painting(p) => Some(p.motive),
+            Kind::Item(item) => Some(&item.owner),
+            _ => None,
+        }
+    }
+
+    /// The player who shot or threw a projectile or launched a firework rocket.
+    /// It is `None` once the player has left the server.
+    #[doc(alias = "Entity::getOwningEntity")]
+    #[doc(alias = "Entity::getOwningEntityId")]
+    pub fn owning_player(&self) -> Option<player::Id> {
+        match &self.kind {
+            Kind::Projectile(p) => p.owner.map(player::Id::new),
+            Kind::Firework(f) => f.owner.map(player::Id::new),
             _ => None,
         }
     }
@@ -1460,96 +1359,198 @@ impl Entity {
         }
     }
 
+    /// A painting's picture.
+    #[doc(alias = "Painting::getMotive")]
+    pub fn painting_motive(&self) -> Option<PaintingMotive> {
+        match &self.kind {
+            Kind::Painting(p) => Some(p.motive),
+            _ => None,
+        }
+    }
+
+    /// The item a player gets who picks it with a middle click.
+    /// It is an end crystal, the block of a falling block or primed TNT, a painting, or the spawn
+    /// egg of a villager or a zombie; `None` for the other kinds.
+    #[doc(alias = "Entity::getPickedItem")]
+    #[doc(alias = "entity\\object\\EndCrystal::getPickedItem")]
+    #[doc(alias = "FallingBlock::getPickedItem")]
+    #[doc(alias = "Painting::getPickedItem")]
+    #[doc(alias = "PrimedTNT::getPickedItem")]
+    #[doc(alias = "Villager::getPickedItem")]
+    #[doc(alias = "Zombie::getPickedItem")]
+    pub fn picked_item(&self) -> Option<Stack> {
+        super::pick::picked_item(&self.kind)
+    }
+
+    /// A dropped item's ticks until a player may pick it up; -1 never.
+    #[doc(alias = "ItemEntity::getPickupDelay")]
+    pub fn pickup_delay_ticks(&self) -> Option<i16> {
+        match &self.kind {
+            Kind::Item(item) => Some(item.pickup_delay),
+            _ => None,
+        }
+    }
+
+    /// Who may pick up an arrow once stuck.
+    #[doc(alias = "entity\\projectile\\Arrow::getPickupMode")]
+    pub fn pickup_mode(&self) -> Option<ArrowPickup> {
+        arrow(&self.kind).map(|a| a.pickup)
+    }
+
+    /// Its pitch in degrees (negative is up).
+    #[doc(alias = "Location::getPitch")]
+    pub fn pitch(&self) -> f64 {
+        self.pitch
+    }
+
+    /// Where it is: the centre of the bottom of its box.
+    #[doc(alias = "Entity::getPosition")]
+    #[doc(alias = "Entity::getLocation")]
+    pub fn position(&self) -> Vec3 {
+        self.body.position
+    }
+
+    /// A thrown potion's type.
+    #[doc(alias = "entity\\projectile\\SplashPotion::getPotionType")]
+    pub fn potion(&self) -> Option<Potion> {
+        match &self.kind {
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { potion, .. },
+                ..
+            }) => Some(*potion),
+            _ => None,
+        }
+    }
+
+    /// A thrown potion's effects: the potion type's, none for water.
+    #[doc(alias = "entity\\projectile\\SplashPotion::getPotionEffects")]
+    pub fn potion_effects(&self) -> Option<&'static [Instance]> {
+        self.potion().map(Potion::effects)
+    }
+
+    /// A villager NPC's profession (the actor variant, such as 1 for a farmer).
+    #[doc(alias = "Villager::getProfession")]
+    pub fn profession(&self) -> Option<u8> {
+        match &self.kind {
+            Kind::Npc(Character {
+                form: Form::Villager { profession, .. },
+                ..
+            }) => Some(*profession),
+            _ => None,
+        }
+    }
+
+    /// An arrow's Punch level.
+    #[doc(alias = "entity\\projectile\\Arrow::getPunchKnockback")]
+    pub fn punch_knockback(&self) -> Option<u8> {
+        arrow(&self.kind).map(|a| a.punch)
+    }
+
+    /// The runtime ID clients know it by, or `None` before it has one.
+    /// An entity whose chunk loaded this tick gets one at the next entity tick.
+    #[doc(alias = "Entity::getId")]
+    pub fn runtime_id(&self) -> Option<u64> {
+        (self.runtime_id != 0).then_some(self.runtime_id)
+    }
+
+    /// The size multiplier of its box and model (1 normally).
+    #[doc(alias = "Entity::getScale")]
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+
     /// Whether an end crystal shows its bedrock base (a placed one does not).
     #[doc(alias = "entity\\object\\EndCrystal::showBase")]
     pub fn shows_base(&self) -> bool {
         matches!(&self.kind, Kind::EndCrystal(c) if c.show_base)
     }
 
-    /// The block an end crystal's beam points at, if any.
-    #[doc(alias = "entity\\object\\EndCrystal::getBeamTarget")]
-    pub fn beam_target(&self) -> Option<BlockPos> {
+    /// A human NPC's skin; `None` for the default skin and for other kinds.
+    /// It is fixed when the NPC is spawned ([`Context::spawn_human`]); to change it, remove the
+    /// NPC and spawn another.
+    pub fn skin(&self) -> Option<&Skin> {
         match &self.kind {
-            Kind::EndCrystal(c) => c.beam_target,
+            Kind::Npc(Character {
+                form: Form::Human { skin, .. },
+                ..
+            }) => skin.as_deref(),
             _ => None,
         }
     }
 
-    /// A firework rocket's explosions, as a firework item's `Explosions` holds them.
-    /// They are compounds of `FireworkType`, `FireworkColor`, `FireworkFade`, `FireworkFlicker`
-    /// and `FireworkTrail`.
-    #[doc(alias = "entity\\object\\FireworkRocket::getExplosions")]
-    pub fn firework_explosions(&self) -> Option<&[Compound]> {
+    /// How high it steps up blocks while moving (0 for every kind).
+    #[doc(alias = "Entity::getStepHeight")]
+    #[expect(
+        clippy::unused_self,
+        reason = "consistency: an entity's value, read like its other physics getters"
+    )]
+    pub fn step_height(&self) -> f64 {
+        Self::STEP_HEIGHT
+    }
+
+    /// The player an orb follows.
+    #[doc(alias = "ExperienceOrb::getTargetPlayer")]
+    #[doc(alias = "ExperienceOrb::hasTargetPlayer")]
+    pub fn target_player(&self) -> Option<player::Id> {
         match &self.kind {
-            Kind::Firework(f) => Some(&f.explosions),
+            Kind::XpOrb(orb) => orb.target.map(player::Id::new),
             _ => None,
         }
     }
 
-    /// The age in ticks at which a firework rocket bursts.
-    #[doc(alias = "entity\\object\\FireworkRocket::getMaxFlightTimeTicks")]
-    pub fn max_flight_time_ticks(&self) -> Option<u32> {
+    /// Who threw a dropped item (a player name, saved; empty without one).
+    #[doc(alias = "ItemEntity::getThrower")]
+    pub fn thrower(&self) -> Option<&str> {
         match &self.kind {
-            Kind::Firework(f) => Some(f.max_flight),
+            Kind::Item(item) => Some(&item.thrower),
             _ => None,
         }
     }
 
-    /// A cloud's effects.
-    /// Each entity in it gets them for a quarter of their duration, instant ones at half
-    /// strength.
-    #[doc(alias = "AreaEffectCloud::getEffects")]
-    pub fn cloud_effects(&self) -> Option<&[Instance]> {
-        self.cloud().map(|c| c.effects.as_slice())
+    /// The players it was sent to, in `Id` order.
+    #[doc(alias = "Entity::getViewers")]
+    pub fn viewers(&self) -> impl Iterator<Item = player::Id> + '_ {
+        self.viewers.iter().map(|&s| player::Id::new(s))
     }
 
-    /// A cloud's ticks since it appeared.
-    #[doc(alias = "AreaEffectCloud::getAge")]
-    pub fn cloud_age_ticks(&self) -> Option<u32> {
-        self.cloud().map(|c| c.age)
+    /// Whether a thrown potion leaves a cloud.
+    #[doc(alias = "entity\\projectile\\SplashPotion::willLinger")]
+    pub fn will_linger(&self) -> bool {
+        matches!(
+            &self.kind,
+            Kind::Projectile(Projectile {
+                shot: Shot::Potion { linger: true, .. },
+                ..
+            })
+        )
     }
 
-    /// The age at which a cloud goes.
-    #[doc(alias = "AreaEffectCloud::getMaxAge")]
-    pub fn cloud_max_age_ticks(&self) -> Option<i32> {
-        self.cloud().map(|c| c.max_age)
+    /// Whether it is underwater TNT.
+    #[doc(alias = "PrimedTNT::worksUnderwater")]
+    pub fn works_underwater(&self) -> bool {
+        matches!(&self.kind, Kind::Tnt(t) if t.underwater)
     }
 
-    /// The change of a cloud's maximum age for each entity it affects.
-    #[doc(alias = "AreaEffectCloud::getMaxAgeChangeOnUse")]
-    pub fn cloud_max_age_change_on_use_ticks(&self) -> Option<i32> {
-        self.cloud().map(|c| c.max_age_on_use)
+    /// The world it is in.
+    #[doc(alias = "Entity::getWorld")]
+    #[doc(alias = "Position::getWorld")]
+    pub fn world(&self) -> world::Id {
+        world::Id::of(self.world)
     }
 
-    /// The ticks before a cloud affects the same entity again.
-    #[doc(alias = "AreaEffectCloud::getReapplicationDelay")]
-    pub fn cloud_reapplication_delay_ticks(&self) -> Option<i32> {
-        self.cloud().map(|c| c.reapplication_delay)
+    /// An orb's xp points.
+    #[doc(alias = "ExperienceOrb::getXpValue")]
+    pub fn xp_value(&self) -> Option<u16> {
+        match &self.kind {
+            Kind::XpOrb(orb) => Some(orb.value),
+            _ => None,
+        }
     }
 
-    /// The radius a cloud started with, in blocks.
-    #[doc(alias = "AreaEffectCloud::getInitialRadius")]
-    pub fn cloud_initial_radius(&self) -> Option<f64> {
-        self.cloud().map(|c| c.initial_radius)
-    }
-
-    /// The change of a cloud's radius when a bottle takes from it.
-    /// Anchor keeps it for the saved form: it has no dragon's breath.
-    #[doc(alias = "AreaEffectCloud::getRadiusChangeOnPickup")]
-    pub fn cloud_radius_change_on_pickup(&self) -> Option<f64> {
-        self.cloud().map(|c| c.radius_on_pickup)
-    }
-
-    /// The change of a cloud's radius for each entity it affects.
-    #[doc(alias = "AreaEffectCloud::getRadiusChangeOnUse")]
-    pub fn cloud_radius_change_on_use(&self) -> Option<f64> {
-        self.cloud().map(|c| c.radius_on_use)
-    }
-
-    /// The change of a cloud's radius per tick.
-    #[doc(alias = "AreaEffectCloud::getRadiusChangePerTick")]
-    pub fn cloud_radius_change_per_tick(&self) -> Option<f64> {
-        self.cloud().map(|c| c.radius_per_tick)
+    /// Its yaw in degrees.
+    #[doc(alias = "Location::getYaw")]
+    pub fn yaw(&self) -> f64 {
+        self.yaw
     }
 
     /// A cloud's own data.
@@ -1562,25 +1563,33 @@ impl Entity {
 }
 
 impl Context<'_> {
-    /// The entity `id`, while it exists (removed, despawned and unloaded entities are gone).
-    pub fn entity(&self, id: Id) -> Option<&Entity> {
-        self.state.rules.entities.get(id).filter(|e| !e.flagged)
+    /// Whether a painting of `motive` can hang in the block `pos` of `world`.
+    /// It hangs on the wall behind `facing`.
+    /// Every block it covers must be loaded and not solid with a solid block behind it, and no
+    /// other painting may be there. False for a world the server does not have or an up or down
+    /// facing.
+    #[doc(alias = "Painting::canFit")]
+    pub fn can_hang_painting(
+        &self,
+        world: world::Id,
+        pos: BlockPos,
+        facing: Face,
+        motive: PaintingMotive,
+    ) -> bool {
+        index(self.state, world)
+            .is_some_and(|w| object::can_hang(self.state, w, pos, facing, motive))
     }
 
-    /// The entity clients know by `runtime_id` (an index lookup; players are not entities here).
-    #[doc(alias = "WorldManager::findEntity")]
-    #[doc(alias = "World::getEntity")]
-    pub fn find_entity(&self, runtime_id: u64) -> Option<Id> {
-        super::find(self.state, runtime_id).filter(|&id| self.entity(id).is_some())
-    }
-
-    /// The entities of `world` in `Id` order (none for a world the server does not have).
-    /// It visits every slot of the store, so a rule that needs the entities of a place asks
-    /// [`Self::entities_in`] instead.
-    #[doc(alias = "World::getEntities")]
-    pub fn entities(&self, world: world::Id) -> impl Iterator<Item = (Id, &Entity)> + '_ {
-        let world = index(self.state, world).unwrap_or(usize::MAX);
-        self.state.rules.entities.of_world(world)
+    /// Whether the player `viewer` may see the player `target`.
+    /// It may if `target` is not hidden from it.
+    #[doc(alias = "Player::canSee")]
+    pub fn can_see(&self, viewer: player::Id, target: player::Id) -> bool {
+        !self
+            .state
+            .rules
+            .entities
+            .hidden
+            .contains(&(viewer.session(), target.session()))
     }
 
     /// The entities in chunk `chunk` of `world`, in `Id` order.
@@ -1600,26 +1609,25 @@ impl Context<'_> {
             .filter_map(|&id| entities.get(id).filter(|e| !e.flagged).map(|e| (id, e)))
     }
 
-    /// Calls `visit` with each entity of `world` whose box overlaps `area`, in chunk then `Id`
-    /// order, through the chunk index.
-    /// It visits none for a world the server does not have or an area that is not finite. It
-    /// takes a callback, not a list, so that a lookup per skill or per tick allocates nothing
-    /// (`visit` cannot change the store meanwhile).
-    #[doc(alias = "World::getNearbyEntities")]
-    #[doc(alias = "World::getCollidingEntities")]
-    pub fn entities_in(&self, world: world::Id, area: Aabb, mut visit: impl FnMut(Id, &Entity)) {
-        let Some(w) = index(self.state, world) else {
-            return;
-        };
-        if !(area.min.is_finite() && area.max.is_finite()) {
-            return;
-        }
-        let entities = &self.state.rules.entities;
-        entities.each_nearby(w, area, |id| {
-            if let Some(e) = entities.get(id) {
-                visit(id, e);
-            }
-        });
+    /// The entities of `world` in `Id` order (none for a world the server does not have).
+    /// It visits every slot of the store, so a rule that needs the entities of a place asks
+    /// [`Self::entities_in`] instead.
+    #[doc(alias = "World::getEntities")]
+    pub fn entities(&self, world: world::Id) -> impl Iterator<Item = (Id, &Entity)> + '_ {
+        let world = index(self.state, world).unwrap_or(usize::MAX);
+        self.state.rules.entities.of_world(world)
+    }
+
+    /// The entity clients know by `runtime_id` (an index lookup; players are not entities here).
+    #[doc(alias = "WorldManager::findEntity")]
+    #[doc(alias = "World::getEntity")]
+    pub fn find_entity(&self, runtime_id: u64) -> Option<Id> {
+        super::find(self.state, runtime_id).filter(|&id| self.entity(id).is_some())
+    }
+
+    /// The entity `id`, while it exists (removed, despawned and unloaded entities are gone).
+    pub fn entity(&self, id: Id) -> Option<&Entity> {
+        self.state.rules.entities.get(id).filter(|e| !e.flagged)
     }
 
     /// The nearest entity of `world` within `max_distance` of `pos` that `filter` accepts.
@@ -1651,59 +1659,36 @@ impl Context<'_> {
         best.map(|(_, id)| id)
     }
 
-    /// Whether a painting of `motive` can hang in the block `pos` of `world`.
-    /// It hangs on the wall behind `facing`.
-    /// Every block it covers must be loaded and not solid with a solid block behind it, and no
-    /// other painting may be there. False for a world the server does not have or an up or down
-    /// facing.
-    #[doc(alias = "Painting::canFit")]
-    pub fn can_hang_painting(
-        &self,
-        world: world::Id,
-        pos: BlockPos,
-        facing: Face,
-        motive: PaintingMotive,
-    ) -> bool {
-        index(self.state, world)
-            .is_some_and(|w| object::can_hang(self.state, w, pos, facing, motive))
-    }
-
-    /// Whether the player `viewer` may see the player `target`.
-    /// It may if `target` is not hidden from it.
-    #[doc(alias = "Player::canSee")]
-    pub fn can_see(&self, viewer: player::Id, target: player::Id) -> bool {
-        !self
-            .state
-            .rules
-            .entities
-            .hidden
-            .contains(&(viewer.session(), target.session()))
-    }
-
-    /// The entity `id`, to change it.
-    pub fn entity_mut(&mut self, id: Id) -> Option<Mut<'_>> {
-        let delay = item_despawn_delay_ticks(self.state);
-        let State {
-            rules,
-            worlds,
-            players,
-            ..
-        } = &mut *self.state;
-        rules.entities.get(id).filter(|e| !e.flagged)?;
-        Some(Mut {
-            id,
-            entities: &mut rules.entities,
-            worlds,
-            players,
-            item_despawn_delay_ticks: delay,
-        })
+    /// Calls `visit` with each entity of `world` whose box overlaps `area`, in chunk then `Id`
+    /// order, through the chunk index.
+    /// It visits none for a world the server does not have or an area that is not finite. It
+    /// takes a callback, not a list, so that a lookup per skill or per tick allocates nothing
+    /// (`visit` cannot change the store meanwhile).
+    #[doc(alias = "World::getNearbyEntities")]
+    #[doc(alias = "World::getCollidingEntities")]
+    pub fn entities_in(&self, world: world::Id, area: Aabb, mut visit: impl FnMut(Id, &Entity)) {
+        let Some(w) = index(self.state, world) else {
+            return;
+        };
+        if !(area.min.is_finite() && area.max.is_finite()) {
+            return;
+        }
+        let entities = &self.state.rules.entities;
+        entities.each_nearby(w, area, |id| {
+            if let Some(e) = entities.get(id) {
+                visit(id, e);
+            }
+        });
     }
 
     /// Drops `stack` as an item entity at `pos` in `world`.
-    /// It gets `motion`, or a random one for `None`, and a pickup delay of 10 ticks. `Err` gives
-    /// the stack back (as std's `mpsc::SendError` gives its value back, so the items are not
-    /// lost) when it is empty, the world does not exist, `pos` is not finite, outside the world
-    /// border or not loaded, or the world is at its entity limit.
+    /// It gets `motion`, or a random one for `None`, and a pickup delay of 10 ticks.
+    ///
+    /// # Errors
+    ///
+    /// Gives the stack back (as std's `mpsc::SendError` gives its value back, so the items are
+    /// not lost) when it is empty, the world does not exist, `pos` is not finite, outside the
+    /// world border or not loaded, or the world is at its entity limit.
     #[doc(alias = "World::dropItem")]
     pub fn drop_item(
         &mut self,
@@ -1735,27 +1720,139 @@ impl Context<'_> {
         }
     }
 
-    /// Spawns one xp orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
+    /// The entity `id`, to change it.
+    pub fn entity_mut(&mut self, id: Id) -> Option<Mut<'_>> {
+        let delay = item_despawn_delay_ticks(self.state);
+        let State {
+            rules,
+            worlds,
+            players,
+            ..
+        } = &mut *self.state;
+        rules.entities.get(id).filter(|e| !e.flagged)?;
+        Some(Mut {
+            id,
+            entities: &mut rules.entities,
+            worlds,
+            players,
+            item_despawn_delay_ticks: delay,
+        })
+    }
+
+    /// Stops showing the player `target` to the player `viewer`.
+    /// It stays hidden until [`Self::show_player`] or either leaves: `viewer`'s client removes it
+    /// at the end of the tick and is not sent it again. True if `target` is hidden from `viewer`
+    /// now; false if either is not online, they are the same player, or `viewer` hides 1,024
+    /// players already.
+    #[doc(alias = "Player::hidePlayer")]
+    pub fn hide_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
+        if viewer == target || self.player(viewer).is_none() || self.player(target).is_none() {
+            return false;
+        }
+        let (v, t) = (viewer.session(), target.session());
+        let hidden = &mut self.state.rules.entities.hidden;
+        if hidden.contains(&(v, t)) {
+            return true;
+        }
+        if hidden
+            .range((v, SessionId::new(0))..=(v, SessionId::CONSOLE))
+            .count()
+            >= MAX_HIDDEN_PER_PLAYER
+        {
+            return false;
+        }
+        hidden.insert((v, t))
+    }
+
+    /// Launches a firework rocket without explosions from `pos` in `world`.
+    /// It launches as a used rocket item without its `Fireworks` data does: it flies 20 ticks and
+    /// up to 12 more, starting slowly upwards with a little random drift. It has no owner and is
+    /// never saved. Unlike [`Self::spawn_firework_rocket`], which takes its flight time, motion
+    /// and explosions from the caller, the flight and drift are random.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails or with `xp = false` or `xp-orbs = false`.
-    #[doc(alias = "ExperienceOrb::__construct")]
-    pub fn spawn_xp_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Result<Id, Error> {
-        if value == 0 || value > Orb::MAX_VALUE {
-            return Err(Error::OutOfRange);
-        }
-        if !self.state.settings.has_orbs() {
+    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
+        let w = index(self.state, world)
+            .filter(|_| is_valid_position(pos))
+            .ok_or(Error::NotSpawned)?;
+        if !super::can_create(self.state, w, pos) {
             return Err(Error::NotSpawned);
         }
-        let orb = Orb {
-            value,
-            despawn_delay: super::DEFAULT_DESPAWN_DELAY_TICKS,
-            look_for_target: 0,
-            target: None,
+        let seed = self.state.worlds.get(w).map_or(0, World::seed);
+        // Opened once the rocket can be made: it takes this runtime ID, so no two launches share
+        // the stream.
+        let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
+        let mut random = Random::new(seed, self.state.tick, key);
+        let item = (object::DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
+        object::launch(self.state, w, pos, item, None, &mut random).ok_or(Error::NotSpawned)
+    }
+
+    /// Plays `animation` on `actor` for the players who see it.
+    /// A player sees its own too. It is a cosmetic packet like a sound: a player whose outbox is
+    /// nearly full misses it. False if the actor is gone, or is an entity loaded this tick, which
+    /// has no runtime ID.
+    #[doc(alias = "Entity::broadcastAnimation")]
+    #[doc(alias = "Player::broadcastAnimation")]
+    pub fn play_animation(&mut self, actor: Actor, animation: Animation) -> bool {
+        let shown = match actor {
+            Actor::Player(id) => self
+                .player(id)
+                .map(|p| (world::Id::of(p.world), p.position, p.runtime_id)),
+            Actor::Entity(id) => self
+                .entity(id)
+                .map(|e| (e.world(), e.body.position, e.runtime_id)),
         };
-        self.spawn(world, pos, Kind::XpOrb(orb), Vec3::ZERO)
+        match shown {
+            Some((world, at, runtime_id)) if runtime_id != 0 => self
+                .broadcast_packet(world, at, &animation.packet(runtime_id))
+                .is_ok(),
+            _ => false,
+        }
+    }
+
+    /// Shows the player `target` to the player `viewer` again.
+    /// It is sent at the end of the tick if `viewer` sees its chunk. False if it was not hidden.
+    #[doc(alias = "Player::showPlayer")]
+    pub fn show_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
+        self.state
+            .rules
+            .entities
+            .hidden
+            .remove(&(viewer.session(), target.session()))
+    }
+
+    /// Spawns a cloud at `pos` in `world` that gives `effects` (at most 32).
+    /// It has a lingering potion's defaults: radius 3, gone after 600 ticks, shrinking as it is
+    /// used.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for more effects, [`Error::NotSpawned`] where [`Self::drop_item`]
+    /// fails.
+    #[doc(alias = "AreaEffectCloud::__construct")]
+    pub fn spawn_area_effect_cloud(
+        &mut self,
+        world: world::Id,
+        pos: Vec3,
+        effects: &[Instance],
+    ) -> Result<Id> {
+        if effects.len() > Cloud::MAX_EFFECTS {
+            return Err(Error::OutOfRange);
+        }
+        let kind = Kind::Cloud(projectile::new_cloud(effects));
+        self.spawn(world, pos, kind, Vec3::ZERO)
+    }
+
+    /// Spawns an end crystal at `pos` (the middle of its bottom) in `world`.
+    /// It has no base and no beam.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    pub fn spawn_end_crystal(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
+        self.spawn(world, pos, object::crystal(), Vec3::ZERO)
     }
 
     /// Spawns a falling block of `block` at `pos` in `world`.
@@ -1771,27 +1868,87 @@ impl Context<'_> {
         world: world::Id,
         pos: Vec3,
         block: block::State,
-    ) -> Result<Id, Error> {
+    ) -> Result<Id> {
         let kind = Kind::FallingBlock(Falling { block });
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse_ticks` ticks.
-    /// The fuse is at most 32,767.
+    /// Launches a firework rocket from `pos` in `world` with `motion` in blocks per tick.
+    /// It bursts with `explosions` (see [`Entity::firework_explosions`]) at the age of
+    /// `max_flight_time_ticks`; it has no owner and is never saved.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer fuse, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails.
-    pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse_ticks: u16) -> Result<Id, Error> {
-        if fuse_ticks > Tnt::MAX_FUSE {
+    /// [`Error::OutOfRange`] for explosions [`Mut::set_firework_explosions`] refuses or a motion
+    /// that is not finite, [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    #[doc(alias = "entity\\object\\FireworkRocket::__construct")]
+    pub fn spawn_firework_rocket(
+        &mut self,
+        world: world::Id,
+        pos: Vec3,
+        max_flight_time_ticks: u32,
+        explosions: Vec<Compound>,
+        motion: Vec3,
+    ) -> Result<Id> {
+        let explosions = object::checked_explosions(explosions).ok_or(Error::OutOfRange)?;
+        if !motion.is_finite() {
             return Err(Error::OutOfRange);
         }
-        let kind = Kind::Tnt(Tnt {
-            fuse: fuse_ticks,
-            underwater: false,
-        });
-        self.spawn(world, pos, kind, Vec3::ZERO)
+        let flight = object::flight_multiplier(max_flight_time_ticks);
+        let kind = object::firework(max_flight_time_ticks, flight, explosions, None);
+        self.spawn(world, pos, kind, motion)
+    }
+
+    /// Spawns a human NPC at `pos` (its feet) in `world`, named `name`.
+    /// The name is at most [`MAX_NAME_TAG_BYTES`]. The NPC has `skin` or the default skin, and
+    /// its name always showing. Like a villager NPC it is invulnerable
+    /// ([`Mut::set_invulnerable`]) and has no AI. The skin is a [`Skin`] made with `Skin::new`
+    /// (a player's skin is another type with no conversion) and cannot change afterwards.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for a longer name, [`Error::NotSpawned`] where [`Self::drop_item`]
+    /// fails.
+    #[doc(alias = "Human::__construct")]
+    pub fn spawn_human(
+        &mut self,
+        world: world::Id,
+        pos: Vec3,
+        name: &str,
+        skin: Option<Skin>,
+    ) -> Result<Id> {
+        if name.len() > MAX_NAME_TAG_BYTES {
+            return Err(Error::OutOfRange);
+        }
+        let w = index(self.state, world).ok_or(Error::NotSpawned)?;
+        let npc = Npc::Human {
+            name: name.to_owned(),
+            skin,
+        };
+        super::spawn_npc(self.state, w, pos, npc).ok_or(Error::NotSpawned)
+    }
+
+    /// Hangs a painting of `motive` in the block `pos` of `world`, on the wall behind `facing`.
+    /// The facing is north, south, west or east. The painting hangs whether or not it fits there
+    /// (see [`Self::can_hang_painting`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for an up or down facing, [`Error::NotSpawned`] where
+    /// [`Self::drop_item`] fails.
+    #[doc(alias = "Painting::__construct")]
+    pub fn spawn_painting(
+        &mut self,
+        world: world::Id,
+        pos: BlockPos,
+        facing: Face,
+        motive: PaintingMotive,
+    ) -> Result<Id> {
+        if !object::is_horizontal(facing) {
+            return Err(Error::OutOfRange);
+        }
+        let corner = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        self.spawn(world, corner, object::painting(facing, motive), Vec3::ZERO)
     }
 
     /// Launches `projectile` from `pos` in `world` with `motion` in blocks per tick.
@@ -1808,7 +1965,7 @@ impl Context<'_> {
         pos: Vec3,
         projectile: crate::entity::Projectile,
         motion: Vec3,
-    ) -> Result<Id, Error> {
+    ) -> Result<Id> {
         use crate::entity::Projectile as P;
         if !motion.is_finite() {
             return Err(Error::OutOfRange);
@@ -1853,156 +2010,32 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion)
     }
 
-    /// Spawns a human NPC at `pos` (its feet) in `world`, named `name`.
-    /// The name is at most [`MAX_NAME_TAG_BYTES`]. The NPC has `skin` or the default skin, and
-    /// its name always showing. Like a villager NPC it is invulnerable
-    /// ([`Mut::set_invulnerable`]) and has no AI. The skin is a [`Skin`] made with `Skin::new`
-    /// (a player's skin is another type with no conversion) and cannot change afterwards.
+    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse_ticks` ticks.
+    /// The fuse is at most 32,767.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer name, [`Error::NotSpawned`] where [`Self::drop_item`]
+    /// [`Error::OutOfRange`] for a longer fuse, [`Error::NotSpawned`] where [`Self::drop_item`]
     /// fails.
-    #[doc(alias = "Human::__construct")]
-    pub fn spawn_human(
-        &mut self,
-        world: world::Id,
-        pos: Vec3,
-        name: &str,
-        skin: Option<Skin>,
-    ) -> Result<Id, Error> {
-        if name.len() > MAX_NAME_TAG_BYTES {
+    pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse_ticks: u16) -> Result<Id> {
+        if fuse_ticks > Tnt::MAX_FUSE {
             return Err(Error::OutOfRange);
         }
-        let w = index(self.state, world).ok_or(Error::NotSpawned)?;
-        let npc = Npc::Human {
-            name: name.to_owned(),
-            skin,
-        };
-        super::spawn_npc(self.state, w, pos, npc).ok_or(Error::NotSpawned)
-    }
-
-    /// Spawns a zombie at `pos` (its feet) in `world`; it has no AI.
-    /// It stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
-    /// and sometimes an iron ingot, a carrot or a potato, and 5 xp.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
-    pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Result<Id, Error> {
-        let w = index(self.state, world).ok_or(Error::NotSpawned)?;
-        super::spawn_npc(self.state, w, pos, Npc::Zombie).ok_or(Error::NotSpawned)
-    }
-
-    /// Spawns a cloud at `pos` in `world` that gives `effects` (at most 32).
-    /// It has a lingering potion's defaults: radius 3, gone after 600 ticks, shrinking as it is
-    /// used.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for more effects, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails.
-    #[doc(alias = "AreaEffectCloud::__construct")]
-    pub fn spawn_area_effect_cloud(
-        &mut self,
-        world: world::Id,
-        pos: Vec3,
-        effects: &[Instance],
-    ) -> Result<Id, Error> {
-        if effects.len() > Cloud::MAX_EFFECTS {
-            return Err(Error::OutOfRange);
-        }
-        let kind = Kind::Cloud(projectile::new_cloud(effects));
+        let kind = Kind::Tnt(Tnt {
+            fuse: fuse_ticks,
+            underwater: false,
+        });
         self.spawn(world, pos, kind, Vec3::ZERO)
-    }
-
-    /// Hangs a painting of `motive` in the block `pos` of `world`, on the wall behind `facing`.
-    /// The facing is north, south, west or east. The painting hangs whether or not it fits there
-    /// (see [`Self::can_hang_painting`]).
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for an up or down facing, [`Error::NotSpawned`] where
-    /// [`Self::drop_item`] fails.
-    #[doc(alias = "Painting::__construct")]
-    pub fn spawn_painting(
-        &mut self,
-        world: world::Id,
-        pos: BlockPos,
-        facing: Face,
-        motive: PaintingMotive,
-    ) -> Result<Id, Error> {
-        if !object::is_horizontal(facing) {
-            return Err(Error::OutOfRange);
-        }
-        let corner = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-        self.spawn(world, corner, object::painting(facing, motive), Vec3::ZERO)
-    }
-
-    /// Spawns an end crystal at `pos` (the middle of its bottom) in `world`.
-    /// It has no base and no beam.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
-    pub fn spawn_end_crystal(&mut self, world: world::Id, pos: Vec3) -> Result<Id, Error> {
-        self.spawn(world, pos, object::crystal(), Vec3::ZERO)
-    }
-
-    /// Launches a firework rocket from `pos` in `world` with `motion` in blocks per tick.
-    /// It bursts with `explosions` (see [`Entity::firework_explosions`]) at the age of
-    /// `max_flight_ticks`; it has no owner and is never saved.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::OutOfRange`] for explosions [`Mut::set_firework_explosions`] refuses or a motion
-    /// that is not finite, [`Error::NotSpawned`] where [`Self::drop_item`] fails.
-    #[doc(alias = "entity\\object\\FireworkRocket::__construct")]
-    pub fn spawn_firework_rocket(
-        &mut self,
-        world: world::Id,
-        pos: Vec3,
-        max_flight_ticks: u32,
-        explosions: Vec<Compound>,
-        motion: Vec3,
-    ) -> Result<Id, Error> {
-        let explosions = object::checked_explosions(explosions).ok_or(Error::OutOfRange)?;
-        if !motion.is_finite() {
-            return Err(Error::OutOfRange);
-        }
-        let flight = object::flight_multiplier(max_flight_ticks);
-        let kind = object::firework(max_flight_ticks, flight, explosions, None);
-        self.spawn(world, pos, kind, motion)
-    }
-
-    /// Launches a firework rocket without explosions from `pos` in `world`.
-    /// It launches as a used rocket item without its `Fireworks` data does: it flies 20 ticks and
-    /// up to 12 more, starting slowly upwards with a little random drift. It has no owner and is
-    /// never saved.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
-    pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Result<Id, Error> {
-        let w = index(self.state, world)
-            .filter(|_| is_valid_position(pos))
-            .ok_or(Error::NotSpawned)?;
-        if !super::can_create(self.state, w, pos) {
-            return Err(Error::NotSpawned);
-        }
-        let seed = self.state.worlds.get(w).map_or(0, World::seed);
-        // Opened once the rocket can be made: it takes this runtime ID, so no two launches share
-        // the stream.
-        let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
-        let mut random = Random::new(seed, self.state.tick, key);
-        let item = (object::DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
-        object::launch(self.state, w, pos, item, None, &mut random).ok_or(Error::NotSpawned)
     }
 
     /// Throws a trident holding `item` from `pos` in `world` with `motion` in blocks per tick.
     /// Each component of the motion is cut to ±10. The trident has no owner, deals 8 damage and
-    /// is picked up as `item`. `Err` gives `item` back (as [`Self::drop_item`] does) when it is
-    /// empty, the motion is not finite, or where [`Self::drop_item`] fails.
+    /// is picked up as `item`.
+    ///
+    /// # Errors
+    ///
+    /// Gives `item` back (as [`Self::drop_item`] does) when it is empty, the motion is not
+    /// finite, or where [`Self::drop_item`] fails.
     #[doc(alias = "entity\\projectile\\Trident::__construct")]
     pub fn spawn_trident(
         &mut self,
@@ -2029,73 +2062,43 @@ impl Context<'_> {
         self.spawn(world, pos, kind, motion).map_err(|_| back)
     }
 
-    /// Plays `animation` on `actor` for the players who see it.
-    /// A player sees its own too. It is a cosmetic packet like a sound: a player whose outbox is
-    /// nearly full misses it. False if the actor is gone, or is an entity loaded this tick, which
-    /// has no runtime ID.
-    #[doc(alias = "Entity::broadcastAnimation")]
-    #[doc(alias = "Player::broadcastAnimation")]
-    pub fn play_animation(&mut self, actor: Actor, animation: Animation) -> bool {
-        let shown = match actor {
-            Actor::Player(id) => self
-                .player(id)
-                .map(|p| (world::Id::of(p.world), p.position, p.runtime_id)),
-            Actor::Entity(id) => self
-                .entity(id)
-                .map(|e| (e.world(), e.body.position, e.runtime_id)),
+    /// Spawns one xp orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfRange`] for another value, [`Error::NotSpawned`] where [`Self::drop_item`]
+    /// fails or with `xp = false` or `xp-orbs = false`.
+    #[doc(alias = "ExperienceOrb::__construct")]
+    pub fn spawn_xp_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Result<Id> {
+        if value == 0 || value > Orb::MAX_VALUE {
+            return Err(Error::OutOfRange);
+        }
+        if !self.state.settings.has_orbs() {
+            return Err(Error::NotSpawned);
+        }
+        let orb = Orb {
+            value,
+            despawn_delay: super::DEFAULT_DESPAWN_DELAY_TICKS,
+            look_for_target: 0,
+            target: None,
         };
-        match shown {
-            Some((world, at, runtime_id)) if runtime_id != 0 => self
-                .broadcast_packet(world, at, &animation.packet(runtime_id))
-                .is_ok(),
-            _ => false,
-        }
+        self.spawn(world, pos, Kind::XpOrb(orb), Vec3::ZERO)
     }
 
-    /// Stops showing the player `target` to the player `viewer`.
-    /// It stays hidden until [`Self::show_player`] or either leaves: `viewer`'s client removes it
-    /// at the end of the tick and is not sent it again. True if `target` is hidden from `viewer`
-    /// now; false if either is not online, they are the same player, or `viewer` hides 1,024
-    /// players already.
-    #[doc(alias = "Player::hidePlayer")]
-    pub fn hide_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
-        if viewer == target || self.player(viewer).is_none() || self.player(target).is_none() {
-            return false;
-        }
-        let (v, t) = (viewer.session(), target.session());
-        let hidden = &mut self.state.rules.entities.hidden;
-        if hidden.contains(&(v, t)) {
-            return true;
-        }
-        if hidden
-            .range((v, SessionId::new(0))..=(v, SessionId::CONSOLE))
-            .count()
-            >= MAX_HIDDEN_PER_PLAYER
-        {
-            return false;
-        }
-        hidden.insert((v, t))
-    }
-
-    /// Shows the player `target` to the player `viewer` again.
-    /// It is sent at the end of the tick if `viewer` sees its chunk. False if it was not hidden.
-    #[doc(alias = "Player::showPlayer")]
-    pub fn show_player(&mut self, viewer: player::Id, target: player::Id) -> bool {
-        self.state
-            .rules
-            .entities
-            .hidden
-            .remove(&(viewer.session(), target.session()))
+    /// Spawns a zombie at `pos` (its feet) in `world`; it has no AI.
+    /// It stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
+    /// and sometimes an iron ingot, a carrot or a potato, and 5 xp.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
+        let w = index(self.state, world).ok_or(Error::NotSpawned)?;
+        super::spawn_npc(self.state, w, pos, Npc::Zombie).ok_or(Error::NotSpawned)
     }
 
     /// Creates an entity of `kind` at `pos` in `world` with `motion` and no rotation.
-    fn spawn(
-        &mut self,
-        world: world::Id,
-        pos: Vec3,
-        kind: Kind,
-        motion: Vec3,
-    ) -> Result<Id, Error> {
+    fn spawn(&mut self, world: world::Id, pos: Vec3, kind: Kind, motion: Vec3) -> Result<Id> {
         let w = index(self.state, world)
             .filter(|_| is_valid_position(pos))
             .ok_or(Error::NotSpawned)?;

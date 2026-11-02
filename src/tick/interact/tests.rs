@@ -69,6 +69,18 @@ impl Harness {
         Self::with(edit, Listeners::default())
     }
 
+    fn block(&self, pos: BlockPos) -> block::State {
+        self.state.worlds[0].block(pos).unwrap()
+    }
+
+    fn held(&self) -> Stack {
+        self.player().inventory.held().clone()
+    }
+
+    fn player(&self) -> &Player {
+        self.state.players.get(&SessionId::new(1)).unwrap()
+    }
+
     /// [`Harness::new`] with event listeners.
     fn with(edit: impl FnOnce(&mut Config), listeners: Listeners) -> Self {
         let state = new_state(settings(edit), listeners);
@@ -99,27 +111,10 @@ impl Harness {
         h
     }
 
-    fn player(&self) -> &Player {
-        self.state.players.get(&SessionId::new(1)).unwrap()
-    }
-
-    fn player_mut(&mut self) -> &mut Player {
-        self.state.players.get_mut(&SessionId::new(1)).unwrap()
-    }
-
-    /// The next input of session 1.
-    fn input(&mut self, packet: Packet) -> Input {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes).unwrap();
-        self.seq += 1;
-        Input {
-            session: SessionId::new(1),
-            seq: self.seq,
-            kind: InputKind::Packet {
-                packet,
-                size: bytes.len(),
-            },
-        }
+    /// Runs one tick with one auth input of `actions`.
+    fn act(&mut self, actions: Vec<PlayerBlockAction>) {
+        let input = self.auth(actions, None);
+        self.run(vec![input]);
     }
 
     /// A `PlayerAuthInput` at the feet, with block actions and an item interaction.
@@ -148,30 +143,23 @@ impl Harness {
         self.input(Packet::PlayerAuthInput(Box::new(p)))
     }
 
-    /// Runs and delivers one tick of `batch`.
-    fn run(&mut self, mut batch: Vec<Input>) {
-        let mut log = InputLog::default();
-        let mut answers = std::mem::take(&mut self.output.answers);
-        POOL.with(|pool| {
-            step(
-                &mut self.state,
-                &mut batch,
-                &mut answers,
-                pool,
-                &mut self.output,
-                &mut log,
-            );
-        });
-        deliver(&mut self.state, &mut self.output, &mut log);
-        boundary(&mut self.state, &mut self.output, &mut log);
-        let requests = std::mem::take(&mut self.output.requests);
-        self.output.answers = answer(&self.state, requests);
+    fn hold(&mut self, stack: Stack) {
+        inventory::set_held(self.player_mut(), stack);
     }
 
-    /// Runs one tick with one auth input of `actions`.
-    fn act(&mut self, actions: Vec<PlayerBlockAction>) {
-        let input = self.auth(actions, None);
-        self.run(vec![input]);
+    /// The next input of session 1.
+    fn input(&mut self, packet: Packet) -> Input {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes).unwrap();
+        self.seq += 1;
+        Input {
+            session: SessionId::new(1),
+            seq: self.seq,
+            kind: InputKind::Packet {
+                packet,
+                size: bytes.len(),
+            },
+        }
     }
 
     /// Every packet sent to the player since the last call: the delivered ones, then what the
@@ -192,20 +180,32 @@ impl Harness {
         out
     }
 
-    fn block(&self, pos: BlockPos) -> block::State {
-        self.state.worlds[0].block(pos).unwrap()
+    fn player_mut(&mut self) -> &mut Player {
+        self.state.players.get_mut(&SessionId::new(1)).unwrap()
+    }
+
+    /// Runs and delivers one tick of `batch`.
+    fn run(&mut self, mut batch: Vec<Input>) {
+        let mut log = InputLog::default();
+        let mut answers = std::mem::take(&mut self.output.answers);
+        POOL.with(|pool| {
+            step(
+                &mut self.state,
+                &mut batch,
+                &mut answers,
+                pool,
+                &mut self.output,
+                &mut log,
+            );
+        });
+        deliver(&mut self.state, &mut self.output, &mut log);
+        boundary(&mut self.state, &mut self.output, &mut log);
+        let requests = std::mem::take(&mut self.output.requests);
+        self.output.answers = answer(&self.state, requests);
     }
 
     fn set(&mut self, pos: BlockPos, s: block::State) {
         self.state.worlds[0].set_block(pos, s).unwrap();
-    }
-
-    fn hold(&mut self, stack: Stack) {
-        inventory::set_held(self.player_mut(), stack);
-    }
-
-    fn held(&self) -> Stack {
-        self.player().inventory.held().clone()
     }
 }
 
@@ -1108,7 +1108,7 @@ fn signs_keep_their_text() {
     assert_eq!(&lines[..2], ["hello", "world"]);
     assert_eq!(
         (colour, glowing, waxed),
-        (crate::tile::BLACK_TEXT, false, false)
+        (crate::block_entity::BLACK_TEXT, false, false)
     );
     let sent = h.packets();
     assert!(sent.iter().any(|p| matches!(p, Packet::BlockActorData(d)
@@ -1118,7 +1118,7 @@ fn signs_keep_their_text() {
     h.hold(red_dye.clone());
     use_on_target(&mut h);
     assert_eq!(h.held(), red_dye);
-    assert_eq!(sign_at(&h).1, crate::tile::BLACK_TEXT);
+    assert_eq!(sign_at(&h).1, crate::block_entity::BLACK_TEXT);
     assert_eq!(h.player().breaking.sign_editor, Some((0, TARGET)));
 }
 
@@ -1143,12 +1143,12 @@ fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
     };
     let grass = BlockPos::new(5, -61, 5);
     assert!(
-        !cx.open_sign_editor(id, grass, crate::tile::Side::Front),
+        !cx.open_sign_editor(id, grass, crate::block_entity::Side::Front),
         "not a sign"
     );
     let stranger = crate::player::Id::new(SessionId::new(9));
-    assert!(!cx.open_sign_editor(stranger, at, crate::tile::Side::Front));
-    assert!(cx.open_sign_editor(id, at, crate::tile::Side::Back));
+    assert!(!cx.open_sign_editor(stranger, at, crate::block_entity::Side::Front));
+    assert!(cx.open_sign_editor(id, at, crate::block_entity::Side::Back));
     assert_eq!(h.player().breaking.sign_editor, Some((0, at)));
     h.run(Vec::new());
     assert!(h.packets().iter().any(|p| matches!(p, Packet::OpenSign(o)
@@ -1170,7 +1170,7 @@ fn a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens() {
     let mut cx = Context {
         state: &mut h.state,
     };
-    assert!(cx.open_sign_editor(id, TARGET, crate::tile::Side::Front));
+    assert!(cx.open_sign_editor(id, TARGET, crate::block_entity::Side::Front));
     sign_edit(&mut h, "by code");
     assert_eq!(sign_at(&h).0[0], "by code");
     assert!(h.player_mut().kill());
@@ -1178,7 +1178,7 @@ fn a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens() {
     let mut cx = Context {
         state: &mut h.state,
     };
-    assert!(!cx.open_sign_editor(id, TARGET, crate::tile::Side::Front));
+    assert!(!cx.open_sign_editor(id, TARGET, crate::block_entity::Side::Front));
 }
 
 #[test]
@@ -2009,7 +2009,7 @@ fn selecting_a_slot_through_the_api_or_a_pick_stops_eating() {
     let eat = h.auth(Vec::new(), Some(air(&apple)));
     h.run(vec![eat]);
     assert!(h.player().is_using_item());
-    assert!(h.player_mut().set_held_slot(1));
+    h.player_mut().set_held_slot(1).unwrap();
     assert!(!h.player().is_using_item(), "an API hotbar switch");
     let mut click = air(&apple);
     click.hot_bar_slot = 1;

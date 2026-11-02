@@ -622,9 +622,10 @@ impl Batch {
         self.writes.len()
     }
 
-    /// Stores `sealed` (from [`seal`](seal::seal)) under `key`.
-    pub(crate) fn put(&mut self, key: Key, sealed: Vec<u8>) {
-        self.writes.push(Write::Put(key, sealed));
+    /// Deletes the world record and every chunk value the file holds: a world file another world
+    /// takes over.
+    pub(crate) fn clear(&mut self) {
+        self.writes.push(Write::Clear);
     }
 
     /// Deletes the value under `key`, if any.
@@ -638,10 +639,9 @@ impl Batch {
         self.writes.push(Write::DeletePages(chunk, kind, first));
     }
 
-    /// Deletes the world record and every chunk value the file holds: a world file another world
-    /// takes over.
-    pub(crate) fn clear(&mut self) {
-        self.writes.push(Write::Clear);
+    /// Stores `sealed` (from [`seal`](seal::seal)) under `key`.
+    pub(crate) fn put(&mut self, key: Key, sealed: Vec<u8>) {
+        self.writes.push(Write::Put(key, sealed));
     }
 }
 
@@ -712,6 +712,15 @@ pub(crate) struct Start {
 }
 
 impl Start {
+    /// `backup` with a check, as the tests open data files.
+    #[cfg(test)]
+    pub(crate) const fn checked(backup: StartBackup) -> Self {
+        Self {
+            backup,
+            check: IntegrityCheck::Always,
+        }
+    }
+
     /// The start the settings ask for: every open of the data file (the server's and the world
     /// import's) uses it.
     pub(crate) fn of(config: &crate::config::Config) -> Self {
@@ -722,15 +731,6 @@ impl Start {
                 StartBackup::Skip
             },
             check: config.developer.integrity_check,
-        }
-    }
-
-    /// `backup` with a check, as the tests open data files.
-    #[cfg(test)]
-    pub(crate) const fn checked(backup: StartBackup) -> Self {
-        Self {
-            backup,
-            check: IntegrityCheck::Always,
         }
     }
 }
@@ -752,22 +752,6 @@ pub(crate) struct Storage {
 }
 
 impl Storage {
-    /// Opens `path` read-only for a replay: nothing is checked, compacted or backed up, and
-    /// commits stay in memory ([`Replica`]). Fails if the file is missing, in use or damaged.
-    pub(crate) fn open_replica(path: &Path) -> Result<Self> {
-        let db = open_read_only(path)?;
-        Ok(Self {
-            backup: None,
-            check: None,
-            db: None,
-            source: Source::File(path.to_path_buf()),
-            replica: Some(Box::new(Replica {
-                db,
-                overlay: Default::default(),
-            })),
-        })
-    }
-
     /// Starts on the data file at `place`: checks the closed file as `start.check` says without
     /// writing to it ([`verify`]), so a damaged file or a newer format is refused with its bytes
     /// as they were; then opens it and, with [`StartBackup::Make`], begins an online backup of
@@ -821,6 +805,22 @@ impl Storage {
         Ok(storage)
     }
 
+    /// Opens `path` read-only for a replay: nothing is checked, compacted or backed up, and
+    /// commits stay in memory ([`Replica`]). Fails if the file is missing, in use or damaged.
+    pub(crate) fn open_replica(path: &Path) -> Result<Self> {
+        let db = open_read_only(path)?;
+        Ok(Self {
+            backup: None,
+            check: None,
+            db: None,
+            source: Source::File(path.to_path_buf()),
+            replica: Some(Box::new(Replica {
+                db,
+                overlay: Overlay::default(),
+            })),
+        })
+    }
+
     /// Whether an online backup is being made.
     pub(crate) fn is_backing_up(&self) -> bool {
         self.backup.is_some()
@@ -829,6 +829,153 @@ impl Storage {
     /// Whether a check is being made.
     pub(crate) fn is_checking(&self) -> bool {
         self.check.is_some()
+    }
+
+    /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread reads the data file"
+    )]
+    pub(crate) fn access(&mut self) -> Result<Vec<(AccessKey, Vec<u8>)>> {
+        if let Some(replica) = &self.replica {
+            let entries = replica.access(MAX_ACCESS)?;
+            if entries.len() > MAX_ACCESS {
+                return Err(Error::TooManyAccessEntries);
+            }
+            return entries
+                .into_iter()
+                .map(|(key, sealed)| Ok((AccessKey::from_bytes(&key)?, sealed)))
+                .collect();
+        }
+        let txn = self.database()?.begin_read().map_err(Error::database)?;
+        let Some(table) = open_read(&txn, ACCESS)? else {
+            return Ok(Vec::new());
+        };
+        let count = usize::try_from(table.len().map_err(Error::database)?).unwrap_or(usize::MAX);
+        if count > MAX_ACCESS {
+            return Err(Error::TooManyAccessEntries);
+        }
+        let mut entries = Vec::with_capacity(count);
+        for entry in table.iter().map_err(Error::database)?.take(MAX_ACCESS) {
+            let (key, sealed) = entry.map_err(Error::database)?;
+            entries.push((AccessKey::from_bytes(key.value())?, sealed.value().to_vec()));
+        }
+        Ok(entries)
+    }
+
+    /// Takes the next step of the online backup being made, if any: a copy step, or once all is
+    /// copied the last step that finishes it; returns the backup's path once it is whole. A
+    /// failure ends the backup and leaves no file of it.
+    pub(crate) fn backup_step(&mut self) -> Result<Option<PathBuf>> {
+        let Some(mut online) = self.backup.take() else {
+            return Ok(None);
+        };
+        if online.is_copied() {
+            return online.finish().map(Some);
+        }
+        online.step()?;
+        self.backup = Some(online);
+        Ok(None)
+    }
+
+    /// Starts an online backup of the last commit into `dir`, made in steps
+    /// by [`backup_step`](Self::backup_step) while reads and commits go on. False, starting
+    /// nothing, while another is being made.
+    pub(crate) fn begin_backup(&mut self, dir: &Path) -> Result<bool> {
+        if self.backup.is_some() {
+            return Ok(false);
+        }
+        let online = backup::Online::begin(self.database()?, dir)?;
+        self.backup = Some(online);
+        Ok(true)
+    }
+
+    /// Starts a check of the last commit (`/check`), made in steps by
+    /// [`check_step`](Self::check_step) while reads and commits go on. False, starting nothing,
+    /// while another is being made.
+    pub(crate) fn begin_check(&mut self) -> Result<bool> {
+        if self.check.is_some() {
+            return Ok(false);
+        }
+        let check = check::Check::begin(self.database()?)?;
+        self.check = Some(check);
+        Ok(true)
+    }
+
+    /// Starts the world import's write: one quick-repair write transaction that
+    /// takes the import's batches as they come and commits once ([`Import::commit`]). Dropping
+    /// the [`Import`] uncommitted, or any failure, leaves the file as it was. No retry: the
+    /// import's writes are not kept to write again, and a failed import is run again whole.
+    pub(crate) fn begin_import(&mut self) -> Result<Import> {
+        begin_write(self.database()?).map(Import)
+    }
+
+    /// Takes the next step of the check being made, if any; returns what it found once it ends.
+    pub(crate) fn check_step(&mut self) -> Option<Checked> {
+        let found = self.check.as_mut()?.step();
+        if found.is_some() {
+            self.check = None;
+        }
+        found
+    }
+
+    /// Writes `batch` in one durable write transaction with quick repair. On failure it drops
+    /// the handle, reopens the file and tries again, up to [`RETRIES`] times, then returns the
+    /// last error. Either the whole batch is committed or none of it.
+    pub(crate) fn commit(&mut self, batch: &Batch) -> Result<()> {
+        if let Some(replica) = &mut self.replica {
+            return replica.commit(batch);
+        }
+        self.retrying(|db| write(db, batch))
+    }
+
+    /// Writes `batch` as [`commit`](Self::commit) does, for a file committed before the main file
+    /// in a save (players, worlds): the same write transaction first keeps a savepoint of the file
+    /// as it was and deletes the one the previous save kept, so a start rolls the file back if the
+    /// main file never got this save ([`settle`]). `batch` writes the meta value of its save. A
+    /// retry that finds another meta value than the file held before the first try writes
+    /// nothing: that try landed, and a new savepoint would hold this save and leave none of the
+    /// one before.
+    pub(crate) fn commit_with_savepoint(&mut self, batch: &Batch) -> Result<()> {
+        if let Some(replica) = &mut self.replica {
+            return replica.commit(batch);
+        }
+        let before = self.retrying(meta_value)?;
+        self.retrying(|db| write_with_savepoint(db, batch, before.as_deref()))
+    }
+
+    /// The names of the worlds whose deletion marks ([`Key::Deleted`]) the main file's last commit
+    /// holds, in key order. Values are external input: a name that is no world file name, a mark
+    /// that does not unseal, or more marks than `data/worlds/` holds files is damage.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the start reads the main file before the threads start"
+    )]
+    pub(crate) fn deleted_worlds(&mut self) -> Result<Vec<String>> {
+        let txn = self.database()?.begin_read().map_err(Error::database)?;
+        let Some(table) = open_read(&txn, META)? else {
+            return Ok(Vec::new());
+        };
+        let mut names = Vec::new();
+        for entry in table
+            .range::<&[u8]>(DELETED_PREFIX..)
+            .map_err(Error::database)?
+        {
+            let (key, sealed) = entry.map_err(Error::database)?;
+            let Some(name) = key.value().strip_prefix(DELETED_PREFIX) else {
+                break;
+            };
+            let name = std::str::from_utf8(name)
+                .ok()
+                .filter(|name| is_world_file_name(name))
+                .ok_or(Error::Malformed("a deletion mark names no world"))?;
+            unseal::<codec::Mark>(key.value(), sealed.value())?;
+            if names.len() == MAX_WORLDS {
+                return Err(Error::TooManyWorlds);
+            }
+            names.push(name.to_owned());
+        }
+        Ok(names)
     }
 
     /// Reads `keys` in one read transaction. Each result is the sealed value (open it with
@@ -881,97 +1028,6 @@ impl Storage {
         })
     }
 
-    /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread reads the data file"
-    )]
-    pub(crate) fn access(&mut self) -> Result<Vec<(AccessKey, Vec<u8>)>> {
-        if let Some(replica) = &self.replica {
-            let entries = replica.access(MAX_ACCESS)?;
-            if entries.len() > MAX_ACCESS {
-                return Err(Error::TooManyAccessEntries);
-            }
-            return entries
-                .into_iter()
-                .map(|(key, sealed)| Ok((AccessKey::from_bytes(&key)?, sealed)))
-                .collect();
-        }
-        let txn = self.database()?.begin_read().map_err(Error::database)?;
-        let Some(table) = open_read(&txn, ACCESS)? else {
-            return Ok(Vec::new());
-        };
-        let count = usize::try_from(table.len().map_err(Error::database)?).unwrap_or(usize::MAX);
-        if count > MAX_ACCESS {
-            return Err(Error::TooManyAccessEntries);
-        }
-        let mut entries = Vec::with_capacity(count);
-        for entry in table.iter().map_err(Error::database)?.take(MAX_ACCESS) {
-            let (key, sealed) = entry.map_err(Error::database)?;
-            entries.push((AccessKey::from_bytes(key.value())?, sealed.value().to_vec()));
-        }
-        Ok(entries)
-    }
-
-    /// The names of the worlds whose deletion marks ([`Key::Deleted`]) the main file's last commit
-    /// holds, in key order. Values are external input: a name that is no world file name, a mark
-    /// that does not unseal, or more marks than `data/worlds/` holds files is damage.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the start reads the main file before the threads start"
-    )]
-    pub(crate) fn deleted_worlds(&mut self) -> Result<Vec<String>> {
-        let txn = self.database()?.begin_read().map_err(Error::database)?;
-        let Some(table) = open_read(&txn, META)? else {
-            return Ok(Vec::new());
-        };
-        let mut names = Vec::new();
-        for entry in table
-            .range::<&[u8]>(DELETED_PREFIX..)
-            .map_err(Error::database)?
-        {
-            let (key, sealed) = entry.map_err(Error::database)?;
-            let Some(name) = key.value().strip_prefix(DELETED_PREFIX) else {
-                break;
-            };
-            let name = std::str::from_utf8(name)
-                .ok()
-                .filter(|name| is_world_file_name(name))
-                .ok_or(Error::Malformed("a deletion mark names no world"))?;
-            unseal::<codec::Mark>(key.value(), sealed.value())?;
-            if names.len() == MAX_WORLDS {
-                return Err(Error::TooManyWorlds);
-            }
-            names.push(name.to_owned());
-        }
-        Ok(names)
-    }
-
-    /// Writes `batch` in one durable write transaction with quick repair. On failure it drops
-    /// the handle, reopens the file and tries again, up to [`RETRIES`] times, then returns the
-    /// last error. Either the whole batch is committed or none of it.
-    pub(crate) fn commit(&mut self, batch: &Batch) -> Result<()> {
-        if let Some(replica) = &mut self.replica {
-            return replica.commit(batch);
-        }
-        self.retrying(|db| write(db, batch))
-    }
-
-    /// Writes `batch` as [`commit`](Self::commit) does, for a file committed before the main file
-    /// in a save (players, worlds): the same write transaction first keeps a savepoint of the file
-    /// as it was and deletes the one the previous save kept, so a start rolls the file back if the
-    /// main file never got this save ([`settle`]). `batch` writes the meta value of its save. A
-    /// retry that finds another meta value than the file held before the first try writes
-    /// nothing: that try landed, and a new savepoint would hold this save and leave none of the
-    /// one before.
-    pub(crate) fn commit_with_savepoint(&mut self, batch: &Batch) -> Result<()> {
-        if let Some(replica) = &mut self.replica {
-            return replica.commit(batch);
-        }
-        let before = self.retrying(meta_value)?;
-        self.retrying(|db| write_with_savepoint(db, batch, before.as_deref()))
-    }
-
     /// Deletes the value under `key` from the `players` table in one write transaction, without
     /// reading it, and says whether there was one. It is not retried: a try that landed before
     /// its call failed would answer false on the next.
@@ -979,65 +1035,9 @@ impl Storage {
         remove_player(self.database()?, key)
     }
 
-    /// Starts the world import's write: one quick-repair write transaction that
-    /// takes the import's batches as they come and commits once ([`Import::commit`]). Dropping
-    /// the [`Import`] uncommitted, or any failure, leaves the file as it was. No retry: the
-    /// import's writes are not kept to write again, and a failed import is run again whole.
-    pub(crate) fn begin_import(&mut self) -> Result<Import> {
-        begin_write(self.database()?).map(Import)
-    }
-
-    /// Starts an online backup of the last commit into `dir`, made in steps
-    /// by [`backup_step`](Self::backup_step) while reads and commits go on. False, starting
-    /// nothing, while another is being made.
-    pub(crate) fn begin_backup(&mut self, dir: &Path) -> Result<bool> {
-        if self.backup.is_some() {
-            return Ok(false);
-        }
-        let online = backup::Online::begin(self.database()?, dir)?;
-        self.backup = Some(online);
-        Ok(true)
-    }
-
-    /// Takes the next step of the online backup being made, if any: a copy step, or once all is
-    /// copied the last step that finishes it; returns the backup's path once it is whole. A
-    /// failure ends the backup and leaves no file of it.
-    pub(crate) fn backup_step(&mut self) -> Result<Option<PathBuf>> {
-        let Some(mut online) = self.backup.take() else {
-            return Ok(None);
-        };
-        if online.is_copied() {
-            return online.finish().map(Some);
-        }
-        online.step()?;
-        self.backup = Some(online);
-        Ok(None)
-    }
-
-    /// Starts a check of the last commit (`/check`), made in steps by
-    /// [`check_step`](Self::check_step) while reads and commits go on. False, starting nothing,
-    /// while another is being made.
-    pub(crate) fn begin_check(&mut self) -> Result<bool> {
-        if self.check.is_some() {
-            return Ok(false);
-        }
-        let check = check::Check::begin(self.database()?)?;
-        self.check = Some(check);
-        Ok(true)
-    }
-
     /// Drops the check being made, if any, unreported.
     pub(crate) fn stop_check(&mut self) {
         self.check = None;
-    }
-
-    /// Takes the next step of the check being made, if any; returns what it found once it ends.
-    pub(crate) fn check_step(&mut self) -> Option<Checked> {
-        let found = self.check.as_mut()?.step();
-        if found.is_some() {
-            self.check = None;
-        }
-        found
     }
 
     /// Deletes the file's savepoint, marks the file closed after a normal stop ([`CLOSED_KEY`])
@@ -1124,6 +1124,34 @@ struct Replica {
 }
 
 impl Replica {
+    /// Every `access` value (at most `max`), committed values in their place, in key order.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a replay reads the data file on its own thread"
+    )]
+    fn access(&self, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let txn = self.db.begin_read().map_err(Error::database)?;
+        let mut values = std::collections::BTreeMap::new();
+        if let Some(table) = open_read(&txn, ACCESS)? {
+            for entry in table
+                .iter()
+                .map_err(Error::database)?
+                .take(max.saturating_add(1))
+            {
+                let (key, value) = entry.map_err(Error::database)?;
+                values.insert(key.value().to_vec(), value.value().to_vec());
+            }
+        }
+        let [_, _, _, _, written, _] = &self.overlay;
+        for (key, value) in written {
+            match value {
+                Some(v) => values.insert(key.clone(), v.clone()),
+                None => values.remove(key),
+            };
+        }
+        Ok(values.into_iter().collect())
+    }
+
     /// Reads `keys` as [`Storage::read`] does, committed values first.
     #[expect(
         clippy::disallowed_methods,
@@ -1181,34 +1209,6 @@ impl Replica {
             );
         }
         Ok(out)
-    }
-
-    /// Every `access` value (at most `max`), committed values in their place, in key order.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a replay reads the data file on its own thread"
-    )]
-    fn access(&self, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let txn = self.db.begin_read().map_err(Error::database)?;
-        let mut values = std::collections::BTreeMap::new();
-        if let Some(table) = open_read(&txn, ACCESS)? {
-            for entry in table
-                .iter()
-                .map_err(Error::database)?
-                .take(max.saturating_add(1))
-            {
-                let (key, value) = entry.map_err(Error::database)?;
-                values.insert(key.value().to_vec(), value.value().to_vec());
-            }
-        }
-        let [_, _, _, _, written, _] = &self.overlay;
-        for (key, value) in written {
-            match value {
-                Some(v) => values.insert(key.clone(), v.clone()),
-                None => values.remove(key),
-            };
-        }
-        Ok(values.into_iter().collect())
     }
 
     /// Applies `batch` to the values in memory, as [`write()`] does to the file.
@@ -1343,17 +1343,6 @@ impl Snapshot {
         })
     }
 
-    /// The sealed world record, `None` if the file holds none.
-    pub(crate) fn world(&self) -> Result<Option<Vec<u8>>> {
-        let Some(table) = open_read(&self.txn, WORLDS)? else {
-            return Ok(None);
-        };
-        Ok(table
-            .get(WORLD_KEY)
-            .map_err(Error::database)?
-            .map(|v| v.value().to_vec()))
-    }
-
     /// The chunks that hold values of the world numbered `world`, in key order;
     /// [`Error::TooManyChunks`] past `max`. A key too short for a chunk is damage.
     pub(crate) fn chunk_ids(&self, world: u32, max: usize) -> Result<Vec<ChunkId>> {
@@ -1397,6 +1386,17 @@ impl Snapshot {
             Some(table) => read_chunk(&table, chunk),
             None => Ok(Vec::new()),
         }
+    }
+
+    /// The sealed world record, `None` if the file holds none.
+    pub(crate) fn world(&self) -> Result<Option<Vec<u8>>> {
+        let Some(table) = open_read(&self.txn, WORLDS)? else {
+            return Ok(None);
+        };
+        Ok(table
+            .get(WORLD_KEY)
+            .map_err(Error::database)?
+            .map(|v| v.value().to_vec()))
     }
 }
 

@@ -43,16 +43,16 @@ pub(crate) struct Jobs {
 }
 
 impl Jobs {
-    /// How many jobs wait for their result (for leak tests).
-    #[cfg(test)]
-    pub(super) fn len(&self) -> usize {
-        self.pending.len()
-    }
-
-    /// The ids of the jobs waiting for their result, in order (for runs that answer them).
-    #[cfg(test)]
-    pub(super) fn waiting(&self) -> Vec<u64> {
-        self.pending.keys().copied().collect()
+    /// Writes the next id. A waiting job's callback is a closure, with no checkpoint form: it
+    /// makes the checkpoint opaque.
+    pub(super) fn checkpoint(&self, w: &mut Writer) {
+        let Self {
+            pending,
+            next_id,
+            runner: _,
+        } = self;
+        w.opaque("blocking jobs waiting for their result", pending.len());
+        Codec::encode(next_id, w);
     }
 
     #[cfg(test)]
@@ -69,16 +69,23 @@ impl Jobs {
         }
     }
 
-    /// Writes the next id. A waiting job's callback is a closure, with no checkpoint form: it
-    /// makes the checkpoint opaque.
-    pub(super) fn checkpoint(&self, w: &mut Writer) {
-        let Self {
-            pending,
-            next_id,
-            runner: _,
-        } = self;
-        w.opaque("blocking jobs waiting for their result", pending.len());
-        Codec::encode(next_id, w);
+    /// How many jobs wait for their result (for leak tests).
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// The ids of the jobs waiting for their result, in order (for runs that answer them).
+    #[cfg(test)]
+    pub(super) fn waiting(&self) -> Vec<u64> {
+        self.pending.keys().copied().collect()
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote: no waiting job, and the next id. The runner stays.
+    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
+        self.pending.clear();
+        self.next_id = Codec::decode(r)?;
+        Ok(())
     }
 
     /// Runs jobs from now on: on `handle`'s blocking pool, results into `inputs`.
@@ -88,13 +95,6 @@ impl Jobs {
             inputs: inputs.clone(),
             slots: Arc::new(Semaphore::new(MAX_RUNNING_JOBS)),
         });
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote: no waiting job, and the next id. The runner stays.
-    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
-        self.pending.clear();
-        self.next_id = Codec::decode(r)?;
-        Ok(())
     }
 }
 
@@ -166,8 +166,11 @@ impl Context<'_> {
     /// their turn. A result that arrives after the server stopped is dropped, and work still
     /// running 10 seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns
     /// while its thread runs on, until the work ends or the process exits. What the work wrote
-    /// outside the data files stays after a crash. Fails, running nothing, while [`MAX_JOBS`] jobs
-    /// wait for their result.
+    /// outside the data files stays after a crash.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooManyJobs`] while [`MAX_JOBS`] jobs wait for their result; nothing runs.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]
     #[doc(alias = "AsyncTask::onRun")]
