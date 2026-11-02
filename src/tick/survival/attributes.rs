@@ -164,7 +164,7 @@ pub(super) struct Shown {
     died: bool,
     death: [i32; 3],
     /// The box width and height, keys 53 and 54.
-    size: [f32; 2],
+    pub(super) size: [f32; 2],
     /// The packed visible effects, key 131.
     effects: i64,
 }
@@ -548,8 +548,11 @@ pub(super) fn shown(player: &Player) -> Shown {
 
 /// The box width and height of the player's pose, sent as entity data 53 and 54 (PMMP
 /// `Living::recalculateSize`): 0.6 by 1.8, [`SNEAKING_HEIGHT`] high sneaking, as high as wide
-/// swimming or gliding.
+/// swimming or gliding, and [`DYING_SIZE`] once the death is shown.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
+    if s.motion.death_shown {
+        return DYING_SIZE;
+    }
     let width = to_f32(PLAYER_WIDTH);
     if s.motion.swimming || s.motion.gliding {
         [width, width]

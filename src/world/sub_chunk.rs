@@ -49,6 +49,16 @@ impl Entry {
         }
     }
 
+    /// The state the neighbour and placement rules read: a known state, an inert block's stand-in,
+    /// or `None` for an unknown state.
+    pub(crate) fn stand_in(self) -> Option<State> {
+        match self {
+            Self::Known(state) => Some(state),
+            Self::Inert(inert, _) => Some(inert.stand_in()),
+            Self::Unknown(_) => None,
+        }
+    }
+
     /// The network ID the client is sent for this entry.
     pub(crate) fn network_id(self) -> u32 {
         match self {

@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::body::{int_lit, str_lit};
 use super::data::{Connect, Data, FACES, Prop, StateItem, StateKey, hex_lit};
 use super::emit::HEADER;
-use super::info::{bit_set, camel, f64_lit};
+use super::info::{bit_set, f64_lit};
+use super::names::upper_camel;
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/table.rs";
@@ -174,7 +175,7 @@ pub(crate) fn variants(names: &[&str]) -> Result<Vec<(String, String)>, String> 
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(names.len());
     for name in names {
-        let variant = camel(name);
+        let variant = upper_camel(name);
         if !seen.insert(variant.clone()) {
             return Err(format!("two names give the variant {variant}"));
         }
@@ -296,7 +297,7 @@ fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
     for (identity, state) in &data.kinds {
         let start = *chain_at.entry(&identity.classes).or_insert_with(|| {
             for c in &identity.classes {
-                put!(chains, "Class::{},", camel(c));
+                put!(chains, "Class::{},", upper_camel(c));
             }
             chain_len += identity.classes.len();
             chain_len - identity.classes.len()
@@ -484,8 +485,10 @@ fn info(out: &mut String, data: &Data) -> Result<(), String> {
 fn banner_patterns(out: &mut String, data: &Data) {
     let list = &data.tables.banner_patterns;
     let names: Vec<&str> = list.iter().map(|b| b.name.as_str()).collect();
-    let variants: Vec<(String, String)> =
-        names.iter().map(|n| (camel(n), (*n).to_owned())).collect();
+    let variants: Vec<(String, String)> = names
+        .iter()
+        .map(|n| (upper_camel(n), (*n).to_owned()))
+        .collect();
     pmmp_enumeration(
         out,
         "A banner pattern (PMMP `BannerPatternType`).",

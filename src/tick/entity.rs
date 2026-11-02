@@ -1608,6 +1608,9 @@ enum Read {
     Kept(Compound),
 }
 
+/// A knockback's force and vertical limit, as the damage listeners left them.
+type Knockback = (f64, f64);
+
 /// The functions of the player modules (inventory, survival) the entity rules call on players, so
 /// tests can stand in for them and record what the rules asked.
 #[derive(Debug, Clone, Copy)]
@@ -1619,8 +1622,9 @@ struct Hooks {
     /// A player picks up an orb's experience points (mending first); false, and the orb stays,
     /// while its pickup cooldown runs.
     pickup_experience: fn(&mut State, SessionId, u32) -> bool,
-    /// Hurts a player, from a source the event names; false if no damage was taken.
-    damage: fn(&mut State, SessionId, f64, survival::Damage, DamageSource) -> bool,
+    /// Hurts a player, from a source the event names; `None` if no damage was taken, otherwise
+    /// the knockback force and vertical limit the damage listeners left.
+    damage: fn(&mut State, SessionId, f64, survival::Damage, DamageSource) -> Option<Knockback>,
     /// Whether a player's hit cooldown runs (a hit then does not knock it back).
     has_attack_cooldown: fn(&Player) -> bool,
     /// Gives a player an effect.
@@ -2745,14 +2749,14 @@ fn combust(state: &mut State, id: Id, seconds: i16, source: CombustSource) {
         with(state, id, |e| e.set_on_fire(seconds));
         return;
     }
-    let would = |state: &State| {
+    let would = |state: &State, seconds: i16| {
         state
             .rules
             .entities
             .get(id)
             .is_some_and(|e| !e.flagged && e.would_burn(seconds))
     };
-    if !would(state) {
+    if !would(state, seconds) {
         return;
     }
     let mut e = EntityCombust {
@@ -2762,10 +2766,10 @@ fn combust(state: &mut State, id: Id, seconds: i16, source: CombustSource) {
         cancelled: false,
     };
     dispatch::call(state, &mut e);
-    if e.cancelled || (dispatch::listened::<EntityCombust>(state) && !would(state)) {
+    let seconds = i16::try_from(e.duration_secs).unwrap_or(i16::MAX);
+    if e.cancelled || (dispatch::listened::<EntityCombust>(state) && !would(state, seconds)) {
         return;
     }
-    let seconds = i16::try_from(e.duration_secs).unwrap_or(i16::MAX);
     with(state, id, |e| e.set_on_fire(seconds));
     dispatch::watch(state, &e);
 }
@@ -4795,6 +4799,9 @@ mod tests {
         pub(super) fires: Vec<(u64, u32)>,
         /// Players whose hit cooldown runs.
         pub(super) hit_cooldown: BTreeSet<u64>,
+        /// The knockback force and vertical limit the damage listeners leave; the default one
+        /// if `None`.
+        pub(super) knockback: Option<(f64, f64)>,
         /// Players whose orb pickup cooldown runs.
         pub(super) xp_cooldown: BTreeSet<u64>,
         /// Teleports: session, world, eye position.
@@ -4837,7 +4844,7 @@ mod tests {
         ) -> Self {
             let mut state = new_state(settings(edit), listeners);
             // The preloaded chunks' extras reach the rules as a load's would.
-            let loaded: Vec<ChunkPos> = state.worlds[0].loaded().collect();
+            let loaded: Vec<ChunkPos> = state.worlds[0].loaded_chunks().collect();
             for pos in loaded {
                 if let Some(extras) = state.chunks.extras.get((0, pos)).cloned() {
                     let world = &state.worlds[0];
@@ -5058,13 +5065,13 @@ mod tests {
         amount: f64,
         cause: survival::Damage,
         _: DamageSource,
-    ) -> bool {
+    ) -> Option<(f64, f64)> {
         calls(|c| {
             let alive = !c.dead.contains(&session.get());
             if alive {
                 c.damage.push((session.get(), amount, cause));
             }
-            alive
+            alive.then(|| c.knockback.unwrap_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT)))
         })
     }
 
@@ -5317,7 +5324,7 @@ mod tests {
         h.state.rules.flush(&mut h.state.chunks.extras);
         let item = crate::nbt::Value::String("minecraft:item".to_owned());
         let saved = h.state.worlds[0]
-            .loaded()
+            .loaded_chunks()
             .filter_map(|pos| h.state.chunks.extras.get((0, pos)))
             .flat_map(|extras| extras.get(crate::storage::ChunkKind::Entities))
             .filter(|c| c.get("identifier") == Some(&item))
@@ -5365,7 +5372,7 @@ mod tests {
             h.state.rules.flush(&mut h.state.chunks.extras);
             let item = crate::nbt::Value::String("minecraft:item".to_owned());
             let saved = h.state.worlds[0]
-                .loaded()
+                .loaded_chunks()
                 .filter_map(|pos| h.state.chunks.extras.get((0, pos)))
                 .flat_map(|extras| extras.get(crate::storage::ChunkKind::Entities))
                 .filter(|c| c.get("identifier") == Some(&item))

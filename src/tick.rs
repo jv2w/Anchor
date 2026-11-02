@@ -456,8 +456,8 @@ impl State {
                 u64::from(spawn::difficulty_id(d).cast_unsigned()) + 1
             }));
             h.u64(world.weather() as u64);
-            h.usize(world.loaded().len());
-            for pos in world.loaded() {
+            h.usize(world.loaded_chunks().len());
+            for pos in world.loaded_chunks() {
                 h.u64(u64::from(pos.x.cast_unsigned()));
                 h.u64(u64::from(pos.z.cast_unsigned()));
                 // Chunks change only through set_block, which marks them dirty until a

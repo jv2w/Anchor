@@ -19,7 +19,7 @@ use crate::math::Vec3;
 use crate::nbt::{List, Value};
 use crate::protocol::packet::{BlockPickRequest, MobEquipment};
 use crate::tick::tests::leave;
-use crate::tick::{Context, entity, survival, trade};
+use crate::tick::{Context, block_entity, entity, survival, trade};
 use crate::world;
 
 /// The position of the blocks the tests place, next to the spawn.
@@ -640,6 +640,23 @@ fn the_chest_pair_api_closes_windows_without_close_events() {
     let mut chest = cx.block_entity_mut(world::Id::DEFAULT, AT).unwrap();
     chest.pair_with(other).unwrap();
     assert!(w.inv(s).window.is_none(), "pairing closes the window");
+    assert_eq!(logged(), Vec::<String>::new());
+}
+
+/// A chest the world removes (a task, a command) closes the windows on it without an event.
+#[test]
+fn a_chest_removed_by_the_world_closes_windows_without_close_events() {
+    let (mut w, s) = world_with(
+        on(|e: &mut InventoryClose, _: &mut Context<'_>| {
+            log(format!("close {:?}", e.window()));
+        }),
+        &[],
+    );
+    w.double_chest(AT);
+    w.open_block(s, AT);
+    w.state.worlds[0].set_block(AT, blk::AIR).unwrap();
+    block_entity::removed(&mut w.state, 0, AT);
+    assert!(w.inv(s).window.is_none());
     assert_eq!(logged(), Vec::<String>::new());
 }
 

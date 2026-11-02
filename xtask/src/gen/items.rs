@@ -8,7 +8,8 @@ use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
 use super::body::{int_lit, str_lit};
 use super::data::{Data, hex_lit, static_compound};
 use super::emit::HEADER;
-use super::info::{EffectJson, bit_set, camel, f64_lit};
+use super::info::{EffectJson, bit_set, f64_lit};
+use super::names::upper_camel;
 
 type R<T> = Result<T, String>;
 
@@ -250,7 +251,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
         put!(
             out,
             "(ToolTier::{}, {}, {}, {}, {}, {}),",
-            camel(&t.name),
+            upper_camel(&t.name),
             t.harvest_level,
             t.max_durability,
             t.base_attack_points,
@@ -265,7 +266,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
         .iter()
         .map(|e| e.name.as_str())
         .collect();
-    let class_ids: BTreeMap<&str, String> = classes.iter().map(|c| (*c, camel(c))).collect();
+    let class_ids: BTreeMap<&str, String> = classes.iter().map(|c| (*c, upper_camel(c))).collect();
 
     let mut chain_at: BTreeMap<Vec<String>, (usize, usize)> = BTreeMap::new();
     let mut chains = String::new();
@@ -317,7 +318,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
             }
         };
         let tier = match &d.tool.tier {
-            Some(t) => format!("Some(ToolTier::{})", camel(t)),
+            Some(t) => format!("Some(ToolTier::{})", upper_camel(t)),
             None => "None".to_owned(),
         };
         let row = format!(
@@ -327,7 +328,10 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
              {consumable}, use_ticks: {}, fuel_time: {}, fuel_residue: {}, enchantability: {}, \
              primary_enchantments: EnchantmentSet({}), enchantments: EnchantmentSet({}), cooldown: \
              {}, throw_force: {}, potion: {} }},",
-            opt(d.kind.as_deref().map(|k| format!("Kind::{}", camel(k)))),
+            opt(d
+                .kind
+                .as_deref()
+                .map(|k| format!("Kind::{}", upper_camel(k)))),
             class.0,
             class.1,
             bit_set(&d.traits, &traits, "trait")?,
@@ -372,7 +376,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
             opt(d
                 .potion
                 .as_deref()
-                .map(|p| format!("effect::Potion::{}", camel(p)))),
+                .map(|p| format!("effect::Potion::{}", upper_camel(p)))),
         );
         let index = *row_at.entry(row.clone()).or_insert_with(|| {
             rows.push(row);
@@ -487,7 +491,7 @@ fn u128_lit(v: u128) -> String {
 pub(crate) fn effect_instance(e: &EffectJson, path: &str) -> String {
     format!(
         "{path}Instance::new({path}Type::{}, {}, {}, {}, {})",
-        camel(&e.effect),
+        upper_camel(&e.effect),
         int_lit(&e.duration.to_string()),
         e.amplifier,
         e.visible,

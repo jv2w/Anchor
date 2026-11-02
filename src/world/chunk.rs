@@ -14,12 +14,12 @@ use crate::protocol::Writer;
 use super::light::{self, ChunkLight};
 use super::paletted::{Derive, Paletted, offset};
 use super::sub_chunk::{Entry, SubChunk};
-use super::{ChunkPos, Error, Generator, MAX_Y, MIN_Y, Result, StoredBlock, UnknownBlock};
+use super::{
+    ChunkPos, Error, Generator, LOWEST_SUB_CHUNK, MAX_Y, MIN_Y, Result, StoredBlock, UnknownBlock,
+};
 
 /// Columns in a chunk.
 pub(super) const COLUMNS: usize = 256;
-/// The y index (network `Offset`) of the lowest sub-chunk.
-const LOWEST_SUB_CHUNK: i8 = -4;
 /// The most unknown states a chunk can use: one per slot of both layers.
 const MAX_UNKNOWN: usize = SUB_CHUNKS * 2 * 4096;
 /// The [`Chunk::heights`] value of a column of air.
@@ -265,7 +265,8 @@ impl Chunk {
     /// (the client is told `SuccessAllAir`).
     pub(crate) fn sub_chunk_payload(&self, index: usize) -> Option<Vec<u8>> {
         let sub = self.sub_chunk(index)?;
-        let y_index = i8::try_from(index).ok()?.checked_add(LOWEST_SUB_CHUNK)?;
+        let y_index =
+            i8::try_from(i32::try_from(index).ok()?.checked_add(LOWEST_SUB_CHUNK)?).ok()?;
         let mut w = Writer::new(Vec::with_capacity(sub.max_encoded_bytes()), 0);
         sub.encode(y_index, &mut w);
         Some(w.into_inner())
@@ -482,10 +483,16 @@ impl Chunk {
                     if sub.get(offset(x, y, z)) != Entry::AIR {
                         #[expect(
                             clippy::expect_used,
-                            reason = "invariant: an index below SUB_CHUNKS fits i16"
+                            reason = "invariant: an index below SUB_CHUNKS and a world height fit i32 and i16"
                         )]
-                        let index = i16::try_from(index).expect("a sub-chunk index fits i16");
-                        return (index + i16::from(LOWEST_SUB_CHUNK)) * 16 + i16::from(y);
+                        let height = i16::try_from(
+                            (i32::try_from(index).expect("a sub-chunk index fits i32")
+                                + LOWEST_SUB_CHUNK)
+                                * 16
+                                + i32::from(y),
+                        )
+                        .expect("a world height fits i16");
+                        return height;
                     }
                 }
             }
@@ -580,7 +587,7 @@ pub(super) fn split_y(y: i32) -> Option<(usize, u8)> {
     if !(MIN_Y..=MAX_Y).contains(&y) {
         return None;
     }
-    let index = usize::try_from((y >> 4) - i32::from(LOWEST_SUB_CHUNK)).ok()?;
+    let index = usize::try_from((y >> 4) - LOWEST_SUB_CHUNK).ok()?;
     Some((index, u8::try_from(y & 15).ok()?))
 }
 
@@ -622,7 +629,6 @@ pub(crate) mod tests {
 
     #[test]
     fn the_sub_chunks_span_the_world_height() {
-        assert_eq!(i32::from(LOWEST_SUB_CHUNK), MIN_Y >> 4);
         assert_eq!(SUB_CHUNKS * 16, usize::try_from(MAX_Y - MIN_Y + 1).unwrap());
     }
 

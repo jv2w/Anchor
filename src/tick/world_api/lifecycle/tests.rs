@@ -505,7 +505,8 @@ fn a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released() {
     assert_eq!(c.state.chunks.held(), held);
     // 14 tickets of 17 × 17 hold 4,046 chunks: no room for another such one.
     for i in 0..14 {
-        c.hold_chunks(world::Id::DEFAULT, ChunkPos::new(100 * i, 0), 8)
+        let _ticket = c
+            .hold_chunks(world::Id::DEFAULT, ChunkPos::new(100 * i, 0), 8)
             .unwrap();
     }
     assert_eq!(
@@ -604,8 +605,8 @@ fn chunk_tickets_follow_holds_releases_restores_and_unloads() {
         assert!(c.release_chunks(t));
     }
     let id = c.create_world("arena", &arena(1)).unwrap();
-    c.hold_chunks(id, FAR, 3).unwrap();
-    c.hold_chunks(id, FAR, 1).unwrap();
+    let _first = c.hold_chunks(id, FAR, 3).unwrap();
+    let _second = c.hold_chunks(id, FAR, 1).unwrap();
     c.unload_world(id).unwrap();
     ticks(&mut state, &mut output, 4);
     settle(&mut state, &mut output);
@@ -1263,7 +1264,7 @@ fn script(state: &mut State) {
                     .load_world("lobby", &Options::new())
                     .or_else(|_| c.create_world("lobby", &Options::new().with_generator("void")));
                 let lobby = lobby.unwrap();
-                c.hold_chunks(lobby, ChunkPos::new(5, 5), 1).unwrap();
+                let _ticket = c.hold_chunks(lobby, ChunkPos::new(5, 5), 1).unwrap();
                 c.stop_time(lobby);
                 c.set_world_difficulty(lobby, Some(Difficulty::Easy));
                 c.set_weather(lobby, Weather::Thunder);

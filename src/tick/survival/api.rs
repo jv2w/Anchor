@@ -25,6 +25,7 @@ use crate::math::{Vec3, to_f32};
 use crate::player::{Error, Id, Result, check_text};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
+use crate::tick::interact::drops;
 use crate::tick::queue::Skin;
 use crate::tick::{Context, Phase, Player, SessionId, State, entity, inventory};
 use crate::world::{BlockPos, Entry};
@@ -371,7 +372,7 @@ impl Player {
         self.survival.xp_progress
     }
 
-    /// The experience points the level and progress hold.
+    /// The experience points the level and progress hold, at most those of the highest level.
     #[doc(alias = "ExperienceManager::getCurrentTotalXp")]
     pub fn current_total_xp(&self) -> u64 {
         food::current_xp(&self.survival)
@@ -477,7 +478,7 @@ impl Player {
         self.survival.motion.in_air
     }
 
-    /// The yaw in degrees, 0 to 360 (0 looks south, 90 west).
+    /// The yaw in degrees, 0 to below 360 (0 looks south, 90 west).
     pub fn yaw(&self) -> f64 {
         super::rotation(self).0
     }
@@ -561,7 +562,7 @@ impl Player {
     pub fn frost_walker_level(&self) -> u32 {
         let feet = item::ArmorSlot::Feet.index();
         self.inventory.armor().get(feet).map_or(0, |boots| {
-            damage::level_of(boots, item::Enchantment::FrostWalker)
+            u32::from(drops::level(boots, item::Enchantment::FrostWalker))
         })
     }
 
@@ -965,12 +966,12 @@ impl Player {
         self.data_dirty = true;
     }
 
-    /// Sets the level and progress from experience points. Fails above 2^31 - 1, like
-    /// [`set_lifetime_total_xp`](Self::set_lifetime_total_xp), and with `experience = false`.
+    /// Sets the level and progress from experience points. Fails above the points of the highest
+    /// level, 24,791 (2,761,645,247), and with `experience = false`.
     #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
     pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
         enabled(self.survival.switches.experience)?;
-        if points > i32::MAX.cast_unsigned() {
+        if u64::from(points) > crate::player::xp_to_reach_level(crate::player::MAX_LEVEL) {
             return Err(Error::OutOfRange);
         }
         food::set_xp(&mut self.survival, u64::from(points));
@@ -1005,10 +1006,13 @@ impl Player {
         self.data_dirty = true;
     }
 
-    /// Draws a new enchanting seed on the player's next tick.
+    /// Draws a new enchanting seed on the player's next tick;
+    /// [`enchantment_seed`](Self::enchantment_seed) is 0 until then. Enchanting at a table draws
+    /// the new seed at once.
     #[doc(alias = "Human::regenerateEnchantmentSeed")]
     pub fn regenerate_enchantment_seed(&mut self) {
-        super::regenerate_enchantment_seed(self);
+        self.survival.xp_seed = None;
+        self.data_dirty = true;
     }
 
     /// Gives the player `effect`: its type, duration, amplifier, particles (shown, faint or
@@ -2008,13 +2012,23 @@ mod tests {
         assert_eq!(p.set_xp_progress(1.0), Err(Error::OutOfRange));
         p.set_xp_progress(0.5).unwrap();
         assert_eq!(p.xp_progress(), 0.5);
-        assert_eq!(p.set_current_total_xp(1 << 31), Err(Error::OutOfRange));
+        assert_eq!(p.set_current_total_xp(u32::MAX), Err(Error::OutOfRange));
         assert_eq!(p.set_lifetime_total_xp(1 << 31), Err(Error::OutOfRange));
         assert_eq!(
             (p.xp_level(), p.xp_progress()),
             (0, 0.5),
             "a refused call changes nothing"
         );
+        p.set_xp_level(24_791).unwrap();
+        p.add_xp(1);
+        assert_eq!(
+            p.xp_level(),
+            24_791,
+            "points added at the top level keep it"
+        );
+        let held = u32::try_from(p.current_total_xp()).unwrap();
+        p.set_current_total_xp(held).unwrap();
+        assert_eq!(p.xp_level(), 24_791, "the points held can be set again");
         p.set_current_total_xp(7).unwrap();
         assert_eq!((p.xp_level(), p.xp_progress()), (1, 0.0));
         p.set_enchantment_seed(42);

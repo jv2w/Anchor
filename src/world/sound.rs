@@ -17,8 +17,9 @@ use crate::protocol::packet::{
 
 /// The entity type of a sound with no entity (PMMP `LevelSoundEventPacket::nonActorSound`).
 const NO_ENTITY: &str = ":";
-/// The entity type PMMP gives hit and throw sounds.
-const PLAYER: &str = "minecraft:player";
+/// The entity type of a player (PMMP `Human::getNetworkTypeId`): the one PMMP gives hit and throw
+/// sounds, and the one the sounds a player makes name.
+pub(crate) const PLAYER_ENTITY_TYPE: &str = "minecraft:player";
 
 /// A sound.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -481,8 +482,8 @@ impl Sound {
             Self::EnderChestOpen => plain(S::EnderChestOpen),
             Self::EndermanTeleport => level(L::SoundEndermanTeleport),
             // PMMP: ATTACK seems dysfunctional, so a landed hit is ATTACK_STRONG.
-            Self::EntityAttack => Sent::Sound(S::AttackStrong, -1, PLAYER),
-            Self::EntityAttackNoDamage => Sent::Sound(S::AttackNoDamage, -1, PLAYER),
+            Self::EntityAttack => Sent::Sound(S::AttackStrong, -1, PLAYER_ENTITY_TYPE),
+            Self::EntityAttackNoDamage => Sent::Sound(S::AttackNoDamage, -1, PLAYER_ENTITY_TYPE),
             Self::Explode => plain(S::Explode),
             Self::FireExtinguish => plain(S::ExtinguishFire),
             Self::FireworkCrackle => plain(S::Twinkle),
@@ -526,7 +527,7 @@ impl Sound {
             Self::ShulkerBoxOpen => plain(S::ShulkerBoxOpen),
             Self::Smoker => plain(S::SmokerUse),
             Self::SweetBerriesPick => plain(S::SweetBerryBushPick),
-            Self::Throw => Sent::Sound(S::Throw, -1, PLAYER),
+            Self::Throw => Sent::Sound(S::Throw, -1, PLAYER_ENTITY_TYPE),
             Self::TotemUse => level(L::SoundTotemUsed),
             Self::TridentHitBlock => plain(S::TridentHitGround),
             Self::TridentHitEntity => plain(S::TridentHit),
@@ -719,7 +720,11 @@ mod tests {
             ),
             (
                 Sound::EntityAttack,
-                ("attack.strong".to_owned(), -1, PLAYER.to_owned()),
+                (
+                    "attack.strong".to_owned(),
+                    -1,
+                    PLAYER_ENTITY_TYPE.to_owned(),
+                ),
             ),
             (
                 Sound::ArmorEquipNetherite,

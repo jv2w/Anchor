@@ -457,7 +457,7 @@ pub(super) mod tests {
 
     /// Every loaded chunk of world 0 and the holder agree.
     fn assert_one_entry_per_loaded_chunk(state: &State) {
-        let loaded: Vec<ChunkPos> = state.worlds[0].loaded().collect();
+        let loaded: Vec<ChunkPos> = state.worlds[0].loaded_chunks().collect();
         let held: Vec<ChunkPos> = state.chunks.extras.chunks.keys().map(|k| k.1).collect();
         assert_eq!(held, loaded);
     }

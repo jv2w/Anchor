@@ -274,7 +274,7 @@ fn write(
     let db = temp.join("db");
     create_dir(&db)?;
     // The seed the world runs with, so generated terrain is the world's own.
-    let seed = spec.seed.unwrap_or_else(|| save::default_seed(&spec.name));
+    let seed = save::seed_or_default(&spec.name, spec.seed);
     let mut writer = leveldb::Writer::new(db.clone());
     let mut report = Report::default();
     let mut ids = ids.iter();

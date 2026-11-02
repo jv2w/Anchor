@@ -3,8 +3,10 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/temp_path.rs"]
+mod temp_path;
+
 use std::fmt;
-use std::io::ErrorKind;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -18,6 +20,8 @@ use anchor::{Config, Error, Server, ShutdownHandle};
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
+
+use temp_path::TempPath;
 
 /// The tracing target of the tick pacer's warning that ticks overran.
 const CLOCK_TARGET: &str = "anchor::clock";
@@ -48,40 +52,6 @@ fn the_error_and_the_handle_cross_threads() {
 #[test]
 fn default_settings_build() {
     Server::builder().build().unwrap();
-}
-
-/// A path in Cargo's test temporary folder, unique to this process and test; a folder an earlier
-/// run of the same process ID left there is removed when the path is made. The path is not
-/// created, and is removed with its contents when dropped.
-struct TempPath(PathBuf);
-
-impl TempPath {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test clears the folder an earlier run left"
-    )]
-    fn new(name: &str) -> Self {
-        let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("server-{}-{name}", std::process::id()));
-        match std::fs::remove_dir_all(&path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => panic!("cannot clear {}: {e}", path.display()),
-        }
-        Self(path)
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
-)]
-impl Drop for TempPath {
-    fn drop(&mut self) {
-        // A test that never ran its server has no folder to remove; a folder that stays is
-        // cleared by the next `TempPath::new` of the path.
-        std::fs::remove_dir_all(&self.0).unwrap_or(());
-    }
 }
 
 /// Settings that run without the network beyond loopback: offline login (no authorization

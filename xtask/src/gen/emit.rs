@@ -1178,7 +1178,7 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
         "/// Decodes the payload of a packet with this ID: the bytes after the packet header. Every \
          byte must be part of the packet.\n///\n/// `budget` is the allocation budget left for the \
          batch the packet came in; decoding takes what the packet allocates from \
-         it. `shield_id` is the shield's item network ID, which changes the item wire format.\n\
+         it. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]), which changes the item wire format.\n\
          pub fn decode(id: u32, payload: &[u8], budget: &mut usize, shield_id: i32) -> Result<Self> {\n\
          let mut r = Reader::new(payload, *budget, shield_id);\n\
          let packet = Self::decode_body(id, &mut r);\n*budget = r.budget();\nlet packet = packet?;\n\
@@ -1200,7 +1200,8 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
     out.push_str(
         "_ => return Err(Error::UnknownEnum { name: \"packet id\", value: id.into() }),\n})\n}\n\n\
          /// Appends the payload of the packet (without the packet header) to `out`. On an error \
-         `out` is left as it was. `shield_id` is the shield's item network ID.\n\
+         `out` is left as it was. `shield_id` is the shield's item network ID \
+         ([`crate::item::SHIELD_RUNTIME_ID`]).\n\
          pub fn encode(&self, out: &mut Vec<u8>, shield_id: i32) -> Result<()> {\n\
          let start = out.len();\nlet mut w = Writer::new(std::mem::take(out), shield_id);\n\
          let result = match self {\n",

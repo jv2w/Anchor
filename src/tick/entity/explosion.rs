@@ -32,7 +32,7 @@ use tracing::debug;
 use super::kind::{Kind, Tnt};
 use super::{
     Blow, Budget, Cause, Hooks, Knock, Raise, State, create, hurt, hurt_in, is_live,
-    is_valid_explosion, level_event, level_of, physics, push_entity, survival, with,
+    is_valid_explosion, level_event, physics, push_entity, survival, with,
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
@@ -637,28 +637,22 @@ fn hit_entities(
         let damage = damage_of(impact, reach);
         let landed = match raise {
             Raise::Events => (hooks.damage)(state, session, damage, player_cause, by),
-            Raise::Quiet => survival::damage_quiet(state, session, damage, player_cause),
+            Raise::Quiet => survival::damage_quiet(state, session, damage, player_cause)
+                .then_some((super::KNOCKBACK, super::KNOCKBACK_VERTICAL_LIMIT)),
         };
         let mut push = direction * impact;
-        if landed
+        if let Some((base, vertical)) = landed
             && let Some(f) = from
             && let Some(p) = state.players.get(&session)
         {
             let feet = survival::feet(p);
-            let blast = p
-                .inventory
-                .armor()
-                .iter()
-                .map(|s| level_of(s, Enchantment::BlastProtection))
-                .max()
-                .unwrap_or(0);
-            let base = super::KNOCKBACK;
+            let blast = survival::highest_armor_level(p, Enchantment::BlastProtection);
             let force = base - math::min(base, base * f64::from(blast) * 0.15);
             let knock = Knock {
                 x: feet.x - f.x,
                 z: feet.z - f.z,
                 force,
-                vertical: super::KNOCKBACK_VERTICAL_LIMIT,
+                vertical,
             };
             if let Some(m) = knock.applied_to(Vec3::ZERO) {
                 push += m;

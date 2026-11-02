@@ -21,7 +21,7 @@ use crate::tick::SessionId;
 use crate::tick::checkpoint::{self, Codec, Reader, Writer, fields, variants};
 use crate::tick::survival::{self, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::tick::trade::Offers;
-use crate::world::BlockPos;
+use crate::world::{BlockPos, PLAYER_ENTITY_TYPE};
 
 /// PMMP `Arrow`: 0.25 × 0.25, gravity 0.05, drag 0.01 before gravity.
 const ARROW: Physics = Physics {
@@ -298,7 +298,7 @@ impl Kind {
             Self::Npc(n) => match &n.form {
                 Form::Villager { .. } => "minecraft:villager_v2",
                 Form::Zombie { .. } => "minecraft:zombie",
-                Form::Human { .. } => "minecraft:player",
+                Form::Human { .. } => PLAYER_ENTITY_TYPE,
                 Form::Custom(c) => &c.spec.identifier,
             },
             Self::Painting(_) => "minecraft:painting",

@@ -1367,7 +1367,7 @@ pub(crate) fn hex_lit(v: u64, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::info::camel;
+    use super::super::names::upper_camel;
     use super::*;
 
     /// A PMMP state's values: `kind`, its light emission, flags and item name.
@@ -1399,7 +1399,7 @@ mod tests {
             physics,
             identity: Identity {
                 kind: kind.to_owned(),
-                classes: vec![camel(kind), "Block".to_owned()],
+                classes: vec![upper_camel(kind), "Block".to_owned()],
                 traits: Vec::new(),
             },
             item: ItemSource::Form(form.clone()),

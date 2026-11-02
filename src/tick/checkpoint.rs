@@ -1472,7 +1472,7 @@ pub(super) mod tests {
     pub(in crate::tick) fn extras_of(state: &State) -> BTreeMap<Key, ChunkExtras> {
         let mut extras = BTreeMap::new();
         for (w, world) in state.worlds.iter().enumerate() {
-            for pos in world.loaded() {
+            for pos in world.loaded_chunks() {
                 if let Some(e) = state.chunks.extras.get((w, pos)) {
                     extras.insert((w, pos), e.clone());
                 }

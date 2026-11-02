@@ -56,7 +56,7 @@ pub(super) struct Motion {
     pub(super) on_ground: bool,
     /// Whether hunger runs for the player (settings and game mode), set each tick.
     pub(super) hunger: bool,
-    /// Yaw and pitch in degrees ([`turn`]): the yaw in [0, 360], the pitch above -360 and below
+    /// Yaw and pitch in degrees ([`turn`]): the yaw in [0, 360), the pitch above -360 and below
     /// 360.
     pub(super) yaw: f64,
     pub(super) pitch: f64,
@@ -1034,10 +1034,12 @@ pub(super) fn process(state: &mut State, session: SessionId) {
 }
 
 /// Sets the rotation to the finite `yaw` and `pitch` in degrees, each wrapped as PMMP's `fmod`
-/// does (above -360, below 360), then a negative yaw turned once more: [0, 360].
+/// does (above -360, below 360), then a negative yaw turned once more: [0, 360).
 pub(super) fn turn(m: &mut Motion, yaw: f32, pitch: f32) {
     let yaw = f64::from(yaw) % 360.0;
-    m.yaw = if yaw < 0.0 { yaw + 360.0 } else { yaw };
+    let turned = if yaw < 0.0 { yaw + 360.0 } else { yaw };
+    // A negative yaw too small to change 360 rounds up to a full turn, which is 0.
+    m.yaw = if turned < 360.0 { turned } else { 0.0 };
     m.pitch = f64::from(pitch) % 360.0;
 }
 
@@ -1140,6 +1142,15 @@ mod tests {
         s.motion.pitch = 90.0;
         let d = entity::direction(s.motion.yaw, s.motion.pitch);
         assert!(d.y < -0.99, "pitch 90 looks down: {d:?}");
+    }
+
+    #[test]
+    fn a_yaw_is_turned_into_zero_to_below_a_full_turn() {
+        let mut motion = Motion::default();
+        for (sent, turned) in [(-90.0, 270.0), (360.0, 0.0), (450.0, 90.0), (-1e-30, 0.0)] {
+            turn(&mut motion, sent, 0.0);
+            assert_eq!(motion.yaw, turned, "yaw {sent}");
+        }
     }
 
     /// A world with one spawned player (session 1) whose next move counts, and its outbound

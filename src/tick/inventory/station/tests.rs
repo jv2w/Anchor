@@ -327,6 +327,7 @@ fn enchant_request(
 fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     let (mut w, s, options) = enchanting(3);
     let level = survival::xp_level(w.player(s));
+    let seed = survival::enchantment_seed(w.player(s));
     let before = total_count(&w.state);
     let id = w.next_id(s);
     let actions = enchant_request(&w, s, options[1].0, 1, id);
@@ -346,10 +347,10 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
         "the second option costs two lapis"
     );
     assert_eq!(survival::xp_level(w.player(s)), level - 2);
-    assert_eq!(
+    assert_ne!(
         survival::enchantment_seed(w.player(s)),
-        0,
-        "the seed is reset and drawn again on the player's next tick"
+        seed,
+        "the seed is drawn again at once, before any later input shows options"
     );
     assert_eq!(total_count(&w.state), before - 2);
     // The enchanted input has no options: the empty list went out with the response.

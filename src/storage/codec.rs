@@ -32,9 +32,9 @@ const _: () = assert!(
         && crate::permission::MAX_SOURCE <= MAX_NAME_BYTES
 );
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
-/// name and the position. It holds up to 146 stacks and the user's data, more
-/// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
-/// (`item::MAX_NBT_BYTES`).
+/// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
+/// user's data, more than the 4 MiB of one NBT root elsewhere; the record's reader budget covers
+/// it (`item::MAX_NBT_BYTES`).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
 
 /// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import

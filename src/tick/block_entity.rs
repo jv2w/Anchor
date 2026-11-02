@@ -1551,7 +1551,7 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
         .get(world, pos)
         .and_then(BlockEntity::pair);
     for session in window_viewers(state, world, pos) {
-        inventory::close_window(state, session);
+        inventory::close_window_without_event(state, session);
     }
     let Some(entity) = state.rules.block_entities.remove(world, pos) else {
         return;

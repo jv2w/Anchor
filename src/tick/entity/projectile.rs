@@ -919,9 +919,10 @@ fn hit_player(
         .get(&session)
         .is_some_and(|player| !(hooks.has_attack_cooldown)(player));
     let damage = survival::Damage::Entity;
-    if !(hooks.damage)(state, session, blow.amount, damage, blow.source) {
+    let Some((force, vertical)) = (hooks.damage)(state, session, blow.amount, damage, blow.source)
+    else {
         return;
-    }
+    };
     if let Some(source) = fire {
         let seconds = u32::from(HIT_FIRE_SECONDS.unsigned_abs());
         (hooks.set_on_fire)(state, session, seconds, source);
@@ -930,9 +931,14 @@ fn hit_player(
         return;
     }
     let mut push = if cold {
-        Knock::new(motion.x, motion.z)
-            .applied_to(Vec3::ZERO)
-            .unwrap_or(Vec3::ZERO)
+        Knock {
+            x: motion.x,
+            z: motion.z,
+            force,
+            vertical,
+        }
+        .applied_to(Vec3::ZERO)
+        .unwrap_or(Vec3::ZERO)
     } else {
         Vec3::ZERO
     };
@@ -1871,6 +1877,33 @@ mod tests {
             Packet::SetActorMotion(m) if m.entity_runtime_id == target)
         });
         assert!(!pushed, "no knockback within the hit cooldown");
+    }
+
+    /// An arrow knocks a player back with the force the damage listeners left: 0 pushes nothing.
+    #[test]
+    fn an_arrow_knocks_a_player_back_with_the_force_the_listeners_left() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(0.0, 8.0));
+        calls(|c| {
+            c.look = (0.0, 0.0);
+            c.arrows = 1;
+            c.knockback = Some((0.0, 0.0));
+        });
+        let bow = stack("minecraft:bow", 1);
+        inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), bow);
+        assert!(release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
+        h.take(2);
+        for _ in 0..5 {
+            h.entities();
+        }
+        assert_eq!(calls(|c| c.damage.len()), 1, "the arrow hit");
+        let target = h.runtime_id(2);
+        let pushed = h.take(2).into_iter().any(|p| {
+            matches!(p,
+            Packet::SetActorMotion(m) if m.entity_runtime_id == target)
+        });
+        assert!(!pushed, "no knockback");
     }
 
     /// A bow worn to its durability shoots without breaking further (PMMP

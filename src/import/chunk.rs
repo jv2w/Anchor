@@ -42,6 +42,7 @@ use crate::protocol::{BLOCKS, Reader, WIDTHS, word_count};
 use crate::storage::codec::{BlockLayer, MAX_EXTRA_ENTRIES, check_indices};
 // Decoding one chunk allocates within the data files' own budget.
 use crate::storage::seal::DECODE_BUDGET;
+use crate::world::LOWEST_SUB_CHUNK;
 
 /// Chunk tags.
 pub(crate) const VERSION: u8 = 0x2c;
@@ -65,8 +66,7 @@ const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
 const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
 const MAX_SUB_CHUNK_VERSION: u8 = 9;
-/// The lowest and highest sub-chunk y imported: Anchor's world height.
-pub(crate) const MIN_SUB_CHUNK_Y: i32 = crate::world::MIN_Y >> 4;
+/// The highest sub-chunk y imported: Anchor's world height.
 const MAX_SUB_CHUNK_Y: i32 = crate::world::MAX_Y >> 4;
 /// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
 const CAVES_CLIFFS_OFFSET: i8 = 4;
@@ -139,7 +139,7 @@ impl Entries {
             }
             [SUB_CHUNK, y] => {
                 let y = i8::from_le_bytes([y]);
-                let range = MIN_SUB_CHUNK_Y..=MAX_SUB_CHUNK_Y + i32::from(CAVES_CLIFFS_OFFSET);
+                let range = LOWEST_SUB_CHUNK..=MAX_SUB_CHUNK_Y + i32::from(CAVES_CLIFFS_OFFSET);
                 if range.contains(&i32::from(y)) {
                     self.count(value.len())?;
                     self.sub_chunks.insert(y, value.to_vec());
@@ -420,7 +420,7 @@ fn terrain(
     let mut sections = Vec::with_capacity(entries.sub_chunks.len());
     for (&key_y, value) in &entries.sub_chunks {
         let y = key_y - offset;
-        if (MIN_SUB_CHUNK_Y..=MAX_SUB_CHUNK_Y).contains(&i32::from(y)) {
+        if (LOWEST_SUB_CHUNK..=MAX_SUB_CHUNK_Y).contains(&i32::from(y)) {
             let section = section(value, key_y, y, budget)
                 .map_err(|e| entries.at_key(&[SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
             sections.push(section);

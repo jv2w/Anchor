@@ -17,13 +17,13 @@ use tracing::{debug, error};
 use super::extra::{self, Held};
 use super::log::InputLog;
 use super::view::Key;
-use super::{Context, Phase, Player, PlayerKey, State, dispatch};
+use super::{Context, Phase, Player, PlayerKey, SessionId, State, dispatch};
 use crate::command::Sender;
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
 use crate::save::{PlayerData, Request, Snapshot, WorldValues};
 use crate::storage::{Checked, PlayerKey as StoredPlayer};
-use crate::world::{Chunk, Kind, World};
+use crate::world::{Chunk, Kind};
 
 /// Unloaded chunks waiting for a commit beyond which the tick asks for one at once.
 const MAX_UNSAVED_CHUNKS: usize = 4096;
@@ -129,6 +129,8 @@ struct InFlight {
     start: u64,
     chunks: BTreeSet<Key>,
     players: BTreeSet<StoredPlayer>,
+    /// The persistent worlds, by index, whose state it holds.
+    worlds: BTreeSet<usize>,
 }
 
 impl Saving {
@@ -190,6 +192,7 @@ impl Saving {
                 start,
                 chunks,
                 players,
+                worlds,
             }) => {
                 h.u64(start.wrapping_add(1));
                 h.usize(chunks.len());
@@ -201,6 +204,10 @@ impl Saving {
                 h.usize(players.len());
                 for key in players {
                     h.bytes(key.as_str().as_bytes());
+                }
+                h.usize(worlds.len());
+                for &world in worlds {
+                    h.usize(world);
                 }
             }
         }
@@ -236,7 +243,8 @@ super::checkpoint::fields!(Saving {
 super::checkpoint::fields!(InFlight {
     start,
     chunks,
-    players
+    players,
+    worlds
 });
 super::checkpoint::fields!(Offline { data, snapshot });
 super::checkpoint::variants!(Sender {
@@ -337,6 +345,8 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         return None;
     }
     let data_saves = ask_data_saves(state);
+    // What the listeners deferred changes the state too, so it goes into this snapshot.
+    dispatch::run_deferred(state, &mut 0);
     // The rule modules' changed chunk state goes to the extras holder first.
     state.rules.flush(&mut state.chunks.extras);
     let start = state.tick;
@@ -353,6 +363,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         start,
         chunks: BTreeSet::new(),
         players: BTreeSet::new(),
+        worlds: BTreeSet::new(),
     };
     for (index, world) in state.worlds.iter_mut().enumerate() {
         if world.kind() != Kind::Persistent {
@@ -360,6 +371,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         }
         // Unloaded worlds too: a world unloaded since the last snapshot is saved by this one.
         snapshot.worlds.push((index, WorldValues::of(world)));
+        held.worlds.insert(index);
         for (pos, chunk) in world.take_dirty() {
             held.chunks.insert((index, pos));
             snapshot.chunks.push((index, pos, chunk));
@@ -419,12 +431,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     reason = "invariant: the sessions are taken from the players just before, and none leaves"
 )]
 fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &mut InFlight) {
-    let sessions: Vec<_> = state
-        .players
-        .iter()
-        .filter(|(_, p)| p.data_dirty)
-        .map(|(&s, _)| s)
-        .collect();
+    let sessions: Vec<_> = dirty_players(state).map(|(session, _)| session).collect();
     for session in sessions {
         let player = state
             .players
@@ -461,23 +468,20 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
     if !state.saving.players || !dispatch::heard::<PlayerDataSave>(state) {
         return Vec::new();
     }
-    let dirty: Vec<_> = state
-        .players
-        .iter()
-        .filter(|(_, p)| p.data_dirty)
-        .map(|(&s, p)| (s, storage_key(&p.key)))
+    let dirty: Vec<_> = dirty_players(state)
+        .map(|(session, p)| (session, p.name().to_owned()))
         .collect();
     let mut events = Vec::with_capacity(dirty.len());
-    for (session, key) in dirty {
+    for (session, name) in dirty {
         let mut e = PlayerDataSave {
             player: player::Id::new(session),
-            player_name: key.as_str().to_owned(),
+            player_name: name,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
         if e.cancelled {
             debug!(
-                player = key.as_str(),
+                player = e.player_name.as_str(),
                 "a cancelled player data save is saved all the same"
             );
         }
@@ -486,12 +490,24 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
     events
 }
 
+/// The online players whose data changed since the last snapshot.
+fn dirty_players(state: &State) -> impl Iterator<Item = (SessionId, &Player)> {
+    state
+        .players
+        .iter()
+        .filter(|(_, p)| p.data_dirty)
+        .map(|(&session, p)| (session, p))
+}
+
 /// The snapshot taken before tick `start` is committed: the memory that held it for the commit
 /// is let go, and the input log learns of the commit (`InputLog::committed`).
 pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
-    if state.saving.in_flight.as_ref().map(|f| f.start) == Some(start) {
-        state.saving.in_flight = None;
-    }
+    let worlds = state
+        .saving
+        .in_flight
+        .take_if(|f| f.start == start)
+        .map(|f| f.worlds)
+        .unwrap_or_default();
     state
         .chunks
         .unsaved
@@ -503,10 +519,9 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     log.committed(start);
     debug!(start, "save committed");
     if dispatch::heard::<WorldSave>(state) {
-        for index in 0..state.worlds.len() {
-            if state.worlds.get(index).map(World::kind) != Some(Kind::Persistent)
-                || !state.catalog.is_loaded(index)
-            {
+        // Only the worlds the snapshot held, and of them only those still loaded.
+        for index in worlds {
+            if !state.catalog.is_loaded(index) {
                 continue;
             }
             let mut e = WorldSave {
@@ -657,10 +672,11 @@ mod tests {
         let mut heard = state(listeners);
         let before = saved(&mut quiet);
         let after = saved(&mut heard);
-        assert_eq!(logged(), ["1 2535000001", "monitor false"]);
+        let player = &heard.players[&SessionId::new(1)];
+        let line = format!("1 {}", player.name());
+        assert_eq!(logged(), [line, "monitor false".to_owned()]);
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].0, "2535000001");
-        let player = &heard.players[&SessionId::new(1)];
         assert_eq!(player.xp_level(), 7);
         // The snapshot holds the player as the listener left it, unlike without the listener.
         assert_eq!(after[0].1, data_of(&heard, player));
@@ -681,6 +697,25 @@ mod tests {
         // One commit holds the whole state of a tick boundary: the world and its players.
         assert_eq!(after, before);
         assert!(!cancelled.players[&SessionId::new(1)].data_dirty);
+    }
+
+    /// What a listener defers while the player data saves goes into the same snapshot.
+    #[test]
+    fn a_callback_deferred_by_a_data_save_listener_is_in_the_snapshot() {
+        let listeners = on(|_: &mut PlayerDataSave, cx: &mut Context<'_>| {
+            cx.defer(|cx| {
+                cx.player_mut(player::Id::new(SessionId::new(1)))
+                    .unwrap()
+                    .set_xp_level(9)
+                    .unwrap();
+            })
+            .unwrap();
+        });
+        let mut state = state(listeners);
+        let saved = saved(&mut state);
+        let player = &state.players[&SessionId::new(1)];
+        assert_eq!(player.xp_level(), 9);
+        assert_eq!(saved[0].1, data_of(&state, player));
     }
 
     /// Runs 200 ticks of 1 MiB of input each with saves every 1440 minutes, auto-save on or off,
@@ -784,6 +819,24 @@ mod tests {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         assert!(Context { state: &mut state }.backup());
         assert!(state.saving.backup && state.saving.requested);
+    }
+
+    /// A world made after the snapshot was taken is not in it: its commit raises no save for it.
+    #[test]
+    fn world_save_names_only_the_worlds_the_snapshot_held() {
+        let listeners = on(|e: &mut WorldSave, _: &mut Context<'_>| {
+            log(e.world().index().to_string());
+        });
+        let mut state = state(listeners);
+        let mut input_log = InputLog::default();
+        state.saving.requested = true;
+        assert!(snapshot(&mut state, &mut input_log, false).is_some());
+        Context { state: &mut state }
+            .create_world("arena", &crate::world::Options::new())
+            .unwrap();
+        let start = state.saving.in_flight.as_ref().unwrap().start;
+        committed(&mut state, &mut input_log, start);
+        assert_eq!(logged(), ["0"]);
     }
 
     // pmmp: WorldSaveEvent, WorldEvent::getWorld

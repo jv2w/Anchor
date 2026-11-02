@@ -23,7 +23,7 @@ use std::path::Path;
 
 use tracing::{error, info, warn};
 
-use super::chunk::{self, Layer, LegacyBlock, LegacyLayer, MIN_SUB_CHUNK_Y, Raw};
+use super::chunk::{self, Layer, LegacyBlock, LegacyLayer, Raw};
 use super::level_dat::{SPAWN_Y_UNSET, WorldData};
 use super::{Catalog, Error, Source, upgrade};
 use crate::custom::Registry;
@@ -33,7 +33,9 @@ use crate::save::{self, WorldSpec};
 use crate::storage::codec::{BlockLayer, ChunkRecord, SubChunkRecord, WorldRecord};
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
-use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Paletted, SLOTS, SUB_CHUNKS};
+use crate::world::{
+    self, BlockPos, Chunk, ChunkPos, Entry, LOWEST_SUB_CHUNK, Paletted, SLOTS, SUB_CHUNKS,
+};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
 const STEP: usize = 256;
@@ -369,7 +371,7 @@ fn prepare<E: Sync>(
     let [x, y, z] = world.spawn;
     // The seed the world runs with (its settings', not level.dat's), so the generated biomes are
     // those of the chunks the world generates itself.
-    let seed = spec.seed.unwrap_or_else(|| save::default_seed(&spec.name));
+    let seed = save::seed_or_default(&spec.name, spec.seed);
     let target = Target {
         // The world's file holds it alone.
         number: 0,
@@ -515,7 +517,7 @@ fn convert(pos: ChunkPos, raw: Raw, target: &Target<'_>) -> super::Result<Conver
         }));
     let mut extra = extra_cubes(&legacy_blocks);
     for section in sections {
-        let slot = usize::try_from(i32::from(section.y) - MIN_SUB_CHUNK_Y)
+        let slot = usize::try_from(i32::from(section.y) - LOWEST_SUB_CHUNK)
             .ok()
             .and_then(|i| sub_chunks.get_mut(i))
             .ok_or(Error::Malformed("a sub-chunk is outside the world height"))?;
@@ -603,10 +605,10 @@ fn legacy_layer(layer: &LegacyLayer) -> BlockLayer {
 fn extra_cubes(blocks: &[LegacyBlock]) -> [Option<Paletted<u16>>; LEGACY_SUB_CHUNKS] {
     let mut cubes: [Option<Paletted<u16>>; LEGACY_SUB_CHUNKS] = Default::default();
     for b in blocks {
-        let offset = (u16::from(b.x & 15) << 8) | (u16::from(b.z & 15) << 4) | u16::from(b.y & 15);
+        let slot = world::offset(b.x, b.y, b.z);
         cubes[usize::from(b.y >> 4)]
             .get_or_insert_with(|| Paletted::uniform(0))
-            .set(offset, legacy_value(b.id, b.meta));
+            .set(slot, legacy_value(b.id, b.meta));
     }
     cubes
 }

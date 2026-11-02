@@ -4,7 +4,7 @@
 use super::RegistryEntry;
 
 /// The runtime ID of `minecraft:shield`: item stacks of it carry a blocking tick on the wire.
-pub(crate) const SHIELD_RUNTIME_ID: i32 = 358;
+pub const SHIELD_RUNTIME_ID: i32 = 358;
 
 /// Every item of the reference list in runtime ID order: (name, runtime ID, component based, version, data).
 pub(super) static ENTRIES: [RegistryEntry; 2080] = [

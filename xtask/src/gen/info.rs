@@ -173,36 +173,6 @@ pub(crate) fn f64_lit(v: f64) -> String {
     format!("{int}{point}{grouped}{exponent}")
 }
 
-/// An upper camel case Rust name of a snake case or PMMP name (`oak_planks` → `OakPlanks`), with
-/// acronyms as one word (`TNT` → `Tnt`).
-pub(crate) fn camel(name: &str) -> String {
-    let mut joined = String::with_capacity(name.len());
-    for part in name.split('_') {
-        let mut chars = part.chars();
-        if let Some(first) = chars.next() {
-            joined.extend(first.to_uppercase());
-            joined.push_str(chars.as_str());
-        }
-    }
-    // An upper case letter after another stays upper only where a lower case one follows it
-    // (`HTTPServer` → `HttpServer`).
-    let chars: Vec<char> = joined.chars().collect();
-    let mut out = String::with_capacity(joined.len());
-    for (i, c) in chars.iter().enumerate() {
-        let previous_upper = i
-            .checked_sub(1)
-            .and_then(|p| chars.get(p))
-            .is_some_and(char::is_ascii_uppercase);
-        let next_lower = chars.get(i + 1).is_some_and(char::is_ascii_lowercase);
-        if c.is_ascii_uppercase() && previous_upper && !next_lower {
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(*c);
-        }
-    }
-    out
-}
-
 /// The dumped item data (`items.json` `data`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -434,16 +404,6 @@ mod tests {
         assert!(exact(0.6).is_ok());
         assert!(exact(1.0 / 3.0).is_err());
         assert!(exact(f64::NAN).is_err());
-    }
-
-    #[test]
-    fn names_become_upper_camel_case() {
-        assert_eq!(camel("oak_planks"), "OakPlanks");
-        assert_eq!(camel("music_disc_11"), "MusicDisc11");
-        assert_eq!(camel("tnt"), "Tnt");
-        assert_eq!(camel("TNT"), "Tnt");
-        assert_eq!(camel("HTTPServer"), "HttpServer");
-        assert_eq!(camel("ItemBlock"), "ItemBlock");
     }
 
     #[test]

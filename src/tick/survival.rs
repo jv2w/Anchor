@@ -34,7 +34,7 @@ pub(super) use clock::{
     Clock, MARKERS, OVERWORLD_CLOCK_NAME, clock_definition, clock_state, day_cycle_lock_time,
     sleeping_players,
 };
-pub(super) use damage::{Damage, bds_cause, respawn_joined};
+pub(super) use damage::{Damage, bds_cause, highest_armor_level, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
 use std::collections::BTreeMap;
@@ -633,7 +633,7 @@ impl Context<'_> {
         source: DamageSource,
     ) -> bool {
         let damage = Damage::of(cause, source);
-        damage::damage_by(self.state, player.session(), amount, damage, source)
+        damage::damage_by(self.state, player.session(), amount, damage, source).is_some()
     }
 
     /// Changes `player`'s game mode to `mode` with its [`PlayerGameModeChange`] event
@@ -713,10 +713,7 @@ fn player_tick(state: &mut State, session: SessionId) {
     player.survival.motion.hunger = hunger;
     if player.survival.xp_seed.is_none() {
         let seed = state.worlds.get(player.world).map_or(0, World::seed);
-        let mut random = player_random(seed, tick, player, SEED);
-        let [a, b, c, d, ..] = random.next_u64().to_le_bytes();
-        player.survival.xp_seed = Some(i32::from_le_bytes([a, b, c, d]));
-        player.data_dirty = true;
+        draw_enchantment_seed(seed, tick, player);
     }
     if player.survival.is_dead() {
         // Killed through the API: the death's drops come now.
@@ -755,6 +752,14 @@ fn player_tick(state: &mut State, session: SessionId) {
     if let Some(player) = state.players.get_mut(&session) {
         movement::end_tick(player);
     }
+}
+
+/// Draws the player's enchanting seed from a stream of its own.
+fn draw_enchantment_seed(seed: i64, tick: u64, player: &mut Player) {
+    let mut random = player_random(seed, tick, player, SEED);
+    let [a, b, c, d, ..] = random.next_u64().to_le_bytes();
+    player.survival.xp_seed = Some(i32::from_le_bytes([a, b, c, d]));
+    player.data_dirty = true;
 }
 
 /// A random stream for one draw purpose of a player in a world with `seed`; each call opens a
@@ -862,14 +867,15 @@ pub(super) fn damage_quiet(
 /// Deals `amount` damage (half hearts) for `cause` from `source` (an entity, a projectile and its
 /// owner, a block, or none) after armour, effects and invulnerability, raising
 /// [`EntityDamage`](crate::event::EntityDamage), which names the source; a player in `source` is
-/// the attacker (its Strength, knockback, thorns). False if no damage was taken.
+/// the attacker (its Strength, knockback, thorns). `None` if no damage was taken, otherwise the
+/// knockback force and vertical limit the listeners left.
 pub(super) fn damage_by(
     state: &mut State,
     session: SessionId,
     amount: f64,
     cause: Damage,
     source: DamageSource,
-) -> bool {
+) -> Option<(f64, f64)> {
     damage::damage_by(state, session, amount, cause, source)
 }
 
@@ -899,10 +905,14 @@ pub(super) fn enchantment_seed(player: &Player) -> i32 {
     player.survival.xp_seed.unwrap_or(0)
 }
 
-/// Draws a new enchanting seed on the player's next tick (PMMP `regenerateEnchantmentSeed`).
-pub(super) fn regenerate_enchantment_seed(player: &mut Player) {
-    player.survival.xp_seed = None;
-    player.data_dirty = true;
+/// Draws a new enchanting seed for the player of `session` at once (PMMP
+/// `regenerateEnchantmentSeed`): the options the player's next input shows already use it.
+pub(super) fn regenerate_enchantment_seed(state: &mut State, session: SessionId) {
+    let tick = state.tick;
+    let seed = world_seed(state, session);
+    if let Some(player) = state.players.get_mut(&session) {
+        draw_enchantment_seed(seed, tick, player);
+    }
 }
 
 /// The experience level (PMMP `ExperienceManager::getXpLevel`).
@@ -1192,7 +1202,7 @@ pub(super) fn is_sneak_pressed(player: &Player) -> bool {
     player.survival.motion.sneak_pressed
 }
 
-/// The player's yaw and pitch in degrees, yaw in [0, 360] (PMMP `Location::getYaw`,
+/// The player's yaw and pitch in degrees, yaw in [0, 360) (PMMP `Location::getYaw`,
 /// `getPitch`): the facing of placed blocks, the flight of thrown items and arrows.
 pub(super) fn rotation(player: &Player) -> (f64, f64) {
     (player.survival.motion.yaw, player.survival.motion.pitch)
@@ -1335,6 +1345,7 @@ mod tests {
     };
     use crate::protocol::packet::{self as p, Packet};
     use crate::protocol::{FlagSet, InputFlags, MetadataValue};
+    use crate::tick::interact::drops;
     use crate::tick::queue::{Input, Outbound};
     use crate::tick::tests::{
         initialised, input, join, leave, new_state, packet, radius, received, settings, tick,
@@ -1944,13 +1955,9 @@ mod tests {
             owner,
         };
         let by_two = shot(Some(crate::event::Actor::Player(Id::new(sid(2)))));
-        assert!(damage::damage_by(
-            &mut server.state,
-            sid(1),
-            100.0,
-            Damage::Entity,
-            by_two
-        ));
+        assert!(
+            damage::damage_by(&mut server.state, sid(1), 100.0, Damage::Entity, by_two).is_some()
+        );
         server.idle(1);
         let shooter = server.player(2).identity.name.clone();
         let deaths = |packets: Vec<Packet>| -> Vec<(String, Vec<String>)> {
@@ -1966,13 +1973,10 @@ mod tests {
         assert_eq!(death.len(), 1);
         assert_eq!(death[0].0, "death.attack.arrow");
         assert_eq!(death[0].1.get(1), Some(&shooter));
-        assert!(damage::damage_by(
-            &mut server.state,
-            sid(2),
-            100.0,
-            Damage::Entity,
-            shot(None)
-        ));
+        assert!(
+            damage::damage_by(&mut server.state, sid(2), 100.0, Damage::Entity, shot(None))
+                .is_some()
+        );
         server.idle(1);
         let death = deaths(server.take(2));
         assert_eq!(death.len(), 1);
@@ -1994,13 +1998,9 @@ mod tests {
             child: trident,
             owner: Some(crate::event::Actor::Player(Id::new(sid(2)))),
         };
-        assert!(damage::damage_by(
-            &mut server.state,
-            sid(1),
-            100.0,
-            Damage::Entity,
-            by_two
-        ));
+        assert!(
+            damage::damage_by(&mut server.state, sid(1), 100.0, Damage::Entity, by_two).is_some()
+        );
         server.idle(1);
         let died = server
             .take(1)
@@ -2563,7 +2563,7 @@ mod tests {
             .collect();
         let vanishing = stacks
             .iter()
-            .filter(|s| damage::level_of(s, Enchantment::Vanishing) > 0)
+            .filter(|s| drops::level(s, Enchantment::Vanishing) > 0)
             .count();
         let total = |v: &[Stack]| v.iter().map(|s| u32::from(s.count())).sum::<u32>();
         let want = total(&stacks) - u32::try_from(vanishing).unwrap();

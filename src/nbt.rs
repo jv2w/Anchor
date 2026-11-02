@@ -33,18 +33,18 @@ const ENTRY_CHARGES: (usize, usize) = map_charges(size_of::<(String, Value)>());
 /// The room reserved for the container stack of a root.
 const FRAME_CAPACITY: usize = 16;
 
-/// The tag types, by number (the network block hash writes NBT tags too).
-pub(crate) const TAG_END: u8 = 0;
-pub(crate) const TAG_BYTE: u8 = 1;
+/// The tag types, by number.
+const TAG_END: u8 = 0;
+const TAG_BYTE: u8 = 1;
 const TAG_SHORT: u8 = 2;
-pub(crate) const TAG_INT: u8 = 3;
+const TAG_INT: u8 = 3;
 const TAG_LONG: u8 = 4;
 const TAG_FLOAT: u8 = 5;
 const TAG_DOUBLE: u8 = 6;
 const TAG_BYTE_ARRAY: u8 = 7;
-pub(crate) const TAG_STRING: u8 = 8;
+const TAG_STRING: u8 = 8;
 const TAG_LIST: u8 = 9;
-pub(crate) const TAG_COMPOUND: u8 = 10;
+const TAG_COMPOUND: u8 = 10;
 const TAG_INT_ARRAY: u8 = 11;
 const TAG_LONG_ARRAY: u8 = 12;
 

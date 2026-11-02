@@ -167,6 +167,21 @@ impl Engine {
         Some(chunk.light()?.get(channel, spot.sub, spot.at))
     }
 
+    /// The block light and the sky light at `pos`, from one lookup of the chunk, or `None` where
+    /// [`Self::light`] has none.
+    pub(crate) fn lights(&self, chunks: &ChunkIndex, pos: BlockPos) -> Option<(u8, u8)> {
+        let spot = Spot::of(pos)?;
+        let chunk = chunks.get(spot.chunk)?;
+        if let Mode::Fixed(level) = self.mode {
+            return Some((0, level));
+        }
+        let light = chunk.light()?;
+        Some((
+            light.get(Channel::Block, spot.sub, spot.at),
+            light.get(Channel::Sky, spot.sub, spot.at),
+        ))
+    }
+
     /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
     pub(crate) fn is_lit(&self, chunks: &ChunkIndex, pos: ChunkPos) -> bool {
         chunks
@@ -1737,7 +1752,7 @@ mod tests {
     fn reference(w: &World) -> BTreeMap<ChunkPos, ([Vec<u8>; 2], Vec<i32>)> {
         let mut out = BTreeMap::new();
         let mut queue = VecDeque::new();
-        for cp in w.loaded() {
+        for cp in w.loaded_chunks() {
             let chunk = w.chunk(cp).unwrap();
             let mut arrays = [vec![0u8; CELLS], vec![0u8; CELLS]];
             let mut heights = vec![MIN_Y; COLUMNS];
@@ -2133,13 +2148,13 @@ mod tests {
         // Unloading everything with work pending leaves nothing behind.
         w.set_block(BlockPos::new(0, -60, 0), glowstone).unwrap();
         w.step_light(10);
-        let all: Vec<ChunkPos> = w.loaded().collect();
+        let all: Vec<ChunkPos> = w.loaded_chunks().collect();
         for p in all {
             w.remove_chunk(p);
         }
         settle(&mut w, 1_000);
         assert!(w.is_light_idle());
-        assert_eq!(w.loaded().count(), 0);
+        assert_eq!(w.loaded_chunks().count(), 0);
     }
 
     // pmmp: World::getRealBlockSkyLightAt, World::getFullLightAt
@@ -2155,8 +2170,10 @@ mod tests {
         assert!(w.is_light_idle(), "changes make no work");
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(0));
         assert_eq!(w.sky_light(under), Some(15));
-        assert_eq!(w.real_sky_light(under, 18_000), Some(4), "midnight");
-        assert_eq!(w.full_light(under, 6_000), Some(15));
+        w.set_time(18_000);
+        assert_eq!(w.real_sky_light(under), Some(4), "midnight");
+        w.set_time(6_000);
+        assert_eq!(w.full_light(under), Some(15));
         assert_eq!(w.sky_light(BlockPos::new(48, 0, 0)), None, "not loaded");
         assert!(w.is_chunk_lit(ChunkPos::new(0, 0)));
         assert!(!w.is_chunk_lit(ChunkPos::new(3, 0)));
@@ -2172,7 +2189,8 @@ mod tests {
         settle(&mut w, 4_096);
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(14));
         assert_eq!(w.sky_light(under), Some(0));
-        assert_eq!(w.full_light(BlockPos::new(3, -60, 4), 18_000), Some(13));
+        w.set_time(18_000);
+        assert_eq!(w.full_light(BlockPos::new(3, -60, 4)), Some(13));
         assert_matches_reference(&w);
     }
 
@@ -2209,7 +2227,8 @@ mod tests {
         assert!(w.is_light_idle(), "changes make no work");
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(0));
         assert_eq!(w.sky_light(under), Some(7));
-        assert_eq!(w.real_sky_light(under, 18_000), Some(0), "midnight");
+        w.set_time(18_000);
+        assert_eq!(w.real_sky_light(under), Some(0), "midnight");
         assert!(w.is_chunk_lit(ChunkPos::new(0, 0)));
         assert_eq!(
             Mode::of(Lighting::Fixed, 7),

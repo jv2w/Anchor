@@ -41,7 +41,7 @@ pub(crate) fn generate(root: &std::path::Path) -> Result<String, String> {
          {} entries.\n\n\
          use super::RegistryEntry;\n\n\
          /// The runtime ID of `{SHIELD}`: item stacks of it carry a blocking tick on the wire.\n\
-         pub(crate) const SHIELD_RUNTIME_ID: i32 = {};\n\n\
+         pub const SHIELD_RUNTIME_ID: i32 = {};\n\n\
          /// Every item of the reference list in runtime ID order: (name, runtime ID, component \
          based, version, data).\npub(super) static ENTRIES: [RegistryEntry; {}] = [",
         entries.len(),

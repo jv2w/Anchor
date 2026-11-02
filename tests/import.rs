@@ -4,6 +4,9 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/temp_path.rs"]
+mod temp_path;
+
 use std::collections::BTreeMap;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
@@ -13,38 +16,13 @@ use anchor::config::Threads;
 use anchor::world::{BlockPos, Kind, Void, World};
 use anchor::{Config, Error, Server, import};
 
+use temp_path::TempPath;
+
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 const NAME: &str = "imported";
 /// What the server task saw of the imported world: its seed, its spawn and the spawn column's
 /// lowest block names.
 type Seen = (i64, BlockPos, Vec<String>);
-
-/// A folder in Cargo's test temporary folder, unique to this process and test, removed when
-/// dropped.
-struct TempPath(PathBuf);
-
-impl TempPath {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test's own temporary folder"
-    )]
-    fn new(name: &str) -> Self {
-        let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("import-{}-{name}", std::process::id()));
-        std::fs::remove_dir_all(&path).unwrap_or(());
-        Self(path)
-    }
-}
-
-impl Drop for TempPath {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test's own temporary folder"
-    )]
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap_or(());
-    }
-}
 
 /// Settings that run without the network beyond loopback, with `cpu` CPU threads. Port 0 lets
 /// the system pick every port at bind time: nothing connects, and a port picked earlier and

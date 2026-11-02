@@ -101,6 +101,7 @@ paths:
 - Keep `gen` checking that item schema IDs are lowercase, item schema metas are numbers, and every legacy ID map is one to one.
 - `dump` stores every copied schema file with LF line ends.
 - Share the rule interpreter (`src/import/upgrade/apply.rs`) with `gen`, which includes it by path. Never copy it.
+- Share the network hash (`src/block/hash.rs`) with `dump`, which includes it by path. Never copy it.
 
 ## Rebuilding `.cache/`
 - Builds, tests, and `verify` run on committed data alone, except the dimpl copy's tests, which need Perl.

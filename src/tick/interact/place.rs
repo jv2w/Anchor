@@ -571,7 +571,7 @@ fn place(attempt: &Attempt<'_>, state: State, rng: &mut Random) -> Option<Blocks
                 let below = attempt.side(Face::Down);
                 let light = attempt
                     .world
-                    .full_light(attempt.replace, attempt.world.time_ticks())
+                    .full_light(attempt.replace)
                     .unwrap_or(FULL_LIGHT);
                 if !((light <= RED_MUSHROOM_MAX_LIGHT && !below.is_transparent())
                     || matches!(below.kind(), Kind::Mycelium | Kind::Podzol)
@@ -878,11 +878,7 @@ pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
 /// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
 /// is not loaded, `pos` is outside the world height or the state is unknown.
 pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
-    match world.entry(pos)? {
-        Entry::Known(s) => Some(s),
-        Entry::Inert(s, _) => Some(s.stand_in()),
-        Entry::Unknown(_) => None,
-    }
+    world.entry(pos)?.stand_in()
 }
 
 #[cfg(test)]

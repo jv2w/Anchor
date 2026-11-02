@@ -5,42 +5,20 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/temp_path.rs"]
+mod temp_path;
+
 use std::num::NonZeroU16;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anchor::config::Threads;
 use anchor::world::{BlockPos, Kind, Void};
 use anchor::{Config, Error, Server, export};
 
+use temp_path::TempPath;
+
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 const NAME: &str = "exported";
-
-/// A folder in Cargo's test temporary folder, unique to this process and test, removed when
-/// dropped.
-struct TempPath(PathBuf);
-
-impl TempPath {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test's own temporary folder"
-    )]
-    fn new(name: &str) -> Self {
-        let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("export-{}-{name}", std::process::id()));
-        std::fs::remove_dir_all(&path).unwrap_or(());
-        Self(path)
-    }
-}
-
-impl Drop for TempPath {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test's own temporary folder"
-    )]
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap_or(());
-    }
-}
 
 /// Returns a server of the data folder `data` with two CPU threads and the world [`NAME`].
 fn server(data: &Path) -> Server {

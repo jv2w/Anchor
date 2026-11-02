@@ -412,8 +412,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Replaces the contents of `out` with the packets of a batch payload, decoded in order.
 ///
 /// The whole batch shares one allocation budget of 2 × `max_batch_bytes`, `out` included; going
-/// over it is [`protocol::Error::Size`]. `shield_id` is the shield's item network ID. Errors are
-/// those of [`split`] and of [`Packet::decode`], as [`Error::Packet`]; on error `out` is empty.
+/// over it is [`protocol::Error::Size`]. `shield_id` is the shield's item network ID
+/// ([`crate::item::SHIELD_RUNTIME_ID`]). Errors are those of [`split`] and of [`Packet::decode`], as [`Error::Packet`]; on error `out` is empty.
 pub fn decode_packets(
     payload: &[u8],
     settings: &Settings,
@@ -582,10 +582,12 @@ fn append_packet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Skin;
     use crate::protocol::compression::tests::{Content, ROUND_TRIP_SIZES, sample};
     use crate::protocol::io::MAX_LIST_DEPTH;
     use crate::protocol::packet::{
-        BossEvent, ClientBoundAttributeLayerSync, Login, PROTOCOL_VERSION, PlayerList, SetTime,
+        BossEvent, ClientBoundAttributeLayerSync, Login, PROTOCOL_VERSION, PlayerList, PlayerSkin,
+        SetTime,
     };
 
     const KIB: usize = 1024;
@@ -1002,6 +1004,34 @@ mod tests {
         };
         assert_eq!(encodes(names(128)), Ok(()));
         assert_eq!(encodes(names(129)), Err(protocol::Error::Size));
+    }
+
+    /// A skin whose declared image size multiplies past 32 bits to the size of its data does not
+    /// encode.
+    #[test]
+    fn a_skin_size_that_wraps_in_32_bits_does_not_encode() {
+        let skin = |width: u32, height: u32, data: usize| {
+            Packet::PlayerSkin(PlayerSkin {
+                skin: Skin {
+                    skin_image_width: width,
+                    skin_image_height: height,
+                    skin_data: vec![0; data],
+                    ..Skin::default()
+                }
+                .into(),
+                ..PlayerSkin::default()
+            })
+        };
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_ID);
+        assert_eq!(encodes(skin(1, 1, 4)), Ok(()));
+        assert!(matches!(
+            encodes(skin(0x4000_0001, 1, 4)),
+            Err(protocol::Error::InvalidValue { .. })
+        ));
+        assert!(matches!(
+            encodes(skin(65_536, 16_384, 0)),
+            Err(protocol::Error::InvalidValue { .. })
+        ));
     }
 
     fn unencodable() -> Packet {

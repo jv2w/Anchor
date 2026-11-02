@@ -72684,73 +72684,18 @@
           "kind": "if",
           "cond": {
             "kind": "binary",
-            "op": "!=",
+            "op": "||",
             "x": {
               "kind": "binary",
-              "op": "*",
+              "op": "!=",
               "x": {
                 "kind": "binary",
                 "op": "*",
                 "x": {
-                  "kind": "field",
-                  "name": "SkinImageHeight",
+                  "kind": "convert",
                   "x": {
-                    "kind": "var",
-                    "name": "x",
-                    "type": {
-                      "kind": "named",
-                      "name": "protocol.Skin"
-                    }
-                  },
-                  "type": {
-                    "kind": "basic",
-                    "name": "uint32"
-                  }
-                },
-                "y": {
-                  "kind": "field",
-                  "name": "SkinImageWidth",
-                  "x": {
-                    "kind": "var",
-                    "name": "x",
-                    "type": {
-                      "kind": "named",
-                      "name": "protocol.Skin"
-                    }
-                  },
-                  "type": {
-                    "kind": "basic",
-                    "name": "uint32"
-                  }
-                },
-                "type": {
-                  "kind": "basic",
-                  "name": "uint32"
-                }
-              },
-              "y": {
-                "kind": "lit",
-                "value": "4",
-                "type": {
-                  "kind": "basic",
-                  "name": "uint32"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "uint32"
-              }
-            },
-            "y": {
-              "kind": "convert",
-              "x": {
-                "kind": "call",
-                "func": "len",
-                "target": "builtin",
-                "args": [
-                  {
                     "kind": "field",
-                    "name": "SkinData",
+                    "name": "SkinImageHeight",
                     "x": {
                       "kind": "var",
                       "name": "x",
@@ -72760,22 +72705,213 @@
                       }
                     },
                     "type": {
-                      "kind": "slice",
-                      "elem": {
-                        "kind": "basic",
-                        "name": "uint8"
-                      }
+                      "kind": "basic",
+                      "name": "uint32"
                     }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
                   }
-                ],
+                },
+                "y": {
+                  "kind": "convert",
+                  "x": {
+                    "kind": "field",
+                    "name": "SkinImageWidth",
+                    "x": {
+                      "kind": "var",
+                      "name": "x",
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.Skin"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint32"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
                 "type": {
                   "kind": "basic",
-                  "name": "int"
+                  "name": "uint64"
+                }
+              },
+              "y": {
+                "kind": "binary",
+                "op": "/",
+                "x": {
+                  "kind": "convert",
+                  "x": {
+                    "kind": "call",
+                    "func": "len",
+                    "target": "builtin",
+                    "args": [
+                      {
+                        "kind": "field",
+                        "name": "SkinData",
+                        "x": {
+                          "kind": "var",
+                          "name": "x",
+                          "type": {
+                            "kind": "named",
+                            "name": "protocol.Skin"
+                          }
+                        },
+                        "type": {
+                          "kind": "slice",
+                          "elem": {
+                            "kind": "basic",
+                            "name": "uint8"
+                          }
+                        }
+                      }
+                    ],
+                    "type": {
+                      "kind": "basic",
+                      "name": "int"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "y": {
+                  "kind": "lit",
+                  "value": "4",
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
                 }
               },
               "type": {
                 "kind": "basic",
-                "name": "uint32"
+                "name": "bool"
+              }
+            },
+            "y": {
+              "kind": "binary",
+              "op": "!=",
+              "x": {
+                "kind": "binary",
+                "op": "*",
+                "x": {
+                  "kind": "binary",
+                  "op": "/",
+                  "x": {
+                    "kind": "convert",
+                    "x": {
+                      "kind": "call",
+                      "func": "len",
+                      "target": "builtin",
+                      "args": [
+                        {
+                          "kind": "field",
+                          "name": "SkinData",
+                          "x": {
+                            "kind": "var",
+                            "name": "x",
+                            "type": {
+                              "kind": "named",
+                              "name": "protocol.Skin"
+                            }
+                          },
+                          "type": {
+                            "kind": "slice",
+                            "elem": {
+                              "kind": "basic",
+                              "name": "uint8"
+                            }
+                          }
+                        }
+                      ],
+                      "type": {
+                        "kind": "basic",
+                        "name": "int"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "y": {
+                    "kind": "lit",
+                    "value": "4",
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "y": {
+                  "kind": "lit",
+                  "value": "4",
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
+                }
+              },
+              "y": {
+                "kind": "convert",
+                "x": {
+                  "kind": "call",
+                  "func": "len",
+                  "target": "builtin",
+                  "args": [
+                    {
+                      "kind": "field",
+                      "name": "SkinData",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.Skin"
+                        }
+                      },
+                      "type": {
+                        "kind": "slice",
+                        "elem": {
+                          "kind": "basic",
+                          "name": "uint8"
+                        }
+                      }
+                    }
+                  ],
+                  "type": {
+                    "kind": "basic",
+                    "name": "int"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "bool"
               }
             },
             "type": {
@@ -72931,73 +73067,18 @@
           "kind": "if",
           "cond": {
             "kind": "binary",
-            "op": "!=",
+            "op": "||",
             "x": {
               "kind": "binary",
-              "op": "*",
+              "op": "!=",
               "x": {
                 "kind": "binary",
                 "op": "*",
                 "x": {
-                  "kind": "field",
-                  "name": "CapeImageHeight",
+                  "kind": "convert",
                   "x": {
-                    "kind": "var",
-                    "name": "x",
-                    "type": {
-                      "kind": "named",
-                      "name": "protocol.Skin"
-                    }
-                  },
-                  "type": {
-                    "kind": "basic",
-                    "name": "uint32"
-                  }
-                },
-                "y": {
-                  "kind": "field",
-                  "name": "CapeImageWidth",
-                  "x": {
-                    "kind": "var",
-                    "name": "x",
-                    "type": {
-                      "kind": "named",
-                      "name": "protocol.Skin"
-                    }
-                  },
-                  "type": {
-                    "kind": "basic",
-                    "name": "uint32"
-                  }
-                },
-                "type": {
-                  "kind": "basic",
-                  "name": "uint32"
-                }
-              },
-              "y": {
-                "kind": "lit",
-                "value": "4",
-                "type": {
-                  "kind": "basic",
-                  "name": "uint32"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "uint32"
-              }
-            },
-            "y": {
-              "kind": "convert",
-              "x": {
-                "kind": "call",
-                "func": "len",
-                "target": "builtin",
-                "args": [
-                  {
                     "kind": "field",
-                    "name": "CapeData",
+                    "name": "CapeImageHeight",
                     "x": {
                       "kind": "var",
                       "name": "x",
@@ -73007,22 +73088,213 @@
                       }
                     },
                     "type": {
-                      "kind": "slice",
-                      "elem": {
-                        "kind": "basic",
-                        "name": "uint8"
-                      }
+                      "kind": "basic",
+                      "name": "uint32"
                     }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
                   }
-                ],
+                },
+                "y": {
+                  "kind": "convert",
+                  "x": {
+                    "kind": "field",
+                    "name": "CapeImageWidth",
+                    "x": {
+                      "kind": "var",
+                      "name": "x",
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.Skin"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint32"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
                 "type": {
                   "kind": "basic",
-                  "name": "int"
+                  "name": "uint64"
+                }
+              },
+              "y": {
+                "kind": "binary",
+                "op": "/",
+                "x": {
+                  "kind": "convert",
+                  "x": {
+                    "kind": "call",
+                    "func": "len",
+                    "target": "builtin",
+                    "args": [
+                      {
+                        "kind": "field",
+                        "name": "CapeData",
+                        "x": {
+                          "kind": "var",
+                          "name": "x",
+                          "type": {
+                            "kind": "named",
+                            "name": "protocol.Skin"
+                          }
+                        },
+                        "type": {
+                          "kind": "slice",
+                          "elem": {
+                            "kind": "basic",
+                            "name": "uint8"
+                          }
+                        }
+                      }
+                    ],
+                    "type": {
+                      "kind": "basic",
+                      "name": "int"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "y": {
+                  "kind": "lit",
+                  "value": "4",
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
                 }
               },
               "type": {
                 "kind": "basic",
-                "name": "uint32"
+                "name": "bool"
+              }
+            },
+            "y": {
+              "kind": "binary",
+              "op": "!=",
+              "x": {
+                "kind": "binary",
+                "op": "*",
+                "x": {
+                  "kind": "binary",
+                  "op": "/",
+                  "x": {
+                    "kind": "convert",
+                    "x": {
+                      "kind": "call",
+                      "func": "len",
+                      "target": "builtin",
+                      "args": [
+                        {
+                          "kind": "field",
+                          "name": "CapeData",
+                          "x": {
+                            "kind": "var",
+                            "name": "x",
+                            "type": {
+                              "kind": "named",
+                              "name": "protocol.Skin"
+                            }
+                          },
+                          "type": {
+                            "kind": "slice",
+                            "elem": {
+                              "kind": "basic",
+                              "name": "uint8"
+                            }
+                          }
+                        }
+                      ],
+                      "type": {
+                        "kind": "basic",
+                        "name": "int"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "y": {
+                    "kind": "lit",
+                    "value": "4",
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "y": {
+                  "kind": "lit",
+                  "value": "4",
+                  "type": {
+                    "kind": "basic",
+                    "name": "uint64"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
+                }
+              },
+              "y": {
+                "kind": "convert",
+                "x": {
+                  "kind": "call",
+                  "func": "len",
+                  "target": "builtin",
+                  "args": [
+                    {
+                      "kind": "field",
+                      "name": "CapeData",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.Skin"
+                        }
+                      },
+                      "type": {
+                        "kind": "slice",
+                        "elem": {
+                          "kind": "basic",
+                          "name": "uint8"
+                        }
+                      }
+                    }
+                  ],
+                  "type": {
+                    "kind": "basic",
+                    "name": "int"
+                  }
+                },
+                "type": {
+                  "kind": "basic",
+                  "name": "uint64"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "bool"
               }
             },
             "type": {
@@ -73181,73 +73453,18 @@
               "kind": "if",
               "cond": {
                 "kind": "binary",
-                "op": "!=",
+                "op": "||",
                 "x": {
                   "kind": "binary",
-                  "op": "*",
+                  "op": "!=",
                   "x": {
                     "kind": "binary",
                     "op": "*",
                     "x": {
-                      "kind": "field",
-                      "name": "ImageHeight",
+                      "kind": "convert",
                       "x": {
-                        "kind": "var",
-                        "name": "animation",
-                        "type": {
-                          "kind": "named",
-                          "name": "protocol.SkinAnimation"
-                        }
-                      },
-                      "type": {
-                        "kind": "basic",
-                        "name": "uint32"
-                      }
-                    },
-                    "y": {
-                      "kind": "field",
-                      "name": "ImageWidth",
-                      "x": {
-                        "kind": "var",
-                        "name": "animation",
-                        "type": {
-                          "kind": "named",
-                          "name": "protocol.SkinAnimation"
-                        }
-                      },
-                      "type": {
-                        "kind": "basic",
-                        "name": "uint32"
-                      }
-                    },
-                    "type": {
-                      "kind": "basic",
-                      "name": "uint32"
-                    }
-                  },
-                  "y": {
-                    "kind": "lit",
-                    "value": "4",
-                    "type": {
-                      "kind": "basic",
-                      "name": "uint32"
-                    }
-                  },
-                  "type": {
-                    "kind": "basic",
-                    "name": "uint32"
-                  }
-                },
-                "y": {
-                  "kind": "convert",
-                  "x": {
-                    "kind": "call",
-                    "func": "len",
-                    "target": "builtin",
-                    "args": [
-                      {
                         "kind": "field",
-                        "name": "ImageData",
+                        "name": "ImageHeight",
                         "x": {
                           "kind": "var",
                           "name": "animation",
@@ -73257,22 +73474,213 @@
                           }
                         },
                         "type": {
-                          "kind": "slice",
-                          "elem": {
-                            "kind": "basic",
-                            "name": "uint8"
-                          }
+                          "kind": "basic",
+                          "name": "uint32"
                         }
+                      },
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
                       }
-                    ],
+                    },
+                    "y": {
+                      "kind": "convert",
+                      "x": {
+                        "kind": "field",
+                        "name": "ImageWidth",
+                        "x": {
+                          "kind": "var",
+                          "name": "animation",
+                          "type": {
+                            "kind": "named",
+                            "name": "protocol.SkinAnimation"
+                          }
+                        },
+                        "type": {
+                          "kind": "basic",
+                          "name": "uint32"
+                        }
+                      },
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
+                      }
+                    },
                     "type": {
                       "kind": "basic",
-                      "name": "int"
+                      "name": "uint64"
+                    }
+                  },
+                  "y": {
+                    "kind": "binary",
+                    "op": "/",
+                    "x": {
+                      "kind": "convert",
+                      "x": {
+                        "kind": "call",
+                        "func": "len",
+                        "target": "builtin",
+                        "args": [
+                          {
+                            "kind": "field",
+                            "name": "ImageData",
+                            "x": {
+                              "kind": "var",
+                              "name": "animation",
+                              "type": {
+                                "kind": "named",
+                                "name": "protocol.SkinAnimation"
+                              }
+                            },
+                            "type": {
+                              "kind": "slice",
+                              "elem": {
+                                "kind": "basic",
+                                "name": "uint8"
+                              }
+                            }
+                          }
+                        ],
+                        "type": {
+                          "kind": "basic",
+                          "name": "int"
+                        }
+                      },
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
+                      }
+                    },
+                    "y": {
+                      "kind": "lit",
+                      "value": "4",
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
                     }
                   },
                   "type": {
                     "kind": "basic",
-                    "name": "uint32"
+                    "name": "bool"
+                  }
+                },
+                "y": {
+                  "kind": "binary",
+                  "op": "!=",
+                  "x": {
+                    "kind": "binary",
+                    "op": "*",
+                    "x": {
+                      "kind": "binary",
+                      "op": "/",
+                      "x": {
+                        "kind": "convert",
+                        "x": {
+                          "kind": "call",
+                          "func": "len",
+                          "target": "builtin",
+                          "args": [
+                            {
+                              "kind": "field",
+                              "name": "ImageData",
+                              "x": {
+                                "kind": "var",
+                                "name": "animation",
+                                "type": {
+                                  "kind": "named",
+                                  "name": "protocol.SkinAnimation"
+                                }
+                              },
+                              "type": {
+                                "kind": "slice",
+                                "elem": {
+                                  "kind": "basic",
+                                  "name": "uint8"
+                                }
+                              }
+                            }
+                          ],
+                          "type": {
+                            "kind": "basic",
+                            "name": "int"
+                          }
+                        },
+                        "type": {
+                          "kind": "basic",
+                          "name": "uint64"
+                        }
+                      },
+                      "y": {
+                        "kind": "lit",
+                        "value": "4",
+                        "type": {
+                          "kind": "basic",
+                          "name": "uint64"
+                        }
+                      },
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
+                      }
+                    },
+                    "y": {
+                      "kind": "lit",
+                      "value": "4",
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint64"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "y": {
+                    "kind": "convert",
+                    "x": {
+                      "kind": "call",
+                      "func": "len",
+                      "target": "builtin",
+                      "args": [
+                        {
+                          "kind": "field",
+                          "name": "ImageData",
+                          "x": {
+                            "kind": "var",
+                            "name": "animation",
+                            "type": {
+                              "kind": "named",
+                              "name": "protocol.SkinAnimation"
+                            }
+                          },
+                          "type": {
+                            "kind": "slice",
+                            "elem": {
+                              "kind": "basic",
+                              "name": "uint8"
+                            }
+                          }
+                        }
+                      ],
+                      "type": {
+                        "kind": "basic",
+                        "name": "int"
+                      }
+                    },
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint64"
+                    }
+                  },
+                  "type": {
+                    "kind": "basic",
+                    "name": "bool"
                   }
                 },
                 "type": {

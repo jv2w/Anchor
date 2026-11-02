@@ -36,7 +36,7 @@ use crate::event::{
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 use crate::math::Vec3;
-use crate::player::{self, Message as Text};
+use crate::player::{self, MAX_TEXT, Message as Text};
 use crate::pool::Pool;
 use crate::protocol::consts::{
     self, DisconnectReason, GameType, Generator, PermissionLevel, PlayerListAction, SpawnType,
@@ -1170,7 +1170,9 @@ fn duplicate_login(
     let mut event = PlayerDuplicateLogin::new(connecting, old.identity.clone());
     dispatch::call(state, &mut event);
     let watched = event.clone();
-    let (identity, outcome) = event.into_outcome();
+    let (identity, mut outcome) = event.into_outcome();
+    outcome.message = bounded(outcome.message);
+    outcome.reason = bounded(outcome.reason);
     (identity, outcome, Some(watched))
 }
 
@@ -1221,8 +1223,13 @@ fn login(
         }
     }
     let refused = event.kick_flags().next().map(|flag| {
-        let reason = event.disconnect_reason(flag).unwrap_or_default().to_owned();
-        let screen = event.disconnect_screen_message(flag).unwrap_or_default();
+        let reason = bounded(event.disconnect_reason(flag).unwrap_or_default().to_owned());
+        let screen = bounded(
+            event
+                .disconnect_screen_message(flag)
+                .unwrap_or_default()
+                .to_owned(),
+        );
         // Anchor's own refusal, unchanged, ends as without listeners (a full server's
         // `PlayStatus` lets the client show its own text).
         let own = anchor
@@ -1235,7 +1242,7 @@ fn login(
                 Packet::Disconnect(Disconnect {
                     reason: i32::from(DisconnectReason::NotAllowed),
                     hide_disconnection_screen: false,
-                    message: screen.to_owned(),
+                    message: screen.clone(),
                     filtered_message: String::new(),
                 })
             },
@@ -1257,6 +1264,12 @@ fn kick_flag(refusal: &Refusal) -> KickFlag {
         Refusal::NotWhitelisted => KickFlag::ServerWhitelisted,
         Refusal::Banned(_) | Refusal::IpBanned(_) => KickFlag::Banned,
     }
+}
+
+/// Cuts a listener's disconnect text to [`MAX_TEXT`] bytes, at a character boundary.
+fn bounded(mut text: String) -> String {
+    text.truncate(text.floor_char_boundary(MAX_TEXT));
+    text
 }
 
 /// Builds the packet that disconnects the losing side of a duplicate login.
@@ -1800,7 +1813,7 @@ mod tests {
             PlayerViewDistanceChange, Priority,
         };
         use crate::permission::BanEntry;
-        use crate::player::Id;
+        use crate::player::{Id, MAX_TEXT};
         use crate::protocol::consts::TextType;
         use crate::protocol::packet::Packet;
         use crate::tick::queue::{Identity, Outbound};
@@ -2195,6 +2208,41 @@ mod tests {
                     "{screen:?}"
                 );
             }
+        }
+
+        // pmmp: PlayerDuplicateLoginEvent::setDisconnectScreenMessage
+        #[test]
+        fn a_duplicate_login_message_is_cut_to_the_text_limit() {
+            let listeners = on(|e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
+                e.set_disconnect_screen_message(Some("\u{e9}".repeat(MAX_TEXT)));
+            });
+            let mut state = state(|_| {}, listeners);
+            let (a, mut rx1) = join_as(1, identity("Alex", None));
+            run(&mut state, vec![a]);
+            run(&mut state, Vec::new());
+            let (b, _rx2) = join_as(2, identity("alex", None));
+            run(&mut state, vec![b]);
+            let (_, close, _) = received(&mut rx1);
+            let Some(Packet::Disconnect(d)) = close else {
+                panic!("the replaced player got no disconnect");
+            };
+            assert_eq!(d.message.len(), MAX_TEXT);
+        }
+
+        // pmmp: PlayerPreLoginEvent::setKickFlag
+        #[test]
+        fn a_login_refusal_message_is_cut_to_the_text_limit() {
+            let listeners = on(|e: &mut PlayerLogin, _: &mut Context<'_>| {
+                e.set_kick_flag(KickFlag::Plugin, "x".repeat(MAX_TEXT + 1), None);
+            });
+            let mut state = state(|_| {}, listeners);
+            let (a, mut rx) = join_as(1, identity("Alex", None));
+            run(&mut state, vec![a]);
+            let (_, close, _) = received(&mut rx);
+            let Some(Packet::Disconnect(d)) = close else {
+                panic!("the refused player got no disconnect");
+            };
+            assert_eq!(d.message.len(), MAX_TEXT);
         }
 
         // pmmp: PlayerViewDistanceChangeEvent

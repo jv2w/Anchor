@@ -18,6 +18,8 @@
 //! [`is_file`] give every command the same path-carrying errors, and `upgrade::sha256` is the one
 //! hash.
 
+#[path = "../../src/block/hash.rs"]
+pub mod hash;
 pub(crate) mod upgrade;
 
 use std::collections::BTreeMap;
@@ -428,54 +430,28 @@ fn reference_physics<'a>(
     Ok(physics)
 }
 
-/// FNV-1a 32 offset basis and prime.
-const FNV_OFFSET: u32 = 0x811c_9dc5;
-const FNV_PRIME: u32 = 0x0100_0193;
-
-/// The network block hash of a state with typed JSON property values: FNV-1a 32 over the
-/// little-endian NBT `{name, states}` with the states in name order, as `src/block/hash.rs`.
+/// The network block hash of a state with typed JSON property values (`src/block/hash.rs`).
 fn network_hash(name: &str, states: &BTreeMap<String, Json>) -> Result<u32, String> {
-    let mut nbt = vec![10, 0, 0, 8];
-    nbt_string(&mut nbt, "name")?;
-    nbt_string(&mut nbt, name)?;
-    nbt.push(10);
-    nbt_string(&mut nbt, "states")?;
+    let mut properties = Vec::with_capacity(states.len());
     for (key, value) in states {
         let typed = value.as_object().and_then(|o| o.iter().next());
-        match typed {
-            Some((tag, Json::Number(n))) if tag == "byte" => {
-                let b = n.as_u64().and_then(|b| u8::try_from(b).ok());
-                nbt.push(1);
-                nbt_string(&mut nbt, key)?;
-                nbt.push(b.ok_or_else(|| format!("{name} {key}: byte {n}"))?);
-            }
-            Some((tag, Json::Number(n))) if tag == "int" => {
-                let i = n.as_i64().and_then(|i| i32::try_from(i).ok());
-                nbt.push(3);
-                nbt_string(&mut nbt, key)?;
-                let i = i.ok_or_else(|| format!("{name} {key}: int {n}"))?;
-                nbt.extend_from_slice(&i.to_le_bytes());
-            }
-            Some((tag, Json::String(s))) if tag == "string" => {
-                nbt.push(8);
-                nbt_string(&mut nbt, key)?;
-                nbt_string(&mut nbt, s)?;
-            }
+        let value = match typed {
+            Some((tag, Json::Number(n))) if tag == "byte" => n
+                .as_u64()
+                .and_then(|b| u8::try_from(b).ok())
+                .map(hash::PropertyValue::Byte)
+                .ok_or_else(|| format!("{name} {key}: byte {n}"))?,
+            Some((tag, Json::Number(n))) if tag == "int" => n
+                .as_i64()
+                .and_then(|i| i32::try_from(i).ok())
+                .map(hash::PropertyValue::Int)
+                .ok_or_else(|| format!("{name} {key}: int {n}"))?,
+            Some((tag, Json::String(s))) if tag == "string" => hash::PropertyValue::String(s),
             _ => return Err(format!("{name} {key}: unknown property value {value}")),
-        }
+        };
+        properties.push((key.as_str(), value));
     }
-    nbt.extend_from_slice(&[0, 0]);
-    Ok(nbt.iter().fold(FNV_OFFSET, |h, &b| {
-        (h ^ u32::from(b)).wrapping_mul(FNV_PRIME)
-    }))
-}
-
-/// Appends an NBT string: its length as a little-endian `u16`, then its bytes.
-fn nbt_string(nbt: &mut Vec<u8>, s: &str) -> Result<(), String> {
-    let len = u16::try_from(s.len()).map_err(|_| format!("NBT string too long: {s}"))?;
-    nbt.extend_from_slice(&len.to_le_bytes());
-    nbt.extend_from_slice(s.as_bytes());
-    Ok(())
+    Ok(hash::network_hash(name, properties))
 }
 
 /// The value in the JSON file at `path`.

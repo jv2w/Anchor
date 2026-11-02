@@ -140,7 +140,7 @@ fn chest_counts(state: &State) -> Counts {
 pub(super) fn ground(state: &mut State) -> Vec<Stack> {
     state.rules.flush(&mut state.chunks.extras);
     let mut out = Vec::new();
-    for pos in state.worlds[0].loaded() {
+    for pos in state.worlds[0].loaded_chunks() {
         let Some(extras) = state.chunks.extras.get((0, pos)) else {
             continue;
         };

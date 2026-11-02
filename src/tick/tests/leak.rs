@@ -171,7 +171,7 @@ fn tables(state: &State) -> Tables {
         ),
         trades: masked(&format!("{:?}", state.trades), &["next_net_id"]),
         clocks: state.clock.worlds_len(),
-        loaded: world.loaded().len(),
+        loaded: world.loaded_chunks().len(),
         quarantined: world.quarantined().len(),
         changed_blocks: world.changed_len(),
         light_idle: world.is_light_idle(),

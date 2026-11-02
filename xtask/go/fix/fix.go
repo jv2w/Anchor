@@ -50,6 +50,26 @@ var replacements = []replacement{
 		old:  "\tPieceTypeEmote\n\tPieceTypeUnsupported\n",
 		new:  "\tPieceTypeEmote\n\tPieceTypeCoCo\n\tPieceTypeUnsupported\n",
 	},
+	// Skin.validate: the size check multiplies in uint32, so a product past 2^32 wraps and a skin whose
+	// dimensions disagree with its data passes. Compare the pixel count in uint64 instead.
+	{
+		file: "skin.go",
+		old:  "\tif x.SkinImageHeight*x.SkinImageWidth*4 != uint32(len(x.SkinData)) {\n",
+		new: "\tif uint64(x.SkinImageHeight)*uint64(x.SkinImageWidth) != uint64(len(x.SkinData))/4 ||\n" +
+			"\t\tuint64(len(x.SkinData))/4*4 != uint64(len(x.SkinData)) {\n",
+	},
+	{
+		file: "skin.go",
+		old:  "\tif x.CapeImageHeight*x.CapeImageWidth*4 != uint32(len(x.CapeData)) {\n",
+		new: "\tif uint64(x.CapeImageHeight)*uint64(x.CapeImageWidth) != uint64(len(x.CapeData))/4 ||\n" +
+			"\t\tuint64(len(x.CapeData))/4*4 != uint64(len(x.CapeData)) {\n",
+	},
+	{
+		file: "skin.go",
+		old:  "\t\tif animation.ImageHeight*animation.ImageWidth*4 != uint32(len(animation.ImageData)) {\n",
+		new: "\t\tif uint64(animation.ImageHeight)*uint64(animation.ImageWidth) != uint64(len(animation.ImageData))/4 ||\n" +
+			"\t\t\tuint64(len(animation.ImageData))/4*4 != uint64(len(animation.ImageData)) {\n",
+	},
 	// Entity data keys: 139 is reserved and 140 is the name tag render distance. The arrow and firework
 	// shooter keys are actor-specific meanings of 17 and 18. 141 is a byte BDS 1.26.60 sends players
 	// (P6), with no public name.

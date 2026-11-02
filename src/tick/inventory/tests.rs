@@ -92,7 +92,7 @@ impl World {
         DROPPED.set(Vec::new());
         let mut state = new_state(settings(|c| c.general.gamemode = mode), listeners);
         // The test server loads its spawn chunks without the rule modules; hand them over.
-        let loaded: Vec<_> = state.worlds[0].loaded().collect();
+        let loaded: Vec<_> = state.worlds[0].loaded_chunks().collect();
         for pos in loaded {
             let extras = state
                 .chunks

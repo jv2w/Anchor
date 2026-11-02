@@ -59,6 +59,36 @@ pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
     identifier(camel_of(&words(go)), qualified)
 }
 
+/// An upper camel case Rust name of a snake case or PMMP name (`oak_planks` → `OakPlanks`), with
+/// acronyms as one word (`TNT` → `Tnt`).
+pub(crate) fn upper_camel(name: &str) -> String {
+    let mut joined = String::with_capacity(name.len());
+    for part in name.split('_') {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            joined.extend(first.to_uppercase());
+            joined.push_str(chars.as_str());
+        }
+    }
+    // An upper case letter after another stays upper only where a lower case one follows it
+    // (`HTTPServer` → `HttpServer`).
+    let chars: Vec<char> = joined.chars().collect();
+    let mut out = String::with_capacity(joined.len());
+    for (i, c) in chars.iter().enumerate() {
+        let previous_upper = i
+            .checked_sub(1)
+            .and_then(|p| chars.get(p))
+            .is_some_and(char::is_ascii_uppercase);
+        let next_lower = chars.get(i + 1).is_some_and(char::is_ascii_lowercase);
+        if c.is_ascii_uppercase() && previous_upper && !next_lower {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(*c);
+        }
+    }
+    out
+}
+
 /// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the
 /// exception table uses.
 pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
@@ -248,6 +278,16 @@ fn identifier(name: String, go: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_become_upper_camel_case() {
+        assert_eq!(upper_camel("oak_planks"), "OakPlanks");
+        assert_eq!(upper_camel("music_disc_11"), "MusicDisc11");
+        assert_eq!(upper_camel("tnt"), "Tnt");
+        assert_eq!(upper_camel("TNT"), "Tnt");
+        assert_eq!(upper_camel("HTTPServer"), "HttpServer");
+        assert_eq!(upper_camel("ItemBlock"), "ItemBlock");
+    }
 
     fn split(name: &str) -> Vec<String> {
         words(name)

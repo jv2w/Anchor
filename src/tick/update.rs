@@ -489,9 +489,7 @@ impl<'a> Cx<'a> {
     /// The brightest light at `pos` now, at the world's time of day (PMMP `getFullLightAt`; 0
     /// where not lit yet).
     pub(super) fn full_light(&self, pos: BlockPos) -> u8 {
-        self.w()
-            .and_then(|w| w.full_light(pos, w.time_ticks()))
-            .unwrap_or(0)
+        self.w().and_then(|w| w.full_light(pos)).unwrap_or(0)
     }
 
     /// The brightest light at `pos` whatever the time of day (PMMP `getPotentialLightAt`).

@@ -369,13 +369,7 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     assert_eq!(game.survival(1).health, 20.0);
     // A suicide spares no game mode.
     let source = DamageSource::Entity(Actor::Player(pid(1)));
-    assert!(damage_by(
-        &mut game.state,
-        sid(1),
-        30.0,
-        Damage::Suicide,
-        source
-    ));
+    assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_some());
     assert!(game.survival(1).is_dead());
 }
 
@@ -538,6 +532,20 @@ fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
     )));
 }
 
+/// `experience-orbs = false`: the death offers no experience to drop, but the level is lost.
+#[test]
+fn without_orbs_a_death_offers_no_experience_to_drop() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerDeath, _: &mut Context<'_>| {
+        tx.try_send(e.xp_drop_amount()).unwrap();
+    });
+    let mut game = Game::with(1, listeners, |c| c.general.experience_orbs = false);
+    game.survival(1).xp_level = 10;
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    assert_eq!(drain(&mut seen), [0]);
+    assert_eq!(game.survival(1).xp_level, 0);
+}
+
 // pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
 /// With `show-death-messages` every player sees the death's message, which the client translates
 /// with the dead player's name as on the death screen; a listener's own message replaces it and an
@@ -644,6 +652,24 @@ fn replaced_death_drops_lose_nothing_the_event_did_not_show() {
         3,
         "the apples the event did not show drop"
     );
+}
+
+/// The death closes the window first, so what the player holds on the cursor and in the crafting
+/// grid is back in its inventory when the event shows the drops: reordered drops lose none of it.
+#[test]
+fn reordered_death_drops_keep_the_cursor_and_the_grid_dropping() {
+    let listeners = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
+        let mut drops = e.drops().to_vec();
+        drops.reverse();
+        e.set_drops(drops);
+    });
+    let mut game = Game::new(1, listeners);
+    inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5));
+    let (cursor, grid) = (stack(ItemKind::Apple, 3), stack(ItemKind::Bowl, 2));
+    assert!(inventory::hold_outside(game.player_mut(1), cursor, grid));
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    game.idle(1);
+    assert_eq!(dropped(&game.take(1)), 5 + 3 + 2);
 }
 
 // pmmp: PlayerRespawnEvent, PlayerGameModeChangeEvent
@@ -1088,6 +1114,30 @@ fn a_sneak_answer_sends_the_height_not_the_collision_box() {
     );
 }
 
+/// A player that dies sneaking keeps the dying box its viewers got: the flush at the end of the
+/// tick does not send the pose's box over it.
+#[test]
+fn a_dead_players_box_stays_the_dying_box() {
+    use crate::protocol::MetadataValue;
+    use crate::protocol::consts::EntityDataKey;
+    let mut game = Game::new(2, Listeners::default());
+    game.player_mut(1).set_sneaking(true);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    game.idle(2);
+    let heights: Vec<MetadataValue> = game
+        .take(2)
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::SetActorData(d) if d.entity_runtime_id == 1 => d
+                .entity_metadata
+                .get(&(EntityDataKey::Height as u32))
+                .cloned(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heights, [MetadataValue::Float32(0.2)]);
+}
+
 // pmmp: PlayerExhaustEvent
 #[test]
 fn exhaust_listeners_change_or_cancel_the_exhaustion() {
@@ -1313,6 +1363,22 @@ fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
     game.idle(20);
     assert_eq!(game.survival(1).fire_ticks, 0);
     assert_eq!(drain(&mut seen), [ExtinguishCause::Ticking]);
+}
+
+/// A listener that sets the burn to 0 seconds leaves nothing burning: the monitors hear no
+/// combustion.
+#[test]
+fn a_burn_of_no_seconds_is_not_heard_by_monitors() {
+    let (tx, mut watched) = record();
+    let mut listeners = on(|e: &mut EntityCombust, _: &mut Context<'_>| e.set_duration_secs(0));
+    listeners.push_monitor(move |e: &EntityCombust, _: &Context<'_>| {
+        tx.try_send(e.duration_secs()).unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    let by = CombustSource::Entity(Actor::Player(pid(1)));
+    set_on_fire_by(&mut game.state, sid(1), 8, by);
+    assert_eq!(game.survival(1).fire_ticks, 0);
+    assert!(drain(&mut watched).is_empty());
 }
 
 /// A chat packet of session `s`.

@@ -107,6 +107,11 @@ pub(crate) fn go_usize_to_u32(x: usize) -> u32 {
     x as u32
 }
 
+/// Go's `u64(x)` for a `usize` `x`, which keeps the low bits.
+pub(crate) fn go_usize_to_u64(x: usize) -> u64 {
+    x as u64
+}
+
 /// gophertunnel `protocol.AbilityData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AbilityData {
@@ -8940,26 +8945,25 @@ pub(crate) fn encode_player_move_settings(w: &mut Writer, x: &PlayerMovementSett
 
 /// Computes like gophertunnel `validate`.
 pub(crate) fn skin_validate(x: &Skin) -> Option<&'static str> {
-    if x.skin_image_height
-        .wrapping_mul(x.skin_image_width)
-        .wrapping_mul(4)
-        != go_usize_to_u32(x.skin_data.len())
+    if (u64::from(x.skin_image_height).wrapping_mul(u64::from(x.skin_image_width))
+        != (go_usize_to_u64(x.skin_data.len()) / 4))
+        || (((go_usize_to_u64(x.skin_data.len()) / 4).wrapping_mul(4))
+            != go_usize_to_u64(x.skin_data.len()))
     {
         return Some("expected size of skin is ?x? (? bytes total), but got ? bytes");
     }
-    if x.cape_image_height
-        .wrapping_mul(x.cape_image_width)
-        .wrapping_mul(4)
-        != go_usize_to_u32(x.cape_data.len())
+    if (u64::from(x.cape_image_height).wrapping_mul(u64::from(x.cape_image_width))
+        != (go_usize_to_u64(x.cape_data.len()) / 4))
+        || (((go_usize_to_u64(x.cape_data.len()) / 4).wrapping_mul(4))
+            != go_usize_to_u64(x.cape_data.len()))
     {
         return Some("expected size of cape is ?x? (? bytes total), but got ? bytes");
     }
     for animation in &x.animations {
-        if animation
-            .image_height
-            .wrapping_mul(animation.image_width)
-            .wrapping_mul(4)
-            != go_usize_to_u32(animation.image_data.len())
+        if (u64::from(animation.image_height).wrapping_mul(u64::from(animation.image_width))
+            != (go_usize_to_u64(animation.image_data.len()) / 4))
+            || (((go_usize_to_u64(animation.image_data.len()) / 4).wrapping_mul(4))
+                != go_usize_to_u64(animation.image_data.len()))
         {
             return Some("expected size of animation ? is ?x? (? bytes total), but got ? bytes");
         }

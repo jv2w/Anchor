@@ -48,7 +48,7 @@ impl World {
     pub(super) fn connect_around(&mut self, pos: BlockPos, old: Entry, new: Entry) {
         let placed = match self.reconnect(pos) {
             Some((_, connected)) => Some(connected),
-            None => known_in(new),
+            None => new.stand_in(),
         };
         if let (Entry::Known(old), Some(placed)) = (old, placed)
             && old.neighbour_view() == placed.neighbour_view()
@@ -88,7 +88,7 @@ impl World {
                 )
             })
         };
-        if !involved(known_in(new)) && !involved(old.state()) {
+        if !involved(new.stand_in()) && !involved(old.state()) {
             return;
         }
         for axis in [Facing::East, Facing::South] {
@@ -176,7 +176,7 @@ impl World {
     /// The known state at `pos`, an inert block's stand-in ([`crate::block::Inert::stand_in`],
     /// read only: no rule writes it), or `None` for unknown states and unloaded chunks.
     fn known(&self, pos: Option<BlockPos>) -> Option<State> {
-        known_in(self.entry(pos?)?)
+        self.entry(pos?)?.stand_in()
     }
 
     /// The state `state` takes at `pos` given its neighbours, or `None` if it has no variants.
@@ -283,15 +283,5 @@ impl World {
         }
         self.write(pos, Entry::Known(new))?;
         Some((state, new))
-    }
-}
-
-/// The state a neighbour rule reads in `entry`: a known state, an inert block's stand-in, or
-/// `None` for an unknown state.
-fn known_in(entry: Entry) -> Option<State> {
-    match entry {
-        Entry::Known(state) => Some(state),
-        Entry::Inert(inert, _) => Some(inert.stand_in()),
-        Entry::Unknown(_) => None,
     }
 }

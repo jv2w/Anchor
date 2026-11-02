@@ -35,6 +35,7 @@ use crate::tick::entity::{
     ATTACK_COOLDOWN, FIRE_DAMAGE_TICKS, KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT, SAFE_FALL,
     SUFFOCATION_DAMAGE, VOID_DAMAGE, VOID_Y,
 };
+use crate::tick::interact::drops;
 use crate::tick::{
     Context, Phase, Player, SessionId, Settings, State, dispatch, entity, interact, inventory,
 };
@@ -347,22 +348,23 @@ pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: 
         Damage::Attack(a) => DamageSource::Entity(Actor::Player(player::Id::new(a))),
         _ => DamageSource::None,
     };
-    damage_by(state, session, amount, cause, source)
+    damage_by(state, session, amount, cause, source).is_some()
 }
 
 /// Deals `amount` damage for `cause` from `source` (PMMP `Entity::attack` with an
-/// `EntityDamageEvent` or one of its subclasses); false if no damage was taken. A player in
-/// `source` is the attacker: its Strength counts, the victim is knocked back from it and the
-/// victim's thorns answer it.
+/// `EntityDamageEvent` or one of its subclasses); `None` if no damage was taken, otherwise the
+/// knockback force and vertical limit the [`EntityDamage`] listeners left, for a cause that
+/// pushes the victim itself (a projectile, an explosion). A player in `source` is the attacker:
+/// its Strength counts, the victim is knocked back from it and the victim's thorns answer it.
 pub(super) fn damage_by(
     state: &mut State,
     session: SessionId,
     amount: f64,
     cause: Damage,
     source: DamageSource,
-) -> bool {
+) -> Option<(f64, f64)> {
     if !(0.0..=MAX_DAMAGE).contains(&amount) {
-        return false;
+        return None;
     }
     let attacker = match (cause, source) {
         (Damage::Attack(a), _) => Some(a),
@@ -385,7 +387,7 @@ pub(super) fn damage_by(
             source,
         },
     )
-    .is_some()
+    .map(|landed| (landed.knockback, landed.vertical_limit))
 }
 
 /// The attacker's strength and weakness modifiers, added up and one by one (PMMP
@@ -417,9 +419,9 @@ fn attacker_modifiers(
     (extra, parts)
 }
 
-/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; its modifiers as the
-/// listeners left them, `None` if it did not land.
-fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
+/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; the hit as the listeners
+/// left it, `None` if it did not land.
+fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let landed = assess(state, session, hit)?;
     let id = player::Id::new(session);
     let Ok(mut event) = super::ask(
@@ -441,7 +443,7 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
-    Some(landed.modifiers)
+    Some(landed)
 }
 
 /// Deals `amount` damage for `cause` with no source and no events, for the direct API (an explosion
@@ -837,19 +839,14 @@ pub(super) fn armor_points(player: &Player) -> u32 {
         .sum()
 }
 
-/// The level of an enchantment on a stack (PMMP `getEnchantmentLevel`), 0 if absent.
-pub(super) fn level_of(stack: &Stack, enchantment: Enchantment) -> u32 {
-    u32::from(stack.enchantment_level(enchantment).unwrap_or(0))
-}
-
 /// The highest level of an enchantment on the armour worn (PMMP
 /// `Living::getHighestArmorEnchantmentLevel`).
-pub(super) fn highest_armor_level(player: &Player, enchantment: Enchantment) -> u32 {
+pub(in crate::tick) fn highest_armor_level(player: &Player, enchantment: Enchantment) -> u32 {
     player
         .inventory
         .armor()
         .iter()
-        .map(|s| level_of(s, enchantment))
+        .map(|s| u32::from(drops::level(s, enchantment)))
         .max()
         .unwrap_or(0)
 }
@@ -1019,7 +1016,7 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
         if stack.item().and_then(Type::armor).is_none() {
             continue;
         }
-        let level = level_of(stack, Enchantment::Thorns);
+        let level = u32::from(drops::level(stack, Enchantment::Thorns));
         if level == 0 {
             continue;
         }
@@ -1080,8 +1077,9 @@ fn knock_back_from(
 }
 
 /// Sets the player on fire for `seconds` (PMMP `Living::setOnFire`): fire protection shortens it
-/// by 15 % per level of the best piece; a longer burn replaces a shorter one.
-pub(super) fn set_on_fire(player: &mut Player, seconds: u32) {
+/// by 15 % per level of the best piece; a longer burn replaces a shorter one. True if the player
+/// burns longer than before.
+pub(super) fn set_on_fire(player: &mut Player, seconds: u32) -> bool {
     let level = f64::from(highest_armor_level(player, Enchantment::FireProtection));
     let s = f64::from(seconds);
     let cut = math::min(s, s * level * 0.15).floor();
@@ -1093,15 +1091,17 @@ pub(super) fn set_on_fire(player: &mut Player, seconds: u32) {
     let seconds = seconds - cut as u32;
     let ticks = seconds.saturating_mul(20).min(MAX_FIRE_TICKS);
     let ticks = u16::try_from(ticks).unwrap_or(u16::MAX);
-    if ticks > player.survival.fire_ticks {
+    let longer = ticks > player.survival.fire_ticks;
+    if longer {
         player.survival.fire_ticks = ticks;
         player.data_dirty = true;
     }
+    longer
 }
 
 /// `source` sets the player on fire for `seconds` (PMMP `EntityCombustByBlockEvent`,
 /// `EntityCombustByEntityEvent`, then `Living::setOnFire`): the [`EntityCombust`] listeners may
-/// cancel it or change the time.
+/// cancel it or change the time. The monitors hear it only if the player burns longer than before.
 pub(super) fn combust(state: &mut State, session: SessionId, seconds: u32, source: CombustSource) {
     if !state.players.contains_key(&session) {
         return;
@@ -1121,10 +1121,13 @@ pub(super) fn combust(state: &mut State, session: SessionId, seconds: u32, sourc
         return;
     };
     let seconds = event.as_ref().map_or(seconds, |e| e.duration_secs);
-    if let Some(player) = state.players.get_mut(&session) {
-        set_on_fire(player, seconds);
+    let longer = state
+        .players
+        .get_mut(&session)
+        .is_some_and(|player| set_on_fire(player, seconds));
+    if longer {
+        super::watch(state, event.as_ref());
     }
-    super::watch(state, event.as_ref());
 }
 
 /// The player's fire went out for `cause` (PMMP `Entity::extinguish`): the [`EntityExtinguish`]
@@ -1165,7 +1168,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .unwrap_or_default();
     let landed = hurt(state, target, hit);
     swing(state, attacker);
-    let Some(modifiers) = landed else {
+    let Some(Landed { modifiers, .. }) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
@@ -1215,8 +1218,8 @@ pub(super) fn after_melee(
     held: &Stack,
     enchant: impl FnOnce(&mut State, Option<f64>, Option<u32>),
 ) {
-    let knockback = level_of(held, Enchantment::Knockback);
-    let fire = level_of(held, Enchantment::FireAspect);
+    let knockback = drops::level(held, Enchantment::Knockback);
+    let fire = u32::from(drops::level(held, Enchantment::FireAspect));
     enchant(
         state,
         (knockback > 0).then(|| f64::from(knockback) * 0.5),
@@ -1281,9 +1284,9 @@ fn melee_parts(
     let base = f64::from(held.item().map_or(1, Type::attack_points));
     let (mut extra, mut parts) =
         attacker_modifiers(state, attacker, base, Damage::Attack(attacker));
-    let sharpness = level_of(held, Enchantment::Sharpness);
+    let sharpness = drops::level(held, Enchantment::Sharpness);
     let weapon = if sharpness > 0 {
-        0.5 * f64::from(sharpness + 1)
+        f64::midpoint(f64::from(sharpness), 1.0)
     } else {
         0.0
     };
@@ -1402,6 +1405,7 @@ pub(super) fn die(
         return;
     };
     let finite = super::has_finite_resources(player.survival.mode());
+    let orbs = state.settings.has_orbs();
     let world_name = state
         .worlds
         .get(player.world)
@@ -1430,7 +1434,7 @@ pub(super) fn die(
         PlayerDeath {
             player: player::Id::new(session),
             drops,
-            xp_drop_amount: food::death_xp(&player.survival, finite),
+            xp_drop_amount: food::death_xp(&player.survival, finite, orbs),
             death_message: default_chat.to_owned(),
             death_screen_message: String::new(),
             keep_inventory: false,
@@ -1465,6 +1469,10 @@ pub(super) fn die(
         session,
         &attributes::size_data(runtime_id, attributes::DYING_SIZE),
     );
+    // The viewers hold the dying box now: the flush must not take it for the pose's box.
+    if let Some(player) = state.players.get_mut(&session) {
+        player.survival.shown.size = attributes::DYING_SIZE;
+    }
     if state.settings.locator_bar {
         for packet in crate::tick::entity::locator_life(runtime_id, false) {
             broadcast_to_viewers(state, session, &packet);
@@ -1515,6 +1523,7 @@ fn drop_death(
     event: Option<(&PlayerDeath, &[Stack])>,
 ) {
     let (world, at) = place;
+    let orbs = state.settings.has_orbs();
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1545,7 +1554,7 @@ fn drop_death(
     let xp = if keep_xp {
         0
     } else {
-        let xp = food::take_death_xp(&mut player.survival, finite);
+        let xp = food::take_death_xp(&mut player.survival, finite, orbs);
         event.as_ref().map_or(xp, |(e, _)| e.xp_drop_amount)
     };
     let refused = drop_all(to_drop, |stack| {
@@ -1572,7 +1581,9 @@ fn carried(player: &Player) -> Vec<Stack> {
         .map_while(|slot| inv.main_stack(slot))
         .chain(inv.armor())
         .chain(std::iter::once(inv.offhand()))
-        .filter(|s| !s.is_empty() && level_of(s, Enchantment::Vanishing) == 0 && !keeps_on_death(s))
+        .filter(|s| {
+            !s.is_empty() && drops::level(s, Enchantment::Vanishing) == 0 && !keeps_on_death(s)
+        })
         .cloned()
         .collect()
 }
@@ -1649,7 +1660,7 @@ pub(super) fn drop_all(
 ) -> Vec<Stack> {
     let mut refused = Vec::new();
     for stack in stacks {
-        if stack.is_empty() || level_of(&stack, Enchantment::Vanishing) > 0 {
+        if stack.is_empty() || drops::level(&stack, Enchantment::Vanishing) > 0 {
             continue;
         }
         if keeps_on_death(&stack) {
@@ -2034,11 +2045,11 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
             .inventory
             .armor()
             .first()
-            .map_or(0, |helmet| level_of(helmet, Enchantment::Respiration));
+            .map_or(0, |helmet| drops::level(helmet, Enchantment::Respiration));
         let loses = respiration == 0 || {
             let seed = state.worlds.get(player.world).map_or(0, world::World::seed);
             let mut r = player_random(seed, tick, player, RESPIRATION);
-            r.unit() <= 1.0 / f64::from(respiration + 1)
+            r.unit() <= 1.0 / (f64::from(respiration) + 1.0)
         };
         let s = &mut player.survival;
         s.breathing = false;

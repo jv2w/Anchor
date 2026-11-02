@@ -13,7 +13,7 @@
 //!   needs the official server.
 
 mod check;
-mod dump;
+pub mod dump;
 mod r#gen;
 mod p6;
 mod reasons;

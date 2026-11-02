@@ -9910,7 +9910,7 @@ impl Packet {
 
     /// Decodes the payload of a packet with this ID: the bytes after the packet header. Every byte must be part of the packet.
     ///
-    /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it. `shield_id` is the shield's item network ID, which changes the item wire format.
+    /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]), which changes the item wire format.
     pub fn decode(id: u32, payload: &[u8], budget: &mut usize, shield_id: i32) -> Result<Self> {
         let mut r = Reader::new(payload, *budget, shield_id);
         let packet = Self::decode_body(id, &mut r);
@@ -10204,7 +10204,7 @@ impl Packet {
         })
     }
 
-    /// Appends the payload of the packet (without the packet header) to `out`. On an error `out` is left as it was. `shield_id` is the shield's item network ID.
+    /// Appends the payload of the packet (without the packet header) to `out`. On an error `out` is left as it was. `shield_id` is the shield's item network ID ([`crate::item::SHIELD_RUNTIME_ID`]).
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: generated from one gophertunnel body or table"

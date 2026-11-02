@@ -66,6 +66,7 @@ pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packe
     };
     let Some((action, new, modified)) = edited(&old, packet) else {
         debug!(session = session.get(), "book edit refused");
+        inventory::resend_main(state, session, slot);
         return;
     };
     let mut new = new;
@@ -85,6 +86,7 @@ pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packe
             || (dispatch::listened::<PlayerEditBook>(state)
                 && writable(state, session, slot) != Some(&old))
         {
+            inventory::resend_main(state, session, slot);
             return;
         }
         new = e.new_book.clone();

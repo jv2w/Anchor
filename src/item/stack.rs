@@ -25,7 +25,7 @@
 //! Limits: a stack is refused where its extra data is set ([`Stack::with_extra`],
 //! and the conversions from outside forms) if its saved form is over [`MAX_NBT_BYTES`] or its
 //! custom name over [`MAX_NAME_BYTES`]. PMMP has no such limit. The limits are sized so that
-//! everything the game stores whole fits its record: a player's 146 stacks and user
+//! everything the game stores whole fits its record: a player's `MAX_SAVED_STACKS` (`tick::inventory`) stacks and user
 //! data in its record, a container's 27 stacks in one NBT root, and a shulker box's 27 stacks of
 //! at most [`MAX_STORED_BYTES`] with its name in one stack.
 
@@ -71,12 +71,12 @@ const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 const TAG_ITEMS: &str = "Items";
 
 /// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
-/// an item list adds, at the largest damage, as little-endian NBT. With 146 such stacks and its user
+/// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS` (`tick::inventory`) such stacks and its user
 /// data (16 values of 64 KiB) a player's record stays under 15 MiB, and a container's 27 under
 /// 2.6 MiB (one NBT root takes at most 4 MiB).
 pub const MAX_NBT_BYTES: usize = 96 << 10;
 /// The most a stack's saved form may take from a reader's allocation budget to read back: four
-/// times its bytes, so 146 of them read within the 64 MiB a record's reader may allocate. Only
+/// times its bytes, so `MAX_SAVED_STACKS` of them read within the 64 MiB a record's reader may allocate. Only
 /// NBT of many small compounds comes near it: each takes a tree node (an enchantment takes about
 /// 56 times its 16 bytes).
 const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;

@@ -22,10 +22,11 @@ pub(crate) use chunk::{NO_HEIGHT, PLAINS, SUB_CHUNKS};
 pub(crate) use generator::Generators;
 pub use generator::{Flat, Generator, Void};
 pub(crate) use light::Mode as LightMode;
-pub(crate) use paletted::{Paletted, SLOTS};
+pub(crate) use paletted::{Paletted, SLOTS, offset};
 pub use particle::Particle;
 pub(crate) use particle::id as particle_id;
 pub(crate) use particle::punch_data;
+pub(crate) use sound::PLAYER_ENTITY_TYPE;
 pub use sound::{NoteInstrument, Sound};
 pub(crate) use sub_chunk::{Entry, SubChunk};
 pub use tree::TreeType;
@@ -40,6 +41,8 @@ use crate::block::{Facing, State};
 pub(crate) const BORDER: i32 = 30_000_000;
 /// Ticks in a day (PMMP `World::TIME_FULL`).
 pub(crate) const DAY: i64 = 24_000;
+/// The lowest sub-chunk y of a world.
+pub(crate) const LOWEST_SUB_CHUNK: i32 = MIN_Y >> 4;
 /// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
@@ -389,6 +392,7 @@ impl Default for Options {
 /// [`Context::release_chunks`](crate::Context::release_chunks) lets them go (PMMP
 /// `ChunkLoader`). A ticket is never given out twice while the server runs.
 #[doc(alias = "ChunkLoader")]
+#[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticket(u64);
 
@@ -780,20 +784,23 @@ impl World {
         self.light.light(&self.chunks, pos, light::Channel::Sky)
     }
 
-    /// The sky light at `pos` at world time `time_ticks`: [`Self::sky_light`] less the time of
-    /// day's reduction, 0 by day to 11 at night.
+    /// The sky light at `pos` at the world's time: [`Self::sky_light`] less the time of day's
+    /// reduction, 0 by day to 11 at night.
     #[doc(alias = "World::getRealBlockSkyLightAt")]
-    pub fn real_sky_light(&self, pos: BlockPos, time_ticks: i64) -> Option<u8> {
+    pub fn real_sky_light(&self, pos: BlockPos) -> Option<u8> {
         let sky = self.sky_light(pos)?;
-        Some(sky.saturating_sub(light::sky_light_reduction(time_ticks)))
+        Some(sky.saturating_sub(light::sky_light_reduction(self.time)))
     }
 
-    /// The brightest light at `pos` at world time `time_ticks`: [`Self::real_sky_light`] or
+    /// The brightest light at `pos` at the world's time: [`Self::real_sky_light`] or
     /// [`Self::block_light`], whichever is brighter.
     #[doc(alias = "World::getFullLightAt")]
-    pub fn full_light(&self, pos: BlockPos, time_ticks: i64) -> Option<u8> {
-        let sky = self.real_sky_light(pos, time_ticks)?;
-        Some(sky.max(self.block_light(pos)?))
+    pub fn full_light(&self, pos: BlockPos) -> Option<u8> {
+        let (block, sky) = self.light.lights(&self.chunks, pos)?;
+        Some(
+            sky.saturating_sub(light::sky_light_reduction(self.time))
+                .max(block),
+        )
     }
 
     /// Whether the chunk is loaded and lit (always, with light off): random block ticks need it
@@ -910,12 +917,6 @@ impl World {
     #[cfg(test)]
     pub(crate) fn is_light_idle(&self) -> bool {
         self.light.is_idle()
-    }
-
-    /// The loaded positions, in order.
-    #[cfg(test)]
-    pub(crate) fn loaded(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
-        self.loaded_chunks()
     }
 
     /// The quarantined positions, in order.
@@ -1635,9 +1636,9 @@ mod tests {
         // Setting a block to its own state changes nothing.
         w.set_block(a, block::AIR).unwrap();
         assert!(w.take_dirty().is_empty());
-        assert_eq!(w.loaded().count(), 9);
+        assert_eq!(w.loaded_chunks().count(), 9);
         assert!(w.remove_chunk(ChunkPos::new(0, 0)).is_some());
-        assert_eq!(w.loaded().count(), 8);
+        assert_eq!(w.loaded_chunks().count(), 8);
     }
 
     /// A state written as the P6 report writes it: `minecraft:name[key=value,...]` with the keys
@@ -2294,8 +2295,8 @@ mod tests {
                 ChunkPos,
                 u8,
                 std::hash::BuildHasherDefault<Fx>,
-            > = w.loaded().map(|p| (p, 0)).collect();
-            let tree: BTreeMap<ChunkPos, u8> = w.loaded().map(|p| (p, 0)).collect();
+            > = w.loaded_chunks().map(|p| (p, 0)).collect();
+            let tree: BTreeMap<ChunkPos, u8> = w.loaded_chunks().map(|p| (p, 0)).collect();
             let start = std::time::Instant::now();
             let mut hits = 0usize;
             for &p in &positions {
@@ -2314,7 +2315,7 @@ mod tests {
             );
             eprintln!(
                 "chunks {}: block {:.1} ns, set_block {:.1} ns (filling), {:.1} ns (again) ({found})",
-                w.loaded().count(),
+                w.loaded_chunks().count(),
                 get.as_secs_f64() * 1e9 / 1e6,
                 set.as_secs_f64() * 1e9 / 1e6,
                 again.as_secs_f64() * 1e9 / 1e6,

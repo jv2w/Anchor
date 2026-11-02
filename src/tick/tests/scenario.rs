@@ -595,7 +595,7 @@ fn empty_main(slot: u8) -> StackRequestSlotInfo {
 fn loose(state: &mut State) -> usize {
     state.rules.flush(&mut state.chunks.extras);
     let mut n = 0;
-    for pos in state.worlds[0].loaded() {
+    for pos in state.worlds[0].loaded_chunks() {
         let Some(extras) = state.chunks.extras.get((0, pos)) else {
             continue;
         };

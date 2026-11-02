@@ -38,7 +38,8 @@ use crate::protocol::packet::{
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
 use crate::save::{Loaded, Request, WorldIndex};
 use crate::world::{
-    BlockPos, Chunk, ChunkPos, Entry, Kind, NO_HEIGHT, SPAWN_CHUNK_RADIUS, SUB_CHUNKS, World,
+    BlockPos, Chunk, ChunkPos, Entry, Kind, LOWEST_SUB_CHUNK, NO_HEIGHT, SPAWN_CHUNK_RADIUS,
+    SUB_CHUNKS, World,
 };
 
 /// Chunk loads the save thread may have in flight at once.
@@ -68,8 +69,6 @@ const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK_RANGE
 /// every request fits a tick; it is more than the 256 × 24 sub-chunks of the most chunks
 /// `chunks-per-tick` sends a tick.
 const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN;
-/// The lowest sub-chunk y index (`SubChunkRequest` positions are absolute indices).
-const LOWEST_SUB_CHUNK: i32 = crate::world::MIN_Y >> 4;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.
 const UPDATE_FLAGS: u32 = BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
 /// The most fake blocks one player is shown, and the most changes of what a player is shown one
@@ -1591,6 +1590,7 @@ fn unload_released(state: &mut State) {
         } else {
             if e.cancelled {
                 warn!(
+                    world = key.0,
                     kept = MAX_KEPT_CHUNKS,
                     x = key.1.x,
                     z = key.1.z,

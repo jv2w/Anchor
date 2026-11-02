@@ -651,7 +651,7 @@ fn baby_zombies_and_villagers_survive_a_checkpoint() {
         crate::tick::tests::settings(|_| {}),
         crate::event::Listeners::default(),
     );
-    let loaded: Vec<ChunkPos> = fresh.worlds[0].loaded().collect();
+    let loaded: Vec<ChunkPos> = fresh.worlds[0].loaded_chunks().collect();
     for pos in loaded {
         if let Some(extras) = fresh.chunks.extras.get((0, pos)).cloned() {
             let world = &fresh.worlds[0];

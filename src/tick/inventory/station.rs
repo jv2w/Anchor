@@ -749,13 +749,11 @@ pub(super) fn apply(
                     .players
                     .get(&session)
                     .is_some_and(|p| survival::has_finite_resources(survival::game_mode(state, p)));
-                if let Some(player) = state.players.get_mut(&session) {
-                    if finite {
-                        let level = survival::xp_level(player);
-                        survival::subtract_levels(player, cost.min(level));
-                    }
-                    survival::regenerate_enchantment_seed(player);
+                if finite && let Some(player) = state.players.get_mut(&session) {
+                    let level = survival::xp_level(player);
+                    survival::subtract_levels(player, cost.min(level));
                 }
+                survival::regenerate_enchantment_seed(state, session);
             }
             Effect::Anvil { cost, finite } => {
                 if let Some(player) = state.players.get_mut(&session) {
@@ -944,13 +942,10 @@ fn option_of(c: &Choice) -> EnchantOption {
 /// The name is cut to [`MAX_OPTION_NAME`] bytes at a character, at most
 /// [`MAX_OPTION_ENCHANTMENTS`] enchantments stay, none of level 0.
 fn choice_of(o: &EnchantOption) -> Choice {
-    let mut end = o.name.len().min(MAX_OPTION_NAME);
-    while !o.name.is_char_boundary(end) {
-        end -= 1;
-    }
+    let (name, _) = o.name.split_at(o.name.floor_char_boundary(MAX_OPTION_NAME));
     Choice {
         level: o.required_level,
-        name: o.name.get(..end).unwrap_or_default().to_owned(),
+        name: name.to_owned(),
         enchantments: o
             .enchantments
             .iter()

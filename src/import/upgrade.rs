@@ -16,6 +16,7 @@ mod table;
 pub(crate) use table::BLOCK_STATE_VERSION;
 
 use crate::nbt::{Compound, List, Value};
+use crate::save::palette_entry;
 use apply::States;
 
 /// The key PMMP adds to every block state it saves (`VersionInfo::TAG_WORLD_DATA_VERSION`); it
@@ -99,11 +100,7 @@ fn to_nbt(name: String, states: States) -> Compound {
             (k, v)
         })
         .collect();
-    Compound::from([
-        ("name".to_owned(), Value::String(name)),
-        ("states".to_owned(), Value::Compound(states)),
-        ("version".to_owned(), Value::Int(BLOCK_STATE_VERSION)),
-    ])
+    palette_entry(name, states)
 }
 
 /// Upgrades, in place, every block state and item stack in a block entity's or entity's NBT, at

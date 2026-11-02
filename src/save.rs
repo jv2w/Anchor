@@ -326,6 +326,11 @@ pub(crate) fn default_seed(name: &str) -> i64 {
     i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
 }
 
+/// The seed a world runs with: its own, else [`default_seed`] of its name.
+pub(crate) fn seed_or_default(name: &str, seed: Option<i64>) -> i64 {
+    seed.unwrap_or_else(|| default_seed(name))
+}
+
 /// The settings the world file of the world `name` is read or written with when the server does
 /// not run (an import, an export): those of the world declared under the name in any letter case,
 /// its name among them, else the generator of the default world (the first of `worlds`) and no
@@ -358,7 +363,7 @@ pub(crate) fn new_world(
     seed: Option<i64>,
     spawn: Option<BlockPos>,
 ) -> World {
-    let seed = seed.unwrap_or_else(|| default_seed(name));
+    let seed = seed_or_default(name, seed);
     let spawn = spawn.unwrap_or_else(|| generator.spawn(seed));
     World::new(name, kind, seed, spawn)
 }
@@ -1151,9 +1156,7 @@ fn resolve(
     let mut plans = Vec::with_capacity(specs.len());
     for (index, spec) in specs.iter().enumerate() {
         let given = seeds.and_then(|s| s.get(index).copied());
-        let seed = given
-            .or(spec.seed)
-            .unwrap_or_else(|| default_seed(&spec.name));
+        let seed = seed_or_default(&spec.name, given.or(spec.seed));
         let number = (spec.kind == Kind::Persistent).then_some(0);
         let mut plan = plan(&spec.name, number, seed, Arc::clone(&spec.generator));
         match (open_world(&mut plan, &opener), &opener) {
@@ -1173,13 +1176,12 @@ fn resolve(
     );
     let mut next_number = next_world_number(numbers);
     let mut worlds = Vec::with_capacity(specs.len());
-    for ((index, spec), plan) in specs.into_iter().enumerate().zip(&mut plans) {
-        let given = seeds.and_then(|s| s.get(index).copied());
+    for (spec, plan) in specs.into_iter().zip(&mut plans) {
         let mut world = new_world(
             &spec.name,
             spec.kind,
             spec.generator.as_ref(),
-            given.or(spec.seed),
+            Some(plan.seed),
             spec.spawn,
         );
         let new = plan.values.is_none();
@@ -2195,8 +2197,13 @@ pub(crate) fn state_nbt(state: State) -> nbt::Compound {
             (p.name().to_owned(), value)
         })
         .collect();
+    palette_entry(state.name().to_owned(), states)
+}
+
+/// A disk palette entry of the current block state version: `{name, states, version}`.
+pub(crate) fn palette_entry(name: String, states: nbt::Compound) -> nbt::Compound {
     nbt::Compound::from([
-        ("name".to_owned(), Value::String(state.name().to_owned())),
+        ("name".to_owned(), Value::String(name)),
         ("states".to_owned(), Value::Compound(states)),
         ("version".to_owned(), Value::Int(BLOCK_STATE_VERSION)),
     ])

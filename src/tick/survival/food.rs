@@ -22,6 +22,7 @@ use crate::player::{Id, level_from_xp, xp_to_complete_level, xp_to_reach_level};
 use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
+use crate::tick::interact::drops;
 use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
@@ -49,8 +50,8 @@ pub(super) const FOOD_CYCLE: u32 = 80;
 const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
 /// The most residue stacks a listener may leave after eating or drinking.
 const MAX_RESIDUE: usize = 4;
-/// The most experience points a player holds, and collects between two deaths (PMMP
-/// `Limits::INT32_MAX`).
+/// The most experience points a player collects between two deaths (PMMP `Limits::INT32_MAX`);
+/// the points it holds reach further, to the top level.
 const MAX_XP: u32 = i32::MAX.cast_unsigned();
 /// The random stream key of the mending item an orb repairs.
 const MENDING: u64 = random::tag("mending");
@@ -636,7 +637,7 @@ pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u
     for (slot, stack) in worn {
         let durable = stack.item().and_then(Type::max_durability).is_some();
         if durable
-            && damage::level_of(stack, Enchantment::Mending) > 0
+            && drops::level(stack, Enchantment::Mending) > 0
             && let Some(c) = candidates.get_mut(n)
         {
             *c = Some(slot);
@@ -684,7 +685,7 @@ fn gain(state: &mut State, session: SessionId, amount: u32) {
         return;
     }
     let (old_level, old_progress, total) = (s.xp_level, s.xp_progress, current_xp(s));
-    let (level, progress) = level_from_xp((total + u64::from(amount)).min(u64::from(MAX_XP)));
+    let (level, progress) = level_from_xp(total + u64::from(amount));
     let Ok(event) = super::ask(
         state,
         || PlayerExperienceChange {
@@ -738,9 +739,9 @@ pub(super) fn add_experience(player: &mut Player, amount: u32) {
     player.data_dirty = true;
 }
 
-/// Sets the player's level and progress from a total.
+/// Sets the player's level and progress from a total, at most the points of the top level.
 pub(super) fn set_xp(s: &mut Survival, total: u64) {
-    let (level, progress) = level_from_xp(total.min(u64::from(MAX_XP)));
+    let (level, progress) = level_from_xp(total);
     s.xp_level = level;
     s.xp_progress = progress;
     s.mark(LEVEL | EXPERIENCE);
@@ -765,11 +766,11 @@ pub(super) fn xp_tick(s: &mut Survival) {
 
 /// Empties the player's experience after death (PMMP `Player::onDeath`); returns the points to
 /// drop ([`death_xp`]). With `experience = false` the level a save kept stays.
-pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
+pub(super) fn take_death_xp(s: &mut Survival, finite: bool, orbs: bool) -> u32 {
     if !s.switches.experience {
         return 0;
     }
-    let drop = death_xp(s, finite);
+    let drop = death_xp(s, finite, orbs);
     s.xp_level = 0;
     s.xp_progress = 0.0;
     s.mark(LEVEL | EXPERIENCE);
@@ -777,9 +778,10 @@ pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
 }
 
 /// The experience points a dead player drops: 7 per level, at most 100 (PMMP
-/// `Human::getXpDropAmount`), none in creative or with `experience = false`.
-pub(super) fn death_xp(s: &Survival, finite: bool) -> u32 {
-    if finite && s.switches.experience {
+/// `Human::getXpDropAmount`), none in creative, with `experience = false` or without `orbs`
+/// (`experience-orbs = false`).
+pub(super) fn death_xp(s: &Survival, finite: bool, orbs: bool) -> u32 {
+    if finite && orbs && s.switches.experience {
         s.xp_level.saturating_mul(7).min(100)
     } else {
         0
@@ -922,6 +924,7 @@ fn lifetime_room(s: &Survival) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player::MAX_LEVEL;
 
     #[test]
     fn exhaustion_spends_saturation_then_food() {
@@ -946,6 +949,23 @@ mod tests {
         exhaust(&mut s, 1e300);
         assert_eq!((s.saturation, s.food), (0.0, 0.0));
         assert!((0.0..EXHAUSTION_PER_POINT).contains(&s.exhaustion));
+    }
+
+    #[test]
+    fn experience_at_the_top_level_keeps_the_level() {
+        let mut s = Survival {
+            xp_level: MAX_LEVEL,
+            ..Survival::default()
+        };
+        let top = current_xp(&s);
+        assert!(
+            top > u64::from(MAX_XP),
+            "the top level holds more points than a lifetime"
+        );
+        set_xp(&mut s, top + 1);
+        assert_eq!((s.xp_level, s.xp_progress), (MAX_LEVEL, 0.0));
+        set_xp(&mut s, top - 1);
+        assert_eq!(s.xp_level, MAX_LEVEL - 1);
     }
 
     #[test]

@@ -33,6 +33,7 @@ mod hash;
 mod inert;
 mod table;
 
+pub use hash::PropertyValue;
 pub(crate) use hash::network_hash;
 pub(crate) use inert::Inert;
 pub(crate) use table::{AIR, BEDROCK, DIRT, GRASS_BLOCK, INFO_UPDATE, MAX_PROPERTIES};
@@ -806,20 +807,6 @@ impl Property {
     pub fn value(&self) -> PropertyValue<'static> {
         self.value
     }
-}
-
-/// The value of a block state property, typed as the client's block state NBT types it.
-///
-/// The table's values borrow `'static` strings; a lookup such as [`State::find`] takes values
-/// borrowed from its input. Values order by type (byte, int, string), then by value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PropertyValue<'a> {
-    /// A `TAG_Byte`; boolean properties are 0 or 1.
-    Byte(u8),
-    /// A `TAG_Int`.
-    Int(i32),
-    /// A `TAG_String`.
-    String(&'a str),
 }
 
 /// The properties of a state, sorted by name ([`State::properties`]).
@@ -2510,6 +2497,26 @@ mod tests {
             })
             .collect();
         (json["name"].as_str().unwrap(), properties)
+    }
+
+    /// Every state of the 1.26.60 reference list hashes to its `CloudburstMC` network ID, and every
+    /// state of the table to the ID the table holds.
+    #[test]
+    fn hashes_equal_every_reference_network_id() {
+        let reference: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../xtask/data/reference/blocks.json")).unwrap();
+        assert_eq!(reference.len(), 23_960);
+        for json in &reference {
+            let (name, mut properties) = json_state(json);
+            properties.sort_by_key(|(key, _)| *key);
+            let want = u32::try_from(json["network_id"].as_u64().unwrap()).unwrap();
+            assert_eq!(network_hash(name, properties), want, "{name}");
+        }
+        for s in State::all() {
+            let hash = network_hash(s.name(), s.properties().map(|p| (p.name(), p.value())));
+            assert_eq!(hash, s.network_id(), "{s:?}");
+        }
+        assert_eq!(network_hash("minecraft:unknown", []), 0xffff_fffe);
     }
 
     /// Every reference state reads as PMMP reads it (the dump's `deserialized.json`, which

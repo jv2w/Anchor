@@ -360,3 +360,32 @@ fn a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit
     edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
     assert!(h.held().is_empty());
 }
+
+/// Whether the packets the tick sent hold the slot `slot` of the inventory again.
+fn slot_resent(h: &mut Harness, slot: i32) -> bool {
+    let slot = u32::try_from(slot).unwrap();
+    h.packets()
+        .iter()
+        .any(|p| matches!(p, Packet::InventorySlot(s) if s.slot == slot))
+}
+
+#[test]
+fn a_refused_or_cancelled_edit_sends_the_slot_again() {
+    let mut h = Harness::with(|_| {}, listener(|e, _| e.cancel()));
+    let slot = quill(&mut h);
+    h.packets();
+    edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
+    assert!(slot_resent(&mut h, slot), "cancelled");
+    let mut h = Harness::new(|_| {});
+    let slot = quill(&mut h);
+    h.packets();
+    edit(
+        &mut h,
+        slot,
+        BookAction::ReplacePage,
+        0,
+        0,
+        &"x".repeat(513),
+    );
+    assert!(slot_resent(&mut h, slot), "refused");
+}

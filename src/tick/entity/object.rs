@@ -526,8 +526,15 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         );
     }
     for (session, feet, damage) in players {
-        if (hooks.damage)(state, session, damage, survival::Damage::Explosion, by)
-            && let Some(push) = Knock::new(feet.x - at.x, feet.z - at.z).applied_to(Vec3::ZERO)
+        if let Some((force, vertical)) =
+            (hooks.damage)(state, session, damage, survival::Damage::Explosion, by)
+            && let Some(push) = (Knock {
+                x: feet.x - at.x,
+                z: feet.z - at.z,
+                force,
+                vertical,
+            })
+            .applied_to(Vec3::ZERO)
         {
             push_player(state, session, push, Raise::Events);
         }
