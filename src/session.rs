@@ -33,7 +33,7 @@ use crate::config::{Config, GameMode};
 use crate::crypto::{self, ServerKey};
 use crate::error::{Error, Result};
 use crate::nethernet;
-use crate::pack::{self, Offer, Pack};
+use crate::pack::Offer;
 use crate::protocol::batch;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
@@ -396,30 +396,21 @@ struct Join<'a> {
 
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
-/// The resource packs load first: the `resource-packs` files from `data_dir/packs`, then `packs`
-/// given in code; a pack that cannot be offered stops the start. With `xbox-auth = true` the
-/// authorization keys load next, and a server without keys does not start.
-/// NetherNet loads its identity key from `data_dir`. The accept task takes the
-/// tick's `controls` and reports the connection counts on `inputs`.
+/// With `xbox-auth = true` the authorization keys load first, and a server without keys does not
+/// start. NetherNet loads its identity key from `data_dir`. The accept task takes the
+/// tick's `controls` and reports the connection counts on `inputs`. Players are offered `packs`.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one function opens every part of networking in its order"
 )]
 pub(crate) async fn start(
     config: Arc<Config>,
-    packs: Vec<Pack>,
+    packs: Offer,
     data_dir: &Path,
     inputs: InputSender,
     controls: mpsc::Receiver<Control>,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
-    let paths = config.resource_pack_paths(&data_dir.join(pack::FOLDER));
-    let force = config.general.force_resources;
-    let load = move || Offer::load(&paths, packs, force);
-    let packs = tokio::task::spawn_blocking(load)
-        .await
-        .map_err(|e| Error::Start(std::io::Error::other(e)))?
-        .map_err(Error::from)?;
     if !packs.packs().is_empty() {
         info!(count = packs.packs().len(), "resource packs loaded");
     }
@@ -679,7 +670,8 @@ mod tests {
         crate::raknet::tests::run(async {
             let (inputs, mut queue) = input_queue(1);
             let (controls, control_queue) = control_queue();
-            let network = start(Arc::new(config), Vec::new(), &dir, inputs, control_queue)
+            let packs = Offer::load(&[], Vec::new(), config.general.force_resources).unwrap();
+            let network = start(Arc::new(config), packs, &dir, inputs, control_queue)
                 .await
                 .unwrap();
             let raknet: SocketAddr = network.udp.local_addrs()[0];

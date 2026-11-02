@@ -16,7 +16,7 @@ use crate::config::{Config, LevelType};
 use crate::console;
 use crate::error::{Error, Result};
 use crate::event::{self, Priority};
-use crate::pack::Pack;
+use crate::pack::{self, Offer, Pack};
 use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::runtime::{self, Runtime, ThreadCounts, ThreadTotals};
 use crate::save::{self, WorldSpec};
@@ -214,7 +214,8 @@ impl Server {
     /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
     /// thread's default and that of every thread Anchor starts.
     ///
-    /// It first opens the data files: `data/main.redb` (the save's tick, operators, bans,
+    /// It first loads the resource packs from `data/packs`, so a pack that cannot be offered stops
+    /// the start before any data file is made. It then opens the data files: `data/main.redb` (the save's tick, operators, bans,
     /// whitelist and the server data), `data/players.redb` and the file
     /// `data/worlds/<name>.redb` of each persistent world it starts
     /// with; the other world files there are worlds [`Context::load_world`] may load. They are
@@ -222,8 +223,7 @@ impl Server {
     /// a damaged one, or one of a newer format, refuses the start, and every file is left as it
     /// was. With `backups`, each file is then backed up into its own folder of `data/backups/`
     /// while the server runs. A players or world file holding a later save than the main file (a
-    /// crash in the middle of a save) is first rolled back to the main file's save. Then the
-    /// packs load from `data/packs`. On shutdown every player sees `shutdown-message`, the last
+    /// crash in the middle of a save) is first rolled back to the main file's save. On shutdown every player sees `shutdown-message`, the last
     /// state is saved to every data file it changed (one tick's state, the main file last),
     /// networking stops, and the threads are joined. Fails if a data file is damaged or cannot
     /// be opened, if a pack cannot be offered, if the runtime, the threads or networking cannot
@@ -300,6 +300,13 @@ impl Server {
         // Made first: the start checks the data files on it.
         let pool = runtime::cpu_pool(threads.cpu)?;
         let ready = (|| {
+            // Before any data file is opened: a pack that cannot be offered leaves no file made.
+            // No tick or async task runs yet, so the file reads block nothing.
+            let offer = Offer::load(
+                &config.resource_pack_paths(&data_dir.join(pack::FOLDER)),
+                packs,
+                config.general.force_resources,
+            )?;
             let mut opened =
                 save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
             setup.data.load(&mut opened.thread)?;
@@ -310,9 +317,9 @@ impl Server {
             opened
                 .thread
                 .set_lighting(config.developer.lighting.is_calculated());
-            Ok::<_, Error>((opened, Runtime::new(threads)?))
+            Ok::<_, Error>((offer, opened, Runtime::new(threads)?))
         })();
-        let (mut opened, runtime) = match ready {
+        let (offer, mut opened, runtime) = match ready {
             Ok(ready) => ready,
             Err(e) => {
                 // Dropping the pool would not wait for its threads (`Pool::shutdown`).
@@ -379,7 +386,7 @@ impl Server {
             log: log.as_ref().map(console::log::Installed::drained),
         };
         let served =
-            runtime.block_on(running.serve(config, packs, &data_dir, inputs, control_queue));
+            runtime.block_on(running.serve(config, offer, &data_dir, inputs, control_queue));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
         // The tick has ended: after its `Finish` the save thread commits what it holds and ends;
@@ -704,7 +711,7 @@ impl Running {
     async fn serve(
         self,
         config: Arc<Config>,
-        packs: Vec<Pack>,
+        packs: Offer,
         data_dir: &Path,
         inputs: InputSender,
         controls: mpsc::Receiver<tick::queue::Control>,

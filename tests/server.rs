@@ -1,10 +1,13 @@
 //! Public API of `Server`: building, the thread budget, and running until shutdown.
 
+// Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
 use std::fmt;
+use std::io::ErrorKind;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anchor::command::{Command, Output};
 use anchor::config::Threads;
@@ -16,61 +19,24 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
 
-/// A path in Cargo's test temporary folder, unique to this process and test; not created, and
-/// removed with its contents when dropped.
-struct TempPath(PathBuf);
-
-impl TempPath {
-    fn new(name: &str) -> Self {
-        Self(
-            Path::new(env!("CARGO_TARGET_TMPDIR"))
-                .join(format!("server-{}-{name}", std::process::id())),
-        )
-    }
-}
-
+/// The tracing target of the tick pacer's warning that ticks overran.
+const CLOCK_TARGET: &str = "anchor::clock";
+/// The tick intervals `tick_intervals` measures.
+const INTERVALS: usize = 200;
+/// How long the first tick is held: more than two tick periods of 50 ms, after which the tick
+/// pacer warns that ticks overran, as it does on a loaded machine.
+const OVERRUN: Duration = Duration::from_millis(200);
+/// Ticks `tick_intervals` leaves out at the start, while the spawn area loads.
+const WARM_UP: usize = 20;
+/// The warnings and errors logged on threads named `anchor-*`, as `thread: message`, except the
+/// tick pacer's. Only a server built `without_console_log` sends its events to the process's
+/// global subscriber; the other tests' servers write theirs to their console log, and other test
+/// threads are not named so.
 #[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
+    clippy::disallowed_types,
+    reason = "off-tick: the test's subscriber collects events from every thread"
 )]
-impl Drop for TempPath {
-    fn drop(&mut self) {
-        // A test that never ran its server has no folder to remove.
-        std::fs::remove_dir_all(&self.0).unwrap_or(());
-    }
-}
-
-/// Settings that run without the network beyond loopback: offline login (no authorization
-/// fetch) and port 0, so the system picks every port at bind time (no test connects to them; a
-/// port picked earlier and released could be taken by another process first).
-fn local_config() -> Config {
-    let mut config = Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_port = 0;
-    config
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test inspects the file system"
-)]
-fn exists(path: &Path) -> bool {
-    path.exists()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test inspects the file system"
-)]
-fn entries(dir: &Path) -> Vec<PathBuf> {
-    let mut entries: Vec<_> = std::fs::read_dir(dir)
-        .expect("read the folder")
-        .map(|e| e.expect("read a folder entry").path())
-        .collect();
-    entries.sort();
-    entries
-}
+static WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 #[test]
 fn the_error_and_the_handle_cross_threads() {
@@ -82,6 +48,52 @@ fn the_error_and_the_handle_cross_threads() {
 #[test]
 fn default_settings_build() {
     Server::builder().build().unwrap();
+}
+
+/// A path in Cargo's test temporary folder, unique to this process and test; a folder an earlier
+/// run of the same process ID left there is removed when the path is made. The path is not
+/// created, and is removed with its contents when dropped.
+struct TempPath(PathBuf);
+
+impl TempPath {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test clears the folder an earlier run left"
+    )]
+    fn new(name: &str) -> Self {
+        let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("server-{}-{name}", std::process::id()));
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => panic!("cannot clear {}: {e}", path.display()),
+        }
+        Self(path)
+    }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test removes its data folder"
+)]
+impl Drop for TempPath {
+    fn drop(&mut self) {
+        // A test that never ran its server has no folder to remove; a folder that stays is
+        // cleared by the next `TempPath::new` of the path.
+        std::fs::remove_dir_all(&self.0).unwrap_or(());
+    }
+}
+
+/// Settings that run without the network beyond loopback: offline login (no authorization
+/// fetch), the loopback address, and port 0, so the system picks every port at bind time (no test
+/// connects to them; a port picked earlier and released could be taken by another process first).
+fn local_config() -> Config {
+    let mut config = Config::default();
+    config.general.xbox_auth = false;
+    config.general.enable_ipv6 = false;
+    config.general.server_ip = std::net::Ipv4Addr::LOCALHOST;
+    config.general.server_port = 0;
+    config
 }
 
 // pmmp: Server, PluginManager::registerEvent, Event, EventPriority
@@ -191,6 +203,14 @@ fn pack_errors_convert_for_the_question_mark_in_main() {
     );
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test inspects the file system"
+)]
+fn exists(path: &Path) -> bool {
+    path.try_exists().expect("inspect the path")
+}
+
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -210,6 +230,11 @@ fn a_broken_pack_file_fails_run_with_error_pack() {
         .unwrap();
     let err = server.run().unwrap_err();
     assert!(matches!(err, Error::Pack(_)), "{err:?}");
+    // The pack is checked before any data file is opened.
+    assert!(
+        !exists(&data.0.join("main.redb")),
+        "the start opened the data files before the pack failed"
+    );
 }
 
 #[test]
@@ -238,6 +263,19 @@ fn run_reads_relative_packs_from_the_data_pack_folder() {
         panic!("{err:?}");
     };
     assert_eq!(*path, packs.join("bad.zip"));
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test inspects the file system"
+)]
+fn entries(dir: &Path) -> Vec<PathBuf> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .expect("read the folder")
+        .map(|e| e.expect("read a folder entry").path())
+        .collect();
+    entries.sort();
+    entries
 }
 
 #[test]
@@ -273,6 +311,18 @@ fn the_smallest_explicit_thread_counts_always_fit() {
     Server::builder().config(config).build().unwrap();
 }
 
+/// The number of files in `dir` and in the folders under it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test inspects the file system"
+)]
+fn files_in(dir: &Path) -> usize {
+    entries(dir)
+        .iter()
+        .map(|entry| if entry.is_dir() { files_in(entry) } else { 1 })
+        .sum()
+}
+
 /// `backups = false`: a start keeps no copy of the data files; with it on, the second start
 /// does.
 #[test]
@@ -290,23 +340,11 @@ fn without_backups_a_start_keeps_no_copy() {
             server.shutdown_handle().shutdown();
             server.run().unwrap();
         }
-        // Each data file has its own backup folder, a world's under `world/`.
+        // Each data file has its own backup folder, a world's under `worlds/<world>/`.
         let dir = data.0.join("backups");
         let copies = if exists(&dir) { files_in(&dir) } else { 0 };
         assert_eq!(copies > 0, backups, "backups: {backups}");
     }
-}
-
-/// The files in `dir` and the folders in it, at any depth.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test inspects the file system"
-)]
-fn files_in(dir: &Path) -> usize {
-    entries(dir)
-        .iter()
-        .map(|entry| if entry.is_dir() { files_in(entry) } else { 1 })
-        .sum()
 }
 
 #[test]
@@ -325,34 +363,13 @@ fn a_shutdown_before_run_stops_it_at_once() {
     handle.shutdown();
 }
 
-/// The warnings and errors logged on threads named `anchor-*`, as `thread: message`. Only a
-/// server built `without_console_log` sends its events to the process's global subscriber; the
-/// other tests' servers write theirs to their console log, and other test threads are not named
-/// so.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the test's subscriber collects events from every thread"
-)]
-static WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-
-/// The global subscriber that fills [`WARNINGS`].
+/// The global subscriber that fills [`WARNINGS`]. It skips the tick pacer's warning that ticks
+/// overran: a loaded machine makes it in a normal run, and it is no stage of the stop.
 struct Warnings;
-
-/// The message of an event.
-#[derive(Default)]
-struct Message(String);
-
-impl Visit for Message {
-    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        if field.name() == "message" {
-            self.0 = format!("{value:?}");
-        }
-    }
-}
 
 impl Subscriber for Warnings {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        *metadata.level() <= tracing::Level::WARN
+        *metadata.level() <= tracing::Level::WARN && metadata.target() != CLOCK_TARGET
     }
     fn new_span(&self, _: &Attributes<'_>) -> Id {
         Id::from_u64(1)
@@ -375,6 +392,27 @@ impl Subscriber for Warnings {
     fn exit(&self, _: &Id) {}
 }
 
+/// The message of an event.
+#[derive(Default)]
+struct Message(String);
+
+impl Visit for Message {
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{value:?}");
+        }
+    }
+}
+
+/// Holds the tick for [`OVERRUN`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "consistency: the test overruns its first tick as a loaded machine does"
+)]
+fn overrun_tick() {
+    std::thread::sleep(OVERRUN);
+}
+
 /// Stops a running server from another thread. The verdict does not depend on the machine's
 /// load. The stop's slow stages are the final commit and the data files' close, durable
 /// writes that take what the disk takes (under load up to 1.6 s, after a start of up to 4 s), so
@@ -384,7 +422,9 @@ impl Subscriber for Warnings {
 /// can end by time end by their work here: the sessions' grace and the CPU pool's wait log a
 /// warning when they run out, the transports' close deadlines apply to connections only (there
 /// are none), and the runtime's grace waits only for blocking work still running (here at most
-/// a memory reading).
+/// a memory reading). The tick pacer's warning that ticks overran is no such wait: a loaded
+/// machine makes it in a normal run, so the first tick is held to make it here, and it is not
+/// collected.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -396,11 +436,15 @@ fn a_shutdown_from_another_thread_ends_run() {
     let mut config = local_config();
     config.developer.console_input = false;
     let (ticked, tick) = std::sync::mpsc::sync_channel(1);
+    let mut first = true;
     let server = Server::builder()
         .config(config)
         .data_dir(&data.0)
         .without_console_log()
         .every(NonZeroU32::MIN, move |_| {
+            if std::mem::take(&mut first) {
+                overrun_tick();
+            }
             // Full after the first tick; the test waits for one only.
             ticked.try_send(()).unwrap_or(());
         })
@@ -433,9 +477,6 @@ fn a_shutdown_from_another_thread_ends_run() {
     reason = "consistency: a measurement prints its results"
 )]
 fn tick_intervals() {
-    /// Ticks left out at the start, while the spawn area loads.
-    const WARM_UP: usize = 20;
-    const INTERVALS: usize = 200;
     let data = TempPath::new("intervals");
     let mut config = local_config();
     config.developer.console_input = false;
