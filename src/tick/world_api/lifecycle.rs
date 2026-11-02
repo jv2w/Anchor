@@ -20,7 +20,7 @@
 //! but its settings. The save thread learns of new worlds before the first load or commit that
 //! names them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use tracing::info;
@@ -59,6 +59,8 @@ pub(in crate::tick) struct Catalog {
     announced: Vec<(WorldIndex, bool)>,
     /// Unloads asked for, for the next view phase.
     unloads: BTreeMap<WorldIndex, Unload>,
+    /// Worlds whose file did not open on the save thread, until they load again.
+    unopened: BTreeSet<WorldIndex>,
     /// Worlds deleted the save thread has not heard of, in order.
     deleted: Vec<DeletedWorld>,
     /// The generators, fixed at build.
@@ -93,6 +95,7 @@ impl Catalog {
             pending,
             announced,
             unloads,
+            unopened,
             deleted,
             generators: _,
         } = self;
@@ -103,6 +106,7 @@ impl Catalog {
         pending.encode(w);
         announced.encode(w);
         unloads.encode(w);
+        unopened.encode(w);
         deleted.encode(w);
     }
 
@@ -123,6 +127,7 @@ impl Catalog {
             pending,
             announced,
             unloads,
+            unopened,
             deleted,
             generators: _,
         } = self;
@@ -151,6 +156,10 @@ impl Catalog {
         for (&i, &how) in unloads {
             h.usize(i);
             h.u64(u64::from(how == Unload::Forced));
+        }
+        h.usize(unopened.len());
+        for &i in unopened {
+            h.usize(i);
         }
         h.usize(deleted.len());
         for d in deleted {
@@ -205,6 +214,7 @@ impl Catalog {
         self.pending = Codec::decode(r)?;
         self.announced = Codec::decode(r)?;
         self.unloads = Codec::decode(r)?;
+        self.unopened = Codec::decode(r)?;
         self.deleted = Codec::decode(r)?;
         if !self.is_loaded(self.default) {
             return Err(checkpoint::Error::Format("default world"));
@@ -831,8 +841,19 @@ fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
     }
 }
 
-/// Loads again the world at `index`, unloaded: the save thread still has it.
+/// Notes that the file of the world at `index` did not open on the save thread, and unloads the
+/// world at the next view phase; loading it again makes the save thread try its file again.
+pub(in crate::tick) fn open_failed(state: &mut State, index: WorldIndex) {
+    state.catalog.unopened.insert(index);
+    state.catalog.unloads.insert(index, Unload::Forced);
+}
+
+/// Loads again the world at `index`, unloaded: the save thread still has it, unless its file did
+/// not open, which it then tries again.
 fn reload(state: &mut State, index: WorldIndex) -> world::Id {
+    if state.catalog.unopened.remove(&index) {
+        state.catalog.pending.push(index);
+    }
     *state.catalog.loaded_mut(index) = true;
     state.catalog.announced.push((index, false));
     view::hold_world(state, index);

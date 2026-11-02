@@ -1102,7 +1102,8 @@ pub(super) fn player_loaded(
         PlayerLoad::Damaged => {
             error!(
                 player = key.as_str(),
-                "saved player data is damaged; the join is refused and the data kept as saved"
+                "player data unreadable; the join is refused and the record kept as saved, until \
+                 the stopped server deletes it with `Server::delete_player_data`"
             );
             let packet = Packet::Disconnect(Disconnect {
                 reason: i32::from(DisconnectReason::Unknown),

@@ -219,8 +219,9 @@ impl Player {
         self.chunk_radius
     }
 
-    /// The lines the player's screen shows at once, which `/help` pages by: 7 unless
-    /// [`set_screen_line_height`](Self::set_screen_line_height) changed it.
+    /// The lines the player's screen shows at once, for a server's own paged output (Anchor pages
+    /// nothing by it): 7 unless [`set_screen_line_height`](Self::set_screen_line_height) changed
+    /// it.
     #[doc(alias = "Player::getScreenLineHeight")]
     pub fn screen_line_height(&self) -> u32 {
         self.marks.line_height.unwrap_or(DEFAULT_LINE_HEIGHT)

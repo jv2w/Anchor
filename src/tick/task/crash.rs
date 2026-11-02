@@ -6,11 +6,11 @@
 //! The test runs its own test binary as the server process (`user_data_crash_child`) and kills
 //! only that child, through its process handle, as the item crash test does
 //! (`tick::tests::crash`). The child opens the data files and starts the save thread and the tick
-//! thread with the steps of `Server::run` the test needs (not the fingerprints, the access lists,
-//! the world catalog, the identity, the network controls or custom content), and one player
-//! joins through the tick's input queue.
+//! thread as [`serve`] does, and one player joins through the tick's input queue. The child
+//! process, its server and its report lines are shared with the item crash test.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -35,7 +35,7 @@ use crate::tick::{Output, Phase, SaveLink, Settings, Setup, State, Tasks, run};
 use crate::world::{BlockPos, ChunkPos, Flat};
 
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
+pub(in crate::tick) const CHILD_TICKS: u64 = 1200;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
 /// Kills, each followed by a restart that checks the file.
@@ -47,7 +47,7 @@ const NAME: &str = "keeper";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-USER";
 /// The session of the child's player.
-const SESSION: SessionId = SessionId::new(1);
+pub(in crate::tick) const SESSION: SessionId = SessionId::new(1);
 
 /// What the server and the player keep: the last tick that wrote it, and how many ticks have.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -62,16 +62,6 @@ impl Progress {
     }
 }
 
-/// Gives the place of the marker block after tick `tick`, in the spawn chunks' dirt layer.
-fn path(tick: u64) -> BlockPos {
-    let t = i32::try_from(tick % 100_000).unwrap();
-    BlockPos::new((t * 7) % 48 - 16, -62, (t * 11) % 48 - 16)
-}
-
-fn gold() -> block::State {
-    BlockKind::Gold.default_state()
-}
-
 /// The child's task state.
 struct Writer {
     writes: bool,
@@ -82,33 +72,17 @@ struct Writer {
 }
 
 impl Writer {
-    #[expect(
-        clippy::print_stdout,
-        clippy::disallowed_methods,
-        reason = "consistency: the child reports to the parent on standard output"
-    )]
-    fn report(line: &str) {
-        println!("{REPORT} {line}");
-        std::io::stdout().flush().unwrap();
-    }
-
-    fn stop_server(&self) {
-        match self.stop.try_send(()) {
-            Ok(()) | Err(_) => {}
-        }
-    }
-
     fn tick(&mut self, cx: &mut Context<'_>) {
         let tick = cx.tick();
         let start = *self.start.get_or_insert(tick);
         if tick > start + CHILD_TICKS {
-            self.stop_server();
+            stop_server(&self.stop);
             return;
         }
         if !self.ready {
             self.ready = self.check(cx, start);
             if self.ready && !self.writes {
-                self.stop_server();
+                stop_server(&self.stop);
             }
             return;
         }
@@ -137,11 +111,14 @@ impl Writer {
         }
         world.set_block(path(tick), gold()).unwrap();
         self.marker = Some(path(tick));
-        Self::report(&format!(
-            "tick={tick} server={} player={}",
-            server.text(),
-            mine.text()
-        ));
+        report(
+            REPORT,
+            &format!(
+                "tick={tick} server={} player={}",
+                server.text(),
+                mine.text()
+            ),
+        );
         if tick.is_multiple_of(3) {
             cx.save();
         }
@@ -174,12 +151,15 @@ impl Writer {
         });
         let server = cx.data::<Progress>().copied().expect("registered");
         let mine = player.data::<Progress>().copied().expect("registered");
-        Self::report(&format!(
-            "start={start} golds={} server={} player={}",
-            golds.join(";"),
-            server.text(),
-            mine.text()
-        ));
+        report(
+            REPORT,
+            &format!(
+                "start={start} golds={} server={} player={}",
+                golds.join(";"),
+                server.text(),
+                mine.text()
+            ),
+        );
         true
     }
 }
@@ -188,37 +168,11 @@ impl Writer {
 /// does nothing.
 #[test]
 #[ignore = "the child process of forced_kills_keep_user_data_with_its_tick"]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the child drains its player's queue and waits for its threads"
-)]
 fn user_data_crash_child() {
     let (Ok(data), Ok(mode)) = (std::env::var(DATA_ENV), std::env::var(MODE_ENV)) else {
         return;
     };
-    let specs = vec![WorldSpec {
-        name: "world".to_owned(),
-        kind: crate::world::Kind::Persistent,
-        generator: Arc::new(Flat),
-        seed: Some(0),
-        spawn: None,
-    }];
-    let mut opened = crate::save::open(Path::new(&data), specs).unwrap();
-    let mut user = registered::<Progress, Progress>("progress", "progress");
-    user.load(&mut opened.thread).unwrap();
-    let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (inputs, input_queue) = input_queue(1);
     let (stop_tx, stop) = mpsc::channel(1);
-    let (done, _done_rx) = oneshot::channel();
-    let (crash, _crash_rx) = oneshot::channel();
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
-    let save_pool = Arc::clone(&pool);
-    let thread = opened.thread;
-    let save_thread = crate::runtime::spawn_save(move || {
-        crate::save::run(thread, &save_pool, request_queue, &responder)
-    })
-    .unwrap();
     let mut writer = Writer {
         writes: mode == "run",
         stop: stop_tx,
@@ -233,56 +187,16 @@ fn user_data_crash_child() {
     listeners.push(
         Priority::Normal,
         |_: &mut WorldSave, cx: &mut Context<'_>| {
-            Writer::report(&format!("committed={}", cx.tick()));
+            report(REPORT, &format!("committed={}", cx.tick()));
         },
     );
-    let state = State::new(
-        Settings::new(&Config::default()),
-        shared(),
-        Setup {
-            listeners,
-            tasks,
-            data: user,
-            ..Setup::default()
-        },
-        opened.worlds,
-        opened.tick,
-    );
-    let (outbound, mut rx) = outbound_queue();
-    let mut session = inputs.session(SESSION);
-    session
-        .try_send(InputKind::Join {
-            identity: Identity {
-                name: NAME.to_owned(),
-                xuid: None,
-                uuid: Uuid::from_bytes([4; 16]),
-                skin: Skin::default(),
-                device_os: -1,
-                address: None,
-                client: Client::default(),
-            },
-            outbound,
-        })
-        .unwrap();
-    let link = SaveLink {
-        requests,
-        responses,
+    let setup = Setup {
+        listeners,
+        tasks,
+        data: registered::<Progress, Progress>("progress", "progress"),
+        ..Setup::default()
     };
-    let tick_pool = Arc::clone(&pool);
-    let tick_thread = crate::runtime::spawn_tick(move || {
-        run(state, &tick_pool, input_queue, link, stop, crash, done)
-    })
-    .unwrap();
-    while let Some(out) = rx.blocking_recv() {
-        if matches!(out, Outbound::Close(_)) {
-            break;
-        }
-    }
-    drop(rx);
-    drop(session);
-    drop(inputs);
-    tick_thread.join().unwrap();
-    save_thread.join().unwrap().unwrap();
+    serve(Path::new(&data), NAME, 4, setup, stop, Vec::new());
 }
 
 /// The check of a restart reads the marker block only once the spawn chunks are in, even when the
@@ -353,52 +267,12 @@ fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
     );
 }
 
-/// A started child and its report lines.
-struct Running {
-    child: Child,
-    lines: std::sync::mpsc::Receiver<String>,
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test starts and reads its child process"
-)]
 fn start(data: &Path, mode: &str) -> Running {
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "tick::task::crash::user_data_crash_child",
-            "--exact",
-            "--ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(DATA_ENV, data)
-        .env(MODE_ENV, mode)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let (tx, lines) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if let Some(rest) = line
-                .find(REPORT)
-                .and_then(|at| line.get(at + REPORT.len()..))
-                && tx.send(rest.trim().to_owned()).is_err()
-            {
-                break;
-            }
-        }
-    });
-    Running { child, lines }
-}
-
-fn fields(line: &str) -> BTreeMap<String, String> {
-    line.split_whitespace()
-        .filter_map(|f| f.split_once('='))
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        .collect()
+    spawn_child(
+        "tick::task::crash::user_data_crash_child",
+        REPORT,
+        &[(DATA_ENV, data.as_os_str()), (MODE_ENV, OsStr::new(mode))],
+    )
 }
 
 fn progress(text: &str) -> Progress {
@@ -407,23 +281,6 @@ fn progress(text: &str) -> Progress {
         tick: tick.parse().unwrap(),
         count: count.parse().unwrap(),
     }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test makes its data folder"
-)]
-fn fresh(dir: &Path) {
-    remove(dir);
-    std::fs::create_dir_all(dir).unwrap();
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
-)]
-fn remove(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap_or(());
 }
 
 fn data_dir() -> PathBuf {
@@ -535,4 +392,193 @@ fn forced_kills_keep_user_data_with_its_tick() {
     assert!(checked > 0, "no start found a commit to check");
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
     remove(&data);
+}
+
+/// Gives the place of the marker block after tick `tick`, in the spawn chunks' dirt layer.
+pub(in crate::tick) fn path(tick: u64) -> BlockPos {
+    let t = i32::try_from(tick % 100_000).unwrap();
+    BlockPos::new((t * 7) % 48 - 16, -62, (t * 11) % 48 - 16)
+}
+
+pub(in crate::tick) fn gold() -> block::State {
+    BlockKind::Gold.default_state()
+}
+
+/// Runs the server of a crash test inside its child process on the data folder `data`: the save
+/// thread and the tick thread as `Server::run` starts them, without its fingerprints, access
+/// lists, world catalog, identity, network controls and custom content. The player `player`
+/// joins through the tick's input queue with `after_join` behind its join, and the call returns
+/// once the server closes the player's connection (the tasks in `setup` stop the server through
+/// `stop`).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the child drains its player's queue and waits for its threads"
+)]
+pub(in crate::tick) fn serve(
+    data: &Path,
+    player: &str,
+    uuid: u8,
+    mut setup: Setup,
+    stop: mpsc::Receiver<()>,
+    after_join: Vec<InputKind>,
+) {
+    let specs = vec![WorldSpec {
+        name: "world".to_owned(),
+        kind: crate::world::Kind::Persistent,
+        generator: Arc::new(Flat),
+        seed: Some(0),
+        spawn: None,
+    }];
+    let mut opened = crate::save::open(data, specs).unwrap();
+    setup.data.load(&mut opened.thread).unwrap();
+    let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
+    let (inputs, input_queue) = input_queue(1);
+    let (done, _done_rx) = oneshot::channel();
+    let (crash, _crash_rx) = oneshot::channel();
+    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
+    let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let save_pool = Arc::clone(&pool);
+    let thread = opened.thread;
+    let save_thread = crate::runtime::spawn_save(move || {
+        crate::save::run(thread, &save_pool, request_queue, &responder)
+    })
+    .unwrap();
+    let state = State::new(
+        Settings::new(&Config::default()),
+        shared(),
+        setup,
+        opened.worlds,
+        opened.tick,
+    );
+    let (outbound, mut rx) = outbound_queue();
+    let mut session = inputs.session(SESSION);
+    session
+        .try_send(InputKind::Join {
+            identity: Identity {
+                name: player.to_owned(),
+                xuid: None,
+                uuid: Uuid::from_bytes([uuid; 16]),
+                skin: Skin::default(),
+                device_os: -1,
+                address: None,
+                client: Client::default(),
+            },
+            outbound,
+        })
+        .unwrap();
+    for kind in after_join {
+        session.try_send(kind).unwrap();
+    }
+    let link = SaveLink {
+        requests,
+        responses,
+    };
+    let tick_pool = Arc::clone(&pool);
+    let tick_thread = crate::runtime::spawn_tick(move || {
+        run(state, &tick_pool, input_queue, link, stop, crash, done)
+    })
+    .unwrap();
+    // The player's end of the connection: read until the server closes it.
+    while let Some(out) = rx.blocking_recv() {
+        if matches!(out, Outbound::Close(_)) {
+            break;
+        }
+    }
+    drop(rx);
+    drop(session);
+    drop(inputs);
+    tick_thread.join().unwrap();
+    save_thread.join().unwrap().unwrap();
+}
+
+/// Writes a report line of the child to the parent on standard output.
+#[expect(
+    clippy::print_stdout,
+    clippy::disallowed_methods,
+    reason = "consistency: the child reports to the parent on standard output"
+)]
+pub(in crate::tick) fn report(prefix: &str, line: &str) {
+    println!("{prefix} {line}");
+    std::io::stdout().flush().unwrap();
+}
+
+/// Asks the tick thread to stop (a full queue holds a stop already).
+pub(in crate::tick) fn stop_server(stop: &mpsc::Sender<()>) {
+    match stop.try_send(()) {
+        Ok(()) | Err(_) => {}
+    }
+}
+
+/// A started child and its report lines.
+pub(in crate::tick) struct Running {
+    pub(in crate::tick) child: Child,
+    pub(in crate::tick) lines: std::sync::mpsc::Receiver<String>,
+}
+
+/// Starts this test binary as the child that runs the ignored test `test` with the environment
+/// `envs`, and reads the lines of its output that carry the prefix `report`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test starts and reads its child process"
+)]
+pub(in crate::tick) fn spawn_child(test: &str, report: &str, envs: &[(&str, &OsStr)]) -> Running {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command.args([
+        test,
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1",
+    ]);
+    for &(key, value) in envs {
+        command.env(key, value);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, lines) = std::sync::mpsc::channel();
+    let prefix = report.to_owned();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            // libtest writes the test's name first on the same line.
+            if let Some(rest) = line
+                .find(&prefix)
+                .and_then(|at| line.get(at + prefix.len()..))
+                && tx.send(rest.trim().to_owned()).is_err()
+            {
+                break;
+            }
+        }
+    });
+    Running { child, lines }
+}
+
+/// The `key=value` fields of a report line.
+pub(in crate::tick) fn fields(line: &str) -> BTreeMap<String, String> {
+    line.split_whitespace()
+        .filter_map(|f| f.split_once('='))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+}
+
+/// Makes `dir` an empty data folder.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test makes its data folder"
+)]
+pub(in crate::tick) fn fresh(dir: &Path) {
+    remove(dir);
+    std::fs::create_dir_all(dir).unwrap();
+}
+
+/// Removes the data folder `dir`, if it exists.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test removes its data folder"
+)]
+pub(in crate::tick) fn remove(dir: &Path) {
+    std::fs::remove_dir_all(dir).unwrap_or(());
 }

@@ -36,18 +36,18 @@ const BUSY_REACHED: [&str; 1] = ["form"];
 const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
 
 /// Chat lines the clients send: plain, a command typed in chat, one a listener kicks for.
-const CHAT: [&str; 5] = ["hello", "gg", "/me dances", "/list", "bye"];
+const CHAT: [&str; 5] = ["hello", "gg", "/version", "/list", "bye"];
 
 /// Command lines the clients send: allowed to everyone, operator only (refused: an operator
 /// change asks for a save, and these runs answer only their first), malformed and unknown.
 const COMMANDS: [&str; 10] = [
     "/list",
-    "/me waves",
-    "/tell p3 hello",
-    "/help",
-    "/say hi",
+    "/version",
+    "/banlist",
+    "/kill p3",
+    "/kill",
     "/give @s apple 2",
-    "/xp 5",
+    "/clear",
     "/tp 1 -60 1",
     "/gamemode banana",
     "/nothing",
@@ -407,7 +407,7 @@ fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and
         jobs += n;
     }
     assert!(jobs > 0, "no job result was logged");
-    // Without the vanilla block rules, only the base run's longer scripts make another entity.
+    // Only the base run's longer scripts make another entity.
     let wanted = REACHED.iter().filter(|what| **what != "entity");
     for what in wanted.chain(&BUSY_REACHED) {
         assert!(

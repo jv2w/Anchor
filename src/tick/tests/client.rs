@@ -1,9 +1,9 @@
 //! A scripted client for the determinism runs: it learns what a real client learns from the packets
 //! it receives (stack network IDs, the open window, the villagers it sees) and sends the game
-//! inputs the run's fixed-seed generator picks: item stack requests (moves, crafts, drops, creative
-//! items, broken ones), block actions, item use on blocks, in the air and on entities (attacks),
-//! windows, the hotbar and player actions. Most inputs are valid by the server's rules; some are
-//! not.
+//! inputs the run's fixed-seed generator picks: item stack requests (moves, drops, creative items,
+//! refused crafts, broken ones), block actions, item use on blocks, in the air and on entities
+//! (attacks), windows, the hotbar and player actions. Most inputs are valid by the server's rules;
+//! some are not.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,8 +31,8 @@ use crate::world::BlockPos;
 
 /// The UI slot of the created output.
 const CREATED_SLOT: u8 = 50;
-/// The UI slot of the 2x2 craft grid's first cell; the 3x3 grid's cells follow its four.
-pub(super) const GRID_2X2: u8 = 28;
+/// The UI slot of the 2x2 craft grid's first cell; its other three follow.
+const GRID_2X2: u8 = 28;
 /// The upper bound of the creative item network IDs the generator draws; the creative inventory
 /// has fewer items, so some draws are refused.
 const MAX_CREATIVE_ID: usize = 1700;
@@ -57,14 +57,6 @@ pub(super) struct Client {
 }
 
 impl Client {
-    /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
-    pub(super) fn net(&self, container: u8, slot: u8) -> i32 {
-        self.slots
-            .get(&(container, slot))
-            .filter(|(_, count)| *count > 0)
-            .map_or(0, |(net, _)| *net)
-    }
-
     /// Learns from a packet the server sent and counts what the run reached.
     pub(super) fn learn(&mut self, packet: &Packet, seen: &mut Seen) {
         let mut count = |what: &'static str| *seen.entry(what).or_default() += 1;
@@ -122,17 +114,10 @@ impl Client {
         }
     }
 
-    /// Takes the next request ID: -1, -3, -5…
-    pub(super) fn next_request_id(&mut self) -> i32 {
-        let id = self.next_request;
-        self.next_request = self.next_request.wrapping_sub(2);
-        id
-    }
-
     /// Draws the packets of one game input of the spawned `player`: one packet, or a burst for
-    /// actions a client sends over several of its ticks (breaking, a craft request from the grid, choosing
-    /// an item before using it). Empty when the player lacks what the drawn input needs (a log to
-    /// craft planks from).
+    /// actions a client sends over several of its ticks (breaking, a craft request from the grid,
+    /// choosing an item before using it). Empty when the player lacks what the drawn input needs
+    /// (a log to craft planks from).
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: one generator keeps the input mix in one place"
@@ -417,6 +402,14 @@ impl Client {
         }
     }
 
+    /// The stack network ID the client knows a slot by (0 for an empty or unknown slot).
+    fn net(&self, container: u8, slot: u8) -> i32 {
+        self.slots
+            .get(&(container, slot))
+            .filter(|(_, count)| *count > 0)
+            .map_or(0, |(net, _)| *net)
+    }
+
     /// The held item as the client sends it.
     fn held(&self, player: &Player) -> ItemInstance {
         let slot = player.inventory.held_slot();
@@ -479,7 +472,7 @@ impl Client {
             WINDOW_ID_ARMOUR if slot < 4 => (C::Armor as u8, slot),
             WINDOW_ID_OFF_HAND => (C::Offhand as u8, 0),
             WINDOW_ID_UI if slot == 0 => (C::Cursor as u8, 0),
-            WINDOW_ID_UI if (GRID_2X2..GRID_2X2 + 13).contains(&slot) => {
+            WINDOW_ID_UI if (GRID_2X2..GRID_2X2 + 4).contains(&slot) => {
                 (C::CraftingInput as u8, slot)
             }
             w => match self.window {
@@ -499,6 +492,13 @@ impl Client {
             return self.next_request + 2;
         }
         self.next_request_id()
+    }
+
+    /// Takes the next request ID: -1, -3, -5…
+    fn next_request_id(&mut self) -> i32 {
+        let id = self.next_request;
+        self.next_request = self.next_request.wrapping_sub(2);
+        id
     }
 
     /// Draws a request moving, swapping, dropping, destroying or creating items, from what the
@@ -743,7 +743,7 @@ fn block_actions_flags() -> FlagSet<InputFlag> {
 }
 
 /// A block action of `kind` on `face` of the block at `pos`.
-pub(super) fn block_action(kind: Action, pos: BlockPos, face: i32) -> PlayerBlockAction {
+fn block_action(kind: Action, pos: BlockPos, face: i32) -> PlayerBlockAction {
     PlayerBlockAction {
         action: kind.into(),
         block_pos: [pos.x, pos.y, pos.z],
@@ -772,7 +772,7 @@ fn auth_packet(
 }
 
 /// An inventory transaction packet of `data`.
-pub(super) fn transaction_packet(data: InventoryTransactionData) -> Packet {
+fn transaction_packet(data: InventoryTransactionData) -> Packet {
     Packet::InventoryTransaction(InventoryTransaction {
         legacy_request_id: 0,
         legacy_set_item_slots: Vec::new(),
@@ -782,7 +782,7 @@ pub(super) fn transaction_packet(data: InventoryTransactionData) -> Packet {
 }
 
 /// The request slot `slot` of `container`, named by `stack_network_id`.
-pub(super) fn slot_info(container: u8, slot: u8, stack_network_id: i32) -> StackRequestSlotInfo {
+fn slot_info(container: u8, slot: u8, stack_network_id: i32) -> StackRequestSlotInfo {
     StackRequestSlotInfo {
         container: FullContainerName {
             container_id: container,
@@ -794,12 +794,12 @@ pub(super) fn slot_info(container: u8, slot: u8, stack_network_id: i32) -> Stack
 }
 
 /// The created output slot of request `request`.
-pub(super) fn created_slot(request: i32) -> StackRequestSlotInfo {
+fn created_slot(request: i32) -> StackRequestSlotInfo {
     slot_info(C::CreatedOutput as u8, CREATED_SLOT, request)
 }
 
 /// A request action placing `count` items from `source` into `destination`.
-pub(super) fn place(
+fn place(
     count: u8,
     source: StackRequestSlotInfo,
     destination: StackRequestSlotInfo,

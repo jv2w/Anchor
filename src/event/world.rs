@@ -142,9 +142,9 @@ cancellable! {
         #[doc(alias = "WorldParticleEvent::isCancelled")];
 }
 
-/// Raised after a save commit, for each permanent world loaded when the commit is answered. A
-/// world unloaded before then raises none for that commit; a world made after the save began may
-/// raise it before its first save.
+/// Raised after a save commit, for each permanent world the committed snapshot held that is still
+/// loaded. A world unloaded before the commit is answered raises none, and neither does a world
+/// made after the snapshot was taken.
 #[doc(alias = "WorldSaveEvent")]
 #[derive(Debug)]
 pub struct WorldSave {

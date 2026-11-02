@@ -12,9 +12,9 @@ use crate::event::Listeners;
 use crate::form::{Custom, Menu, Modal, Value};
 use crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
 use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
-use crate::tick::Output;
 use crate::tick::queue::{Input, Outbound};
 use crate::tick::tests::{input, join, leave, new_state, packet, received, settings, tick};
+use crate::tick::{Output, Phase};
 
 /// Each handler call: the session and the response.
 type Calls = mpsc::Receiver<(u64, Response)>;
@@ -246,22 +246,25 @@ fn answers_that_do_not_fit_are_dropped_and_the_handler_never_runs() {
 }
 
 #[test]
-fn a_closed_form_calls_the_handler_with_closed() {
+fn a_closed_form_calls_the_handler_with_closed_and_one_the_client_could_not_show_with_busy() {
     let (mut state, _rx) = server();
     let mut a = send(&mut state, 1, menu());
     let mut b = send(&mut state, 1, Custom::new("C").toggle("t", true));
     let mut c = send(&mut state, 1, Modal::new("", "", "", ""));
+    let mut d = send(&mut state, 1, menu());
     run(
         &mut state,
         vec![
             answer(1, 1, 0, None, Some(0)),
-            answer(1, 2, 1, Some(b"[true]"), Some(1)),
+            answer(1, 2, 1, Some(b"[true]"), Some(0)),
             answer(1, 3, 2, Some(b"null"), None),
+            answer(1, 4, 3, None, Some(1)),
         ],
     );
     for calls_of in [&mut a, &mut b, &mut c] {
         assert_eq!(calls(calls_of), [(1, Response::Closed)]);
     }
+    assert_eq!(calls(&mut d), [(1, Response::Busy)]);
 }
 
 #[test]

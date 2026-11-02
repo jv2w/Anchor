@@ -235,11 +235,16 @@ impl Replayer {
                         Request::Commit(snapshot) => {
                             self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
                         }
-                        Request::Worlds(worlds) => self.disk.add_worlds(&worlds),
+                        // The logged answers say which worlds did not open.
+                        Request::Worlds(worlds) => drop(self.disk.add_worlds(&worlds)),
                         Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
-                        Request::Chunks(_) | Request::Player(_) | Request::Finish => {}
+                        Request::Chunks(_)
+                        | Request::Player(_)
+                        | Request::Discard(_)
+                        | Request::Finish => {}
                     }
                 }
+                drop(self.own.take_discarded());
             }
             if segment.is_truncated() {
                 return Ok(End::Truncated);
@@ -366,6 +371,7 @@ impl Replayer {
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
                 Answer::LoadFailed => Response::LoadFailed,
+                Answer::WorldOpenFailed(world) => Response::WorldOpenFailed { world: *world },
                 Answer::Checked(found) => Response::Checked(found.clone()),
             });
         }

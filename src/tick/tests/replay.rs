@@ -59,67 +59,6 @@ struct Plan {
     command_at: Option<u64>,
 }
 
-fn specs() -> Vec<WorldSpec> {
-    vec![WorldSpec {
-        name: "world".to_owned(),
-        kind: Kind::Persistent,
-        generator: Arc::new(Flat),
-        seed: Some(0),
-        spawn: None,
-    }]
-}
-
-/// A fresh data folder of this test.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test prepares its data folder"
-)]
-fn fresh(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("anchor-replay-{name}-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).unwrap_or(());
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
-)]
-fn remove(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test reads a file of its data folder"
-)]
-fn read(path: &Path) -> Vec<u8> {
-    std::fs::read(path).unwrap()
-}
-
-/// The bytes of every data file of the data folder `dir`, by path: the main file, the players
-/// file and the world files.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test lists the world files of its data folder"
-)]
-fn data_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir.join(crate::storage::WORLD_DIR))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
-    paths.push(dir.join("main.redb"));
-    paths.push(dir.join("players.redb"));
-    paths.sort();
-    paths
-        .into_iter()
-        .map(|path| {
-            let bytes = read(&path);
-            (path, bytes)
-        })
-        .collect()
-}
-
 /// The build of a run: one task that sends the state hash, sets a block every other tick and
 /// does what `plan` says, and `extra` tasks.
 fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
@@ -162,18 +101,25 @@ fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
     }
 }
 
-/// The tick of the last save of the data files in `dir`.
-fn committed(dir: &Path) -> u64 {
-    crate::save::committed_tick(dir).unwrap()
+/// The world of every run: one persistent flat world.
+fn specs() -> Vec<WorldSpec> {
+    vec![WorldSpec {
+        name: "world".to_owned(),
+        kind: Kind::Persistent,
+        generator: Arc::new(Flat),
+        seed: Some(0),
+        spawn: None,
+    }]
 }
 
-/// The hashes sent so far.
-fn drain(rx: &mut mpsc::Receiver<(u64, u64)>) -> Hashes {
-    let mut out = Vec::new();
-    while let Ok(h) = rx.try_recv() {
-        out.push(h);
-    }
-    out
+/// The start-game batches the runs share.
+fn shared() -> Shared {
+    Shared::new(
+        crate::protocol::batch::Settings::default(),
+        &crate::custom::Registry::default(),
+        &crate::tick::entity::Customs::default(),
+    )
+    .unwrap()
 }
 
 /// A player of session 1 joins, asks for its chunks and spawns, as a session would; its
@@ -274,13 +220,13 @@ fn crash(dir: &Path, plan: Plan) -> (PathBuf, Hashes) {
     (path, live)
 }
 
-fn shared() -> Shared {
-    Shared::new(
-        crate::protocol::batch::Settings::default(),
-        &crate::custom::Registry::default(),
-        &crate::tick::entity::Customs::default(),
-    )
-    .unwrap()
+/// The hashes sent so far.
+fn drain(rx: &mut mpsc::Receiver<(u64, u64)>) -> Hashes {
+    let mut out = Vec::new();
+    while let Ok(h) = rx.try_recv() {
+        out.push(h);
+    }
+    out
 }
 
 /// Replays `log` on `dir` with the build of `plan` (and `extra` more tasks) and `config`; the
@@ -305,9 +251,67 @@ fn replay(
     (result, drain(&mut sent))
 }
 
+/// A fresh data folder of this test.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test prepares its data folder"
+)]
+fn fresh(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("anchor-replay-{name}-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).unwrap_or(());
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The bytes of the file `path`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test reads a file of its data folder"
+)]
+fn read(path: &Path) -> Vec<u8> {
+    std::fs::read(path).unwrap()
+}
+
+/// The bytes of every data file of the data folder `dir`, by path: the main file, the players
+/// file and the world files.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test lists the world files of its data folder"
+)]
+fn data_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir.join(crate::storage::WORLD_DIR))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.push(dir.join("main.redb"));
+    paths.push(dir.join("players.redb"));
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let bytes = read(&path);
+            (path, bytes)
+        })
+        .collect()
+}
+
+/// The tick of the last save of the data files in `dir`.
+fn committed(dir: &Path) -> u64 {
+    crate::save::committed_tick(dir).unwrap()
+}
+
 /// The hashes of `live` from tick `from` on.
 fn from(live: &Hashes, tick: u64) -> Hashes {
     live.iter().copied().filter(|&(t, _)| t >= tick).collect()
+}
+
+/// Removes the data folder `dir`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test removes its data folder"
+)]
+fn remove(dir: &Path) {
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

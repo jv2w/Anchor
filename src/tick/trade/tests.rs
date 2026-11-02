@@ -1,6 +1,6 @@
-//! Tests of trading: the screen the official server sends, the trade rules, the end of trading, and that nothing
-//! stays behind. Villagers, windows and orbs are stand-ins here (the entity and inventory modules
-//! own them).
+//! Tests of trading: the screen the official server sends, the trade rules, the end of trading,
+//! and that nothing stays behind. Villagers, windows and orbs are stand-ins here (the entity and
+//! inventory modules own them).
 
 use std::collections::BTreeMap;
 
@@ -287,7 +287,7 @@ fn the_trade_screen_is_the_one_the_official_server_sends() {
         offers.keys().collect::<Vec<_>>(),
         ["Recipes", "TierExpRequirements"]
     );
-    let first = FIRST_NET_ID;
+    let first = offers::FIRST_NET_ID;
     assert_eq!(net_ids(u), [first, first + 1, first + 2]);
     let mut keys = Vec::new();
     shape(&recipes(&offers)[0], "", &mut keys);
@@ -393,7 +393,7 @@ fn offers_need_a_current_id_an_unlocked_tier_and_uses_left() {
     for id in foreign {
         assert_eq!(server.offer(1, id), None, "another villager's offer");
     }
-    assert_eq!(server.offer(1, 1), None, "a recipe's ID");
+    assert_eq!(server.offer(1, 1), None, "another villager's ID");
     assert_eq!(server.offer(1, ids[2] + 1), None, "past the list");
     assert_eq!(server.offer(1, 0), None);
     assert_eq!(server.offer(1, u32::MAX), None);
@@ -478,8 +478,8 @@ fn trades_reward_orbs_and_raise_the_tier() {
         "each trade tells the villager's viewers of its tier and xp"
     );
     for s in [1, 2] {
-        // The official server sends no UpdateTrade at a new tier (P6 `tradeup`): the traders learn it from the
-        // villager's entity data (`traded` above).
+        // The official server sends no UpdateTrade at a new tier (P6 `tradeup`): the traders
+        // learn it from the villager's entity data (`traded` above).
         assert!(server.screens(s).is_empty(), "no new screen at a new tier");
     }
     assert!(server.offer(1, ids[1]).is_some(), "tier 1 unlocked");
@@ -680,7 +680,7 @@ fn opening_and_closing_a_hundred_times_leaves_nothing_behind() {
     assert!(server.state.trades.sessions.is_empty());
     assert!(server.state.trades.by_villager.is_empty());
     // Reopening unchanged lists allocates nothing new.
-    assert_eq!(server.state.trades.next_net_id, FIRST_NET_ID + 6);
+    assert_eq!(server.state.trades.next_net_id, offers::FIRST_NET_ID + 6);
 }
 
 #[test]

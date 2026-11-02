@@ -97,13 +97,12 @@ pub(super) fn spend_line(state: &mut State, session: SessionId) -> bool {
     true
 }
 
-/// The lines `message` holds: nothing once the player sent 2 lines this
+/// The lines `message` holds: nothing once the player spent [`LINES_PER_TICK`] lines this
 /// tick or for a message longer than the lines it may still send; then the message is cleaned
 /// (private-use characters and terminal escapes removed, `§` codes kept) and split at every line
-/// break. Blank lines and lines over 512 bytes (the official server's limit, P6 `limits`)
-/// are dropped, and the first lines that remain are kept up to the
-/// limit left, each spending one of it. A line that starts with `/` (or `./`, whose dot is
-/// dropped) is a command.
+/// break. Blank lines and lines over [`MAX_CHAT_BYTES`] are dropped, and the first lines that
+/// remain are kept up to the limit left, each spending one of it. A line that starts with `/`
+/// (or `./`, whose dot is dropped) is a command.
 fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
     let player = state.players.get(&session)?;
     let mut left = lines_left(player, state.tick);
@@ -347,7 +346,8 @@ fn push_bounded(out: &mut String, text: &str) -> Option<()> {
     Some(())
 }
 
-/// `text` without the white space PHP's `trim` removes.
+/// `text` without the spaces, tabs, line breaks, NULs and vertical tabs around it: a line of
+/// only those is blank.
 fn trim(text: &str) -> &str {
     text.trim_matches([' ', '\t', '\n', '\r', '\0', '\u{b}'])
 }
@@ -536,13 +536,13 @@ mod tests {
                 chat(1, 10, &long),
                 chat(1, 11, "  \t "),
                 chat(1, 12, &too_wide),
-                chat(1, 13, "/help"),
+                chat(1, 13, "/nope"),
                 input(1, 14, packet(Packet::Text(Box::new(other)))),
             ],
         );
         assert!(lines(&mut rx2).is_empty());
-        // 510 bytes fit; `./me` is a command, as `/me` is.
-        run(&mut state, vec![chat(1, 15, &wide), chat(1, 16, "./me")]);
+        // 510 bytes fit; `./nope` is a command, as `/nope` is.
+        run(&mut state, vec![chat(1, 15, &wide), chat(1, 16, "./nope")]);
         let got: Vec<String> = lines(&mut rx2).into_iter().map(|l| l[1].clone()).collect();
         assert_eq!(got, [wide]);
         // A player that has not spawned cannot chat.
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn trimming_removes_the_white_space_php_removes() {
+    fn trimming_removes_spaces_tabs_line_breaks_nuls_and_vertical_tabs() {
         assert_eq!(trim("\0 x \u{b}"), "x");
     }
 

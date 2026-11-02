@@ -50,7 +50,7 @@ use crate::storage::{
     self, AccessKey, AccessKind, Batch, CHUNK_PREFIX, Checked, ChunkId, ChunkKey, ChunkKind,
     ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, StartBackup, Storage,
 };
-use crate::tick::{ChunkRules, EntityTypes};
+use crate::tick::{ChunkRules, EntityTypes, Segment};
 use crate::world::{
     self, BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS,
     SubChunk, World,
@@ -82,6 +82,8 @@ pub(crate) enum Request {
     Player(PlayerKey),
     /// A snapshot to commit.
     Commit(Box<Snapshot>),
+    /// Input log segments the tick dropped for room: the save thread frees them.
+    Discard(Vec<Segment>),
     /// The tick stopped normally; nothing follows. Without it the tick died, and the save thread
     /// commits nothing more.
     Finish,
@@ -106,6 +108,9 @@ pub(crate) enum Response {
     /// A batch of chunks could not be read, even after reopening the file: the server stops
     /// without saving, as for a failed commit.
     LoadFailed,
+    /// The file of a persistent world did not open: its chunks are quarantined and nothing of it
+    /// is saved until told again.
+    WorldOpenFailed { world: WorldIndex },
     /// What the check a snapshot asked for found (`/check`).
     Checked(Checked),
 }
@@ -523,9 +528,9 @@ impl Thread {
     /// Learns the worlds of a [`Request::Worlds`] as the save thread does (a replay's requests).
     /// A persistent world made under the name of one deleted since the last commit takes its
     /// file, which then stays, and the next commit of that file first deletes every value of the
-    /// deleted world.
-    pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) {
-        add_worlds(&mut self.plans, &self.opener, worlds);
+    /// deleted world. Returns the indexes of the worlds whose file did not open.
+    pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) -> Vec<WorldIndex> {
+        let unopened = add_worlds(&mut self.plans, &self.opener, worlds);
         for world in worlds.iter().filter(|w| w.number.is_some()) {
             let key = storage::world_name_key(&world.name);
             let before = self.deleted.len();
@@ -537,6 +542,7 @@ impl Thread {
                 plan.clear = true;
             }
         }
+        unopened
     }
 
     /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; the next commit
@@ -1193,8 +1199,13 @@ pub(crate) fn run(
                     vec![Response::LoadFailed]
                 }
             },
-            Request::Worlds(worlds) => {
-                thread.add_worlds(&worlds);
+            Request::Worlds(worlds) => thread
+                .add_worlds(&worlds)
+                .into_iter()
+                .map(|world| Response::WorldOpenFailed { world })
+                .collect(),
+            Request::Discard(segments) => {
+                drop(segments);
                 continue;
             }
             Request::DeleteWorlds(worlds) => {
@@ -2174,8 +2185,10 @@ pub(crate) fn resume(world: &mut World, record: WorldRecord) -> world::Result<()
 /// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
 /// worlds in order and names each before any request about it), one made again replaces its plan.
 /// The tick's number is the world's: a file kept for a world deleted this run, whose deletion no
-/// commit holds yet, still holds the record of the deleted one.
-fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
+/// commit holds yet, still holds the record of the deleted one. Returns the indexes of the worlds
+/// whose file did not open.
+fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) -> Vec<WorldIndex> {
+    let mut unopened = Vec::new();
     for world in worlds {
         let mut plan = plan(
             &world.name,
@@ -2185,6 +2198,7 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
         );
         if let Err(e) = open_world(&mut plan, opener) {
             log_unopened(&world.name, &e);
+            unopened.push(world.index);
         }
         if plan.number != world.number {
             plan.number = world.number;
@@ -2195,6 +2209,7 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) {
             None => plans.push(plan),
         }
     }
+    unopened
 }
 
 /// The plan of a world named `name`, persistent with `number` (the tick's) or temporary without,

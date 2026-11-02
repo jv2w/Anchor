@@ -319,7 +319,9 @@ impl Context<'_> {
         self.state.data.servers.get(i)?.value.downcast_ref()
     }
 
-    /// Lends [`Self::data`] to change; it is saved with the next snapshot.
+    /// Lends [`Self::data`] to change; it is saved with the next snapshot. A value whose JSON is
+    /// over [`MAX_SERVER_VALUE_BYTES`] is not saved (the log tells which) and is tried again by
+    /// every later snapshot; the last saved form stays.
     pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
         let &i = self.state.data.server_index.get(&TypeId::of::<T>())?;
         let server = self.state.data.servers.get_mut(i)?;
@@ -339,7 +341,9 @@ impl Player {
     }
 
     /// Lends [`Self::data`] to change; the player is saved with the next snapshot, even when
-    /// the value is left as it was.
+    /// the value is left as it was, and then every data value of the player is encoded again. A
+    /// value whose JSON is over [`MAX_PLAYER_VALUE_BYTES`] is not saved (the log tells which);
+    /// its last saved form stays.
     pub fn data_mut<T: Any>(&mut self) -> Option<&mut T> {
         let value = self.extra.user.value_mut()?;
         self.data_dirty = true;

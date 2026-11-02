@@ -5,7 +5,9 @@
 //! biomes, then the client asks for the sub-chunks it wants. A chunk stays loaded while a player
 //! sees it, it is a spawn chunk or a ticket holds it ([`Context::hold_chunks`]); one nobody holds
 //! unloads in the next view phase, with or without
-//! [`ChunkUnload`] listeners, so that listening changes nothing; an unloaded chunk with unsaved
+//! [`ChunkUnload`] listeners, so that listening changes nothing; a listener that cancels an unload
+//! keeps the chunk for `KEEP_TICKS` ticks and at most `MAX_KEPT_CHUNKS` chunks at a time, and
+//! past that the chunk unloads and the monitors see no cancel. An unloaded chunk with unsaved
 //! changes waits in memory for the next commit (`save`).
 //!
 //! Fake blocks are blocks one player is shown instead of the world's: the user's
@@ -110,8 +112,14 @@ pub(super) struct View {
     first_word: usize,
     /// The words `unsent` had before the view last moved, kept for their room.
     spare: Vec<u64>,
-    /// The chunks the client was sent and still sees.
+    /// The chunks the client was sent and still sees. A set beside `unsent` because `can_see` is
+    /// asked from rule code, which holds no [`Disc`] to turn a position into a rank.
     sent: BTreeSet<ChunkPos>,
+    /// The chunks of `sent` that held water in layer 1 when picked to send. The server clears a
+    /// slot's water when its block changes, which the client does not know, so a change in these
+    /// chunks sends the clear as well ([`water_packet`]). Water only goes away while a chunk is
+    /// loaded, so a chunk without it needs no clear.
+    watered: BTreeSet<ChunkPos>,
     /// Sub-chunk requests waiting for an answer, oldest first.
     requests: VecDeque<SubChunkRequest>,
     /// The offsets of `requests`, at most [`MAX_QUEUED_SUB_CHUNK_OFFSETS`].
@@ -280,6 +288,7 @@ impl View {
             first_word: _,
             spare: _,
             sent,
+            watered,
             requests,
             queued_offsets: _,
             fakes,
@@ -290,10 +299,12 @@ impl View {
         for c in [center.x, center.z, published.x, published.y, published.z] {
             h.u64(u64::from(c.cast_unsigned()));
         }
-        h.usize(sent.len());
-        for p in sent {
-            h.u64(u64::from(p.x.cast_unsigned()));
-            h.u64(u64::from(p.z.cast_unsigned()));
+        for chunks in [sent, watered] {
+            h.usize(chunks.len());
+            for p in chunks {
+                h.u64(u64::from(p.x.cast_unsigned()));
+                h.u64(u64::from(p.z.cast_unsigned()));
+            }
         }
         h.usize(requests.len());
         for SubChunkRequest {
@@ -341,6 +352,7 @@ impl super::checkpoint::Codec for View {
             first_word: _,
             spare: _,
             sent,
+            watered,
             requests,
             queued_offsets: _,
             fakes,
@@ -351,6 +363,7 @@ impl super::checkpoint::Codec for View {
         radius.encode(w);
         published.encode(w);
         sent.encode(w);
+        watered.encode(w);
         requests.encode(w);
         fakes.encode(w);
         menu.encode(w);
@@ -362,6 +375,7 @@ impl super::checkpoint::Codec for View {
         let radius = u8::decode(r)?;
         let published = Codec::decode(r)?;
         let sent: BTreeSet<ChunkPos> = Codec::decode(r)?;
+        let watered: BTreeSet<ChunkPos> = Codec::decode(r)?;
         let requests: VecDeque<SubChunkRequest> = Codec::decode(r)?;
         let fakes = Codec::decode(r)?;
         let menu = Codec::decode(r)?;
@@ -384,6 +398,9 @@ impl super::checkpoint::Codec for View {
         {
             return Err(Error::Format("sent chunk outside the view"));
         }
+        if !watered.is_subset(&sent) {
+            return Err(Error::Format("watered chunk not sent"));
+        }
         let mut unsent = Vec::new();
         if radius > 0 {
             let chunks = disc(center, radius);
@@ -402,6 +419,7 @@ impl super::checkpoint::Codec for View {
             first_word: 0,
             spare: Vec::new(),
             sent,
+            watered,
             requests,
             queued_offsets,
             fakes,
@@ -544,8 +562,10 @@ pub(super) struct Chunks {
     spawns: Vec<BlockPos>,
     /// The chunk events someone listens to, fixed when the server is built ([`hold_spawns`]).
     heard: Heard,
-    /// Chunks loaded or brought back from memory this tick, for [`ChunkLoad`] in the view phase
-    /// (`true`: the generator made it). Empty unless it is heard, and between ticks.
+    /// Chunks loaded or brought back from memory since the last view phase, for [`ChunkLoad`] in
+    /// the next one (`true`: the generator made it). Empty unless it is heard. A chunk held again
+    /// after the view phase (a ticket taken in a deferred callback) waits across the tick
+    /// boundary, so a checkpoint keeps it.
     loads: BTreeMap<Key, bool>,
     /// Chunks whose last holder let go: still loaded until the view phase unloads them, asking
     /// the [`ChunkUnload`] listeners first ([`announce`]).
@@ -581,8 +601,8 @@ pub(super) struct Chunks {
 }
 
 impl Chunks {
-    /// Writes what lasts between ticks; the batch, the loads and the sent chunks are empty then,
-    /// and the events heard and the view order are fixed at build.
+    /// Writes what lasts between ticks; the batch and the sent chunks are empty then, and the
+    /// events heard and the view order are fixed at build.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
         let Self {
@@ -593,7 +613,7 @@ impl Chunks {
             extras,
             spawns,
             heard: _,
-            loads: _,
+            loads,
             unloading,
             kept,
             sent: _,
@@ -614,6 +634,7 @@ impl Chunks {
         }
         extras.checkpoint(w);
         spawns.encode(w);
+        loads.encode(w);
         unloading.encode(w);
         kept.encode(w);
         tickets.encode(w);
@@ -653,7 +674,7 @@ impl Chunks {
             extras: Extras::restore(r, &mut ground.extras)?,
             spawns: Codec::decode(r)?,
             heard: self.heard,
-            loads: BTreeMap::new(),
+            loads: Codec::decode(r)?,
             unloading: Codec::decode(r)?,
             kept: Codec::decode(r)?,
             sent: Vec::new(),
@@ -763,8 +784,8 @@ impl Chunks {
     /// Hashes what lasts between ticks, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The batch, the loads and the sent chunks are empty between ticks; the events heard
-        // and the view order are fixed.
+        // The batch and the sent chunks are empty between ticks; the events heard and the view
+        // order are fixed.
         let Self {
             interest,
             requested,
@@ -773,7 +794,7 @@ impl Chunks {
             extras,
             spawns,
             heard: _,
-            loads: _,
+            loads,
             unloading,
             kept,
             sent: _,
@@ -808,6 +829,11 @@ impl Chunks {
         h.usize(spawns.len());
         for p in spawns {
             h.bytes(&[p.x, p.y, p.z].map(i32::to_le_bytes).concat());
+        }
+        h.usize(loads.len());
+        for (k, &generated) in loads {
+            key(h, k);
+            h.u64(u64::from(generated));
         }
         h.usize(unloading.len());
         for k in unloading {
@@ -940,6 +966,10 @@ impl Context<'_> {
     }
 
     /// Clears every fake block `player` is shown. False if the player is not in the game.
+    ///
+    /// Each position that holds a block entity the client shows (a sign) also queues one packet
+    /// with its data, which counts against the player's 4,096 packets a tick like any other
+    /// queued packet: clearing that many at once in one tick disconnects the player.
     pub fn clear_fake_blocks(&mut self, player: player::Id) -> bool {
         let Some(p) = self.player_mut(player) else {
             return false;
@@ -1089,7 +1119,8 @@ pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(Bl
 
 /// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, its
 /// terrain and extras with their dirty marks, so a load never reads a file older than the tick's
-/// data.
+/// data. The rules read such a chunk's extras again on the tick, which the chunks waiting for a
+/// commit (`MAX_UNSAVED_CHUNKS`) bound.
 fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) {
     let count = chunks.interest.entry(key).or_insert(0);
     *count = count.saturating_add(1);
@@ -1255,6 +1286,7 @@ fn set_view(
             let pos = at(old_center, offset);
             release(chunks, (world, pos));
             if view.sent.remove(&pos) {
+                view.watered.remove(&pos);
                 chunks.unsee(session, pos);
             }
         });
@@ -1544,7 +1576,8 @@ fn announce(state: &mut State) {
 /// every other chunk unloads. A listener that holds the chunk instead (a ticket, a view) keeps it
 /// too, which the monitors see as a cancel; a cancel past the bound unloads the chunk, which they
 /// see as no cancel. A chunk held again meanwhile, or not loaded (a load in flight), unloads or
-/// stays without asking.
+/// stays without asking. Every chunk let go unloads in this one phase, as an unload only moves
+/// the chunk into memory ([`keep_unloaded`]), with no encoding and no disk.
 fn unload_released(state: &mut State) {
     let tick = state.tick;
     while let Some(&(due, key)) = state.chunks.kept.first()
@@ -1626,6 +1659,7 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
         unsent,
         first_word,
         sent,
+        watered,
         out,
         ..
     } = &mut player.view;
@@ -1649,6 +1683,9 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
             if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
                 out.chunks.push(pos);
                 sent.insert(pos);
+                if world.chunk(pos).is_some_and(has_water) {
+                    watered.insert(pos);
+                }
                 chunks.see(session, pos);
                 *word &= !(1 << bit);
                 if chunks.heard.sent {
@@ -1978,24 +2015,58 @@ fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Opt
             layer: 0,
         })),
         _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
-            position: [
-                chunk.x.saturating_mul(16),
-                sub_y.saturating_mul(16),
-                chunk.z.saturating_mul(16),
-            ],
+            position: sub_chunk_position(chunk, sub_y),
             blocks: blocks
                 .iter()
-                .map(|(at, id)| BlockChangeEntry {
-                    block_pos: [at.x, at.y, at.z],
-                    block_runtime_id: *id,
-                    flags: UPDATE_FLAGS,
-                    synced_update_entity_unique_id: u64::MAX,
-                    synced_update_type: 0,
-                })
+                .map(|(at, id)| block_change(*at, *id))
                 .collect(),
             extra: Vec::new(),
         })),
     }
+}
+
+/// Builds the packet that sets layer 1, the water, of the slots of `blocks` (only their positions
+/// matter) in sub-chunk `sub_y` of `chunk` to air on a client: an `UpdateBlock` for one slot, the
+/// extras of an `UpdateSubChunkBlocks` for several; none for none.
+fn water_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
+    let air = Entry::AIR.network_id();
+    match blocks {
+        [] => None,
+        [(at, _)] => Some(Packet::UpdateBlock(UpdateBlock {
+            position: [at.x, at.y, at.z],
+            new_block_runtime_id: air,
+            flags: UPDATE_FLAGS,
+            layer: 1,
+        })),
+        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
+            position: sub_chunk_position(chunk, sub_y),
+            blocks: Vec::new(),
+            extra: blocks
+                .iter()
+                .map(|(at, _)| block_change(*at, air))
+                .collect(),
+        })),
+    }
+}
+
+/// Builds the entry that sets the block at `at` to the block with network ID `id`.
+fn block_change(at: BlockPos, id: u32) -> BlockChangeEntry {
+    BlockChangeEntry {
+        block_pos: [at.x, at.y, at.z],
+        block_runtime_id: id,
+        flags: UPDATE_FLAGS,
+        synced_update_entity_unique_id: u64::MAX,
+        synced_update_type: 0,
+    }
+}
+
+/// Finds the position of the lowest block of sub-chunk `sub_y` of `chunk`.
+fn sub_chunk_position(chunk: ChunkPos, sub_y: i32) -> [i32; 3] {
+    [
+        chunk.x.saturating_mul(16),
+        sub_y.saturating_mul(16),
+        chunk.z.saturating_mul(16),
+    ]
 }
 
 /// Builds the answer to one sub-chunk request: one entry per offset, in order (values from
@@ -2058,6 +2129,7 @@ fn entry(
         } else {
             SubChunkResult::SuccessAllAir
         }),
+        // A copy of bytes made once ([`Encoded`]): the generated entry owns its bytes.
         raw_payload: payload.cloned(),
         height_map_type: u8::from(height_map_type),
         height_map_data,
@@ -2121,9 +2193,10 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
 }
 
 /// Puts in `out` the block change packets for a player: for each changed sub-chunk of a chunk it
-/// was sent, an `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (P6). A
-/// change where the player is shown a fake block, or where [`packets`] sends what it shows, is
-/// left out.
+/// was sent, an `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (P6), and in
+/// a chunk that held water when it was sent ([`View::watered`]) the same slots again with their
+/// water cleared ([`water_packet`]). A change where the player is shown a fake block, or where
+/// [`packets`] sends what it shows, is left out.
 pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Message>) {
     let view = &player.view;
     let Some(changes) = changes.get(&player.world) else {
@@ -2133,27 +2206,44 @@ pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Me
         if !view.sent.contains(pos) {
             continue;
         }
-        if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() && view.out.resynced.is_empty()
+        let real: Vec<(BlockPos, u32)>;
+        let shown = if !view.shows_in(*pos, *sub_y)
+            && view.out.shown.is_empty()
+            && view.out.resynced.is_empty()
         {
-            out.extend(update_packet(*pos, *sub_y, blocks).map(Message::Packet));
-            continue;
+            blocks
+        } else {
+            real = blocks
+                .iter()
+                .filter(|(at, _)| {
+                    view.shown(*at).is_none()
+                        && !view.out.shown.contains(at)
+                        && !view.out.resynced.contains(at)
+                })
+                .copied()
+                .collect();
+            &real
+        };
+        out.extend(update_packet(*pos, *sub_y, shown).map(Message::Packet));
+        if view.watered.contains(pos) {
+            out.extend(water_packet(*pos, *sub_y, shown).map(Message::Packet));
         }
-        let real: Vec<(BlockPos, u32)> = blocks
-            .iter()
-            .filter(|(at, _)| {
-                view.shown(*at).is_none()
-                    && !view.out.shown.contains(at)
-                    && !view.out.resynced.contains(at)
-            })
-            .copied()
-            .collect();
-        out.extend(update_packet(*pos, *sub_y, &real).map(Message::Packet));
     }
 }
 
 /// Finds the place of the fake block at `pos`.
 fn fake_key(pos: BlockPos) -> FakeKey {
     (pos.chunk(), pos.y >> 4, pos)
+}
+
+/// Whether any slot of `chunk` holds water in layer 1.
+fn has_water(chunk: &Chunk) -> bool {
+    (0..SUB_CHUNKS).any(|index| {
+        chunk.sub_chunk(index).is_some_and(|sub| {
+            let [_, water] = sub.layers();
+            !water.is_uniform(Entry::AIR)
+        })
+    })
 }
 
 /// Finds the chunk an eye position is in. Positions are finite (checked when they arrive).
@@ -3492,5 +3582,103 @@ mod tests {
         view.out.clear();
         assert!(view.out.is_empty());
         assert!(view.resync(BlockPos::new(-1, 0, 0)), "the next tick");
+    }
+
+    /// The flat chunk at `pos` with water in layer 1 at (1, 2, 1) of its sub-chunk for height 0.
+    fn watered_chunk(pos: ChunkPos) -> Chunk {
+        let water = block::State::find(
+            "minecraft:water",
+            &[("liquid_depth", block::PropertyValue::Int(0))],
+        )
+        .unwrap();
+        let flat = Chunk::generate(&Flat, 0, pos);
+        let mut sub_chunks: [Option<crate::world::SubChunk>; SUB_CHUNKS] = Default::default();
+        for (index, sub_chunk) in sub_chunks.iter_mut().enumerate() {
+            *sub_chunk = flat.sub_chunk(index).cloned();
+        }
+        let mut layers = [
+            crate::world::Paletted::uniform(Entry::AIR),
+            crate::world::Paletted::uniform(Entry::AIR),
+        ];
+        layers[1].set(crate::world::offset(1, 2, 1), Entry::Known(water));
+        // Height 0 is the fifth sub-chunk, above the flat chunk's ground.
+        sub_chunks[4] = Some(crate::world::SubChunk::from_layers(layers));
+        let biomes = std::array::from_fn(|index| flat.biome_storage(index).cloned().unwrap());
+        Chunk::from_parts(sub_chunks, biomes, Vec::new()).unwrap()
+    }
+
+    /// The `UpdateBlock`s among `packets` as (position, layer, block runtime ID).
+    fn block_updates(packets: Vec<Packet>) -> Vec<([i32; 3], u32, u32)> {
+        packets
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::UpdateBlock(u) => Some((u.position, u.layer, u.new_block_runtime_id)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A block changed in a chunk that held water when it was sent also clears the water of its
+    /// slot on the client, as the server did when it changed the block; a chunk without water
+    /// sends the block alone.
+    #[test]
+    fn a_block_change_in_a_watered_chunk_clears_the_water_of_its_slot_on_the_client() {
+        let origin = ChunkPos::new(0, 0);
+        let mut state = state(Listeners::default());
+        state.worlds[0].insert_chunk(origin, watered_chunk(origin));
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
+        for _ in 0..128 {
+            if state.players.values().all(|p| p.view.is_complete()) {
+                break;
+            }
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let view = &state.players[&crate::tick::SessionId::new(1)].view;
+        assert!(view.is_complete());
+        assert_eq!(view.watered, BTreeSet::from([origin]));
+        received(&mut rx);
+        let dirt = Entry::Known(block::DIRT).network_id();
+        state.worlds[0]
+            .set_block(BlockPos::new(1, 2, 1), block::DIRT)
+            .unwrap();
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(
+            block_updates(received(&mut rx).0),
+            [
+                ([1, 2, 1], 0, dirt),
+                ([1, 2, 1], 1, Entry::AIR.network_id())
+            ]
+        );
+        state.worlds[0]
+            .set_block(BlockPos::new(17, 2, 1), block::DIRT)
+            .unwrap();
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(block_updates(received(&mut rx).0), [([17, 2, 1], 0, dirt)]);
+    }
+
+    /// A chunk load that waits for the view phase across a tick boundary, as a chunk held again
+    /// from memory by a deferred callback does, is in the checkpoint.
+    #[test]
+    fn chunk_loads_waiting_for_the_view_phase_are_in_the_checkpoint() {
+        use crate::tick::checkpoint::{Ground, Reader, Writer};
+        let mut chunks = Chunks::default();
+        chunks.loads.insert((0, ChunkPos::new(3, 4)), true);
+        chunks.loads.insert((1, ChunkPos::new(-2, 0)), false);
+        let mut w = Writer::default();
+        chunks.checkpoint(&mut w);
+        let (bytes, opaque) = w.into_parts();
+        assert_eq!(opaque, None);
+        let custom = crate::custom::Registry::default();
+        let entities = crate::tick::entity::Customs::default();
+        let mut restored = Chunks::default();
+        restored
+            .restore(
+                &mut Reader::new(&bytes, &custom, &entities),
+                &mut Ground::default(),
+            )
+            .unwrap();
+        assert_eq!(restored.loads, chunks.loads);
     }
 }

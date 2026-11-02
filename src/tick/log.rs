@@ -17,7 +17,9 @@
 //! and many empty inputs or ticks are bounded too. Recording stops when the inputs alone would
 //! pass it. Committed segments are kept while there is room: the oldest go only when
 //! the inputs and the checkpoints of every kept segment would pass it, never the newest committed
-//! one, which the crash log needs. Checkpoints have no bound of their own. A segment whose
+//! one, which the crash log needs. A segment that goes is handed back
+//! ([`InputLog::take_discarded`]) for another thread to free, since freeing it takes time
+//! proportional to everything it holds. Checkpoints have no bound of their own. A segment whose
 //! recording stops, at the bound or at a save thread answer that cannot be logged, is marked
 //! truncated, and a replay ends there; the next snapshot starts a new segment. A quarter of the
 //! bound recorded since the last commit asks for a snapshot ([`InputLog::wants_commit`]), so the
@@ -72,6 +74,8 @@ const ANSWER_COMMIT_FAILED: u8 = 3;
 const ANSWER_LOAD_FAILED: u8 = 4;
 /// The tag of a data file check answer.
 const ANSWER_CHECKED: u8 = 5;
+/// The tag of a world file open failure answer.
+const ANSWER_WORLD_OPEN_FAILED: u8 = 6;
 /// What the commit identity chains before an answer.
 const CHAIN_ANSWER: u8 = b'A';
 /// What the commit identity chains before a forgotten session.
@@ -153,6 +157,9 @@ pub(crate) struct InputLog {
     /// Oldest first; never empty. The first committed one or one after it is the newest
     /// committed segment.
     segments: VecDeque<Segment>,
+    /// Segments dropped for room, not yet freed: freeing one releases every tick, packet and
+    /// chunk copy it holds, which the tick must not do ([`Self::take_discarded`]).
+    discarded: Vec<Segment>,
     /// The input bytes charged for every segment.
     bytes: usize,
     /// The checkpoint bytes of every segment ([`Checkpoint::size`]).
@@ -282,6 +289,7 @@ impl InputLog {
         }
         Ok(Self {
             segments,
+            discarded: Vec::new(),
             bytes: 0,
             checkpoint_bytes: 0,
             takes_checkpoints: false,
@@ -361,6 +369,12 @@ impl InputLog {
     #[cfg(test)]
     pub(crate) fn ticks(&self) -> Vec<Tick> {
         self.replayable().cloned().collect()
+    }
+
+    /// The segments dropped for room since the last call, for the tick to hand to another thread
+    /// to free.
+    pub(crate) fn take_discarded(&mut self) -> Vec<Segment> {
+        std::mem::take(&mut self.discarded)
     }
 
     /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
@@ -466,6 +480,7 @@ impl InputLog {
                 Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
                 Response::LoadFailed => ANSWER_LOAD_FAILED,
                 Response::Checked(_) => ANSWER_CHECKED,
+                Response::WorldOpenFailed { .. } => ANSWER_WORLD_OPEN_FAILED,
             },
         ]);
         if self.last_segment().truncated {
@@ -507,6 +522,7 @@ impl InputLog {
                 committed: true,
                 ..Segment::new(start, identity)
             }]),
+            discarded: Vec::new(),
             bytes: 0,
             checkpoint_bytes: 0,
             takes_checkpoints: false,
@@ -562,6 +578,7 @@ impl InputLog {
             self.bytes = self.bytes.saturating_sub(first.bytes);
             let size = first.checkpoint.as_ref().map_or(0, Point::size);
             self.checkpoint_bytes = self.checkpoint_bytes.saturating_sub(size);
+            self.discarded.push(first);
         }
     }
 
@@ -888,6 +905,8 @@ pub(crate) enum Answer {
     CommitFailed(u64),
     LoadFailed,
     Checked(Checked),
+    /// The file of the world at this index did not open on the save thread.
+    WorldOpenFailed(WorldIndex),
 }
 
 impl Answer {
@@ -928,6 +947,7 @@ impl Answer {
                 };
                 (Self::Checked(found.clone()), size)
             }
+            Response::WorldOpenFailed { world } => (Self::WorldOpenFailed(*world), 0),
         })
     }
 }
@@ -1250,12 +1270,15 @@ impl<'a> Read<'a> {
         })
     }
 
+    fn world_index(&mut self) -> Result<WorldIndex> {
+        usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))
+    }
+
     /// An answer.
     fn answer(&mut self) -> Result<Answer> {
         Ok(match self.u8()? {
             ANSWER_CHUNK => {
-                let world =
-                    usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))?;
+                let world = self.world_index()?;
                 let pos = ChunkPos::new(self.i32()?, self.i32()?);
                 let origin = match self.u8()? {
                     ORIGIN_DISK => Origin::Disk,
@@ -1309,6 +1332,7 @@ impl<'a> Read<'a> {
                 CHECK_FAILED => Checked::Failed(self.text()?),
                 _ => return Err(Error::Format("check result kind")),
             }),
+            ANSWER_WORLD_OPEN_FAILED => Answer::WorldOpenFailed(self.world_index()?),
             _ => return Err(Error::Format("answer kind")),
         })
     }
@@ -1482,11 +1506,7 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
             checksum,
         } => {
             out.push(ANSWER_CHUNK);
-            out.extend_from_slice(
-                &u32::try_from(*world)
-                    .map_err(|_| Error::Format("world index over u32"))?
-                    .to_le_bytes(),
-            );
+            put_world_index(out, *world)?;
             out.extend_from_slice(&pos.x.to_le_bytes());
             out.extend_from_slice(&pos.z.to_le_bytes());
             out.push(match origin {
@@ -1548,7 +1568,18 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
                 }
             }
         }
+        Answer::WorldOpenFailed(world) => {
+            out.push(ANSWER_WORLD_OPEN_FAILED);
+            put_world_index(out, *world)?;
+        }
     }
+    Ok(())
+}
+
+/// Appends a world index as a u32.
+fn put_world_index(out: &mut Vec<u8>, world: WorldIndex) -> Result<()> {
+    let world = u32::try_from(world).map_err(|_| Error::Format("world index over u32"))?;
+    out.extend_from_slice(&world.to_le_bytes());
     Ok(())
 }
 
@@ -2227,6 +2258,39 @@ mod tests {
         let read = InputLog::decode(&bytes).unwrap();
         assert_eq!(read.ticks(), log.ticks());
         assert_eq!(read.ticks()[0].responses, [Answer::LoadFailed]);
+    }
+
+    #[test]
+    fn world_open_failures_survive_the_written_log() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.response(&Response::WorldOpenFailed { world: 3 });
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        assert_eq!(read.ticks()[0].responses, [Answer::WorldOpenFailed(3)]);
+    }
+
+    /// A segment dropped for room is handed over once, not freed by the log.
+    #[test]
+    fn segments_dropped_for_room_are_handed_over_once() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.snapshot(1);
+        log.begin(1);
+        log.committed(1);
+        assert!(log.take_discarded().is_empty(), "there is room");
+        log.record(
+            SessionId::new(1),
+            0,
+            EntryKind::Leave(LeaveReason::Left),
+            MAX_BYTES - size_of::<Tick>() - size_of::<Entry>(),
+        );
+        let discarded = log.take_discarded();
+        assert_eq!(
+            discarded.iter().map(Segment::start).collect::<Vec<_>>(),
+            [0]
+        );
+        assert!(log.take_discarded().is_empty());
     }
 
     #[test]

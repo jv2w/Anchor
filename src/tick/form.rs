@@ -17,9 +17,10 @@ use std::fmt;
 use tracing::debug;
 
 use super::queue::SessionId;
-use super::{Context, Phase, Player, State};
+use super::{Context, Player, State};
 use crate::form::{self, Error, Form, MAX_PENDING, MAX_RESPONSE_BYTES, Response, Shape};
 use crate::player;
+use crate::protocol::consts::ModalFormCancelReason;
 use crate::protocol::packet::{ClientBoundCloseForm, ModalFormRequest, ModalFormResponse, Packet};
 
 /// The open forms and displays of every player, by session.
@@ -114,8 +115,8 @@ impl fmt::Debug for Pending {
 
 impl Context<'_> {
     /// Sends `form` to `player`; `handler` runs once, in a later tick, with the player's answer:
-    /// what the player chose, or [`Response::Closed`] if it closed the form or the client could
-    /// not show it. An answer that does not fit the form is dropped, and the handler never runs;
+    /// what the player chose, [`Response::Closed`] if it closed the form, or [`Response::Busy`]
+    /// if the client could not show it. An answer that does not fit the form is dropped, and the handler never runs;
     /// so does a form whose player leaves first.
     ///
     /// Fails, sending nothing, with the first of these that holds: the form is invalid
@@ -191,6 +192,9 @@ pub(super) fn on_response(state: &mut State, session: SessionId, packet: &ModalF
         return;
     };
     let response = match (packet.cancel_reason, &packet.response_data) {
+        (Some(reason), _) if reason == u8::from(ModalFormCancelReason::UserBusy) => {
+            Some(Response::Busy)
+        }
         (Some(_), _) => Some(Response::Closed),
         (None, Some(data)) if data.len() <= MAX_RESPONSE_BYTES => pending.shape.parse(data),
         (None, _) => None,
@@ -212,13 +216,11 @@ pub(super) fn left(state: &mut State, session: SessionId) {
     state.forms.players.remove(&session);
 }
 
-/// The player of `id` and its entry, if it is in the game (spawning or spawned, not loading).
+/// The player of `id` and its entry, if it is in the game ([`Context::player`]).
 fn open(state: &mut State, id: player::Id) -> Option<(&mut Player, &mut Open)> {
+    Context { state: &mut *state }.player(id)?;
     let session = id.session();
     let player = state.players.get_mut(&session)?;
-    if player.phase == Phase::Loading {
-        return None;
-    }
     Some((player, state.forms.players.entry(session).or_default()))
 }
 

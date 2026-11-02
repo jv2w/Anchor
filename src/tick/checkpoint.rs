@@ -860,7 +860,7 @@ impl Codec for Skin {
     }
 }
 
-/// A block state: a vanilla state by its network ID, a custom one by its saved NBT, found in the
+/// A block state: a built-in state by its network ID, a custom one by its saved NBT, found in the
 /// server's custom content.
 impl Codec for crate::block::State {
     fn encode(&self, w: &mut Writer) {

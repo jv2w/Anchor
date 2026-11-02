@@ -3,7 +3,7 @@
 //! ticks from the commits it reports (never in wall-clock time). Every other run saves every third
 //! tick and is killed a random number of ticks after its first commit, during a later commit or
 //! between two; the runs between commit once, at a phase of the item cycle taken by turns (items on
-//! the ground, on the player's cursor and in its craft grid, or in the slots and the chest
+//! the ground, on the player's cursor, or in the slots and the chest
 //! only), and are killed after that commit, so the commits caught hold items in every place however
 //! slow the machine is. Every restart must find undamaged data files whose last commit is newer
 //! than the last restart's and that hold every item exactly once (no duplicate, no loss) and hold
@@ -11,50 +11,44 @@
 //! kill between the world file's commit and the players file's or the main file's.
 //!
 //! The test runs its own test binary as the server process (`item_crash_child`) and kills only that
-//! child, through its process handle. The child is the real server without the network: the server
-//! file, the save thread and the tick thread as `Server::run` starts them, and one player who joins
-//! through the tick's input queue as a session would. The items move by a scheduled task through
+//! child, through its process handle. The child is the real server without the network (see
+//! `task::crash::serve`): the server file, the save thread and the tick thread, and one player who
+//! joins through the tick's input queue as a session would. The items move by a scheduled task through
 //! the rule modules' own functions; a player client is not needed for what is tested here, which is
 //! that one commit holds every part of the state.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::ffi::OsStr;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use super::packet;
-use crate::block::{self, Face, Kind as BlockKind};
-use crate::config::Config;
+use crate::block::{Face, Kind as BlockKind};
 use crate::event::{Listeners, Priority, WorldSave};
 use crate::item::{Kind as ItemKind, Stack, Type};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
-use crate::protocol::Uuid;
 use crate::protocol::packet::{Packet, RequestChunkRadius};
-use crate::save::WorldSpec;
 use crate::storage::ChunkKind;
-use crate::tick::queue::{Identity, InputKind, Outbound, SessionId, input_queue, outbound_queue};
-use crate::tick::{
-    SaveLink, Settings, Shared, State, Tasks, block_entity, entity, inventory, run, save, task,
+use crate::tick::task::crash::{
+    CHILD_TICKS, Running, SESSION, fields, fresh, gold, path, remove, report, serve, spawn_child,
+    stop_server,
 };
-use crate::world::{BlockPos, ChunkPos, Flat};
+use crate::tick::{Setup, State, Tasks, block_entity, entity, inventory, save, task};
+use crate::world::{BlockPos, ChunkPos};
 
 /// The child's environment variable naming the phase of the item cycle (the tick modulo 12, see
 /// [`step`]) its run commits once, after [`SETTLE`] ticks of moves; without it the run commits
 /// every third tick.
 const AIM_ENV: &str = "ANCHOR_ITEM_CRASH_AIM";
-/// The phases the aimed runs commit, by turns: items on the ground (2, 3), on the cursor and in the
-/// grid (6, 9), in the slots and the chest only (0).
+/// The phases the aimed runs commit, by turns: items on the ground (2, 3), on the cursor (6, 9),
+/// in the slots and the chest only (0).
 const AIMS: [u64; 5] = [2, 3, 6, 9, 0];
 /// The chest, in a spawn chunk (always loaded).
 const CHEST: BlockPos = BlockPos::new(4, -60, 4);
-/// The child gives up after this many ticks, so a lost parent leaves no process behind.
-const CHILD_TICKS: u64 = 1200;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_ITEM_CRASH_DATA";
 /// Where items are dropped: in a spawn chunk, far from the player at the spawn, so it never
@@ -70,21 +64,8 @@ const MODE_ENV: &str = "ANCHOR_ITEM_CRASH_MODE";
 const NAME: &str = "crasher";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-ITEMS";
-/// The player's session.
-const SESSION: SessionId = SessionId::new(1);
 /// Ticks of moves before an aimed commit, so that items are in every place of the cycle.
 const SETTLE: u64 = 24;
-
-/// Where the marker block is after tick `tick`: a walk under the spawn chunks (the dirt layer),
-/// so the terrain carries the tick too.
-fn path(tick: u64) -> BlockPos {
-    let t = i32::try_from(tick % 100_000).unwrap();
-    BlockPos::new((t * 7) % 48 - 16, -62, (t * 11) % 48 - 16)
-}
-
-fn gold() -> block::State {
-    BlockKind::Gold.default_state()
-}
 
 fn item(i: usize) -> Type {
     ITEMS[i].0.default_type()
@@ -366,35 +347,18 @@ struct Mover {
 }
 
 impl Mover {
-    #[expect(
-        clippy::print_stdout,
-        clippy::disallowed_methods,
-        reason = "consistency: the child reports to the parent on standard output"
-    )]
-    fn report(line: &str) {
-        println!("{REPORT} {line}");
-        std::io::stdout().flush().unwrap();
-    }
-
-    /// Asks the tick thread to stop (a full queue holds a stop already).
-    fn stop_server(&self) {
-        match self.stop.try_send(()) {
-            Ok(()) | Err(_) => {}
-        }
-    }
-
     fn tick(&mut self, cx: &mut task::Context<'_>) {
         let tick = cx.tick();
         let start = *self.start.get_or_insert(tick);
         if tick > start + CHILD_TICKS {
-            self.stop_server();
+            stop_server(&self.stop);
             return;
         }
         let state = &mut *cx.state;
         if !self.ready {
             self.ready = self.check(state, start);
             if self.ready && !self.moves {
-                self.stop_server();
+                stop_server(&self.stop);
             }
             return;
         }
@@ -434,12 +398,15 @@ impl Mover {
         let player = player_counts(state).expect("the player is in");
         let chest = chest_counts(state);
         let on_ground = ground_counts(state);
-        Self::report(&format!(
-            "tick={tick} player={} chest={} ground={}",
-            text(player),
-            text(chest),
-            text(on_ground)
-        ));
+        report(
+            REPORT,
+            &format!(
+                "tick={tick} player={} chest={} ground={}",
+                text(player),
+                text(chest),
+                text(on_ground)
+            ),
+        );
         let save = match self.aim {
             Some(phase) => {
                 let target = *self.target.get_or_insert_with(|| {
@@ -448,7 +415,7 @@ impl Mover {
                 });
                 tick == target
             }
-            // Every third tick, and when items go onto the cursor and into the grid.
+            // Every third tick, and when items go onto the cursor.
             None => tick.is_multiple_of(3) || tick % 12 == 6,
         };
         if save {
@@ -508,15 +475,18 @@ impl Mover {
         let player = player_counts(state).expect("the player is in");
         let in_chest = chest_counts(state);
         let on_ground = ground_counts(state);
-        Self::report(&format!(
-            "start={start} golds={} name={chest} quarantined={quarantined} carried={} player={} \
-             chest={} ground={}",
-            golds.join(";"),
-            text(carried),
-            text(player),
-            text(in_chest),
-            text(on_ground)
-        ));
+        report(
+            REPORT,
+            &format!(
+                "start={start} golds={} name={chest} quarantined={quarantined} carried={} \
+                 player={} chest={} ground={}",
+                golds.join(";"),
+                text(carried),
+                text(player),
+                text(in_chest),
+                text(on_ground)
+            ),
+        );
         true
     }
 }
@@ -525,35 +495,11 @@ impl Mover {
 /// does nothing.
 #[test]
 #[ignore = "the child process of forced_kills_never_duplicate_lose_or_split_items"]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the child drains its player's queue and waits for its threads"
-)]
 fn item_crash_child() {
     let (Ok(data), Ok(mode)) = (std::env::var(DATA_ENV), std::env::var(MODE_ENV)) else {
         return;
     };
-    let specs = vec![WorldSpec {
-        name: "world".to_owned(),
-        kind: crate::world::Kind::Persistent,
-        generator: Arc::new(Flat),
-        seed: Some(0),
-        spawn: None,
-    }];
-    let opened = crate::save::open(Path::new(&data), specs).unwrap();
-    let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (inputs, input_queue) = input_queue(1);
     let (stop_tx, stop) = mpsc::channel(1);
-    let (done, _done_rx) = oneshot::channel();
-    let (crash, _crash_rx) = oneshot::channel();
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
-    let save_pool = Arc::clone(&pool);
-    let thread = opened.thread;
-    let save_thread = crate::runtime::spawn_save(move || {
-        crate::save::run(thread, &save_pool, request_queue, &responder)
-    })
-    .unwrap();
     let mut mover = Mover {
         moves: mode == "run",
         aim: std::env::var(AIM_ENV).ok().map(|a| a.parse().unwrap()),
@@ -569,122 +515,29 @@ fn item_crash_child() {
     let mut listeners = Listeners::default();
     listeners.push(
         Priority::Normal,
-        |_: &mut WorldSave, _: &mut task::Context<'_>| Mover::report("committed"),
+        |_: &mut WorldSave, _: &mut task::Context<'_>| report(REPORT, "committed"),
     );
-    let state = State::new(
-        Settings::new(&Config::default()),
-        Shared::new(
-            crate::protocol::batch::Settings::default(),
-            &crate::custom::Registry::default(),
-            &crate::tick::entity::Customs::default(),
-        )
-        .unwrap(),
-        crate::tick::Setup {
-            listeners,
-            tasks,
-            ..crate::tick::Setup::default()
-        },
-        opened.worlds,
-        opened.tick,
-    );
+    let setup = Setup {
+        listeners,
+        tasks,
+        ..Setup::default()
+    };
     // The player joins and asks for its chunks, as a session would; it never spawns, so it
     // stands still at the spawn and never picks anything up.
-    let (outbound, mut rx) = outbound_queue();
-    let mut session = inputs.session(SESSION);
-    session
-        .try_send(InputKind::Join {
-            identity: Identity {
-                name: NAME.to_owned(),
-                xuid: None,
-                uuid: Uuid::from_bytes([3; 16]),
-                skin: crate::tick::queue::Skin::default(),
-                device_os: -1,
-                address: None,
-                client: crate::tick::queue::Client::default(),
-            },
-            outbound,
-        })
-        .unwrap();
-    session
-        .try_send(packet(Packet::RequestChunkRadius(RequestChunkRadius {
-            chunk_radius: 2,
-            max_chunk_radius: 0,
-        })))
-        .unwrap();
-    let link = SaveLink {
-        requests,
-        responses,
-    };
-    let tick_pool = Arc::clone(&pool);
-    let tick_thread = crate::runtime::spawn_tick(move || {
-        run(state, &tick_pool, input_queue, link, stop, crash, done)
-    })
-    .unwrap();
-    // The player's end of the connection: read until the server closes it.
-    while let Some(out) = rx.blocking_recv() {
-        if matches!(out, Outbound::Close(_)) {
-            break;
-        }
-    }
-    drop(rx);
-    drop(session);
-    drop(inputs);
-    tick_thread.join().unwrap();
-    save_thread.join().unwrap().unwrap();
+    let radius = packet(Packet::RequestChunkRadius(RequestChunkRadius {
+        chunk_radius: 2,
+        max_chunk_radius: 0,
+    }));
+    serve(Path::new(&data), NAME, 3, setup, stop, vec![radius]);
 }
 
-/// A started child and its report lines.
-struct Running {
-    child: Child,
-    lines: std::sync::mpsc::Receiver<String>,
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test starts and reads its child process"
-)]
 fn start(data: &Path, mode: &str, aim: Option<u64>) -> Running {
-    let mut command = Command::new(std::env::current_exe().unwrap());
-    if let Some(phase) = aim {
-        command.env(AIM_ENV, phase.to_string());
+    let aim = aim.map(|phase| phase.to_string());
+    let mut envs = vec![(DATA_ENV, data.as_os_str()), (MODE_ENV, OsStr::new(mode))];
+    if let Some(aim) = &aim {
+        envs.push((AIM_ENV, OsStr::new(aim)));
     }
-    let mut child = command
-        .args([
-            "tick::tests::crash::item_crash_child",
-            "--exact",
-            "--ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(DATA_ENV, data)
-        .env(MODE_ENV, mode)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let (tx, lines) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            // libtest writes the test's name first on the same line.
-            if let Some(rest) = line
-                .find(REPORT)
-                .and_then(|at| line.get(at + REPORT.len()..))
-                && tx.send(rest.trim().to_owned()).is_err()
-            {
-                break;
-            }
-        }
-    });
-    Running { child, lines }
-}
-
-/// The `key=value` fields of a report line.
-fn fields(line: &str) -> BTreeMap<String, String> {
-    line.split_whitespace()
-        .filter_map(|f| f.split_once('='))
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        .collect()
+    spawn_child("tick::tests::crash::item_crash_child", REPORT, &envs)
 }
 
 fn counts(text: &str) -> Counts {
@@ -749,15 +602,6 @@ fn kill_after_commit(
     server.child.kill().unwrap();
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test prepares its data folder"
-)]
-fn fresh(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap_or(());
-    std::fs::create_dir_all(dir).unwrap();
-}
-
 /// The data folder of the chain whose first kill is `first`.
 fn data_dir(first: u32) -> PathBuf {
     std::env::temp_dir().join(format!("anchor-item-crash-{}-{first}", std::process::id()))
@@ -768,7 +612,7 @@ fn data_dir(first: u32) -> PathBuf {
 struct Found {
     /// Restarts that found items in the player, the chest and on the ground.
     held: [u32; 3],
-    /// Restarts that found items on the cursor or in the grid.
+    /// Restarts that found items on the cursor.
     carried: u32,
     /// Restarts that found a newer commit than the restart before.
     advanced: u32,
@@ -796,7 +640,7 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
     let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
     // The commits caught items in every place (player, chest, ground) many times: the aimed
-    // ones alone catch the ground ten times and the cursor and the grid ten times.
+    // ones alone catch the ground ten times and the cursor ten times.
     let held: [u32; 3] = std::array::from_fn(|i| chains.iter().map(|c| c.held[i]).sum());
     assert!(
         held.iter().all(|&n| n >= 10),
@@ -897,14 +741,6 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
     }
     remove(&data);
     found
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test removes its data folder"
-)]
-fn remove(dir: &Path) {
-    std::fs::remove_dir_all(dir).unwrap_or(());
 }
 
 /// A commit taken while a player holds items on its cursor (taken out of a chest through its

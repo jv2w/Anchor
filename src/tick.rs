@@ -1342,6 +1342,7 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
             save::load_failed();
             output.save_failed = true;
         }
+        Response::WorldOpenFailed { world } => save::world_open_failed(state, world),
         Response::Checked(found) => save::checked(state, &found),
     }
 }
@@ -1535,6 +1536,10 @@ pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLo
         output.requests.push(request);
     }
     output.requests.extend(task::offline_requests(state));
+    let discarded = log.take_discarded();
+    if !discarded.is_empty() {
+        output.requests.push(Request::Discard(discarded));
+    }
     state.network.flush();
 }
 
@@ -1636,7 +1641,7 @@ mod tests {
         static QUITS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     }
     /// What the scripted clients must have received over all seeds: proof the game inputs reached
-    /// their rules (moves and crafts done and refused, windows, item entities, villagers, trade
+    /// their rules (moves done and refused, crafts refused, windows, item entities, villagers, trade
     /// screens, broken and placed blocks, attacks).
     const REACHED: [&str; 11] = [
         "stack done",
@@ -1742,7 +1747,10 @@ mod tests {
                         }));
                     }
                 }
-                Request::Worlds(_) | Request::DeleteWorlds(_) | Request::Finish => {}
+                Request::Worlds(_)
+                | Request::DeleteWorlds(_)
+                | Request::Discard(_)
+                | Request::Finish => {}
             }
         }
         out
@@ -3346,7 +3354,7 @@ mod tests {
                 if tick % 100 == 40 {
                     assert!(cx.set_motd(format!("Anchor {tick}")));
                     let ip = std::net::IpAddr::from([192, 0, 2, 1]);
-                    assert!(cx.block_address(ip, Duration::from_secs(5)));
+                    cx.block_address(ip, Duration::from_secs(5)).unwrap();
                 }
             },
         );
@@ -3486,6 +3494,9 @@ mod tests {
                     log::Answer::Committed(start) => Response::Committed { start: *start },
                     log::Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
                     log::Answer::LoadFailed => Response::LoadFailed,
+                    log::Answer::WorldOpenFailed(world) => {
+                        Response::WorldOpenFailed { world: *world }
+                    }
                     log::Answer::Checked(found) => Response::Checked(found.clone()),
                 })
                 .collect();

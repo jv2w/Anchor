@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Context, Phase, open};
+use super::{Context, open};
 use crate::display::{
     BossBar, Error, Holder, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Result, Scoreboard, Slot, Sort,
 };
@@ -157,12 +157,7 @@ impl Context<'_> {
                     (text_entry_id(index, position), Who::Text(text))
                 }
                 Holder::Player(p) => {
-                    let target = self
-                        .state
-                        .players
-                        .get(&p.session())
-                        .filter(|t| t.phase != Phase::Loading)
-                        .ok_or(Error::UnknownPlayer)?;
+                    let target = self.player(p).ok_or(Error::UnknownPlayer)?;
                     let unique = crate::tick::entity::unique_id(target.runtime_id);
                     if !players.insert(unique) {
                         return Err(Error::DuplicatePlayer);

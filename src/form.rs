@@ -419,8 +419,10 @@ enum Element {
 /// A player's answer to a form.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response {
-    /// The player closed the form without answering, or the client could not show it.
+    /// The player closed the form without answering.
     Closed,
+    /// The client could not show the form because it was busy.
+    Busy,
     /// The button of a [`Modal`]: true for the first, false for the second.
     Modal(bool),
     /// The index of the [`Menu`] button clicked, counting buttons only.

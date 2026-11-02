@@ -135,13 +135,18 @@ impl ServerBuilder {
     ///
     /// The output phase runs on the CPU pool, several players at once, so the hook reaches no
     /// game state; for one player the hooks run in the packets' order. Three kinds of packet
-    /// skip the hooks: the start-game data every player gets the same (item registry, recipes,
-    /// creative inventory, biomes, entity types, block shapes, armour trims, jigsaw structure
-    /// data, entity property definitions, camera presets), which is encoded once at start and
-    /// shared; the last packet of a session the server closes (a `Disconnect`, a transfer's
-    /// `Transfer` or a refused join's `PlayStatus`); and the login and resource pack sequence,
-    /// which the session sends. With `hook-movement-packets = false` the movement packets skip
-    /// them too: `MovePlayer`, `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.
+    /// skip the hooks: the start-game data every player gets the same (item registry, the empty
+    /// recipe list, creative inventory, biomes, entity types, block shapes, armour trims, jigsaw
+    /// structure data, entity property definitions, camera presets), which is encoded once at
+    /// start and shared; the last packet of a session the server closes (a `Disconnect`, a
+    /// transfer's `Transfer` or a refused join's `PlayStatus`); and the login and resource pack
+    /// sequence, which the session sends. With `hook-movement-packets = false` the movement
+    /// packets skip them too: `MovePlayer`, `MoveActorDelta`, `MoveActorAbsolute` and
+    /// `SetActorMotion`.
+    ///
+    /// Anchor has no API for the game rules the client shows (coordinates, the locator bar) or
+    /// for entity properties (`SyncActorProperty`). A hook changes the game rules packet of the
+    /// spawn window, and a packet of one's own is sent with `Player::send_packet`.
     #[doc(alias = "DataPacketSendEvent")]
     #[must_use]
     pub fn on_send(

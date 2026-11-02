@@ -5,7 +5,7 @@
 //! (`TierExpRequirements`). Code sets and changes it ([`Offers::set`], [`Offers::add`],
 //! [`Offers::remove`], [`Offers::replace`], [`Offers::set_tier`], [`Offers::set_xp`],
 //! [`Offers::set_tier_xp`], [`Offers::reset_uses`]); trades change only the counters
-//! ([`Offers::apply`]). There is no vanilla economy: prices are the counts of the payment stacks,
+//! ([`Offers::apply`]). There is no villager economy: prices are the counts of the payment stacks,
 //! and demand and price multipliers are data the client is sent as they are.
 //!
 //! Both NBT forms come from one writer:
@@ -53,6 +53,8 @@ const DAMAGE: &str = "Damage";
 const DEFAULT_TIER_XP: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 /// A recipe's demand.
 const DEMAND: &str = "demand";
+/// The first network ID of an offer; `CraftingData` is empty, so no crafting recipe takes one.
+pub(super) const FIRST_NET_ID: u32 = 1;
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
 /// reader's budget to read back: half of one NBT root ([`crate::nbt::MAX_ROOT_BYTES`]), which
 /// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
@@ -121,7 +123,8 @@ pub(in crate::tick) struct Offers {
     skipped: Vec<Compound>,
     /// The network ID of the first offer while the list is shown to players: allocated when a
     /// player first opens the list, kept while it does not change (reopening shows the same
-    /// IDs, as the official server does), dropped by every change of the list so a stale screen's IDs fail. Not saved.
+    /// IDs, as the official server does), dropped by every change of the list so a stale
+    /// screen's IDs fail. Not saved.
     first_net_id: Option<u32>,
 }
 
@@ -219,7 +222,8 @@ impl Offers {
     }
 
     /// Replaces the whole list. Every offer must pass [`Recipe::check`] and the saved list fit
-    /// [`MAX_SAVED_BYTES`]; nothing changes otherwise.
+    /// [`MAX_SAVED_BYTES`]; nothing changes otherwise. The saved offers Anchor cannot use stay
+    /// after the new list and count towards that size.
     pub(in crate::tick) fn set(&mut self, recipes: Vec<Recipe>) -> Result<()> {
         if recipes.len() > MAX_OFFERS {
             return Err(Error::Full);
@@ -317,8 +321,8 @@ impl Offers {
 
     /// Gives the offers network IDs from `next` (the server's counter, which moves past them)
     /// unless they have them. IDs stay at most [`MAX_TRADE_COUNTER`]; past it the counter starts
-    /// over at `first`, the first ID after the recipes.
-    pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32, first: u32) {
+    /// over at [`FIRST_NET_ID`].
+    pub(in crate::tick) fn allocate_net_ids(&mut self, next: &mut u32) {
         if self.first_net_id.is_some() {
             return;
         }
@@ -327,10 +331,10 @@ impl Offers {
             reason = "invariant: the list holds at most MAX_OFFERS (128) offers"
         )]
         let len = u32::try_from(self.recipes.len()).expect("the offers count fits a u32");
-        let start = (*next).max(first);
+        let start = (*next).max(FIRST_NET_ID);
         let start = match start.checked_add(len) {
             Some(end) if end <= MAX_TRADE_COUNTER => start,
-            _ => first,
+            _ => FIRST_NET_ID,
         };
         *next = start.saturating_add(len);
         self.first_net_id = Some(start);
@@ -716,8 +720,8 @@ pub(in crate::tick) enum Damage {
     /// The offer item's damage (meta) exactly.
     #[default]
     Exact,
-    /// Any damage: the official server's offers carry `Damage` 32767 on their payments (P6), written back and sent as
-    /// it came.
+    /// Any damage: the official server's offers carry `Damage` 32767 on their payments (P6),
+    /// written back and sent as it came.
     Any,
 }
 
@@ -935,8 +939,8 @@ pub(in crate::tick) mod tests {
         }
     }
 
-    /// Builds offers of the shapes the official server sends: a plain offer, one with a second payment and a
-    /// block item, an enchanted sale, a locked tier.
+    /// Builds offers of the shapes the official server sends: a plain offer, one with a second
+    /// payment and a block item, an enchanted sale, a locked tier.
     pub(in crate::tick) fn sample() -> Offers {
         let mut offers = Offers::default();
         let mut wheat = Recipe::new(
@@ -1011,7 +1015,7 @@ pub(in crate::tick) mod tests {
             "no network IDs before the first opening"
         );
         let mut next = 0;
-        offers.allocate_net_ids(&mut next, 4769);
+        offers.allocate_net_ids(&mut next);
         let wire = offers.wire_nbt().unwrap();
         assert_eq!(
             wire.keys().collect::<Vec<_>>(),
@@ -1065,10 +1069,11 @@ pub(in crate::tick) mod tests {
         shape(&list[2], "", &mut third);
         assert!(third.contains(&"sell.Block:compound".to_owned()));
         // Prices are the actual counts; network IDs follow the counter.
+        let first = i32::try_from(FIRST_NET_ID).unwrap();
         for (i, r) in list.iter().enumerate() {
             assert_eq!(
                 r.get(NET_ID),
-                Some(&Value::Int(4769 + i32::try_from(i).unwrap()))
+                Some(&Value::Int(first + i32::try_from(i).unwrap()))
             );
             let Some(Value::Compound(buy)) = r.get(BUY_A) else {
                 panic!()
@@ -1084,7 +1089,7 @@ pub(in crate::tick) mod tests {
                 })
             );
         }
-        assert_eq!(next, 4772);
+        assert_eq!(next, FIRST_NET_ID + 3);
     }
 
     pub(in crate::tick) fn network_bytes(c: &Compound) -> Vec<u8> {
@@ -1116,7 +1121,7 @@ pub(in crate::tick) mod tests {
             .unknown
             .insert("someNewKey".to_owned(), Value::Int(7));
         let mut next = 0;
-        offers.allocate_net_ids(&mut next, 100);
+        offers.allocate_net_ids(&mut next);
 
         let wire = network_bytes(&offers.wire_nbt().unwrap());
         let mut back = Offers::from_nbt(
@@ -1127,7 +1132,7 @@ pub(in crate::tick) mod tests {
             back.recipes, offers.recipes,
             "the wire form holds every offer"
         );
-        back.allocate_net_ids(&mut 0, 100);
+        back.allocate_net_ids(&mut 0);
         assert_eq!(network_bytes(&back.wire_nbt().unwrap()), wire);
 
         let saved = little_endian_bytes(&offers.to_nbt());
@@ -1188,7 +1193,7 @@ pub(in crate::tick) mod tests {
             "written back with Damage 32767"
         );
         let mut shown = offers.clone();
-        shown.allocate_net_ids(&mut 0, 1);
+        shown.allocate_net_ids(&mut 0);
         let wire = shown.wire_nbt().unwrap();
         let sent = recipes(&wire)[0].get(BUY_A);
         assert!(
@@ -1259,7 +1264,7 @@ pub(in crate::tick) mod tests {
         );
         // The wire form never shows them.
         let mut shown = offers.clone();
-        shown.allocate_net_ids(&mut 0, 1);
+        shown.allocate_net_ids(&mut 0);
         assert_eq!(recipes(&shown.wire_nbt().unwrap()).len(), 1);
     }
 
@@ -1267,9 +1272,9 @@ pub(in crate::tick) mod tests {
     fn changes_are_checked_and_drop_the_network_ids() {
         let mut offers = sample();
         let mut next = 10;
-        offers.allocate_net_ids(&mut next, 10);
+        offers.allocate_net_ids(&mut next);
         assert_eq!(offers.index_of(12), Some(2));
-        offers.allocate_net_ids(&mut next, 10);
+        offers.allocate_net_ids(&mut next);
         assert_eq!(offers.index_of(12), Some(2), "reopening keeps the IDs");
 
         let mut bad = Recipe::new(Stack::EMPTY, Stack::EMPTY, stack(Kind::Emerald, 1), 1);
@@ -1302,7 +1307,7 @@ pub(in crate::tick) mod tests {
 
         offers.remove(0).unwrap();
         assert_eq!(offers.index_of(12), None, "a changed list has no IDs");
-        offers.allocate_net_ids(&mut next, 10);
+        offers.allocate_net_ids(&mut next);
         assert_eq!(offers.index_of(13), Some(0), "new IDs follow the old ones");
         assert_eq!(offers.index_of(12), None);
 
@@ -1325,19 +1330,23 @@ pub(in crate::tick) mod tests {
     fn network_ids_stay_in_int_range() {
         let mut offers = sample();
         let mut next = MAX_TRADE_COUNTER - 1;
-        offers.allocate_net_ids(&mut next, 4769);
-        assert_eq!(offers.first_net_id, Some(4769), "the counter starts over");
-        assert_eq!(next, 4772);
-        let mut next = 0;
-        offers.first_net_id = None;
-        offers.allocate_net_ids(&mut next, 4769);
+        offers.allocate_net_ids(&mut next);
         assert_eq!(
             offers.first_net_id,
-            Some(4769),
-            "the IDs start after the recipes"
+            Some(FIRST_NET_ID),
+            "the counter starts over"
         );
-        assert_eq!(offers.index_of(4768), None);
-        assert_eq!(offers.index_of(4772), None);
+        assert_eq!(next, FIRST_NET_ID + 3);
+        let mut next = 0;
+        offers.first_net_id = None;
+        offers.allocate_net_ids(&mut next);
+        assert_eq!(
+            offers.first_net_id,
+            Some(FIRST_NET_ID),
+            "the IDs start at the first one"
+        );
+        assert_eq!(offers.index_of(FIRST_NET_ID - 1), None);
+        assert_eq!(offers.index_of(FIRST_NET_ID + 3), None);
         assert_eq!(offers.index_of(u32::MAX), None);
     }
 

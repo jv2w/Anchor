@@ -337,12 +337,12 @@ mod tests {
         assert!(cx.set_motd("§bNew name"));
         assert_eq!(cx.motd(), "§bNew name");
         let ip = IpAddr::from([192, 0, 2, 7]);
-        assert!(cx.block_address(ip, Duration::from_secs(300)));
-        assert!(cx.unblock_address(ip));
+        cx.block_address(ip, Duration::from_secs(300)).unwrap();
+        cx.unblock_address(ip).unwrap();
         for _ in 3..MAX_CONTROLS_PER_TICK {
-            assert!(cx.unblock_address(ip));
+            cx.unblock_address(ip).unwrap();
         }
-        assert!(!cx.unblock_address(ip), "past the tick's bound");
+        assert!(cx.unblock_address(ip).is_err(), "past the tick's bound");
         assert!(!cx.set_motd("Late"));
         assert_eq!(cx.motd(), "§bNew name");
         state.network.flush();
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(got[2], Control::Unblock(ip));
         // The next tick has room again.
         let mut cx = Context { state: &mut state };
-        assert!(cx.unblock_address(ip));
+        cx.unblock_address(ip).unwrap();
     }
 
     /// A control that the quit of a session dropped in the delivery asks for leaves in that

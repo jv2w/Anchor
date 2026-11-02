@@ -1,6 +1,6 @@
 //! Villager trading: the offer lists of villager NPCs, the trade screen and the trades themselves.
-//! No vanilla villager economy: code sets and changes the offers ([`change_offers`]); prices are
-//! the real counts.
+//! Code sets and changes the offers ([`change_offers`]); prices are the real counts, with no
+//! villager economy.
 //!
 //! A villager NPC keeps its [`Offers`] in its entity (the entity module saves them with it, in
 //! the same commit). This module keeps who trades with which villager ([`Trades`]).
@@ -67,8 +67,6 @@ const DISPLAY_NAMES: [&str; 14] = [
     "entity.villager.leather",
     "entity.villager.mason",
 ];
-/// The first network ID of a trade offer: `CraftingData` is empty, so no recipe takes one.
-const FIRST_NET_ID: u32 = 1;
 /// The hooks of the running server.
 const HOOKS: Hooks = Hooks {
     villager: entity_villager,
@@ -82,11 +80,9 @@ const HOOKS: Hooks = Hooks {
 };
 /// The most trades one request may repeat.
 pub(super) const MAX_REPEAT: u32 = 256;
-/// Xp per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; the official server drops a
-/// random amount).
+/// The xp every rewarded trade gives at least; [`REWARD_SPREAD`] more is drawn.
 const REWARD_BASE: u32 = 3;
-/// The height above the villager's feet where reward orbs appear (Java
-/// `Villager.rewardTradeXp`).
+/// The height above the villager's feet where reward orbs appear.
 const REWARD_HEIGHT: f64 = 0.5;
 /// The random stream of reward orbs.
 const REWARD_RANDOM: u64 = random::tag("trade-reward");
@@ -100,8 +96,7 @@ pub(super) struct Trades {
     sessions: BTreeMap<SessionId, Session>,
     /// `sessions` by villager, to find a villager's traders; derived from `sessions`.
     by_villager: BTreeSet<(Id, SessionId)>,
-    /// The next offer network ID to allocate (0 until the first: the first ID after the
-    /// recipes).
+    /// The next offer network ID to allocate (0 until the first).
     next_net_id: u32,
     /// The test stand-ins for villagers and windows.
     #[cfg(test)]
@@ -471,8 +466,8 @@ fn traded_with(
         let at = Vec3::new(position.x, position.y + REWARD_HEIGHT, position.z);
         (hooks.drop_xp)(state, world, at, amount);
     }
-    // A new tier reaches the traders through the villager's entity data alone: the official server sends no
-    // UpdateTrade then (P6 `tradeup`).
+    // A new tier reaches the traders through the villager's entity data alone: the official server
+    // sends no UpdateTrade then (P6 `tradeup`).
     (hooks.villager_traded)(state, villager, before);
 }
 
@@ -566,7 +561,7 @@ pub(super) fn closed(state: &mut State, session: SessionId) {
 fn allocate_net_ids(state: &mut State, villager: Id, hooks: Hooks) {
     let mut next = state.trades.next_net_id;
     if let Some(offers) = (hooks.offers_mut)(state, villager) {
-        offers.allocate_net_ids(&mut next, FIRST_NET_ID);
+        offers.allocate_net_ids(&mut next);
     }
     state.trades.next_net_id = next;
 }

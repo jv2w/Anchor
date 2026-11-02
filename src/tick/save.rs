@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use super::extra::{self, Held};
 use super::log::InputLog;
@@ -21,7 +21,7 @@ use super::{Context, Phase, Player, PlayerKey, SessionId, State, dispatch};
 use crate::command::Sender;
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
-use crate::save::{PlayerData, Request, Snapshot, WorldValues};
+use crate::save::{PlayerData, Request, Snapshot, WorldIndex, WorldValues};
 use crate::storage::{Checked, PlayerKey as StoredPlayer};
 use crate::world::{Chunk, Kind};
 
@@ -457,8 +457,10 @@ fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &m
 }
 
 /// Raises [`PlayerDataSave`] for each online player whose data the snapshot about to be taken
-/// holds, before anything goes into it, so that what the listeners change is in it too. The
-/// events come back for the monitors, who see them once the snapshot is taken.
+/// holds, before anything goes into it, so that what the listeners change is in it too. A player
+/// the listeners or what they deferred ([`dispatch::run_deferred`]) made changed gets the event
+/// as well, so no player's data is saved without it. The events come back for the monitors, who
+/// see them once the snapshot is taken.
 ///
 /// Cancelling saves the data all the same: a snapshot holds the whole state of one tick boundary,
 /// and a player's data left out of it would come back after a crash beside a newer world (an item
@@ -467,26 +469,36 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
     if !state.saving.players || !dispatch::heard::<PlayerDataSave>(state) {
         return Vec::new();
     }
-    let dirty: Vec<_> = dirty_players(state)
-        .map(|(session, p)| (session, p.name().to_owned()))
-        .collect();
-    let mut events = Vec::with_capacity(dirty.len());
-    for (session, name) in dirty {
-        let mut e = PlayerDataSave {
-            player: player::Id::new(session),
-            record_key: name,
-            cancelled: false,
-        };
-        dispatch::call(state, &mut e);
-        if e.cancelled {
-            debug!(
-                player = e.record_key.as_str(),
-                "a cancelled player data save is saved all the same"
-            );
+    let mut asked = BTreeSet::new();
+    let mut events = Vec::new();
+    let mut runs = 0;
+    loop {
+        let dirty: Vec<_> = dirty_players(state)
+            .filter(|(session, _)| !asked.contains(session))
+            .map(|(session, p)| (session, p.name().to_owned()))
+            .collect();
+        if dirty.is_empty() {
+            return events;
         }
-        events.push(e);
+        for (session, name) in dirty {
+            asked.insert(session);
+            let mut e = PlayerDataSave {
+                player: player::Id::new(session),
+                record_key: name,
+                cancelled: false,
+            };
+            dispatch::call(state, &mut e);
+            if e.cancelled {
+                debug!(
+                    player = e.record_key.as_str(),
+                    "a cancelled player data save is saved all the same"
+                );
+            }
+            events.push(e);
+        }
+        // What the listeners deferred changes the state too, so it goes into this snapshot.
+        dispatch::run_deferred(state, &mut runs);
     }
-    events
 }
 
 /// The online players whose data changed since the last snapshot.
@@ -582,6 +594,24 @@ pub(super) fn failed(start: u64) {
 /// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
 pub(super) fn load_failed() {
     error!("a world file could not be read; stopping without saving (the last save is kept)");
+}
+
+/// The file of the world at `index` did not open on the save thread: the world unloads, and
+/// loading it again tries its file again, so the failure shows to the program that loaded it.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the save thread names a world the tick sent it"
+)]
+pub(super) fn world_open_failed(state: &mut State, index: WorldIndex) {
+    let world = state
+        .worlds
+        .get(index)
+        .expect("a world the save thread names is one of the worlds");
+    warn!(
+        world = world.name(),
+        "world file did not open; unloading the world"
+    );
+    super::world_api::open_failed(state, index);
 }
 
 #[cfg(test)]
@@ -693,6 +723,49 @@ mod tests {
         // One commit holds the whole state of a tick boundary: the world and its players.
         assert_eq!(after, before);
         assert!(!cancelled.players[&SessionId::new(1)].data_dirty);
+    }
+
+    // api: PlayerDataSaveEvent
+    #[test]
+    fn a_player_a_data_save_listener_changed_gets_the_event_too() {
+        let listeners = on(|e: &mut PlayerDataSave, cx: &mut Context<'_>| {
+            log(e.player().session().get().to_string());
+            if e.player().session() == SessionId::new(1) {
+                cx.player_mut(player::Id::new(SessionId::new(2)))
+                    .unwrap()
+                    .set_xp_level(5)
+                    .unwrap();
+            }
+        });
+        LOG.set(Vec::new());
+        let mut state = new_state(settings(|c| c.general.save_player_data = true), listeners);
+        let mut output = Output::default();
+        let (join_1, _rx_1) = join(1, 0);
+        let (join_2, _rx_2) = join(2, 0);
+        tick(&mut state, &mut vec![join_1, join_2], &mut output);
+        tick(
+            &mut state,
+            &mut vec![radius(1, 1, 2), radius(2, 1, 2)],
+            &mut output,
+        );
+        let runtime_ids: Vec<_> = state.players.values().map(|p| p.runtime_id).collect();
+        tick(
+            &mut state,
+            &mut vec![
+                initialised(1, 2, runtime_ids[0]),
+                initialised(2, 2, runtime_ids[1]),
+            ],
+            &mut output,
+        );
+        for _ in 0..3 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        for (session, p) in &mut state.players {
+            p.data_dirty = *session == SessionId::new(1);
+        }
+        let saved = saved(&mut state);
+        assert_eq!(logged(), ["1", "2"]);
+        assert_eq!(saved.len(), 2);
     }
 
     /// What a listener defers while the player data saves goes into the same snapshot.
@@ -833,6 +906,26 @@ mod tests {
         let start = state.saving.in_flight.as_ref().unwrap().start;
         committed(&mut state, &mut input_log, start);
         assert_eq!(logged(), ["0"]);
+    }
+
+    /// A world whose file did not open unloads, and loading it again tells the save thread of it
+    /// again.
+    #[test]
+    fn a_world_whose_file_did_not_open_unloads_and_loads_again() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let options = crate::world::Options::new();
+        let world = Context { state: &mut state }
+            .create_world("arena", &options)
+            .unwrap();
+        assert_eq!(crate::tick::world_api::take_new_worlds(&mut state).len(), 1);
+        world_open_failed(&mut state, world.index());
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(!Context { state: &mut state }.is_world_loaded("arena"));
+        Context { state: &mut state }
+            .load_world("arena", &options)
+            .unwrap();
+        assert_eq!(crate::tick::world_api::take_new_worlds(&mut state).len(), 1);
     }
 
     // api: WorldSaveEvent, WorldEvent::getWorld

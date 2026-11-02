@@ -10,7 +10,7 @@
 //! The villager method (`spawn_villager`) takes the NPC from the rule module that owns it.
 
 #[cfg(test)]
-mod crash;
+pub(in crate::tick) mod crash;
 mod data;
 mod job;
 mod offline;
@@ -169,7 +169,8 @@ impl Context<'_> {
     /// The players in the game, in [`Id`](PlayerId) order. A player is in the game from the
     /// moment its saved data has loaded until it leaves; a player kicked or transferred leaves
     /// at the end of the tick, and until then is here with
-    /// [`Player::is_online`](crate::player::Player::is_online) false.
+    /// [`Player::is_online`](crate::player::Player::is_online) false. To change them all, collect
+    /// their [`Id`](PlayerId)s and lend each through [`player_mut`](Self::player_mut).
     #[doc(alias = "Server::getOnlinePlayers")]
     pub fn players(&self) -> impl Iterator<Item = &Player> + '_ {
         self.state.players.values().filter(|p| in_game(p))
@@ -186,8 +187,9 @@ impl Context<'_> {
         self.state.players.get(&id.session()).filter(|p| in_game(p))
     }
 
-    /// The player in the game whose name is `name`, ignoring ASCII case, the first in [`Id`](PlayerId) order if players signed in with Xbox share
-    /// it. An index search. The lookups return an [`Id`](PlayerId), so the context stays free for
+    /// The player in the game whose name is `name`, ignoring ASCII case, the first in
+    /// [`Id`](PlayerId) order if players signed in with Xbox share it. An index search. The
+    /// lookups return an [`Id`](PlayerId), so the context stays free for
     /// [`player_mut`](Self::player_mut).
     #[doc(alias = "Server::getPlayerExact")]
     pub fn player_exact(&self, name: &str) -> Option<PlayerId> {
@@ -200,7 +202,8 @@ impl Context<'_> {
     }
 
     /// The player in the game whose name starts with `prefix` (ignoring ASCII case) and is the
-    /// shortest of those, the first in [`Id`](PlayerId) order on a tie. Only the names with the prefix are looked at.
+    /// shortest of those, the first in [`Id`](PlayerId) order on a tie. Only the names with the
+    /// prefix are looked at.
     #[doc(alias = "Server::getPlayerByPrefix")]
     pub fn player_by_prefix(&self, prefix: &str) -> Option<PlayerId> {
         let starts = |name: &str| {
@@ -269,19 +272,27 @@ impl Context<'_> {
     /// the end of this tick; [`Duration::MAX`] lasts until
     /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
     /// replaces its end. Players already connected from it
-    /// stay ([`Player::kick`](crate::player::Player::kick) them). False, changing nothing, past
-    /// 256 network changes in one tick; at most 4,096 addresses are blocked at once, and the
-    /// networking refuses a block past that with a warning.
+    /// stay ([`Player::kick`](crate::player::Player::kick) them). At most 4,096 addresses are
+    /// blocked at once, and the networking refuses a block past that with a warning.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
+    /// tick; nothing is changed.
     #[doc(alias = "Network::blockAddress")]
-    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> bool {
-        self.state.network.control(Control::Block { ip, duration })
+    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> crate::task::Result<()> {
+        self.network_control(Control::Block { ip, duration })
     }
 
-    /// Accepts connections from `ip` again, at the end of this tick. False, changing nothing,
-    /// past 256 network changes in one tick.
+    /// Accepts connections from `ip` again, at the end of this tick.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
+    /// tick; nothing is changed.
     #[doc(alias = "Network::unblockAddress")]
-    pub fn unblock_address(&mut self, ip: IpAddr) -> bool {
-        self.state.network.control(Control::Unblock(ip))
+    pub fn unblock_address(&mut self, ip: IpAddr) -> crate::task::Result<()> {
+        self.network_control(Control::Unblock(ip))
     }
 
     /// Changes the most players at once until the server stops; the server list shows it once
@@ -295,9 +306,7 @@ impl Context<'_> {
     /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256
     /// network changes in one tick; nothing is changed.
     pub fn set_max_players(&mut self, max: u32) -> crate::task::Result<()> {
-        if !self.state.network.control(Control::MaxPlayers(max)) {
-            return Err(crate::task::Error::NetworkBusy);
-        }
+        self.network_control(Control::MaxPlayers(max))?;
         self.state.settings.max_players = max;
         Ok(())
     }
@@ -386,6 +395,15 @@ impl Context<'_> {
             super::world_api::index(self.state, world).ok_or(crate::custom::Error::NotSpawned)?;
         let npc = entity::Npc::Villager { profession, offers };
         entity::spawn_npc(self.state, w, pos, npc).ok_or(crate::custom::Error::NotSpawned)
+    }
+
+    /// Queues `control` for the networking, which applies it once this tick ends.
+    fn network_control(&mut self, control: Control) -> crate::task::Result<()> {
+        if self.state.network.control(control) {
+            Ok(())
+        } else {
+            Err(crate::task::Error::NetworkBusy)
+        }
     }
 }
 

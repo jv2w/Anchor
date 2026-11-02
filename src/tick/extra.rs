@@ -40,6 +40,7 @@ use crate::world::ChunkPos;
 /// The extras of every loaded chunk.
 #[derive(Debug, Default)]
 pub(super) struct Extras {
+    /// The extras of each loaded chunk.
     chunks: BTreeMap<Key, Held>,
     /// The chunks with a kind marked dirty, so that a snapshot visits only those.
     dirty: BTreeSet<Key>,
@@ -156,6 +157,7 @@ impl Extras {
         }
     }
 
+    /// Hashes the extras of every loaded chunk, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The dirty set repeats the marks of the chunks, which `Held::hash_into` hashes.
@@ -234,6 +236,7 @@ impl Held {
         }
     }
 
+    /// Hashes the marks and the changed lists, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // As for terrain (`State::hash`): a clean list is the file's or the last snapshot's,
@@ -307,6 +310,7 @@ impl Player {
         data.checkpoint_player(user, w);
     }
 
+    /// Hashes the compound as saved, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).

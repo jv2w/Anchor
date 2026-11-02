@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::block::{self, PropertyValue};
+use crate::block;
 use crate::item::{Stack, Type};
 use crate::nbt::Compound;
 use crate::protocol::packet::PlayerAuthInput;
@@ -40,8 +40,8 @@ struct Bench {
     pool: Pool,
     output: Output,
     receivers: Vec<mpsc::Receiver<Outbound>>,
-    /// The time of each [`Part`] summed over the ticks since the last [`Bench::reset`], in the order
-    /// the parts first ended.
+    /// The time of each [`Part`] summed over the ticks since the last [`Bench::reset`], in the
+    /// order the parts first ended.
     phases: Vec<(Part, Duration)>,
     /// The measured time of each tick since the last [`Bench::reset`].
     ticks: Vec<Duration>,
@@ -347,57 +347,6 @@ fn items(count: u32, run: Run) {
     b.report(&format!("{count} items lying{}", run.label));
 }
 
-/// The block state `name` with `properties`.
-fn block_state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> block::State {
-    block::State::find(name, properties).expect("a block state")
-}
-
-/// Wheat on wet farmland on every column of the chunks within the tick radius (4) of one player,
-/// at the default random tick speed (3).
-fn crops(run: Run) {
-    let mut b = Bench::new((run.listeners)(), |_| {});
-    let farmland = block_state(
-        "minecraft:farmland",
-        &[("moisturized_amount", PropertyValue::Int(7))],
-    );
-    let wheat = block_state("minecraft:wheat", &[("growth", PropertyValue::Int(0))]);
-    let center = b.state.worlds[0].spawn().chunk();
-    let mut planted = Vec::with_capacity(81 * 256);
-    for cx in -4..=4 {
-        for cz in -4..=4 {
-            for x in 0..16 {
-                for z in 0..16 {
-                    let (bx, bz) = ((center.x + cx) * 16 + x, (center.z + cz) * 16 + z);
-                    let world = &mut b.state.worlds[0];
-                    world
-                        .set_block(BlockPos::new(bx, -61, bz), farmland)
-                        .expect("farmland is set");
-                    let at = BlockPos::new(bx, -60, bz);
-                    world.set_block(at, wheat).expect("wheat is set");
-                    planted.push(at);
-                }
-            }
-        }
-    }
-    b.settle(0);
-    b.join(1);
-    b.settle(40);
-    b.reset();
-    for _ in 0..MEASURED_TICKS {
-        b.tick(Vec::new());
-    }
-    let grown = planted
-        .iter()
-        .filter(|at| b.state.worlds[0].block(**at).is_some_and(|s| s != wheat))
-        .count();
-    assert!(grown > 0, "no crop grew: the random ticks did not run");
-    b.report(&format!(
-        "random ticks, {} crops ({grown} grew){}",
-        planted.len(),
-        run.label
-    ));
-}
-
 /// One player at the spawn, then 1,000 glowstone blocks set at once in the air around it (each
 /// a light source that also shades the sky light below), and the ticks after it until the light
 /// work is done (at least [`MIN_BURST_TICKS`]).
@@ -412,7 +361,7 @@ fn burst(lighting: bool, run: Run) {
     b.join(1);
     b.settle(20);
     b.reset();
-    let glowstone = block_state("minecraft:glowstone", &[]);
+    let glowstone = block::State::find("minecraft:glowstone", &[]).expect("a block state");
     let spawn = b.state.worlds[0].spawn();
     for i in 0..1000 {
         // A 10 × 10 × 10 lattice, 5 blocks apart, from y -55.
@@ -480,9 +429,6 @@ fn tick_costs() {
         for run in runs {
             items(count, run);
         }
-    }
-    for run in runs {
-        crops(run);
     }
     for lighting in [true, false] {
         for run in runs {

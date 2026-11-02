@@ -13,7 +13,7 @@ mod lifecycle;
 
 pub(crate) use lifecycle::WorldSlot;
 pub(super) use lifecycle::{
-    Catalog, difficulty, difficulty_of, step, take_deleted_worlds, take_new_worlds,
+    Catalog, difficulty, difficulty_of, open_failed, step, take_deleted_worlds, take_new_worlds,
 };
 
 use super::view::chunk_of;
