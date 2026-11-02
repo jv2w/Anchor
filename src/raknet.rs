@@ -837,6 +837,20 @@ pub(crate) mod tests {
         remote.client.disconnected()
     }
 
+    /// Steps `driver` and `remote` until the driver accepts the connection of `remote`.
+    async fn accepted(
+        driver: &mut Driver,
+        remote: &mut Remote,
+        connections: &mut mpsc::Receiver<Connection>,
+    ) -> Connection {
+        loop {
+            if let Ok(connection) = connections.try_recv() {
+                return connection;
+            }
+            step(driver, remote).await;
+        }
+    }
+
     /// The server's connected ping comes back as a pong: the connection's ping is the time
     /// between (RakNet's ping measure).
     #[test]
@@ -845,12 +859,7 @@ pub(crate) mod tests {
             let (mut driver, mut connections) = loopback_driver();
             let mut remote = Remote::new(server(&driver)).await;
             remote.client.start();
-            let connection = loop {
-                if let Ok(connection) = connections.try_recv() {
-                    break connection;
-                }
-                step(&mut driver, &mut remote).await;
-            };
+            let connection = accepted(&mut driver, &mut remote, &mut connections).await;
             assert_eq!(connection.ping(), None);
             let sent = loop {
                 let ping = remote
@@ -880,12 +889,7 @@ pub(crate) mod tests {
             let (mut driver, mut connections) = loopback_driver();
             let mut remote = Remote::new(server(&driver)).await;
             remote.client.start();
-            let connection = loop {
-                if let Ok(connection) = connections.try_recv() {
-                    break connection;
-                }
-                step(&mut driver, &mut remote).await;
-            };
+            let connection = accepted(&mut driver, &mut remote, &mut connections).await;
             // The session's last packets, then its close flag, all before the timer runs.
             for i in 0..300_u32 {
                 connection.send(i.to_le_bytes().to_vec()).await.unwrap();
@@ -910,12 +914,7 @@ pub(crate) mod tests {
             let (mut driver, mut connections) = loopback_driver();
             let mut remote = Remote::new(server(&driver)).await;
             remote.client.start();
-            let connection = loop {
-                if let Ok(connection) = connections.try_recv() {
-                    break connection;
-                }
-                step(&mut driver, &mut remote).await;
-            };
+            let connection = accepted(&mut driver, &mut remote, &mut connections).await;
             // The timer handler, with the session running between its steps.
             driver.collect_signals();
             driver.drain();
@@ -935,12 +934,7 @@ pub(crate) mod tests {
             let (mut driver, mut connections) = loopback_driver();
             let mut remote = Remote::new(server(&driver)).await;
             remote.client.start();
-            let connection = loop {
-                if let Ok(connection) = connections.try_recv() {
-                    break connection;
-                }
-                step(&mut driver, &mut remote).await;
-            };
+            let connection = accepted(&mut driver, &mut remote, &mut connections).await;
             // A kicked session: its Disconnect, its close flag and its end, then the client's
             // next input reaches the driver before the queued Disconnect does.
             connection.send(b"bye".to_vec()).await.unwrap();
@@ -968,12 +962,7 @@ pub(crate) mod tests {
             let (mut driver, mut connections) = loopback_driver();
             let mut remote = Remote::new(server(&driver)).await;
             remote.client.start();
-            let mut connection = loop {
-                if let Ok(connection) = connections.try_recv() {
-                    break connection;
-                }
-                step(&mut driver, &mut remote).await;
-            };
+            let mut connection = accepted(&mut driver, &mut remote, &mut connections).await;
             let now = remote.now();
             remote
                 .client

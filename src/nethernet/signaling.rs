@@ -3,8 +3,8 @@
 //! It answers `GET /v1/join` with the server-list status and hands `POST /v1/join/{networkId}`
 //! offers to the offer consumer, within the connection, size and time limits below. It never
 //! reads the SDP.
-//! Responses copy the official server 1.26.52: each one closes the connection, and a failed negotiation is still
-//! `200` with the error code as an `application/sdp` body.
+//! Responses are the official server's: each one closes the connection, and a failed negotiation
+//! is still `200` with the error code as an `application/sdp` body.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -33,8 +33,8 @@ use crate::raknet::ip_key;
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// The connections the kernel queues before they are accepted.
 const BACKLOG: i32 = 128;
-/// What the official server sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
-/// holding a fatal `handshake_failure`.
+/// What the official server sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2,
+/// length 2) holding a fatal `handshake_failure`.
 const HANDSHAKE_FAILURE: [u8; 7] = [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
 /// The largest request body after chunked decoding, in bytes: the SDP offer limit.
 const MAX_BODY_BYTES: usize = super::sdp::MAX_OFFER_BYTES;
@@ -934,8 +934,8 @@ fn canonical(addr: SocketAddr) -> SocketAddr {
     SocketAddr::new(addr.ip().to_canonical(), addr.port())
 }
 
-/// The route of a request, like the official server: an unknown path, or a known path with another method, is
-/// `404`.
+/// The route of a request, like the official server: an unknown path, or a known path with
+/// another method, is `404`.
 fn route(method: Method, path: &str) -> Route {
     if method == Method::Get && path == "/v1/join" {
         return Route::Status;

@@ -7,9 +7,10 @@
 //! The chunks go out in request order at most one per [`CHUNK_INTERVAL`] (gophertunnel), and
 //! only while the connection holds at most [`MAX_UNDELIVERED_BYTES`] bytes it has not delivered
 //! (each chunk's acknowledgement is waited for): a slow link slows the download instead of
-//! filling the transport's outbound cap. A download extends the spawn deadline by an allowance
-//! for its size ([`allowance`]), so the transfer does not eat into the 60 seconds a client has to
-//! spawn but still ends.
+//! filling the transport's outbound cap. Asking for packs extends the spawn deadline by
+//! [`DOWNLOAD_BASE`] and each chunk sent by [`CHUNK_ALLOWANCE`], so the transfer does not eat into
+//! the 60 seconds a client has to spawn, but a client that asks and never downloads gains only the
+//! base.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -23,8 +24,9 @@ use crate::protocol::packet::{
     ResourcePackDataInfo,
 };
 
-/// Per chunk: ten times [`CHUNK_INTERVAL`], so a client may download at 64 KiB/s.
-const CHUNK_ALLOWANCE: Duration = Duration::from_secs(2);
+/// What each chunk sent adds to the spawn deadline: ten times [`CHUNK_INTERVAL`], so a client may
+/// download at 64 KiB/s.
+pub(super) const CHUNK_ALLOWANCE: Duration = Duration::from_secs(2);
 /// Bytes per chunk.
 /// This is gophertunnel's `DefaultResourcePackChunkSize`; a chunk of 256 KiB with its
 /// packet header no longer fits one 256 KiB batch.
@@ -33,8 +35,8 @@ pub(super) const CHUNK_BYTES: u32 = 128 * 1024;
 /// This is gophertunnel's `DefaultResourcePackChunkSendDelay`: clients after 1.26.30 may fail
 /// downloads sent faster.
 pub(super) const CHUNK_INTERVAL: Duration = Duration::from_millis(200);
-/// What a download adds to the spawn deadline, plus [`CHUNK_ALLOWANCE`] per chunk.
-const DOWNLOAD_BASE: Duration = Duration::from_secs(30);
+/// What asking for packs adds to the spawn deadline.
+pub(super) const DOWNLOAD_BASE: Duration = Duration::from_secs(30);
 /// The most bytes the connection may still have to deliver when the next chunk goes out.
 /// That is about one chunk, so a download keeps at most about two chunks in the transport however
 /// slow the link is.
@@ -156,7 +158,6 @@ impl Transfer {
         }
         let mut chunks = vec![None; packs.len()];
         let mut packets = Vec::with_capacity(names.len());
-        let mut total = 0_u32;
         for name in names {
             let index = offer
                 .find(name)
@@ -174,7 +175,6 @@ impl Transfer {
             }
             let count = chunk_count(pack.size());
             *slot = Some(Bitset::new(count as usize));
-            total = total.saturating_add(count);
             packets.push(Packet::ResourcePackDataInfo(ResourcePackDataInfo {
                 uuid: offer.id(index).to_owned(),
                 data_chunk_size: CHUNK_BYTES,
@@ -189,7 +189,7 @@ impl Transfer {
         let extend = if names.is_empty() {
             Duration::ZERO
         } else {
-            allowance(total)
+            DOWNLOAD_BASE
         };
         Ok(Reply::Send { packets, extend })
     }
@@ -240,11 +240,6 @@ fn chunk_count(size: u64) -> u32 {
         reason = "invariant: a pack is at most `MAX_PACK_BYTES`, which is a few thousand chunks"
     )]
     u32::try_from(size.div_ceil(u64::from(CHUNK_BYTES))).expect("a pack has few chunks")
-}
-
-/// How much later a download of `chunks` chunks moves the spawn deadline.
-fn allowance(chunks: u32) -> Duration {
-    DOWNLOAD_BASE.saturating_add(CHUNK_ALLOWANCE.saturating_mul(chunks))
 }
 
 /// How much later sending `bytes` before the spawn moves the spawn deadline.
@@ -314,7 +309,7 @@ mod tests {
         assert_eq!(info.size, pack.size());
         assert_eq!(info.hash, pack.sha256());
         assert_eq!(info.pack_type, u8::from(ResourcePackType::Resources));
-        assert_eq!(extend, allowance(3));
+        assert_eq!(extend, DOWNLOAD_BASE);
 
         let mut downloaded = Vec::new();
         for i in 0..3 {
@@ -457,11 +452,8 @@ mod tests {
     }
 
     #[test]
-    fn the_allowance_bounds_the_slowest_download() {
-        // The largest pack, 256 MiB, is 2,048 chunks: about 69 minutes at 64 KiB/s.
-        let chunks = chunk_count(crate::pack::MAX_PACK_BYTES);
-        assert_eq!(chunks, 2048);
-        assert_eq!(allowance(chunks), Duration::from_secs(30 + 2 * 2048));
+    fn a_pack_has_the_chunks_its_size_needs() {
+        assert_eq!(chunk_count(crate::pack::MAX_PACK_BYTES), 2048);
         assert_eq!(chunk_count(1), 1);
         assert_eq!(chunk_count(u64::from(CHUNK_BYTES)), 1);
         assert_eq!(chunk_count(u64::from(CHUNK_BYTES) + 1), 2);

@@ -106,7 +106,7 @@ pub(super) fn job_results(rng: &mut Rng, state: &State) -> Vec<Input> {
             continue;
         }
         let outcome = if rng.below(8) == 0 {
-            Err(crate::task::Error::Panicked)
+            Err(crate::task::JobError::Panicked)
         } else {
             Ok(serde_json::to_vec(&id.wrapping_mul(3)).unwrap())
         };
@@ -287,7 +287,7 @@ fn busy() -> Listeners {
         // takes it from the log.
         cx.spawn_blocking(
             || 0_u64,
-            move |cx, result: crate::task::Result<u64>| {
+            move |cx, result: Result<u64, crate::task::JobError>| {
                 if let (Ok(v), Some(p)) = (result, cx.player_mut(player)) {
                     p.add_xp(u32::try_from(v % 7).unwrap());
                 }

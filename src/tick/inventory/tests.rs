@@ -487,14 +487,7 @@ fn crafting_lists(w: &World) -> Vec<CraftingData> {
         for body in batches.iter() {
             decoder.decode(body, &mut payload).unwrap();
             // The start-game registries are too large for the client-side decode limits.
-            if batch::decode_packets(
-                &payload,
-                decoder.settings(),
-                crate::item::SHIELD_RUNTIME_ID,
-                &mut packets,
-            )
-            .is_err()
-            {
+            if batch::decode_packets(&payload, decoder.settings(), &mut packets).is_err() {
                 continue;
             }
             lists.extend(packets.drain(..).filter_map(|(_, p)| match p {

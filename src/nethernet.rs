@@ -54,6 +54,10 @@ const IDENTITY_FILE: &str = "identity.key";
 /// its valid STUN request can carry any source address; the bound keeps one peer from filling
 /// the address index.
 const MAX_PEER_ADDRS: usize = 8;
+/// The largest message a peer takes before its player logged in: far above a Login with the
+/// largest skin (`MAX_SKIN_BYTES`), far below `max-batch-bytes`, so that unfinished messages of
+/// the pre-login peers (`MAX_PRE_LOGIN`) hold a bounded share of memory.
+const MAX_PRE_LOGIN_MESSAGE_BYTES: usize = 8 << 20;
 /// The offers waiting for the offer task; the signaling server answers 503 when it is full.
 const OFFER_QUEUE: usize = 64;
 /// The length of a STUN message header in bytes (RFC 5389): the type, the length, the magic
@@ -72,7 +76,8 @@ pub(crate) struct Settings {
     pub(crate) signaling_v4: Option<SocketAddrV4>,
     /// The IPv6 signaling address.
     pub(crate) signaling_v6: Option<SocketAddrV6>,
-    /// The address advertised to clients instead of the one they reached (`public-ip`).
+    /// The host candidate address answered instead of the signaling address the client reached
+    /// (`public-ip`); it is the same family as a UDP socket the server has.
     pub(crate) public_ip: Option<IpAddr>,
     /// The largest game message a client may send.
     pub(crate) max_message_bytes: usize,
@@ -158,6 +163,16 @@ impl Connection {
         self.addr
     }
 
+    /// The client key the offer's identity proved; `None` for an offline offer without one.
+    pub(crate) fn client_key(&self) -> Option<&PublicKey> {
+        self.client_key.as_ref()
+    }
+
+    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
+    pub(crate) fn leave_reason(&self) -> LeaveReason {
+        *self.reason.borrow()
+    }
+
     /// The round trip time of the latest ICE consent check on the connection's address pair;
     /// `None` until one was answered.
     pub(crate) fn ping(&self) -> Option<Duration> {
@@ -171,14 +186,14 @@ impl Connection {
         self.undelivered.clone()
     }
 
-    /// The client key the offer's identity proved; `None` for an offline offer without one.
-    pub(crate) fn client_key(&self) -> Option<&PublicKey> {
-        self.client_key.as_ref()
+    /// Closes the connection after what is queued has been delivered.
+    pub(crate) fn close(&self) {
+        self.signal.send_modify(|flags| flags.closed = true);
     }
 
-    /// Why the connection ended, once [`recv`](Self::recv) returned `None`.
-    pub(crate) fn leave_reason(&self) -> LeaveReason {
-        *self.reason.borrow()
+    /// Marks the player as logged in: the connection leaves the pre-login limits.
+    pub(crate) fn logged_in(&self) {
+        self.signal.send_modify(|flags| flags.logged_in = true);
     }
 
     /// Takes the next game message, or `None` once the connection is closed.
@@ -197,16 +212,6 @@ impl Connection {
             .send(Command::Send { id, message })
             .await
             .map_err(|_| Error::Closed)
-    }
-
-    /// Marks the player as logged in: the connection leaves the pre-login limits.
-    pub(crate) fn logged_in(&self) {
-        self.signal.send_modify(|flags| flags.logged_in = true);
-    }
-
-    /// Closes the connection after what is queued has been delivered.
-    pub(crate) fn close(&self) {
-        self.signal.send_modify(|flags| flags.closed = true);
     }
 }
 
@@ -538,44 +543,6 @@ impl Driver {
         self.peers.is_empty()
     }
 
-    /// Waits for a command, then applies it and those queued behind it, at most a batch;
-    /// `false` once nothing can queue more. Cancel-safe: it waits only for the first.
-    pub(crate) async fn serve(&mut self) -> bool {
-        let Some(command) = self.pending.recv().await else {
-            return false;
-        };
-        self.command(command);
-        for _ in 1..COMMAND_BATCH {
-            let Ok(command) = self.pending.try_recv() else {
-                break;
-            };
-            self.command(command);
-        }
-        true
-    }
-
-    /// Runs the timer's work.
-    pub(crate) fn tick(&mut self) {
-        self.update();
-    }
-
-    /// Stops the driver: new offers are refused, peers without a connection go at once, the
-    /// others close as a session close does, with the same linger.
-    pub(crate) fn stop(&mut self) {
-        self.drain();
-        self.stopping = true;
-        let now = clock::now();
-        let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
-        for (&id, entry) in &mut self.peers {
-            if entry.link.is_none() {
-                self.doomed.push(id);
-            } else if entry.closing.is_none() {
-                entry.closing = Some(until);
-            }
-        }
-        self.reap();
-    }
-
     /// Handles a datagram from `from`.
     pub(crate) fn receive(&mut self, from: SocketAddr, datagram: &[u8]) {
         let from = SocketAddr::new(from.ip().to_canonical(), from.port());
@@ -598,6 +565,81 @@ impl Driver {
         // The peer must be polled before the next datagram reaches it (peer.rs).
         entry.peer.receive(now, from, datagram);
         self.drive(id, now);
+        self.reap();
+    }
+
+    /// Waits for a command, then applies it and those queued behind it, at most a batch;
+    /// `false` once nothing can queue more. Cancel-safe: it waits only for the first.
+    pub(crate) async fn serve(&mut self) -> bool {
+        let Some(command) = self.pending.recv().await else {
+            return false;
+        };
+        self.command(command);
+        for _ in 1..COMMAND_BATCH {
+            let Ok(command) = self.pending.try_recv() else {
+                break;
+            };
+            self.command(command);
+        }
+        true
+    }
+
+    /// Stops the driver: new offers are refused, peers without a connection go at once, the
+    /// others close as a session close does, with the same linger.
+    pub(crate) fn stop(&mut self) {
+        self.drain();
+        self.stopping = true;
+        let now = clock::now();
+        let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
+        for (&id, entry) in &mut self.peers {
+            if entry.link.is_none() {
+                self.doomed.push(id);
+            } else if entry.closing.is_none() {
+                entry.closing = Some(until);
+            }
+        }
+        self.reap();
+    }
+
+    /// Runs the timer's work.
+    pub(crate) fn tick(&mut self) {
+        self.update();
+    }
+
+    /// The timer pass: reads the connections' flags, applies the commands queued before them,
+    /// then removes the closing peers that delivered everything and drives those whose time
+    /// came.
+    fn update(&mut self) {
+        let now = clock::now();
+        for entry in self.peers.values_mut() {
+            if let Some(link) = &mut entry.link
+                && let Some(flags) = Flags::changed(&mut link.signal)
+            {
+                if flags.logged_in
+                    && let Some(key) = entry.pre_login.take()
+                {
+                    release(&mut self.pre_login, &mut self.pre_login_total, key);
+                    entry.peer.set_max_message_bytes(self.max_message_bytes);
+                }
+                if flags.closed && entry.closing.is_none() {
+                    entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
+                }
+            }
+        }
+        self.drain();
+        for (&id, entry) in &mut self.peers {
+            // A closing peer stays until what was sent is acknowledged, or the linger ends.
+            if let Some(until) = entry.closing
+                && (now >= until || entry.peer.is_drained())
+            {
+                self.doomed.push(id);
+            } else if now >= entry.timeout {
+                self.due.push(id);
+            }
+        }
+        while let Some(id) = self.due.pop() {
+            self.drive(id, now);
+        }
         self.reap();
     }
 
@@ -676,7 +718,7 @@ impl Driver {
                 remote.clone(),
                 local,
                 &self.certificate,
-                self.max_message_bytes,
+                self.max_message_bytes.min(MAX_PRE_LOGIN_MESSAGE_BYTES),
                 now,
             )
             .map_err(Refusal::Peer)?;
@@ -782,42 +824,6 @@ impl Driver {
                 }
             }
         }
-    }
-
-    /// The timer pass: reads the connections' flags, applies the commands queued before them,
-    /// then removes the closing peers that delivered everything and drives those whose time
-    /// came.
-    fn update(&mut self) {
-        let now = clock::now();
-        for entry in self.peers.values_mut() {
-            if let Some(link) = &mut entry.link
-                && let Some(flags) = Flags::changed(&mut link.signal)
-            {
-                if flags.logged_in
-                    && let Some(key) = entry.pre_login.take()
-                {
-                    release(&mut self.pre_login, &mut self.pre_login_total, key);
-                }
-                if flags.closed && entry.closing.is_none() {
-                    entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
-                }
-            }
-        }
-        self.drain();
-        for (&id, entry) in &mut self.peers {
-            // A closing peer stays until what was sent is acknowledged, or the linger ends.
-            if let Some(until) = entry.closing
-                && (now >= until || entry.peer.is_drained())
-            {
-                self.doomed.push(id);
-            } else if now >= entry.timeout {
-                self.due.push(id);
-            }
-        }
-        while let Some(id) = self.due.pop() {
-            self.drive(id, now);
-        }
-        self.reap();
     }
 
     /// Removes the peers marked for closing.
@@ -1049,6 +1055,7 @@ pub(crate) mod tests {
     const FIRST_PEER: u64 = 1;
     /// The id of the second test peer in the address index test.
     const SECOND_PEER: u64 = 2;
+    /// The longest a test waits for the network.
     const WAIT: Duration = Duration::from_secs(20);
 
     /// A driver on `sockets`, and the connections it accepts.
@@ -1124,11 +1131,6 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn shutdown_delivers_the_last_messages_of_a_peer() {
-        run(shutdown_delivers_the_last_message());
-    }
-
     /// The UDP task on a loopback port with both drivers: its handle, the port, the NetherNet
     /// driver's command queue and the NetherNet connections it accepts.
     fn spawn_both() -> (
@@ -1180,6 +1182,11 @@ pub(crate) mod tests {
             assert!(step(&mut client, &socket).await, "client failed");
         };
         (client, socket, connection)
+    }
+
+    #[test]
+    fn shutdown_delivers_the_last_messages_of_a_peer() {
+        run(shutdown_delivers_the_last_message());
     }
 
     async fn shutdown_delivers_the_last_message() {

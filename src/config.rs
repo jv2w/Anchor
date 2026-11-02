@@ -242,8 +242,8 @@ pub struct Config {
     /// Settings that tune performance and protocol behavior (`[developer]`).
     pub developer: Developer,
     /// Per-world values (`[worlds.<name>]`), by world name. A name must be a world the server
-    /// declares (`level-name` or [`ServerBuilder::world`](crate::ServerBuilder::world)), or the
-    /// build fails.
+    /// declares (`level-name` or [`ServerBuilder::world`](crate::ServerBuilder::world)), spelled
+    /// with the same letter case, or the build fails.
     pub worlds: BTreeMap<String, WorldSettings>,
     /// Top-level tables of the loaded file that Anchor does not know; [`Config::validate`]
     /// rejects them.
@@ -289,6 +289,7 @@ impl Config {
         let path = path.as_ref();
         match crate::args::current() {
             Ok(crate::args::Task::UpdateConfig) => self.load_updated(path),
+            // A usage error is reported by `Server::run`, which reads the arguments again.
             _ => self.load_file(path),
         }
     }
@@ -613,7 +614,7 @@ pub struct General {
     pub difficulty: Difficulty,
     /// `hardcore`: whether the world is hardcore; requires [`Difficulty::Hard`].
     pub hardcore: bool,
-    /// `pvp`: whether players can hurt each other.
+    /// `pvp`: whether players can hurt each other, by hand, with a projectile or with a blast.
     pub pvp: bool,
     /// `food`: whether players get hungry.
     pub food: bool,
@@ -907,12 +908,12 @@ impl Default for Developer {
     fn default() -> Self {
         Self {
             compression: Compression::Snappy,
-            compression_threshold: 256,
-            compression_level: 6,
-            max_batch_bytes: 16 * 1024 * 1024,
+            compression_threshold: batch::Settings::DEFAULT_THRESHOLD,
+            compression_level: batch::Settings::DEFAULT_ZLIB_LEVEL,
+            max_batch_bytes: batch::Settings::DEFAULT_MAX_BATCH_BYTES,
             enable_encryption: true,
             raknet: true,
-            max_mtu_size: 1492,
+            max_mtu_size: crate::raknet::MAX_MTU,
             nethernet_tls_cert: None,
             nethernet_tls_key: None,
             network_threads: Threads::Auto,

@@ -26,7 +26,7 @@ impl Encoder {
         Self(libdeflater::Compressor::new(level))
     }
 
-    /// Returns the most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+    /// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
     pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
         self.0.deflate_compress_bound(input_len)
     }
@@ -53,7 +53,7 @@ impl Encoder {
 pub(crate) struct Decoder(Box<DecompressorOxide>);
 
 impl Decoder {
-    /// Returns a decoder with fresh inflate state.
+    /// A decoder with fresh inflate state.
     pub(crate) fn new() -> Self {
         Self(Box::default())
     }

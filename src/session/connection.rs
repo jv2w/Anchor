@@ -15,11 +15,11 @@ use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio::{pin, select};
 use tracing::{debug, warn};
 
-use super::packs::{self, CHUNK_INTERVAL, MAX_UNDELIVERED_BYTES, Reply, Transfer};
+use super::packs::{self, CHUNK_ALLOWANCE, CHUNK_INTERVAL, MAX_UNDELIVERED_BYTES, Reply, Transfer};
 use super::transport::{self, Transport};
 use super::{Event, Shared};
 use crate::bucket::{Bucket, Rate};
@@ -147,15 +147,23 @@ struct Session {
     deferred: VecDeque<(Packet, usize)>,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
-    /// The place among the sessions waiting to join, held from login to the join.
-    waiting: Option<OwnedSemaphorePermit>,
+    /// The places of this session's IP among the sessions waiting to join, from the accept task.
+    ip_waiting: Arc<Semaphore>,
+    /// The places among the sessions waiting to join, in the IP's and in all, held from login to
+    /// the join.
+    waiting: Option<[OwnedSemaphorePermit; 2]>,
     spawned: bool,
     /// The ping last reported to the tick, in milliseconds.
     reported_ping: Option<u32>,
 }
 
 impl Session {
-    fn new(id: SessionId, conn: Transport, shared: Arc<Shared>) -> Self {
+    fn new(
+        id: SessionId,
+        conn: Transport,
+        shared: Arc<Shared>,
+        ip_waiting: Arc<Semaphore>,
+    ) -> Self {
         let max = shared.batch.max_batch_bytes();
         let send_extension_left = shared.max_send_extension;
         let started = clock::now();
@@ -192,6 +200,7 @@ impl Session {
             deferred: VecDeque::new(),
             inputs: None,
             outbound: None,
+            ip_waiting,
             waiting: None,
             spawned: false,
             reported_ping: None,
@@ -543,12 +552,15 @@ impl Session {
                 return Err(e);
             }
         };
-        let Ok(waiting) = Arc::clone(&self.shared.waiting).try_acquire_owned() else {
+        let (Ok(ip_place), Ok(place)) = (
+            Arc::clone(&self.ip_waiting).try_acquire_owned(),
+            Arc::clone(&self.shared.waiting).try_acquire_owned(),
+        ) else {
             // Players are turned away as the server is full at login.
             self.send(&[queue::server_full()]).await?;
             return Err(Error::Limit("sessions waiting to join"));
         };
-        self.waiting = Some(waiting);
+        self.waiting = Some([ip_place, place]);
         let Login {
             identity,
             client_key,
@@ -646,7 +658,7 @@ impl Session {
             .map_err(Error::Packs)?;
         match reply {
             Reply::Send { packets, extend } => {
-                self.spawn_at = self.spawn_at.checked_add(extend).unwrap_or(self.spawn_at);
+                self.extend_spawn_deadline(extend);
                 if packets.is_empty() {
                     return Ok(());
                 }
@@ -665,12 +677,15 @@ impl Session {
         }
     }
 
-    /// Sends the next resource pack chunk the client asked for.
+    /// Sends the next resource pack chunk the client asked for, and moves the spawn deadline by
+    /// its allowance.
     async fn send_chunk(&mut self) -> Result<()> {
-        match self.transfer.next_chunk(&self.shared.packs) {
-            Some(chunk) => self.send(&[chunk]).await,
-            None => Ok(()),
-        }
+        let Some(chunk) = self.transfer.next_chunk(&self.shared.packs) else {
+            return Ok(());
+        };
+        self.send(&[chunk]).await?;
+        self.extend_spawn_deadline(CHUNK_ALLOWANCE);
+        Ok(())
     }
 
     /// Hands the player to the tick, then the packets that arrived before the join. While every
@@ -772,7 +787,6 @@ impl Session {
     fn encode<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
         let batched = batch::encode_bodies(
             packets,
-            SHIELD_RUNTIME_ID,
             self.encoder.as_mut(),
             &mut self.out_payload,
             &mut self.out_bodies,
@@ -903,9 +917,14 @@ impl Session {
         if self.stage == Stage::Joined && !self.spawned && !self.spawn_status_sent {
             let extend = packs::send_allowance(body.len()).min(self.send_extension_left);
             self.send_extension_left = self.send_extension_left.saturating_sub(extend);
-            self.spawn_at = self.spawn_at.checked_add(extend).unwrap_or(self.spawn_at);
+            self.extend_spawn_deadline(extend);
         }
         self.conn.send(body).await.map_err(Error::Transport)
+    }
+
+    /// Moves the spawn deadline `extend` later; one past what [`Instant`] holds stays put.
+    fn extend_spawn_deadline(&mut self, extend: Duration) {
+        self.spawn_at = self.spawn_at.checked_add(extend).unwrap_or(self.spawn_at);
     }
 }
 
@@ -1014,8 +1033,13 @@ impl std::error::Error for Error {
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Runs one connection until it closes, then tells the tick and the accept task.
-pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
-    let mut session = Session::new(id, conn, shared);
+pub(super) async fn run(
+    id: SessionId,
+    conn: Transport,
+    shared: Arc<Shared>,
+    ip_waiting: Arc<Semaphore>,
+) {
+    let mut session = Session::new(id, conn, shared, ip_waiting);
     let end = session.serve().await;
     session.finish(end).await;
 }
@@ -1140,6 +1164,11 @@ mod tests {
         }
     }
 
+    /// Makes the places of one IP for sessions waiting to join, as the accept task gives them.
+    fn ip_waiting() -> Arc<Semaphore> {
+        Arc::new(Semaphore::new(crate::session::MAX_WAITING_PER_IP))
+    }
+
     /// Makes session `id` as any client gets it after the login and the resource packs: joined,
     /// with its Join in the tick queue.
     async fn joined(id: u64, shared: &Arc<Shared>) -> Session {
@@ -1149,7 +1178,7 @@ mod tests {
 
     /// Makes [`joined`]'s session on `conn`.
     async fn joined_on(id: u64, shared: &Arc<Shared>, conn: Transport) -> Session {
-        let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared));
+        let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared), ip_waiting());
         session.decoder = Some(batch::Decoder::new(shared.batch));
         session.identity = Some(identity(id));
         session.join().await.unwrap();
@@ -1247,17 +1276,9 @@ mod tests {
                     .collect::<Vec<_>>()
             };
             let request = Packet::SubChunkRequest(packet::SubChunkRequest::default());
-            let headers = std::iter::repeat_n(&request, usize::try_from(MOST).unwrap()).map(|p| {
-                (
-                    Header {
-                        id: p.id(),
-                        ..Header::default()
-                    },
-                    p,
-                )
-            });
+            let requests_sent = std::iter::repeat_n(&request, usize::try_from(MOST).unwrap());
             let mut requests = vec![0xff];
-            batch::encode_packets(headers, SHIELD_RUNTIME_ID, &mut Vec::new(), |payload| {
+            batch::encode_packets(requests_sent, &mut Vec::new(), |payload| {
                 requests.extend_from_slice(payload);
                 Ok(())
             })
@@ -1298,19 +1319,10 @@ mod tests {
             Packet::decode(packet.id(), &body, &mut budget, SHIELD_RUNTIME_ID).unwrap();
             let allocated = usize::MAX - budget;
             let mut message = vec![0xff];
-            let header = Header {
-                id: packet.id(),
-                ..Header::default()
-            };
-            batch::encode_packets(
-                [(header, &packet)],
-                SHIELD_RUNTIME_ID,
-                &mut Vec::new(),
-                |p| {
-                    message.extend_from_slice(p);
-                    Ok(())
-                },
-            )
+            batch::encode_packets([&packet], &mut Vec::new(), |p| {
+                message.extend_from_slice(p);
+                Ok(())
+            })
             .unwrap();
             player.on_message(message).await.unwrap();
             let mut sizes = Vec::new();
@@ -1346,19 +1358,10 @@ mod tests {
                     ..packet::InventoryTransaction::default()
                 });
                 let mut message = vec![0xff];
-                let header = Header {
-                    id: packet.id(),
-                    ..Header::default()
-                };
-                batch::encode_packets(
-                    [(header, &packet)],
-                    SHIELD_RUNTIME_ID,
-                    &mut Vec::new(),
-                    |p| {
-                        message.extend_from_slice(p);
-                        Ok(())
-                    },
-                )
+                batch::encode_packets([&packet], &mut Vec::new(), |p| {
+                    message.extend_from_slice(p);
+                    Ok(())
+                })
                 .unwrap();
                 message
             };
@@ -1468,6 +1471,7 @@ mod tests {
                 SessionId::new(0),
                 Transport::Raknet(conn),
                 Arc::clone(&shared),
+                ip_waiting(),
             );
             session.encoder = Some(batch::Encoder::new(shared.batch));
             session.decoder = Some(batch::Decoder::new(shared.batch));
@@ -1480,17 +1484,8 @@ mod tests {
                 }),
                 Packet::ClientToServerHandshake(packet::ClientToServerHandshake::default()),
             ];
-            let headers = packets.iter().map(|p| {
-                (
-                    Header {
-                        id: p.id(),
-                        ..Header::default()
-                    },
-                    p,
-                )
-            });
             let mut message = vec![0xff];
-            batch::encode_packets(headers, SHIELD_RUNTIME_ID, &mut Vec::new(), |payload| {
+            batch::encode_packets(&packets, &mut Vec::new(), |payload| {
                 message.extend_from_slice(payload);
                 Ok(())
             })
@@ -1499,6 +1494,82 @@ mod tests {
             assert!(matches!(ended, Err(Error::Order(_))), "{ended:?}");
             assert_eq!(session.stage, Stage::Handshake);
             assert!(queue.try_recv().is_err(), "nothing reached the tick");
+        });
+    }
+
+    /// Sessions of one IP hold at most their share of the places waiting to join: a login past it
+    /// is turned away as from a full server, and a login from another IP still gets a place.
+    #[test]
+    fn one_ip_cannot_fill_the_places_waiting_to_join() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(3);
+            let mut shared = shared(inputs);
+            Arc::get_mut(&mut shared)
+                .expect("the test holds the only reference")
+                .waiting = Arc::new(Semaphore::new(3));
+            let key = ServerKey::generate().unwrap();
+            let one_ip = Arc::new(Semaphore::new(1));
+            let mut logins = Vec::new();
+            let mut sessions = Vec::new();
+            for (id, ip) in (0..).zip([Arc::clone(&one_ip), one_ip, ip_waiting()]) {
+                let (conn, far) = crate::raknet::tests::linked_connection();
+                let mut session = Session::new(
+                    SessionId::new(id),
+                    Transport::Raknet(conn),
+                    Arc::clone(&shared),
+                    ip,
+                );
+                session.encoder = Some(batch::Encoder::new(shared.batch));
+                let login = packet::Login {
+                    client_protocol: PROTOCOL_VERSION,
+                    connection_request: login_request(&key),
+                };
+                logins.push(session.on_login(login).await.is_ok());
+                sessions.push((session, far));
+            }
+            assert_eq!(logins, [true, false, true]);
+        });
+    }
+
+    /// Asking for packs moves the spawn deadline by the base only and each chunk sent by its
+    /// allowance, so a client that asks and never downloads gains little.
+    #[test]
+    fn the_spawn_deadline_moves_by_the_chunks_sent_not_the_chunks_asked_for() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let big = crate::pack::tests::pack(UUID, "1.0.0", 7 * 128 * 1024);
+            let (shared, _stop) =
+                sharing(inputs, Offer::new(vec![big], Acceptance::Required).unwrap());
+            let (conn, _far) = crate::raknet::tests::linked_connection();
+            let mut session = Session::new(
+                SessionId::new(0),
+                Transport::Raknet(conn),
+                Arc::clone(&shared),
+                ip_waiting(),
+            );
+            session.identity = Some(identity(0));
+            session.stage = Stage::Packs;
+            let id = shared.packs.id(0).to_owned();
+            let send_packs = ResourcePackClientResponse {
+                response: u32::from(consts::PackResponse::SendPacks),
+                packs_to_download: vec![id.clone()],
+            };
+            session.on_pack_response(&send_packs).await.unwrap();
+            assert_eq!(
+                session.spawn_at,
+                session.started + SPAWN_DEADLINE + packs::DOWNLOAD_BASE
+            );
+            let request = packet::ResourcePackChunkRequest {
+                uuid: id,
+                chunk_index: 0,
+            };
+            session
+                .transfer
+                .on_chunk_request(&shared.packs, &request)
+                .unwrap();
+            let asked = session.spawn_at;
+            session.send_chunk().await.unwrap();
+            assert_eq!(session.spawn_at, asked + CHUNK_ALLOWANCE);
         });
     }
 
@@ -1517,6 +1588,7 @@ mod tests {
                 SessionId::new(0),
                 Transport::Raknet(conn),
                 Arc::clone(&shared),
+                ip_waiting(),
             );
             session.identity = Some(identity(0));
             session.stage = Stage::Packs;

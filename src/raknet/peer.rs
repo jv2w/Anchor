@@ -152,7 +152,7 @@ impl Peer {
     }
 
     /// Whether any datagram, ACK or NAK arrived yet.
-    pub(super) fn received_any(&self) -> bool {
+    pub(super) fn has_received_any(&self) -> bool {
         self.received_any
     }
 
@@ -376,10 +376,18 @@ impl Peer {
         usize::from(self.mtu).saturating_sub(UDP_HEADER_BYTES)
     }
 
-    /// Counts the datagram just accepted as proof the peer is alive, for the idle timeout.
-    fn hear(&mut self, now: Duration) {
-        self.last_received = now;
-        self.received_any = true;
+    /// The datagrams an inclusive 24-bit range of our sequence numbers can name, as the lowest
+    /// and highest number; `None` before any datagram was sent or when the range lies before the
+    /// oldest number 24 bits can still tell apart.
+    fn sent_range(&self, first: u32, last: u32) -> Result<Option<(u64, u64)>> {
+        let len = wire::u24_ahead(last, first).ok_or(Error::Malformed("acknowledgement range"))?;
+        let Some(newest) = self.next_seq.checked_sub(1) else {
+            return Ok(None);
+        };
+        let back = wire::low24(newest).wrapping_sub(first) & U24_MASK;
+        Ok(newest
+            .checked_sub(u64::from(back))
+            .map(|low| (low, low.saturating_add(u64::from(len)))))
     }
 
     /// Ends the handling of an ACK or NAK whose ranges gave `result`. A malformed one is dropped
@@ -394,18 +402,10 @@ impl Peer {
         result
     }
 
-    /// The datagrams an inclusive 24-bit range of our sequence numbers can name, as the lowest
-    /// and highest number; `None` before any datagram was sent or when the range lies before the
-    /// oldest number 24 bits can still tell apart.
-    fn sent_range(&self, first: u32, last: u32) -> Result<Option<(u64, u64)>> {
-        let len = wire::u24_ahead(last, first).ok_or(Error::Malformed("acknowledgement range"))?;
-        let Some(newest) = self.next_seq.checked_sub(1) else {
-            return Ok(None);
-        };
-        let back = wire::low24(newest).wrapping_sub(first) & U24_MASK;
-        Ok(newest
-            .checked_sub(u64::from(back))
-            .map(|low| (low, low.saturating_add(u64::from(len)))))
+    /// Counts the datagram just accepted as proof the peer is alive, for the idle timeout.
+    fn hear(&mut self, now: Duration) {
+        self.last_received = now;
+        self.received_any = true;
     }
 
     fn frame(&mut self, header: Header, body: &[u8], out: &mut Vec<Message>) -> Result<()> {
@@ -1244,7 +1244,7 @@ pub(super) mod tests {
         peer.receive(later, &jump, &mut out, &mut |_| {}).unwrap();
         assert_eq!(out, Vec::new());
         assert_eq!(peer.last_received(), T0);
-        assert!(!peer.received_any());
+        assert!(!peer.has_received_any());
         let honest = datagram(0, &[(unreliable, b"\xfe")]);
         assert_eq!(receive(&mut peer, &honest).map(|out| out.len()), Ok(1));
         // The last number the history holds is accepted, the next one is not.

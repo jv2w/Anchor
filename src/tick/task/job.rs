@@ -9,7 +9,7 @@
 //! numbered and its callback kept as in the live run, and the work is dropped unrun.
 //!
 //! A panic in the work is caught by the blocking pool, as any blocking task's is, and reaches the
-//! callback as [`Error::Panicked`]: user work is neither the tick nor the save thread, whose panics
+//! callback as [`JobError::Panicked`]: user work is neither the tick nor the save thread, whose panics
 //! stop the server, and a panicking job must not take the game down with it.
 
 use std::collections::BTreeMap;
@@ -23,13 +23,13 @@ use tracing::{debug, warn};
 
 use super::Context;
 use crate::data::{JsonError, to_json};
-use crate::task::{Error, MAX_JOBS, MAX_RESULT_BYTES, MAX_RUNNING_JOBS, Result};
+use crate::task::{Error, JobError, MAX_JOBS, MAX_RESULT_BYTES, MAX_RUNNING_JOBS, Result};
 use crate::tick::State;
 use crate::tick::checkpoint::{self, Codec, Reader, Writer};
 use crate::tick::queue::{InputSender, JobOutcome};
 
 /// A job's completion callback, taking the result's JSON or the job's error.
-type Done = Box<dyn FnOnce(&mut Context<'_>, std::result::Result<&[u8], Error>) + Send>;
+type Done = Box<dyn FnOnce(&mut Context<'_>, std::result::Result<&[u8], JobError>) + Send>;
 
 /// The blocking jobs waiting for their result.
 #[derive(Default)]
@@ -141,7 +141,7 @@ impl Runner {
                 Ok(outcome) => outcome,
                 Err(e) if e.is_panic() => {
                     warn!(job = id, "blocking work panicked");
-                    Err(Error::Panicked)
+                    Err(JobError::Panicked)
                 }
                 // The runtime is shutting down: nobody waits for the result.
                 Err(_) => return,
@@ -160,8 +160,8 @@ impl Context<'_> {
     /// by value. Its result travels as JSON and is recorded in the input log, so a replay gives
     /// `done` the same value without running `work` again.
     ///
-    /// `done` gets [`Error::Panicked`] if `work` panicked, [`Error::TooLarge`] if the result's JSON
-    /// is longer than [`MAX_RESULT_BYTES`], [`Error::Encode`] or [`Error::Decode`] if it does not
+    /// `done` gets [`JobError::Panicked`] if `work` panicked, [`JobError::TooLarge`] if the result's JSON
+    /// is longer than [`MAX_RESULT_BYTES`], [`JobError::Encode`] or [`JobError::Decode`] if it does not
     /// go through JSON and back. At most [`MAX_RUNNING_JOBS`] jobs run at once; the others wait
     /// their turn. A result that arrives after the server stopped is dropped, and work still
     /// running 10 seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns
@@ -176,7 +176,7 @@ impl Context<'_> {
     where
         T: Serialize + DeserializeOwned + Send + 'static,
         W: FnOnce() -> T + Send + 'static,
-        D: FnOnce(&mut Context<'_>, Result<T>) + Send + 'static,
+        D: FnOnce(&mut Context<'_>, std::result::Result<T, JobError>) + Send + 'static,
     {
         let jobs = &mut self.state.tasks.jobs;
         if jobs.pending.len() >= MAX_JOBS {
@@ -187,7 +187,7 @@ impl Context<'_> {
         jobs.next_id = id.checked_add(1).ok_or(Error::TooManyJobs)?;
         let finish: Done = Box::new(move |cx, outcome| {
             let result = outcome
-                .and_then(|json| serde_json::from_slice::<T>(json).map_err(|_| Error::Decode));
+                .and_then(|json| serde_json::from_slice::<T>(json).map_err(|_| JobError::Decode));
             done(cx, result);
         });
         jobs.pending.insert(id, finish);
@@ -211,8 +211,8 @@ pub(in crate::tick) fn finish(state: &mut State, id: u64, outcome: &JobOutcome) 
 /// Encodes a job's result as JSON, on the blocking thread.
 fn encode<T: Serialize>(value: &T) -> JobOutcome {
     to_json(value, MAX_RESULT_BYTES).map_err(|e| match e {
-        JsonError::TooLarge => Error::TooLarge,
-        JsonError::Encode => Error::Encode,
+        JsonError::TooLarge => JobError::TooLarge,
+        JsonError::Encode => JobError::Encode,
     })
 }
 
@@ -234,7 +234,7 @@ mod tests {
         clippy::disallowed_types,
         reason = "off-tick: tests share results with 'static callbacks"
     )]
-    type Seen<T> = Arc<std::sync::Mutex<Vec<(u64, Result<T>)>>>;
+    type Seen<T> = Arc<std::sync::Mutex<Vec<(u64, std::result::Result<T, JobError>)>>>;
 
     fn runtime() -> Runtime {
         Runtime::new(ThreadCounts { network: 1, cpu: 1 }).unwrap()
@@ -266,7 +266,7 @@ mod tests {
 
     fn note<T: Send + 'static>(
         seen: &Seen<T>,
-    ) -> impl FnOnce(&mut Context<'_>, Result<T>) + Send + 'static {
+    ) -> impl FnOnce(&mut Context<'_>, std::result::Result<T, JobError>) + Send + 'static {
         let seen = Arc::clone(seen);
         move |cx, result| seen.lock().unwrap().push((cx.tick(), result))
     }
@@ -317,10 +317,10 @@ mod tests {
             .unwrap();
         let mut batch = results(&mut queue, 4);
         tick(&mut state, &mut batch, &mut Output::default());
-        assert_eq!(*panicked.lock().unwrap(), [(0, Err(Error::Panicked))]);
-        assert_eq!(*large.lock().unwrap(), [(0, Err(Error::TooLarge))]);
+        assert_eq!(*panicked.lock().unwrap(), [(0, Err(JobError::Panicked))]);
+        assert_eq!(*large.lock().unwrap(), [(0, Err(JobError::TooLarge))]);
         assert_eq!(*fine.lock().unwrap(), [(0, Ok(vec![1; 1000]))]);
-        assert_eq!(*map.lock().unwrap(), [(0, Err(Error::Encode))]);
+        assert_eq!(*map.lock().unwrap(), [(0, Err(JobError::Encode))]);
         // A result whose JSON does not fit its type.
         let wrong: Seen<String> = Arc::default();
         Context { state: &mut state }
@@ -333,7 +333,7 @@ mod tests {
             kind: InputKind::Job(Ok(b"12".to_vec())),
         }];
         tick(&mut state, &mut batch, &mut Output::default());
-        assert_eq!(*wrong.lock().unwrap(), [(1, Err(Error::Decode))]);
+        assert_eq!(*wrong.lock().unwrap(), [(1, Err(JobError::Decode))]);
         runtime.shutdown();
     }
 
@@ -363,7 +363,12 @@ mod tests {
 
     /// What a scripted run gives: the hashes, what the callbacks saw, the log and how many works
     /// ran.
-    type Run = (Vec<u64>, Vec<(u64, Result<u32>)>, InputLog, usize);
+    type Run = (
+        Vec<u64>,
+        Vec<(u64, std::result::Result<u32, JobError>)>,
+        InputLog,
+        usize,
+    );
 
     /// Runs the ticks of `script`: tick `t` starts the jobs `script[t]` names (by a value each)
     /// and applies `results[t]`. Returns the hashes, what the callbacks saw and the log.

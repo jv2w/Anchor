@@ -59,7 +59,8 @@ const ZIP64_LOCATOR_BYTES: usize = 20;
 /// The signature of the zip64 end of central directory locator.
 const ZIP64_LOCATOR_SIGNATURE: u32 = 0x0706_4b50;
 
-/// What is wrong with an archive.
+/// What is wrong with an archive, as the fixed text `pack::Error::Archive` carries; nothing
+/// matches on the cause, so it is no enum.
 pub(super) type Fault = &'static str;
 
 /// One file or folder of an archive.

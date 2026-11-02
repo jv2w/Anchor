@@ -148,6 +148,7 @@ impl BossBar {
 
 /// Why a scoreboard or boss bar was not shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The player is not in the game: it has left, or has not joined yet.
     Offline,

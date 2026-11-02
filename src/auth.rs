@@ -450,6 +450,8 @@ mod tests {
     use crate::save::tests::TempDir;
 
     const NOW: i64 = 1_790_000_000;
+    /// How long a [`Reply::Slow`] waits before it answers.
+    const SLOW: Duration = Duration::from_millis(800);
 
     /// The cache file in `dir`.
     fn cache_path(dir: &TempDir) -> PathBuf {
@@ -482,9 +484,6 @@ mod tests {
             assert!(keys.key(KID).is_some());
         });
     }
-
-    /// How long a [`Reply::Slow`] waits before it answers.
-    const SLOW: Duration = Duration::from_millis(800);
 
     #[derive(Clone)]
     enum Reply {

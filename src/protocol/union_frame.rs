@@ -97,7 +97,7 @@ impl Reader<'_> {
             .decode_variant(self)
     }
 
-    /// Reads an `ItemDescriptorCount`: a descriptor in the recipe form and its count.
+    /// Reads an `ItemDescriptorCount`: a descriptor in the named form and its count.
     ///
     /// The form is the variant, the type name, the body and aux values that are not checked, like
     /// in gophertunnel.

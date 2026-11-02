@@ -32,7 +32,7 @@ use crate::event::{
     DuplicateOutcome, KickFlag, PlayerDuplicateLogin, PlayerInfo, PlayerJoin, PlayerLogin,
     PlayerViewDistanceChange, QuitReason,
 };
-use crate::item::{self, SHIELD_RUNTIME_ID};
+use crate::item;
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 use crate::math::Vec3;
 use crate::player::{self, MAX_TEXT, Message as Text};
@@ -492,13 +492,7 @@ fn trim_data() -> TrimData {
 /// Encodes and compresses packets, in order, into their batch bodies.
 fn encode(encoder: &mut batch::Encoder, packets: &[Packet]) -> Result<SharedBatches, batch::Error> {
     let mut bodies = Vec::new();
-    batch::encode_bodies(
-        packets,
-        SHIELD_RUNTIME_ID,
-        Some(encoder),
-        &mut Vec::new(),
-        &mut bodies,
-    )?;
+    batch::encode_bodies(packets, Some(encoder), &mut Vec::new(), &mut bodies)?;
     Ok(bodies.into())
 }
 

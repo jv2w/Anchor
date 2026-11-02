@@ -18,6 +18,9 @@
 //!
 //! Players keep a downloaded pack by its UUID and version: raise `header.version` when the
 //! contents of a pack change, or players keep the old pack.
+//!
+//! Anchor reads finished archives only: it neither zips a folder nor watches files, so a pack
+//! that changed on disk is offered after the next start, once it is zipped.
 
 mod manifest;
 mod zip;
@@ -65,9 +68,16 @@ pub struct Pack {
 impl Pack {
     /// A pack read from the bytes of its archive, for packs a program builds or embeds.
     ///
-    /// Fails if the bytes are larger than 256 MiB, are not a zip archive Anchor reads (stored or
-    /// DEFLATE entries; no zip64, encryption or multiple disks; entry names that stay inside the
-    /// pack folder), or hold no valid `manifest.json` (see the module docs).
+    /// The bytes may be at most 256 MiB, hold a zip archive Anchor reads (stored or DEFLATE
+    /// entries; no zip64, encryption or multiple disks; entry names that stay inside the pack
+    /// folder) and a valid `manifest.json` (see the module docs).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLarge`] for bytes over the limit, [`Error::Archive`] for an archive Anchor
+    /// does not read, and the manifest errors ([`Error::ManifestMissing`], [`Error::OldFormat`],
+    /// [`Error::ManifestTooLarge`], [`Error::Manifest`], [`Error::Uuid`], [`Error::Version`]) for
+    /// a manifest that is missing or invalid.
     pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Result<Self> {
         let bytes = bytes.into();
         let size = u64::try_from(bytes.len())
@@ -90,8 +100,13 @@ impl Pack {
     /// its content key ([`with_content_key`](Self::with_content_key); line breaks at its end are
     /// ignored).
     ///
-    /// This does blocking file I/O: call it before the server starts. Fails like
-    /// [`from_bytes`](Self::from_bytes), or if a file cannot be read; the error names `path`.
+    /// This does blocking file I/O: call it before the server starts.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::File`], naming `path`, with the cause: [`Error::Extension`] for another file
+    /// name ending, [`Error::Read`] for a file that cannot be read, [`Error::Key`] for a key
+    /// that is not 32 bytes of text, and the errors of [`from_bytes`](Self::from_bytes).
     #[doc(alias = "ZippedResourcePack::__construct")]
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -102,7 +117,11 @@ impl Pack {
     }
 
     /// The pack with the key its contents are encrypted with. Anchor does not decrypt the pack:
-    /// players get the key to decrypt it themselves. Fails unless the key is 32 bytes.
+    /// players get the key to decrypt it themselves.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Key`] unless the key is 32 bytes.
     #[doc(alias = "ResourcePackManager::setPackEncryptionKey")]
     pub fn with_content_key(mut self, key: impl Into<String>) -> Result<Self> {
         let key = key.into();
@@ -265,7 +284,8 @@ impl Offer {
             .iter()
             .map(|p| format!("{}_{}", p.uuid(), p.version()))
             .collect();
-        // The official server's values for an empty offer (P6); the packs as gophertunnel lists them.
+        // The values the official server sends for an empty offer; the packs as gophertunnel
+        // lists them.
         let info = ResourcePacksInfo {
             texture_pack_required: acceptance == Acceptance::Required,
             world_template_version: "0.0.0".to_owned(),
@@ -321,9 +341,13 @@ impl Offer {
         }
     }
 
-    /// The `uuid_version` name of pack `index`.
+    /// The `uuid_version` name of pack `index`, which comes from [`find`](Self::find).
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: every caller takes `index` from `find`"
+    )]
     pub(crate) fn id(&self, index: usize) -> &str {
-        self.ids.get(index).map_or("", String::as_str)
+        self.ids.get(index).expect("the pack index is in range")
     }
 
     /// `ResourcePacksInfo`, sent after the login.

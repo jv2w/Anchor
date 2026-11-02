@@ -96,7 +96,7 @@ const CRC_BYTES: usize = 4;
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
 const FORMAT: u32 = 1;
 /// The outcome byte of a job result that has its JSON; other values are
-/// [`Error::code`](crate::task::Error::code)s.
+/// [`JobError::code`](crate::task::JobError::code)s.
 const JOB_DONE: u8 = 0;
 /// The tag of a join input.
 const KIND_JOIN: u8 = 0;
@@ -1190,7 +1190,7 @@ impl<'a> Read<'a> {
                 }
                 Ok(Ok(json.to_vec()))
             }
-            code => crate::task::Error::from_code(code)
+            code => crate::task::JobError::from_code(code)
                 .map(Err)
                 .ok_or(Error::Format("job outcome")),
         }
@@ -2185,8 +2185,8 @@ mod tests {
         let results = [
             Ok(br#"{"a":[1,2]}"#.to_vec()),
             Ok(Vec::new()),
-            Err(crate::task::Error::Panicked),
-            Err(crate::task::Error::TooLarge),
+            Err(crate::task::JobError::Panicked),
+            Err(crate::task::JobError::TooLarge),
         ];
         for (id, outcome) in (0..).zip(results) {
             let size = outcome.as_ref().map_or(0, Vec::len);
@@ -2202,14 +2202,14 @@ mod tests {
         bad.record(
             SessionId::JOBS,
             0,
-            EntryKind::Job(Err(crate::task::Error::Encode)),
+            EntryKind::Job(Err(crate::task::JobError::Encode)),
             0,
         );
         let mut bytes = bad.encode().unwrap();
         // The tick ends with the outcome byte, then no dropped sessions and no answers; the
         // checksum follows.
         let at = bytes.len() - 4 - 8 - 1;
-        assert_eq!(bytes[at], crate::task::Error::Encode.code());
+        assert_eq!(bytes[at], crate::task::JobError::Encode.code());
         bytes[at] = 99;
         reseal(&mut bytes);
         assert!(matches!(

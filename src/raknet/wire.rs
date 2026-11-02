@@ -57,6 +57,10 @@ pub(super) const ID_UNCONNECTED_PONG: u8 = 0x1c;
 /// The first byte of every Minecraft game message.
 pub(super) const ID_GAME: u8 = 0xfe;
 
+/// The bytes of an IPv4 address after its family byte: four octets and the port.
+const IPV4_ADDRESS_BYTES: usize = 6;
+/// The bytes of an IPv6 address after its family byte (go-raknet `addrSize`).
+const IPV6_ADDRESS_BYTES: usize = 28;
 /// The bytes every offline message carries (RakNet `OFFLINE_MESSAGE_DATA_ID`).
 pub(super) const MAGIC: [u8; 16] = [
     0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
@@ -148,8 +152,8 @@ impl<'a> Cursor<'a> {
     /// Skips an address; its length follows go-raknet `addrSize` (family 0 or 4: IPv4).
     pub(super) fn address(&mut self) -> Result<()> {
         let len = match self.u8()? {
-            0 | 4 => 6,
-            _ => 28,
+            0 | 4 => IPV4_ADDRESS_BYTES,
+            _ => IPV6_ADDRESS_BYTES,
         };
         self.take(len).map(drop)
     }
@@ -330,7 +334,7 @@ pub(super) fn unconnected_pong(
     Ok(())
 }
 
-/// Writes `OpenConnectionReply1` with security off and no cookie, as the official server 1.26.52 sends it.
+/// Writes `OpenConnectionReply1` with security off and no cookie.
 pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, mtu: u16) {
     buf.push(ID_OPEN_CONNECTION_REPLY_1);
     buf.extend_from_slice(&MAGIC);
@@ -370,7 +374,9 @@ pub(super) fn connection_request_accepted(
     request_time: u64,
     accepted_time: u64,
 ) -> Vec<u8> {
-    let mut body = Vec::with_capacity(29 + 2 + SYSTEM_ADDRESSES * UNSET_ADDRESS.len() + 16);
+    let mut body = Vec::with_capacity(
+        1 + IPV6_ADDRESS_BYTES + 2 + SYSTEM_ADDRESSES * UNSET_ADDRESS.len() + 16,
+    );
     put_address(&mut body, client);
     body.extend_from_slice(&0_u16.to_be_bytes());
     for _ in 0..SYSTEM_ADDRESSES {

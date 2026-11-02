@@ -240,8 +240,8 @@ impl Aabb {
             && self.max.z - o.min.z > epsilon
     }
 
-    /// The box stretched toward `by`: the side each component points to moves by it, so the result covers every place the box passes moving by
-    /// `by`.
+    /// The box stretched toward `by`: the side each component points to moves by it, so the
+    /// result covers every place the box passes moving by `by`.
     #[must_use]
     pub fn stretch(self, by: Vec3) -> Self {
         let (mut min, mut max) = (self.min, self.max);
@@ -259,8 +259,8 @@ impl Aabb {
         Self { min, max }
     }
 
-    /// How far `moving` may go along x, up to `dx`, before it hits this box: `dx` itself when they do not share the y and z
-    /// ranges or this box is not ahead.
+    /// How far `moving` may go along x, up to `dx`, before it hits this box: `dx` itself when
+    /// they do not share the y and z ranges or this box is not ahead.
     pub fn clip_x(self, moving: Self, dx: f64) -> f64 {
         if moving.max.y <= self.min.y
             || moving.min.y >= self.max.y
@@ -462,8 +462,8 @@ fn atan(x: f64) -> f64 {
     if negative { -angle } else { angle }
 }
 
-/// `x` as k·π/2 + reduced with |reduced| ≤ π/4, by Cody–Waite reduction with fdlibm's split of π/2. The
-/// fdlibm constants are given by their bits.
+/// `x` as k·π/2 + reduced with |reduced| ≤ π/4, by Cody–Waite reduction with fdlibm's split of
+/// π/2. The fdlibm constants are given by their bits.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "invariant: k is magnitude rounded float; out-of-range values saturate, and only k mod 4 is used"

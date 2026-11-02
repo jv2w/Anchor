@@ -12,6 +12,7 @@ use super::compression::{self, Compression, Compressor, Decompressor};
 use super::packet::Packet;
 use super::{Reader, Writer};
 use crate::crypto::encryption::CHECKSUM_BYTES;
+use crate::item::SHIELD_RUNTIME_ID;
 use crate::protocol;
 
 /// The first byte of a batch body sent without compression.
@@ -36,11 +37,11 @@ impl Settings {
     /// The accepted values of `max_batch_bytes`.
     const BATCH_BYTES_RANGE: RangeInclusive<usize> = 1024 * 1024..=64 * 1024 * 1024;
     /// The default `max_batch_bytes`.
-    const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
+    pub(crate) const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
     /// The default `threshold`.
-    const DEFAULT_THRESHOLD: u16 = 256;
+    pub(crate) const DEFAULT_THRESHOLD: u16 = 256;
     /// The default `zlib_level`.
-    const DEFAULT_ZLIB_LEVEL: u8 = 6;
+    pub(crate) const DEFAULT_ZLIB_LEVEL: u8 = 6;
     /// The accepted values of `zlib_level`.
     const ZLIB_LEVEL_RANGE: RangeInclusive<u8> = 1..=9;
 
@@ -50,6 +51,12 @@ impl Settings {
     ///   implementations disagree on what it means.
     /// - `zlib_level`: 1 (fastest) to 9 (smallest); checked even when Snappy is chosen.
     /// - `max_batch_bytes`: 1 MiB to 64 MiB; the largest payload encoded or decoded.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Threshold`] for a threshold of 0.
+    /// [`Error::ZlibLevel`] for a zlib level outside 1 to 9.
+    /// [`Error::MaxBatchBytes`] for a size limit outside 1 MiB to 64 MiB.
     pub fn new(
         compression: Compression,
         threshold: u16,
@@ -137,6 +144,10 @@ impl Encoder {
     /// The body is the header byte, then the payload compressed, or as it is with header 0xff
     /// when it is shorter than the threshold. A payload longer than `max_batch_bytes` is a size
     /// error. On error the contents of `out` are unspecified.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Compression`] for a payload over `max_batch_bytes`.
     pub fn encode(&mut self, payload: &[u8], out: &mut Vec<u8>) -> Result<()> {
         out.clear();
         if payload.len() < usize::from(self.settings.threshold) {
@@ -195,6 +206,12 @@ impl Decoder {
     /// The header must be 0xff or the configured algorithm's id. A payload longer than
     /// `max_batch_bytes` is a size error, found before it is fully inflated. On error the contents
     /// of `out` are unspecified.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Empty`] for a batch with no header byte.
+    /// [`Error::Header`] for a header that is neither 0xff nor the configured algorithm's.
+    /// [`Error::Compression`] for a body that does not decompress or a payload over the limit.
     pub fn decode(&mut self, batch: &[u8], out: &mut Vec<u8>) -> Result<()> {
         let (&header, body) = batch.split_first().ok_or(Error::Empty)?;
         let limit = self.settings.max_batch_bytes;
@@ -223,11 +240,11 @@ impl fmt::Debug for Decoder {
     }
 }
 
-/// The header before each packet in a batch payload (gophertunnel `packet.Header`).
+/// The header before each packet in a batch payload (gophertunnel `packet.Header`), as read.
 ///
 /// It is one varuint32 with the packet ID in bits 0 to 9, the sender sub-client in bits 10 and 11
 /// and the target sub-client in bits 12 and 13. Sub-clients are split-screen players on one
-/// connection.
+/// connection. Anchor writes the packet's ID and sub-client 0.
 ///
 /// Reading ignores bits above 13, like gophertunnel: only official clients show whether they set
 /// them, so Anchor accepts every case.
@@ -260,24 +277,6 @@ impl Header {
             sender_sub_client: sub_client(Self::SENDER_SHIFT),
             target_sub_client: sub_client(Self::TARGET_SHIFT),
         })
-    }
-
-    fn write(self, w: &mut Writer) -> protocol::Result<()> {
-        if self.id > Self::MAX_ID
-            || self.sender_sub_client > Self::MAX_SUB_CLIENT
-            || self.target_sub_client > Self::MAX_SUB_CLIENT
-        {
-            return Err(protocol::Error::InvalidValue {
-                field: "packet header",
-                reason: "id or sub-client out of range",
-            });
-        }
-        w.varuint32(
-            self.id
-                | u32::from(self.sender_sub_client) << Self::SENDER_SHIFT
-                | u32::from(self.target_sub_client) << Self::TARGET_SHIFT,
-        );
-        Ok(())
     }
 }
 
@@ -412,16 +411,18 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Replaces the contents of `out` with the packets of a batch payload, decoded in order.
 ///
 /// The whole batch shares one allocation budget of 2 × `max_batch_bytes`, `out` included; going
-/// over it is [`protocol::Error::Size`]. `shield_id` is the shield's item network ID
-/// ([`crate::item::SHIELD_RUNTIME_ID`]). Errors are those of [`split`] and of [`Packet::decode`], as [`Error::Packet`]; on error `out` is empty.
+/// over it is [`protocol::Error::Size`]. On error `out` is empty.
+///
+/// # Errors
+///
+/// [`Error::Packet`] for a payload [`split`] rejects and for a packet [`Packet::decode`] rejects.
 pub fn decode_packets(
     payload: &[u8],
     settings: &Settings,
-    shield_id: i32,
     out: &mut Vec<(Header, Packet)>,
 ) -> Result<()> {
     out.clear();
-    let result = decode_into(payload, settings, shield_id, out);
+    let result = decode_into(payload, settings, out);
     if result.is_err() {
         out.clear();
     }
@@ -429,12 +430,7 @@ pub fn decode_packets(
 }
 
 /// Decodes the packets of a batch payload at the end of `out`.
-fn decode_into(
-    payload: &[u8],
-    settings: &Settings,
-    shield_id: i32,
-    out: &mut Vec<(Header, Packet)>,
-) -> Result<()> {
+fn decode_into(payload: &[u8], settings: &Settings, out: &mut Vec<(Header, Packet)>) -> Result<()> {
     let packets = split(payload)?;
     let size = Error::Packet(protocol::Error::Size);
     let list_bytes = packets
@@ -447,8 +443,8 @@ fn decode_into(
         .ok_or(size)?;
     out.reserve(packets.len());
     for (header, bytes) in packets {
-        let packet =
-            Packet::decode(header.id, bytes, &mut budget, shield_id).map_err(Error::Packet)?;
+        let packet = Packet::decode(header.id, bytes, &mut budget, SHIELD_RUNTIME_ID)
+            .map_err(Error::Packet)?;
         out.push((header, packet));
     }
     Ok(())
@@ -456,8 +452,11 @@ fn decode_into(
 
 /// Splits a batch payload into its packets without copying, after checking all of it.
 ///
-/// Like gophertunnel `DecodeFunc`, a malformed payload gives no packets. Errors, all
-/// [`Error::Packet`]: a length or header that does not end, an empty packet, and, as
+/// Like gophertunnel `DecodeFunc`, a malformed payload gives no packets.
+///
+/// # Errors
+///
+/// [`Error::Packet`] for a length or header that does not end, an empty packet, and, as
 /// [`protocol::Error::Size`], a length over the bytes left or more than 812 packets.
 pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
     let mut packets = Packets {
@@ -479,25 +478,16 @@ pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
 
 /// Encodes `packets` in order into batch bodies and appends them to `bodies`.
 ///
-/// Each packet goes under a header of its own ID ([`encode_packets`]). Each payload is compressed
-/// by `encoder`, or kept as it is, without a header byte, when there is none (before
-/// `NetworkSettings` turns compression on). Errors are those of [`encode_packets`] and
-/// [`Encoder::encode`].
+/// Each payload is compressed by `encoder`, or kept as it is, without a header byte, when there is
+/// none (before `NetworkSettings` turns compression on). Errors are those of [`encode_packets`]
+/// and [`Encoder::encode`].
 pub(crate) fn encode_bodies<'p>(
     packets: impl IntoIterator<Item = &'p Packet>,
-    shield_id: i32,
     mut encoder: Option<&mut Encoder>,
     payload: &mut Vec<u8>,
     bodies: &mut impl Extend<Vec<u8>>,
 ) -> Result<()> {
-    let headed = packets.into_iter().map(|packet| {
-        let header = Header {
-            id: packet.id(),
-            ..Header::default()
-        };
-        (header, packet)
-    });
-    encode_packets(headed, shield_id, payload, |payload| {
+    encode_packets(packets, payload, |payload| {
         let mut body = Vec::new();
         match encoder.as_deref_mut() {
             Some(encoder) => encoder.encode(payload, &mut body)?,
@@ -510,27 +500,30 @@ pub(crate) fn encode_bodies<'p>(
 
 /// Encodes `packets` in order into batch payloads and calls `flush` with each, in order.
 ///
-/// A payload is cut before it would pass 256 KiB or 812 packets; a packet over 256 KiB goes alone
-/// in its own payload. `payload` is a working buffer kept for reuse; its contents on return are
-/// unspecified. A header whose ID is not the packet's, a header field out of range or a packet
-/// that cannot be encoded is [`Error::Encode`]; payloads given to `flush` before an error stay
-/// given, and the rest are dropped. An error from `flush` ends the call.
+/// Each packet goes under a header of its own ID and sub-client 0. A payload is cut before it
+/// would pass 256 KiB or 812 packets; a packet over 256 KiB goes alone in its own payload.
+/// `payload` is a working buffer kept for reuse; its contents on return are unspecified. Payloads
+/// given to `flush` before an error stay given, and the rest are dropped.
+///
+/// # Errors
+///
+/// [`Error::Encode`] for a packet that cannot be encoded. An error from `flush` ends the call and
+/// is returned.
 pub fn encode_packets<'p>(
-    packets: impl IntoIterator<Item = (Header, &'p Packet)>,
-    shield_id: i32,
+    packets: impl IntoIterator<Item = &'p Packet>,
     payload: &mut Vec<u8>,
     mut flush: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
     payload.clear();
     let mut count = 0;
-    for (header, packet) in packets {
+    for packet in packets {
         if count == MAX_PACKETS {
             flush(payload)?;
             payload.clear();
             count = 0;
         }
         let start = payload.len();
-        append_packet(header, packet, shield_id, payload).map_err(|source| Error::Encode {
+        append_packet(packet, payload).map_err(|source| Error::Encode {
             id: packet.id(),
             source,
         })?;
@@ -554,23 +547,13 @@ pub fn encode_packets<'p>(
 /// Appends one packet to a batch payload: its length, header and bytes.
 ///
 /// On error `payload` is left as it was.
-fn append_packet(
-    header: Header,
-    packet: &Packet,
-    shield_id: i32,
-    payload: &mut Vec<u8>,
-) -> protocol::Result<()> {
-    if header.id != packet.id() {
-        return Err(protocol::Error::InvalidValue {
-            field: "packet header",
-            reason: "id is not the packet's",
-        });
-    }
+fn append_packet(packet: &Packet, payload: &mut Vec<u8>) -> protocol::Result<()> {
     let start = payload.len();
-    let mut w = Writer::new(mem::take(payload), shield_id);
+    let mut w = Writer::new(mem::take(payload), SHIELD_RUNTIME_ID);
     let result = w.length_prefixed(|w| {
-        header.write(w)?;
-        packet.encode(w.buffer_mut(), shield_id)
+        // Every packet ID fits the header's 10 bits (`Header::MAX_ID`); sub-clients are 0.
+        w.varuint32(packet.id());
+        packet.encode(w.buffer_mut(), SHIELD_RUNTIME_ID)
     });
     *payload = w.into_inner();
     if result.is_err() {
@@ -593,65 +576,43 @@ mod tests {
 
     const KIB: usize = 1024;
     const MIB: usize = 1024 * 1024;
-    const SHIELD_ID: i32 = 357;
 
-    fn header(packet: &Packet) -> Header {
-        Header {
-            id: packet.id(),
-            ..Header::default()
-        }
-    }
-
-    fn login(len: usize) -> (Header, Packet) {
-        let packet = Packet::Login(Login {
+    fn login(len: usize) -> Packet {
+        Packet::Login(Login {
             client_protocol: PROTOCOL_VERSION,
             connection_request: vec![7; len],
-        });
-        (header(&packet), packet)
+        })
     }
 
     /// Encodes `packets` and returns every payload given to `flush`.
-    fn payloads(packets: &[(Header, Packet)]) -> Result<Vec<Vec<u8>>> {
+    fn payloads(packets: &[Packet]) -> Result<Vec<Vec<u8>>> {
         let mut out = Vec::new();
         let mut buffer = Vec::new();
-        encode_packets(
-            packets.iter().map(|(h, p)| (*h, p)),
-            SHIELD_ID,
-            &mut buffer,
-            |payload| {
-                out.push(payload.to_vec());
-                Ok(())
-            },
-        )?;
+        encode_packets(packets, &mut buffer, |payload| {
+            out.push(payload.to_vec());
+            Ok(())
+        })?;
         Ok(out)
     }
 
-    fn decode(payload: &[u8], settings: &Settings) -> Result<Vec<(Header, Packet)>> {
+    /// The packets of `payload`, without their headers.
+    fn decode(payload: &[u8], settings: &Settings) -> Result<Vec<Packet>> {
         let mut out = Vec::new();
-        decode_packets(payload, settings, SHIELD_ID, &mut out)?;
-        Ok(out)
+        decode_packets(payload, settings, &mut out)?;
+        Ok(out.into_iter().map(|(_, packet)| packet).collect())
     }
 
     #[test]
     fn packet_lists_round_trip() {
-        let mut packets: Vec<(Header, Packet)> = (0..=Header::MAX_ID)
+        let mut packets: Vec<Packet> = (0..=Header::MAX_ID)
             .filter_map(Packet::from_id)
             .filter(|p| {
                 // Default packets that encode and read back alone (PlayerAuthInput does not).
                 let mut bytes = Vec::new();
                 let mut budget = MIB;
-                p.encode(&mut bytes, SHIELD_ID).is_ok()
-                    && Packet::decode(p.id(), &bytes, &mut budget, SHIELD_ID).as_ref() == Ok(p)
-            })
-            .enumerate()
-            .map(|(i, p)| {
-                let sub_client = u8::try_from(i % 4).unwrap();
-                let header = Header {
-                    id: p.id(),
-                    sender_sub_client: sub_client,
-                    target_sub_client: 3 - sub_client,
-                };
-                (header, p)
+                p.encode(&mut bytes, SHIELD_RUNTIME_ID).is_ok()
+                    && Packet::decode(p.id(), &bytes, &mut budget, SHIELD_RUNTIME_ID).as_ref()
+                        == Ok(p)
             })
             .collect();
         packets.push(login(1000));
@@ -675,34 +636,19 @@ mod tests {
         let bit_14 = [0x03, 0x80, 0x80, 0x01];
         let packets: Vec<_> = split(&bit_14).unwrap().collect();
         assert_eq!(packets, [(Header::default(), &[][..])]);
+    }
 
-        let (mut h, packet) = login(0);
-        h.sender_sub_client = 2;
-        h.target_sub_client = 1;
-        let payload = payloads(&[(h, packet.clone())]).unwrap().remove(0);
-        // id 1 | 2 << 10 | 1 << 12 = 6145 = varuint32 0x81 0x30.
-        assert_eq!(payload[1..3], [0x81, 0x30]);
-        assert_eq!(split(&payload).unwrap().next().unwrap().0, h);
-
-        for bad in [
+    #[test]
+    fn encoded_packets_carry_their_own_id_and_sub_client_0() {
+        let payload = payloads(&[login(0)]).unwrap().remove(0);
+        let (header, _) = split(&payload).unwrap().next().unwrap();
+        assert_eq!(
+            header,
             Header {
-                sender_sub_client: 4,
-                ..h
-            },
-            Header {
-                target_sub_client: 4,
-                ..h
-            },
-            Header { id: 2, ..h },
-        ] {
-            assert!(matches!(
-                payloads(&[(bad, packet.clone())]),
-                Err(Error::Encode {
-                    source: protocol::Error::InvalidValue { .. },
-                    ..
-                })
-            ));
-        }
+                id: 1,
+                ..Header::default()
+            }
+        );
     }
 
     #[test]
@@ -717,9 +663,8 @@ mod tests {
         assert_eq!(decode(&over, &Settings::default()).map(|p| p.len()), size);
     }
 
-    fn set_time(time: i32) -> (Header, Packet) {
-        let packet = Packet::SetTime(SetTime { time });
-        (header(&packet), packet)
+    fn set_time(time: i32) -> Packet {
+        Packet::SetTime(SetTime { time })
     }
 
     #[test]
@@ -739,9 +684,9 @@ mod tests {
             Err(Error::Packet(protocol::Error::InvalidValue { .. }))
         ));
         // A valid packet followed by a broken one gives no packets at all.
-        let mut out = vec![set_time(1)];
+        let mut out = vec![(Header::default(), set_time(1))];
         let partly_valid = [0x02, 0x0a, 0x00, 0x05];
-        assert!(decode_packets(&partly_valid, &Settings::default(), 0, &mut out).is_err());
+        assert!(decode_packets(&partly_valid, &Settings::default(), &mut out).is_err());
         assert!(out.is_empty());
         // Bytes after a packet inside its length are a packet error.
         assert!(matches!(
@@ -755,7 +700,7 @@ mod tests {
     /// Each list holds one value, in the packet's list of updates. A client can send it: the
     /// decoder takes every packet ID.
     fn nested_data_store(depth: usize) -> Vec<u8> {
-        let mut w = Writer::new(Vec::new(), SHIELD_ID);
+        let mut w = Writer::new(Vec::new(), SHIELD_RUNTIME_ID);
         w.varuint32(330);
         // One update, a change with an empty name and property, update count 0.
         for x in [1, 1, 0, 0] {
@@ -769,7 +714,7 @@ mod tests {
         }
         w.int32(0);
         let packet = w.into_inner();
-        let mut payload = Writer::new(Vec::new(), SHIELD_ID);
+        let mut payload = Writer::new(Vec::new(), SHIELD_RUNTIME_ID);
         payload.varuint32(u32::try_from(packet.len()).unwrap());
         payload.bytes(&packet);
         payload.into_inner()
@@ -853,9 +798,9 @@ mod tests {
         let settings = Settings::default();
         let mut out = Vec::new();
         let decoded = protocol::fuzz(&seed, 4000, |data| {
-            decode_packets(data, &settings, SHIELD_ID, &mut out)
-                .map_err(|_| protocol::Error::Size)?;
-            let again = payloads(&out).map_err(|_| protocol::Error::Size)?;
+            decode_packets(data, &settings, &mut out).map_err(|_| protocol::Error::Size)?;
+            let decoded: Vec<_> = out.iter().map(|(_, packet)| packet.clone()).collect();
+            let again = payloads(&decoded).map_err(|_| protocol::Error::Size)?;
             for payload in &again {
                 let packets = decode(payload, &settings).unwrap();
                 assert_eq!(payloads(&packets).unwrap(), std::slice::from_ref(payload));
@@ -979,7 +924,7 @@ mod tests {
     /// The client would reject it.
     #[test]
     fn packets_over_a_field_limit_do_not_encode() {
-        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_ID);
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_RUNTIME_ID);
         let title = |len: usize| {
             Packet::BossEvent(BossEvent {
                 boss_bar_title: "a".repeat(len),
@@ -1023,7 +968,7 @@ mod tests {
                 ..PlayerSkin::default()
             })
         };
-        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_ID);
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_RUNTIME_ID);
         assert_eq!(encodes(skin(1, 1, 4)), Ok(()));
         assert!(matches!(
             encodes(skin(0x4000_0001, 1, 4)),
@@ -1046,7 +991,7 @@ mod tests {
     fn an_unencodable_packet_names_its_id() {
         let packet = unencodable();
         let id = packet.id();
-        let error = payloads(&[set_time(1), (header(&packet), packet)]).unwrap_err();
+        let error = payloads(&[set_time(1), packet]).unwrap_err();
         let expected = Error::Encode {
             id,
             source: protocol::Error::Size,
@@ -1059,7 +1004,7 @@ mod tests {
     fn a_failed_append_leaves_the_payload_as_it_was() {
         let packet = unencodable();
         let mut payload = vec![1, 2, 3];
-        let result = append_packet(header(&packet), &packet, SHIELD_ID, &mut payload);
+        let result = append_packet(&packet, &mut payload);
         assert_eq!(result, Err(protocol::Error::Size));
         assert_eq!(payload, [1, 2, 3]);
     }

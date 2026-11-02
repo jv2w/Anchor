@@ -284,13 +284,22 @@ impl Context<'_> {
         self.state.network.control(Control::Unblock(ip))
     }
 
-    /// Changes the most players at once until the server stops. Players already in stay; joins
-    /// beyond it are refused. The server list shows the value the server started with, and the
-    /// networking holds at most twice that value of joined and joining players (each takes a
-    /// share of the tick's input queue, sized at start), so a value above it lets no more
+    /// Changes the most players at once until the server stops; the server list shows it once
+    /// this tick ends. Players already in stay; joins beyond it are refused. The networking
+    /// holds at most twice the value the server started with of joined and joining players (each
+    /// takes a share of the tick's input queue, sized at start), so a value above it lets no more
     /// players in.
-    pub fn set_max_players(&mut self, max: u32) {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256
+    /// network changes in one tick; nothing is changed.
+    pub fn set_max_players(&mut self, max: u32) -> crate::task::Result<()> {
+        if !self.state.network.control(Control::MaxPlayers(max)) {
+            return Err(crate::task::Error::NetworkBusy);
+        }
         self.state.settings.max_players = max;
+        Ok(())
     }
 
     /// Lends the player `id` to change while it is in the game ([`players`](Self::players));
@@ -643,7 +652,7 @@ mod tests {
         assert_eq!(cx.view_distance(), config.general.view_distance);
         assert!(!cx.should_save_player_data());
         assert_eq!(cx.tick(), state.tick);
-        Context { state: &mut state }.set_max_players(2);
+        Context { state: &mut state }.set_max_players(2).unwrap();
         let (third, mut rx3) = join(3, 0);
         tick(&mut state, &mut vec![third], &mut Output::default());
         assert!(received(&mut rx3).1.is_some(), "refused");

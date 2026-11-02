@@ -46,7 +46,7 @@ impl Handle {
     }
 }
 
-/// Why a task or blocking job failed.
+/// Why a task, a blocking job or a network change was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
@@ -54,6 +54,31 @@ pub enum Error {
     TooManyTasks,
     /// [`MAX_JOBS`] blocking jobs wait for their result already; nothing was started.
     TooManyJobs,
+    /// The tick queued the most network changes already; nothing was changed.
+    NetworkBusy,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooManyTasks => write!(f, "{MAX_TASKS} tasks are scheduled already"),
+            Self::TooManyJobs => {
+                write!(f, "{MAX_JOBS} blocking jobs wait for their result already")
+            }
+            Self::NetworkBusy => f.write_str("the tick queued the most network changes already"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Why a started blocking job gave no result; its completion callback gets it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum JobError {
     /// The blocking work panicked; the server goes on.
     Panicked,
     /// The result's JSON form is larger than [`MAX_RESULT_BYTES`].
@@ -64,16 +89,14 @@ pub enum Error {
     Decode,
 }
 
-impl Error {
+impl JobError {
     /// The error a logged byte names.
     pub(crate) const fn from_code(code: u8) -> Option<Self> {
         Some(match code {
-            1 => Self::TooManyTasks,
-            2 => Self::TooManyJobs,
-            3 => Self::Panicked,
-            4 => Self::TooLarge,
-            5 => Self::Encode,
-            6 => Self::Decode,
+            1 => Self::Panicked,
+            2 => Self::TooLarge,
+            3 => Self::Encode,
+            4 => Self::Decode,
             _ => return None,
         })
     }
@@ -81,23 +104,17 @@ impl Error {
     /// The byte the input log writes for a job that failed this way.
     pub(crate) const fn code(self) -> u8 {
         match self {
-            Self::TooManyTasks => 1,
-            Self::TooManyJobs => 2,
-            Self::Panicked => 3,
-            Self::TooLarge => 4,
-            Self::Encode => 5,
-            Self::Decode => 6,
+            Self::Panicked => 1,
+            Self::TooLarge => 2,
+            Self::Encode => 3,
+            Self::Decode => 4,
         }
     }
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for JobError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooManyTasks => write!(f, "{MAX_TASKS} tasks are scheduled already"),
-            Self::TooManyJobs => {
-                write!(f, "{MAX_JOBS} blocking jobs wait for their result already")
-            }
             Self::Panicked => f.write_str("the blocking work panicked"),
             Self::TooLarge => write!(f, "the result is larger than {MAX_RESULT_BYTES} bytes"),
             Self::Encode => f.write_str("the result does not serialize"),
@@ -106,31 +123,26 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
-
-/// A result with the module's [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+impl std::error::Error for JobError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn every_error_has_its_own_log_code() {
+    fn every_job_error_has_its_own_log_code() {
         let all = [
-            Error::TooManyTasks,
-            Error::TooManyJobs,
-            Error::Panicked,
-            Error::TooLarge,
-            Error::Encode,
-            Error::Decode,
+            JobError::Panicked,
+            JobError::TooLarge,
+            JobError::Encode,
+            JobError::Decode,
         ];
         for e in all {
-            assert_eq!(Error::from_code(e.code()), Some(e));
+            assert_eq!(JobError::from_code(e.code()), Some(e));
             assert!(!e.to_string().ends_with('.'));
         }
-        assert_eq!(Error::from_code(0), None);
-        assert_eq!(Error::from_code(7), None);
+        assert_eq!(JobError::from_code(0), None);
+        assert_eq!(JobError::from_code(5), None);
     }
 
     #[test]

@@ -167,14 +167,13 @@ impl ClientData {
         Ok(data)
     }
 
-    /// The skin the client sent, as the protocol carries it to other players (Anchor keeps
-    /// the skin as sent). The images,
-    /// geometry (`{}` when empty), resource patch and animation data are decoded from base64, tint
-    /// piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]); the full skin ID is
-    /// the skin ID and the cape ID together (the official server's value is not
-    /// confirmed). Fails if a field does not decode, the geometry or the resource patch is not a
-    /// JSON object or null (gophertunnel `ClientData.Validate`), an image dimension or animation
-    /// number is out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
+    /// Converts the skin the client sent to the form the protocol carries to other players.
+    /// The images, geometry (`{}` when empty), resource patch and animation data are decoded from
+    /// base64, tint piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]), and the full
+    /// skin ID is the skin ID and the cape ID together. Fails if a field does not decode, the
+    /// geometry or the resource patch is not a JSON object or null (gophertunnel
+    /// `ClientData.Validate`), an image dimension or animation number is out of range, or the skin
+    /// is not acceptable ([`Skin::is_acceptable`]).
     pub(crate) fn skin(&self) -> Result<Skin> {
         // Decoding allocates at most the bound; the texts are counted with the skin after.
         let mut budget = MAX_SKIN_BYTES;

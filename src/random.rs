@@ -89,7 +89,7 @@ impl Fnv {
     /// Mixes `v` as a `u64` into the hash.
     #[cfg(test)]
     pub(crate) fn usize(&mut self, v: usize) {
-        self.u64(u64::try_from(v).unwrap_or(u64::MAX));
+        self.u64(u64::try_from(v).expect("a usize fits a u64"));
     }
 
     /// Mixes `bytes` with their length in front, so adjacent fields cannot run together.

@@ -4,7 +4,8 @@
 use std::fmt;
 use std::slice::Chunks;
 
-/// The most segments in one message: the header byte counts the segments after the first.
+/// The most segments in one message: the header byte counts the segments after the first, so it
+/// holds at most `u8::MAX` of them.
 const MAX_SEGMENTS: usize = 256;
 
 /// A segment framing failure. Each one closes the peer.
@@ -117,26 +118,11 @@ impl Reassembler {
         self.remaining = Some(count);
         Ok(None)
     }
-}
 
-/// Splits `message` into segments of at most `max_payload` bytes each. Yields `(header,
-/// payload)`: the header counts the segments after this one.
-///
-/// An empty message yields no segments, as go-nethernet sends nothing for empty data; Anchor never
-/// sends an empty batch.
-pub(crate) fn segments(message: &[u8], max_payload: usize) -> Result<Segments<'_>> {
-    if max_payload == 0 {
-        return Err(Error::ZeroPayload);
+    /// Sets the largest message the next segment may complete; the bytes already held stay.
+    pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
+        self.max_message_bytes = max_message_bytes;
     }
-    let count = message.len().div_ceil(max_payload);
-    if count > MAX_SEGMENTS {
-        return Err(Error::TooManySegments);
-    }
-    let next_header = u8::try_from(count.saturating_sub(1)).map_err(|_| Error::TooManySegments)?;
-    Ok(Segments {
-        chunks: message.chunks(max_payload),
-        next_header,
-    })
 }
 
 /// The segments of one message, first to last; made by [`segments`].
@@ -162,6 +148,23 @@ impl<'a> Iterator for Segments<'a> {
         self.next_header = header.saturating_sub(1);
         Some((header, payload))
     }
+}
+
+/// Splits `message` into segments of at most `max_payload` bytes each. Yields `(header,
+/// payload)`: the header counts the segments after this one.
+///
+/// An empty message yields no segments, as go-nethernet sends nothing for empty data; Anchor never
+/// sends an empty batch.
+pub(crate) fn segments(message: &[u8], max_payload: usize) -> Result<Segments<'_>> {
+    if max_payload == 0 {
+        return Err(Error::ZeroPayload);
+    }
+    let count = message.len().div_ceil(max_payload);
+    let next_header = u8::try_from(count.saturating_sub(1)).map_err(|_| Error::TooManySegments)?;
+    Ok(Segments {
+        chunks: message.chunks(max_payload),
+        next_header,
+    })
 }
 
 #[cfg(test)]
@@ -270,6 +273,14 @@ mod tests {
         let mut reassembler = Reassembler::new(1 << 20);
         assert_eq!(reassembler.push(vec![255, 1]), Ok(None));
         assert!(reassembler.buffer.capacity() < 1024);
+    }
+
+    #[test]
+    fn a_limit_set_later_applies_to_the_next_segment() {
+        let mut reassembler = Reassembler::new(2);
+        assert_eq!(reassembler.push(vec![0, 1, 2, 3]), Err(Error::TooLarge));
+        reassembler.set_max_message_bytes(3);
+        assert_eq!(reassembler.push(vec![0, 1, 2, 3]), Ok(Some(vec![1, 2, 3])));
     }
 
     #[test]

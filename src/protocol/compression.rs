@@ -16,6 +16,8 @@ const ALGORITHM_SNAPPY: u16 = CompressionAlgorithm::Snappy as u16;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Compression {
     /// Raw DEFLATE without a zlib header. Network id 0. Smaller batches, more CPU.
+    ///
+    /// Named after the `zlib` value of the `compression` setting, not after the stream format.
     Zlib,
     /// Snappy block format. Network id 1. Less CPU, larger batches.
     ///
@@ -105,8 +107,7 @@ pub(crate) enum Compressor {
 }
 
 impl Compressor {
-    /// Returns a compressor for `compression`; `zlib_level` must be in 1..=9 and is ignored for
-    /// Snappy.
+    /// A compressor for `compression`; `zlib_level` must be in 1..=9 and is ignored for Snappy.
     pub(crate) fn new(compression: Compression, zlib_level: u8) -> Self {
         match compression {
             Compression::Zlib => Self::Zlib(zlib::Encoder::new(zlib_level)),
@@ -114,7 +115,7 @@ impl Compressor {
         }
     }
 
-    /// Returns the most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
+    /// The most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
     pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
         match self {
             Self::Zlib(encoder) => encoder.max_compressed_len(input_len),
@@ -140,7 +141,7 @@ pub(crate) enum Decompressor {
 }
 
 impl Decompressor {
-    /// Returns a decompressor for `compression`.
+    /// A decompressor for `compression`.
     pub(crate) fn new(compression: Compression) -> Self {
         match compression {
             Compression::Zlib => Self::Zlib(zlib::Decoder::new()),
@@ -173,7 +174,7 @@ pub(crate) mod tests {
     /// The decompression limit of the mutation test.
     const MAX_MUTATION_BYTES: usize = 64 * 1024;
     /// The decompression limit of the round-trip tests.
-    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+    pub(crate) const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
     /// The input sizes of the round-trip tests.
     pub(crate) const ROUND_TRIP_SIZES: [usize; 6] = [0, 1, 255, 256, 64 * 1024, 1024 * 1024];
 

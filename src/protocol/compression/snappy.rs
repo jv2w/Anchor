@@ -1,12 +1,15 @@
 //! Snappy block format: a greedy hash-table encoder and a strict decoder of standard elements.
 //!
-//! The encoder follows the reference matcher (Go `snappy.Encode`): 64 KiB blocks, a hash table of
-//! up to 2^14 entries, copies with offsets below 2^16. The decoder accepts every standard element,
+//! The encoder is a translation of golang/snappy's (BSD-3-Clause; its notice is in
+//! `THIRD-PARTY-NOTICES.md`): 64 KiB blocks, a hash table of up to 2^14 entries, copies with
+//! offsets below 2^16. The decoder accepts every standard element,
 //! copy-4 included, and rejects offset 0, offsets before the output, output past the declared
 //! length, input after the declared length, and output shorter than the declared length.
 
 use super::{Error, Result};
 
+/// The multiplier of the match table's hash.
+const HASH_MULTIPLIER: u32 = 0x1e35_a7bd;
 /// Bytes kept after the last match start so the 8-byte loads stay inside the block.
 const INPUT_MARGIN: usize = 16 - 1;
 /// The encoder matches inside blocks of this size, so copy offsets fit in 16 bits.
@@ -50,7 +53,7 @@ impl Encoder {
     }
 }
 
-/// Returns the most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+/// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
 pub(crate) fn max_compressed_len(input_len: usize) -> usize {
     input_len.saturating_add(input_len / 6).saturating_add(32)
 }
@@ -130,7 +133,7 @@ fn encode_block(table: &mut [u16], src: &[u8], out: &mut Vec<u8>) {
 }
 
 const fn hash(bytes: u32, shift: u32) -> usize {
-    (bytes.wrapping_mul(0x1e35_a7bd) >> shift) as usize
+    (bytes.wrapping_mul(HASH_MULTIPLIER) >> shift) as usize
 }
 
 #[expect(
@@ -255,7 +258,8 @@ pub(crate) fn decompress(input: &[u8], limit: usize, out: &mut Vec<u8>) -> Resul
     }
 }
 
-/// Reads the declared length: a varint of at most 5 bytes whose value fits in `u32`.
+/// The declared length, a varint of at most 5 bytes whose value fits in `u32`, and the input
+/// after it.
 fn read_length(mut rest: &[u8]) -> Result<(u32, &[u8])> {
     let mut value = 0_u64;
     for shift in [0, 7, 14, 21, 28] {
@@ -304,7 +308,7 @@ fn copy(offset: usize, len: usize, declared: usize, out: &mut Vec<u8>) -> Result
 mod tests {
     use super::*;
 
-    const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+    use crate::protocol::compression::tests::MAX_OUTPUT_BYTES;
 
     fn decode(input: &[u8]) -> Result<Vec<u8>> {
         let mut out = Vec::new();

@@ -139,7 +139,9 @@ impl fmt::Display for Error {
                 "a data file has format {version}, newer than the supported {supported}"
             ),
             Self::Storage(_) => f.write_str("a data file could not be opened, read or saved"),
-            Self::DuplicateWorld { name } => write!(f, "two worlds are named {name:?}"),
+            Self::DuplicateWorld { name } => {
+                write!(f, "two worlds are named {name:?}, letter case aside")
+            }
             Self::InvalidWorldName { name } => {
                 write!(f, "the world name {name:?} cannot be a file name")
             }
@@ -160,8 +162,8 @@ impl fmt::Display for Error {
             Self::Pack(_) => f.write_str("a resource pack is invalid"),
             Self::Import(_) => f.write_str("the world could not be imported"),
             Self::Export(_) => f.write_str("the world could not be exported"),
-            Self::Output(_) => f.write_str("could not write to standard output"),
             Self::Usage => f.write_str(USAGE),
+            Self::Output(_) => f.write_str("could not write to standard output"),
         }
     }
 }
@@ -172,16 +174,9 @@ impl std::error::Error for Error {
             Self::Config(e) => Some(e),
             Self::Start(e) | Self::Output(e) => Some(e),
             Self::Network { source, .. } => Some(source),
-            Self::Command(e) => Some(e),
-            Self::CustomEntity(e) => Some(e),
-            Self::Custom(e) => Some(e),
-            Self::Data(e) => Some(e),
-            Self::Pack(e) => Some(e),
-            Self::Import(e) => Some(e),
-            Self::Export(e) => Some(e),
-            Self::Auth(e)
-            | Self::IdentityKey(e)
+            Self::IdentityKey(e)
             | Self::TlsCertificate(e)
+            | Self::Auth(e)
             | Self::WorldDamaged(e)
             | Self::Storage(e) => Some(e.as_ref()),
             Self::TickPanicked { .. }
@@ -192,12 +187,16 @@ impl std::error::Error for Error {
             | Self::DuplicateGenerator { .. }
             | Self::GeneratorSpawn { .. }
             | Self::Usage => None,
+            Self::Command(e) => Some(e),
+            Self::CustomEntity(e) => Some(e),
+            Self::Custom(e) => Some(e),
+            Self::Data(e) => Some(e),
+            Self::Pack(e) => Some(e),
+            Self::Import(e) => Some(e),
+            Self::Export(e) => Some(e),
         }
     }
 }
-
-/// A result with the module's [`enum@Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl From<config::Error> for Error {
     fn from(e: config::Error) -> Self {
@@ -247,6 +246,9 @@ impl From<storage::Error> for Error {
         }
     }
 }
+
+/// A result with the module's [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Writes `error` and then each of its causes, separated by `: `: the one form in which an
 /// error and its causes appear on one line.

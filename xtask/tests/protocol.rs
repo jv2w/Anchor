@@ -17,7 +17,7 @@ use std::panic;
 use std::sync::OnceLock;
 
 use anchor::nbt::{Compound, List, Value};
-use anchor::protocol::batch::{self, Header, Settings};
+use anchor::protocol::batch::{self, Settings};
 use anchor::protocol::packet::{
     BlockActorData, BookEdit, ClientCacheBlobStatus, CommandRequest,
     ItemStackRequest as ItemStackRequestPacket, MobEquipment, Packet, PlayerEnchantOptions,
@@ -839,15 +839,14 @@ fn a_batch_of_more_than_812_packets_is_a_size_error() {
     let mut out = Vec::new();
     let settings = Settings::default();
     assert_eq!(batch::split(&set_time_batch(812)).map(|p| p.len()), Ok(812));
-    batch::decode_packets(&set_time_batch(812), &settings, SHIELD_ID, &mut out)
-        .expect("812 packets decode");
+    batch::decode_packets(&set_time_batch(812), &settings, &mut out).expect("812 packets decode");
     assert_eq!(out.len(), 812);
     assert_eq!(
         batch::split(&set_time_batch(813)).map(|p| p.len()),
         Err(size)
     );
     assert_eq!(
-        batch::decode_packets(&set_time_batch(813), &settings, SHIELD_ID, &mut out),
+        batch::decode_packets(&set_time_batch(813), &settings, &mut out),
         Err(size)
     );
     assert!(out.is_empty());
@@ -855,30 +854,16 @@ fn a_batch_of_more_than_812_packets_is_a_size_error() {
 
 /// One sample of every packet in one batch payload, through the public batch encoder.
 fn corpus_batch() -> Vec<u8> {
-    let packets: Vec<(Header, Packet)> = corpus()
+    let packets: Vec<Packet> = corpus()
         .iter()
-        .map(|(&id, samples)| {
-            let header = Header {
-                id,
-                ..Header::default()
-            };
-            (
-                header,
-                decode(id, &samples[0]).expect("the sample decodes (P1)"),
-            )
-        })
+        .map(|(&id, samples)| decode(id, &samples[0]).expect("the sample decodes (P1)"))
         .collect();
     let mut payloads = Vec::new();
     let mut scratch = Vec::new();
-    batch::encode_packets(
-        packets.iter().map(|(h, p)| (*h, p)),
-        SHIELD_ID,
-        &mut scratch,
-        |payload| {
-            payloads.push(payload.to_vec());
-            Ok(())
-        },
-    )
+    batch::encode_packets(&packets, &mut scratch, |payload| {
+        payloads.push(payload.to_vec());
+        Ok(())
+    })
     .expect("the corpus encodes");
     assert_eq!(payloads.len(), 1, "the corpus fits one payload");
     payloads.remove(0)
@@ -891,7 +876,7 @@ fn mutated_batch_payloads_and_connection_requests_never_panic() {
     let settings = Settings::default();
     let payload = corpus_batch();
     let mut out = Vec::new();
-    batch::decode_packets(&payload, &settings, SHIELD_ID, &mut out).expect("the batch decodes");
+    batch::decode_packets(&payload, &settings, &mut out).expect("the batch decodes");
     assert_eq!(out.len(), PACKET_COUNT);
 
     let mut request = Vec::new();
@@ -908,7 +893,7 @@ fn mutated_batch_payloads_and_connection_requests_never_panic() {
         let m = mutate(&mut rng, &payload);
         if let Err(e) = panic::catch_unwind(|| {
             let mut out = Vec::new();
-            batch::decode_packets(&m, &settings, SHIELD_ID, &mut out).map(|()| out.len())
+            batch::decode_packets(&m, &settings, &mut out).map(|()| out.len())
         }) {
             panics.push(format!(
                 "batch: {} m [{}]",

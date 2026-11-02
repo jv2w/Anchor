@@ -39,9 +39,9 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest datagram passed to str0m, in bytes: an Ethernet MTU. Honest peers stay below it
 /// (pion sends SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
 pub(crate) const MAX_DATAGRAM: usize = 1500;
-/// The largest data channel message sent, in bytes: the official server's `a=max-message-size`. It sends
-/// segments of this minus the header byte, 262,143 bytes (P6); a remote that announces less gets
-/// smaller ones.
+/// The largest data channel message sent, in bytes: the official server's `a=max-message-size`.
+/// It sends segments of this minus the header byte, 262,143 bytes (P6); a remote that announces
+/// less gets smaller ones.
 const MAX_SEND_MESSAGE_BYTES: usize = 256 * 1024;
 /// The time from the peer's creation until both channels are open.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -416,6 +416,12 @@ impl Peer {
         }
     }
 
+    /// Sets the largest message the peer accepts, from the next segment on.
+    pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
+        self.max_message_bytes = max_message_bytes;
+        self.reassembler.set_max_message_bytes(max_message_bytes);
+    }
+
     /// Takes a datagram from `from`. Datagrams that are not STUN or DTLS, too large, or not
     /// accepted by ICE are dropped; a fatal one closes the peer, which `poll` reports.
     ///
@@ -774,8 +780,9 @@ impl fmt::Debug for Peer {
 
 /// The offer as str0m reads it: the remote's ICE credentials (`sdp` checked their characters),
 /// fingerprint and message size, and `setup:passive`. A NetherNet client offers `actpass`, for
-/// which str0m would take the DTLS server role; the official server takes the client role, and so does str0m
-/// told the remote is passive. str0m then also runs SCTP as the client and ICE as controlled.
+/// which str0m would take the DTLS server role; the official server takes the client role, and so
+/// does str0m told the remote is passive. str0m then also runs SCTP as the client and ICE as
+/// controlled.
 /// Candidates are added to str0m directly.
 fn str0m_offer(remote: &Remote) -> String {
     format!(
@@ -904,17 +911,22 @@ pub(crate) mod tests {
 
     /// The number of messages of the bulk phase of the cost measurement.
     const BULK: u32 = 16;
+    /// The address of the test client.
     const CLIENT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 50_000);
     /// The test client drives str0m's direct API, which sends at most 64 KiB messages: so the
     /// peer also receives 65,535-byte segments, which the official server accepts too (P6).
     const CLIENT_PAYLOAD_BYTES: usize = 64 * 1024 - 1;
     /// The bytes of a DTLS record header.
     const DTLS_RECORD_HEADER_BYTES: usize = 13;
+    /// The largest message the test peer reassembles, in bytes.
     pub(crate) const MAX_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
     /// The bytes of a mebibyte.
     const MIB_BYTES: usize = 1024 * 1024;
+    /// The odd multiplier that spreads a small seed over a whole xorshift state.
+    const RNG_SEED_MIX: u64 = 0x9e37_79b9_7f4a_7c15;
     /// The number of handshakes per loss percentage.
     const RUNS: u64 = 300;
+    /// The address of the peer under test.
     const SERVER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 19_133);
     /// The datagrams one side may receive before the peer opens; far above the 10 to 60 a
     /// faulty handshake takes, so only a retransmission storm reaches it.
@@ -1205,7 +1217,7 @@ pub(crate) mod tests {
             Self {
                 fault,
                 // xorshift needs a nonzero state.
-                rng: seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1,
+                rng: seed.wrapping_mul(RNG_SEED_MIX) | 1,
                 start,
                 delivered: [0; 2],
                 dtls: None,
@@ -1664,9 +1676,10 @@ pub(crate) mod tests {
         assert_eq!(h.peer.queued, 0);
     }
 
-    /// Reproduces the str0m 0.24.0 defects fixed in 0.24.1 (#1062): the send buffer was fixed at 128 KiB, so a 262,144-byte message never left, and
-    /// polling recursed once per queued SCTP packet, which overflowed the stack on large sends
-    /// (see also `channels_open_and_messages_round_trip_both_ways`).
+    /// Reproduces the str0m 0.24.0 defects fixed in 0.24.1 (#1062): the send buffer was fixed at
+    /// 128 KiB, so a 262,144-byte message never left, and polling recursed once per queued SCTP
+    /// packet, which overflowed the stack on large sends (see also
+    /// `channels_open_and_messages_round_trip_both_ways`).
     #[test]
     fn a_segment_of_the_remote_max_message_bytes_is_sent() {
         let (server, client) = certificates();
@@ -2270,7 +2283,7 @@ pub(crate) mod tests {
         assert!(open.run(Duration::from_secs(5), |h| !h.received.is_empty()));
         let record = open.record.take().unwrap();
         let mut early = handshaking(&server, &client);
-        let mut rng = 0x9e37_79b9_7f4a_7c15;
+        let mut rng = RNG_SEED_MIX;
         let (mut panicked, mut closed) = (0, 0);
         for round in 0..10_000 {
             let mut datagram = record[below(&mut rng, record.len())].clone();

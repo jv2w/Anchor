@@ -91,7 +91,8 @@ struct Environment {
 
 /// The verification keys of a JWKS.
 /// They are RSA keys for signing (no `use`, or `sig`) with no `alg` or RS256. Other key types are
-/// skipped; a malformed RSA key, a duplicate `kid` or no usable key rejects the whole set.
+/// skipped; a malformed RSA key, a duplicate `kid` or no usable key rejects the whole set. The
+/// error is a fixed reason: the caller adds the URL or the path it came from.
 pub(super) fn keys(openid: &OpenId, jwks: &Jwks) -> Result<Keys, &'static str> {
     if openid.issuer.is_empty() {
         return Err("empty issuer");

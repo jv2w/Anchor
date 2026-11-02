@@ -11,6 +11,7 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{OnceCell, OwnedSemaphorePermit, Semaphore, mpsc};
 use tracing::debug;
 
+use crate::config::GameMode;
 use crate::crypto;
 use crate::entity::{MAX_SKIN_BYTES, MAX_SKIN_JSON_DEPTH};
 use crate::protocol::consts;
@@ -464,6 +465,10 @@ pub(crate) enum Measure {
 pub(crate) enum Control {
     /// The server list shows this name (a checked `motd`).
     Motd(String),
+    /// The server list shows this player limit.
+    MaxPlayers(u32),
+    /// The server list shows this default game mode.
+    GameMode(GameMode),
     /// Connections from `ip` are refused for `duration` from when the networking reads it;
     /// one that would end past what the clock holds lasts until it is unblocked.
     Block {
@@ -477,7 +482,7 @@ pub(crate) enum Control {
 /// A blocking job's result as it travels to the tick and into the input log: the JSON of the
 /// value its work returned, at most [`MAX_RESULT_BYTES`](crate::task::MAX_RESULT_BYTES), or why
 /// there is none.
-pub(crate) type JobOutcome = Result<Vec<u8>, crate::task::Error>;
+pub(crate) type JobOutcome = Result<Vec<u8>, crate::task::JobError>;
 
 /// Batches encoded and compressed once at start and sent to every player as they are: batch bodies,
 /// each a compression header and the compressed packets, without the encryption a RakNet session

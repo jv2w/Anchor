@@ -163,16 +163,16 @@ mod tests {
     fn console_lines_are_queued_without_line_ends_and_bounded() {
         let long = "x".repeat(MAX_LINE_BYTES + 1);
         let fit = "y".repeat(MAX_LINE_BYTES);
-        let input = format!("op steve\r\n\n  \nsay hi\n{long}\n{fit}\r\nlast");
+        let input = format!("op steve\r\n\n  \nlist\n{long}\n{fit}\r\nlast");
         let mut bytes = input.into_bytes();
         bytes.extend_from_slice(b"\nbad \xff\nend");
-        assert_eq!(lines(&bytes), ["op steve", "say hi", &fit, "last", "end"]);
+        assert_eq!(lines(&bytes), ["op steve", "list", &fit, "last", "end"]);
     }
 
     #[test]
     fn terminal_escapes_and_control_characters_are_stripped() {
-        let input = "\x1b[Asay hi\x07\n\x1b[3~\x1b[1;5Clist\x1b\n\x1b[B\t\n";
-        assert_eq!(lines(input.as_bytes()), ["say hi", "list"]);
+        let input = "\x1b[Akick bob\x07\n\x1b[3~\x1b[1;5Clist\x1b\n\x1b[B\t\n";
+        assert_eq!(lines(input.as_bytes()), ["kick bob", "list"]);
     }
 
     #[test]

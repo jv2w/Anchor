@@ -416,11 +416,12 @@ impl Writer {
 mod tests {
     use super::*;
 
+    use crate::item::SHIELD_RUNTIME_ID;
     use crate::nbt::Value;
     use crate::protocol::fuzz_round_trip;
 
     const BUDGET: usize = 1 << 20;
-    const SHIELD: i32 = 357;
+    const SHIELD: i32 = SHIELD_RUNTIME_ID;
 
     fn shield_stack() -> ItemStack {
         ItemStack {
@@ -445,7 +446,7 @@ mod tests {
     fn a_shield_item_matches_gophertunnel_bytes() {
         let bytes = write_item(&shield_stack(), SHIELD);
         let expected = [
-            0xca, 0x05, // network id 357
+            0xcc, 0x05, // network id 358
             0x01, 0x00, // count
             0x00, // metadata
             0x00, // block runtime id

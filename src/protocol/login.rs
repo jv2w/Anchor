@@ -21,6 +21,13 @@ impl ConnectionRequest {
     ///
     /// An empty chain or bytes after the raw token are an error, like in gophertunnel.
     /// Allocation is bounded by the input length.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidValue`] for an empty chain or bytes after the raw token.
+    /// [`Error::Size`] for a negative length or one past the input.
+    /// [`Error::UnexpectedEnd`] for input that ends inside a length.
+    /// [`Error::InvalidUtf8`] for a chain or token that is not UTF-8.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data, data.len(), 0);
         let request = Self::decode(&mut r)?;

@@ -349,8 +349,11 @@ impl Server {
         // Made first: the start checks the data files on it.
         let pool = runtime::cpu_pool(threads.cpu)?;
         let ready = (|| {
-            // Before any data file is opened: a pack that cannot be offered leaves no file made.
-            // No tick or async task runs yet, so the file reads block nothing.
+            let runtime = Runtime::new(threads)?;
+            // Before any data file is opened: a network start that fails leaves no file made.
+            let prepared = runtime.block_on(session::prepare(&config, &data_dir))?;
+            // Likewise a pack that cannot be offered. No tick or async task runs yet, so the file
+            // reads block nothing.
             let offer = Offer::load(
                 &config.resource_pack_paths(&data_dir.join(pack::FOLDER)),
                 packs,
@@ -366,9 +369,9 @@ impl Server {
             opened
                 .thread
                 .set_lighting(config.developer.lighting.is_calculated());
-            Ok::<_, Error>((offer, opened, Runtime::new(threads)?))
+            Ok::<_, Error>((prepared, offer, opened, runtime))
         })();
-        let (offer, mut opened, runtime) = match ready {
+        let (prepared, offer, mut opened, runtime) = match ready {
             Ok(ready) => ready,
             Err(e) => {
                 // Dropping the pool would not wait for its threads (`Pool::shutdown`).
@@ -434,8 +437,14 @@ impl Server {
             signals,
             log: log.as_ref().map(console::log::Installed::drained),
         };
-        let served =
-            runtime.block_on(running.serve(config, offer, &data_dir, inputs, control_queue));
+        let served = runtime.block_on(running.serve(
+            config,
+            prepared,
+            offer,
+            &data_dir,
+            inputs,
+            control_queue,
+        ));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
         // The tick has ended: after its `Finish` the save thread commits what it holds and ends;
@@ -753,6 +762,7 @@ impl Running {
     async fn serve(
         self,
         config: Arc<Config>,
+        prepared: session::Prepared,
         packs: Offer,
         data_dir: &Path,
         inputs: InputSender,
@@ -769,13 +779,14 @@ impl Running {
         } = self;
         tokio::spawn(stop_on_signals(shutdown.clone(), signals, log));
         tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
-        let network = match session::start(config, packs, data_dir, inputs, controls).await {
-            Ok(network) => network,
-            Err(e) => {
-                stop(&stop_tick, tick_done).await;
-                return Err(e);
-            }
-        };
+        let network =
+            match session::start(config, prepared, packs, data_dir, inputs, controls).await {
+                Ok(network) => network,
+                Err(e) => {
+                    stop(&stop_tick, tick_done).await;
+                    return Err(e);
+                }
+            };
         info!("server started");
         let tick_ended = tokio::select! {
             // `None` cannot happen while `shutdown` is alive; both mean stop.

@@ -60,8 +60,12 @@ impl<F: Flag> FlagSet<F> {
     /// The set of the flags at the bit positions set in `words`.
     ///
     /// Bit `b` of `words[w]` is bit position `64 × w + b`; a mask group's wire integer is
-    /// `words[0]`. Fails with [`Error::UnknownEnum`] (the value is the bit position) on a set bit
-    /// that is no flag of the group.
+    /// `words[0]`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownEnum`] (the value is the bit position) for a set bit that is no flag of the
+    /// group.
     pub fn from_words(words: &[u64]) -> Result<Self> {
         let mut set = Self::new();
         for (i, &word) in words.iter().enumerate() {
@@ -78,7 +82,9 @@ impl<F: Flag> FlagSet<F> {
 
     /// The set of the flags at the bit positions set in a [`Bitset`].
     ///
-    /// Fails like [`Self::from_words`].
+    /// # Errors
+    ///
+    /// [`Error::UnknownEnum`] like [`Self::from_words`].
     pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
         let mut set = Self::new();
         for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {
@@ -189,8 +195,11 @@ impl InputFlags {
 
     /// The flags as a set, for O(1) [`FlagSet::contains`].
     ///
-    /// Fails with [`Error::UnknownEnum`] on an ID that is no [`InputFlag`] (decoded packets hold
-    /// only known IDs).
+    /// Decoded packets hold only known IDs.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownEnum`] for an ID that is no [`InputFlag`].
     pub fn to_set(&self) -> Result<FlagSet<InputFlag>> {
         let mut set = FlagSet::new();
         for &id in &self.ids {

@@ -11,6 +11,8 @@ use serde::Deserialize;
 use crate::crypto::{STD, crc32, max_jws_text};
 use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 
+/// The hash name of the only fingerprint accepted and written, in lowercase.
+pub(super) const FINGERPRINT_ALGORITHM: &str = "sha-256";
 /// The bytes in a SHA-256 fingerprint.
 const FINGERPRINT_BYTES: usize = 32;
 /// The priority of the answer's host candidate, as the official server writes it.
@@ -19,12 +21,16 @@ const HOST_PRIORITY: u32 = 2_122_260_223;
 const ICE_PWD_LEN_RANGE: RangeInclusive<usize> = 22..=256;
 /// The length of `ice-ufrag` in characters (RFC 8839 5.4).
 const ICE_UFRAG_LEN_RANGE: RangeInclusive<usize> = 4..=256;
+/// The protocol of the identity provider in an `a=identity` value.
+pub(super) const IDENTITY_PROTOCOL: &str = "default";
 /// The most usable candidates. A client offers one per interface and address family.
 const MAX_CANDIDATES: usize = 32;
 /// The longest identity provider domain, in bytes.
 const MAX_DOMAIN_BYTES: usize = 256;
 /// The longest detached fingerprint JWS text, in bytes. An ES384 one is 150.
 const MAX_FINGERPRINTS_BYTES: usize = 1024;
+/// The longest candidate foundation, in characters (RFC 8839 5.1).
+const MAX_FOUNDATION_CHARS: usize = 32;
 /// The largest decoded `a=identity` JSON, in bytes.
 const MAX_IDENTITY_JSON_BYTES: usize = 32 * 1024;
 /// The most non-empty lines in an offer. A real offer has about 20.
@@ -344,7 +350,7 @@ fn fingerprint(value: Option<&str>) -> Result<Fingerprint> {
     let (algorithm, digest) = value
         .and_then(|v| v.split_once(' '))
         .ok_or(Error::Invalid("fingerprint"))?;
-    if !algorithm.eq_ignore_ascii_case("sha-256") {
+    if !algorithm.eq_ignore_ascii_case(FINGERPRINT_ALGORITHM) {
         return Err(Error::Invalid("fingerprint algorithm"));
     }
     let bytes = parse_digest(digest).ok_or(Error::Invalid("fingerprint"))?;
@@ -398,7 +404,7 @@ fn candidate(value: Option<&str>) -> Result<Option<SocketAddr>> {
     ) else {
         return Err(Error::Invalid("candidate"));
     };
-    if foundation.len() > 32
+    if foundation.len() > MAX_FOUNDATION_CHARS
         || !foundation.bytes().all(is_ice_char)
         || typ != "typ"
         || !kind.bytes().all(|b| b.is_ascii_alphanumeric())
@@ -424,7 +430,7 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
     let outer: IdentityJson = serde_json::from_slice(&json).map_err(Error::IdentityJson)?;
     let inner: AssertionJson =
         serde_json::from_str(&outer.assertion).map_err(Error::IdentityJson)?;
-    if outer.idp.protocol != "default" {
+    if outer.idp.protocol != IDENTITY_PROTOCOL {
         return Err(Error::Identity("protocol is not default"));
     }
     let domain = &outer.idp.domain;
@@ -503,7 +509,7 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
          a=ice-ufrag:{ice_ufrag}\r\n\
          a=ice-pwd:{ice_pwd}\r\n\
          a=ice-options:trickle\r\n\
-         a=fingerprint:sha-256 {fingerprint}\r\n\
+         a=fingerprint:{FINGERPRINT_ALGORITHM} {fingerprint}\r\n\
          a=setup:active\r\n\
          a=mid:0\r\n\
          a=sctp-port:{SCTP_PORT}\r\n\

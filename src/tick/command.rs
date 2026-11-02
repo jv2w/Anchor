@@ -1069,10 +1069,18 @@ impl Context<'_> {
     }
 
     /// Sets the game mode new players get (`gamemode`) until the server stops; with
-    /// `force-gamemode` every join gets it. The server list keeps the mode the server started
-    /// with.
-    pub fn set_default_game_mode(&mut self, mode: GameMode) {
+    /// `force-gamemode` every join gets it. The server list shows it once this tick ends.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256
+    /// network changes in one tick; nothing is changed.
+    pub fn set_default_game_mode(&mut self, mode: GameMode) -> crate::task::Result<()> {
+        if !self.state.network.control(queue::Control::GameMode(mode)) {
+            return Err(crate::task::Error::NetworkBusy);
+        }
         self.state.settings.game_mode = mode;
+        Ok(())
     }
 
     /// Sends `packets` to every online player with

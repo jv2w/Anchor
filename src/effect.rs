@@ -287,7 +287,7 @@ impl Type {
 
     /// The translation key of the name, such as `potion.poison`.
     #[doc(alias = "Effect::getName")]
-    pub fn text(self) -> &'static str {
+    pub fn translation_key(self) -> &'static str {
         self.data().text
     }
 
@@ -506,7 +506,7 @@ mod tests {
         let poison = Type::Poison;
         assert_eq!(poison.id(), 19);
         assert!(poison.is_bad() && !poison.is_instant());
-        assert_eq!(poison.text(), "potion.poison");
+        assert_eq!(poison.translation_key(), "potion.poison");
         assert_eq!(poison.default_duration_ticks(), 600);
         assert!(Type::InstantHealth.is_instant());
         assert_eq!(Type::InstantHealth.default_duration_ticks(), 1);
@@ -625,7 +625,7 @@ mod tests {
         for (t, want) in Type::all().iter().zip(effects) {
             let byte = |v: &serde_json::Value| u8::try_from(v.as_u64().unwrap()).unwrap();
             assert_eq!(u64::from(t.id()), want["id"].as_u64().unwrap(), "{t:?}");
-            assert_eq!(t.text(), want["text"].as_str().unwrap(), "{t:?}");
+            assert_eq!(t.translation_key(), want["text"].as_str().unwrap(), "{t:?}");
             // The official server's colours replace the dump's for the effects its potions show
             // (`effect_colours_are_the_ones_the_official_server_shows`).
             let c = &want["colour"];

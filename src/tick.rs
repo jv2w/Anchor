@@ -2443,7 +2443,8 @@ mod tests {
         crate::tick::Context {
             state: &mut game_mode,
         }
-        .set_default_game_mode(GameMode::Spectator);
+        .set_default_game_mode(GameMode::Spectator)
+        .unwrap();
         let hashes = [base.hash(), difficulty.hash(), game_mode.hash()];
         assert_ne!(hashes[0], hashes[1]);
         assert_ne!(hashes[0], hashes[2]);
@@ -2493,17 +2494,10 @@ mod tests {
                 if let Packet::PlayerList(l) = &packet {
                     listed += l.entries.len();
                 }
-                let header = crate::protocol::batch::Header {
-                    id: packet.id(),
-                    ..crate::protocol::batch::Header::default()
-                };
                 let mut payload = Vec::new();
-                crate::protocol::batch::encode_packets(
-                    [(header, &packet)],
-                    crate::item::SHIELD_RUNTIME_ID,
-                    &mut payload,
-                    |p| encoder.encode(p, &mut Vec::new()),
-                )
+                crate::protocol::batch::encode_packets([&packet], &mut payload, |p| {
+                    encoder.encode(p, &mut Vec::new())
+                })
                 .expect("every packet fits a batch");
             }
         }

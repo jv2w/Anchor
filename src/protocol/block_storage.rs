@@ -1,8 +1,8 @@
 //! The network sub-chunk payload: versions 8 and 9 with layers of paletted block storage.
 //!
-//! The layers hold block runtime IDs. Decoding is strict: only the bit widths Bedrock writes are read, only the
-//! runtime palette form (header bit 0 set) is read, a palette may not have more entries than
-//! the width can index, and every block index must point into the palette.
+//! The layers hold block runtime IDs. Decoding is strict: only the bit widths the official server
+//! writes are read, only the runtime palette form (header bit 0 set) is read, a palette may not
+//! have more entries than the width can index, and every block index must point into the palette.
 
 use std::mem::size_of;
 
@@ -16,7 +16,7 @@ const HEADER_RUNTIME: u8 = 1;
 const VERSION_8: u8 = 8;
 /// The sub-chunk version with a y index.
 const VERSION_9: u8 = 9;
-/// Bits per block index Bedrock writes.
+/// Bits per block index the official server writes.
 pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// One layer of 16×16×16 block indices into a palette of block runtime IDs.
@@ -71,10 +71,15 @@ impl PalettedStorage {
 
     /// Points block (x, y, z) at palette entry `index`.
     ///
-    /// Returns `false`, changing nothing, if `index` is not in the palette.
-    pub fn set_index(&mut self, x: u8, y: u8, z: u8, index: u16) -> bool {
+    /// # Errors
+    ///
+    /// [`Error::InvalidValue`], changing nothing, for an `index` that is not in the palette.
+    pub fn set_index(&mut self, x: u8, y: u8, z: u8, index: u16) -> Result<()> {
         if usize::from(index) >= self.palette.len() {
-            return false;
+            return Err(Error::InvalidValue {
+                field: "block storage index",
+                reason: "outside the palette",
+            });
         }
         let (word, shift) = self.position(x, y, z);
         let mask = self.mask();
@@ -82,7 +87,7 @@ impl PalettedStorage {
         if let Some(w) = self.words.get_mut(word) {
             *w = (*w & !(mask << shift)) | (u32::from(index) << shift);
         }
-        true
+        Ok(())
     }
 
     /// The word and bit shift of block (x, y, z); each coordinate is taken modulo 16.
@@ -245,7 +250,7 @@ mod tests {
             for y in 0..16_u8 {
                 for z in 0..16_u8 {
                     let index = (u16::from(x) + u16::from(y) + u16::from(z)) % len;
-                    assert!(layer.set_index(x, y, z, index));
+                    layer.set_index(x, y, z, index).unwrap();
                 }
             }
         }
@@ -276,7 +281,7 @@ mod tests {
         assert_eq!(patterned(65).bits(), 8);
         assert_eq!(patterned(300).bits(), 16);
         let mut layer = patterned(3);
-        assert!(!layer.set_index(0, 0, 0, 3));
+        assert!(layer.set_index(0, 0, 0, 3).is_err());
         assert!(PalettedStorage::new(Vec::new()).is_none());
         assert!(PalettedStorage::new(vec![0; 65_537]).is_none());
     }

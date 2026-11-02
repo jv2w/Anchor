@@ -323,7 +323,7 @@ mod tests {
         missing.extend(
             crate::effect::Type::all()
                 .iter()
-                .map(|t| t.text())
+                .map(|t| t.translation_key())
                 .filter(|k| sentence(k).is_none()),
         );
         missing.sort_unstable();

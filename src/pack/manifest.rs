@@ -1,6 +1,5 @@
 //! `manifest.json` of a pack: which archive entry is the manifest, and what Anchor reads of it.
-//! The rules are in the module
-//! documentation of [`pack`](super).
+//! The rules are in the module documentation of [`pack`](super).
 
 use serde::Deserialize;
 
@@ -16,6 +15,9 @@ const MANIFEST: &[u8] = b"manifest.json";
 
 /// The largest `manifest.json` read; real ones are a few KiB.
 pub(super) const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+
+/// The end of a level file's name below a folder.
+const NESTED_LEVEL_DAT: &[u8] = b"/level.dat";
 
 /// The end of a manifest's name below a folder.
 const NESTED_MANIFEST: &[u8] = b"/manifest.json";
@@ -132,7 +134,7 @@ pub(super) fn read(entries: &[Entry<'_>]) -> Result<Manifest> {
     // gophertunnel: a `level.dat` anywhere makes the pack a world template.
     manifest.world_template = entries
         .iter()
-        .any(|e| e.name == LEVEL_DAT || e.name.ends_with(b"/level.dat"));
+        .any(|e| e.name == LEVEL_DAT || e.name.ends_with(NESTED_LEVEL_DAT));
     Ok(manifest)
 }
 

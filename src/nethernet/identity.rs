@@ -159,7 +159,7 @@ impl ServerIdentity {
     /// The JWT is issued at `now_unix` and expires 60 seconds later; its header and payload JSON
     /// end in a line feed, as the official server writes them.
     pub(crate) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
-        let signed = fingerprint_payload("sha-256", answer_fingerprint)?;
+        let signed = fingerprint_payload(sdp::FINGERPRINT_ALGORITHM, answer_fingerprint)?;
         let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECONDS);
         let claims = format!(
             "{{\"cpk\":{},\"exp\":{exp},\"iat\":{now_unix}}}\n",
@@ -188,7 +188,7 @@ impl ServerIdentity {
             assertion: &assertion,
             idp: IdentityProvider {
                 domain: SERVER_DOMAIN,
-                protocol: "default",
+                protocol: sdp::IDENTITY_PROTOCOL,
             },
         })
         .map_err(|source| Error::Json {

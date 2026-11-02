@@ -1,7 +1,9 @@
 //! Connection sessions: batches, encryption, the login sequence and the tick queues.
 //!
-//! [`start`] opens both transports (one UDP port for both, and NetherNet's TCP signaling on the
-//! same port number) and spawns the accept task. The
+//! [`prepare`] loads the authorization keys and binds the UDP sockets before any data file is
+//! opened, so a busy port or missing keys stops the start first. [`start`] opens both transports
+//! (one UDP port for both, and NetherNet's TCP signaling on the same port number) and spawns the
+//! accept task. The
 //! accept task numbers new connections of both in arrival order (the one place that allocates
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
@@ -10,7 +12,8 @@
 //! tick.
 //!
 //! The accept task also does what the tick asks of the networking ([`Control`]: the server
-//! name, blocked addresses) and reports the connection counts to the tick.
+//! list's name, player limit and game mode, blocked addresses) and reports the connection counts
+//! to the tick.
 
 mod connection;
 mod packs;
@@ -51,6 +54,9 @@ const ACCEPT_QUEUE: usize = 64;
 const EVENT_QUEUE: usize = 256;
 /// Addresses blocked at once; a block past it is refused with a warning.
 const MAX_BLOCKED: usize = 4096;
+/// Sessions of one IPv4 address or IPv6 /64 that have logged in but not joined, at most: each
+/// takes over the place its pre-login slot had.
+const MAX_WAITING_PER_IP: usize = raknet::MAX_PRE_LOGIN_PER_IP;
 /// How often the accept task reports changed connection counts to the tick and forgets ended
 /// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
 const REPORT_INTERVAL: Duration = Duration::from_secs(1);
@@ -87,6 +93,16 @@ impl Network {
         // last messages.
         join!(self.udp.shutdown(), self.nethernet.shutdown());
     }
+}
+
+/// What networking needs from the start before the tick and the data files: the authorization
+/// keys, the server key, the RakNet GUID and the bound UDP sockets.
+#[derive(Debug)]
+pub(crate) struct Prepared {
+    auth: Option<Auth>,
+    server_key: ServerKey,
+    guid: u64,
+    sockets: Arc<udp::Sockets>,
 }
 
 /// What every session shares, read-only.
@@ -128,6 +144,9 @@ struct Accept {
     shared: Arc<Shared>,
     controls: mpsc::Receiver<Control>,
     blocks: Blocks,
+    /// The places of each IP (by [`raknet::ip_key`]) for sessions that logged in but not joined,
+    /// held by its sessions; an address whose sessions all ended is forgotten.
+    waiting_by_ip: BTreeMap<u128, Arc<Semaphore>>,
     /// Where the connection counts go to the tick.
     network: SessionInputs,
     /// The counts last reported: all connections, logged in.
@@ -200,18 +219,30 @@ impl Accept {
         // A u64 counter does not wrap in a process lifetime; saturating keeps it panic-free.
         self.next_session = self.next_session.saturating_add(1);
         debug!(session = id.get(), addr = %conn.addr(), "connection accepted");
+        let waiting = Arc::clone(
+            self.waiting_by_ip
+                .entry(raknet::ip_key(ip))
+                .or_insert_with(|| Arc::new(Semaphore::new(MAX_WAITING_PER_IP))),
+        );
         self.sessions
-            .spawn(connection::run(id, conn, Arc::clone(&self.shared)));
+            .spawn(connection::run(id, conn, Arc::clone(&self.shared), waiting));
     }
 
-    /// Does what the tick asked: a new server name in the pong and the join status, or a block
-    /// or its end.
+    /// Does what the tick asked: a new server name, player limit or game mode in the pong and
+    /// the join status, or a block or its end.
     fn on_control(&mut self, control: Control) {
         match control {
             Control::Motd(motd) => {
                 self.status.motd = motd;
-                self.pong.send_replace(self.status.pong(self.logged_in));
-                self.json.send_replace(self.status.json(self.logged_in));
+                self.show_status();
+            }
+            Control::MaxPlayers(max) => {
+                self.status.max_players = max;
+                self.show_status();
+            }
+            Control::GameMode(mode) => {
+                self.status.mode = mode;
+                self.show_status();
             }
             Control::Block { ip, duration } => {
                 if !self.blocks.block(ip, duration, clock::now()) {
@@ -222,10 +253,13 @@ impl Accept {
         }
     }
 
-    /// Forgets ended blocks and reports the connection counts to the tick if they changed. A
-    /// full share of the tick queue skips the report; the next one sends the counts then.
+    /// Forgets ended blocks and the places of addresses without sessions, and reports the
+    /// connection counts to the tick if they changed. A full share of the tick queue skips the
+    /// report; the next one sends the counts then.
     fn report(&mut self) {
         self.blocks.forget_ended(clock::now());
+        self.waiting_by_ip
+            .retain(|_, places| Arc::strong_count(places) > 1);
         let all = u32::try_from(self.sessions.len()).unwrap_or(u32::MAX);
         let logged_in = u32::try_from(self.logged_in).unwrap_or(u32::MAX);
         if self.reported == (all, logged_in) {
@@ -246,6 +280,11 @@ impl Accept {
             Event::LoggedIn => self.logged_in = self.logged_in.saturating_add(1),
             Event::Ended => self.logged_in = self.logged_in.saturating_sub(1),
         }
+        self.show_status();
+    }
+
+    /// Shows the status with the logged-in count in the pong and the join status.
+    fn show_status(&self) {
         self.pong.send_replace(self.status.pong(self.logged_in));
         self.json.send_replace(self.status.json(self.logged_in));
     }
@@ -405,26 +444,11 @@ struct Join<'a> {
     game_type: i32,
 }
 
-/// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
-///
-/// With `xbox-auth = true` the authorization keys load first, and a server without keys does not
-/// start. NetherNet loads its identity key from `data_dir`. The accept task takes the
-/// tick's `controls` and reports the connection counts on `inputs`. Players are offered `packs`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one function opens every part of networking in its order"
-)]
-pub(crate) async fn start(
-    config: Arc<Config>,
-    packs: Offer,
-    data_dir: &Path,
-    inputs: InputSender,
-    controls: mpsc::Receiver<Control>,
-) -> Result<Network> {
-    let batch = config.batch_settings()?;
-    if !packs.packs().is_empty() {
-        info!(count = packs.packs().len(), "resource packs loaded");
-    }
+/// Prepares networking on the current runtime: loads the authorization keys with
+/// `xbox-auth = true` (a server without keys does not start), makes the server key and the
+/// RakNet GUID and binds the UDP sockets. Nothing here needs the tick, the packs or a data
+/// file, so a start that fails here has opened none.
+pub(crate) async fn prepare(config: &Config, data_dir: &Path) -> Result<Prepared> {
     let auth = if config.general.xbox_auth {
         let auth = Auth::start(data_dir, clock::token_now)
             .await
@@ -437,40 +461,48 @@ pub(crate) async fn start(
     let mut guid = [0; 8];
     crypto::fill_random(&mut guid).map_err(|e| Error::Start(std::io::Error::other(e)))?;
     let guid = u64::from_le_bytes(guid);
-
-    let general = &config.general;
-    let v4 = Some(general.server_ip);
-    let v6 = general.enable_ipv6.then_some(general.server_ipv6);
-    let settings = raknet::Settings {
-        max_mtu: config.developer.max_mtu_size,
-        // An encrypted RakNet message adds the checksum to the batch.
-        max_message_bytes: max_message_bytes(&batch)
-            .saturating_add(crypto::encryption::CHECKSUM_BYTES),
-        accept: config.developer.raknet,
+    let (v4, v6) = socket_addresses(config);
+    let sockets = udp::Sockets::bind(Some(v4), v6)?;
+    Ok(Prepared {
+        auth,
+        server_key,
         guid,
-    };
+        sockets,
+    })
+}
+
+/// Starts networking on the `prepared` sockets of the current runtime; sessions queue their
+/// inputs on `inputs`.
+///
+/// NetherNet loads its identity key from `data_dir`. The accept task takes the tick's
+/// `controls` and reports the connection counts on `inputs`. Players are offered `packs`.
+pub(crate) async fn start(
+    config: Arc<Config>,
+    prepared: Prepared,
+    packs: Offer,
+    data_dir: &Path,
+    inputs: InputSender,
+    controls: mpsc::Receiver<Control>,
+) -> Result<Network> {
+    let batch = config.batch_settings()?;
+    if !packs.packs().is_empty() {
+        info!(count = packs.packs().len(), "resource packs loaded");
+    }
+    let Prepared {
+        auth,
+        server_key,
+        guid,
+        sockets,
+    } = prepared;
+    let (v4, v6) = socket_addresses(&config);
     let status = Status::new(&config, guid);
     let (pong_tx, pong_rx) = watch::channel(status.pong(0));
     let (json_tx, json_rx) = watch::channel(status.json(0));
 
-    let v4 = v4.map(|ip| SocketAddrV4::new(ip, general.server_port));
-    let v6 = v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0));
-    let sockets = udp::Sockets::bind(v4, v6)?;
     // The UDP task starts last: a pong then means that every listener is ready.
-    let nethernet_settings = nethernet::Settings {
-        signaling_v4: v4,
-        signaling_v6: v6,
-        public_ip: general.public_ip,
-        max_message_bytes: max_message_bytes(&batch),
-        tls: config
-            .developer
-            .nethernet_tls_cert
-            .clone()
-            .zip(config.developer.nethernet_tls_key.clone()),
-    };
     let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
     let (nethernet, nethernet_driver) = nethernet::start(
-        nethernet_settings,
+        nethernet_settings(&config, batch, v4, v6),
         data_dir,
         json_rx,
         auth.clone(),
@@ -482,7 +514,12 @@ pub(crate) async fn start(
         info!(%addr, "listening for NetherNet signaling on TCP");
     }
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets)) {
+    let raknet = match raknet::Driver::new(
+        raknet_settings(&config, batch, guid),
+        pong_rx,
+        raknet_tx,
+        Arc::clone(&sockets),
+    ) {
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
@@ -525,6 +562,7 @@ pub(crate) async fn start(
         shared,
         controls,
         blocks: Blocks::default(),
+        waiting_by_ip: BTreeMap::new(),
         network,
         reported: (0, 0),
         raknet: raknet_rx,
@@ -545,6 +583,48 @@ pub(crate) async fn start(
         stop: stop_tx,
         accept,
     })
+}
+
+/// The addresses of `server-ip` and, with `enable-ipv6`, `server-ipv6`, on `server-port`.
+fn socket_addresses(config: &Config) -> (SocketAddrV4, Option<SocketAddrV6>) {
+    let general = &config.general;
+    let v4 = SocketAddrV4::new(general.server_ip, general.server_port);
+    let v6 = general
+        .enable_ipv6
+        .then(|| SocketAddrV6::new(general.server_ipv6, general.server_port, 0, 0));
+    (v4, v6)
+}
+
+/// The NetherNet settings: signaling on `v4` and `v6`, `public-ip` and the TLS files.
+fn nethernet_settings(
+    config: &Config,
+    batch: batch::Settings,
+    v4: SocketAddrV4,
+    v6: Option<SocketAddrV6>,
+) -> nethernet::Settings {
+    let developer = &config.developer;
+    nethernet::Settings {
+        signaling_v4: Some(v4),
+        signaling_v6: v6,
+        public_ip: config.general.public_ip,
+        max_message_bytes: max_message_bytes(&batch),
+        tls: developer
+            .nethernet_tls_cert
+            .clone()
+            .zip(developer.nethernet_tls_key.clone()),
+    }
+}
+
+/// The RakNet settings for `guid`.
+fn raknet_settings(config: &Config, batch: batch::Settings, guid: u64) -> raknet::Settings {
+    raknet::Settings {
+        max_mtu: config.developer.max_mtu_size,
+        // An encrypted RakNet message adds the checksum to the batch.
+        max_message_bytes: max_message_bytes(&batch)
+            .saturating_add(crypto::encryption::CHECKSUM_BYTES),
+        accept: config.developer.raknet,
+        guid,
+    }
 }
 
 /// The largest game message a client may send, without transport framing: the
@@ -655,8 +735,8 @@ mod tests {
 
     // api: Network::setName, Network::blockAddress, Network::unblockAddress
     // api: Network::getConnectionCount, Network::getValidConnectionCount
-    /// The tick's controls reach the networking: a new name shows in the RakNet pong and in
-    /// `GET /v1/join`, a blocked address is refused at connect until it is unblocked, and the
+    /// The tick's controls reach the networking: a new name, player limit and game mode show in
+    /// the RakNet pong and in `GET /v1/join`, a blocked address is refused at connect until it is unblocked, and the
     /// connection counts reach the tick as logged inputs.
     #[test]
     #[expect(
@@ -684,9 +764,17 @@ mod tests {
             let (controls, control_queue) = control_queue();
             let packs =
                 Offer::load(&[], Vec::new(), config.general.force_resources.into()).unwrap();
-            let network = start(Arc::new(config), packs, &dir, inputs, control_queue)
-                .await
-                .unwrap();
+            let prepared = prepare(&config, &dir).await.unwrap();
+            let network = start(
+                Arc::new(config),
+                prepared,
+                packs,
+                &dir,
+                inputs,
+                control_queue,
+            )
+            .await
+            .unwrap();
             let raknet: SocketAddr = network.udp.local_addrs()[0];
             let signaling: SocketAddr = network.nethernet.signaling_addrs()[0];
             let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
@@ -703,6 +791,17 @@ mod tests {
                     .await
                     .starts_with("{\"name\":\"Renamed server\"")
             );
+            // A new player limit and default game mode show in both too.
+            controls.send(Control::MaxPlayers(7)).await.unwrap();
+            controls
+                .send(Control::GameMode(GameMode::Creative))
+                .await
+                .unwrap();
+            shows(&socket, raknet, ";0;7;").await;
+            shows(&socket, raknet, ";Creative;1;").await;
+            let join = join_status(signaling).await;
+            assert!(join.contains("\"maxPlayers\":7"), "{join}");
+            assert!(join.ends_with("\"gameType\":1}"), "{join}");
             // Blocked: the connection is closed at once. The name after it shows that the
             // networking has read the block.
             let block = Control::Block {
