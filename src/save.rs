@@ -449,8 +449,8 @@ pub(crate) struct Thread {
     /// not remove: the next commit puts their deletion marks ([`Key::Deleted`]) into the main
     /// file, and their files go after it ([`remove_world_files`]); a replay removes none.
     deleted: Vec<String>,
-    /// The names of the worlds whose files the last commit removed: the next commit deletes their
-    /// deletion marks.
+    /// The names of the worlds whose files the last commit removed, or that were made again before
+    /// their file went: the next commit deletes their deletion marks.
     removed: Vec<String>,
     /// Whether loaded and generated chunks are lit on the CPU pool: unless `lighting = "fixed"`.
     lighting: bool,
@@ -473,14 +473,18 @@ impl Thread {
         let unopened = add_worlds(&mut self.plans, &self.opener, worlds);
         for world in worlds.iter().filter(|w| w.number.is_some()) {
             let key = storage::world_name_key(&world.name);
-            let before = self.deleted.len();
-            self.deleted
-                .retain(|name| storage::world_name_key(name) != key);
-            if self.deleted.len() < before
+            let (made_again, deleted): (Vec<String>, Vec<String>) = self
+                .deleted
+                .drain(..)
+                .partition(|name| storage::world_name_key(name) == key);
+            self.deleted = deleted;
+            if !made_again.is_empty()
                 && let Some(plan) = self.plans.get_mut(world.index)
             {
                 plan.clear = true;
             }
+            // A commit may hold the mark of a deletion whose file stayed: the next one drops it.
+            self.removed.extend(made_again);
         }
         unopened
     }
@@ -491,7 +495,7 @@ impl Thread {
         pool: &Pool,
         snapshot: &Snapshot,
     ) -> Result<(), storage::Error> {
-        commit(self, pool, snapshot)
+        commit(self, pool, snapshot).map(drop)
     }
 
     /// Forgets the worlds of a [`Request::DeleteWorlds`] as the save thread does; the next commit
@@ -762,32 +766,19 @@ pub(crate) fn open_with(
 
 /// Rolls the players file and the world files `names` of the data folder `data_dir` back to the
 /// main file's last save `saved` ([`storage::settle`]), before any of them opens. A file that
-/// cannot be rolled back refuses the start. A world file the roll back cannot read otherwise is
-/// logged and left as it is: the start meets it again when it reads the file, as it does a file
-/// no save left later.
+/// cannot be rolled back, whatever the cause, refuses the start with the file as it is: a file
+/// still later than the main file would be served, and its items would be in two files.
 fn settle_all(
     data_dir: &std::path::Path,
     names: &[String],
     saved: &Meta,
 ) -> Result<(), storage::Error> {
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
-    if let Err(e) = storage::settle(&players, saved) {
-        log_refused(&players, &e);
-        return Err(e.in_file(&players));
-    }
-    for name in names {
-        let file = Place::world(data_dir, name).file;
-        match storage::settle(&file, saved) {
-            Ok(_) => {}
-            Err(e @ storage::Error::NoRollback) => {
-                log_refused(&file, &e);
-                return Err(e.in_file(&file));
-            }
-            Err(e) => error!(
-                path = %file.display(),
-                error = &e as &(dyn std::error::Error + 'static),
-                "world file was not rolled back; it is left as it is"
-            ),
+    let worlds = names.iter().map(|name| Place::world(data_dir, name).file);
+    for file in std::iter::once(players).chain(worlds) {
+        if let Err(e) = storage::settle(&file, saved) {
+            log_refused(&file, &e);
+            return Err(e.in_file(&file));
         }
     }
     Ok(())
@@ -1272,7 +1263,14 @@ pub(crate) fn run(
             Request::Commit(snapshot) => {
                 let start = snapshot.start;
                 match commit(&mut thread, pool, &snapshot) {
-                    Ok(()) => committed(&mut thread, &snapshot),
+                    Ok(unopened) => {
+                        let mut answers: Vec<_> = unopened
+                            .into_iter()
+                            .map(|world| Response::WorldOpenFailed { world })
+                            .collect();
+                        answers.extend(committed(&mut thread, &snapshot));
+                        answers
+                    }
                     Err(e) => {
                         error!(
                             error = &e as &(dyn std::error::Error + 'static),
@@ -1799,14 +1797,19 @@ fn read_player(
 /// A world file a world made again takes over loses every value of the deleted world in its first
 /// commit ([`Batch::clear`]). Files with nothing changed are not
 /// written. Every value is written in the current format. The worlds the snapshot deletes are
-/// forgotten and the worlds it brings learnt first, so their records are written too.
+/// forgotten and the worlds it brings learnt first, so their records are written too. Returns the
+/// indexes of the brought worlds whose file did not open.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one function builds every file's batch of one snapshot and commits them in order"
 )]
-fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), storage::Error> {
+fn commit(
+    thread: &mut Thread,
+    pool: &Pool,
+    snapshot: &Snapshot,
+) -> Result<Vec<WorldIndex>, storage::Error> {
     thread.delete_worlds(&snapshot.deleted_worlds);
-    thread.add_worlds(&snapshot.new_worlds);
+    let unopened = thread.add_worlds(&snapshot.new_worlds);
     let meta = Meta {
         tick: snapshot.start,
         identity: Some(snapshot.identity),
@@ -1939,7 +1942,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         // A replay writes no file; its main file's marks follow the live one's.
         Opener::Replay(_) => deleted,
     };
-    Ok(())
+    Ok(unopened)
 }
 
 /// The chunk at `pos` of world `number` in the `chunks` table.
@@ -4185,6 +4188,100 @@ pub(crate) mod tests {
         }
     }
 
+    /// A world that comes with a snapshot and whose file does not open is reported to the tick, as
+    /// one that comes in a request is.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_snapshot_world_whose_file_does_not_open_is_reported() {
+        let dir = TempDir::new("snapshot-world-unopened");
+        let thread = open(&dir.0, specs()).unwrap().thread;
+        std::fs::write(Place::world(&dir.0, "lobby").file, b"not a redb file").unwrap();
+        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
+        let (answer, mut answers) = mpsc::channel(RESPONSE_CAPACITY);
+        tx.blocking_send(Request::Commit(Box::new(Snapshot {
+            start: 5,
+            new_worlds: vec![NewWorld {
+                index: 2,
+                name: "lobby".to_owned(),
+                number: Some(1),
+                seed: 0,
+                generator: Arc::new(Flat),
+            }],
+            ..Snapshot::default()
+        })))
+        .unwrap();
+        tx.blocking_send(Request::Finish).unwrap();
+        drop(tx);
+        let handle = crate::runtime::spawn_save(move || {
+            let pool = crate::runtime::cpu_pool(1).unwrap();
+            let result = run(thread, &pool, rx, &answer);
+            assert!(pool.shutdown());
+            result
+        })
+        .unwrap();
+        handle.join().unwrap().unwrap();
+        let answers = std::iter::from_fn(|| answers.try_recv().ok()).collect::<Vec<_>>();
+        assert!(
+            answers
+                .iter()
+                .any(|a| matches!(a, Response::WorldOpenFailed { world: 2 })),
+            "{answers:?}"
+        );
+    }
+
+    /// A world file a stopped save made that the start cannot remove is not served: the start is
+    /// refused, with the file as it is. (Windows refuses to remove a read-only file; Unix has no
+    /// such file-level block, so there the test cannot make the removal fail.)
+    #[cfg(windows)]
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "off-tick: the test fixture runs on Windows only, where the flag is not a mode"
+    )]
+    fn a_start_that_cannot_roll_back_a_world_file_is_refused() {
+        let dir = TempDir::new("save-split-stuck");
+        let pos = ChunkPos::new(1, 1);
+        let snapshot = |start: u64| Snapshot {
+            start,
+            identity: start,
+            ..Snapshot::default()
+        };
+        let (_, _, result) = serve(&dir, vec![Request::Commit(Box::new(snapshot(10)))]);
+        result.unwrap();
+        {
+            let mut thread = open(&dir.0, specs()).unwrap().thread;
+            let pool = crate::runtime::cpu_pool(1).unwrap();
+            let main = Place::data(&dir.0, storage::MAIN_FILE);
+            let disk = crate::storage::tests::Disk::default();
+            drop(std::mem::replace(
+                &mut thread.files.main.storage,
+                crate::storage::tests::memory(&disk),
+            ));
+            thread.files.main.storage = Storage::open_replica(&main.file).unwrap();
+            let mut save = snapshot(20);
+            save.new_worlds = vec![NewWorld {
+                index: 2,
+                name: "lobby".to_owned(),
+                number: Some(1),
+                seed: 0,
+                generator: Arc::new(Flat),
+            }];
+            save.chunks.push((2, pos, changed_chunk(pos)));
+            commit(&mut thread, &pool, &save).unwrap();
+            assert!(pool.shutdown());
+        }
+        let lobby = Place::world(&dir.0, "lobby").file;
+        let mut permissions = std::fs::metadata(&lobby).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&lobby, permissions.clone()).unwrap();
+        let opened = open(&dir.0, specs());
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&lobby, permissions).unwrap();
+        assert!(opened.is_err(), "the later file would be served");
+        assert!(lobby.exists());
+    }
+
     /// What a load of the player `key` answers from the data folder of `dir`.
     fn saved_player(dir: &TempDir, key: &PlayerKey) -> PlayerLoad {
         let (mut answers, _, result) = serve(dir, vec![Request::Player(key.clone())]);
@@ -4799,5 +4896,42 @@ pub(crate) mod tests {
                 .is_none(),
             "the deleted world's record is left"
         );
+    }
+
+    /// A world made again under the name of one whose deletion mark a commit holds, but whose file
+    /// could not be removed, takes the file and the mark goes with the next commit: a start must
+    /// not delete the new world's file.
+    #[test]
+    fn a_world_made_again_after_a_failed_removal_drops_the_deletion_mark() {
+        let dir = TempDir::new("delete-made-again-marked");
+        let mut thread = open(&dir.0, specs()).unwrap().thread;
+        let mark = Key::Deleted("lobby".to_owned());
+        let mut batch = Batch::default();
+        batch.put(mark.clone(), seal(&mark.to_bytes(), &Mark).unwrap());
+        thread.file_mut(storage::MAIN_FILE).commit(&batch).unwrap();
+        thread.deleted = vec!["lobby".to_owned()];
+        thread.add_worlds(&[NewWorld {
+            index: 2,
+            name: "lobby".to_owned(),
+            number: Some(1),
+            seed: 0,
+            generator: Arc::new(Flat),
+        }]);
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        thread
+            .commit(
+                &pool,
+                &Snapshot {
+                    start: 6,
+                    ..Snapshot::default()
+                },
+            )
+            .unwrap();
+        assert!(pool.shutdown());
+        let marked = thread.file_mut(storage::MAIN_FILE).read(&[mark]).unwrap()[0]
+            .as_ref()
+            .unwrap()
+            .is_some();
+        assert!(!marked, "the mark of a deletion that did not happen stays");
     }
 }

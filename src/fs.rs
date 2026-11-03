@@ -82,6 +82,27 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], access: Access) -> io::Res
     sync_parent(path)
 }
 
+/// Makes the folder `dir` and its missing parents, and flushes the entry of each folder it made
+/// into its parent ([`sync_parent`]), so the folders stay after a crash or power loss.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: callers run before the server starts, on the blocking pool or on the save thread"
+)]
+pub(crate) fn create_dir_all_durable(dir: &Path) -> io::Result<()> {
+    if dir.as_os_str().is_empty() || dir.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = dir.parent() {
+        create_dir_all_durable(parent)?;
+    }
+    match std::fs::create_dir(dir) {
+        Ok(()) => sync_parent(dir),
+        // Another thread or process made it between the check and the call.
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Flushes the entries of the folder holding `path` to disk, so `path` created, renamed or
 /// removed before the call is still so after a crash or power loss: on Unix, flushing a file
 /// does not make its name durable. A bare file name is in the current folder.
@@ -167,6 +188,18 @@ mod tests {
         sync_parent(&dir.join("file")).unwrap();
         // A bare file name is in the current folder.
         sync_parent(Path::new("file")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn missing_folders_are_made_and_a_second_call_changes_nothing() {
+        let dir = std::env::temp_dir().join(format!("anchor-fs-dirs-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).unwrap_or(());
+        let nested = dir.join("a").join("b");
+        create_dir_all_durable(&nested).unwrap();
+        assert!(nested.is_dir());
+        create_dir_all_durable(&nested).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -110,7 +110,7 @@ impl Online {
         reason = "off-tick: the save thread starts an online backup"
     )]
     pub(crate) fn begin(source: &Database, dir: &Path) -> Result<Self> {
-        std::fs::create_dir_all(dir).map_err(Error::Io)?;
+        crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
         builder.set_cache_size(CACHE_BYTES);

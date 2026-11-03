@@ -783,14 +783,10 @@ impl Storage {
     /// its first commit ([`Storage::begin_backup`]), which the caller steps to its end; a backup
     /// that cannot begin is logged and not made. A missing or empty file starts empty. Nothing is
     /// compacted.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread creates the data folder and opens a data file"
-    )]
     pub(crate) fn open(place: &Place, start: Start) -> Result<Self> {
         let (world, backups) = (&place.file, &place.backups);
         if let Some(dir) = world.parent() {
-            std::fs::create_dir_all(dir).map_err(Error::Io)?;
+            crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
         }
         verify(world, start.check)?;
         // A new file has nothing to back up.

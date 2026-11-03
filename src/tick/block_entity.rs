@@ -9,7 +9,9 @@
 //! keys of a kind that Anchor does not read stay in the entity and are written back unchanged.
 //!
 //! Items that cannot be dropped when a container breaks (the world's entity limit) wait in the
-//! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks: nothing is lost.
+//! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks. A chunk keeps
+//! [`MAX_SPILLS`] spills of [`SPILL_SLOTS`] stacks each; only past that are items lost, with an
+//! error.
 //!
 //! `ChestPair` sits between the steps of pairing two chests; after a listener the step is checked
 //! again on the block as the listener left it.
@@ -309,16 +311,7 @@ impl BlockEntities {
             );
             return;
         };
-        if chunk.spills.len() >= MAX_SPILLS {
-            error!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                "container items lost: too many spills waiting"
-            );
-            return;
-        }
-        chunk.spills.push(Spill { pos, items });
+        spill_unfit(&mut chunk.spills, pos, items);
         self.changed.insert(key);
         self.spilling.insert(key);
     }
@@ -1656,10 +1649,11 @@ fn saved_pos(nbt: &Compound, key: Key) -> Option<BlockPos> {
         .then_some(pos)
 }
 
-/// Keeps `items`, the stacks a loaded shulker box at `pos` does not take, in `spills`: as a spill
-/// of their own, or with the spills full in the slots the waiting spills have free (dropped where
-/// those wait), so the list stays within what it holds. What finds no slot is lost with an
-/// error, as [`BlockEntities::spill`] loses a broken container's items.
+/// Keeps `items`, the stacks of a broken container or a loaded shulker box at `pos` that wait to
+/// drop, in `spills`: as a spill of their own, or with the spills full in the slots the waiting
+/// spills have free (dropped where those wait), so the list stays within what it holds. What
+/// finds no slot, past [`MAX_SPILLS`] times [`SPILL_SLOTS`] stacks in one chunk, is lost with an
+/// error.
 fn spill_unfit(spills: &mut Vec<Spill>, pos: BlockPos, mut items: Vec<Stack>) {
     if spills.len() < MAX_SPILLS {
         spills.push(Spill { pos, items });
@@ -2661,6 +2655,25 @@ pub(in crate::tick) mod tests {
             assert!(entity.items.iter().all(Stack::is_empty), "{kind:?}");
             assert_eq!(entity.items.len(), entity.kind.slots(), "{kind:?}");
         }
+    }
+
+    /// With the chunk's spills at [`MAX_SPILLS`], a broken container's stacks join the free slots
+    /// of the waiting spills instead of being lost.
+    #[test]
+    fn a_broken_container_with_the_spills_full_keeps_its_items() {
+        let (mut state, key) = server();
+        load_chunk(&mut state, key);
+        let pos = state.worlds[0].spawn();
+        let stick = food("minecraft:stick", 1);
+        let blocks = &mut state.rules.block_entities;
+        let full = Spill {
+            pos,
+            items: vec![stick.clone()],
+        };
+        blocks.chunks.get_mut(&key).unwrap().spills = vec![full; MAX_SPILLS];
+        blocks.spill(0, pos, vec![stick; 5]);
+        let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
+        assert_eq!(count, MAX_SPILLS + 5);
     }
 
     /// A world at its entity cap keeps its spills waiting; another world's still drop.

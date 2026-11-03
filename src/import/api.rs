@@ -303,7 +303,7 @@ fn temp_place(place: &Place) -> Place {
 fn create_file(place: &Place, name: &str) -> crate::Result<()> {
     let stored = save::data_error(&place.file);
     if let Some(dir) = place.file.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| stored(crate::storage::Error::Io(e)))?;
+        crate::fs::create_dir_all_durable(dir).map_err(|e| stored(crate::storage::Error::Io(e)))?;
     }
     match std::fs::remove_file(&place.file) {
         Ok(()) => {}

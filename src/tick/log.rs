@@ -81,6 +81,8 @@ const CHAIN_ANSWER: u8 = b'A';
 const CHAIN_DROPPED: u8 = b'D';
 /// What the commit identity chains before an input.
 const CHAIN_INPUT: u8 = b'I';
+/// What the commit identity chains before a snapshot.
+const CHAIN_SNAPSHOT: u8 = b'S';
 /// What the commit identity chains before a tick.
 const CHAIN_TICK: u8 = b'T';
 /// The tag of a data file check that passed.
@@ -492,8 +494,12 @@ impl InputLog {
         self.make_room(0);
     }
 
-    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before.
+    /// Starts a segment at tick `start`, the tick a save snapshot is taken before, and chains the
+    /// snapshot into the commit identity first, so the identity the snapshot commits differs from
+    /// the previous snapshot's even at the same tick (a shutdown's last one). A snapshot takes
+    /// [`Self::identity`] after this.
     pub(crate) fn snapshot(&mut self, start: u64) {
+        self.chain.raw(&[CHAIN_SNAPSHOT]);
         if self.last_segment().start == start {
             return;
         }
@@ -2065,6 +2071,18 @@ mod tests {
         reseal(&mut longer);
         let read = InputLog::decode(&longer).map(drop);
         assert!(matches!(read, Err(Error::Packet(_))), "{read:?}");
+    }
+
+    /// Two snapshots at one tick (the last one of a shutdown follows a boundary's) commit
+    /// different identities, so a start can tell the files of the two saves apart.
+    #[test]
+    fn snapshots_at_one_tick_have_different_identities() {
+        let mut log = InputLog::from_state(0, Some(42));
+        log.begin(0);
+        log.snapshot(1);
+        let first = log.identity();
+        log.snapshot(1);
+        assert_ne!(log.identity(), first);
     }
 
     #[test]

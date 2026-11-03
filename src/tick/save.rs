@@ -349,6 +349,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     // The rule modules' changed chunk state goes to the extras holder first.
     state.rules.flush(&mut state.chunks.extras);
     let start = state.tick;
+    log.snapshot(start);
     let mut snapshot = Snapshot {
         start,
         identity: log.identity(),
@@ -412,7 +413,6 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         user = snapshot.user.len(),
         "save snapshot taken"
     );
-    log.snapshot(start);
     let saving = &mut state.saving;
     saving.requested = false;
     saving.next_due = start.saturating_add(saving.interval);
