@@ -267,6 +267,8 @@ pub(crate) struct Peer {
     reliable: Option<ChannelId>,
     unreliable: Option<ChannelId>,
     reassembler: Reassembler,
+    /// Whether reliable data is still reassembled; off once the session closed the connection.
+    reading: bool,
     /// Messages that came on the reliable channel before the unreliable one opened, reported
     /// after `Open`. go-nethernet's dialer sends as soon as it has asked for both channels, so
     /// data can overtake the other channel's opening; the messages wait instead of failing.
@@ -363,6 +365,7 @@ impl Peer {
             reliable: None,
             unreliable: None,
             reassembler: Reassembler::new(max_message_bytes),
+            reading: true,
             early: VecDeque::new(),
             early_bytes: 0,
             max_message_bytes,
@@ -512,6 +515,15 @@ impl Peer {
     pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
         self.max_message_bytes = max_message_bytes;
         self.reassembler.set_max_message_bytes(max_message_bytes);
+    }
+
+    /// Drops the reliable data held and every later one: the session is gone, so no message
+    /// could be delivered, and the peer only has to flush what it sent.
+    pub(crate) fn stop_reading(&mut self) {
+        self.reading = false;
+        self.reassembler = Reassembler::new(0);
+        self.early = VecDeque::new();
+        self.early_bytes = 0;
     }
 
     /// When the peer times out by its own rules, if ever.
@@ -722,6 +734,9 @@ impl Peer {
         }
         if Some(data.id) != self.reliable {
             self.fail(Error::Channel("data on no open channel"));
+            return None;
+        }
+        if !self.reading {
             return None;
         }
         let message = match self.reassembler.push(data.data) {
@@ -1912,6 +1927,31 @@ pub(crate) mod tests {
             h.run_until_closed(Duration::from_secs(1)),
             Error::Closed
         ));
+    }
+
+    /// A peer that stopped reading holds no reassembly bytes, drops later reliable data, and
+    /// stays open to flush what it sent.
+    #[test]
+    fn a_peer_that_stopped_reading_holds_no_reassembly_bytes() {
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.open();
+        h.client.outbound.push_back(vec![3, 1, 2, 3, 4]);
+        assert!(
+            h.run(Duration::from_secs(10), |h| h.peer.reassembler.held_bytes()
+                > 0),
+            "{:?}",
+            h.closed
+        );
+        h.peer.stop_reading();
+        assert_eq!(h.peer.reassembler.held_bytes(), 0);
+        for count in (0..3).rev() {
+            h.client.outbound.push_back(vec![count, 5, 6, 7, 8]);
+        }
+        // Delivery time for the segments; the result is the state checked below.
+        h.run(Duration::from_millis(500), |_| false);
+        assert_eq!(h.peer.reassembler.held_bytes(), 0);
+        assert!(h.received.is_empty() && h.closed.is_none());
     }
 
     #[test]

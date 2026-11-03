@@ -76,6 +76,12 @@ impl Reassembler {
         }
     }
 
+    /// The bytes of the message in progress.
+    #[cfg(test)]
+    pub(crate) fn held_bytes(&self) -> usize {
+        self.buffer.len()
+    }
+
     /// Takes one data channel message; returns the whole message when this segment ends it. The
     /// first segment's allocation becomes the message, with its header byte shifted out, so a
     /// one-segment message gets no allocation of its own.
