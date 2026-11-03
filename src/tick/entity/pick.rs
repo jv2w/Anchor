@@ -70,7 +70,8 @@ fn pick(state: &State, session: SessionId, runtime_id: u64) -> Option<(crate::en
     (!finite || inventory::has(player, &picked)).then_some((id, picked))
 }
 
-/// The item picking an entity of `kind` gives; `None` for the kinds that give none (items, orbs, projectiles, clouds, rockets, human and custom NPCs).
+/// The item picking an entity of `kind` gives; `None` for the kinds that give none (items, orbs,
+/// projectiles, clouds, rockets, human and custom NPCs).
 pub(super) fn picked_item(kind: &Kind) -> Option<Stack> {
     let one = |t: item::Type| Stack::new(t, 1);
     let block_item = |b: block::State| match b.item() {

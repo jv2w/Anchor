@@ -883,7 +883,7 @@ mod tests {
         let get = |k: EntityDataKey| m.get(&(k as u32)).cloned();
         assert_eq!(
             get(EntityDataKey::DataParticle),
-            Some(MetadataValue::Int32(35))
+            Some(MetadataValue::Int32(CLOUD_PARTICLE))
         );
         assert_eq!(
             get(EntityDataKey::DataDuration),

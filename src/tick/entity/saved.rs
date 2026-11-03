@@ -11,7 +11,7 @@
 //! - items: `Item` (the stack, [`Stack::to_nbt`]), `Health` (short, read up to the maximum
 //!   health), `Age` and `PickupDelay` (shorts), `Owner` and `Thrower` (strings of at most
 //!   [`MAX_NAME_TAG_BYTES`]); Anchor's `DespawnDelay` (int) for a despawn delay past what `Age`
-//!   holds (`item-despawn-ticks` goes up to 72,000), which a load takes over `Age`;
+//!   holds (the longest `item-despawn-ticks`), which a load takes over `Age`;
 //! - orbs: `Age` and `Value` (short);
 //! - falling blocks: `FallingBlock` (the block state as Bedrock's disk palette writes it);
 //! - primed TNT: `Fuse` (short), `AllowUnderwater` (byte, only when set);
@@ -804,8 +804,8 @@ fn load_npc(c: &Compound, form: Form, content: &Registry) -> Option<Character> {
     })
 }
 
-/// The despawn delay a saved `Age` gives (`-32768` never, otherwise 6000 minus the age, at least
-/// 0).
+/// The despawn delay a saved `Age` gives ([`AGE_NEVER`] never, otherwise
+/// [`DEFAULT_DESPAWN_DELAY_TICKS`] minus the age, at least 0).
 fn despawn_delay_ticks(c: &Compound) -> i32 {
     match c.get("Age") {
         Some(Value::Short(AGE_NEVER)) => i32::from(NEVER),
@@ -823,11 +823,11 @@ fn despawn_delay_ticks(c: &Compound) -> i32 {
     reason = "invariant: a despawn delay other than `NEVER` is not negative (`Item`, `Orb`), so \
               the age is at most `DEFAULT_DESPAWN_DELAY_TICKS`"
 )]
-fn age_ticks(despawn_delay_ticks: i32) -> i16 {
-    if despawn_delay_ticks == i32::from(NEVER) {
+fn age_ticks(delay_ticks: i32) -> i16 {
+    if delay_ticks == i32::from(NEVER) {
         return AGE_NEVER;
     }
-    let a = DEFAULT_DESPAWN_DELAY_TICKS - despawn_delay_ticks;
+    let a = DEFAULT_DESPAWN_DELAY_TICKS - delay_ticks;
     i16::try_from(a.max(i32::from(AGE_NEVER) + 1)).expect("an age fits the saved short")
 }
 
@@ -1144,7 +1144,7 @@ pub(super) mod tests {
             Kind::Item(Item {
                 stack: stack("minecraft:oak_planks", 1),
                 pickup_delay: 0,
-                despawn_delay: 72_000,
+                despawn_delay: i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end()).unwrap(),
                 owner: String::new(),
                 thrower: String::new(),
             }),
@@ -1165,7 +1165,7 @@ pub(super) mod tests {
     }
 
     /// [`load`] on a server without custom entities or custom items.
-    fn vanilla_load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
+    fn load_without_custom(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
         load(c, chunk, &EntityTypes::default(), &Registry::default())
     }
 
@@ -1185,7 +1185,7 @@ pub(super) mod tests {
                 e.health = 13.0;
             }
             let saved = save(&e);
-            let loaded = vanilla_load(&saved, ChunkPos::new(0, -1)).expect("loads");
+            let loaded = load_without_custom(&saved, ChunkPos::new(0, -1)).expect("loads");
             assert_eq!(loaded.kind, kind);
             assert_eq!(loaded.body, e.body);
             assert_eq!((loaded.yaw, loaded.pitch), (e.yaw, e.pitch));
@@ -1218,7 +1218,7 @@ pub(super) mod tests {
         ];
         let e = entity(Kind::Cloud(cloud.clone()), Vec3::new(5.25, -59.5, -3.75));
         let saved = save(&e);
-        let loaded = vanilla_load(&saved, ChunkPos::new(0, -1)).expect("loads");
+        let loaded = load_without_custom(&saved, ChunkPos::new(0, -1)).expect("loads");
         assert_eq!(loaded.kind, Kind::Cloud(cloud));
         let Some(Value::List(List::Compound(effects))) = saved.get("mobEffects") else {
             panic!("the effects are saved");
@@ -1237,11 +1237,14 @@ pub(super) mod tests {
             .expect("an item kind");
         for y in [f64::from(crate::world::MAX_Y) + 100.0, -1000.0] {
             let e = entity(kind.clone(), Vec3::new(5.25, y, -3.75));
-            let loaded = vanilla_load(&save(&e), ChunkPos::new(0, -1)).expect("loads");
+            let loaded = load_without_custom(&save(&e), ChunkPos::new(0, -1)).expect("loads");
             assert_eq!(loaded.body, e.body);
         }
-        let past = entity(kind, Vec3::new(5.25, 30_000_001.0, -3.75));
-        assert!(vanilla_load(&save(&past), ChunkPos::new(0, -1)).is_none());
+        let past = entity(
+            kind,
+            Vec3::new(5.25, f64::from(crate::world::BORDER) + 1.0, -3.75),
+        );
+        assert!(load_without_custom(&save(&past), ChunkPos::new(0, -1)).is_none());
     }
 
     // api: Entity::setHealth
@@ -1260,7 +1263,7 @@ pub(super) mod tests {
             Vec3::new(5.25, -59.5, -3.75),
         );
         dying.health = 0.0;
-        let loaded = vanilla_load(&save(&dying), ChunkPos::new(0, -1)).expect("loads");
+        let loaded = load_without_custom(&save(&dying), ChunkPos::new(0, -1)).expect("loads");
         assert_eq!(loaded.health, 0.0);
         assert!(!loaded.kind.is_living());
         let Kind::Npc(c) = loaded.kind else {
@@ -1334,15 +1337,15 @@ pub(super) mod tests {
     fn saved_compounds_that_are_not_entities_here_do_not_load() {
         let e = entity(kinds().remove(0), Vec3::new(5.25, -59.5, -3.75));
         let good = save(&e);
-        assert!(vanilla_load(&good, ChunkPos::new(0, -1)).is_some());
+        assert!(load_without_custom(&good, ChunkPos::new(0, -1)).is_some());
         assert!(
-            vanilla_load(&good, ChunkPos::new(1, -1)).is_none(),
+            load_without_custom(&good, ChunkPos::new(1, -1)).is_none(),
             "outside its chunk"
         );
         let broken = |edit: &dyn Fn(&mut Compound)| {
             let mut c = good.clone();
             edit(&mut c);
-            vanilla_load(&c, ChunkPos::new(0, -1))
+            load_without_custom(&c, ChunkPos::new(0, -1))
         };
         assert!(
             broken(&|c| {
@@ -1391,21 +1394,21 @@ pub(super) mod tests {
         let tnt = save(&entity(kinds().remove(6), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = tnt.clone();
         bad.insert("Fuse".to_owned(), Value::Short(-3));
-        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(load_without_custom(&bad, ChunkPos::new(0, -1)).is_none());
         let arrow = save(&entity(kinds().remove(8), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = arrow.clone();
         bad.insert("damage".to_owned(), Value::Double(f64::INFINITY));
-        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(load_without_custom(&bad, ChunkPos::new(0, -1)).is_none());
         let mut bad = arrow;
         bad.insert(
             "StuckToBlockPos".to_owned(),
             Value::List(List::Int(vec![1, 2])),
         );
-        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(load_without_custom(&bad, ChunkPos::new(0, -1)).is_none());
         let npc = save(&entity(kinds().remove(17), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = npc;
         bad.insert("Profession".to_owned(), Value::Int(1000));
-        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(load_without_custom(&bad, ChunkPos::new(0, -1)).is_none());
     }
 
     /// An entity whose name tag is off loads with it off, with or without a name tag.
@@ -1413,7 +1416,7 @@ pub(super) mod tests {
     fn a_name_tag_turned_off_stays_off_through_a_save() {
         let mut e = entity(kinds().remove(0), Vec3::new(5.25, -59.5, -3.75));
         e.name_tag_visible = false;
-        let loaded = vanilla_load(&save(&e), ChunkPos::new(0, -1)).expect("loads");
+        let loaded = load_without_custom(&save(&e), ChunkPos::new(0, -1)).expect("loads");
         assert!(!loaded.looks.name_tag_visible);
     }
 
@@ -1425,7 +1428,7 @@ pub(super) mod tests {
         let load_with = |key: &str, value: Value| {
             let mut c = good.clone();
             c.insert(key.to_owned(), value);
-            vanilla_load(&c, ChunkPos::new(0, -1))
+            load_without_custom(&c, ChunkPos::new(0, -1))
         };
         let health = |h: i16| load_with("Health", Value::Short(h)).expect("loads").health;
         let max = kinds().remove(0).max_health();
