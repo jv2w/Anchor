@@ -28,7 +28,7 @@ use redb::{BackendError, Builder, Database, StorageBackend};
 use tracing::{debug, warn};
 
 use super::backup::{self, STEP_BYTES, Source};
-use super::{Error, Result, check_format, check_integrity, has_closed_mark, seal};
+use super::{Error, Result, check_format, check_integrity, is_closed_normally, seal};
 use crate::config::IntegrityCheck;
 
 /// The unit [`Overlay`] keeps writes in: redb's page.
@@ -375,6 +375,14 @@ impl Handle {
         }))
     }
 
+    /// The file's length in bytes and its first page (redb's header), as on disk.
+    fn head(&self) -> Result<(u64, Vec<u8>)> {
+        let len = self.len()?;
+        let mut page = vec![0; index(len.min(BLOCK_BYTES))];
+        self.file.read(0, &mut page).map_err(Error::Io)?;
+        Ok((len, page))
+    }
+
     /// The ranges held. Nothing panics while holding them, so a poisoned lock still holds a whole
     /// list.
     fn held(&self) -> std::sync::MutexGuard<'_, Vec<(Bound<u64>, Bound<u64>)>> {
@@ -668,19 +676,27 @@ impl std::fmt::Debug for Check {
 /// Checks the closed data file `world` as a start with `integrity-check = check` does, without
 /// writing to it: redb's recovery of a crash, redb's integrity check if `check` asks for it (a
 /// repair, `Ok(false)`, is damage), and on every start the format of its last commit
-/// ([`check_format`]). With `after-unclean-shutdown` the file is checked unless its last commit
-/// holds the mark of a normal stop, read in the same open. Returns the file's handle, which keeps
-/// redb's lock ([`Error::InUse`] for another process) until the run opens the file on it
+/// ([`check_format`]). With `after-unclean-shutdown` the file is checked unless it has the mark
+/// of a normal stop ([`is_closed_normally`]) and its first page and length are the same once
+/// redb's lock is held, so no commit or recovery came between the mark's read and the lock.
+/// Returns the file's handle, which keeps redb's lock ([`Error::InUse`] for another process)
+/// until the run opens the file on it
 /// ([`Storage::open_checked`](super::Storage::open_checked)); `None` for a missing file, which
 /// holds nothing to check.
 pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<Option<Arc<Handle>>> {
     let Some(handle) = Handle::open(world)? else {
         return Ok(None);
     };
+    // Before the lock: the mark's read-only open refuses a file redb must recover, which so
+    // counts as unmarked, and the lock refuses that open.
+    let closed = match check {
+        IntegrityCheck::AfterUncleanShutdown if is_closed_normally(world) => Some(handle.head()?),
+        _ => None,
+    };
     let mut db = open_overlay(&handle)?;
     let checked = match check {
         IntegrityCheck::Always => true,
-        IntegrityCheck::AfterUncleanShutdown => !has_closed_mark(&db)?,
+        IntegrityCheck::AfterUncleanShutdown => closed != Some(handle.head()?),
         IntegrityCheck::Never => false,
     };
     if !checked && check == IntegrityCheck::AfterUncleanShutdown {

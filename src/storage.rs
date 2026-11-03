@@ -1605,26 +1605,12 @@ pub(crate) fn check_settled(file: &Path, main: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Whether the last commit of `db` holds the mark of a normal stop ([`CLOSED_KEY`]).
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the start reads the data file's mark as it checks the file"
-)]
-fn has_closed_mark(db: &Database) -> Result<bool> {
-    let txn = db.begin_read().map_err(Error::database)?;
-    let Some(meta) = open_read(&txn, META)? else {
-        return Ok(false);
-    };
-    Ok(meta.get(CLOSED_KEY).map_err(Error::database)?.is_some())
-}
-
 /// Whether the closed data file `world` has the mark of a normal stop ([`CLOSED_KEY`]), read
 /// without writing to it. A file that cannot be opened read-only (missing, damaged, in use, or
-/// left for redb to repair) has none.
-#[cfg(test)]
+/// left for redb to repair) has none: the start then checks it, and the check meets the fault.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: tests read a data file's mark"
+    reason = "off-tick: the save thread reads the data file's mark once, before opening it"
 )]
 pub(crate) fn is_closed_normally(world: &Path) -> bool {
     let Ok(db) = open_read_only(world) else {
@@ -3200,6 +3186,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn only_a_file_closed_after_a_normal_stop_skips_the_check_after_an_unclean_one() {
         let dir = TempDir::new("closed-mark");
         let world = dir.place().file;
@@ -3236,6 +3223,14 @@ pub(crate) mod tests {
         storage.close().unwrap();
         assert!(!after_unclean());
         assert!(checks(&made, IntegrityCheck::AfterUncleanShutdown));
+        // A file a crash left for redb to recover is checked, though its last commit holds the
+        // mark: the crash came before the start's first commit removed it.
+        let disk = Disk::default();
+        memory(&disk).close().unwrap();
+        let open = Builder::new().create_with_backend(disk.backend()).unwrap();
+        dir.set_world(&disk.bytes());
+        drop(open);
+        assert!(after_unclean());
     }
 
     /// The handle a check leaves keeps redb's lock until the file it opens closes, so no other
