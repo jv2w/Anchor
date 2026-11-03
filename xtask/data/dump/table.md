@@ -6313,7 +6313,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\Bow::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Bow::getMaxDurability` | merged | src/item.rs:405 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4182 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
+| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4175 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
 | `item\Bowl` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bowl::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Bread` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6692,7 +6692,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\ProjectileItem` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ProjectileItem::getThrowForce` | implemented | src/item.rs:508 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
-| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4174 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
+| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4167 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
 | `item\Pufferfish` | merged | src/item/stack.rs:97 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Pufferfish::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
@@ -8276,7 +8276,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1564 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:18 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
-| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4235 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
+| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4228 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:41 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
 | `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1797 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `player\Player::broadcastSound` | merged | src/tick/world_api.rs:122 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
@@ -8343,7 +8343,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:649 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1747 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::interactBlock` | implemented | src/action/interact.rs:112 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
-| `player\Player::interactEntity` | implemented | src/action/interact.rs:64 `InteractEntity`<br>src/tick/entity.rs:4243 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::interactEntity` | implemented | src/action/interact.rs:64 `InteractEntity`<br>src/tick/entity.rs:4236 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:441 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isAuthenticated` | implemented | src/tick/player.rs:137 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::isConnected` | implemented | src/tick/player.rs:145 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |

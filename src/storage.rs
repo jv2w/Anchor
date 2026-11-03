@@ -21,14 +21,17 @@
 //! `after-unclean-shutdown`, only when the file lacks the mark a normal stop leaves,
 //! [`CLOSED_KEY`]) and the format of the last commit, all on a backend that keeps redb's writes
 //! in memory. A damaged file or a newer format is refused and keeps its bytes. Then open
-//! the file for the run (redb recovers a crash here again), create the tables and, with
+//! the file for the run on the handle the check left, which holds redb's lock from the check on
+//! ([`Handle`]), so the file opened is the file checked (redb recovers a crash here again),
+//! create the tables and, with
 //! `backups = true`, begin an online backup of that first commit, which the save thread copies in
 //! steps while the server runs; it prunes to the [`backup::KEPT`] newest once whole. So a refused
 //! file never has a start backup. A start does not compact: freed pages are reused by later
 //! commits, and only data that shrinks leaves free pages at the end.
 //!
 //! Commits ([`Storage::commit`]) write a whole batch in one quick-repair write transaction. A
-//! failure drops the handle, reopens the file and retries, at most [`RETRIES`] times. Values are
+//! failure drops redb's database, opens it again on the file's handle and retries, at most
+//! [`RETRIES`] times. Values are
 //! absolute, so a retry of a commit that did land writes the same state again. Batched reads
 //! ([`Storage::read`]) retry the same way. The world import ([`Storage::begin_import`]) writes a
 //! whole imported world in one such transaction, committed once.
@@ -49,14 +52,14 @@ mod check;
 pub(crate) mod codec;
 pub(crate) mod seal;
 
-pub(crate) use check::{Checked, verify};
+pub(crate) use check::{Checked, Handle, verify};
 
 use std::borrow::Cow;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use redb::backends::FileBackend;
 use redb::{
     Builder, Database, DatabaseError, ReadOnlyTable, ReadTransaction, ReadableDatabase,
     ReadableTable, ReadableTableMetadata, StorageError, TableDefinition, TableError,
@@ -684,16 +687,18 @@ enum Write {
 /// Where the database lives: the data file, or a test's simulated disk.
 #[derive(Debug)]
 enum Source {
-    File(PathBuf),
+    /// The data file and its handle, which holds redb's lock as long as the [`Storage`] lives.
+    File(PathBuf, Arc<Handle>),
+    /// A replay's read-only file ([`Storage::open_replica`]): its [`Replica`] serves every call.
+    ReadOnly(PathBuf),
     #[cfg(test)]
     Memory(tests::Disk),
 }
 
 impl Source {
-    /// Opens the database, creating an empty one if there is no file. redb recovers an
-    /// interrupted commit here.
+    /// Opens the database, creating an empty one in an empty file. redb recovers an interrupted
+    /// commit here.
     #[expect(
-        clippy::disallowed_types,
         clippy::disallowed_methods,
         reason = "off-tick: the save thread opens the data file"
     )]
@@ -701,16 +706,11 @@ impl Source {
         let mut builder = Builder::new();
         builder.set_cache_size(CACHE_BYTES);
         let opened = match self {
-            Self::File(path) => {
-                let file = std::fs::OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create(true)
-                    .truncate(false)
-                    .open(path)
-                    .map_err(Error::Io)?;
-                FileBackend::new(file).and_then(|backend| builder.create_with_backend(backend))
+            Self::File(_, handle) => {
+                builder.create_with_backend(check::Through(Arc::clone(handle)))
             }
+            // A replay never writes its files.
+            Self::ReadOnly(_) => return Err(Error::Closed),
             #[cfg(test)]
             Self::Memory(disk) => builder.create_with_backend(disk.backend()),
         };
@@ -779,19 +779,34 @@ pub(crate) struct Storage {
 impl Storage {
     /// Starts on the data file at `place`: checks the closed file as `start.check` says without
     /// writing to it ([`verify`]), so a damaged file or a newer format is refused with its bytes
-    /// as they were; then opens it and, with [`StartBackup::Make`], begins an online backup of
-    /// its first commit ([`Storage::begin_backup`]), which the caller steps to its end; a backup
-    /// that cannot begin is logged and not made. A missing or empty file starts empty. Nothing is
-    /// compacted.
+    /// as they were; then opens it on the handle the check left ([`Storage::open_checked`]).
     pub(crate) fn open(place: &Place, start: Start) -> Result<Self> {
+        let checked = verify(&place.file, start.check)?;
+        Self::open_checked(place, checked, start.backup)
+    }
+
+    /// Opens the data file at `place` on `checked`, the handle its check left ([`verify`]), so
+    /// the file opened is the file checked; `None` for a file the check found missing, which is
+    /// made now. With [`StartBackup::Make`] it begins an online backup of the first commit
+    /// ([`Storage::begin_backup`]), which the caller steps to its end; a backup that cannot begin
+    /// is logged and not made. A missing or empty file starts empty. Nothing is compacted.
+    pub(crate) fn open_checked(
+        place: &Place,
+        checked: Option<Arc<Handle>>,
+        backup: StartBackup,
+    ) -> Result<Self> {
         let (world, backups) = (&place.file, &place.backups);
-        if let Some(dir) = world.parent() {
-            crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
-        }
-        verify(world, start.check)?;
+        let handle = if let Some(handle) = checked {
+            handle
+        } else {
+            if let Some(dir) = world.parent() {
+                crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
+            }
+            Handle::create(world)?
+        };
         // A new file has nothing to back up.
-        let existed = has_data(world)?;
-        let source = Source::File(world.clone());
+        let existed = handle.len()? > 0;
+        let source = Source::File(world.clone(), handle);
         let db = source.open()?;
         let mut storage = Self::prepare(source, db)?;
         let path = world.display();
@@ -809,7 +824,7 @@ impl Storage {
             // Its first commit flushed the file, not its name in the folder.
             crate::fs::sync_parent(world).map_err(Error::Io)?;
             info!(%path, "data file created");
-        } else if start.backup == StartBackup::Make {
+        } else if backup == StartBackup::Make {
             match storage.begin_backup(backups) {
                 Ok(_) => debug!(%path, "data file opened; its start backup began"),
                 Err(e) => {
@@ -834,7 +849,7 @@ impl Storage {
             backup: None,
             check: None,
             db: None,
-            source: Source::File(path.to_path_buf()),
+            source: Source::ReadOnly(path.to_path_buf()),
             replica: Some(Box::new(Replica {
                 db,
                 overlay: Overlay::default(),
@@ -855,7 +870,7 @@ impl Storage {
     /// The data file.
     pub(crate) fn path(&self) -> &Path {
         match &self.source {
-            Source::File(path) => path,
+            Source::File(path, _) | Source::ReadOnly(path) => path,
             #[cfg(test)]
             Source::Memory(_) => Path::new("memory"),
         }
@@ -1110,10 +1125,10 @@ impl Storage {
         Ok(storage)
     }
 
-    /// Runs `call` on the open database. On failure it drops the handle, reopens the file and
-    /// tries again, up to [`RETRIES`] times, then returns the last error. An online backup stops
-    /// first, and a check ends: their read transactions would keep the old handle, and the file,
-    /// open.
+    /// Runs `call` on the open database. On failure it drops redb's database, opens it again on
+    /// the file's handle, which keeps the lock in between, and tries again, up to [`RETRIES`]
+    /// times, then returns the last error. An online backup stops first, and a check ends: their
+    /// read transactions would keep the old database open.
     fn retrying<T>(&mut self, call: impl Fn(&Database) -> Result<T>) -> Result<T> {
         let mut failures = 0;
         loop {
@@ -1590,21 +1605,26 @@ pub(crate) fn check_settled(file: &Path, main: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Whether a start checks the closed data file `world` when `integrity-check` is `check`.
-fn checks(world: &Path, check: IntegrityCheck) -> bool {
-    match check {
-        IntegrityCheck::Always => true,
-        IntegrityCheck::AfterUncleanShutdown => !is_closed_normally(world),
-        IntegrityCheck::Never => false,
-    }
+/// Whether the last commit of `db` holds the mark of a normal stop ([`CLOSED_KEY`]).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the start reads the data file's mark as it checks the file"
+)]
+fn has_closed_mark(db: &Database) -> Result<bool> {
+    let txn = db.begin_read().map_err(Error::database)?;
+    let Some(meta) = open_read(&txn, META)? else {
+        return Ok(false);
+    };
+    Ok(meta.get(CLOSED_KEY).map_err(Error::database)?.is_some())
 }
 
 /// Whether the closed data file `world` has the mark of a normal stop ([`CLOSED_KEY`]), read
 /// without writing to it. A file that cannot be opened read-only (missing, damaged, in use, or
-/// left for redb to repair) has none: the start then checks it, and the check meets the fault.
+/// left for redb to repair) has none.
+#[cfg(test)]
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the data file's mark once, before opening it"
+    reason = "off-tick: tests read a data file's mark"
 )]
 pub(crate) fn is_closed_normally(world: &Path) -> bool {
     let Ok(db) = open_read_only(world) else {
@@ -1652,29 +1672,35 @@ pub(crate) fn has_data(file: &Path) -> Result<bool> {
 /// ([`check::open_overlay`]): a file without a savepoint, or whose savepoint is later than `saved`
 /// too, is refused as [`Error::NoRollback`] with every byte as it was. Each step lands whole, so
 /// a start stopped in the middle leaves the file as it was or as the step left it, and the next
-/// start ends the same.
+/// start ends the same. `handle` is the file's ([`Handle`], `None` for no file), so the file
+/// rolled back is the one tried and checked; a removed file's becomes `None`.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the start rolls a data file back before it opens it"
 )]
-pub(crate) fn settle(file: &Path, saved: &Meta) -> Result<Settled> {
-    let Some(overlay) = check::open_overlay(file)? else {
+pub(crate) fn settle(
+    file: &Path,
+    handle: &mut Option<Arc<Handle>>,
+    saved: &Meta,
+) -> Result<Settled> {
+    let Some(held) = handle.as_ref() else {
         return Ok(Settled::Kept);
     };
+    let overlay = check::open_overlay(held)?;
     let Some((_, made)) = roll_back(&overlay, saved)? else {
         return Ok(Settled::Kept);
     };
     drop(overlay);
     let shown = file.display();
     if made {
+        // Windows cannot remove an open file.
+        *handle = None;
         std::fs::remove_file(file).map_err(Error::Io)?;
         crate::fs::sync_parent(file).map_err(Error::Io)?;
         warn!(path = %shown, "data file removed: a save that stopped before the main file made it");
         return Ok(Settled::Removed);
     }
-    let db = Source::File(file.to_path_buf()).open()?;
-    // The file is the one just tried: redb's lock kept other processes out until the overlay
-    // dropped, and the start takes the lock again here.
+    let db = Source::File(file.to_path_buf(), Arc::clone(held)).open()?;
     let Some((txn, _)) = roll_back(&db, saved)? else {
         return Ok(Settled::Kept);
     };
@@ -3166,13 +3192,20 @@ pub(crate) mod tests {
         }
     }
 
+    /// Whether the start check of the closed file `world` with `check` runs redb's check.
+    fn checks(world: &Path, check: IntegrityCheck) -> bool {
+        CHECKS.set(0);
+        verify(world, check).unwrap();
+        CHECKS.get() == 1
+    }
+
     #[test]
     fn only_a_file_closed_after_a_normal_stop_skips_the_check_after_an_unclean_one() {
         let dir = TempDir::new("closed-mark");
         let world = dir.place().file;
         let after_unclean = || checks(&world, IntegrityCheck::AfterUncleanShutdown);
-        // No file: checking a new one costs nothing.
-        assert!(after_unclean());
+        // No file: nothing to check.
+        assert!(!after_unclean());
         let start = Start {
             backup: StartBackup::Skip,
             check: IntegrityCheck::AfterUncleanShutdown,
@@ -3203,6 +3236,21 @@ pub(crate) mod tests {
         storage.close().unwrap();
         assert!(!after_unclean());
         assert!(checks(&made, IntegrityCheck::AfterUncleanShutdown));
+    }
+
+    /// The handle a check leaves keeps redb's lock until the file it opens closes, so no other
+    /// process opens the file between the check and the open.
+    #[test]
+    fn a_checked_file_stays_locked_until_its_open_closes() {
+        let dir = TempDir::new("checked-lock");
+        let place = dir.place();
+        start_whole(&dir, StartBackup::Skip).close().unwrap();
+        let checked = verify(&place.file, IntegrityCheck::Always).unwrap();
+        assert!(matches!(open_read_only(&place.file), Err(Error::InUse)));
+        let storage = Storage::open_checked(&place, checked, StartBackup::Skip).unwrap();
+        assert!(matches!(open_read_only(&place.file), Err(Error::InUse)));
+        storage.close().unwrap();
+        open_read_only(&place.file).unwrap();
     }
 
     #[test]
@@ -3290,6 +3338,11 @@ pub(crate) mod tests {
         storage.commit_with_savepoint(&batch).unwrap();
     }
 
+    /// [`settle`] on the file's own handle.
+    fn settle_file(file: &Path, saved: &Meta) -> Result<Settled> {
+        settle(file, &mut Handle::open(file)?, saved)
+    }
+
     /// A file committed with savepoints keeps one, the one of its last commit; a start rolls it
     /// back to its commit before when the main file's save is that one, whatever the commits
     /// before, and a second start changes nothing.
@@ -3310,12 +3363,12 @@ pub(crate) mod tests {
         // Killed: dropped without the close of a normal stop.
         drop(storage);
         assert_eq!(
-            settle(&dir.place().file, &Meta::at(3)).unwrap(),
+            settle_file(&dir.place().file, &Meta::at(3)).unwrap(),
             Settled::RolledBack
         );
         let bytes = dir.world();
         assert_eq!(
-            settle(&dir.place().file, &Meta::at(3)).unwrap(),
+            settle_file(&dir.place().file, &Meta::at(3)).unwrap(),
             Settled::Kept
         );
         assert_eq!(dir.world(), bytes, "a second start changes nothing");
@@ -3342,17 +3395,17 @@ pub(crate) mod tests {
         drop(storage);
         let bytes = dir.world();
         assert_eq!(
-            settle(&dir.place().file, &Meta::at(1)).unwrap(),
+            settle_file(&dir.place().file, &Meta::at(1)).unwrap(),
             Settled::Kept
         );
         assert_eq!(dir.world(), bytes, "a file not later is left as it was");
         assert_eq!(
-            settle(&dir.place().file, &Meta::at(0)).unwrap(),
+            settle_file(&dir.place().file, &Meta::at(0)).unwrap(),
             Settled::Removed
         );
         assert!(!dir.place().file.exists());
         assert_eq!(
-            settle(&dir.place().file, &Meta::at(0)).unwrap(),
+            settle_file(&dir.place().file, &Meta::at(0)).unwrap(),
             Settled::Kept
         );
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Skip)).unwrap();
@@ -3363,7 +3416,7 @@ pub(crate) mod tests {
         let bytes = dir.world();
         for _ in 0..2 {
             assert!(matches!(
-                settle(&dir.place().file, &Meta::at(1)),
+                settle_file(&dir.place().file, &Meta::at(1)),
                 Err(Error::NoRollback)
             ));
             assert_eq!(dir.world(), bytes, "a refused file is left as it was");
@@ -3984,7 +4037,8 @@ pub(crate) mod tests {
             verify(&world, IntegrityCheck::Always).unwrap();
             println!("  start check (writes nothing) {:.0} ms", ms(start));
             let start = clock::now();
-            let mut db = Source::File(world.clone()).open().unwrap();
+            let handle = Handle::open(&world).unwrap().unwrap();
+            let mut db = Source::File(world.clone(), handle).open().unwrap();
             println!("  open {:.0} ms", ms(start));
             let start = clock::now();
             assert!(db.check_integrity().unwrap());

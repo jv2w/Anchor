@@ -1324,7 +1324,7 @@ fn wear_after_break(
 ) {
     let mut rng = stream(state, actor.world, USE, pos);
     let worn = tool_after_break(&state.settings, tool, info.breaks_instantly(), &mut rng);
-    return_items(state, actor.session, tool, worn, Vec::new());
+    return_items(state, actor.session, tool, worn);
 }
 
 /// The tool after breaking a block that breaks at once or not: pickaxes, axes, shovels and hoes
@@ -1372,33 +1372,22 @@ fn adventure_allows(stack: &Stack, key: &str, name: &str) -> bool {
 
 /// Puts back what an action leaves: the held stack becomes `new` if the action changed it
 /// (in creative mode only a change of item, not of count or damage) and the hand still holds
-/// `old` (a listener during the action may have changed it); `returned` items go to the
-/// inventory, the first into the hand if it emptied, and what does not fit is thrown (at the
-/// world's entity limit it waits as a spill at the feet, as a broken container's items do). The
-/// game mode, the hand and the place are the player's now, after every listener of the action.
-/// A worn out tool's sound plays last.
+/// `old` (a listener during the action may have changed it). The game mode and the hand are the
+/// player's now, after every listener of the action. A worn out tool's sound plays last.
 #[expect(
     clippy::expect_used,
     reason = "invariant: a player leaves only between actions, never inside one that found it"
 )]
-fn return_items(
-    state: &mut State,
-    session: SessionId,
-    old: &Stack,
-    new: Stack,
-    returned: Vec<Stack>,
-) {
+fn return_items(state: &mut State, session: SessionId, old: &Stack, new: Stack) {
     let player = state
         .players
         .get(&session)
         .expect("an acting player is in the game until its action ends");
     let finite = survival::has_finite_resources(survival::game_mode(state, player));
-    let (world, eye, feet) = (player.world, player.position, survival::feet(player));
+    let (world, eye) = (player.world, player.position);
     let holds_old = player.inventory.held().same(old);
-    let mut changed = false;
     // A tool worn out.
     let mut worn_out = false;
-    let emptied = new.is_empty();
     if !new.same(old) && holds_old {
         let deducted = new.is_empty() || (new.item() == old.item() && new.extra() == old.extra());
         if !deducted || finite {
@@ -1406,25 +1395,6 @@ fn return_items(
             if let Some(player) = state.players.get_mut(&session) {
                 inventory::set_held(player, new);
             }
-            changed = true;
-        }
-    }
-    let mut returned = returned.into_iter();
-    if changed
-        && emptied
-        && let Some(first) = returned.next()
-        && let Some(player) = state.players.get_mut(&session)
-    {
-        inventory::set_held(player, first);
-    }
-    for stack in returned {
-        let left = match state.players.get_mut(&session) {
-            Some(player) => inventory::give(player, stack),
-            None => stack,
-        };
-        if !left.is_empty() && !inventory::throw_stack(state, session, left.clone()) {
-            let at = BlockPos::containing(feet);
-            state.rules.block_entities.spill(world, at, vec![left]);
         }
     }
     if worn_out {
@@ -1581,7 +1551,7 @@ fn apply_destruction(
             .set_block(p, block::AIR)
             .expect("an affected block is in a loaded chunk inside the world");
     }
-    spawn_drops(state, world, pos, items);
+    block_entity::drop_all(state, world, center(pos), items);
     Some(affected)
 }
 
@@ -1604,20 +1574,6 @@ fn destroyed(
         if s.custom_block().is_some() {
             custom::broken(state, breaker, world, p, s);
         }
-    }
-}
-
-/// Drops `items` at the centre of `pos`; items that find no room for entities wait as a spill.
-fn spawn_drops(state: &mut State, world: WorldIndex, pos: BlockPos, items: Vec<Stack>) {
-    let at = center(pos);
-    let mut left = Vec::new();
-    for stack in items {
-        if !entity::drop_item(state, world, at, stack.clone()) {
-            left.push(stack);
-        }
-    }
-    if !left.is_empty() {
-        state.rules.block_entities.spill(world, pos, left);
     }
 }
 

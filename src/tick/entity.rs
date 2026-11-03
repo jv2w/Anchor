@@ -107,7 +107,7 @@ use super::interact::drops::level as level_of;
 use super::interact::level_event;
 use super::survival::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::view::{Key, View, chunk_of};
-use super::{Phase, Player, SessionId, State, dispatch, inventory, survival};
+use super::{Phase, Player, SessionId, State, block_entity, dispatch, inventory, survival};
 use crate::block::{self, Class};
 use crate::config::GameMode;
 use crate::entity::Id;
@@ -2645,7 +2645,7 @@ fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
 /// The NPC `id` died at `at`, seen at its first tick after the death, whatever killed it (a
 /// hit, the API): it drops its kind's drops and xp (a zombie's; other NPCs drop nothing; no xp
 /// with `xp = false`), as [`EntityDeath`]'s listeners leave them. Drops the world cannot take
-/// (the entity limit) are lost: they never existed outside the rule.
+/// now (the entity limit) wait as a spill ([`block_entity::drop_all`]).
 fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
     let Some(npc) = state.rules.entities.get(id) else {
         return;
@@ -2680,11 +2680,7 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
         (drops, xp) = (e.drops.clone(), e.xp_drop_amount);
         event = Some(e);
     }
-    for stack in drops {
-        if !drop_item(state, world, at, stack) {
-            debug!(world, "a death drop did not fit the world");
-        }
-    }
+    block_entity::drop_all(state, world, at, drops);
     drop_xp(state, world, at, xp);
     if let Some(e) = event {
         dispatch::watch(state, &e);
@@ -3663,11 +3659,8 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
         entities.doom(id);
     }
     entities.changed.insert(key);
-    if replaced && !drop_item(state, world, at, rest) {
-        debug!(
-            world,
-            "what of a listener's pickup item did not fit was lost"
-        );
+    if replaced {
+        block_entity::drop_all(state, world, at, vec![rest]);
     }
     dispatch::watch(state, &e);
     true
@@ -5821,6 +5814,27 @@ mod tests {
             at(f64::NAN, 0.0, 0.0),
             stack("minecraft:stick", 1)
         ));
+    }
+
+    /// A painting that breaks at the entity cap keeps its item waiting as a spill where it hung.
+    #[test]
+    fn a_painting_broken_at_the_entity_cap_leaves_its_item_waiting() {
+        let mut h = Harness::new(1);
+        while drop_item(
+            &mut h.state,
+            0,
+            at(0.5, -59.0, 0.5),
+            stack("minecraft:stick", 1),
+        ) {}
+        let painting = Painting {
+            motive: crate::entity::PaintingMotive::Kebab,
+            facing: crate::block::Face::North,
+            drops: true,
+        };
+        object::painting_broke(&mut h.state, 0, at(0.5, -59.0, 0.5), painting);
+        let waiting: Vec<_> = h.state.rules.block_entities.all_items().cloned().collect();
+        let item = crate::item::Kind::Painting.default_type();
+        assert_eq!(waiting, vec![Stack::new(item, 1)]);
     }
 
     /// A finite point above the world border is no place for an entity: its height would be

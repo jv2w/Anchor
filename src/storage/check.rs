@@ -8,6 +8,10 @@
 //! and then drops it: the file keeps its bytes whatever the check finds. A start's roll back of a
 //! file (`settle`) is tried the same way before it is made on the file.
 //!
+//! The check, the roll back and the run open one file handle ([`Handle`]) in turn, and redb's lock
+//! stays with the handle from the check's open until the handle is dropped: so the file the run
+//! opens is the file checked, and no other process opens it in between.
+//!
 //! `/check` reads every value of one read transaction of the open file, in steps of at most
 //! [`STEP_BYTES`] between the save thread's other work, and checks it against its seal (header
 //! and checksum, [`seal::verify`]). It reads every page that holds a value and finds what redb
@@ -17,13 +21,14 @@ use std::collections::BTreeMap;
 use std::io;
 use std::ops::Bound;
 use std::path::Path;
+use std::sync::Arc;
 
 use redb::backends::FileBackend;
 use redb::{BackendError, Builder, Database, StorageBackend};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::backup::{self, STEP_BYTES, Source};
-use super::{Error, Result, check_format, check_integrity, seal};
+use super::{Error, Result, check_format, check_integrity, has_closed_mark, seal};
 use crate::config::IntegrityCheck;
 
 /// The unit [`Overlay`] keeps writes in: redb's page.
@@ -40,14 +45,14 @@ const READ_AHEAD_BYTES: u64 = 256 << 10;
 
 /// A redb backend over a closed data file that never writes to it: writes and length changes stay
 /// in memory, at most [`MAX_WRITTEN_BYTES`] (a write past that fails), and reads see them over the
-/// file's bytes. Syncs do nothing. Locks are the file's, as for a normal open.
+/// file's bytes. Syncs do nothing. Locks are its [`Handle`]'s.
 ///
 /// Reads of the file take [`READ_AHEAD_BYTES`] at once and keep the last [`READ_AHEAD_BLOCKS`]:
 /// redb's check reads page by page, mostly in file order. On a 368 MiB world this read the file
 /// in 3,241 calls instead of 185,770 and took 350 to 481 ms instead of 631 to 878 ms; 64 KiB to
 /// 1 MiB blocks, or fewer of them, read more and were slower.
 struct Overlay {
-    file: FileBackend,
+    file: Arc<Handle>,
     #[expect(
         clippy::disallowed_types,
         reason = "off-tick: redb's backend trait takes &self; one thread checks a file"
@@ -60,8 +65,8 @@ impl Overlay {
         clippy::disallowed_types,
         reason = "off-tick: redb's backend trait takes &self; one thread checks a file"
     )]
-    fn new(file: FileBackend) -> Result<Self> {
-        let len = file.len().map_err(Error::Io)?;
+    fn new(file: Arc<Handle>) -> Result<Self> {
+        let len = file.len()?;
         Ok(Self {
             file,
             state: std::sync::Mutex::new(State {
@@ -95,7 +100,7 @@ impl StorageBackend for Overlay {
     }
 
     fn read(&self, offset: u64, out: &mut [u8]) -> io::Result<()> {
-        self.state().read(&self.file, offset, out)
+        self.state().read(&self.file.file, offset, out)
     }
 
     fn set_len(&self, len: u64) -> io::Result<()> {
@@ -108,15 +113,16 @@ impl StorageBackend for Overlay {
     }
 
     fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
-        self.state().write(&self.file, offset, data)
+        self.state().write(&self.file.file, offset, data)
     }
 
     fn close(&self) -> io::Result<()> {
-        self.file.close()
+        // The handle keeps the lock for the open after the check.
+        Ok(())
     }
 
     fn try_lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<bool, BackendError> {
-        self.file.try_lock_range(start, end)
+        self.file.try_lock((start, end), Share::Exclusive)
     }
 
     fn try_lock_shared_range(
@@ -124,23 +130,23 @@ impl StorageBackend for Overlay {
         start: Bound<u64>,
         end: Bound<u64>,
     ) -> Result<bool, BackendError> {
-        self.file.try_lock_shared_range(start, end)
+        self.file.try_lock((start, end), Share::Shared)
     }
 
     fn lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
-        self.file.lock_range(start, end)
+        self.file.lock((start, end), Share::Exclusive)
     }
 
     fn lock_shared_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
-        self.file.lock_shared_range(start, end)
+        self.file.lock((start, end), Share::Shared)
     }
 
     fn unlock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
-        self.file.unlock_range(start, end)
+        self.file.unlock((start, end))
     }
 
     fn query_lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<bool, BackendError> {
-        self.file.query_lock_range(start, end)
+        self.file.file.query_lock_range(start, end)
     }
 }
 
@@ -296,6 +302,207 @@ impl State {
             at += n as u64;
         }
         Ok(())
+    }
+}
+
+/// A data file's handle, from its start check ([`verify`]) until the file closes. redb's lock
+/// stays with it: the first redb open on it takes the lock through it, every later one (a start's
+/// roll back, the run's open, a reopen after a failed call) takes the ranges it holds as its own,
+/// and no redb close releases them. Dropping it releases the lock and closes the file.
+#[derive(Debug)]
+pub(crate) struct Handle {
+    file: FileBackend,
+    /// The ranges of redb's lock it holds.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: redb's backend trait takes &self; one thread opens a file at a time"
+    )]
+    held: std::sync::Mutex<Vec<(Bound<u64>, Bound<u64>)>>,
+}
+
+impl Handle {
+    /// The handle of a new data file at `path`, which its check found missing: [`Error::InUse`]
+    /// if another process made the file since.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: the save thread makes a data file"
+    )]
+    pub(crate) fn create(path: &Path) -> Result<Arc<Self>> {
+        let opened = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(path);
+        match opened {
+            Ok(file) => Self::new(file),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(Error::InUse),
+            Err(e) => Err(Error::Io(e)),
+        }
+    }
+
+    /// The handle of the data file at `path`; `None` when there is none.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: the save thread opens a data file"
+    )]
+    pub(crate) fn open(path: &Path) -> Result<Option<Arc<Self>>> {
+        // Opened for writing too: on Unix redb's lock is a write lock, which a read-only handle
+        // cannot take.
+        let opened = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path);
+        match opened {
+            Ok(file) => Self::new(file).map(Some),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(Error::Io(e)),
+        }
+    }
+
+    /// The file's length in bytes.
+    pub(crate) fn len(&self) -> Result<u64> {
+        self.file.len().map_err(Error::Io)
+    }
+
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: redb's backend trait takes &self; one thread opens a file at a time"
+    )]
+    fn new(file: std::fs::File) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self {
+            file: FileBackend::new(file).map_err(Error::from_open)?,
+            held: std::sync::Mutex::new(Vec::new()),
+        }))
+    }
+
+    /// The ranges held. Nothing panics while holding them, so a poisoned lock still holds a whole
+    /// list.
+    fn held(&self) -> std::sync::MutexGuard<'_, Vec<(Bound<u64>, Bound<u64>)>> {
+        self.held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Takes `range` of redb's lock, waiting for it, unless the handle holds it already.
+    fn lock(&self, range: (Bound<u64>, Bound<u64>), share: Share) -> Result<(), BackendError> {
+        let mut held = self.held();
+        if held.contains(&range) {
+            return Ok(());
+        }
+        match share {
+            Share::Exclusive => self.file.lock_range(range.0, range.1)?,
+            Share::Shared => self.file.lock_shared_range(range.0, range.1)?,
+        }
+        held.push(range);
+        Ok(())
+    }
+
+    /// Takes `range` of redb's lock, unless the handle holds it already.
+    fn try_lock(
+        &self,
+        range: (Bound<u64>, Bound<u64>),
+        share: Share,
+    ) -> Result<bool, BackendError> {
+        let mut held = self.held();
+        if held.contains(&range) {
+            return Ok(true);
+        }
+        let taken = match share {
+            Share::Exclusive => self.file.try_lock_range(range.0, range.1)?,
+            Share::Shared => self.file.try_lock_shared_range(range.0, range.1)?,
+        };
+        if taken {
+            held.push(range);
+        }
+        Ok(taken)
+    }
+
+    /// Releases `range` of redb's lock.
+    fn unlock(&self, range: (Bound<u64>, Bound<u64>)) -> Result<(), BackendError> {
+        let mut held = self.held();
+        self.file.unlock_range(range.0, range.1)?;
+        held.retain(|r| *r != range);
+        Ok(())
+    }
+}
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        // Closing the file releases the lock as well, but Windows may do that some time later,
+        // so a start right after this one could find the file in use.
+        if let Err(e) = self.file.close() {
+            warn!(
+                error = &e as &(dyn std::error::Error + 'static),
+                "a data file's lock is released only as the file closes"
+            );
+        }
+    }
+}
+
+/// How a range of redb's lock is taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Share {
+    Exclusive,
+    Shared,
+}
+
+/// The run's redb backend: the file of a [`Handle`], read and written as it is. Locks are the
+/// handle's, and a close leaves them to it.
+#[derive(Debug)]
+pub(super) struct Through(pub(super) Arc<Handle>);
+
+impl StorageBackend for Through {
+    fn len(&self) -> io::Result<u64> {
+        self.0.file.len()
+    }
+
+    fn read(&self, offset: u64, out: &mut [u8]) -> io::Result<()> {
+        self.0.file.read(offset, out)
+    }
+
+    fn set_len(&self, len: u64) -> io::Result<()> {
+        self.0.file.set_len(len)
+    }
+
+    fn sync_data(&self) -> io::Result<()> {
+        self.0.file.sync_data()
+    }
+
+    fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
+        self.0.file.write(offset, data)
+    }
+
+    fn close(&self) -> io::Result<()> {
+        // A reopen after a failed call takes the lock on as it is.
+        Ok(())
+    }
+
+    fn try_lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<bool, BackendError> {
+        self.0.try_lock((start, end), Share::Exclusive)
+    }
+
+    fn try_lock_shared_range(
+        &self,
+        start: Bound<u64>,
+        end: Bound<u64>,
+    ) -> Result<bool, BackendError> {
+        self.0.try_lock((start, end), Share::Shared)
+    }
+
+    fn lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
+        self.0.lock((start, end), Share::Exclusive)
+    }
+
+    fn lock_shared_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
+        self.0.lock((start, end), Share::Shared)
+    }
+
+    fn unlock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<(), BackendError> {
+        self.0.unlock((start, end))
+    }
+
+    fn query_lock_range(&self, start: Bound<u64>, end: Bound<u64>) -> Result<bool, BackendError> {
+        self.0.file.query_lock_range(start, end)
     }
 }
 
@@ -461,48 +668,40 @@ impl std::fmt::Debug for Check {
 /// Checks the closed data file `world` as a start with `integrity-check = check` does, without
 /// writing to it: redb's recovery of a crash, redb's integrity check if `check` asks for it (a
 /// repair, `Ok(false)`, is damage), and on every start the format of its last commit
-/// ([`check_format`]). A missing or empty file passes: it holds nothing to check. redb's lock
-/// keeps other processes out ([`Error::InUse`]) until the check ends; the caller opens the file
-/// for the run afterwards.
-pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<()> {
-    // Before the open below: reading the mark opens the file read-only, which its lock refuses.
-    let checked = super::checks(world, check);
+/// ([`check_format`]). With `after-unclean-shutdown` the file is checked unless its last commit
+/// holds the mark of a normal stop, read in the same open. Returns the file's handle, which keeps
+/// redb's lock ([`Error::InUse`] for another process) until the run opens the file on it
+/// ([`Storage::open_checked`](super::Storage::open_checked)); `None` for a missing file, which
+/// holds nothing to check.
+pub(crate) fn verify(world: &Path, check: IntegrityCheck) -> Result<Option<Arc<Handle>>> {
+    let Some(handle) = Handle::open(world)? else {
+        return Ok(None);
+    };
+    let mut db = open_overlay(&handle)?;
+    let checked = match check {
+        IntegrityCheck::Always => true,
+        IntegrityCheck::AfterUncleanShutdown => !has_closed_mark(&db)?,
+        IntegrityCheck::Never => false,
+    };
     if !checked && check == IntegrityCheck::AfterUncleanShutdown {
         debug!(path = %world.display(), "data file closed normally; its integrity is not checked");
     }
-    let Some(mut db) = open_overlay(world)? else {
-        return Ok(());
-    };
     if checked {
         check_integrity(&mut db)?;
     }
-    check_format(&db)
+    check_format(&db)?;
+    drop(db);
+    Ok(Some(handle))
 }
 
-/// redb opened on an [`Overlay`] over the closed data file `world`, so nothing done through it
-/// reaches the file; `None` for a missing or empty file, which holds nothing. redb's lock keeps
-/// other processes out until it is dropped.
+/// redb opened on an [`Overlay`] over the closed data file of `handle`, so nothing done through
+/// it reaches the file. An empty file opens as a new database.
 #[expect(
-    clippy::disallowed_types,
     clippy::disallowed_methods,
     reason = "off-tick: the start reads a closed data file before it opens it"
 )]
-pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
-    // Opened for writing too: on Unix redb's lock is a write lock, which a read-only handle
-    // cannot take. Nothing is written through it.
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(world);
-    let handle = match opened {
-        Ok(handle) => handle,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(Error::Io(e)),
-    };
-    if handle.metadata().map_err(Error::Io)?.len() == 0 {
-        return Ok(None);
-    }
-    let overlay = Overlay::new(FileBackend::new(handle).map_err(Error::from_open)?)?;
+pub(super) fn open_overlay(handle: &Arc<Handle>) -> Result<Database> {
+    let overlay = Overlay::new(Arc::clone(handle))?;
     let mut builder = Builder::new();
     // No page cache: each pass of the check reads a page once, and the overlay's read-ahead
     // holds the pages around it. On a 368 MiB world the check took 333 to 517 ms without one
@@ -510,7 +709,6 @@ pub(super) fn open_overlay(world: &Path) -> Result<Option<Database>> {
     builder.set_cache_size(0);
     builder
         .create_with_backend(overlay)
-        .map(Some)
         .map_err(Error::from_open)
 }
 
@@ -565,18 +763,9 @@ pub(super) mod tests {
     }
 
     /// redb opened on an [`Overlay`] over the file at `path`.
-    #[expect(
-        clippy::disallowed_types,
-        clippy::disallowed_methods,
-        reason = "off-tick: test fixtures on disk"
-    )]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn overlay(path: &Path) -> Database {
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .unwrap();
-        let overlay = Overlay::new(FileBackend::new(file).unwrap()).unwrap();
+        let overlay = Overlay::new(Handle::open(path).unwrap().unwrap()).unwrap();
         Builder::new().create_with_backend(overlay).unwrap()
     }
 

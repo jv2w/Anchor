@@ -19,8 +19,6 @@
 //! gives back follow one game mode; a cloud grows no larger and lives no longer than its saved
 //! form holds.
 
-use tracing::debug;
-
 use super::SessionId;
 use super::kind::{Arrow, Cloud, Kind, Pickup, Projectile, Shot, Trident, Victim};
 use super::physics::{BlockHit, Flight, intercept};
@@ -45,7 +43,7 @@ use crate::protocol::consts::{ActorEvent, LevelEvent};
 use crate::protocol::packet::{Packet, TakeItemActor};
 use crate::random::{self, Random};
 use crate::tick::dispatch;
-use crate::tick::{Context, Phase, inventory, survival};
+use crate::tick::{Context, Phase, block_entity, inventory, survival};
 use crate::world::particle_id;
 
 /// An arrow's base damage.
@@ -1290,12 +1288,7 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
                 .entities
                 .get(id)
                 .map_or((0, Vec3::ZERO), |e| (e.world, e.body.position));
-            if !super::drop_item(state, world, at, rest) {
-                debug!(
-                    world,
-                    "what of a listener's pickup item did not fit was lost"
-                );
-            }
+            block_entity::drop_all(state, world, at, vec![rest]);
         }
     }
     finish_pickup(state, session, id, event)
@@ -1370,12 +1363,7 @@ fn pick_up_trident(state: &mut State, session: SessionId, id: Id, hooks: Hooks) 
                 });
                 return true;
             }
-            if !super::drop_item(state, world, at, rest) {
-                debug!(
-                    world,
-                    "what of a listener's pickup item did not fit was lost"
-                );
-            }
+            block_entity::drop_all(state, world, at, vec![rest]);
         }
     }
     finish_pickup(state, session, id, event)

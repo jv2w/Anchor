@@ -247,7 +247,7 @@ fn finish(state: &mut State, u: Use, held: &Stack) {
     let Use {
         actor, item, sound, ..
     } = u;
-    return_items(state, actor.session, held, item, Vec::new());
+    return_items(state, actor.session, held, item);
     if let Some((at, sound)) = sound {
         emit::sound(state, actor.world, at, sound);
     }
@@ -325,7 +325,7 @@ fn place_held(
         }
     }
     let used = held.with_count(held.count().saturating_sub(1));
-    return_items(state, actor.session, held, used, Vec::new());
+    return_items(state, actor.session, held, used);
     if let Some((first, s)) = blocks.first() {
         emit::sound(state, world, center(*first), Sound::BlockPlace(*s));
     }
@@ -572,14 +572,10 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
             .get(slot)
             .cloned()
             .unwrap_or_default();
-        let one = held.with_count(1);
-        let rest = held.with_count(held.count().saturating_sub(1));
+        // Armor stacks to 1, so the whole stack goes on.
         if let Some(player) = state.players.get_mut(&actor.session) {
-            inventory::set_armor(player, slot, one);
+            inventory::set_armor(player, slot, held.clone());
             inventory::set_held(player, worn);
-        }
-        if !rest.is_empty() {
-            return_items(state, actor.session, held, held.clone(), vec![rest]);
         }
         emit::sound(state, actor.world, actor.eye, Sound::ArmorEquipGeneric);
         return true;
@@ -601,7 +597,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
             return false;
         }
         let used = held.with_count(held.count().saturating_sub(1));
-        return_items(state, actor.session, held, used, Vec::new());
+        return_items(state, actor.session, held, used);
         return true;
     }
     // Drawing a trident starts while one more throw does not break it; the release throws.

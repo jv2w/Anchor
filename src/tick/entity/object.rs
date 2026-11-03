@@ -13,12 +13,10 @@
 //! air; a firework item's broken explosion compound is left out instead of making the whole item
 //! unreadable.
 
-use tracing::debug;
-
 use super::kind::{Crystal, Firework, Kind, Painting};
 use super::{
-    Blow, Cause, Hooks, Knock, Raise, SessionId, State, create, drop_item, hurt, physics,
-    push_player, send_to, survival, with,
+    Blow, Cause, Hooks, Knock, Raise, SessionId, State, create, hurt, physics, push_player,
+    send_to, survival, with,
 };
 use crate::block::{self, Face};
 use crate::entity::{Animation, Id, PaintingMotive};
@@ -28,8 +26,8 @@ use crate::math::{Aabb, Vec3};
 use crate::nbt::{Compound, List, Value};
 use crate::random::Random;
 use crate::save::WorldIndex;
-use crate::tick::emit;
 use crate::tick::interact::props::rotate_clockwise;
+use crate::tick::{block_entity, emit};
 use crate::world::{BlockPos, Particle, Sound, World};
 
 /// The damage of a burst at its centre before its explosions add theirs.
@@ -99,14 +97,11 @@ pub(in crate::tick) enum Placed {
 }
 
 /// Ends a painting that died at `at`: it drops its item unless a player with infinite items broke
-/// it, and shows oak planks breaking. At the world's entity limit the item is lost (as an NPC's
-/// death drops are).
+/// it, and shows oak planks breaking. At the world's entity limit the item waits as a spill.
 pub(super) fn painting_broke(state: &mut State, world: WorldIndex, at: Vec3, painting: Painting) {
     if painting.drops {
         let stack = Stack::new(item::Kind::Painting.default_type(), 1);
-        if !drop_item(state, world, at, stack) {
-            debug!(world, "a painting's item did not fit the world");
-        }
+        block_entity::drop_all(state, world, at, vec![stack]);
     }
     let centre = at + Vec3::new(0.5, 0.5, 0.5);
     let planks = Particle::BlockBreak(block::Kind::OakPlanks.default_state());

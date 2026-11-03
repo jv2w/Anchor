@@ -1165,7 +1165,7 @@ fn create(
     if is_chest {
         pair_chest(state, world, pos, block, session);
     }
-    drop_all(state, world, pos, unfit);
+    drop_all(state, world, center(pos), unfit);
     true
 }
 
@@ -1337,7 +1337,7 @@ fn discard(state: &mut State, world: WorldIndex, pos: BlockPos) {
         take_contents(e, &mut contents);
     }
     removed(state, world, pos);
-    drop_all(state, world, pos, contents);
+    drop_all(state, world, center(pos), contents);
 }
 
 /// The block at `pos` is gone (broken, replaced, exploded): removes its block entity, closes the
@@ -1372,7 +1372,7 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
     if matches!(entity.kind, Kind::ShulkerBox { .. }) {
         return;
     }
-    drop_all(state, world, pos, entity.items);
+    drop_all(state, world, center(pos), entity.items);
 }
 
 /// The sessions with a window open on the block at `pos`; a double chest window covers both
@@ -1390,10 +1390,9 @@ pub(super) fn window_viewers(state: &State, world: WorldIndex, pos: BlockPos) ->
     out
 }
 
-/// Drops `stacks` at the centre of `pos`; what cannot drop now (the world's entity limit) waits
-/// as a spill in the chunk.
-fn drop_all(state: &mut State, world: WorldIndex, pos: BlockPos, stacks: Vec<Stack>) {
-    let at = center(pos);
+/// Drops `stacks` at `at`; what cannot drop now (the world's entity limit) waits as a spill in
+/// the chunk of `at`, so no item is lost.
+pub(super) fn drop_all(state: &mut State, world: WorldIndex, at: Vec3, stacks: Vec<Stack>) {
     let mut left = Vec::new();
     for stack in stacks.into_iter().filter(|s| !s.is_empty()) {
         if !inventory::drop_stack(state, world, at, stack.clone()) {
@@ -1401,7 +1400,10 @@ fn drop_all(state: &mut State, world: WorldIndex, pos: BlockPos, stacks: Vec<Sta
         }
     }
     if !left.is_empty() {
-        state.rules.block_entities.spill(world, pos, left);
+        state
+            .rules
+            .block_entities
+            .spill(world, BlockPos::containing(at), left);
     }
 }
 

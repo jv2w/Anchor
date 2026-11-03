@@ -1,7 +1,5 @@
 //! Food, xp and consumables.
 
-use tracing::warn;
-
 use super::attributes::{EXHAUSTION, FOOD, LEVEL, MOVEMENT, SATURATION, XP};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
@@ -19,7 +17,7 @@ use crate::player::{Id, level_from_xp, xp_to_complete_level, xp_to_reach_level};
 use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
-use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
+use crate::tick::{Phase, Player, SessionId, State, block_entity, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
 /// The random stream key of a chorus fruit's teleport.
@@ -302,12 +300,7 @@ fn consume(state: &mut State, session: SessionId, item: Type) {
             break;
         };
         let left = inventory::give(player, stack);
-        if !left.is_empty() && !entity::drop_item(state, world, at, left) {
-            warn!(
-                session = session.get(),
-                "a residue stack was not dropped although the world had room"
-            );
-        }
+        block_entity::drop_all(state, world, at, vec![left]);
     }
     apply(state, session, item);
     super::watch(state, event.as_ref());

@@ -343,6 +343,11 @@ struct Plan {
     clear: bool,
 }
 
+/// The handles of the files a start checked ([`check_all`]), by file: each holds redb's lock from
+/// its check until the file opens on it ([`open_held`]); `None` for a file the check found
+/// missing.
+type Held = BTreeMap<PathBuf, Option<Arc<storage::Handle>>>;
+
 /// An open data file and where it is.
 struct Open {
     storage: Storage,
@@ -359,12 +364,13 @@ enum Opener {
 }
 
 impl Opener {
-    /// Opens the file of the world `name`.
-    fn open(&self, name: &str) -> Result<Open, storage::Error> {
+    /// Opens the file of the world `name`, on its start check's handle if `held` has it.
+    fn open(&self, name: &str, held: &mut Held) -> Result<Open, storage::Error> {
         match self {
             Self::Live { data_dir, start } => {
                 let place = world_place(data_dir, name)?;
-                let storage = Storage::open(&place, *start).map_err(|e| e.in_file(&place.file))?;
+                let storage =
+                    open_held(held, &place, *start).map_err(|e| e.in_file(&place.file))?;
                 Ok(Open { storage, place })
             }
             Self::Replay(files) => {
@@ -684,15 +690,15 @@ pub(crate) fn open_with(
     if names.len() + new_files > MAX_WORLDS {
         return Err(data_error(data_dir)(storage::Error::TooManyWorlds));
     }
-    check_all(&places, start.check, pool).map_err(data_error(data_dir))?;
-    // Checked above: their opens check the format alone.
+    let mut held = check_all(&places, start.check, pool).map_err(data_error(data_dir))?;
+    // Checked above: a file the start opens without its check's handle checks the format alone.
     let checked = Start {
         check: IntegrityCheck::Never,
         ..start
     };
-    let open = |name: &str| -> Result<Open, crate::Error> {
+    let open = |held: &mut Held, name: &str| -> Result<Open, crate::Error> {
         let place = Place::data(data_dir, name);
-        let storage = Storage::open(&place, checked)
+        let storage = open_held(held, &place, checked)
             .inspect_err(|e| log_refused(&place.file, e))
             .map_err(data_error(&place.file))?;
         Ok(Open { storage, place })
@@ -700,15 +706,15 @@ pub(crate) fn open_with(
     // A missing main file holds no save to roll back to: the other files stay as they are.
     let main_path = Place::data(data_dir, storage::MAIN_FILE).file;
     let main_existed = storage::has_data(&main_path).map_err(data_error(&main_path))?;
-    let mut main = open(storage::MAIN_FILE)?;
+    let mut main = open(&mut held, storage::MAIN_FILE)?;
     let saved = stored_meta(&mut main.storage).map_err(data_error(&main_path))?;
     if main_existed {
-        finish_deletions(data_dir, &mut main.storage).map_err(data_error(&main_path))?;
-        settle_all(data_dir, &names, &saved).map_err(data_error(data_dir))?;
+        finish_deletions(data_dir, &mut main.storage, &mut held).map_err(data_error(&main_path))?;
+        settle_all(data_dir, &names, &saved, &mut held).map_err(data_error(data_dir))?;
     }
     let files = Files {
         main,
-        players: open(storage::PLAYERS_FILE)?,
+        players: open(&mut held, storage::PLAYERS_FILE)?,
     };
     let names = world_names(data_dir).map_err(data_error(data_dir))?;
     let files_at_start = names.len();
@@ -758,7 +764,7 @@ pub(crate) fn open_with(
         data_dir: data_dir.to_path_buf(),
         start: checked,
     };
-    let mut resolved = resolve(files, opener, saved, stored, specs, None)?;
+    let mut resolved = resolve(files, opener, held, saved, stored, specs, None)?;
     // The stored worlds are files of other names than the declared worlds', so this is the rest.
     resolved.catalog.left_out = files_at_start - declared_files - resolved.catalog.stored.len();
     Ok(resolved)
@@ -772,11 +778,18 @@ fn settle_all(
     data_dir: &std::path::Path,
     names: &[String],
     saved: &Meta,
+    held: &mut Held,
 ) -> Result<(), storage::Error> {
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
     let worlds = names.iter().map(|name| Place::world(data_dir, name).file);
     for file in std::iter::once(players).chain(worlds) {
-        if let Err(e) = storage::settle(&file, saved) {
+        // A checked file rolls back on its check's handle, another on a handle of its own.
+        let settled = match held.get_mut(&file) {
+            Some(handle) => storage::settle(&file, handle, saved),
+            None => storage::Handle::open(&file)
+                .and_then(|mut handle| storage::settle(&file, &mut handle, saved)),
+        };
+        if let Err(e) = settled {
             log_refused(&file, &e);
             return Err(e.in_file(&file));
         }
@@ -785,18 +798,35 @@ fn settle_all(
 }
 
 /// Checks the closed files at `places` together on `pool` ([`storage::verify`]), in turns of one
-/// file per pool thread ([`Pool::map_in_turns`]). Every refused file is logged; the first one
-/// refuses the start. None is written.
-fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(), storage::Error> {
+/// file per pool thread ([`Pool::map_in_turns`]), and keeps the handle each check leaves, which
+/// holds redb's lock until the file opens on it ([`open_held`]). Every refused file is logged;
+/// the first one refuses the start, which drops every handle. None is written.
+fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<Held, storage::Error> {
     let checked = pool.map_in_turns(places, |place| storage::verify(&place.file, check));
+    let mut held = Held::new();
     let mut refused = None;
     for (place, result) in places.iter().zip(checked) {
-        if let Err(e) = result {
-            log_refused(&place.file, &e);
-            refused.get_or_insert(e.in_file(&place.file));
+        match result {
+            Ok(handle) => {
+                held.insert(place.file.clone(), handle);
+            }
+            Err(e) => {
+                log_refused(&place.file, &e);
+                refused.get_or_insert(e.in_file(&place.file));
+            }
         }
     }
-    refused.map_or(Ok(()), Err)
+    refused.map_or(Ok(held), Err)
+}
+
+/// Opens the data file at `place` on the handle its start check left in `held`, if any
+/// ([`check_all`]), so the file opened is the file checked; else checks it with `start` and opens
+/// it ([`Storage::open`]).
+fn open_held(held: &mut Held, place: &Place, start: Start) -> Result<Storage, storage::Error> {
+    match held.remove(&place.file) {
+        Some(handle) => Storage::open_checked(place, handle, start.backup),
+        None => Storage::open(place, start),
+    }
 }
 
 /// The conversion of a data file's failure to the program's error: it names the file the failure
@@ -894,7 +924,15 @@ pub(crate) fn open_replica(
             .map(|(name, file)| (storage::world_name_key(name), file.clone()))
             .collect(),
     );
-    resolve(files_open, opener, saved, stored, specs, Some(seeds))
+    resolve(
+        files_open,
+        opener,
+        Held::new(),
+        saved,
+        stored,
+        specs,
+        Some(seeds),
+    )
 }
 
 /// Deletes the record `key` from the players file of the data folder `data_dir` and says whether
@@ -943,10 +981,12 @@ pub(crate) fn committed_tick(data_dir: &std::path::Path) -> Result<u64, crate::E
 }
 
 /// Resolves the worlds of `specs` against the open `files` and the stored worlds `stored` (see
-/// [`open_with`]); `seeds`, by world, replaces every world's seed.
+/// [`open_with`]), each world file opening on its start check's handle if `held` has it; `seeds`,
+/// by world, replaces every world's seed.
 fn resolve(
     mut files: Files,
     opener: Opener,
+    mut held: Held,
     saved: Meta,
     mut stored: Vec<(String, WorldRecord)>,
     specs: Vec<WorldSpec>,
@@ -954,7 +994,7 @@ fn resolve(
 ) -> Result<Opened, crate::Error> {
     let access =
         read_access(&mut files.main.storage).map_err(data_error(&files.main.place.file))?;
-    let mut plans = open_plans(&specs, &opener, seeds)?;
+    let mut plans = open_plans(&specs, &opener, &mut held, seeds)?;
     let numbers = stored.iter().map(|(_, r)| r.number).chain(
         plans
             .iter()
@@ -1043,11 +1083,12 @@ fn resolve(
     })
 }
 
-/// The plan of each of `specs`, with the file of each persistent world opened by `opener`;
-/// `seeds`, by world, replaces every world's seed.
+/// The plan of each of `specs`, with the file of each persistent world opened by `opener` (on its
+/// start check's handle if `held` has it); `seeds`, by world, replaces every world's seed.
 fn open_plans(
     specs: &[WorldSpec],
     opener: &Opener,
+    held: &mut Held,
     seeds: Option<&[i64]>,
 ) -> Result<Vec<Plan>, crate::Error> {
     let mut plans = Vec::with_capacity(specs.len());
@@ -1056,7 +1097,7 @@ fn open_plans(
         let seed = seed_or_default(&spec.name, given.or(spec.seed));
         let number = (spec.kind == Kind::Persistent).then_some(0);
         let mut plan = plan(&spec.name, number, seed, Arc::clone(&spec.generator));
-        match (open_world(&mut plan, opener), opener) {
+        match (open_world(&mut plan, opener, held), opener) {
             (Ok(()), _) => {}
             // A start refuses a declared world whose file does not open, as it does the main and
             // players files: the check before reads only, and the open writes.
@@ -2263,7 +2304,8 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) -> Ve
             world.seed,
             Arc::clone(&world.generator),
         );
-        if let Err(e) = open_world(&mut plan, opener) {
+        // The tick's worlds open after the start, with no start check's handle left.
+        if let Err(e) = open_world(&mut plan, opener, &mut Held::new()) {
             log_unopened(&world.name, &e);
             unopened.push(world.index);
         }
@@ -2293,13 +2335,14 @@ fn plan(name: &str, number: Option<u32>, seed: i64, generator: Arc<dyn Generator
     }
 }
 
-/// Opens the file of the persistent world of `plan`, whose record gives its number, time and
-/// spawn; a temporary world has none. On error the plan has no file.
-fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
+/// Opens the file of the persistent world of `plan` (on its start check's handle if `held` has
+/// it), whose record gives its number, time and spawn; a temporary world has none. On error the
+/// plan has no file.
+fn open_world(plan: &mut Plan, opener: &Opener, held: &mut Held) -> Result<(), storage::Error> {
     if plan.number.is_none() {
         return Ok(());
     }
-    let mut open = opener.open(&plan.name)?;
+    let mut open = opener.open(&plan.name, held)?;
     let record = world_file(&mut open.storage).map_err(|e| e.in_file(&open.place.file))?;
     if let Some(record) = record {
         plan.number = Some(record.number);
@@ -2346,15 +2389,27 @@ fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
 /// Removes the files of the worlds the main file's last save deleted (its deletion marks,
 /// [`Key::Deleted`]), which a stop right after that save's commit left, then the marks, in one
 /// commit of the main file: a start stopped in between finds the marks again and ends the same.
-/// A file that cannot be removed refuses the start, as the world would come back.
-fn finish_deletions(data_dir: &std::path::Path, main: &mut Storage) -> Result<(), storage::Error> {
+/// A file that cannot be removed refuses the start, as the world would come back. The handle
+/// `held` keeps of a removed file, from its start check, is dropped first.
+fn finish_deletions(
+    data_dir: &std::path::Path,
+    main: &mut Storage,
+    held: &mut Held,
+) -> Result<(), storage::Error> {
     let names = main.deleted_worlds()?;
     if names.is_empty() {
         return Ok(());
     }
     let mut marks = Batch::with_capacity(names.len());
     for name in names {
-        if let Err(e) = remove_world_file(data_dir, &name) {
+        let removed = world_file_name(data_dir, &name).and_then(|file| {
+            // Windows cannot remove an open file.
+            if let Some(file) = file {
+                held.remove(&Place::world(data_dir, &file).file);
+            }
+            remove_world_file(data_dir, &name)
+        });
+        if let Err(e) = removed {
             error!(
                 world = name,
                 error = &e as &(dyn std::error::Error + 'static),
