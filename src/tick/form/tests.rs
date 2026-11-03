@@ -268,17 +268,41 @@ fn a_closed_form_calls_the_handler_with_closed_and_one_the_client_could_not_show
 }
 
 #[test]
-fn leaving_drops_the_pending_forms_without_calling_their_handlers() {
+fn leaving_closes_each_pending_form_with_one_closed_notice() {
     let (mut state, _rx) = server();
     let mut c = send(&mut state, 1, menu());
+    let mut d = send(&mut state, 1, menu());
+    let mut other = send(&mut state, 2, menu());
     run(&mut state, vec![leave(1, 1)]);
     assert!(!state.forms.players.contains_key(&SessionId::new(1)));
-    assert!(calls(&mut c).is_empty());
+    assert_eq!(calls(&mut c), [(1, Response::Closed)]);
+    assert_eq!(calls(&mut d), [(1, Response::Closed)]);
+    assert!(calls(&mut other).is_empty(), "another player's form");
+    run(&mut state, vec![answer(1, 2, 0, None, Some(0))]);
+    assert!(
+        calls(&mut c).is_empty(),
+        "a late answer is not a second notice"
+    );
     let (handler, _) = recorder();
     let mut cx = Context { state: &mut state };
     assert_eq!(cx.send_form(id(1), menu(), handler), Err(Error::Offline));
     let (handler, _) = recorder();
     assert_eq!(cx.send_form(id(9), menu(), handler), Err(Error::Offline));
+}
+
+#[test]
+fn a_newer_form_queues_behind_the_open_one_and_each_is_closed_with_one_notice() {
+    let (mut state, _rx) = server();
+    let mut first = send(&mut state, 1, menu());
+    let mut second = send(&mut state, 1, menu());
+    assert!(calls(&mut first).is_empty() && calls(&mut second).is_empty());
+    run(&mut state, vec![answer(1, 1, 0, None, Some(0))]);
+    assert_eq!(calls(&mut first), [(1, Response::Closed)]);
+    assert!(calls(&mut second).is_empty(), "the newer form still waits");
+    run(&mut state, vec![answer(1, 2, 1, None, Some(0))]);
+    assert_eq!(calls(&mut second), [(1, Response::Closed)]);
+    run(&mut state, vec![answer(1, 3, 0, None, Some(0))]);
+    assert!(calls(&mut first).is_empty(), "no second notice");
 }
 
 #[test]

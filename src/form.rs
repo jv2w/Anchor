@@ -419,7 +419,7 @@ enum Element {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Response {
-    /// The player closed the form without answering.
+    /// The player closed the form without answering, or left the game with it open.
     Closed,
     /// The client could not show the form because it was busy.
     Busy,

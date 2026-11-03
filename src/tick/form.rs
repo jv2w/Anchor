@@ -4,7 +4,9 @@
 //! A form's handler is kept with the shape of the answer it waits for, under the form ID sent to
 //! the player. The answer (`ModalFormResponse`) removes it whether it fits or not, so a second
 //! answer to the same ID finds nothing; one that fits runs the handler in the tick's serial step,
-//! with the handler already out of the state.
+//! with the handler already out of the state. A form stays open on the client through a death, a
+//! world move and a newer form (they queue), so only the player's answer or leaving closes it,
+//! with one notice each.
 //!
 //! The form API is on [`Context`] rather than [`Player`]: the handler
 //! needs a `Context`, and the forms are kept in the state beside the players.
@@ -139,7 +141,9 @@ impl Context<'_> {
     /// Sends `form` to `player`; `handler` runs once, in a later tick, with the player's answer:
     /// what the player chose, [`Response::Closed`] if it closed the form, or [`Response::Busy`]
     /// if the client could not show it. An answer that does not fit the form is dropped, and the
-    /// handler never runs; so does a form whose player leaves first.
+    /// handler never runs. A player who leaves with the form open closes it: the handler runs with
+    /// [`Response::Closed`], the player already gone from the game. A form the server closes
+    /// ([`close_forms`](Self::close_forms)) is a direct call and raises no notice.
     ///
     /// # Errors
     ///
@@ -215,9 +219,19 @@ pub(super) fn on_response(state: &mut State, session: SessionId, packet: &ModalF
     (pending.handler)(&mut Context { state }, player::Id::new(session), response);
 }
 
-/// Forgets what `session` had open when the player leaves; the handlers of its forms never run.
+/// Forgets what `session` had open when the player leaves; the handler of each form it still
+/// waited for hears [`Response::Closed`] once, in form ID order, with the player already gone.
 pub(super) fn left(state: &mut State, session: SessionId) {
-    state.forms.players.remove(&session);
+    let Some(open) = state.forms.players.remove(&session) else {
+        return;
+    };
+    for pending in open.pending.into_values() {
+        (pending.handler)(
+            &mut Context { state },
+            player::Id::new(session),
+            Response::Closed,
+        );
+    }
 }
 
 /// The player of `id` and its entry, if it is in the game ([`Context::player`]).
