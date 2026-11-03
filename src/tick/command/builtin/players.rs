@@ -55,8 +55,7 @@ enum Slot {
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.extend([
         Command::new("clear", "commands.clear.description")
-            .permission(permission::COMMAND_CLEAR_SELF)
-            .permission(permission::COMMAND_CLEAR_OTHER)
+            .permission(permission::COMMAND_CLEAR)
             .overload(
                 &[
                     Param::target("player").optional(),
@@ -137,13 +136,10 @@ fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
 
 /// Empties the inventory, cursor, armor and off hand, or takes the stacks of `item` with damage
 /// `data` (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts
-/// them) (`/clear [player] [item] [data] [maxCount]`).
+/// them) (`/clear [player] [item] [data] [maxCount]`). Operators only.
 fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let own = (
-        permission::COMMAND_CLEAR_SELF,
-        permission::COMMAND_CLEAR_OTHER,
-    );
-    let targets = permitted_targets(cx, *sender, args, "player", own, "clear")?;
+    let operators = permission::COMMAND_CLEAR;
+    let targets = permitted_targets(cx, *sender, args, "player", (operators, operators), "clear")?;
     let item = args.item("itemName");
     let data = args.int("data").filter(|&d| d != -1);
     let max = args.int("maxCount");

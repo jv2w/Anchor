@@ -296,6 +296,8 @@ builtin! {
     /// Get a copy of what operators' commands did, such as `[Steve: Opped Alex]`.
     #[doc(alias = "DefaultPermissionNames")]
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
+    /// Show the server version (`/about`).
+    COMMAND_ABOUT = "anchor.command.about", True;
     /// Back up the data files while the server runs (`/backup`).
     COMMAND_BACKUP = "anchor.command.backup", Op;
     /// Ban IP addresses (`/ban-ip`).
@@ -306,10 +308,8 @@ builtin! {
     COMMAND_BAN_PLAYER = "anchor.command.ban.player", Op;
     /// Check the data files while the server runs (`/check`).
     COMMAND_CHECK = "anchor.command.check", Op;
-    /// Clear another player's inventory (`/clear`).
-    COMMAND_CLEAR_OTHER = "anchor.command.clear.other", Op;
-    /// Clear one's own inventory (`/clear`).
-    COMMAND_CLEAR_SELF = "anchor.command.clear.self", True;
+    /// Clear players' inventories (`/clear`).
+    COMMAND_CLEAR = "anchor.command.clear", Op;
     /// Change another player's game mode (`/gamemode`).
     COMMAND_GAMEMODE_OTHER = "anchor.command.gamemode.other", Op;
     /// Change one's own game mode (`/gamemode`).
@@ -346,8 +346,6 @@ builtin! {
     COMMAND_UNBAN_IP = "anchor.command.unban.ip", Op;
     /// Lift player bans (`/unban`).
     COMMAND_UNBAN_PLAYER = "anchor.command.unban.player", Op;
-    /// Show the server version (`/version`).
-    COMMAND_VERSION = "anchor.command.version", True;
     /// Add players to the whitelist (`/whitelist add`).
     COMMAND_WHITELIST_ADD = "anchor.command.whitelist.add", Op;
     /// Turn the whitelist off (`/whitelist off`).
@@ -410,7 +408,7 @@ mod tests {
         assert_eq!(names.len(), BUILTIN.len());
         assert!(names.iter().all(|n| n.starts_with("anchor.")));
         assert_eq!(COMMAND_GIVE_SELF.name(), "anchor.command.give.self");
-        assert_eq!(COMMAND_VERSION.default(), Default::True);
+        assert_eq!(COMMAND_ABOUT.default(), Default::True);
     }
 
     // api: BanEntry::getName, BanEntry::getReason, BanEntry::setReason, BanEntry::getSource,

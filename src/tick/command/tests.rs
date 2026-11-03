@@ -475,15 +475,15 @@ fn a_permission_nothing_registered_is_not_granted() {
     assert!(state.commands.grants.is_empty() && state.commands.resend.is_empty());
 }
 
-/// A default the builder sets replaces the permission's own wherever it is checked: `/version`
-/// for operators only, by its command and by its constant; the console counts as an operator, a
-/// grant still wins, and the other permissions keep theirs.
+/// A default the builder sets replaces the permission's own wherever it is checked: `/about`
+/// for operators only, by its command and by its constant; the console counts as an operator and
+/// a grant still wins.
 #[test]
 fn a_permission_default_set_at_build_replaces_its_own() {
-    let version = permission::COMMAND_VERSION;
+    let about = permission::COMMAND_ABOUT;
     let mut commands = crate::Server::builder()
-        .permission_default(version, By::False)
-        .permission_default(version, By::Op)
+        .permission_default(about, By::False)
+        .permission_default(about, By::Op)
         .setup
         .commands;
     commands.finish().unwrap();
@@ -492,23 +492,22 @@ fn a_permission_default_set_at_build_replaces_its_own() {
     let (a, _rx) = join(1, 0);
     tick(&mut state, &mut vec![a], &mut TickOutput::default());
     let mut cx = Context { state: &mut state };
-    let op_only = Permission::new(version.name(), By::Op);
+    let op_only = Permission::new(about.name(), By::Op);
     assert_eq!(
-        cx.permission(version.name()),
+        cx.permission(about.name()),
         Some(op_only),
         "the last default"
     );
-    assert_eq!(cx.command("version").unwrap().permissions(), [op_only]);
-    assert!(!cx.has_permission(id(1), version));
-    assert!(cx.has_permission(Sender::Console, version));
-    assert!(cx.has_permission(id(1), permission::COMMAND_CLEAR_SELF));
+    assert_eq!(cx.command("about").unwrap().permissions(), [op_only]);
+    assert!(!cx.has_permission(id(1), about));
+    assert!(cx.has_permission(Sender::Console, about));
     assert!(matches!(
-        execute(cx.state, id(1), "version"),
+        execute(cx.state, id(1), "about"),
         Err(Error::Permission { .. })
     ));
     let player1 = player::Id::new(SessionId::new(1));
-    cx.set_permission(player1, version, true);
-    assert!(cx.has_permission(id(1), version), "a grant wins");
+    cx.set_permission(player1, about, true);
+    assert!(cx.has_permission(id(1), about), "a grant wins");
 }
 
 #[test]
@@ -1680,15 +1679,16 @@ fn every_name_and_alias_reaches_the_client_as_the_official_server_lists_them() {
         |state: &State| available_commands(state.commands.listing(), s1, &state.players[&s1]);
     let (_, enums) = listed(&packet(&state));
     let typed = &enums["CommandName"];
-    for name in ["version", "ver", "about"] {
-        assert!(typed.contains(&name.to_owned()), "{name}");
-    }
+    assert!(typed.contains(&"about".to_owned()));
     assert!(!typed.contains(&"op".to_owned()), "a member may not use op");
     assert!(
         !typed.contains(&"kill".to_owned()),
         "a member may not use kill"
     );
-    assert_eq!(enums["versionCommandAliases"], ["version", "ver", "about"]);
+    assert!(
+        !typed.contains(&"clear".to_owned()),
+        "a member may not use clear"
+    );
     Context { state: &mut state }.op("player1").unwrap();
     let sent = packet(&state);
     let (_, enums) = listed(&sent);
@@ -1726,7 +1726,8 @@ fn every_name_and_alias_reaches_the_client_as_the_official_server_lists_them() {
 }
 
 /// The commands Anchor dropped, with their aliases and permissions, are not registered; `kill` is
-/// for operators only with one permission, and `unban` and `unban-ip` replace `pardon` and
+/// for operators only with one permission, as is `clear`, `ver` and `version` are merged into
+/// `about`, and `unban` and `unban-ip` replace `pardon` and
 /// `pardon-ip`.
 #[test]
 fn removed_commands_and_their_permissions_are_not_registered() {
@@ -1755,6 +1756,8 @@ fn removed_commands_and_their_permissions_are_not_registered() {
         "suicide",
         "pardon",
         "pardon-ip",
+        "ver",
+        "version",
     ] {
         assert!(cx.command(name).is_none(), "{name}");
     }
@@ -1786,6 +1789,9 @@ fn removed_commands_and_their_permissions_are_not_registered() {
         "anchor.command.transferserver",
         "anchor.command.kill.self",
         "anchor.command.kill.other",
+        "anchor.command.clear.self",
+        "anchor.command.clear.other",
+        "anchor.command.version",
     ] {
         assert!(cx.permission(name).is_none(), "{name}");
     }
@@ -1796,6 +1802,9 @@ fn removed_commands_and_their_permissions_are_not_registered() {
     assert_eq!(kill.permissions(), [permission::COMMAND_KILL]);
     assert!(kill.aliases().is_empty());
     assert_eq!(permission::COMMAND_KILL.default(), By::Op);
+    let clear = cx.command("clear").unwrap();
+    assert_eq!(clear.permissions(), [permission::COMMAND_CLEAR]);
+    assert_eq!(permission::COMMAND_CLEAR.default(), By::Op);
 }
 
 #[test]

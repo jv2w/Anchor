@@ -545,8 +545,8 @@ impl ServerBuilder {
 
     /// Makes `default` who has `permission` unless a grant says otherwise, in place of the
     /// default it was made with: how one of Anchor's own permissions (the
-    /// [`permission`] constants) gets another default, such as `/version` for
-    /// operators only, `.permission_default(permission::COMMAND_VERSION, Default::Op)`. Every
+    /// [`permission`] constants) gets another default, such as `/about` for
+    /// operators only, `.permission_default(permission::COMMAND_ABOUT, Default::Op)`. Every
     /// check of the permission follows it, a check with the constant included, and
     /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
     /// A permission no command and no [`permission`](Self::permission) registers makes

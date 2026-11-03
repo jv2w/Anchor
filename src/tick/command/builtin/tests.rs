@@ -170,7 +170,7 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     names.sort_unstable();
     assert_eq!(
         names,
-        ["clear", "version"],
+        ["about"],
         "the defaults for players who are not operators"
     );
     Context { state: &mut state }.op("player2").unwrap();
@@ -206,14 +206,14 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
         9,
         "the official server's names"
     );
-    let version = p.commands.iter().find(|c| c.name == "version").unwrap();
-    let aliases = &p.enums[usize::try_from(version.aliases_offset).unwrap()];
+    let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
+    let aliases = &p.enums[usize::try_from(tp.aliases_offset).unwrap()];
     let aliases: Vec<&str> = aliases
         .value_indices
         .iter()
         .map(|&i| p.enum_values[usize::try_from(i).unwrap()].as_str())
         .collect();
-    assert_eq!(aliases, ["version", "ver", "about"]);
+    assert_eq!(aliases, ["tp", "teleport"]);
     let give = state
         .commands
         .list
@@ -696,7 +696,7 @@ fn clear_counts_and_takes_items_from_every_slot() {
         .unwrap()
         .inventory_mut(crate::inventory::Kind::Main)
         .add(&Stack::new(stick, 5));
-    // Clearing oneself is everyone's; others need the operator's permission.
+    assert!(is_refused(&run(&mut state, id(2), "clear")));
     assert!(is_refused(&run(&mut state, id(2), "clear player1")));
     assert_eq!(
         ok(&mut state, id(1), "clear player2 stone -1 0"),
@@ -718,10 +718,18 @@ fn clear_counts_and_takes_items_from_every_slot() {
         [(None, 0), (Some(stone), 4), (Some(stick), 5)],
         "70 of 74 stone went, in slot order"
     );
-    assert_eq!(ok(&mut state, id(2), "clear"), ["commands.clear.success"]);
     assert_eq!(
-        fails(&mut state, id(2), "clear"),
+        ok(&mut state, id(1), "clear player2"),
+        ["commands.clear.success"]
+    );
+    assert_eq!(
+        fails(&mut state, id(1), "clear player2"),
         "commands.clear.failure.no.items"
+    );
+    assert_eq!(
+        fails(&mut state, id(1), "clear"),
+        "commands.clear.failure.no.items",
+        "an operator without a target clears itself"
     );
     assert!(is_usage(&run(&mut state, Sender::Console, "clear")));
 }
@@ -867,20 +875,20 @@ fn the_consoles_world_is_the_default_world_set_at_run_time() {
 }
 
 #[test]
-fn list_status_and_version_report_the_server() {
+fn list_and_about_report_the_server() {
     let (mut state, _rx) = with_op();
     assert!(is_refused(&run(&mut state, id(2), "list")));
     assert_eq!(
         ok(&mut state, id(1), "list"),
         ["commands.players.list", "player1, player2"]
     );
-    let version = ok(&mut state, id(2), "ver");
-    assert_eq!(version.len(), 1);
-    assert!(version[0].starts_with(&format!(
+    let about = ok(&mut state, id(2), "about");
+    assert_eq!(about.len(), 1);
+    assert!(about[0].starts_with(&format!(
         "Anchor {} for Minecraft ",
         Context::ANCHOR_VERSION
     )));
-    assert!(version[0].contains(Context::GAME_VERSION));
+    assert!(about[0].contains(Context::GAME_VERSION));
 }
 
 /// `/status` shows, in Anchor's own lines, the measured uptime, tick load and memory, the

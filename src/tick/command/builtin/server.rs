@@ -1,5 +1,5 @@
 //! Commands on the server: `/list`, `/save-all`, `/save-off`, `/save-on`, `/status`, `/stop`,
-//! `/version` and `/backup`. `/status` shows Anchor's own lines.
+//! `/about` and `/backup`. `/status` shows Anchor's own lines.
 
 use super::{Msg, announce, infallible};
 use crate::command::{Args, Command, Output, Result, Sender};
@@ -9,6 +9,9 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::runtime::ThreadTotals;
 use crate::tick::Context;
 
+/// The `/about` line: the software, its version, the Minecraft version and protocol, and the
+/// operating system.
+const ABOUT_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
 /// The failure line of `/backup` with `backups = false`.
 const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
 /// The success line of `/backup`.
@@ -26,9 +29,6 @@ const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
 const SAVE_START: Msg = Msg::client("commands.save.start");
 /// The success line of `/stop`.
 const STOP_START: Msg = Msg::client("commands.stop.start");
-/// The `/version` line: the software, its version, the Minecraft version and protocol, and the
-/// operating system.
-const VERSION_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
 
 /// Adds the commands of this module.
 pub(super) fn add(commands: &mut Vec<Command>) {
@@ -54,11 +54,9 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("stop", "commands.stop.description")
             .permission(permission::COMMAND_STOP)
             .overload(&[], infallible(stop)),
-        Command::new("version", "Shows the Anchor and Minecraft versions")
-            .alias("ver")
-            .alias("about")
-            .permission(permission::COMMAND_VERSION)
-            .overload(&[], infallible(version)),
+        Command::new("about", "Shows the Anchor and Minecraft versions")
+            .permission(permission::COMMAND_ABOUT)
+            .overload(&[], infallible(about)),
     ]);
 }
 
@@ -179,9 +177,9 @@ fn stop(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     out
 }
 
-/// Shows one line with [`VERSION_LINE`] (`/version`, aliases `/ver` and `/about`).
-fn version(_: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
-    VERSION_LINE.output(&[
+/// Shows one line with [`ABOUT_LINE`] (`/about`).
+fn about(_: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
+    ABOUT_LINE.output(&[
         Context::NAME,
         Context::ANCHOR_VERSION,
         Context::GAME_VERSION,
