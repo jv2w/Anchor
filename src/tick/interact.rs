@@ -1504,7 +1504,9 @@ fn plan_destruction(
 /// removed with its block entity, then the drops fall. A close listener may change what the drops
 /// copy: a player's break then changes nothing, another cause drops what is there now. A player's
 /// break whose drops find no room for entities changes nothing (the world's entity limit); drops
-/// of other causes that find none wait as a spill. The blocks removed, or `None` if nothing
+/// of other causes that find none wait as a spill. A destruction whose items would find neither
+/// room as entities nor a place to wait changes nothing ([`block_entity::can_hold`]). The blocks
+/// removed, or `None` if nothing
 /// changed; their effects and hooks are [`destroyed`]'s.
 #[expect(
     clippy::expect_used,
@@ -1556,6 +1558,18 @@ fn apply_destruction(
     }
     let Destruction { affected, items } = plan;
     if matches!(cause, Destroy::Player { .. }) && !drops_fit(state, world, items.len()) {
+        return None;
+    }
+    // A shulker box keeps its items; any other container's drop with the rest.
+    let stacks = items.len()
+        + affected
+            .iter()
+            .flatten()
+            .filter(|(_, s)| !s.is(Class::ShulkerBox))
+            .map(|(p, _)| block_entity::stacks_held(state, world, *p))
+            .sum::<usize>();
+    if !block_entity::can_hold(state, world, pos, stacks) {
+        debug!("break refused: the items have nowhere to wait");
         return None;
     }
     for (p, _) in affected.into_iter().flatten() {

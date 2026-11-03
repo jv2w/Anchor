@@ -1670,6 +1670,60 @@ fn explosion_at_the_entity_cap_keeps_chest_items_as_spill() {
     assert!(kept.contains(&sword), "{kept:?}");
 }
 
+/// With the world at its entity limit and the chunk's spills full, a break, an explosion and a
+/// replaced block leave the chest and its items as they were.
+#[test]
+fn a_chest_stays_when_its_items_have_nowhere_to_wait() {
+    let mut h = Harness::new(|_| {});
+    set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
+    let sword = stack(crate::item::Kind::DiamondSword);
+    let stick = stack(crate::item::Kind::Stick);
+    h.state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .unwrap()
+        .items[0] = sword.clone();
+    h.state.rules.block_entities.fill_spills(0, TARGET, &stick);
+    let mut i = 0_u32;
+    while entity::has_room(&h.state, 0, 1) {
+        let at = Vec3::new(
+            f64::from(i % 64) - 32.0,
+            -59.0,
+            f64::from(i / 64 % 64) - 32.0,
+        );
+        assert!(entity::drop_item(&mut h.state, 0, at, stick.clone()));
+        i += 1;
+    }
+    let total = |h: &Harness| {
+        h.state
+            .rules
+            .block_entities
+            .all_items()
+            .map(|s| usize::from(s.count()))
+            .sum::<usize>()
+    };
+    let before = total(&h);
+    let session = SessionId::new(1);
+    let tool = Stack::new(crate::item::Kind::WoodenPickaxe.default_type(), 1);
+    let causes = [
+        Destroy::Player { session, tool },
+        Destroy::Explosion {
+            size: 1.0,
+            raise: Raise::Events,
+        },
+    ];
+    for cause in causes {
+        assert!(!destroy(&mut h.state, 0, TARGET, cause));
+        assert_eq!(h.block(TARGET), Kind::Chest.default_state());
+        assert_eq!(total(&h), before);
+    }
+    h.set(TARGET, Kind::Stone.default_state());
+    crate::tick::block_entity::block_changed(&mut h.state, 0, TARGET);
+    assert!(h.state.rules.block_entities.get(0, TARGET).is_some());
+    assert_eq!(total(&h), before);
+}
+
 /// A block goes where the game sent it, even into a player standing there.
 #[test]
 fn a_block_is_placed_into_a_standing_player() {

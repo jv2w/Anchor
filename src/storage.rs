@@ -2956,6 +2956,29 @@ pub(crate) mod tests {
         assert!(left.is_empty(), "{left:?}");
     }
 
+    /// A temporary file a crash left in the backup folder is no backup: the next start removes it
+    /// and makes its own whole start backup.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_leftover_temporary_file_is_no_backup_and_the_start_works() {
+        let dir = TempDir::new("backup-leftover");
+        let mut storage = start_whole(&dir, StartBackup::Skip);
+        let mut batch = Batch::default();
+        batch.put(Key::Meta, seal(META_KEY, &Meta::at(9)).unwrap());
+        storage.commit(&batch).unwrap();
+        storage.close().unwrap();
+        let backups = dir.place().backups;
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::write(backups.join("99999999999.redb.tmp"), b"partial").unwrap();
+        start_whole(&dir, StartBackup::Make).close().unwrap();
+        let names = dir.backups();
+        assert_eq!(names.len(), 1, "{names:?}");
+        assert!(
+            crate::save::committed_meta(&backups.join(&names[0])).is_ok(),
+            "the one backup is whole"
+        );
+    }
+
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_backup_folder_that_fails_costs_only_the_start_backup() {
