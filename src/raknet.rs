@@ -22,6 +22,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tracing::{debug, trace};
 
 use crate::clock;
+use crate::nethernet::MAX_PRE_LOGIN_MESSAGE_BYTES;
 use crate::tick::queue::LeaveReason;
 use crate::udp::Sockets;
 use listener::{Config, Listener, Sink};
@@ -201,10 +202,13 @@ impl Driver {
         self.refresh_pong();
         for (addr, id, flags) in self.signals.drain(..) {
             if flags.logged_in {
+                if let Some(link) = self.io.links.get_mut(&id) {
+                    link.inbox.raise_to_login_budget();
+                }
                 self.listener.logged_in(addr, id);
             }
             if flags.closed {
-                self.listener.close(now, addr, id);
+                self.listener.close(now, addr, id, &mut self.io);
             }
         }
         self.listener.update(now, &mut self.io);
@@ -418,19 +422,35 @@ struct Outbound {
 pub(crate) struct Inbox {
     inbound: mpsc::Sender<Inbound>,
     budget: Arc<Semaphore>,
+    /// The bytes [`raise_to_login_budget`](Self::raise_to_login_budget) adds; 0 once added.
+    login_extra_bytes: usize,
 }
 
 impl Inbox {
     /// An inbox whose session may leave two of the largest delivered messages, `max_message_bytes`
-    /// bytes each, untaken, and the session's end. The budget is cut to what a semaphore counts,
-    /// far above what any setting asks.
+    /// bytes each, untaken, and the session's end. Until the login the messages are at most
+    /// [`MAX_PRE_LOGIN_MESSAGE_BYTES`] (the largest valid Login, as the reassembly limit before
+    /// the login), so the budget starts at two of those. The budget is cut to what a semaphore
+    /// counts, far above what any setting asks.
     pub(crate) fn new(max_message_bytes: usize) -> (Self, mpsc::Receiver<Inbound>) {
         let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
-        let bytes = max_message_bytes
-            .saturating_mul(2)
-            .min(Semaphore::MAX_PERMITS);
-        let budget = Arc::new(Semaphore::new(bytes));
-        (Self { inbound, budget }, receiver)
+        let budget_of =
+            |message_bytes: usize| message_bytes.saturating_mul(2).min(Semaphore::MAX_PERMITS);
+        let full = budget_of(max_message_bytes);
+        let pre_login = budget_of(max_message_bytes.min(MAX_PRE_LOGIN_MESSAGE_BYTES));
+        let inbox = Self {
+            inbound,
+            budget: Arc::new(Semaphore::new(pre_login)),
+            login_extra_bytes: full.saturating_sub(pre_login),
+        };
+        (inbox, receiver)
+    }
+
+    /// Raises the byte budget from the pre-login size to the full one, once the session logged
+    /// in.
+    pub(crate) fn raise_to_login_budget(&mut self) {
+        self.budget
+            .add_permits(std::mem::take(&mut self.login_extra_bytes));
     }
 
     /// Passes a message to the session; `false` when its queue or byte budget is full. A message
@@ -986,6 +1006,22 @@ pub(crate) mod tests {
         assert!(inbox.deliver(vec![4; 10]));
         drop(receiver);
         assert!(inbox.deliver(vec![5]));
+    }
+
+    /// Before the login an inbox holds two pre-login messages; the login raises it to the full
+    /// budget.
+    #[test]
+    fn an_inbox_before_login_holds_two_pre_login_messages() {
+        let pre_login = MAX_PRE_LOGIN_MESSAGE_BYTES;
+        let (mut inbox, _receiver) = Inbox::new(4 * pre_login);
+        assert!(inbox.deliver(vec![1; pre_login]));
+        assert!(inbox.deliver(vec![2; pre_login]));
+        assert!(!inbox.deliver(vec![3]));
+        inbox.raise_to_login_budget();
+        assert!(inbox.deliver(vec![4; 6 * pre_login]));
+        assert!(!inbox.deliver(vec![5]));
+        inbox.raise_to_login_budget();
+        assert!(!inbox.deliver(vec![6]));
     }
 
     #[test]

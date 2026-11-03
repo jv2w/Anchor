@@ -251,7 +251,7 @@ impl Session {
             let chunks_wait = self.stage == Stage::Packs && self.transfer.has_chunks();
             let undelivered_bytes = *undelivered.borrow();
             let delivered = undelivered_bytes <= MAX_UNDELIVERED_BYTES;
-            let output_waits = !self.out_bodies.is_empty() || !self.pending.is_empty();
+            let output_waits = !self.pending.is_empty();
             let output_fits = undelivered_bytes.saturating_add(self.unreported_bytes)
                 <= MAX_OUTPUT_UNDELIVERED_BYTES;
             select! {
@@ -853,7 +853,7 @@ impl Session {
             match group {
                 [Message::SpawnList(packet)] => {
                     let batches = self.shared_batches(packet).await?;
-                    self.pending.push_back(Pending::SpawnList(batches));
+                    self.pending.push_back(Pending::SpawnList(batches, 0));
                 }
                 [Message::Shared(batches)] => self.queue_batches(Arc::clone(batches)),
                 [Message::SharedPacket(packet)] => {
@@ -879,29 +879,33 @@ impl Session {
     /// Queues shared batches after all the output before them, counted by their bytes.
     fn queue_batches(&mut self, batches: SharedBatches) {
         self.pending_bytes = self.pending_bytes.saturating_add(bytes_of(&batches));
-        self.pending.push_back(Pending::Batches(batches));
+        self.pending.push_back(Pending::Batches(batches, 0));
     }
 
-    /// Takes the next batch body to go out, if any waits: the first output waiting is copied
-    /// once the bodies before it are gone.
+    /// Takes the next batch body to go out, if any waits. Shared batches are copied one body at
+    /// a time, so a session never holds a copy of a whole list.
     fn next_body(&mut self) -> Option<Vec<u8>> {
         loop {
-            if let Some(body) = self.out_bodies.pop_front() {
-                return Some(body);
-            }
             match self.pending.pop_front()? {
                 Pending::Body(body) => {
                     self.pending_bytes = self.pending_bytes.saturating_sub(body.len());
                     return Some(body);
                 }
-                Pending::SpawnList(batches) => {
-                    self.out_bodies
-                        .extend(batches.iter().map(|body| owned_body(body)));
+                Pending::SpawnList(batches, next) => {
+                    let Some(body) = batches.get(next).map(|body| owned_body(body)) else {
+                        continue;
+                    };
+                    self.pending
+                        .push_front(Pending::SpawnList(batches, next + 1));
+                    return Some(body);
                 }
-                Pending::Batches(batches) => {
-                    self.pending_bytes = self.pending_bytes.saturating_sub(bytes_of(&batches));
-                    self.out_bodies
-                        .extend(batches.iter().map(|body| owned_body(body)));
+                Pending::Batches(batches, next) => {
+                    let Some(body) = batches.get(next).map(|body| owned_body(body)) else {
+                        continue;
+                    };
+                    self.pending_bytes = self.pending_bytes.saturating_sub(body.len());
+                    self.pending.push_front(Pending::Batches(batches, next + 1));
+                    return Some(body);
                 }
                 // The batch before the marker went out when the next one is asked for.
                 Pending::SpawnStatus => self.spawn_status_sent = true,
@@ -960,13 +964,13 @@ enum Stage {
 enum Pending {
     /// A batch body of the session's own packets, compressed and not encrypted yet.
     Body(Vec<u8>),
-    /// The batches of a spawn window's player list ([`Message::SpawnList`]), copied as they go
-    /// out: a list of every skin outgrows any bound on a copy per session, so
+    /// The batches of a spawn window's player list ([`Message::SpawnList`]) and the index of the
+    /// next one to copy: a list of every skin outgrows any bound on a session's output, so
     /// [`MAX_PENDING_BYTES`] does not count it, and a session gets two lists at most.
-    SpawnList(SharedBatches),
-    /// Batches the tick shares among sessions, copied as they go out and counted by their bytes
-    /// meanwhile.
-    Batches(SharedBatches),
+    SpawnList(SharedBatches, usize),
+    /// Batches the tick shares among sessions and the index of the next one to copy, counted by
+    /// their bytes meanwhile.
+    Batches(SharedBatches, usize),
     /// The end of the batches with the spawn status.
     SpawnStatus,
 }
@@ -2152,6 +2156,28 @@ mod tests {
         });
     }
 
+    /// Shared batches are copied one body at a time as they go out, so a session never holds a
+    /// copy of a whole player list.
+    #[test]
+    fn shared_batches_are_copied_one_body_at_a_time() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut session = joined(0, &shared).await;
+            let batches: SharedBatches = (0..3).map(|n| vec![n; BATCH_BYTES]).collect();
+            session
+                .queue_messages(&[Message::Shared(Arc::clone(&batches))])
+                .await
+                .unwrap();
+            assert_eq!(session.next_body().as_deref(), Some(&batches[0][..]));
+            assert!(session.out_bodies.is_empty());
+            assert!(!session.pending.is_empty());
+            let rest: Vec<Vec<u8>> = std::iter::from_fn(|| session.next_body()).collect();
+            assert_eq!(rest, batches[1..]);
+            assert_eq!(session.pending_bytes, 0);
+        });
+    }
+
     /// A packet the tick shares among sessions is batched and compressed once: every session
     /// waits with the same bodies, which are those a session batches for the packet itself.
     #[test]
@@ -2172,7 +2198,7 @@ mod tests {
                     .queue_messages(std::slice::from_ref(&message))
                     .await
                     .unwrap();
-                let Some(Pending::Batches(batches)) = session.pending.pop_front() else {
+                let Some(Pending::Batches(batches, _)) = session.pending.pop_front() else {
                     panic!("session {id} waits with shared batches");
                 };
                 session.queue_packets([&skin]).unwrap();

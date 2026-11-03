@@ -16,7 +16,7 @@ mod signaling;
 
 pub(crate) use peer::MAX_DATAGRAM;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6};
@@ -46,6 +46,11 @@ use signaling::{Code, Offer, Reply};
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// The identity key file in the data folder.
 const IDENTITY_FILE: &str = "identity.key";
+/// The peers that may linger after their session closed them, at most; a new one removes the
+/// oldest. A closing peer keeps up to `MAX_UNSENT_BYTES` unacknowledged and its str0m state for
+/// `CLOSE_LINGER`, and the client can withhold the acknowledgements, so the count is bounded as
+/// the pre-login peers are (`MAX_PRE_LOGIN`).
+const MAX_CLOSING_PEERS: usize = 64;
 /// The source addresses one peer may be reached from. A client knows its own ICE credentials, so
 /// its valid STUN request can carry any source address; the bound keeps one peer from filling
 /// the address index.
@@ -523,6 +528,8 @@ pub(crate) struct Driver {
     /// Peers before login per IP key.
     pre_login: BTreeMap<u128, usize>,
     pre_login_total: usize,
+    /// The peers the session closed, as (end of linger, id): the first is the oldest.
+    closing_peers: BTreeSet<(Instant, u64)>,
     next_id: u64,
     accepted: mpsc::Sender<Connection>,
     /// Handed to each connection and the offer task.
@@ -594,6 +601,7 @@ impl Driver {
                 self.doomed.push(id);
             } else if entry.closing.is_none() {
                 entry.closing = Some(until);
+                entry.peer.stop_reading();
             }
         }
         self.reap();
@@ -620,6 +628,7 @@ impl Driver {
             by_addr: BTreeMap::new(),
             pre_login: BTreeMap::new(),
             pre_login_total: 0,
+            closing_peers: BTreeSet::new(),
             next_id: 0,
             accepted,
             commands,
@@ -641,21 +650,7 @@ impl Driver {
     /// came.
     fn update(&mut self) {
         let now = clock::now();
-        for entry in self.peers.values_mut() {
-            if let Some(link) = &mut entry.link
-                && let Some(flags) = Flags::changed(&mut link.signal)
-            {
-                if flags.logged_in
-                    && let Some(key) = entry.pre_login.take()
-                {
-                    release(&mut self.pre_login, &mut self.pre_login_total, key);
-                    entry.peer.set_max_message_bytes(self.max_message_bytes);
-                }
-                if flags.closed && entry.closing.is_none() {
-                    entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
-                }
-            }
-        }
+        self.read_flags(now);
         self.drain();
         for (&id, entry) in &mut self.peers {
             // A closing peer stays until what was sent is acknowledged, or the linger ends.
@@ -669,6 +664,36 @@ impl Driver {
         }
         while let Some(id) = self.due.pop() {
             self.drive(id, now);
+        }
+        self.reap();
+    }
+
+    /// Reads the connections' flags. A peer the session closed stops reading and joins the
+    /// closing peers; when more than `MAX_CLOSING_PEERS` are left, the oldest go at once.
+    fn read_flags(&mut self, now: Instant) {
+        for (&id, entry) in &mut self.peers {
+            if let Some(link) = &mut entry.link
+                && let Some(flags) = Flags::changed(&mut link.signal)
+            {
+                if flags.logged_in
+                    && let Some(key) = entry.pre_login.take()
+                {
+                    release(&mut self.pre_login, &mut self.pre_login_total, key);
+                    entry.peer.set_max_message_bytes(self.max_message_bytes);
+                    link.inbox.raise_to_login_budget();
+                }
+                if flags.closed && entry.closing.is_none() {
+                    let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
+                    entry.closing = Some(until);
+                    entry.peer.stop_reading();
+                    self.closing_peers.insert((until, id));
+                }
+            }
+        }
+        while self.closing_peers.len() > MAX_CLOSING_PEERS
+            && let Some((_, id)) = self.closing_peers.pop_first()
+        {
+            self.doomed.push(id);
         }
         self.reap();
     }
@@ -873,6 +898,9 @@ impl Driver {
             return;
         };
         debug!(peer = id, "nethernet peer removed");
+        if let Some(until) = entry.closing {
+            self.closing_peers.remove(&(until, id));
+        }
         entry.peer.close();
         let now = clock::now();
         // Flush what closing produced (SCTP abort, DTLS close notify) without keeping the peer.
@@ -1387,6 +1415,76 @@ pub(crate) mod tests {
             assert!(driver.peers.is_empty());
             assert!(driver.by_ufrag.is_empty());
             assert!(driver.pre_login.is_empty());
+            assert_eq!(driver.pre_login_total, 0);
+        });
+    }
+
+    /// Closing peers are capped, the oldest go first, and once they delivered everything every
+    /// table is empty again.
+    #[test]
+    fn closing_peers_are_capped_and_give_their_places_back() {
+        run(async {
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (mut driver, mut connections) = driver(sockets);
+            let (_, client_cert) = certificates();
+            let fingerprint = *client_cert.fingerprint();
+            let total = MAX_CLOSING_PEERS + 6;
+            let mut open = Vec::new();
+            for index in 0..total {
+                let last = u8::try_from(index).unwrap();
+                let addr = SocketAddr::from((Ipv4Addr::new(10, 0, 0, last), 50_000));
+                let (_client, remote) = Client::new(
+                    &client_cert,
+                    addr,
+                    DATAGRAM_MTU_TARGET,
+                    fingerprint,
+                    clock::now(),
+                );
+                let (reply, mut answer) = oneshot::channel();
+                driver.command(Command::Open {
+                    remote,
+                    local: addr,
+                    client_key: None,
+                    ip: addr.ip(),
+                    reply,
+                });
+                answer.try_recv().unwrap().unwrap();
+                let id = driver.next_id - 1;
+                let entry = driver.peers.get_mut(&id).unwrap();
+                entry.link = accept(
+                    &driver.accepted,
+                    &driver.commands,
+                    id,
+                    addr,
+                    entry,
+                    MAX_MESSAGE_BYTES,
+                );
+                let connection = connections.try_recv().unwrap();
+                connection.logged_in();
+                driver.read_flags(clock::now());
+                open.push(connection);
+            }
+            assert_eq!(driver.peers.len(), total);
+            for connection in &open {
+                connection.close();
+            }
+            driver.read_flags(clock::now());
+            assert_eq!(driver.peers.len(), MAX_CLOSING_PEERS);
+            assert_eq!(driver.closing_peers.len(), MAX_CLOSING_PEERS);
+            // The oldest closed first: the survivors are the last ones opened.
+            assert!(!driver.peers.contains_key(&0));
+            assert!(
+                driver
+                    .peers
+                    .contains_key(&u64::try_from(total - 1).unwrap())
+            );
+
+            driver.update();
+            assert!(driver.peers.is_empty());
+            assert!(driver.closing_peers.is_empty());
+            assert!(driver.by_ufrag.is_empty());
+            assert!(driver.by_addr.is_empty());
             assert_eq!(driver.pre_login_total, 0);
         });
     }
