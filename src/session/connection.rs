@@ -50,6 +50,9 @@ const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
 /// Packets outside the login sequence held until the join. The official client's order is not
 /// observable; 32 is far above the few packets (cache status, violation warnings) clients send.
 const MAX_DEFERRED: usize = 32;
+/// Bytes of the packets held until the join, counted as the input log counts them: 1 MiB is far
+/// above the few small packets a client sends before it joins.
+const MAX_DEFERRED_BYTES: usize = 1024 * 1024;
 /// The largest message before `NetworkSettings`.
 const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
 /// Capacity the reused payload buffers keep between messages: twice the size at which outbound
@@ -144,6 +147,8 @@ struct Session {
     /// The verified player, from the login on.
     identity: Option<Identity>,
     deferred: VecDeque<(Packet, usize)>,
+    /// The sizes of the packets in `deferred`, added.
+    deferred_bytes: usize,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
     /// The places of this session's IP among the sessions waiting to join, from the accept task.
@@ -197,6 +202,7 @@ impl Session {
             pre_auth_bytes: 0,
             identity: None,
             deferred: VecDeque::new(),
+            deferred_bytes: 0,
             inputs: None,
             outbound: None,
             ip_waiting,
@@ -460,6 +466,12 @@ impl Session {
                 // larger of the two.
                 Ok(packet) => {
                     let size = bytes.len().max(left - budget);
+                    // The batch paid for its bytes; what decoding allocated beyond them is
+                    // charged now, so few bytes cannot fill the tick queue with memory.
+                    let extra = size - bytes.len();
+                    if !self.budget.take(extra, self.budget_rate, now) {
+                        return Err(Error::Limit("input bytes per second"));
+                    }
                     match &packet {
                         Packet::InventoryTransaction(t) if is_held_click(t) => {
                             self.held_click = Some((header, bytes.to_vec(), now));
@@ -518,9 +530,11 @@ impl Session {
                 self.forward(packet, size)
             }
             (_, packet) => {
-                if self.deferred.len() >= MAX_DEFERRED {
+                let bytes = self.deferred_bytes.saturating_add(size);
+                if self.deferred.len() >= MAX_DEFERRED || bytes > MAX_DEFERRED_BYTES {
                     return Err(Error::Limit("packets before the join"));
                 }
+                self.deferred_bytes = bytes;
                 self.deferred.push_back((packet, size));
                 Ok(())
             }
@@ -709,6 +723,7 @@ impl Session {
         self.inputs = Some(inputs);
         self.outbound = Some(receiver);
         self.stage = Stage::Joined;
+        self.deferred_bytes = 0;
         while let Some((packet, size)) = self.deferred.pop_front() {
             if matches!(packet, Packet::SetLocalPlayerAsInitialised(_)) {
                 self.spawned = true;
@@ -1365,6 +1380,71 @@ mod tests {
             }
             assert!(allocated > body.len());
             assert_eq!(sizes, [allocated]);
+        });
+    }
+
+    /// Packets that decode into far more than their bytes are charged to the input byte budget
+    /// by what decoding allocated, so a client cannot hold the tick's memory with few bytes.
+    #[test]
+    fn packets_are_charged_to_the_byte_budget_by_what_decoding_allocated() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            let packet = Packet::InventoryTransaction(Box::new(packet::InventoryTransaction {
+                actions: vec![
+                    crate::protocol::InventoryAction::default();
+                    crate::protocol::MAX_LIST_LEN
+                ],
+                ..packet::InventoryTransaction::default()
+            }));
+            let mut body = Vec::new();
+            packet.encode(&mut body).unwrap();
+            let mut budget = usize::MAX;
+            Packet::decode(packet.id(), &body, &mut budget).unwrap();
+            let allocated = usize::MAX - budget;
+            let mut message = vec![0xff];
+            batch::encode_packets([&packet], &mut Vec::new(), |p| {
+                message.extend_from_slice(p);
+                Ok(())
+            })
+            .unwrap();
+            // No refill, so a slow machine cannot earn the budget back while the test runs.
+            player.budget_rate.per_second = 0;
+            let messages = player.budget_rate.capacity.div_ceil(allocated) + 1;
+            assert!(
+                messages < PACKET_RATE.capacity,
+                "the packet budget must not end it first"
+            );
+            let mut ended = None;
+            for _ in 0..messages {
+                if let Err(e) = player.on_message(message.clone()).await {
+                    ended = Some(e);
+                    break;
+                }
+            }
+            assert!(
+                matches!(ended, Some(Error::Limit("input bytes per second"))),
+                "{ended:?}"
+            );
+        });
+    }
+
+    /// The packets held before the join are bounded in bytes too, not only in number.
+    #[test]
+    fn packets_before_the_join_are_held_up_to_a_byte_bound() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let shared = shared(inputs);
+            let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
+            let mut session =
+                Session::new(SessionId::new(0), conn, Arc::clone(&shared), ip_waiting());
+            session.identity = Some(identity(0));
+            session.stage = Stage::Packs;
+            let packet =
+                Packet::SetLocalPlayerAsInitialised(packet::SetLocalPlayerAsInitialised::default());
+            let result = session.on_packet(packet, 16 * 1024 * 1024).await;
+            assert!(matches!(result, Err(Error::Limit(_))), "{result:?}");
         });
     }
 

@@ -18,12 +18,20 @@ use crate::tick::queue::Skin;
 
 /// Most skin animations read. The client sends a few at most.
 const MAX_ANIMATIONS: usize = 32;
+/// Longest `DeviceId` and `DeviceModel`, in bytes. The player keeps both for its whole stay;
+/// real values are under 64 bytes.
+const MAX_DEVICE_TEXT_BYTES: usize = 256;
+/// Longest `GameVersion`, in bytes. The player keeps it; a real one is `1.26.50`.
+const MAX_GAME_VERSION_BYTES: usize = 32;
 /// Longest host name in a server address (DNS limit).
 const MAX_HOST_BYTES: usize = 253;
 /// Longest language code read (BCP 47 tags in practice are under 20 characters).
 const MAX_LANGUAGE_CODE_BYTES: usize = 64;
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
 pub(super) const MAX_PIECES: usize = 128;
+/// Longest `ServerAddress`, in bytes. The player keeps it: a DNS host name ([`MAX_HOST_BYTES`]),
+/// a scheme, two ports and a short path.
+const MAX_SERVER_ADDRESS_BYTES: usize = 512;
 /// The persona piece type names of the login data and their protocol types; any other name is
 /// [`PieceType::Unknown`].
 const PIECE_TYPES: [(&str, PieceType); 28] = [
@@ -268,7 +276,14 @@ impl ClientData {
         if !(1..=15).contains(&self.device_os) {
             return Err(Error::ClientData("DeviceOS"));
         }
+        if self.device_id.len() > MAX_DEVICE_TEXT_BYTES {
+            return Err(Error::ClientData("DeviceId"));
+        }
+        if self.device_model.len() > MAX_DEVICE_TEXT_BYTES {
+            return Err(Error::ClientData("DeviceModel"));
+        }
         if self.game_version.is_empty()
+            || self.game_version.len() > MAX_GAME_VERSION_BYTES
             || !self
                 .game_version
                 .bytes()
@@ -291,7 +306,9 @@ impl ClientData {
         {
             return Err(Error::ClientData("SelfSignedId"));
         }
-        if !is_server_address(&self.server_address) {
+        if self.server_address.len() > MAX_SERVER_ADDRESS_BYTES
+            || !is_server_address(&self.server_address)
+        {
             return Err(Error::ClientData("ServerAddress"));
         }
         if !image_fits(

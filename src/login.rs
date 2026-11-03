@@ -866,6 +866,29 @@ mod tests {
         assert!(verify(&request, Mode::Online(&keys), NOW).is_err());
     }
 
+    /// Client data texts the player keeps for its whole stay are bounded.
+    #[test]
+    fn client_data_texts_past_their_caps_are_rejected() {
+        let long = "1".repeat(4096);
+        let cases = [
+            ("DeviceId", json!(long)),
+            ("DeviceModel", json!(long)),
+            ("GameVersion", json!(long)),
+            ("ServerAddress", json!(format!("http://{long}:7551"))),
+        ];
+        let token = Issuer::get().token(&claims());
+        let keys = Issuer::get().keys();
+        for (field, value) in cases {
+            let data = with(client_data_json(), field, value);
+            let request = online_request(&token, &data, player());
+            let err = verify(&request, Mode::Online(&keys), NOW).unwrap_err();
+            assert!(
+                matches!(err, Error::ClientData(name) if name == field),
+                "{field}: {err:?}"
+            );
+        }
+    }
+
     #[test]
     fn the_client_skin_is_decoded_as_sent_and_bounded() {
         let token = Issuer::get().token(&claims());
