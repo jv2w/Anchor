@@ -52,8 +52,9 @@ const IDENTITY_FILE: &str = "identity.key";
 const MAX_PEER_ADDRS: usize = 8;
 /// The largest message a peer takes before its player logged in: far above a Login with the
 /// largest skin (`MAX_SKIN_BYTES`), far below `max-batch-bytes`, so that unfinished messages of
-/// the pre-login peers (`MAX_PRE_LOGIN`) hold a bounded share of memory.
-const MAX_PRE_LOGIN_MESSAGE_BYTES: usize = 8 << 20;
+/// the pre-login peers (`MAX_PRE_LOGIN`) hold a bounded share of memory. RakNet derives its
+/// pre-login reassembly limit from it too.
+pub(crate) const MAX_PRE_LOGIN_MESSAGE_BYTES: usize = 8 << 20;
 /// The offers waiting for the offer task; the signaling server answers 503 when it is full.
 const OFFER_QUEUE: usize = 64;
 /// The length of a STUN message header in bytes (RFC 5389): the type, the length, the magic

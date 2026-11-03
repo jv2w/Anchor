@@ -15,6 +15,7 @@ use super::wire::{
     UDP_HEADER_BYTES,
 };
 use super::{Error, MAX_UNSENT_BYTES, Result};
+use crate::nethernet::MAX_PRE_LOGIN_MESSAGE_BYTES;
 
 /// Pending ACK ranges that trigger an ACK before the next update.
 const ACK_BATCH: usize = 64;
@@ -684,6 +685,21 @@ impl Limits {
             ..self
         }
     }
+
+    /// These limits for a connection past the handshake whose player has not logged in: messages
+    /// of at most [`MAX_PRE_LOGIN_MESSAGE_BYTES`], which hold the largest valid Login, with the
+    /// held bytes that follow from that message size.
+    ///
+    /// # Errors
+    /// [`Error::Limit`] when the smaller message size cannot be counted, which `new` would have
+    /// refused for the full limits already.
+    pub(super) fn to_pre_login(self) -> Result<Self> {
+        Self::new(
+            self.message
+                .saturating_sub(1)
+                .min(MAX_PRE_LOGIN_MESSAGE_BYTES),
+        )
+    }
 }
 
 /// A whole received message: its first byte (a RakNet message ID, or 0xfe for game data) and
@@ -1149,6 +1165,42 @@ pub(super) mod tests {
         peer.set_limits(limits);
         let data = datagram(index + 1, &[(unreliable(index), &part)]);
         assert_eq!(receive(&mut peer, &data), Ok(Vec::new()));
+    }
+
+    /// A peer whose player has not logged in holds at most what the largest valid Login needs,
+    /// far below the full limits.
+    #[test]
+    fn a_pre_login_peer_holds_only_what_a_login_needs() {
+        let full = Limits::new(DEFAULT_MESSAGE).unwrap();
+        let limits = full.to_pre_login().unwrap();
+        let login = Limits::new(MAX_PRE_LOGIN_MESSAGE_BYTES).unwrap();
+        assert_eq!(limits.held, login.held);
+        assert!(limits.held < full.held / 2);
+        let mut peer = Peer::new(T0, MAX_MTU, limits).unwrap();
+        let count = limits.splits;
+        let unreliable = |id, index| Header {
+            split: Some(Split { count, id, index }),
+            ..header(Reliability::Unreliable)
+        };
+        let mut seq = 0;
+        let error = 'fill: {
+            for id in 0..16 {
+                for first in (1..count).step_by(100) {
+                    let frames: Vec<_> = (first..count.min(first + 100))
+                        .map(|index| (unreliable(id, index), &b"\xfe"[..]))
+                        .collect();
+                    let data = datagram(seq, &frames);
+                    seq += 1;
+                    let result = receive(&mut peer, &data);
+                    assert!(peer.held <= limits.held);
+                    if let Err(error) = result {
+                        break 'fill error;
+                    }
+                }
+            }
+            panic!("one-byte fragments held without an error");
+        };
+        assert_eq!(error, Error::Limit("held bytes"));
     }
 
     #[test]

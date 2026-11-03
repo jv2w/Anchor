@@ -99,6 +99,7 @@ impl Listener {
         };
         if conn.id == id && conn.pre_login {
             conn.pre_login = false;
+            conn.peer.set_limits(conn.limits);
             let ip = conn.ip;
             self.release(ip);
         }
@@ -411,7 +412,8 @@ struct Conn {
     id: u64,
     ip: u128,
     peer: Peer,
-    /// The receive limits once the handshake is done ([`Limits::to_handshake`] holds until then).
+    /// The receive limits once the player logged in ([`Limits::to_handshake`] holds until the
+    /// handshake is done, [`Limits::to_pre_login`] until the login).
     limits: Limits,
     state: State,
     pre_login: bool,
@@ -495,7 +497,7 @@ impl Conn {
                     return Err(Close::Rejected);
                 }
                 self.state = State::Open;
-                self.peer.set_limits(self.limits);
+                self.peer.set_limits(self.limits.to_pre_login()?);
                 debug!(%addr, id = self.id, mtu = self.peer.mtu(), "raknet connection opened");
             }
             wire::ID_DISCONNECT_NOTIFICATION => return Err(Close::Remote),
