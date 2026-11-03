@@ -2,8 +2,8 @@
 //! connection), the connection table and its limits, the connected handshake and RakNet's own
 //! connected messages. The driver feeds it datagrams and time and it answers through a `Sink`.
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -23,6 +23,10 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence after which a connection is dropped, plus two round trips (go-raknet `startTicking`).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Closing connections of one transport at most, the same count as the pre-login limit
+/// (`MAX_PRE_LOGIN`): each holds up to `MAX_UNSENT_BYTES` of queued sends for `CLOSE_TIMEOUT`, so
+/// the count bounds what closes can pin. When full, the oldest closing connection ends at once.
+const MAX_CLOSING: usize = MAX_PRE_LOGIN;
 /// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
 const MAX_PING_IPS: usize = 4096;
 /// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
@@ -45,6 +49,8 @@ pub(super) struct Listener {
     config: Config,
     pong: Arc<[u8]>,
     conns: BTreeMap<SocketAddr, Conn>,
+    /// The closing connections, oldest first.
+    closing: VecDeque<SocketAddr>,
     next_id: u64,
     pre_login: usize,
     pre_login_per_ip: BTreeMap<u128, usize>,
@@ -62,6 +68,7 @@ impl Listener {
             config,
             pong,
             conns: BTreeMap::new(),
+            closing: VecDeque::new(),
             next_id: 0,
             pre_login: 0,
             pre_login_per_ip: BTreeMap::new(),
@@ -79,15 +86,20 @@ impl Listener {
         self.conns.is_empty()
     }
 
-    /// Closes connection `id` after what is queued has been delivered.
-    pub(super) fn close(&mut self, now: Duration, addr: SocketAddr, id: u64) {
+    /// Closes connection `id` after what is queued has been delivered. Past `MAX_CLOSING`
+    /// closing connections, the oldest ends at once.
+    pub(super) fn close(&mut self, now: Duration, addr: SocketAddr, id: u64, sink: &mut impl Sink) {
         if let Some(conn) = self.conns.get_mut(&addr)
             && conn.id == id
             && conn.state == State::Open
         {
-            conn.state = State::Closing {
-                deadline: now.saturating_add(CLOSE_TIMEOUT),
-            };
+            conn.begin_closing(now);
+            self.closing.push_back(addr);
+            while self.closing.len() > MAX_CLOSING
+                && let Some(oldest) = self.closing.pop_front()
+            {
+                self.remove(oldest, Close::Done, sink);
+            }
         }
     }
 
@@ -171,9 +183,8 @@ impl Listener {
             match conn.state {
                 State::Handshake => doomed.push((addr, Close::Shutdown)),
                 State::Open => {
-                    conn.state = State::Closing {
-                        deadline: now.saturating_add(CLOSE_TIMEOUT),
-                    };
+                    conn.begin_closing(now);
+                    self.closing.push_back(addr);
                 }
                 State::Closing { .. } => {}
             }
@@ -222,6 +233,9 @@ impl Listener {
         }
         if conn.pre_login {
             self.release(conn.ip);
+        }
+        if matches!(conn.state, State::Closing { .. }) {
+            self.closing.retain(|&closing| closing != addr);
         }
         if conn.state != State::Handshake {
             sink.close(conn.id, reason.leave_reason());
@@ -422,6 +436,15 @@ struct Conn {
 }
 
 impl Conn {
+    /// Starts the graceful close. Its game data is dropped, so it holds no more received bytes
+    /// than a connection in the handshake; what it queued to send stays until delivered.
+    fn begin_closing(&mut self, now: Duration) {
+        self.state = State::Closing {
+            deadline: now.saturating_add(CLOSE_TIMEOUT),
+        };
+        self.peer.shrink_receive(self.limits.to_handshake());
+    }
+
     fn receive(
         &mut self,
         now: Duration,
@@ -1141,7 +1164,7 @@ pub(super) mod tests {
         pump(&mut listener, &mut sink, &mut over, T);
         assert_eq!(over.offline, [refused]);
         // Removal frees slots too.
-        listener.close(T, addr(2, 0), sink.accepted[5]);
+        listener.close(T, addr(2, 0), sink.accepted[5], &mut sink);
         listener.update(T, &mut sink);
         assert_eq!(listener.pre_login, 64);
         listener.update(T + CLOSE_TIMEOUT, &mut sink);
@@ -1455,7 +1478,7 @@ pub(super) mod tests {
         let id = connect(&mut listener, &mut sink, &mut client, T);
         let big = vec![9; 200_000];
         listener.send(T, client.addr, id, big.clone(), &mut sink);
-        listener.close(T, client.addr, id);
+        listener.close(T, client.addr, id, &mut sink);
         // Sends after close are dropped.
         listener.send(T, client.addr, id, b"late".to_vec(), &mut sink);
         let mut now = T;
@@ -1469,6 +1492,62 @@ pub(super) mod tests {
         assert_eq!(client.game(), [big.as_slice()]);
         assert!(client.disconnected());
         assert_eq!(sink.closed, [(id, LeaveReason::ConnectionClosed)]);
+    }
+
+    /// A closing connection holds at most the handshake budget of unfinished fragments, and the
+    /// fragments it held before the close are released.
+    #[test]
+    fn closing_connection_holds_at_most_the_handshake_budget() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        listener.logged_in(client.addr, id);
+        let part = [0xfe; 1000];
+        let mut seq = 10;
+        let mut fragments = |listener: &mut Listener, sink: &mut Recorder, count: u32| {
+            for _ in 0..count {
+                let fragment = Header {
+                    split: Some(Split {
+                        count: 1000,
+                        id: 0,
+                        index: seq,
+                    }),
+                    ..header(Reliability::Unreliable)
+                };
+                listener.receive(T, client.addr, &datagram(seq, &[(fragment, &part)]), sink);
+                seq += 1;
+            }
+        };
+        fragments(&mut listener, &mut sink, 5);
+        listener.close(T, client.addr, id, &mut sink);
+        fragments(&mut listener, &mut sink, 5);
+        assert_eq!(listener.conns.len(), 1);
+        fragments(&mut listener, &mut sink, 5);
+        assert!(listener.conns.is_empty());
+    }
+
+    /// No more than `MAX_CLOSING` connections are kept closing: the oldest goes at once, and the
+    /// rest end at the close timeout.
+    #[test]
+    fn closing_connections_are_capped() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let count = MAX_CLOSING + 6;
+        for index in 0..count {
+            let last = u8::try_from(index + 1).unwrap();
+            let mut client = Client::new(addr(last, 1), MAX_MTU);
+            let id = connect(&mut listener, &mut sink, &mut client, T);
+            listener.logged_in(client.addr, id);
+            listener.close(T, client.addr, id, &mut sink);
+        }
+        assert_eq!(listener.conns.len(), MAX_CLOSING);
+        assert_eq!(listener.closing.len(), MAX_CLOSING);
+        assert_eq!(sink.closed.len(), count - MAX_CLOSING);
+        listener.update(T + CLOSE_TIMEOUT, &mut sink);
+        assert!(listener.conns.is_empty());
+        assert!(listener.closing.is_empty());
+        assert_eq!(sink.closed.len(), count);
     }
 
     #[test]

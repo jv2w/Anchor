@@ -354,6 +354,17 @@ impl Peer {
         self.limits = limits;
     }
 
+    /// Replaces the receive limits and drops every unfinished reassembly and early ordered message,
+    /// so nothing held before counts against the new limits.
+    pub(super) fn shrink_receive(&mut self, limits: Limits) {
+        self.limits = limits;
+        self.assemblies.clear();
+        for channel in &mut self.channels {
+            channel.waiting.clear();
+        }
+        self.held = 0;
+    }
+
     /// Moves datagrams unacknowledged past the resend timeout back to the resend queue, and
     /// doubles the timeout once per round of losses a timeout starts (a NAK's round does not):
     /// the other datagrams sent before that round share its doubling, or one update's many
