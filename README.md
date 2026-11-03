@@ -2,6 +2,8 @@
 
 Anchor is a Rust library for building Minecraft: Bedrock Edition servers, intended for minigame, PvP, lobby and custom-content servers. A server is an ordinary Rust binary that depends on Anchor; there is no plugin folder.
 
+Anchor leaves out what vanilla does on its own: blocks act like stone apart from placing, breaking and a few kept clicks (chests, doors, signs), and there is no crafting, redstone, mob AI or terrain generation. Players keep every survival feature. The full list of what is kept and removed is in [.claude/docs/architecture.md](.claude/docs/architecture.md).
+
 ## Usage
 
 ```toml
