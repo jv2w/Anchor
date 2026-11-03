@@ -37,7 +37,7 @@ use crate::block::{Facing, State};
 
 /// The Bedrock world border: the farthest a player, an entity or a command position may be from
 /// the world's middle on an axis, in blocks.
-pub(crate) const BORDER: i32 = 30_000_000;
+pub const BORDER: i32 = 30_000_000;
 /// Ticks in a day.
 pub(crate) const DAY: i64 = 24_000;
 /// The highest block y of the world.
@@ -564,9 +564,6 @@ pub struct World {
     fed: BTreeSet<BlockPos>,
     /// The light work of the loaded chunks.
     light: light::Engine,
-    /// The server's custom content, for the loaders of saved block entities and entities (`None`
-    /// only in tests that make worlds without any).
-    custom: Option<std::sync::Arc<crate::custom::Registry>>,
 }
 
 impl World {
@@ -593,7 +590,6 @@ impl World {
             feed: VecDeque::new(),
             fed: BTreeSet::new(),
             light: light::Engine::new(),
-            custom: None,
         }
     }
 
@@ -647,9 +643,9 @@ impl World {
         self.feed.len()
     }
 
-    /// What a checkpoint keeps of the world, naming every field; `fed` is `feed` again, the
-    /// custom content comes from the server's build, and the id, name, kind, number and generator
-    /// from the world list the checkpoint keeps (and the server file of its tick).
+    /// What a checkpoint keeps of the world, naming every field; `fed` is `feed` again, and the
+    /// id, name, kind, number and generator from the world list the checkpoint keeps (and the
+    /// server file of its tick).
     pub(crate) fn checkpoint(&self) -> (Saved, Kept) {
         let Self {
             id: _,
@@ -671,7 +667,6 @@ impl World {
             feed,
             fed: _,
             light,
-            custom: _,
         } = self;
         let mut kept_chunks = Vec::with_capacity(loaded.len());
         for &pos in loaded {
@@ -705,12 +700,6 @@ impl World {
     #[doc(alias = "World::getChunk")]
     pub fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
         self.chunks.get(pos)
-    }
-
-    /// The server's custom content, for the loaders of saved block entities and entities in
-    /// this world's chunks.
-    pub(crate) fn custom(&self) -> Option<&crate::custom::Registry> {
-        self.custom.as_deref()
     }
 
     /// The world's own difficulty, or `None` while it follows the server's
@@ -1092,12 +1081,6 @@ impl World {
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
         self.set_entry(pos, Entry::Known(state))
-    }
-
-    /// Gives the world the server's custom content, for the loaders of its saved
-    /// block entities and entities.
-    pub(crate) fn set_custom(&mut self, custom: std::sync::Arc<crate::custom::Registry>) {
-        self.custom = Some(custom);
     }
 
     /// Sets the world's own difficulty: the options of its making or loading and the context's

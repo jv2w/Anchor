@@ -6,15 +6,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use crate::permission::{self, BanEntry, MAX_ENTRIES, MAX_NAME};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::{AccessKey, AccessKind};
 use crate::tick::checkpoint::{self, Codec, Reader, Writer};
 
-/// The lists and the changes no snapshot holds yet.
-#[derive(Debug, Default)]
-pub(crate) struct Access {
+/// The operator list, the bans and the whitelist, which a checkpoint shares with the state until
+/// the next change and encodes only when a crash log is written.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Lists {
     /// Operator names, ASCII lowercase.
     ops: BTreeSet<String>,
     /// Name bans by name (ASCII lowercase), expired ones included until a ban list change.
@@ -23,6 +25,27 @@ pub(crate) struct Access {
     ip_bans: BTreeMap<IpAddr, BanEntry>,
     /// Whitelisted names, ASCII lowercase.
     whitelist: BTreeSet<String>,
+}
+
+impl Lists {
+    /// The entries in all four lists.
+    pub(crate) fn len(&self) -> usize {
+        self.ops.len() + self.bans.len() + self.ip_bans.len() + self.whitelist.len()
+    }
+}
+
+checkpoint::fields!(Lists {
+    ops,
+    bans,
+    ip_bans,
+    whitelist,
+});
+
+/// The lists and the changes no snapshot holds yet.
+#[derive(Debug, Default)]
+pub(crate) struct Access {
+    /// The operator list, the bans and the whitelist.
+    lists: Arc<Lists>,
     /// Whether only whitelisted players (and operators) may join (`white-list`; not saved).
     whitelist_enabled: bool,
     /// The last write of every entry changed since the last snapshot.
@@ -44,20 +67,22 @@ impl Access {
             whitelist,
         } = data;
         let mut access = Self {
-            ops: ops.into_iter().collect(),
-            bans: bans.into_iter().map(|e| (e.name().to_owned(), e)).collect(),
-            ip_bans: ip_bans
-                .into_iter()
-                .map(|e| {
-                    #[expect(
-                        clippy::expect_used,
-                        reason = "invariant: the server file reads an IP ban with its address"
-                    )]
-                    let ip = e.ip_address().expect("an IP ban has an address");
-                    (ip, e)
-                })
-                .collect(),
-            whitelist: whitelist.into_iter().collect(),
+            lists: Arc::new(Lists {
+                ops: ops.into_iter().collect(),
+                bans: bans.into_iter().map(|e| (e.name().to_owned(), e)).collect(),
+                ip_bans: ip_bans
+                    .into_iter()
+                    .map(|e| {
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "invariant: the server file reads an IP ban with its address"
+                        )]
+                        let ip = e.ip_address().expect("an IP ban has an address");
+                        (ip, e)
+                    })
+                    .collect(),
+                whitelist: whitelist.into_iter().collect(),
+            }),
             whitelist_enabled,
             changes: BTreeMap::new(),
             ban_ends: BTreeSet::new(),
@@ -69,14 +94,17 @@ impl Access {
 
     /// The ban of `name` (any ASCII case) in force at `tick`.
     pub(super) fn ban_entry(&self, name: &str, tick: u64) -> Option<&BanEntry> {
-        folded(name, |n| self.bans.get(n))
+        folded(name, |n| self.lists.bans.get(n))
             .flatten()
             .filter(|e| !e.has_expired(tick))
     }
 
     /// The name bans in force at `tick`, in name order.
     pub(super) fn bans(&self, tick: u64) -> impl Iterator<Item = &BanEntry> {
-        self.bans.values().filter(move |e| !e.has_expired(tick))
+        self.lists
+            .bans
+            .values()
+            .filter(move |e| !e.has_expired(tick))
     }
 
     /// Whether `name` may join as far as the whitelist goes: the whitelist is off, or `name` is
@@ -89,10 +117,7 @@ impl Access {
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
         let Self {
-            ops,
-            bans,
-            ip_bans,
-            whitelist,
+            lists,
             whitelist_enabled,
             changes,
             // Derived from `bans`.
@@ -100,6 +125,12 @@ impl Access {
             // Derived from `ip_bans`.
             ip_ban_ends: _,
         } = self;
+        let Lists {
+            ops,
+            bans,
+            ip_bans,
+            whitelist,
+        } = &**lists;
         let ban = |h: &mut crate::tick::Fnv, e: &BanEntry| {
             h.bytes(e.name().as_bytes());
             h.bytes(e.reason().as_bytes());
@@ -141,25 +172,29 @@ impl Access {
     /// The ban of `ip` in force at `tick`; an IPv4 address written as IPv6 is the IPv4 address,
     /// the form [`BanEntry::ip`] keeps.
     pub(super) fn ip_ban_entry(&self, ip: IpAddr, tick: u64) -> Option<&BanEntry> {
-        self.ip_bans
+        self.lists
+            .ip_bans
             .get(&ip.to_canonical())
             .filter(|e| !e.has_expired(tick))
     }
 
     /// The IP bans in force at `tick`, in address order.
     pub(super) fn ip_bans(&self, tick: u64) -> impl Iterator<Item = &BanEntry> {
-        self.ip_bans.values().filter(move |e| !e.has_expired(tick))
+        self.lists
+            .ip_bans
+            .values()
+            .filter(move |e| !e.has_expired(tick))
     }
 
     /// Whether `name` (any ASCII case) is on the whitelist.
     pub(super) fn is_listed(&self, name: &str) -> bool {
-        folded(name, |n| self.whitelist.contains(n)).unwrap_or(false)
+        folded(name, |n| self.lists.whitelist.contains(n)).unwrap_or(false)
     }
 
     /// Whether `name` (any ASCII case) is an operator. Asked for every permission check, so it
     /// does not allocate ([`folded`]).
     pub(super) fn is_op(&self, name: &str) -> bool {
-        folded(name, |n| self.ops.contains(n)).unwrap_or(false)
+        folded(name, |n| self.lists.ops.contains(n)).unwrap_or(false)
     }
 
     /// Whether the whitelist is on.
@@ -167,14 +202,20 @@ impl Access {
         self.whitelist_enabled
     }
 
+    /// The operator list, the bans and the whitelist, shared with the state until the next
+    /// change.
+    pub(super) fn lists(&self) -> Arc<Lists> {
+        Arc::clone(&self.lists)
+    }
+
     /// The operators, ASCII lowercase, in name order.
     pub(super) fn ops(&self) -> impl Iterator<Item = &str> {
-        self.ops.iter().map(String::as_str)
+        self.lists.ops.iter().map(String::as_str)
     }
 
     /// The whitelisted names, ASCII lowercase, in name order.
     pub(super) fn whitelisted(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.whitelist.iter().map(String::as_str)
+        self.lists.whitelist.iter().map(String::as_str)
     }
 
     /// Adds or replaces a ban made at engine tick `tick`, after dropping the bans of its list
@@ -184,7 +225,7 @@ impl Access {
         self.drop_expired(tick);
         let end = entry.expires();
         if let Some(ip) = entry.ip_address() {
-            if !self.ip_bans.contains_key(&ip) && self.ip_bans.len() >= MAX_ENTRIES {
+            if !self.lists.ip_bans.contains_key(&ip) && self.lists.ip_bans.len() >= MAX_ENTRIES {
                 return Err(permission::Error::Full);
             }
             self.record(
@@ -192,7 +233,7 @@ impl Access {
                 entry.name().to_owned(),
                 AccessWrite::Ban(entry.clone()),
             );
-            if let Some(old) = self.ip_bans.insert(ip, entry)
+            if let Some(old) = Arc::make_mut(&mut self.lists).ip_bans.insert(ip, entry)
                 && let Some(old_end) = old.expires()
             {
                 self.ip_ban_ends.remove(&(old_end, ip));
@@ -201,7 +242,7 @@ impl Access {
                 self.ip_ban_ends.insert((end, ip));
             }
         } else {
-            if !self.bans.contains_key(entry.name()) && self.bans.len() >= MAX_ENTRIES {
+            if !self.lists.bans.contains_key(entry.name()) && self.lists.bans.len() >= MAX_ENTRIES {
                 return Err(permission::Error::Full);
             }
             let name = entry.name().to_owned();
@@ -210,7 +251,9 @@ impl Access {
                 name.clone(),
                 AccessWrite::Ban(entry.clone()),
             );
-            if let Some(old) = self.bans.insert(name.clone(), entry)
+            if let Some(old) = Arc::make_mut(&mut self.lists)
+                .bans
+                .insert(name.clone(), entry)
                 && let Some(old_end) = old.expires()
             {
                 self.ban_ends.remove(&(old_end, name.clone()));
@@ -232,6 +275,12 @@ impl Access {
         self.add_name(AccessKind::Op, name)
     }
 
+    /// Puts in the lists of a checkpoint.
+    pub(super) fn set_lists(&mut self, lists: Arc<Lists>) {
+        self.lists = lists;
+        self.index_ends();
+    }
+
     /// Turns the whitelist on or off.
     pub(super) fn set_whitelist_enabled(&mut self, enabled: bool) {
         self.whitelist_enabled = enabled;
@@ -246,7 +295,7 @@ impl Access {
     /// Lifts the ban of `name`; true if there was one, ended or not.
     pub(super) fn unban(&mut self, name: &str) -> bool {
         let name = name.to_ascii_lowercase();
-        let Some(entry) = self.bans.remove(&name) else {
+        let Some(entry) = Arc::make_mut(&mut self.lists).bans.remove(&name) else {
             return false;
         };
         if let Some(end) = entry.expires() {
@@ -260,7 +309,7 @@ impl Access {
     /// was one, ended or not.
     pub(super) fn unban_ip(&mut self, ip: IpAddr) -> bool {
         let ip = ip.to_canonical();
-        let Some(entry) = self.ip_bans.remove(&ip) else {
+        let Some(entry) = Arc::make_mut(&mut self.lists).ip_bans.remove(&ip) else {
             return false;
         };
         if let Some(end) = entry.expires() {
@@ -290,9 +339,9 @@ impl Access {
         permission::check_name(name)?;
         let name = name.to_ascii_lowercase();
         let list = if kind == AccessKind::Op {
-            &mut self.ops
+            &self.lists.ops
         } else {
-            &mut self.whitelist
+            &self.lists.whitelist
         };
         if list.contains(&name) {
             return Ok(false);
@@ -300,7 +349,13 @@ impl Access {
         if list.len() >= MAX_ENTRIES {
             return Err(permission::Error::Full);
         }
-        list.insert(name.clone());
+        let lists = Arc::make_mut(&mut self.lists);
+        if kind == AccessKind::Op {
+            &mut lists.ops
+        } else {
+            &mut lists.whitelist
+        }
+        .insert(name.clone());
         self.record(kind, name, AccessWrite::Mark);
         Ok(true)
     }
@@ -309,13 +364,20 @@ impl Access {
     fn remove_name(&mut self, kind: AccessKind, name: &str) -> bool {
         let name = name.to_ascii_lowercase();
         let list = if kind == AccessKind::Op {
-            &mut self.ops
+            &self.lists.ops
         } else {
-            &mut self.whitelist
+            &self.lists.whitelist
         };
-        if !list.remove(&name) {
+        if !list.contains(&name) {
             return false;
         }
+        let lists = Arc::make_mut(&mut self.lists);
+        if kind == AccessKind::Op {
+            &mut lists.ops
+        } else {
+            &mut lists.whitelist
+        }
+        .remove(&name);
         self.record(kind, name, AccessWrite::Delete);
         true
     }
@@ -345,11 +407,13 @@ impl Access {
     /// Builds the end indexes from the bans.
     fn index_ends(&mut self) {
         self.ban_ends = self
+            .lists
             .bans
             .iter()
             .filter_map(|(name, e)| Some((e.expires()?, name.clone())))
             .collect();
         self.ip_ban_ends = self
+            .lists
             .ip_bans
             .iter()
             .filter_map(|(&ip, e)| Some((e.expires()?, ip)))
@@ -357,14 +421,13 @@ impl Access {
     }
 }
 
-// A checkpoint holds the lists and changes, and the end indexes are built again from the bans.
+// A checkpoint holds the changes here and the lists beside the body ([`Access::lists`], read back
+// with `set_lists`, which also builds the end indexes from the bans).
 impl Codec for Access {
     fn encode(&self, w: &mut Writer) {
         let Self {
-            ops,
-            bans,
-            ip_bans,
-            whitelist,
+            // Kept as a shared copy beside the body.
+            lists: _,
             whitelist_enabled,
             changes,
             // Derived from `bans`.
@@ -372,27 +435,18 @@ impl Codec for Access {
             // Derived from `ip_bans`.
             ip_ban_ends: _,
         } = self;
-        ops.encode(w);
-        bans.encode(w);
-        ip_bans.encode(w);
-        whitelist.encode(w);
         whitelist_enabled.encode(w);
         changes.encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
-        let mut access = Self {
-            ops: Codec::decode(r)?,
-            bans: Codec::decode(r)?,
-            ip_bans: Codec::decode(r)?,
-            whitelist: Codec::decode(r)?,
+        Ok(Self {
+            lists: Arc::default(),
             whitelist_enabled: Codec::decode(r)?,
             changes: Codec::decode(r)?,
             ban_ends: BTreeSet::new(),
             ip_ban_ends: BTreeSet::new(),
-        };
-        access.index_ends();
-        Ok(access)
+        })
     }
 }
 
@@ -426,6 +480,25 @@ mod tests {
         assert!(access.whitelist_add("\u{c9}mile").unwrap());
         assert!(access.is_listed("\u{c9}MILE"), "only ASCII letters fold");
         assert_eq!(folded("AbC", str::to_owned), Some("abc".to_owned()));
+    }
+
+    /// The lists a checkpoint shares stay as they were through later changes, and put back they
+    /// give the same operators and the same end indexes.
+    #[test]
+    fn shared_lists_keep_their_state_through_later_changes() {
+        let mut access = Access::default();
+        assert!(access.op("steve").unwrap());
+        access
+            .ban(BanEntry::new("soon").with_expires(5), 1)
+            .unwrap();
+        let shared = access.lists();
+        assert!(access.op("alex").unwrap());
+        assert!(access.unban("soon"));
+        assert_eq!(shared.len(), 2, "one operator and one ban");
+        let mut restored = Access::default();
+        restored.set_lists(shared);
+        assert!(restored.is_op("steve") && !restored.is_op("alex"));
+        assert_eq!(restored.ban_ends.len(), 1);
     }
 
     /// A ban list change drops exactly the bans that have ended, a replaced or lifted ban's old

@@ -196,7 +196,9 @@ pub(crate) fn run(
         });
     }
     // Named as the server names the file of a new world: in the declared name's letter case.
-    let Some(place) = save::new_world_place(data_dir, &spec.name)? else {
+    let Some(place) =
+        save::new_world_place(data_dir, &spec.name).map_err(save::data_error(data_dir))?
+    else {
         return Err(Error::WorldExists { name: spec.name }.into());
     };
     let report = write_world(&place, start, &spec, cpu, custom, &mut Source::open(dir)?)?;
@@ -254,13 +256,13 @@ fn write_world(
             )?;
             // The source must still be what was read, or the world would mix two states of it.
             source.unchanged()?;
-            import.commit()?;
+            import.commit().map_err(save::data_error(&temp.file))?;
             Ok::<_, crate::Error>(report)
         })();
         // `storage` moves into the closure, so it is dropped, and the file closed, here whether
         // the import failed or not.
         let closed = imported.and_then(|report| {
-            storage.close()?;
+            storage.close().map_err(save::data_error(&temp.file))?;
             Ok(report)
         });
         let published = closed.and_then(|report| {
@@ -299,13 +301,14 @@ fn temp_place(place: &Place) -> Place {
     reason = "off-tick: the import makes its own world file before the server runs"
 )]
 fn create_file(place: &Place, name: &str) -> crate::Result<()> {
+    let stored = save::data_error(&place.file);
     if let Some(dir) = place.file.parent() {
-        std::fs::create_dir_all(dir).map_err(crate::storage::Error::Io)?;
+        std::fs::create_dir_all(dir).map_err(|e| stored(crate::storage::Error::Io(e)))?;
     }
     match std::fs::remove_file(&place.file) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(crate::storage::Error::Io(e).into()),
+        Err(e) => return Err(stored(crate::storage::Error::Io(e))),
     }
     match std::fs::OpenOptions::new()
         .write(true)
@@ -317,7 +320,7 @@ fn create_file(place: &Place, name: &str) -> crate::Result<()> {
             name: name.to_owned(),
         }
         .into()),
-        Err(e) => Err(crate::storage::Error::Io(e).into()),
+        Err(e) => Err(stored(crate::storage::Error::Io(e))),
     }
 }
 
@@ -334,7 +337,7 @@ fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storag
         .into()),
         Err(e) => {
             remove_file(&place.file);
-            Err(e.into())
+            Err(save::data_error(&place.file)(e))
         }
     }
 }
@@ -347,16 +350,17 @@ fn open_created(place: &Place, start: Start, name: &str) -> crate::Result<Storag
     reason = "off-tick: the import publishes its own world file before the server runs"
 )]
 fn publish(temp: &Path, file: &Path, name: &str) -> crate::Result<()> {
-    if std::fs::exists(file).map_err(crate::storage::Error::Io)? {
+    let stored = save::data_error(file);
+    if std::fs::exists(file).map_err(|e| stored(crate::storage::Error::Io(e)))? {
         return Err(Error::WorldExists {
             name: name.to_owned(),
         }
         .into());
     }
-    std::fs::rename(temp, file).map_err(crate::storage::Error::Io)?;
+    std::fs::rename(temp, file).map_err(|e| stored(crate::storage::Error::Io(e)))?;
     if let Err(e) = crate::fs::sync_parent(file) {
         remove_file(file);
-        return Err(crate::storage::Error::Io(e).into());
+        return Err(stored(crate::storage::Error::Io(e)));
     }
     Ok(())
 }
@@ -425,7 +429,9 @@ fn prepare<E: Sync>(
         other_keys: catalog.other_keys,
         ..Report::default()
     };
-    let mut import = storage.begin_import()?;
+    let mut import = storage
+        .begin_import()
+        .map_err(save::data_error(storage.path()))?;
     let height = write_chunks(
         &mut import,
         pool,
@@ -450,8 +456,13 @@ fn prepare<E: Sync>(
         spawn: report.spawn,
     };
     let mut batch = Batch::with_capacity(1);
-    batch.put(key.clone(), seal(&key.to_bytes(), &record)?);
-    import.write(&batch)?;
+    batch.put(
+        key.clone(),
+        seal(&key.to_bytes(), &record).map_err(save::data_error(import.path()))?,
+    );
+    import
+        .write(&batch)
+        .map_err(save::data_error(import.path()))?;
     Ok((import, report))
 }
 
@@ -522,7 +533,9 @@ fn write_chunks<E: Sync>(
                 batch.put(key, value);
             }
         }
-        import.write(&batch)?;
+        import
+            .write(&batch)
+            .map_err(save::data_error(import.path()))?;
     }
     Ok(spawn_height)
 }

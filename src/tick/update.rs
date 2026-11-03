@@ -308,9 +308,7 @@ mod tests {
         let registry = Arc::new(registry);
         let mut state = server();
         state.custom = Arc::clone(&registry);
-        for w in &mut state.worlds {
-            w.set_custom(Arc::clone(&registry));
-        }
+        state.rules.custom = Arc::clone(&registry);
         let ticking = registry.block_state(&TICKING).unwrap();
         let still = registry.block_state(&STILL).unwrap();
         (state, ticking, still)

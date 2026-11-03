@@ -77,7 +77,10 @@ const MAX_HEALTH: f64 = 20.0;
 const MAX_HELD_BACK: usize = inventory::CARRIED + inventory::MAX_SAVED_PENDING + MAX_LISTENER_DROPS;
 /// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
 /// inventory.
-const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
+pub(crate) const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
+/// The most residue stacks a [`PlayerItemConsume`](crate::event::PlayerItemConsume) listener
+/// leaves after eating or drinking.
+pub(crate) const MAX_RESIDUE: usize = 4;
 /// The largest saturation.
 const MAX_SATURATION: f64 = 20.0;
 /// The lowest air supply in ticks: a player under water reaching it takes drowning damage and
@@ -542,11 +545,11 @@ fn notify<E: Event>(state: &mut State, build: impl FnOnce() -> E) {
     }
 }
 
-/// Checks the stacks a listener set: at most `limit` non-empty stacks, each within its item's
-/// stack size.
-fn valid_stacks(stacks: &[Stack], limit: usize) -> Vec<Stack> {
+/// Keeps the stacks a listener set that can exist: at most `limit` non-empty stacks, each cut to
+/// its item's stack size.
+pub(crate) fn valid_stacks(stacks: Vec<Stack>, limit: usize) -> Vec<Stack> {
     stacks
-        .iter()
+        .into_iter()
         .filter_map(|s| {
             let max = s.item()?.max_stack_size();
             (!s.is_empty()).then(|| s.with_count(s.count().min(max)))

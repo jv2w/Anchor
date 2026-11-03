@@ -1383,10 +1383,9 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
 ///
 /// While earlier drops still wait for room, the player keeps what it carries and nothing more
 /// drops: the waiting list then never holds more than one death's drops
-/// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)). Drops a listener replaced are checked like external
-/// input: at most one inventory of stacks ([`MAX_LISTENER_DROPS`](super::MAX_LISTENER_DROPS)),
-/// each within its item's stack size; the player's own stacks the event showed are gone, and
-/// every other stack it carries drops or stays as without a listener ([`replace_drops`]).
+/// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)). Of the drops a listener replaced, the player's own
+/// stacks the event showed are gone, and every other stack it carries drops or stays as without
+/// a listener ([`replace_drops`]).
 pub(super) fn die(
     state: &mut State,
     session: SessionId,
@@ -1551,11 +1550,9 @@ fn drop_death(
         stacks.into_iter().filter(keeps_on_death).collect()
     };
     let to_drop = match &event {
-        Some((e, original)) if free && e.drops != *original => replace_drops(
-            stacks,
-            original,
-            super::valid_stacks(&e.drops, super::MAX_LISTENER_DROPS),
-        ),
+        Some((e, original)) if free && e.drops != *original => {
+            replace_drops(stacks, original, e.drops.clone())
+        }
         _ => stacks,
     };
     let xp = if keep_xp {

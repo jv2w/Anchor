@@ -9,7 +9,8 @@
 //! has no checkpoint form (a closure, a user's untyped extension) makes the checkpoint opaque, and
 //! a replay refuses an opaque checkpoint instead of guessing.
 //!
-//! Light and terrain are kept as shared copies (copy-on-write light arrays and sub-chunks) and
+//! Light, terrain and the operator, ban and whitelist lists (up to a quarter million entries
+//! each) are kept as shared copies (copy-on-write light arrays, sub-chunks and `Arc`s) and
 //! encoded only when a crash log is written ([`Checkpoint::to_bytes`]), so taking a checkpoint
 //! copies little on the tick. Terrain is kept although the data files holds it: a load compacts
 //! the palettes, and a replay must go on from the exact chunks.
@@ -26,6 +27,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use super::command::Lists;
 use super::entity::Customs;
 use super::queue::{Identity, Outbound, SessionId, Skin};
 use super::task::UserData;
@@ -39,6 +41,9 @@ use crate::protocol::Uuid;
 use crate::save::ChunkExtras;
 use crate::world::{self, BlockPos, Chunk, ChunkPos, World};
 
+/// The bytes a checkpoint is charged per entry of the operator list, the bans and the whitelist,
+/// about.
+const ACCESS_ENTRY_BYTES: usize = 64;
 /// The deepest nesting a checkpoint reads (NBT inside NBT): as deep as NBT itself allows.
 const MAX_DEPTH: usize = nbt::MAX_DEPTH;
 /// The bytes a checkpoint is charged per loaded chunk position, about.
@@ -1019,6 +1024,9 @@ pub(crate) struct Checkpoint {
     /// is written.
     kept: Vec<world::Kept>,
     unsaved: Vec<(Key, Chunk)>,
+    /// The operator list, the bans and the whitelist: shared with the state until they change,
+    /// encoded when a crash log is written.
+    access: Arc<Lists>,
     /// What has no checkpoint form, if anything: a replay refuses the checkpoint then.
     opaque: Option<String>,
 }
@@ -1066,6 +1074,7 @@ impl Checkpoint {
         self.body
             .capacity()
             .saturating_add(kept)
+            .saturating_add(self.access.len().saturating_mul(ACCESS_ENTRY_BYTES))
             .saturating_add(unsaved)
             .saturating_add(positions.saturating_mul(POSITION_BYTES))
     }
@@ -1100,6 +1109,7 @@ fields!(Checkpoint {
     body,
     kept,
     unsaved,
+    access,
     opaque,
 });
 
@@ -1202,6 +1212,7 @@ impl State {
                 .iter()
                 .map(|(&key, u)| (key, u.chunk.clone()))
                 .collect(),
+            access: commands.access_lists(),
             opaque,
         }
     }
@@ -1223,6 +1234,7 @@ impl State {
             body,
             kept,
             unsaved,
+            access,
             opaque,
         } = checkpoint;
         if opaque.is_some() {
@@ -1257,6 +1269,7 @@ impl State {
         );
         self.rules.entities.set_customs(entities);
         result?;
+        self.commands.restore_access_lists(Arc::clone(access));
         for ((world, saved), kept) in self.worlds.iter_mut().zip(saved).zip(kept) {
             world
                 .restore(saved.clone(), kept.clone())

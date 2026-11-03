@@ -180,7 +180,9 @@ pub(crate) fn run(
         name: name.to_owned(),
     };
     // The world by its file's name, which may differ from `name` in letter case.
-    let file = save::world_file_name(data_dir, name)?.ok_or_else(no_world)?;
+    let file = save::world_file_name(data_dir, name)
+        .map_err(save::data_error(data_dir))?
+        .ok_or_else(no_world)?;
     let spec = save::file_world(worlds, &file).ok_or_else(|| Error::TemporaryWorld {
         name: name.to_owned(),
     })?;
@@ -194,16 +196,18 @@ pub(crate) fn run(
             return Err(Error::FolderExists { path: path.clone() }.into());
         }
     }
-    let snapshot = Snapshot::open(
-        &Place::world(data_dir, &file).file,
-        &Place::data(data_dir, MAIN_FILE).file,
-    )?;
+    let world_path = Place::world(data_dir, &file).file;
+    let stored = save::data_error(&world_path);
+    let snapshot =
+        Snapshot::open(&world_path, &Place::data(data_dir, MAIN_FILE).file).map_err(&stored)?;
     let key = Key::World;
-    let record: WorldRecord = match snapshot.world()? {
-        Some(sealed) => unseal(&key.to_bytes(), &sealed)?,
+    let record: WorldRecord = match snapshot.world().map_err(&stored)? {
+        Some(sealed) => unseal(&key.to_bytes(), &sealed).map_err(&stored)?,
         None => return Err(no_world().into()),
     };
-    let mut ids = snapshot.chunk_ids(record.number, MAX_CHUNKS)?;
+    let mut ids = snapshot
+        .chunk_ids(record.number, MAX_CHUNKS)
+        .map_err(&stored)?;
     ids.sort_unstable_by_key(|id| crate::import::chunk::prefix(id.x, id.z));
 
     // Started before the temporary folder is made, so a pool that fails to start leaves no folder.

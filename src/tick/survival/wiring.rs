@@ -804,7 +804,7 @@ fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
     let name = game.state.worlds[0].name().to_owned();
     game.survival_mut(1).spawn = Some(Point {
         world: name,
-        pos: BlockPos::new(30_000_000, -60, 0),
+        pos: BlockPos::new(world::BORDER, -60, 0),
     });
     game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));

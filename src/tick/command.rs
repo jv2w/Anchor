@@ -11,7 +11,7 @@ mod access;
 mod available;
 mod builtin;
 
-pub(crate) use access::Access;
+pub(crate) use access::{Access, Lists};
 pub(crate) use available::{Listing, available_commands};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -250,6 +250,11 @@ impl Commands {
         self.auto_save
     }
 
+    /// The operator list, the bans and the whitelist, shared with the state until the next change.
+    pub(super) fn access_lists(&self) -> Arc<Lists> {
+        self.access.lists()
+    }
+
     /// The source of a player's `AvailableCommands`, without the handlers, so that the output
     /// phase can build it on its threads.
     pub(crate) fn listing(&self) -> Listing<'_> {
@@ -350,6 +355,11 @@ impl Commands {
         self.stopping = Codec::decode(r)?;
         self.started = Codec::decode(r)?;
         Ok(())
+    }
+
+    /// Puts in the lists of a checkpoint ([`Self::access_lists`]), after [`Self::restore`].
+    pub(super) fn restore_access_lists(&mut self, lists: Arc<Lists>) {
+        self.access.set_lists(lists);
     }
 
     /// Takes the operator list, the bans and the whitelist the server file held, and whether the

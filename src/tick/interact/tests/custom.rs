@@ -96,9 +96,7 @@ fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
     let mut h = Harness::new(edit);
     let r = Arc::new(registry());
     h.state.custom = Arc::clone(&r);
-    for w in &mut h.state.worlds {
-        w.set_custom(Arc::clone(&r));
-    }
+    h.state.rules.custom = Arc::clone(&r);
     (h, r)
 }
 

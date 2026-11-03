@@ -96,7 +96,7 @@ impl Server {
     /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
     /// [`Error::Storage`] for a file in use, another process's included, or that cannot be read or
     /// written, or that holds a later save than the main file (one start of the server rolls it
-    /// back). [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a damaged file and one
+    /// back). [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a damaged file and one
     /// of a newer format.
     pub fn delete_player_data(&self, record_key: &str) -> Result<bool> {
         let key = crate::storage::PlayerKey::parse(record_key).ok_or_else(|| {
@@ -105,11 +105,11 @@ impl Server {
             }
         })?;
         let _log = self.console_log().map_err(Error::Start)?;
-        Ok(save::delete_player(
+        save::delete_player(
             &self.data_dir,
             crate::storage::Start::of(&self.config),
             &key,
-        )?)
+        )
     }
 
     /// Exports the persistent world `world` as the Bedrock world folder `dir` (a `level.dat` and
@@ -151,7 +151,7 @@ impl Server {
     /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
     /// [`Error::Export`] for a world without saved state, a temporary world, a folder that exists
     /// and a file or chunk that cannot be written.
-    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
     /// that is in use, cannot be read, is damaged, or is of a newer format.
     pub fn export_world(
         &self,
@@ -208,7 +208,7 @@ impl Server {
     /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
     /// [`Error::Import`] for a world file of the name, or a source that cannot be read or
     /// converted.
-    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
     /// that cannot be opened or written, is damaged, or is of a newer format.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
@@ -329,7 +329,7 @@ impl Server {
     /// certificate files and the authorization keys.
     /// [`Error::Pack`] for a resource pack that cannot be offered.
     /// [`Error::Data`] for a saved server data value that does not deserialize into its type.
-    /// [`Error::Storage`], [`Error::WorldDamaged`] and [`Error::WorldNewerFormat`] for a data file
+    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
     /// that cannot be opened, read or saved, is damaged, or is of a newer format.
     /// [`Error::TickPanicked`] for a tick that panicked.
     /// [`Error::Import`] and [`Error::Export`] for a failed `import` or `export` command, and
@@ -444,7 +444,7 @@ impl Server {
         if config.developer.console_input
             && let Err(e) = console::start(&inputs)
         {
-            return Err(abort_start(runtime, pool, None, Error::Start(e)));
+            return Err(abort_start(runtime, pool, &data_dir, None, Error::Start(e)));
         }
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
@@ -475,7 +475,7 @@ impl Server {
             save::run(opened.thread, &save_pool, request_queue, &responder)
         }) {
             Ok(thread) => thread,
-            Err(e) => return Err(abort_start(runtime, pool, None, e)),
+            Err(e) => return Err(abort_start(runtime, pool, &data_dir, None, e)),
         };
         let tick_pool = Arc::clone(&pool);
         let link = tick::SaveLink {
@@ -486,7 +486,7 @@ impl Server {
             tick::run(state, &tick_pool, input_queue, link, stop, crash, done)
         }) {
             Ok(thread) => thread,
-            Err(e) => return Err(abort_start(runtime, pool, Some(save_thread), e)),
+            Err(e) => return Err(abort_start(runtime, pool, &data_dir, Some(save_thread), e)),
         };
         debug!(
             network_threads = threads.network,
@@ -516,7 +516,7 @@ impl Server {
         // after a tick panic it ends without committing.
         let saved = save_thread.join();
         shut_down(runtime, pool);
-        let saved = save_outcome(saved);
+        let saved = save_outcome(saved, &data_dir);
         match joined {
             Ok(tick::End::Stopped(log)) => {
                 if saved.is_err() {
@@ -527,9 +527,10 @@ impl Server {
             }
             Ok(tick::End::SaveFailed(log)) => {
                 write_crash(&data_dir, &log);
-                Err(saved
-                    .err()
-                    .unwrap_or_else(|| Error::Storage("the save thread stopped answering".into())))
+                Err(saved.err().unwrap_or_else(|| Error::Storage {
+                    path: data_dir.clone(),
+                    source: "the save thread stopped answering".into(),
+                }))
             }
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
@@ -872,11 +873,12 @@ impl Running {
 fn abort_start(
     runtime: Runtime,
     pool: Arc<Pool>,
+    data_dir: &Path,
     save_thread: Option<JoinHandle<Result<(), crate::storage::Error>>>,
     error: Error,
 ) -> Error {
     if let Some(save_thread) = save_thread
-        && let Err(e) = save_outcome(save_thread.join())
+        && let Err(e) = save_outcome(save_thread.join(), data_dir)
     {
         error!(
             error = &e as &(dyn std::error::Error + 'static),
@@ -888,13 +890,19 @@ fn abort_start(
 }
 
 /// The result of the joined save thread, a panic included.
-fn save_outcome(joined: std::thread::Result<Result<(), crate::storage::Error>>) -> Result<()> {
+fn save_outcome(
+    joined: std::thread::Result<Result<(), crate::storage::Error>>,
+    data_dir: &Path,
+) -> Result<()> {
     match joined {
-        Ok(result) => result.map_err(Error::from),
+        Ok(result) => result.map_err(|e| Error::from_storage(e, data_dir)),
         Err(payload) => {
             let message = panic_message(payload.as_ref());
             error!(%message, "save thread panicked");
-            Err(Error::Storage(message.into()))
+            Err(Error::Storage {
+                path: data_dir.to_path_buf(),
+                source: message.into(),
+            })
         }
     }
 }

@@ -77,6 +77,8 @@ Leaving, chunk unloading and world unloading wait for the next snapshot so that 
 
 A failed commit drops the file's handle, reopens the file and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log since the last commit is written to `data/crash/`, and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries stops the server the same way, without saving.
 
+The data-file errors `Error::DataDamaged`, `Error::DataNewerFormat` and `Error::Storage` carry the file in their `path` field. The place that knows the file adds it (`storage::Error::in_file`); a failure of no single file (the listing of `data/worlds/`, the save thread stopping) carries the data folder or the world folder.
+
 A world made or loaded while the server runs, whose file does not open, is not saved and its chunks are quarantined; the save thread tells the tick, which unloads the world, and the next `load_world` opens its file again.
 
 Reads: the tick sends bounded requests for chunks and players. The save thread reads a chunk batch in one read transaction per world file, then decodes, generates and lights the chunks on the CPU pool, and reads their extras into the rule modules' typed form (`ChunkRules`) there too, one pool item per list that has entries. So the tick only puts what was read into its stores; only a chunk that was still held in memory is read on the tick, by the same function. The chunks go through the pool one turn (a chunk per pool thread) at a time, and each turn's answers go back in request order as soon as it ends.

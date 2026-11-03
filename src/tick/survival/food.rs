@@ -42,8 +42,6 @@ pub(super) const FOOD_CYCLE: u32 = 80;
 pub(super) const MAX_LIFETIME_XP: u32 = i32::MAX.cast_unsigned();
 /// The largest xp progress: just below a full bar, which is the next level.
 const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
-/// The most residue stacks a listener may leave after eating or drinking.
-const MAX_RESIDUE: usize = 4;
 /// The random stream key of the mending item an orb repairs.
 const MENDING: u64 = random::tag("mending");
 /// Durability one xp point repairs with mending.
@@ -254,14 +252,14 @@ fn consume(state: &mut State, session: SessionId, item: Type) {
     ) else {
         return;
     };
-    // A listener's residue is checked like external input; the first stack takes the residue's
-    // place, the others go into the inventory or drop at the feet.
+    // The first stack of a listener's residue takes the residue's place, the others go into the
+    // inventory or drop at the feet.
     let (residue, extra) = match &event {
         Some(e)
             if e.residue.len() != usize::from(residue.is_some())
                 || e.residue.first() != residue.as_ref() =>
         {
-            let mut chosen = super::valid_stacks(&e.residue, MAX_RESIDUE).into_iter();
+            let mut chosen = e.residue.iter().cloned();
             (chosen.next(), chosen.collect())
         }
         _ => (residue, Vec::new()),

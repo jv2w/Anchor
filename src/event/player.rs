@@ -16,6 +16,7 @@ use crate::item::Stack;
 use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::{self, Uuid};
+use crate::tick;
 use crate::tick::queue::{Identity, Skin};
 use crate::world::{self, BlockPos, ChunkPos};
 
@@ -255,11 +256,6 @@ getters!(PlayerDeath {
 });
 
 setters!(PlayerDeath {
-    /// Replaces what the player drops. At most as many stacks as a player carries are kept, none
-    /// of them empty, each cut to its item's stack size. A stack of the player's own that the
-    /// event showed and these leave out is gone; every other stack it carries drops or stays as
-    /// without a listener.
-    set_drops => drops: Vec<Stack>,
     /// Replaces the XP the player drops.
     set_xp_drop_amount => xp_drop_amount: u32,
     /// Replaces the chat message; one longer than [`player::MAX_TEXT_BYTES`] bytes shows nothing.
@@ -276,6 +272,16 @@ setters!(PlayerDeath {
     #[doc(alias = "PlayerDeathEvent::setKeepXp")]
     set_keep_xp => keep_xp: bool,
 });
+
+impl PlayerDeath {
+    /// Replaces what the player drops. At most as many stacks as a player carries are kept, none
+    /// of them empty, each cut to its item's stack size, and [`drops`](Self::drops) shows what is
+    /// kept. A stack of the player's own that the event showed and these leave out is gone; every
+    /// other stack it carries drops or stays as without a listener.
+    pub fn set_drops(&mut self, drops: Vec<Stack>) {
+        self.drops = tick::valid_stacks(drops, tick::MAX_LISTENER_DROPS);
+    }
+}
 
 /// Raised when a player drops an item, before it leaves the inventory. Cancelling keeps it.
 #[doc(alias = "PlayerDropItemEvent")]
@@ -883,12 +889,15 @@ getters!(PlayerItemConsume {
     residue: &[Stack],
 });
 
-setters!(PlayerItemConsume {
+impl PlayerItemConsume {
     /// Replaces what is left after. At most 4 stacks are kept, none of them empty, each cut to
-    /// its item's stack size. A creative player gets none, whatever is set.
+    /// its item's stack size, and [`residue`](Self::residue) shows what is kept. A creative
+    /// player gets none, whatever is set.
     #[doc(alias = "PlayerItemConsumeEvent::setResidue")]
-    set_residue => residue: Vec<Stack>,
-});
+    pub fn set_residue(&mut self, residue: Vec<Stack>) {
+        self.residue = tick::valid_stacks(residue, tick::MAX_RESIDUE);
+    }
+}
 
 cancellable! {
     PlayerItemConsume
@@ -2114,6 +2123,40 @@ mod tests {
         assert!(e.is_cancelled());
         e.uncancel();
         assert!(!e.is_cancelled());
+    }
+
+    /// The residue and drops a listener sets show only the stacks that are kept.
+    #[test]
+    fn residue_and_drops_show_what_is_kept() {
+        let mut consume = PlayerItemConsume {
+            player: player(1),
+            item: sticks(1),
+            residue: Vec::new(),
+            cancelled: false,
+        };
+        consume.set_residue(vec![
+            sticks(0),
+            sticks(1),
+            sticks(2),
+            sticks(3),
+            sticks(4),
+            sticks(5),
+        ]);
+        assert_eq!(
+            consume.residue(),
+            &[sticks(1), sticks(2), sticks(3), sticks(4)]
+        );
+        let mut death = PlayerDeath {
+            player: player(1),
+            drops: Vec::new(),
+            xp_drop_amount: 0,
+            death_message: String::new(),
+            death_screen_message: String::new(),
+            keep_inventory: false,
+            keep_xp: false,
+        };
+        death.set_drops(vec![sticks(0), sticks(200)]);
+        assert_eq!(death.drops(), &[sticks(64)]);
     }
 
     // api: PlayerItemHeldEvent, PlayerItemUseEvent, PlayerItemHeldEvent::getItem,

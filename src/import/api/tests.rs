@@ -189,7 +189,8 @@ fn import(
         |_: &Raw| 0,
     )
     .and_then(|(import, report)| {
-        import.commit()?;
+        let path = import.path().to_path_buf();
+        import.commit().map_err(save::data_error(&path))?;
         Ok(report)
     });
     (result, pool.shutdown())
@@ -910,8 +911,8 @@ fn an_import_makes_no_world_file_past_the_most_the_folder_holds() {
     assert!(
         matches!(
             &err,
-            crate::Error::Storage(e)
-                if matches!(e.downcast_ref(), Some(crate::storage::Error::TooManyWorlds))
+            crate::Error::Storage { source, .. }
+                if matches!(source.downcast_ref(), Some(crate::storage::Error::TooManyWorlds))
         ),
         "{err:?}"
     );

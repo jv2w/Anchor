@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use anchor::world::BORDER;
 use serde_json::Value;
 
 /// The chunk packets: they interleave with the spawn window by timing (a server sends them as
@@ -24,8 +25,6 @@ pub(crate) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
 const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
 /// The fixed-field list, relative to the repository root.
 pub(crate) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
-/// The largest coordinate of a position in a capture: the world border.
-const MAX_COORDINATE: u32 = 30_000_000;
 /// The JSON null that [`field`] returns for a missing key.
 static NULL: Value = Value::Null;
 /// How many entries of one kind a difference list shows before it only counts.
@@ -897,7 +896,7 @@ pub(crate) fn block_column(start_game: &Value) -> Result<[i32; 2], String> {
             .get(i)
             .and_then(Value::as_f64)
             .map(f64::floor)
-            .filter(|v| v.abs() <= f64::from(MAX_COORDINATE))
+            .filter(|v| v.abs() <= f64::from(BORDER))
             .ok_or_else(|| format!("StartGame PlayerPosition {position}"))
     };
     #[expect(
@@ -914,7 +913,7 @@ fn at(position: &Value, i: usize) -> Result<i64, String> {
     position
         .get(i)
         .and_then(Value::as_i64)
-        .filter(|v| v.unsigned_abs() <= u64::from(MAX_COORDINATE))
+        .filter(|v| v.unsigned_abs() <= u64::from(BORDER.unsigned_abs()))
         .ok_or_else(|| format!("{position} is not a position"))
 }
 

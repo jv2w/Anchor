@@ -44,6 +44,7 @@ pub(crate) use log::{
 };
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
+pub(crate) use survival::{MAX_LISTENER_DROPS, MAX_RESIDUE, valid_stacks};
 pub(crate) use task::Tasks;
 pub use task::{Context, Offline};
 pub use trade::check_offers;
@@ -197,7 +198,6 @@ impl State {
             .collect();
         for world in &mut worlds {
             world.set_lighting(settings.light_mode());
-            world.set_custom(std::sync::Arc::clone(&custom));
         }
         let catalog = world_api::Catalog::new(&worlds, generators);
         let saving = save::Saving::new(tick, settings.save_interval, settings.save_player_data);
@@ -225,7 +225,10 @@ impl State {
             saving,
             loading: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
-            rules: rules::Rules::default(),
+            rules: rules::Rules {
+                custom: std::sync::Arc::clone(&custom),
+                ..rules::Rules::default()
+            },
             clock: survival::Clock::default(),
             trades: trade::Trades::default(),
             skin_budget: survival::SkinBudget::default(),
@@ -1726,9 +1729,7 @@ mod tests {
                 let pos = ChunkPos::new(center.x + x, center.z + z);
                 let chunk = Chunk::generate(&Flat, 0, pos);
                 let extras = extra::tests::sample(0, pos).extras;
-                let read = state
-                    .rules
-                    .read((0, pos), &extras, &chunk, &state.worlds[0]);
+                let read = state.rules.read((0, pos), &extras, &chunk);
                 state.worlds[0].insert_chunk(pos, chunk);
                 state.rules.load((0, pos), read, &extras);
                 state.chunks.extras.chunk_loaded((0, pos), extras);

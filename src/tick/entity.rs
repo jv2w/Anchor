@@ -4661,11 +4661,10 @@ mod tests {
             let loaded: Vec<ChunkPos> = state.worlds[0].loaded_chunks().collect();
             for pos in loaded {
                 if let Some(extras) = state.chunks.extras.get((0, pos)).cloned() {
-                    let world = &state.worlds[0];
                     let read =
                         state
                             .rules
-                            .read((0, pos), &extras, world.chunk(pos).unwrap(), world);
+                            .read((0, pos), &extras, state.worlds[0].chunk(pos).unwrap());
                     state.rules.load((0, pos), read, &extras);
                 }
             }

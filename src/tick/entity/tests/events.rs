@@ -1196,7 +1196,10 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
                 0 => e.cancel(),
                 1 => e.set_target(world::Id::DEFAULT, Vec3::new(5.5, -60.0, 5.5)),
                 // The feet inside the world border, the eyes past it.
-                _ => e.set_target(world::Id::DEFAULT, Vec3::new(5.5, 30_000_000.0, 5.5)),
+                _ => e.set_target(
+                    world::Id::DEFAULT,
+                    Vec3::new(5.5, f64::from(world::BORDER), 5.5),
+                ),
             }
         },
     );

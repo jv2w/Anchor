@@ -15,7 +15,7 @@ use anchor::config::{
     Threads, Update, WorldSettings,
 };
 use anchor::protocol::compression::Compression;
-use anchor::world::{BlockPos, Flat, Kind};
+use anchor::world::{BORDER, BlockPos, Flat, Kind};
 use anchor::{Config, Server};
 
 /// A file that sets every key to a value other than its default.
@@ -102,9 +102,6 @@ const DEFAULT_KEY_COUNT: usize = 63;
 
 /// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
-
-/// How far a world's spawn may be from the middle on an axis, in blocks.
-const WORLD_BORDER: i32 = 30_000_000;
 
 #[expect(
     clippy::disallowed_methods,
@@ -265,7 +262,7 @@ fn custom() -> Config {
         chunks_per_tick: Some(2),
         spawn_radius: Some(3),
         tick_radius: Some(2),
-        spawn: Some(BlockPos::new(-WORLD_BORDER, -60, WORLD_BORDER - 1)),
+        spawn: Some(BlockPos::new(-BORDER, -60, BORDER - 1)),
     };
     let arena = WorldSettings {
         tick_radius: Some(1),
@@ -832,7 +829,7 @@ fn world_tables_reject_bad_values_by_key() {
     code.worlds.insert(
         "lobby".to_owned(),
         WorldSettings {
-            spawn: Some(BlockPos::new(WORLD_BORDER, 64, 0)),
+            spawn: Some(BlockPos::new(BORDER, 64, 0)),
             ..WorldSettings::default()
         },
     );

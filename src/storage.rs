@@ -212,9 +212,29 @@ pub(crate) enum Error {
     /// A data file holds a later save than the main file, and no savepoint of it rolls it back to
     /// that save or an earlier one: damage.
     NoRollback,
+    /// A failure in the data file at `path`; the save thread wraps the failures of a commit, a read
+    /// and a close in it, since the error that reaches the program must name its file.
+    File {
+        /// The data file.
+        path: PathBuf,
+        /// The failure.
+        source: Box<Error>,
+    },
 }
 
 impl Error {
+    /// `self` as a failure in the data file at `path`; an error that already names its file keeps
+    /// that one.
+    pub(crate) fn in_file(self, path: &Path) -> Self {
+        match self {
+            Self::File { .. } => self,
+            source => Self::File {
+                path: path.to_path_buf(),
+                source: Box::new(source),
+            },
+        }
+    }
+
     /// A redb failure of any kind, as [`Error::Database`]; [`Error::is_damage`] tells corruption
     /// apart.
     pub(crate) fn database(e: impl Into<redb::Error>) -> Self {
@@ -224,16 +244,19 @@ impl Error {
     /// Whether this is damage: of the file at start, of a value, or a page redb found corrupted.
     /// A damaged chunk is quarantined and a damaged player refused; the bytes stay as they are.
     pub(crate) fn is_damage(&self) -> bool {
-        matches!(
-            self,
-            Self::DamagedFile(_)
-                | Self::Checksum
-                | Self::Malformed(_)
-                | Self::Compression(_)
-                | Self::Record(_)
-                | Self::Database(redb::Error::Corrupted(_))
-                | Self::NoRollback
-        )
+        match self {
+            Self::File { source, .. } => source.is_damage(),
+            _ => matches!(
+                self,
+                Self::DamagedFile(_)
+                    | Self::Checksum
+                    | Self::Malformed(_)
+                    | Self::Compression(_)
+                    | Self::Record(_)
+                    | Self::Database(redb::Error::Corrupted(_))
+                    | Self::NoRollback
+            ),
+        }
     }
 
     /// The error of a failed open of the file.
@@ -292,6 +315,7 @@ impl fmt::Display for Error {
                 "a data file holds a later save than the main file and cannot be rolled back to \
                  it",
             ),
+            Self::File { path, .. } => write!(f, "data file {}", path.display()),
         }
     }
 }
@@ -314,6 +338,7 @@ impl std::error::Error for Error {
             Self::Database(e) | Self::DamagedFile(Some(e)) => Some(e),
             Self::Compression(e) => Some(e),
             Self::Record(e) | Self::Encode(e) => Some(e),
+            Self::File { source, .. } => Some(source.as_ref()),
         }
     }
 }
@@ -831,6 +856,15 @@ impl Storage {
         self.check.is_some()
     }
 
+    /// The data file.
+    pub(crate) fn path(&self) -> &Path {
+        match &self.source {
+            Source::File(path) => path,
+            #[cfg(test)]
+            Source::Memory(_) => Path::new("memory"),
+        }
+    }
+
     /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
     #[expect(
         clippy::disallowed_methods,
@@ -907,7 +941,11 @@ impl Storage {
     /// the [`Import`] uncommitted, or any failure, leaves the file as it was. No retry: the
     /// import's writes are not kept to write again, and a failed import is run again whole.
     pub(crate) fn begin_import(&mut self) -> Result<Import> {
-        begin_write(self.database()?).map(Import)
+        let transaction = begin_write(self.database()?)?;
+        Ok(Import {
+            transaction,
+            path: self.path().to_path_buf(),
+        })
     }
 
     /// Takes the next step of the check being made, if any; returns what it found once it ends.
@@ -1282,12 +1320,20 @@ impl fmt::Debug for Replica {
 
 /// The world import's open write transaction ([`Storage::begin_import`]). Dropping it uncommitted
 /// aborts every write it took.
-pub(crate) struct Import(WriteTransaction);
+pub(crate) struct Import {
+    transaction: WriteTransaction,
+    path: PathBuf,
+}
 
 impl Import {
+    /// The data file being written.
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// Applies `batch`'s writes, in order, without committing them.
     pub(crate) fn write(&mut self, batch: &Batch) -> Result<()> {
-        apply(&self.0, batch)
+        apply(&self.transaction, batch)
     }
 
     /// Commits every write taken, durably and at once.
@@ -1296,7 +1342,7 @@ impl Import {
         reason = "off-tick: the import writes the data file before the server runs"
     )]
     pub(crate) fn commit(self) -> Result<()> {
-        self.0.commit().map_err(Error::database)?;
+        self.transaction.commit().map_err(Error::database)?;
         Ok(())
     }
 }
@@ -3428,21 +3474,40 @@ pub(crate) mod tests {
         assert!(open_io(io::ErrorKind::InvalidData).is_damage());
         assert!(!open_io(io::ErrorKind::PermissionDenied).is_damage());
         // At start they become the crate's errors.
+        let file = Path::new("data/main.redb");
         assert!(matches!(
-            crate::Error::from(Error::Checksum),
-            crate::Error::WorldDamaged(_)
+            crate::Error::from_storage(Error::Checksum, file),
+            crate::Error::DataDamaged { .. }
         ));
         assert!(matches!(
-            crate::Error::from(Error::NewerFormat { version: 9 }),
-            crate::Error::WorldNewerFormat {
+            crate::Error::from_storage(Error::NewerFormat { version: 9 }, file),
+            crate::Error::DataNewerFormat {
                 version: 9,
-                supported: FORMAT_VERSION
+                supported: FORMAT_VERSION,
+                ..
             }
         ));
         assert!(matches!(
-            crate::Error::from(Error::InUse),
-            crate::Error::Storage(_)
+            crate::Error::from_storage(Error::InUse, file),
+            crate::Error::Storage { .. }
         ));
+    }
+
+    /// An error that names its file keeps that file; one that does not takes the caller's.
+    #[test]
+    fn the_crate_error_names_the_data_file() {
+        let fallback = Path::new("data");
+        let named = Error::Checksum.in_file(Path::new("data/players.redb"));
+        let crate::Error::DataDamaged { path, .. } = crate::Error::from_storage(named, fallback)
+        else {
+            panic!("a checksum failure is damage");
+        };
+        assert_eq!(path, Path::new("data/players.redb"));
+        let crate::Error::Storage { path, .. } = crate::Error::from_storage(Error::InUse, fallback)
+        else {
+            panic!("a file in use is a storage failure");
+        };
+        assert_eq!(path, fallback);
     }
 
     /// Key and value bytes of each entry of each table, by table name.

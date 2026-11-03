@@ -1111,7 +1111,7 @@ pub(crate) mod tests {
         let world = WorldRecord {
             number: 7,
             time: 123_456_789,
-            spawn: BlockPos::new(-30_000_000, -64, 29_999_999),
+            spawn: BlockPos::new(-crate::world::BORDER, -64, crate::world::BORDER - 1),
         };
         let bytes = encode(&world);
         assert_eq!(bytes.len(), 24, "the number, the time and the spawn alone");

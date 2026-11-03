@@ -591,7 +591,6 @@ impl State {
     pub(in crate::tick) fn add_world(&mut self, mut world: World) {
         let index = self.worlds.len();
         world.set_id(world::Id::of(index));
-        world.set_custom(Arc::clone(&self.custom));
         self.catalog
             .names
             .insert(world_name_key(world.name()), index);
@@ -816,7 +815,6 @@ fn install(
     let id = world::Id::of(index);
     world.set_id(id);
     world.set_lighting(state.settings.light_mode());
-    world.set_custom(Arc::clone(&state.custom));
     set_view(state, index, options);
     if let Some(place) = state.worlds.get_mut(index) {
         *place = world;

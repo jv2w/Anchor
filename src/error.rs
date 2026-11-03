@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::io;
+use std::path::{Path, PathBuf};
 
 use crate::args::USAGE;
 use crate::{command, config, data, entity, export, import, pack, storage, udp};
@@ -45,22 +46,30 @@ pub enum Error {
     /// holds is damaged. A start refuses such a file, an export that reads one fails with this,
     /// and a running server whose save keeps failing on a corrupted file stops with it. The file
     /// is left exactly as it was; a backup from its folder in `data/backups/` can replace it.
-    /// The error does not name the file; the error log line written where the file is refused
-    /// does (field `path`).
-    WorldDamaged(Box<dyn std::error::Error + Send + Sync>),
-    /// A data file was last saved by a newer Anchor; the file is left as it was. The error does
-    /// not name the file; the error log line written where the file is refused does (field
-    /// `path`).
-    WorldNewerFormat {
+    DataDamaged {
+        /// The data file.
+        path: PathBuf,
+        /// The cause.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// A data file was last saved by a newer Anchor; the file is left as it was.
+    DataNewerFormat {
+        /// The data file.
+        path: PathBuf,
         /// The file's format version.
         version: u16,
         /// The newest format version this Anchor reads.
         supported: u16,
     },
     /// A data file could not be opened, read or saved: another process has it open, I/O failed,
-    /// a save still failed after its retries, or the save thread panicked. The error does not
-    /// name the file; the data file's own log lines do (field `path`).
-    Storage(Box<dyn std::error::Error + Send + Sync>),
+    /// a save still failed after its retries, or the save thread panicked.
+    Storage {
+        /// The data file; for a failure of no single file (the save thread stopped, the folder of
+        /// the world files could not be listed), the data folder or that folder.
+        path: PathBuf,
+        /// The cause.
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// Two worlds have the same name, or names that differ only in letter case. The default world
     /// (`level-name`) is one of the worlds, so [`ServerBuilder::world`](crate::ServerBuilder::world)
     /// cannot declare its name again.
@@ -118,6 +127,33 @@ pub enum Error {
     Output(io::Error),
 }
 
+impl Error {
+    /// The error of a failed data file: damaged, of a newer format, or otherwise unusable. It names
+    /// the file `e` happened in ([`storage::Error::in_file`]), else `fallback`, the file or folder
+    /// the caller worked on.
+    pub(crate) fn from_storage(e: storage::Error, fallback: &Path) -> Self {
+        let (path, e) = match e {
+            storage::Error::File { path, source } => (path, *source),
+            e => (fallback.to_path_buf(), e),
+        };
+        match e {
+            storage::Error::NewerFormat { version } => Self::DataNewerFormat {
+                path,
+                version,
+                supported: storage::seal::FORMAT_VERSION,
+            },
+            e if e.is_damage() => Self::DataDamaged {
+                path,
+                source: Box::new(e),
+            },
+            e => Self::Storage {
+                path,
+                source: Box::new(e),
+            },
+        }
+    }
+}
+
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_chain(f, self)
@@ -138,12 +174,23 @@ impl fmt::Display for Error {
             Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
             Self::Auth(_) => f.write_str("could not load the authorization keys"),
             Self::TickPanicked { message } => write!(f, "the tick thread panicked: {message}"),
-            Self::WorldDamaged(_) => f.write_str("a data file is damaged"),
-            Self::WorldNewerFormat { version, supported } => write!(
+            Self::DataDamaged { path, .. } => {
+                write!(f, "the data file {} is damaged", path.display())
+            }
+            Self::DataNewerFormat {
+                path,
+                version,
+                supported,
+            } => write!(
                 f,
-                "a data file has format {version}, newer than the supported {supported}"
+                "the data file {} has format {version}, newer than the supported {supported}",
+                path.display()
             ),
-            Self::Storage(_) => f.write_str("a data file could not be opened, read or saved"),
+            Self::Storage { path, .. } => write!(
+                f,
+                "the data file {} could not be opened, read or saved",
+                path.display()
+            ),
             Self::DuplicateWorld { name } => {
                 write!(f, "two worlds are named {name:?}, letter case aside")
             }
@@ -179,13 +226,12 @@ impl std::error::Error for Error {
             Self::Config(e) => Some(e),
             Self::Start(e) | Self::Output(e) => Some(e),
             Self::Network { source, .. } => Some(source),
-            Self::IdentityKey(e)
-            | Self::TlsCertificate(e)
-            | Self::Auth(e)
-            | Self::WorldDamaged(e)
-            | Self::Storage(e) => Some(e.as_ref()),
+            Self::IdentityKey(e) | Self::TlsCertificate(e) | Self::Auth(e) => Some(e.as_ref()),
+            Self::DataDamaged { source, .. } | Self::Storage { source, .. } => {
+                Some(source.as_ref())
+            }
             Self::TickPanicked { .. }
-            | Self::WorldNewerFormat { .. }
+            | Self::DataNewerFormat { .. }
             | Self::DuplicateWorld { .. }
             | Self::InvalidWorldName { .. }
             | Self::InvalidPlayerKey { .. }
@@ -235,19 +281,6 @@ impl From<udp::Error> for Error {
                 socket: udp::socket_text(addr),
                 source,
             },
-        }
-    }
-}
-
-impl From<storage::Error> for Error {
-    fn from(e: storage::Error) -> Self {
-        match e {
-            storage::Error::NewerFormat { version } => Self::WorldNewerFormat {
-                version,
-                supported: storage::seal::FORMAT_VERSION,
-            },
-            e if e.is_damage() => Self::WorldDamaged(Box::new(e)),
-            e => Self::Storage(Box::new(e)),
         }
     }
 }

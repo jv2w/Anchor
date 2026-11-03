@@ -264,9 +264,7 @@ fn server(custom: bool, xp: bool) -> (State, Arc<Registry>) {
     let registry = if custom {
         let r = Arc::new(crate::custom::tests::registry());
         state.custom = Arc::clone(&r);
-        for w in &mut state.worlds {
-            w.set_custom(Arc::clone(&r));
-        }
+        state.rules.custom = Arc::clone(&r);
         let mut types = Customs::default();
         types.register(Definition::new("test:ghost").with_max_health(20.0));
         types.finish().unwrap();

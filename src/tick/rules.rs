@@ -62,6 +62,8 @@ pub(super) mod reads {
     }
 }
 
+use std::sync::Arc;
+
 use super::entity::EntityTypes;
 use super::extra::Extras;
 use super::view::Key;
@@ -69,7 +71,7 @@ use super::{block_entity, entity, update};
 use crate::custom::Registry;
 use crate::save::ChunkExtras;
 use crate::storage::ChunkKind;
-use crate::world::{Chunk, World};
+use crate::world::Chunk;
 
 /// The chunk-bound state of the rule modules.
 #[derive(Debug, Default)]
@@ -80,27 +82,20 @@ pub(super) struct Rules {
     pub(super) entities: entity::Entities,
     /// The block updates' random streams and reused lists.
     pub(super) updates: update::Updates,
+    /// The server's custom content, which saved items are read with (the state's own, fixed at
+    /// build).
+    pub(super) custom: Arc<Registry>,
 }
 
 impl Rules {
     /// Reads a chunk's extras on the tick, as the save thread reads a loaded chunk's: for an
     /// unsaved chunk that comes back from memory (and the tests' stand-ins of the save thread).
-    /// Saved items are read with `world`'s custom content.
     #[expect(
         clippy::expect_used,
-        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged; every world of the tick state has its custom content"
+        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
     )]
-    pub(super) fn read(
-        &self,
-        key: Key,
-        extras: &ChunkExtras,
-        blocks: &Chunk,
-        world: &World,
-    ) -> ChunkRules {
-        let custom = world
-            .custom()
-            .expect("the tick state gives every world its custom content");
-        ChunkRules::read(key, extras, blocks, custom, self.entities.types())
+    pub(super) fn read(&self, key: Key, extras: &ChunkExtras, blocks: &Chunk) -> ChunkRules {
+        ChunkRules::read(key, extras, blocks, &self.custom, self.entities.types())
             .expect("a list in memory is not damaged")
     }
 
@@ -111,6 +106,7 @@ impl Rules {
             block_entities,
             entities,
             updates: _,
+            custom: _,
         } = self;
         let ChunkRules {
             block_entities: read_block_entities,
@@ -127,6 +123,7 @@ impl Rules {
             block_entities,
             entities,
             updates: _,
+            custom: _,
         } = self;
         let lists = [
             (ChunkKind::BlockEntities, block_entities.unload(key)),
@@ -147,6 +144,7 @@ impl Rules {
             block_entities,
             entities,
             updates: _,
+            custom: _,
         } = self;
         let changed = [
             (ChunkKind::BlockEntities, block_entities.take_changed()),
@@ -180,6 +178,8 @@ impl Rules {
             block_entities,
             entities,
             updates,
+            // Fixed at build.
+            custom: _,
         } = self;
         block_entities.encode(w);
         entities.checkpoint(w);
@@ -192,6 +192,8 @@ impl Rules {
             block_entities,
             entities,
             updates,
+            // Fixed at build.
+            custom: _,
         } = self;
         block_entities.hash_into(h);
         entities.hash_into(h);

@@ -360,7 +360,7 @@ impl Opener {
         match self {
             Self::Live { data_dir, start } => {
                 let place = world_place(data_dir, name)?;
-                let storage = Storage::open(&place, *start)?;
+                let storage = Storage::open(&place, *start).map_err(|e| e.in_file(&place.file))?;
                 Ok(Open { storage, place })
             }
             Self::Replay(files) => {
@@ -368,7 +368,7 @@ impl Opener {
                     .get(&storage::world_name_key(name))
                     .ok_or(storage::Error::Closed)?;
                 Ok(Open {
-                    storage: Storage::open_replica(file)?,
+                    storage: Storage::open_replica(file).map_err(|e| e.in_file(file))?,
                     place: Place {
                         file: file.clone(),
                         backups: PathBuf::new(),
@@ -561,17 +561,24 @@ impl Thread {
     pub(crate) fn read_user(
         &mut self,
         names: &[&str],
-    ) -> Result<Vec<Option<Vec<u8>>>, storage::Error> {
+    ) -> Result<Vec<Option<Vec<u8>>>, crate::Error> {
         let keys: Vec<Key> = names.iter().map(|&n| Key::User(n.to_owned())).collect();
-        let values = self.files.main.storage.read(&keys)?;
+        let main = &mut self.files.main;
+        let stored = data_error(&main.place.file);
+        let values = main.storage.read(&keys).map_err(&stored)?;
         keys.iter()
             .zip(values)
             .map(|(key, value)| {
-                value?
-                    .map(|sealed| {
-                        unseal::<UserRecord<'_>>(&key.to_bytes(), &sealed).map(|r| r.0.into_owned())
+                value
+                    .and_then(|value| {
+                        value
+                            .map(|sealed| {
+                                unseal::<UserRecord<'_>>(&key.to_bytes(), &sealed)
+                                    .map(|r| r.0.into_owned())
+                            })
+                            .transpose()
                     })
-                    .transpose()
+                    .map_err(&stored)
             })
             .collect()
     }
@@ -656,7 +663,7 @@ pub(crate) fn open_with(
         Place::data(data_dir, storage::MAIN_FILE),
         Place::data(data_dir, storage::PLAYERS_FILE),
     ];
-    let names = world_names(data_dir)?;
+    let names = world_names(data_dir).map_err(data_error(data_dir))?;
     let mut new_files = 0;
     for spec in specs.iter().filter(|s| s.kind == Kind::Persistent) {
         let file = file_of(&names, &spec.name);
@@ -667,33 +674,35 @@ pub(crate) fn open_with(
     // it, so a later one would fail after the earlier ones are made. Rolling files back below only
     // removes some.
     if names.len() + new_files > MAX_WORLDS {
-        return Err(storage::Error::TooManyWorlds.into());
+        return Err(data_error(data_dir)(storage::Error::TooManyWorlds));
     }
-    check_all(&places, start.check, pool)?;
+    check_all(&places, start.check, pool).map_err(data_error(data_dir))?;
     // Checked above: their opens check the format alone.
     let checked = Start {
         check: IntegrityCheck::Never,
         ..start
     };
-    let open = |name: &str| -> Result<Open, storage::Error> {
+    let open = |name: &str| -> Result<Open, crate::Error> {
         let place = Place::data(data_dir, name);
-        let storage =
-            Storage::open(&place, checked).inspect_err(|e| log_refused(&place.file, e))?;
+        let storage = Storage::open(&place, checked)
+            .inspect_err(|e| log_refused(&place.file, e))
+            .map_err(data_error(&place.file))?;
         Ok(Open { storage, place })
     };
     // A missing main file holds no save to roll back to: the other files stay as they are.
-    let main_existed = storage::has_data(&Place::data(data_dir, storage::MAIN_FILE).file)?;
+    let main_path = Place::data(data_dir, storage::MAIN_FILE).file;
+    let main_existed = storage::has_data(&main_path).map_err(data_error(&main_path))?;
     let mut main = open(storage::MAIN_FILE)?;
-    let saved = stored_meta(&mut main.storage)?;
+    let saved = stored_meta(&mut main.storage).map_err(data_error(&main_path))?;
     if main_existed {
-        finish_deletions(data_dir, &mut main.storage)?;
-        settle_all(data_dir, &names, &saved)?;
+        finish_deletions(data_dir, &mut main.storage).map_err(data_error(&main_path))?;
+        settle_all(data_dir, &names, &saved).map_err(data_error(data_dir))?;
     }
     let files = Files {
         main,
         players: open(storage::PLAYERS_FILE)?,
     };
-    let names = world_names(data_dir)?;
+    let names = world_names(data_dir).map_err(data_error(data_dir))?;
     let files_at_start = names.len();
     let mut declared_files = 0;
     let mut stored = Vec::new();
@@ -760,7 +769,7 @@ fn settle_all(
     let players = Place::data(data_dir, storage::PLAYERS_FILE).file;
     if let Err(e) = storage::settle(&players, saved) {
         log_refused(&players, &e);
-        return Err(e);
+        return Err(e.in_file(&players));
     }
     for name in names {
         let file = Place::world(data_dir, name).file;
@@ -768,7 +777,7 @@ fn settle_all(
             Ok(_) => {}
             Err(e @ storage::Error::NoRollback) => {
                 log_refused(&file, &e);
-                return Err(e);
+                return Err(e.in_file(&file));
             }
             Err(e) => error!(
                 path = %file.display(),
@@ -789,14 +798,19 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(),
     for (place, result) in places.iter().zip(checked) {
         if let Err(e) = result {
             log_refused(&place.file, &e);
-            refused.get_or_insert(e);
+            refused.get_or_insert(e.in_file(&place.file));
         }
     }
     refused.map_or(Ok(()), Err)
 }
 
-/// Logs that the start refuses the data file `path`, which names the file the error returned to
-/// the program does not.
+/// The conversion of a data file's failure to the program's error: it names the file the failure
+/// happened in ([`storage::Error::in_file`]), else `path`.
+pub(crate) fn data_error(path: &std::path::Path) -> impl Fn(storage::Error) -> crate::Error + '_ {
+    move |e| crate::Error::from_storage(e, path)
+}
+
+/// Logs that the start refuses the data file `path`.
 fn log_refused(path: &std::path::Path, error: &storage::Error) {
     error!(
         path = %path.display(),
@@ -856,9 +870,9 @@ pub(crate) fn open_replica(
     specs: Vec<WorldSpec>,
     seeds: &[i64],
 ) -> Result<Opened, crate::Error> {
-    let open = |file: &PathBuf| -> Result<Open, storage::Error> {
+    let open = |file: &PathBuf| -> Result<Open, crate::Error> {
         Ok(Open {
-            storage: Storage::open_replica(file)?,
+            storage: Storage::open_replica(file).map_err(data_error(file))?,
             place: Place {
                 file: file.clone(),
                 backups: PathBuf::new(),
@@ -866,14 +880,15 @@ pub(crate) fn open_replica(
         })
     };
     let mut main = open(&files.main)?;
-    let saved = stored_meta(&mut main.storage)?;
+    let saved = stored_meta(&mut main.storage).map_err(data_error(&files.main))?;
     let files_open = Files {
         main,
         players: open(&files.players)?,
     };
     let mut stored = Vec::new();
     for (name, file) in &files.worlds {
-        if let Some(record) = world_file(&mut Storage::open_replica(file)?)? {
+        let mut world = Storage::open_replica(file).map_err(data_error(file))?;
+        if let Some(record) = world_file(&mut world).map_err(data_error(file))? {
             stored.push((name.clone(), record));
         }
     }
@@ -898,29 +913,32 @@ pub(crate) fn delete_player(
     data_dir: &std::path::Path,
     start: Start,
     key: &PlayerKey,
-) -> Result<bool, storage::Error> {
+) -> Result<bool, crate::Error> {
     let main = Place::data(data_dir, storage::MAIN_FILE);
     let players = Place::data(data_dir, storage::PLAYERS_FILE);
-    if !storage::has_data(&players.file)? {
+    let failed = data_error(&players.file);
+    if !storage::has_data(&players.file).map_err(&failed)? {
         return Ok(false);
     }
-    storage::check_settled(&players.file, &main.file)?;
+    storage::check_settled(&players.file, &main.file).map_err(&failed)?;
     let mut storage = Storage::open(
         &players,
         Start {
             backup: StartBackup::Skip,
             ..start
         },
-    )?;
-    let existed = storage.remove_player(key)?;
-    storage.close()?;
+    )
+    .map_err(&failed)?;
+    let existed = storage.remove_player(key).map_err(&failed)?;
+    storage.close().map_err(&failed)?;
     Ok(existed)
 }
 
 /// The engine tick and commit identity of the last commit of the data file `path`, opened
 /// read-only (a replay looks for the files of its segment's state).
 pub(crate) fn committed_meta(path: &std::path::Path) -> Result<Meta, crate::Error> {
-    Ok(stored_meta(&mut Storage::open_replica(path)?)?)
+    let mut storage = Storage::open_replica(path).map_err(data_error(path))?;
+    stored_meta(&mut storage).map_err(data_error(path))
 }
 
 /// The engine tick of the last save of the data folder `data_dir` (its main file).
@@ -939,29 +957,9 @@ fn resolve(
     specs: Vec<WorldSpec>,
     seeds: Option<&[i64]>,
 ) -> Result<Opened, crate::Error> {
-    let access = read_access(&mut files.main.storage)?;
-    let mut plans = Vec::with_capacity(specs.len());
-    for (index, spec) in specs.iter().enumerate() {
-        let given = seeds.and_then(|s| s.get(index).copied());
-        let seed = seed_or_default(&spec.name, given.or(spec.seed));
-        let number = (spec.kind == Kind::Persistent).then_some(0);
-        let mut plan = plan(&spec.name, number, seed, Arc::clone(&spec.generator));
-        match (open_world(&mut plan, &opener), &opener) {
-            (Ok(()), _) => {}
-            // A start refuses a declared world whose file does not open, as it does the main and
-            // players files: the check before reads only, and the open writes.
-            (Err(e), Opener::Live { .. }) => {
-                error!(
-                    world = spec.name,
-                    error = &e as &(dyn std::error::Error + 'static),
-                    "world file refused; it is left as it was"
-                );
-                return Err(e.into());
-            }
-            (Err(e), Opener::Replay(_)) => log_unopened(&spec.name, &e),
-        }
-        plans.push(plan);
-    }
+    let access =
+        read_access(&mut files.main.storage).map_err(data_error(&files.main.place.file))?;
+    let mut plans = open_plans(&specs, &opener, seeds)?;
     let numbers = stored.iter().map(|(_, r)| r.number).chain(
         plans
             .iter()
@@ -979,8 +977,8 @@ fn resolve(
             spec.spawn,
         );
         let new = plan.values.is_none();
-        match (plan.number, plan.values) {
-            (Some(number), Some(WorldValues { time, spawn })) => {
+        match (plan.number, plan.values, &plan.file) {
+            (Some(number), Some(WorldValues { time, spawn }), Some(open)) => {
                 if let Some(set) = spec.spawn.filter(|&set| set != spawn) {
                     warn!(
                         world = spec.name,
@@ -998,15 +996,24 @@ fn resolve(
                         spawn,
                     },
                 )
-                .map_err(|e| crate::Error::WorldDamaged(Box::new(e)))?;
+                .map_err(|source| crate::Error::DataDamaged {
+                    path: open.place.file.clone(),
+                    source: Box::new(source),
+                })?;
             }
-            (Some(_), None) => {
+            // `open_world` sets the values and the file together.
+            (Some(_), Some(_), None) => {
+                return Err(data_error(std::path::Path::new(&spec.name))(
+                    storage::Error::Closed,
+                ));
+            }
+            (Some(_), None, _) => {
                 // A new file: its keys carry the next free number.
                 plan.number = Some(next_number);
                 world.set_number(Some(next_number));
                 next_number = next_number.saturating_add(1);
             }
-            (None, _) => {}
+            (None, _, _) => {}
         }
         if new {
             check_new_spawn(&world, &spec)?;
@@ -1039,6 +1046,38 @@ fn resolve(
             check: None,
         },
     })
+}
+
+/// The plan of each of `specs`, with the file of each persistent world opened by `opener`;
+/// `seeds`, by world, replaces every world's seed.
+fn open_plans(
+    specs: &[WorldSpec],
+    opener: &Opener,
+    seeds: Option<&[i64]>,
+) -> Result<Vec<Plan>, crate::Error> {
+    let mut plans = Vec::with_capacity(specs.len());
+    for (index, spec) in specs.iter().enumerate() {
+        let given = seeds.and_then(|s| s.get(index).copied());
+        let seed = seed_or_default(&spec.name, given.or(spec.seed));
+        let number = (spec.kind == Kind::Persistent).then_some(0);
+        let mut plan = plan(&spec.name, number, seed, Arc::clone(&spec.generator));
+        match (open_world(&mut plan, opener), opener) {
+            (Ok(()), _) => {}
+            // A start refuses a declared world whose file does not open, as it does the main and
+            // players files: the check before reads only, and the open writes.
+            (Err(e), Opener::Live { data_dir, .. }) => {
+                error!(
+                    world = spec.name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "world file refused; it is left as it was"
+                );
+                return Err(data_error(data_dir)(e));
+            }
+            (Err(e), Opener::Replay(_)) => log_unopened(&spec.name, &e),
+        }
+        plans.push(plan);
+    }
+    Ok(plans)
 }
 
 /// Drops from `stored` the worlds that `worlds` holds open under the same name key.
@@ -1279,7 +1318,7 @@ fn close_files(mut thread: Thread) -> Result<(), storage::Error> {
                 error = &e as &(dyn std::error::Error + 'static),
                 "data file did not close"
             );
-            closed = Err(e);
+            closed = Err(e.in_file(&file.place.file));
         }
     }
     closed
@@ -1492,7 +1531,10 @@ fn load_chunks(
     let mut read: BTreeMap<WorldIndex, std::vec::IntoIter<ChunkValues>> = BTreeMap::new();
     for (w, ids) in by_world {
         let values = match plans.get_mut(w).and_then(|p| p.file.as_mut()) {
-            Some(file) => file.storage.read_chunks(&ids)?,
+            Some(file) => file
+                .storage
+                .read_chunks(&ids)
+                .map_err(|e| e.in_file(&file.place.file))?,
             None => ids.iter().map(|_| Err(storage::Error::Closed)).collect(),
         };
         read.insert(w, values.into_iter());
@@ -1859,7 +1901,9 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
             continue;
         };
         batch.put(Key::Meta, sealed_meta.clone());
-        file.storage.commit_with_savepoint(&batch)?;
+        file.storage
+            .commit_with_savepoint(&batch)
+            .map_err(|e| e.in_file(&file.place.file))?;
         plan.clear = false;
         if written.is_some() {
             plan.values = written;
@@ -1871,10 +1915,16 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
     } = &mut thread.files;
     if !players.is_empty() {
         players.put(Key::Meta, sealed_meta.clone());
-        players_file.storage.commit_with_savepoint(&players)?;
+        players_file
+            .storage
+            .commit_with_savepoint(&players)
+            .map_err(|e| e.in_file(&players_file.place.file))?;
     }
     main.put(Key::Meta, sealed_meta);
-    main_file.storage.commit(&main)?;
+    main_file
+        .storage
+        .commit(&main)
+        .map_err(|e| e.in_file(&main_file.place.file))?;
     let deleted = std::mem::take(&mut thread.deleted);
     thread.removed = match &thread.opener {
         Opener::Live { data_dir, .. } => {
@@ -2243,7 +2293,8 @@ fn open_world(plan: &mut Plan, opener: &Opener) -> Result<(), storage::Error> {
         return Ok(());
     }
     let mut open = opener.open(&plan.name)?;
-    if let Some(record) = world_file(&mut open.storage)? {
+    let record = world_file(&mut open.storage).map_err(|e| e.in_file(&open.place.file))?;
+    if let Some(record) = record {
         plan.number = Some(record.number);
         plan.values = Some(WorldValues {
             time: record.time,
@@ -2351,7 +2402,7 @@ fn remove_world_file(data_dir: &std::path::Path, name: &str) -> Result<(), stora
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(storage::Error::Io(e)),
+        Err(e) => Err(storage::Error::Io(e).in_file(&file)),
     }
 }
 
@@ -2376,7 +2427,7 @@ fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(storage::Error::Io(e)),
+        Err(e) => return Err(storage::Error::Io(e).in_file(&dir)),
     };
     let mut names = Vec::new();
     for entry in entries {
@@ -3023,11 +3074,14 @@ pub(crate) mod tests {
         }
         let mut opened = open(&dir.0, specs()).unwrap();
         let e = opened.thread.read_user(&["kills"]).unwrap_err();
-        assert!(e.is_damage(), "{e:?}");
-        assert!(matches!(
-            crate::Error::from(e),
-            crate::Error::WorldDamaged(_)
-        ));
+        assert!(
+            matches!(
+                &e,
+                crate::Error::DataDamaged { path, .. }
+                    if *path == Place::data(&dir.0, storage::MAIN_FILE).file
+            ),
+            "{e:?}"
+        );
         let before = opened
             .thread
             .file_mut(storage::MAIN_FILE)
@@ -3074,11 +3128,33 @@ pub(crate) mod tests {
             batch.put(key, sealed);
             storage.commit(&batch).unwrap();
             drop(storage);
-            assert!(
-                matches!(open(&dir.0, specs()), Err(crate::Error::WorldDamaged(_))),
-                "a damaged entry refuses the start"
-            );
+            let refused = open(&dir.0, specs());
+            let Err(crate::Error::DataDamaged { path, .. }) = refused else {
+                panic!("a damaged entry refuses the start");
+            };
+            assert_eq!(path, Place::data(&dir.0, storage::MAIN_FILE).file);
         }
+    }
+
+    /// A damaged players file refuses the start with an error that names `players.redb`.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_damaged_players_file_is_named_in_the_error_that_refuses_the_start() {
+        let dir = TempDir::new("players-damaged-named");
+        drop(open(&dir.0, specs()).unwrap());
+        let players = Place::data(&dir.0, storage::PLAYERS_FILE).file;
+        std::fs::write(&players, b"not a database").unwrap();
+        let refused = open(&dir.0, specs());
+        let Err(crate::Error::DataDamaged { path, .. }) = refused else {
+            panic!("a damaged players file refuses the start");
+        };
+        assert_eq!(path, players);
+        let message = crate::Error::DataDamaged {
+            path,
+            source: "x".into(),
+        }
+        .to_string();
+        assert!(message.contains("players.redb"), "{message}");
     }
 
     /// Every start makes the worlds from their specs: a spawn the spec gives, and without a seed
@@ -3590,7 +3666,6 @@ pub(crate) mod tests {
         };
         assert_eq!(chunk.block(1, -60, 2), Some(lamp));
         let mut world = World::new("world", Kind::Persistent, 5, BlockPos::new(0, 0, 0));
-        world.set_custom(Arc::clone(&registry));
         world.insert_chunk(pos, *chunk);
         let at = BlockPos::new(1, -60, 18);
         assert_eq!(world.block(at), Some(lamp));
@@ -3941,7 +4016,7 @@ pub(crate) mod tests {
             let before = read();
             let refused = open(&dir.0, specs_with_lobby());
             assert!(
-                matches!(refused, Err(crate::Error::WorldDamaged(_))),
+                matches!(&refused, Err(crate::Error::DataDamaged { path, .. }) if *path == place.file),
                 "{place:?}: {:?}",
                 refused.err()
             );
@@ -4205,7 +4280,11 @@ pub(crate) mod tests {
         let data = save_players(&dir, &[&player]);
         let opened = open(&dir.0, specs()).unwrap();
         let refused = delete_player(&dir.0, Start::checked(StartBackup::Skip), &player);
-        assert!(matches!(refused, Err(storage::Error::InUse)), "{refused:?}");
+        let Err(crate::Error::Storage { path, source }) = refused else {
+            panic!("the deletion was not refused as a storage failure");
+        };
+        assert_eq!(path, Place::data(&dir.0, storage::PLAYERS_FILE).file);
+        assert!(matches!(source.downcast_ref(), Some(storage::Error::InUse)));
         drop(opened);
         assert_eq!(saved_player(&dir, &player), PlayerLoad::Found(data));
     }
@@ -4273,8 +4352,8 @@ pub(crate) mod tests {
         assert!(
             matches!(
                 &refused,
-                Some(crate::Error::Storage(e))
-                    if matches!(e.downcast_ref(), Some(storage::Error::TooManyWorlds))
+                Some(crate::Error::Storage { source, .. })
+                    if matches!(source.downcast_ref(), Some(storage::Error::TooManyWorlds))
             ),
             "{refused:?}"
         );
@@ -4306,8 +4385,8 @@ pub(crate) mod tests {
         assert!(
             matches!(
                 &refused,
-                Some(crate::Error::Storage(e))
-                    if matches!(e.downcast_ref(), Some(storage::Error::TooManyWorlds))
+                Some(crate::Error::Storage { source, .. })
+                    if matches!(source.downcast_ref(), Some(storage::Error::TooManyWorlds))
             ),
             "{refused:?}"
         );
@@ -4342,7 +4421,7 @@ pub(crate) mod tests {
         // Writable again, so that the folder can be removed.
         std::fs::set_permissions(&lobby.file, writable).unwrap();
         assert!(
-            matches!(&refused, Some(crate::Error::Storage(_))),
+            matches!(&refused, Some(crate::Error::Storage { .. })),
             "{refused:?}"
         );
     }
