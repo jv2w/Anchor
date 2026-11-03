@@ -75,10 +75,8 @@ const CHECKS: &[&[&str]] = &[
         "target.x86_64-pc-windows-msvc.rustflags=[\"-Clink-arg=/ignore:4099\"]",
         "--quiet",
     ],
-    &["doc", "--workspace", "--no-deps", "--quiet"],
-    // The public docs above check links from public to private items; this one checks the links
-    // in private docs.
-    &["doc", "--workspace", "--no-deps", PRIVATE_DOCS, "--quiet"],
+    DOC,
+    DOC_PRIVATE,
 ];
 /// The lint check.
 const CLIPPY: &[&str] = &[
@@ -92,6 +90,10 @@ const CLIPPY: &[&str] = &[
 /// The dimpl copy, whose tests build OpenSSL from source (its `openssl` dev-dependency is
 /// vendored).
 const DIMPL: &str = "vendor/dimpl/Cargo.toml";
+/// The public documentation check: links from public to private items.
+const DOC: &[&str] = &["doc", "--workspace", "--no-deps", "--quiet"];
+/// The private documentation check: the links in private docs.
+const DOC_PRIVATE: &[&str] = &["doc", "--workspace", "--no-deps", PRIVATE_DOCS, "--quiet"];
 /// The format check. No `--all`: it also formats path dependencies, the vendor copies.
 const FMT: &[&str] = &["fmt", "--check"];
 /// The Perl that configures that OpenSSL build on Windows: an MSVC build needs a Windows Perl, and

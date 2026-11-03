@@ -2,7 +2,9 @@
 //! tests of what changed. Those are the library tests of the changed modules (a file's own module
 //! when it has submodules, else the module that owns its directory, so `foo/bar.rs` and
 //! `foo/tests.rs` run `foo::`), every library test when `src/lib.rs` or a build file changed, and
-//! each changed integration test file.
+//! each changed integration test file. A changed Rust source under `src/` or `xtask/src/` also
+//! runs the two documentation builds of `verify`, and `xtask/data/dump/status.txt` or a changed
+//! Rust file with an `// api:` or `// api-class:` comment runs `cargo xtask table --check`.
 //!
 //! A changed file that a Rust source of the repository ([`SOURCE_DIRS`]) pulls in counts as a
 //! change of that source too, so it also runs that source's tests (in the source's own crate). A
@@ -10,7 +12,8 @@
 //! `include_str!` whose path is a string literal, both from the source's folder, or
 //! `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`, from the source's crate folder (`xtask/` for the
 //! files under it, else the repository root). A deleted integration test file has no test to run.
-//! Any other changed file that is neither a Rust source nor a build file runs nothing.
+//! Any other changed file that is neither a Rust source nor a build file nor the status file runs
+//! nothing.
 //! `cargo xtask verify` runs everything, when the user asks for it (`/verify`).
 //!
 //! The builds go to `target/check`, so a check neither waits on a running `verify` nor rebuilds
@@ -24,9 +27,13 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::dump::{create_dir, is_file, read_if_exists, write};
-use crate::table::sources;
-use crate::{CLIPPY, FMT, SOURCE_DIRS, cargo_step, say};
+use crate::table::{STATUS_PATH, sources};
+use crate::{
+    CLIPPY, DOC, DOC_PRIVATE, FMT, Mode, SOURCE_DIRS, cargo_step, say, step, table_command,
+};
 
+/// The comments that mark a file the API table reads.
+const API_COMMENTS: [&str; 2] = ["// api:", "// api-class:"];
 /// Files other than Rust sources whose change can break the build or the lints.
 const BUILD_FILES: &[&str] = &[
     "Cargo.toml",
@@ -43,6 +50,9 @@ const INCLUDE_MACROS: [&str; 2] = ["include_bytes!(", "include_str!("];
 const PASS: &str = "target/check/pass";
 /// The attribute that names a module's file, followed by `= "<path>"`.
 const PATH_ATTRIBUTE: &str = "#[path";
+/// The build directory of the private documentation build under `target/`, apart from `TARGET`
+/// because the two documentation builds write the same files.
+const PRIVATE_DOCS_TARGET: &str = "check-private-docs";
 /// The build directory under `target/`.
 const TARGET: &str = "check";
 
@@ -79,6 +89,10 @@ impl Snapshot {
 struct Plan {
     /// Whether any file the build reads changed.
     code: bool,
+    /// Whether the documentation builds run: a Rust source that is documented changed.
+    doc: bool,
+    /// Whether the API table check runs: the status file or a file with an API comment changed.
+    table: bool,
     /// Every library test instead of the filters.
     all_lib: bool,
     /// Library test name filters (`module::`).
@@ -92,8 +106,11 @@ struct Plan {
 }
 
 impl Plan {
-    fn new(root: &Path, files: &[String], includes: &Includes) -> Self {
-        let mut plan = Self::default();
+    fn new(root: &Path, files: &[String], includes: &Includes) -> Result<Self, String> {
+        let mut plan = Self {
+            table: files.iter().any(|f| f == STATUS_PATH) || has_api_comment(root, files)?,
+            ..Self::default()
+        };
         // A changed included file stands for the sources that include it.
         let sources = files.iter().filter_map(|f| includes.get(f)).flatten();
         for file in files.iter().filter(|f| is_code(f)).chain(sources) {
@@ -105,6 +122,7 @@ impl Plan {
                     plan.all_lib = true;
                 }
             } else if let Some(rel) = file.strip_prefix("src/") {
+                plan.doc = true;
                 match module(root, rel) {
                     Some(module) => {
                         plan.lib.insert(format!("{module}::"));
@@ -114,13 +132,14 @@ impl Plan {
             } else if let Some(rel) = file.strip_prefix("tests/") {
                 plan.anchor_tests.extend(test_target(root, file, rel));
             } else if file.starts_with("xtask/src/") {
+                plan.doc = true;
                 plan.xtask_unit = true;
             } else if let Some(rel) = file.strip_prefix("xtask/tests/") {
                 plan.xtask_tests.extend(test_target(root, file, rel));
             }
             // Clippy builds `examples/` and the vendor copies Anchor uses; `verify` tests them.
         }
-        plan
+        Ok(plan)
     }
 
     /// The test commands, after the format and clippy.
@@ -167,16 +186,32 @@ fn check(
     includes: &Includes,
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let plan = Plan::new(root, files, includes);
-    if !plan.code {
+    let plan = Plan::new(root, files, includes)?;
+    if !plan.code && !plan.table {
         say(out, "no code changed\nPASS")?;
         return Ok(true);
     }
-    let mut steps: Vec<Vec<String>> = vec![args(FMT), args(CLIPPY)];
-    steps.extend(plan.tests());
-    for step in &steps {
-        let step: Vec<&str> = step.iter().map(String::as_str).collect();
-        if !cargo_step(out, &step, TARGET)? {
+    if plan.table
+        && !step(out, "cargo xtask table --check", |out| {
+            table_command(out, Mode::Check)
+        })?
+    {
+        say(out, "FAIL")?;
+        return Ok(false);
+    }
+    if !plan.code {
+        say(out, "PASS")?;
+        return Ok(true);
+    }
+    let mut steps: Vec<(Vec<String>, &str)> = vec![(args(FMT), TARGET), (args(CLIPPY), TARGET)];
+    steps.extend(plan.tests().into_iter().map(|test| (test, TARGET)));
+    if plan.doc {
+        steps.push((args(DOC), TARGET));
+        steps.push((args(DOC_PRIVATE), PRIVATE_DOCS_TARGET));
+    }
+    for (cargo, target) in &steps {
+        let cargo: Vec<&str> = cargo.iter().map(String::as_str).collect();
+        if !cargo_step(out, &cargo, target)? {
             say(out, "FAIL")?;
             return Ok(false);
         }
@@ -203,9 +238,27 @@ fn targets(package: &str, tests: &BTreeSet<String>) -> Option<Vec<String>> {
     Some(step)
 }
 
-/// Whether the build reads `file`: a Rust source, a build file or a file a source pulls in.
+/// Whether the check reads `file`: a Rust source, a build file, a file a source pulls in or the
+/// status file.
 fn is_read(file: &str, includes: &Includes) -> bool {
-    is_code(file) || includes.contains_key(file)
+    is_code(file) || includes.contains_key(file) || file == STATUS_PATH
+}
+
+/// Whether one of the changed Rust `files` that still exists holds an API comment.
+fn has_api_comment(root: &Path, files: &[String]) -> Result<bool, String> {
+    for file in files.iter().filter(|f| is_rust(f)) {
+        if let Some(bytes) = read_if_exists(&root.join(file))? {
+            let text = String::from_utf8_lossy(&bytes);
+            let marked = text.lines().any(|line| {
+                let line = line.trim_start();
+                API_COMMENTS.iter().any(|comment| line.starts_with(comment))
+            });
+            if marked {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Whether `file` is a Rust source or a build file.
@@ -421,7 +474,19 @@ mod tests {
 
     fn plan(files: &[&str]) -> Plan {
         let files: Vec<String> = files.iter().map(|f| (*f).to_owned()).collect();
-        Plan::new(&root(), &files, &includes(&root()).unwrap())
+        Plan::new(&root(), &files, &includes(&root()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_status_file_or_an_api_comment_runs_the_table_check_and_a_source_the_doc_builds() {
+        let status = plan(&["xtask/data/dump/status.txt"]);
+        assert!(status.table && !status.code && !status.doc);
+        let api = plan(&["tests/block.rs"]);
+        assert!(api.table && api.code && !api.doc);
+        let source = plan(&["xtask/src/check.rs"]);
+        assert!(source.doc && source.code && !source.table);
+        assert!(!plan(&["README.md", "Cargo.toml"]).doc);
+        assert!(!plan(&["README.md"]).table);
     }
 
     #[test]

@@ -12,7 +12,7 @@ paths:
 # Testing rules
 
 ## Checks
-- `cargo xtask check` runs the format check, clippy, and the tests of what changed: the library tests of the changed modules, the changed integration test files, and xtask's unit tests when xtask's sources change. `cargo xtask verify` adds the generated-code, API-table, and lint-reason checks, every workspace test (the bot tests included), the vendor copies' tests, and the documentation build. The exact steps are in `.claude/docs/testing.md`.
+- `cargo xtask check` runs the format check, clippy, and the tests of what changed: the library tests of the changed modules, the changed integration test files, and xtask's unit tests when xtask's sources change; it also runs the API table check and the documentation builds when what they read changed. `cargo xtask verify` adds the generated-code, API-table, and lint-reason checks, every workspace test (the bot tests included), the vendor copies' tests, and the documentation build. The exact steps are in `.claude/docs/testing.md`.
 - Support and verify both Windows and Linux. Check everyday work with `cargo xtask check` on Windows. For a change that touches the OS (files, signals, sockets, console, xtask tools), also run the check on WSL Ubuntu in an ext4 copy. Run `verify` and full P6 runs on both.
 
 ## Writing tests

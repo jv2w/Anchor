@@ -8,6 +8,7 @@ Anchor's checks have three layers. `cargo xtask check` is the light check of wha
 
 It looks only at the files that differ from HEAD (changed, staged, deleted, or untracked), runs its steps in order, and stops at the first failure. The last line is `PASS` or `FAIL`.
 
+0. When `xtask/data/dump/status.txt` or a changed Rust file with a `// api:` or `// api-class:` comment line changed: `cargo xtask table --check`. This runs even when no code changed.
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets -- -D warnings` (this builds every target of the workspace, `examples/` included)
 3. The tests of what changed:
@@ -16,8 +17,9 @@ It looks only at the files that differ from HEAD (changed, staged, deleted, or u
    - `tests/<name>.rs` or `xtask/tests/<name>.rs`: that test file. A changed shared file in a subfolder (such as `tests/support/`) runs every integration test of its package.
    - A Rust file under `xtask/src/`: xtask's unit tests.
    - A file a Rust source pulls in (the file of a `#[path = "…"]` module, an `include_str!` or `include_bytes!` whose path is a string literal, both from the source's folder, or `concat!(env!("CARGO_MANIFEST_DIR"), "/…")` from the source's crate folder): it counts as a change of that source, which runs that source's tests by the rules above, in the source's own crate.
+4. When a Rust file under `src/` or `xtask/src/` changed: the two documentation builds of `verify` (steps 8 and 9 below; the private one builds in `target/check-private-docs/`).
 
-- When no Rust source, build file, or pulled-in file changed, the check prints `no code changed` and passes. This includes changes to Go sources (`xtask/go/`) alone: their tests run in `verify` (`xtask/tests/go.rs` and the bot tests). A changed Rust file under `examples/` or `vendor/` runs only the format check and clippy; the vendor copies' tests run in `verify`.
+- When no Rust source, build file, pulled-in file, or table trigger changed, the check prints `no code changed` and passes. This includes changes to Go sources (`xtask/go/`) alone: their tests run in `verify` (`xtask/tests/go.rs` and the bot tests). A changed Rust file under `examples/` or `vendor/` runs only the format check and clippy; the vendor copies' tests run in `verify`.
 - The builds go to `target/check/`, so a check neither waits on a running `verify` nor rebuilds the running `xtask.exe`.
 - A pass writes a stamp of HEAD and of the changed files the build reads, with their contents, to `target/check/pass`, only when the tree after the checks equals the tree before them. An unchanged tree then prints `unchanged since the last pass` and `PASS` at once.
 - A deleted `tests/<name>.rs` or `xtask/tests/<name>.rs` has no test target, so it adds no test step.

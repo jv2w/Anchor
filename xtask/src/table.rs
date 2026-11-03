@@ -38,7 +38,7 @@ const ROOT: &str = "pocketmine\\";
 /// The section of the class-likes that have no namespace below the root.
 const ROOT_SECTION: &str = "root";
 /// The status file.
-const STATUS_PATH: &str = "xtask/data/dump/status.txt";
+pub(crate) const STATUS_PATH: &str = "xtask/data/dump/status.txt";
 /// The generated table.
 const TABLE_PATH: &str = "xtask/data/dump/table.md";
 /// Where tests carry `// api:` comments.
