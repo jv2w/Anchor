@@ -119,10 +119,11 @@ pub(super) struct View {
     /// The chunks the client was sent and still sees. A set beside `unsent` because `can_see` is
     /// asked from rule code, which holds no [`Disc`] to turn a position into a rank.
     sent: BTreeSet<ChunkPos>,
-    /// The chunks of `sent` that held water in layer 1 when picked to send. The server clears a
-    /// slot's water when its block changes, which the client does not know, so a change in these
-    /// chunks sends the clear as well ([`water_packet`]). Water only goes away while a chunk is
-    /// loaded, so a chunk without it needs no clear.
+    /// The chunks of `sent` that held water in layer 1 when picked to send, and those where this
+    /// player placed a block into water (its client moves the water to layer 1). The server clears
+    /// a slot's water when its block changes, which the client does not know, so a change in
+    /// these chunks sends the clear as well ([`water_packet`]). Other water only goes away while a
+    /// chunk is loaded, so a chunk without it needs no clear.
     watered: BTreeSet<ChunkPos>,
     /// Sub-chunk requests waiting for an answer, oldest first.
     requests: VecDeque<SubChunkRequest>,
@@ -260,6 +261,14 @@ impl View {
         set_bits(&self.unsent, 0)
             .map(|rank| at(self.center, disc.offset(rank)))
             .collect()
+    }
+
+    /// Marks chunk `pos` as one whose block changes send the water clear too ([`water_packet`]),
+    /// if the client was sent it.
+    pub(super) fn mark_watered(&mut self, pos: ChunkPos) {
+        if self.sent.contains(&pos) {
+            self.watered.insert(pos);
+        }
     }
 
     /// Marks `pos` for the output phase to send again with what it shows then (a refused change);

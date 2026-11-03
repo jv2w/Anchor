@@ -2020,3 +2020,77 @@ fn selecting_a_slot_through_the_api_or_a_pick_stops_eating() {
     assert_eq!(h.player().inventory.held_slot(), 0);
     assert!(!h.player().is_using_item(), "a pick");
 }
+
+/// Hitting the block under a fire sends the fire again: the client puts it out at once and the
+/// server keeps it.
+#[test]
+fn hitting_the_block_under_a_fire_sends_the_fire_again() {
+    let fire = Kind::Fire.default_state();
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, fire);
+    h.run(Vec::new());
+    h.packets();
+    let ground = BlockPos::new(2, -61, 0);
+    h.act(vec![action(PlayerAction::StartBreak, ground, Face::Up)]);
+    assert_eq!(h.block(TARGET), fire);
+    let sent = blocks_set(&h.packets());
+    assert!(sent.contains(&(TARGET, fire.network_id())), "{sent:?}");
+}
+
+/// A sign edit whose text cleaning turns into the stored text is answered with the sign, so the
+/// writer's raw text goes.
+#[test]
+fn a_sign_edit_that_cleaning_leaves_unchanged_is_answered_with_the_sign() {
+    let mut h = Harness::new(|_| {});
+    let sign = stack(crate::item::Kind::OakSign);
+    h.hold(sign.clone());
+    place_on_grass(&mut h, &sign);
+    h.packets();
+    sign_edit(&mut h, "\u{E123}");
+    let sent = h.packets();
+    assert!(
+        sent.iter().any(|p| matches!(p, Packet::BlockActorData(d)
+        if d.position == [TARGET.x, TARGET.y, TARGET.z])),
+        "{sent:?}"
+    );
+}
+
+/// A block placed into water clears the layer 1 water the client moves under it, also in a chunk
+/// that was sent without water.
+#[test]
+fn placing_into_water_clears_the_layer_one_water_of_the_cell() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Water.default_state());
+    h.run(Vec::new());
+    let fence = block_item(Kind::OakFence, 2);
+    h.hold(fence.clone());
+    h.packets();
+    place_on_grass(&mut h, &fence);
+    assert_eq!(h.block(TARGET).kind(), Kind::OakFence);
+    let sent = h.packets();
+    assert!(
+        sent.iter().any(|p| matches!(p, Packet::UpdateBlock(u)
+            if u.position == [TARGET.x, TARGET.y, TARGET.z]
+                && u.layer == 1
+                && u.new_block_runtime_id == Entry::AIR.network_id())),
+        "{sent:?}"
+    );
+}
+
+/// A big dripleaf placed on a big dripleaf head grows: the head below becomes its stem.
+#[test]
+fn a_big_dripleaf_is_placed_on_a_big_dripleaf_head() {
+    let mut h = Harness::new(|_| {});
+    let head = Kind::BigDripleafHead.default_state();
+    h.set(TARGET, head);
+    let leaf = block_item(Kind::BigDripleafHead, 2);
+    h.hold(leaf.clone());
+    let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &leaf)));
+    h.run(vec![input]);
+    assert_eq!(h.block(TARGET).kind(), Kind::BigDripleafStem);
+    assert_eq!(
+        h.block(BlockPos::new(2, -59, 0)).kind(),
+        Kind::BigDripleafHead
+    );
+    assert_eq!(h.held().count(), 1);
+}

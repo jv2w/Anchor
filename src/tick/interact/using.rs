@@ -296,6 +296,14 @@ fn place_held(
         event = Some(e);
     }
     for (p, s) in &blocks {
+        let into_water = state
+            .worlds
+            .get(world)
+            .and_then(|w| w.block(*p))
+            .is_some_and(|old| old.is(Class::Water));
+        if into_water && let Some(player) = state.players.get_mut(&actor.session) {
+            player.view.mark_watered(p.chunk());
+        }
         set(state, world, *p, *s);
     }
     for (p, s) in &blocks {

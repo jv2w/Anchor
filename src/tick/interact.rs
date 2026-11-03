@@ -571,6 +571,8 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
     } else if edit.back != old.back {
         (false, edit.back)
     } else {
+        // The writer keeps its raw text, which cleaning changed.
+        resync(state, session, [pos]);
         return;
     };
     let mut event = None;
@@ -774,6 +776,20 @@ fn resync(state: &mut State, session: SessionId, positions: impl IntoIterator<It
     }
 }
 
+/// Sends again the fire on the face of the block a player hits: the client puts it out at once,
+/// and nothing here does.
+fn resync_fire(state: &mut State, session: SessionId, pos: BlockPos, face: Face) {
+    let Some(side) = pos.step(face) else {
+        return;
+    };
+    let Some(actor) = actor(state, session) else {
+        return;
+    };
+    if left_click(state, &actor, side).is_some_and(|block| block.is(Class::Fire)) {
+        resync(state, session, [side]);
+    }
+}
+
 /// Sends again the blocks around a refused click or break, and around the block next to the
 /// clicked face, where a placement went. The clicked block is among them.
 fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Option<Face>) {
@@ -912,6 +928,7 @@ fn apply_block_action(
                 if !attack_block(state, session, pos, face) {
                     sync_nearby(state, session, pos, Some(face));
                 }
+                resync_fire(state, session, pos, face);
                 set_last(state, Some(pos));
             }
         }
