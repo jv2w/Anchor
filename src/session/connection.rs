@@ -1217,6 +1217,40 @@ mod tests {
         });
     }
 
+    /// Packets after the login and before the join are held up to `MAX_DEFERRED`; one more ends
+    /// the session, and the join hands the held ones to the tick and empties the queue.
+    #[test]
+    fn packets_before_the_join_are_held_up_to_a_bound_and_handed_over_by_the_join() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
+            let mut session =
+                Session::new(SessionId::new(0), conn, Arc::clone(&shared), ip_waiting());
+            session.decoder = Some(batch::Decoder::new(shared.batch));
+            session.identity = Some(identity(0));
+            session.stage = Stage::Packs;
+            let packet = || {
+                Packet::SetLocalPlayerAsInitialised(packet::SetLocalPlayerAsInitialised::default())
+            };
+            for _ in 0..MAX_DEFERRED {
+                session.on_packet(packet(), 3).await.unwrap();
+            }
+            assert!(matches!(
+                session.on_packet(packet(), 3).await,
+                Err(Error::Limit(_))
+            ));
+            assert_eq!(session.deferred.len(), MAX_DEFERRED);
+            session.join().await.unwrap();
+            assert!(session.deferred.is_empty());
+            let mut packets = 0;
+            while let Ok(input) = queue.try_recv() {
+                packets += usize::from(matches!(input.kind, InputKind::Packet { .. }));
+            }
+            assert_eq!(packets, MAX_DEFERRED);
+        });
+    }
+
     /// However many sessions send all their packet budget allows between two ticks, another
     /// client's packet still reaches the tick: each fills only its own share of the queue.
     #[test]

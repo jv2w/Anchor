@@ -1305,6 +1305,71 @@ pub(crate) mod tests {
         });
     }
 
+    /// Pre-login peers are capped per IP and in total, and removing them gives every place and
+    /// index entry back.
+    #[test]
+    fn pre_login_peers_are_capped_and_give_their_places_back() {
+        run(async {
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (mut driver, _connections) = driver(sockets);
+            let (_, client_cert) = certificates();
+            let fingerprint = *client_cert.fingerprint();
+            let open = |driver: &mut Driver, last: u8| {
+                let addr = SocketAddr::from((Ipv4Addr::new(10, 0, 0, last), 50_000));
+                let (_client, remote) = Client::new(
+                    &client_cert,
+                    addr,
+                    DATAGRAM_MTU_TARGET,
+                    fingerprint,
+                    clock::now(),
+                );
+                let (reply, mut answer) = oneshot::channel();
+                driver.command(Command::Open {
+                    remote,
+                    local: addr,
+                    client_key: None,
+                    ip: addr.ip(),
+                    reply,
+                });
+                answer.try_recv().unwrap()
+            };
+            for last in 0..u8::try_from(MAX_PRE_LOGIN / MAX_PRE_LOGIN_PER_IP).unwrap() {
+                for _ in 0..MAX_PRE_LOGIN_PER_IP {
+                    assert!(open(&mut driver, last).is_ok());
+                }
+            }
+            assert!(matches!(open(&mut driver, 0), Err(Refusal::Busy)));
+            assert!(matches!(open(&mut driver, 200), Err(Refusal::Busy)));
+            assert_eq!(driver.peers.len(), MAX_PRE_LOGIN);
+            assert_eq!(driver.by_ufrag.len(), MAX_PRE_LOGIN);
+            assert_eq!(driver.pre_login_total, MAX_PRE_LOGIN);
+
+            driver.doomed.extend(driver.peers.keys().copied());
+            driver.reap();
+            assert!(driver.peers.is_empty());
+            assert!(driver.by_ufrag.is_empty());
+            assert!(driver.pre_login.is_empty());
+            assert_eq!(driver.pre_login_total, 0);
+        });
+    }
+
+    /// One peer holds at most `MAX_PEER_ADDRS` source addresses, however many a client claims,
+    /// and removing it gives them all back.
+    #[test]
+    fn a_peer_holds_at_most_a_few_source_addresses_and_gives_them_back() {
+        let mut by_addr = BTreeMap::new();
+        let mut addrs = Vec::new();
+        for port in 0..1000 {
+            let from = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 50_000 + port));
+            admit(&mut by_addr, &mut addrs, FIRST_PEER, from);
+        }
+        assert_eq!(addrs.len(), MAX_PEER_ADDRS);
+        assert_eq!(by_addr.len(), MAX_PEER_ADDRS);
+        forget(&mut by_addr, &addrs);
+        assert!(by_addr.is_empty());
+    }
+
     /// A negotiation ends once its signaling request is gone, whatever it waits for, so the
     /// negotiations never outnumber the signaling connections.
     #[test]

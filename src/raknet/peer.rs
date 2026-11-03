@@ -25,7 +25,8 @@ const ACK_BATCH: usize = 64;
 const ACK_DELAY: Duration = Duration::from_millis(100);
 /// Datagram numbers remembered for dropping duplicates. A later arrival than this many newer
 /// datagrams is dropped as a duplicate; its reliable frames come again in the resend. A number
-/// this far ahead of the next one expected or more is dropped too.
+/// this far ahead of the next one expected or more is dropped too, unless a second one follows
+/// it within this many numbers (`Datagrams::insert`).
 const DATAGRAM_HISTORY: usize = 1024;
 /// Memory one queued frame costs besides its payload, charged against `MAX_UNSENT_BYTES` so that
 /// many tiny messages cannot exceed the cap's memory.
@@ -718,12 +719,18 @@ pub(super) struct Message {
 struct Datagrams {
     next: u32,
     recent: VecDeque<bool>,
+    jumped: Option<u32>,
 }
 
 impl Datagrams {
     /// Records datagram number `seq` as received. A number further ahead than the history holds
     /// is not recorded: the datagram is dropped and the numbers stay where they were, so a
-    /// datagram nobody can vouch for cannot push the real ones out of the window.
+    /// single datagram nobody can vouch for cannot push the real ones out of the window. A
+    /// second such number within the history after the first moves the numbers there instead:
+    /// a sender that lost a run of datagrams as long as the history sends its resends under new
+    /// numbers, all further ahead, and would never be heard again otherwise. The window stays
+    /// the same size, and nothing authenticates a datagram, so a forged pair could already do
+    /// worse (a reliable index jump closes the connection).
     fn insert(&mut self, seq: u32) -> Arrival {
         let Some(ahead) = wire::u24_ahead(seq, self.next) else {
             let back = self.next.wrapping_sub(1).wrapping_sub(seq) & U24_MASK;
@@ -744,8 +751,9 @@ impl Datagrams {
         };
         let skipped = match usize::try_from(ahead) {
             Ok(skipped) if skipped < DATAGRAM_HISTORY => skipped,
-            _ => return Arrival::Jump,
+            _ => return self.jump(seq),
         };
+        self.jumped = None;
         let gap = (ahead > 0).then(|| (self.next, seq.wrapping_sub(1) & U24_MASK));
         let keep = DATAGRAM_HISTORY - 1 - skipped;
         if let Some(excess) = self.recent.len().checked_sub(keep) {
@@ -755,6 +763,24 @@ impl Datagrams {
         self.recent.push_back(true);
         self.next = seq.wrapping_add(1) & U24_MASK;
         Arrival::New { gap }
+    }
+
+    fn jump(&mut self, seq: u32) -> Arrival {
+        let agrees = self
+            .jumped
+            .and_then(|first| wire::u24_ahead(seq, first.wrapping_add(1) & U24_MASK))
+            .is_some_and(|after| {
+                usize::try_from(after).is_ok_and(|after| after < DATAGRAM_HISTORY)
+            });
+        if !agrees {
+            self.jumped = Some(seq);
+            return Arrival::Jump;
+        }
+        self.jumped = None;
+        self.recent.clear();
+        self.recent.push_back(true);
+        self.next = seq.wrapping_add(1) & U24_MASK;
+        Arrival::New { gap: None }
     }
 }
 
@@ -1307,6 +1333,38 @@ pub(super) mod tests {
         assert_eq!(receive(&mut peer, &outside), Ok(Vec::new()));
     }
 
+    /// A sender that lost a whole history of datagrams goes on with new numbers (its resends
+    /// too), so it is heard again from the second datagram that follows the first jump.
+    #[test]
+    fn a_sender_that_lost_a_whole_history_of_datagrams_is_heard_again() {
+        let mut peer = peer(SMALL);
+        let unreliable = header(Reliability::Unreliable);
+        let history = u32::try_from(DATAGRAM_HISTORY).unwrap();
+        let numbered = |seq| datagram(seq, &[(unreliable, b"\xfe")]);
+        assert_eq!(receive(&mut peer, &numbered(0)).map(|out| out.len()), Ok(1));
+        assert_eq!(receive(&mut peer, &numbered(history + 1)), Ok(Vec::new()));
+        assert_eq!(
+            receive(&mut peer, &numbered(history + 2)).map(|out| out.len()),
+            Ok(1)
+        );
+        assert_eq!(
+            receive(&mut peer, &numbered(history + 3)).map(|out| out.len()),
+            Ok(1)
+        );
+        assert_eq!(receive(&mut peer, &numbered(history + 3)), Ok(Vec::new()));
+        // Two jumps that do not agree with each other do not move the numbers.
+        let far = 4 * history;
+        assert_eq!(receive(&mut peer, &numbered(far)), Ok(Vec::new()));
+        assert_eq!(
+            receive(&mut peer, &numbered(far + 2 * history)),
+            Ok(Vec::new())
+        );
+        assert_eq!(
+            receive(&mut peer, &numbered(history + 4)).map(|out| out.len()),
+            Ok(1)
+        );
+    }
+
     #[test]
     fn reliable_index_limits_are_errors() {
         let reliable = |index| Header {
@@ -1489,6 +1547,7 @@ pub(super) mod tests {
         let mut datagrams = Datagrams {
             next: U24_MASK - 1,
             recent: VecDeque::new(),
+            jumped: None,
         };
         for seq in [U24_MASK - 1, U24_MASK, 0, 1] {
             assert!(matches!(datagrams.insert(seq), Arrival::New { gap: None }));
