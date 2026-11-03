@@ -101,7 +101,7 @@ pub enum Error {
         name: String,
     },
     /// The registered commands or permissions break a rule; the source says which.
-    Command(command::Error),
+    Command(command::register::Error),
     /// A registered custom entity type breaks a rule; the source says which.
     CustomEntity(entity::Error),
     /// The registered custom items or blocks break a rule; the source says which.

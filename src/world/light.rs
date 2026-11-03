@@ -344,8 +344,8 @@ impl Engine {
     /// Takes in a chunk just put at `pos`.
     ///
     /// Its light is connected to its lit neighbours, or it is lit on the tick if it came without
-    /// light (a chunk put back from memory before its commit). That work is bounded by the
-    /// budget of [`Self::step`] per tick.
+    /// light (loads and chunks from memory come lit from the CPU pool). That work is bounded by
+    /// the budget of [`Self::step`] per tick.
     pub(crate) fn loaded(&mut self, chunks: &mut Chunks, pos: ChunkPos) {
         let Some(chunk) = chunks.get_mut(pos) else {
             return;
@@ -2099,7 +2099,7 @@ mod tests {
         settle(&mut w, 1000);
         assert_eq!(w.block_light(BlockPos::new(15, -60, 5)), Some(0));
         assert_matches_reference(&w);
-        // Back from memory, it is lit on the tick and its light crosses again.
+        // Put back without light, it is lit on the tick and its light crosses again.
         w.insert_chunk(pos, chunk);
         assert_eq!(
             w.block_light(BlockPos::new(16, -60, 5)),

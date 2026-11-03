@@ -27,7 +27,7 @@ use crate::ServerBuilder;
 use crate::command::parse::{self, Coord, Names, Raw, Target};
 use crate::command::{
     self, Args, Command, Error, Kind, Line, MAX_ENUM_VALUES, MAX_NAME, MAX_OVERLOADS, MAX_PARAMS,
-    MAX_PERMISSIONS, Output, Sender, Value,
+    MAX_PERMISSIONS, Output, Sender, Value, register,
 };
 use crate::config::{Difficulty, GameMode};
 use crate::console::text;
@@ -102,7 +102,7 @@ pub(crate) struct Commands {
     /// place of the permissions' own.
     defaults: BTreeMap<&'static str, permission::Default>,
     /// The first registration error, which `finish` reports.
-    error: Option<Error>,
+    error: Option<register::Error>,
     /// Item, block, effect and enchantment names.
     names: Names,
     /// The network form of the commands, built by [`finish`](Self::finish).
@@ -280,14 +280,14 @@ impl Commands {
     /// Registers Anchor's own commands the user kept, puts the defaults set at build in place,
     /// builds the commands' network form and reports the first registration error.
     /// `ServerBuilder::build` calls it once.
-    pub(crate) fn finish(&mut self) -> command::Result<()> {
+    pub(crate) fn finish(&mut self) -> register::Result<()> {
         let builtins = builtin::all();
         if let Some(name) = self
             .removed
             .iter()
             .find(|n| !builtins.iter().any(|c| &c.name == *n))
         {
-            return Err(Error::UnknownCommand { name: name.clone() });
+            return Err(register::Error::UnknownCommand { name: name.clone() });
         }
         for command in builtins {
             self.register(command, Origin::Builtin);
@@ -298,7 +298,7 @@ impl Commands {
         // After every registration, so a set default replaces the one a command registered.
         for (name, default) in std::mem::take(&mut self.defaults) {
             let Some(registered) = self.permissions.get_mut(name) else {
-                return Err(Error::UnknownPermission { name });
+                return Err(register::Error::UnknownPermission { name });
             };
             *registered = Permission::new(name, default);
         }
@@ -390,7 +390,8 @@ impl Commands {
         for alias in std::mem::take(&mut command.aliases) {
             if self.by_name.contains_key(&alias) {
                 if !builtin {
-                    self.error.get_or_insert(Error::Duplicate { name: alias });
+                    self.error
+                        .get_or_insert(register::Error::Duplicate { name: alias });
                     return;
                 }
             } else if !names.contains(&alias) {
@@ -399,7 +400,7 @@ impl Commands {
             }
         }
         if !builtin && self.by_name.contains_key(&command.name) {
-            self.error.get_or_insert(Error::Duplicate {
+            self.error.get_or_insert(register::Error::Duplicate {
                 name: command.name.clone(),
             });
             return;
@@ -418,9 +419,10 @@ impl Commands {
     fn add_permission(&mut self, permission: Permission) {
         match self.permissions.get(permission.name()) {
             Some(known) if *known != permission => {
-                self.error.get_or_insert(Error::ConflictingPermission {
-                    name: permission.name(),
-                });
+                self.error
+                    .get_or_insert(register::Error::ConflictingPermission {
+                        name: permission.name(),
+                    });
             }
             Some(_) => {}
             None => {
@@ -521,7 +523,7 @@ impl ServerBuilder {
     /// whose name a command of the user's takes, as its name or an alias, is left out with its
     /// aliases, and an alias of Anchor's that the user's take is dropped. Two of the user's
     /// commands may not share a name or alias, and [`build`](Self::build) fails with
-    /// [`command::Error`] if they do or if a command breaks a rule of [`Command::overload`].
+    /// [`register::Error`] if they do or if a command breaks a rule of [`Command::overload`].
     #[doc(alias = "CommandMap::register")]
     #[doc(alias = "SimpleCommandMap::register")]
     #[must_use]
@@ -548,7 +550,7 @@ impl ServerBuilder {
     /// check of the permission follows it, a check with the constant included, and
     /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
     /// A permission no command and no [`permission`](Self::permission) registers makes
-    /// [`build`](Self::build) fail ([`Error::UnknownPermission`]).
+    /// [`build`](Self::build) fail ([`register::Error::UnknownPermission`]).
     #[must_use]
     pub fn permission_default(
         mut self,
@@ -564,7 +566,7 @@ impl ServerBuilder {
 
     /// Drops Anchor's own command named `name` (ASCII case does not matter), such as `"list"`. An
     /// alias, or a name none of Anchor's commands has, fails the build with
-    /// [`command::Error::UnknownCommand`].
+    /// [`register::Error::UnknownCommand`].
     #[doc(alias = "SimpleCommandMap::unregister")]
     #[must_use]
     pub fn without_command(mut self, name: &str) -> Self {
@@ -1054,12 +1056,12 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
-    /// value is empty, or there are more than 4,096 or more than 65,536 bytes of them in
-    /// all.
-    pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
+    /// [`register::Error::InvalidSoftEnum`], changing nothing, if no registered command takes
+    /// `name`, or a value is empty, or there are more than 4,096 or more than 65,536 bytes of
+    /// them in all.
+    pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> register::Result<()> {
         let commands = &mut self.state.commands;
-        let invalid = || Error::InvalidSoftEnum {
+        let invalid = || register::Error::InvalidSoftEnum {
             name: name.to_owned(),
         };
         let index = commands.catalog.soft_enum(name).ok_or_else(invalid)?;
@@ -1205,7 +1207,7 @@ impl Context<'_> {
 }
 
 /// Checks a command's names and overloads (the rules of [`Command::overload`]).
-fn check(command: &Command) -> command::Result<()> {
+fn check(command: &Command) -> register::Result<()> {
     for name in std::iter::once(&command.name).chain(&command.aliases) {
         if name.is_empty()
             || name.len() > MAX_NAME
@@ -1213,17 +1215,17 @@ fn check(command: &Command) -> command::Result<()> {
                 .chars()
                 .any(|c| c.is_whitespace() || c.is_control() || c == '/')
         {
-            return Err(Error::InvalidName { name: name.clone() });
+            return Err(register::Error::InvalidName { name: name.clone() });
         }
     }
     let invalid = |reason| {
-        Err(Error::InvalidOverload {
+        Err(register::Error::InvalidOverload {
             command: command.name.clone(),
             reason,
         })
     };
     if command.description.len() > COMMAND_DESCRIPTION_MAX_LEN {
-        return Err(Error::DescriptionTooLong {
+        return Err(register::Error::DescriptionTooLong {
             command: command.name.clone(),
         });
     }

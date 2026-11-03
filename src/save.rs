@@ -81,8 +81,12 @@ pub(crate) enum Request {
     Player(PlayerKey),
     /// A snapshot to commit.
     Commit(Box<Snapshot>),
-    /// Input log segments the tick dropped for room: the save thread frees them.
-    Discard(Vec<Segment>),
+    /// What the tick let go of, which the save thread frees so the tick spends no time on it:
+    /// input log segments dropped for room, and chunks unloaded or no longer kept for a commit.
+    Discard {
+        segments: Vec<Segment>,
+        chunks: Vec<Chunk>,
+    },
     /// The tick stopped normally; nothing follows. Without it the tick died, and the save thread
     /// commits nothing more.
     Finish,
@@ -1251,8 +1255,8 @@ pub(crate) fn run(
                 .into_iter()
                 .map(|world| Response::WorldOpenFailed { world })
                 .collect(),
-            Request::Discard(segments) => {
-                drop(segments);
+            Request::Discard { segments, chunks } => {
+                drop((segments, chunks));
                 continue;
             }
             Request::DeleteWorlds(worlds) => {

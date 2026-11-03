@@ -394,7 +394,13 @@ pub(super) mod tests {
         chunk: Box<crate::world::Chunk>,
     ) -> crate::save::Loaded {
         let mut stored = sample(world, pos);
-        stored.rules = state.rules.read((world, pos), &stored.extras, &chunk);
+        stored.rules = crate::tick::rules::read_kept(
+            (world, pos),
+            &stored.extras,
+            &chunk,
+            &state.rules.custom,
+            state.rules.entities.types(),
+        );
         crate::save::Loaded::Generated(chunk, stored)
     }
 

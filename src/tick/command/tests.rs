@@ -519,7 +519,7 @@ fn a_default_for_a_permission_nothing_registered_fails_the_build() {
         .commands;
     assert_eq!(
         commands.finish(),
-        Err(Error::UnknownPermission {
+        Err(register::Error::UnknownPermission {
             name: "x.unregistered"
         })
     );
@@ -536,7 +536,7 @@ fn dropping_an_unknown_builtin_fails_the_build() {
     commands.removed.insert("hub".to_owned());
     assert!(matches!(
         commands.finish().unwrap_err(),
-        Error::UnknownCommand { .. }
+        register::Error::UnknownCommand { .. }
     ));
 }
 
@@ -596,19 +596,19 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     };
     assert!(matches!(
         fails(Command::new("a b", "")),
-        Error::InvalidName { .. }
+        register::Error::InvalidName { .. }
     ));
     assert!(matches!(
         fails(ok(Command::new("", ""))),
-        Error::InvalidName { .. }
+        register::Error::InvalidName { .. }
     ));
     assert!(matches!(
         fails(ok(Command::new("a", "").alias("/b"))),
-        Error::InvalidName { .. }
+        register::Error::InvalidName { .. }
     ));
     assert!(matches!(
         fails(Command::new("a", "")),
-        Error::InvalidOverload { .. }
+        register::Error::InvalidOverload { .. }
     ));
     let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
     for params in [
@@ -624,7 +624,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
         assert!(
             matches!(
                 fails(Command::new("a", "").overload(&params, handler)),
-                Error::InvalidOverload { .. }
+                register::Error::InvalidOverload { .. }
             ),
             "{params:?}"
         );
@@ -634,7 +634,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     commands.register(ok(Command::new("b", "")), Origin::User);
     assert_eq!(
         commands.finish(),
-        Err(Error::Duplicate {
+        Err(register::Error::Duplicate {
             name: "b".to_owned()
         })
     );
@@ -642,7 +642,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
     commands.add_permission(Permission::new("anchor.command.give.self", By::True));
     assert!(matches!(
         commands.finish(),
-        Err(Error::ConflictingPermission { .. })
+        Err(register::Error::ConflictingPermission { .. })
     ));
 }
 
@@ -650,7 +650,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
 fn the_overload_reasons_name_the_limits_they_enforce() {
     let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
     let reason = |command: &Command| match check(command) {
-        Err(Error::InvalidOverload { reason, .. }) => reason,
+        Err(register::Error::InvalidOverload { reason, .. }) => reason,
         other => panic!("{other:?}"),
     };
     let overloads =
@@ -707,7 +707,7 @@ fn a_description_longer_than_a_client_decodes_refuses_the_build() {
     assert_eq!(finish("x".repeat(max)), Ok(()));
     assert_eq!(
         finish("x".repeat(max + 1)),
-        Err(Error::DescriptionTooLong {
+        Err(register::Error::DescriptionTooLong {
             command: "a".to_owned()
         })
     );
@@ -730,7 +730,7 @@ fn an_enum_type_name_reused_with_other_values_refuses_the_build() {
     );
     assert_eq!(
         finish(vec![arena]),
-        Err(Error::ConflictingEnum {
+        Err(register::Error::ConflictingEnum {
             name: "GameMode".to_owned()
         })
     );
@@ -740,7 +740,7 @@ fn an_enum_type_name_reused_with_other_values_refuses_the_build() {
         Command::new("b", "").overload(&[Param::enumeration("m", "Mode", &["y", "x"])], handler);
     assert_eq!(
         finish(vec![a, b]),
-        Err(Error::ConflictingEnum {
+        Err(register::Error::ConflictingEnum {
             name: "Mode".to_owned()
         })
     );
@@ -1856,7 +1856,7 @@ fn a_parameter_may_not_take_the_command_name_enum() {
     );
     assert_eq!(
         commands.finish(),
-        Err(Error::ConflictingEnum {
+        Err(register::Error::ConflictingEnum {
             name: "CommandName".to_owned()
         })
     );
@@ -1900,7 +1900,7 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
     );
     let mut cx = Context { state: &mut state };
     let invalid = |name: &str| {
-        Err(Error::InvalidSoftEnum {
+        Err(register::Error::InvalidSoftEnum {
             name: name.to_owned(),
         })
     };
@@ -1957,7 +1957,7 @@ fn a_soft_enum_may_not_take_an_enum_type_name() {
     );
     assert_eq!(
         commands.finish(),
-        Err(Error::ConflictingEnum {
+        Err(register::Error::ConflictingEnum {
             name: "Boolean".to_owned()
         })
     );

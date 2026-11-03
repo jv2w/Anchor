@@ -255,7 +255,7 @@ impl Replayer {
                         Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
                         Request::Chunks(_)
                         | Request::Player(_)
-                        | Request::Discard(_)
+                        | Request::Discard { .. }
                         | Request::Finish => {}
                     }
                 }

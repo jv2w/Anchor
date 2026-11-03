@@ -622,9 +622,13 @@ fn baby_zombies_and_villagers_survive_a_checkpoint() {
     let loaded: Vec<ChunkPos> = fresh.worlds[0].loaded_chunks().collect();
     for pos in loaded {
         if let Some(extras) = fresh.chunks.extras.get((0, pos)).cloned() {
-            let read = fresh
-                .rules
-                .read((0, pos), &extras, fresh.worlds[0].chunk(pos).unwrap());
+            let read = crate::tick::rules::read_kept(
+                (0, pos),
+                &extras,
+                fresh.worlds[0].chunk(pos).unwrap(),
+                &fresh.rules.custom,
+                fresh.rules.entities.types(),
+            );
             fresh.rules.load((0, pos), read, &extras);
         }
     }

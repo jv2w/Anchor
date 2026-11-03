@@ -1088,7 +1088,7 @@ fn run_saved(state: &mut State, link: &mut crate::tick::SaveLink, pool: &Pool, n
                 Request::Player(_) | Request::Commit(_) => 1,
                 Request::Worlds(_)
                 | Request::DeleteWorlds(_)
-                | Request::Discard(_)
+                | Request::Discard { .. }
                 | Request::Finish => 0,
             };
             link.requests.blocking_send(request).unwrap();

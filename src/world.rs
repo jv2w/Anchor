@@ -933,9 +933,9 @@ impl World {
     /// not committed yet keeps its dirty mark). Lifts a quarantine of `pos` and returns a chunk it
     /// replaces, whose light leaves with it.
     ///
-    /// A chunk lit on the CPU pool ([`Chunk::populate_light`]) keeps its light and is connected
-    /// to its lit neighbours; one without light (a chunk from memory, whose copy never holds
-    /// light) is lit on the tick, in steps under the light budget of each tick.
+    /// A chunk lit on the CPU pool ([`Chunk::populate_light`]), as every load and every chunk
+    /// from memory is, keeps its light and is connected to its lit neighbours; one without light
+    /// is lit on the tick, in steps under the light budget of each tick.
     pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
         self.quarantined.remove(&pos);
         self.loaded.insert(pos);

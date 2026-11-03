@@ -107,9 +107,13 @@ impl World {
                 .get((0, pos))
                 .cloned()
                 .unwrap_or_default();
-            let read = state
-                .rules
-                .read((0, pos), &extras, state.worlds[0].chunk(pos).unwrap());
+            let read = crate::tick::rules::read_kept(
+                (0, pos),
+                &extras,
+                state.worlds[0].chunk(pos).unwrap(),
+                &state.rules.custom,
+                state.rules.entities.types(),
+            );
             state.rules.load((0, pos), read, &extras);
         }
         Self {

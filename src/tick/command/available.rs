@@ -22,7 +22,7 @@ use super::access::Access;
 use super::{Grants, allowed, has_permission_of};
 use crate::block;
 use crate::command::parse::{NAMESPACE, Names};
-use crate::command::{self, Command, Error, Kind, Param};
+use crate::command::{self, Command, Kind, Param, register};
 use crate::permission::Permission;
 use crate::protocol::consts::{CommandArg, CommandArgType, CommandPermissionLevel, ParamOption};
 use crate::protocol::packet::{AvailableCommands, Packet};
@@ -63,7 +63,7 @@ impl Catalog {
     /// Builds the network form of `commands`, with the client's name enums from `names`. Fails
     /// if two enums share a type name but not their values, or a soft enum shares one with an
     /// enum: the client would get only the first.
-    pub(crate) fn new(commands: &[Command], names: &Names) -> command::Result<Self> {
+    pub(crate) fn new(commands: &[Command], names: &Names) -> register::Result<Self> {
         let mut b = Builder::default();
         // A parameter may not take the name of the enum every packet builds itself.
         b.enum_index.insert(COMMAND_NAME_ENUM.to_owned(), UNSET);
@@ -130,7 +130,7 @@ impl Catalog {
             .find(|n| b.enum_index.contains_key(*n))
         {
             b.error
-                .get_or_insert(Error::ConflictingEnum { name: name.clone() });
+                .get_or_insert(register::Error::ConflictingEnum { name: name.clone() });
         }
         b.error.map_or(Ok(b.catalog), Err)
     }
@@ -224,7 +224,7 @@ struct Builder {
     /// Enums by type name.
     enum_index: BTreeMap<String, u32>,
     /// The first enum whose type name an enum of other values has.
-    error: Option<Error>,
+    error: Option<register::Error>,
 }
 
 impl Builder {
@@ -277,7 +277,7 @@ impl Builder {
                 .get(slice_index(index))
                 .is_none_or(|e| e.values != values)
             {
-                self.error.get_or_insert(Error::ConflictingEnum {
+                self.error.get_or_insert(register::Error::ConflictingEnum {
                     name: name.to_owned(),
                 });
             }

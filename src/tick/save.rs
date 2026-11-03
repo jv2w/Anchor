@@ -308,25 +308,25 @@ pub(super) fn keep(saving: &mut Saving, key: StoredPlayer, data: PlayerData) {
     );
 }
 
-/// The memory a chunk a view releases keeps until a commit holds it: its terrain and extras when
-/// a part has changes no snapshot holds yet, or the snapshot in flight holds them. `None` if the
-/// file has it all.
-pub(super) fn keep_unloaded(
+/// Whether a chunk a view releases stays in memory until a commit holds it: a part has changes
+/// no snapshot holds yet, or the snapshot in flight holds them. Not if the file has it all.
+pub(super) fn is_kept_unloaded(saving: &Saving, key: &Key, chunk: &Chunk, extras: &Held) -> bool {
+    chunk.is_dirty() || extras.is_dirty() || saving.holds_chunk(key).is_some()
+}
+
+/// The [`Unsaved::snapshot`] of a chunk [`is_kept_unloaded`]: `None` while a part has changes no
+/// snapshot holds yet, else the snapshot in flight that holds them.
+pub(super) fn unsaved_snapshot(
     saving: &Saving,
     key: &Key,
-    chunk: Chunk,
-    extras: Held,
-) -> Option<Unsaved> {
-    let snapshot = if chunk.is_dirty() || extras.is_dirty() {
+    chunk: &Chunk,
+    extras: &Held,
+) -> Option<u64> {
+    if chunk.is_dirty() || extras.is_dirty() {
         None
     } else {
-        Some(saving.holds_chunk(key)?)
-    };
-    Some(Unsaved {
-        chunk,
-        extras,
-        snapshot,
-    })
+        saving.holds_chunk(key)
+    }
 }
 
 /// Takes a snapshot at this tick boundary if one is due (periodic, asked for, too many unloaded
@@ -519,10 +519,11 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
         .take_if(|f| f.start == start)
         .map(|f| f.worlds)
         .unwrap_or_default();
-    state
-        .chunks
+    let chunks = &mut state.chunks;
+    let done = chunks
         .unsaved
-        .retain(|_, u| u.snapshot != Some(start));
+        .extract_if(.., |_, u| u.snapshot == Some(start));
+    chunks.discarded.extend(done.map(|(_, u)| u.chunk));
     state
         .saving
         .offline

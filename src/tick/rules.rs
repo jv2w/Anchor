@@ -8,8 +8,8 @@
 //! - `load(key, read)`: the chunk's saved list arrived (or came back from memory), already read
 //!   into the module's typed form ([`ChunkRules`]); put it in the store. The read needs nothing
 //!   of the tick's state (block entities check their blocks, which the chunk holds), so it runs
-//!   on the save thread's CPU pool as the chunk loads, one list per pool item; only a chunk that
-//!   comes back from memory is read on the tick ([`Rules::read`]).
+//!   on the save thread's CPU pool as the chunk loads, one list per pool item; a chunk that
+//!   comes back from memory is read on the CPU pool in the view phase ([`read_kept`]).
 //! - `take_changed()`: before a save snapshot, every chunk whose typed state changed since the
 //!   last call, as the full NBT list to store; the module clears its own marks.
 //! - `unload(key)`: the chunk leaves; drop the typed state and return the list if it changed
@@ -88,17 +88,6 @@ pub(super) struct Rules {
 }
 
 impl Rules {
-    /// Reads a chunk's extras on the tick, as the save thread reads a loaded chunk's: for an
-    /// unsaved chunk that comes back from memory (and the tests' stand-ins of the save thread).
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
-    )]
-    pub(super) fn read(&self, key: Key, extras: &ChunkExtras, blocks: &Chunk) -> ChunkRules {
-        ChunkRules::read(key, extras, blocks, &self.custom, self.entities.types())
-            .expect("a list in memory is not damaged")
-    }
-
     /// Takes in the typed state of a chunk loaded from the file or from memory, `read` from
     /// `extras`.
     pub(super) fn load(&mut self, key: Key, read: ChunkRules, extras: &ChunkExtras) {
@@ -268,6 +257,23 @@ pub(crate) struct ChunkRulesPart(Part);
 enum Part {
     BlockEntities(block_entity::Parsed),
     Entities(Vec<entity::Saved>),
+}
+
+/// The extras of a chunk kept in memory read as the save thread reads a loaded chunk's, with
+/// the server's custom content and entity types: for a chunk that comes back from memory, on
+/// the CPU pool (and the tests' stand-ins of the save thread).
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
+)]
+pub(super) fn read_kept(
+    key: Key,
+    extras: &ChunkExtras,
+    blocks: &Chunk,
+    custom: &Registry,
+    types: &EntityTypes,
+) -> ChunkRules {
+    ChunkRules::read(key, extras, blocks, custom, types).expect("a list in memory is not damaged")
 }
 
 #[cfg(test)]

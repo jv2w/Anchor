@@ -4661,10 +4661,13 @@ mod tests {
             let loaded: Vec<ChunkPos> = state.worlds[0].loaded_chunks().collect();
             for pos in loaded {
                 if let Some(extras) = state.chunks.extras.get((0, pos)).cloned() {
-                    let read =
-                        state
-                            .rules
-                            .read((0, pos), &extras, state.worlds[0].chunk(pos).unwrap());
+                    let read = crate::tick::rules::read_kept(
+                        (0, pos),
+                        &extras,
+                        state.worlds[0].chunk(pos).unwrap(),
+                        &state.rules.custom,
+                        state.rules.entities.types(),
+                    );
                     state.rules.load((0, pos), read, &extras);
                 }
             }

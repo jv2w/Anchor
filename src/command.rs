@@ -30,6 +30,7 @@
 //! and [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) drops one.
 
 pub(crate) mod parse;
+pub mod register;
 
 pub use parse::{Word, split};
 
@@ -265,8 +266,8 @@ impl Param {
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
     /// typed). `type_name` is the enum type the client shows: every enum of a type name must have
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
-    /// [`Error::ConflictingEnum`]. Anchor's own commands use the official server's names and
-    /// values: `Boolean`, `Item`, `Block`, `Effect`, `Enchant`, `GameMode` and
+    /// [`register::Error::ConflictingEnum`]. Anchor's own commands use the official server's
+    /// names and values: `Boolean`, `Item`, `Block`, `Effect`, `Enchant`, `GameMode` and
     /// `<name>CommandAliases` for a command with aliases, and Anchor's `BanListType`,
     /// `WhitelistAction` and `WhitelistEdit`, unless the user replaces or drops the command.
     /// `CommandName` is the client's list of command names: no parameter may take it.
@@ -333,7 +334,8 @@ impl Param {
     /// but `minecraft:overworld` for `WorldClocks`. The handler checks the word: the client
     /// sends words it does not suggest. `type_name` may not be the type name of an
     /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
-    /// [`Error::ConflictingEnum`]; an empty one refuses the build ([`Error::InvalidOverload`]).
+    /// [`register::Error::ConflictingEnum`]; an empty one refuses the build
+    /// ([`register::Error::InvalidOverload`]).
     pub fn soft_enumeration(name: impl Into<String>, type_name: impl Into<String>) -> Self {
         Self::new(
             name,
@@ -350,7 +352,7 @@ impl Param {
 
     /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `10L`
     /// with the suffix `l` (ASCII case does not matter). A suffix other than 1 to 64 ASCII letters
-    /// refuses the build ([`Error::InvalidOverload`]).
+    /// refuses the build ([`register::Error::InvalidOverload`]).
     pub fn suffixed_int(name: impl Into<String>, suffix: &str) -> Self {
         Self::new(
             name,
@@ -677,14 +679,12 @@ impl Line {
     }
 }
 
-/// Why a command did not run or failed, or why the commands registered on a
-/// [`ServerBuilder`](crate::ServerBuilder) cannot be built.
+/// Why a command did not run or failed.
 ///
-/// The first kinds are what a sender sees (in red): the client's translation where it has a text
-/// for the case, as the official server sends it, and Anchor's text otherwise; a handler fails with
-/// [`Error::failed`] or [`Error::translated`]. The kinds from [`Error::InvalidName`] on are
-/// registration errors that no sender sees; they share this type because the builder and
-/// [`Context::set_soft_enum`] report them through the crate's one command error.
+/// What a sender sees (in red) is the client's translation where it has a text for the case, as
+/// the official server sends it, and Anchor's text otherwise; a handler fails with
+/// [`Error::failed`] or [`Error::translated`]. The registration errors no sender sees are
+/// [`register::Error`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
@@ -736,59 +736,6 @@ pub enum Error {
         message: String,
         /// The translation parameters; empty for text.
         params: Vec<String>,
-    },
-    /// A command or alias name is empty, too long (64 bytes) or holds spaces, control characters
-    /// or `/`.
-    InvalidName {
-        /// The name.
-        name: String,
-    },
-    /// Two registered commands share a name or alias.
-    Duplicate {
-        /// The name.
-        name: String,
-    },
-    /// [`ServerBuilder::without_command`](crate::ServerBuilder::without_command) named no
-    /// command of Anchor's own (an alias or an unknown name).
-    UnknownCommand {
-        /// The name.
-        name: String,
-    },
-    /// An overload breaks a rule of [`Command::overload`], the command has none, or it names
-    /// more than 16 permissions.
-    InvalidOverload {
-        /// The command's name.
-        command: String,
-        /// What is wrong.
-        reason: &'static str,
-    },
-    /// A command's description is longer than a client takes (1,000 bytes).
-    DescriptionTooLong {
-        /// The command's name.
-        command: String,
-    },
-    /// Two permissions with the same name have different defaults.
-    ConflictingPermission {
-        /// The permission's name.
-        name: &'static str,
-    },
-    /// [`ServerBuilder::permission_default`](crate::ServerBuilder::permission_default) named a
-    /// permission no command and no
-    /// [`ServerBuilder::permission`](crate::ServerBuilder::permission) registers.
-    UnknownPermission {
-        /// The permission's name.
-        name: &'static str,
-    },
-    /// Two enum parameters with the same type name have different values.
-    ConflictingEnum {
-        /// The enum's type name.
-        name: String,
-    },
-    /// [`Context::set_soft_enum`] named no soft enum type of a registered command, or values it
-    /// refuses (see its limits).
-    InvalidSoftEnum {
-        /// The enum's type name.
-        name: String,
     },
 }
 
@@ -851,15 +798,6 @@ impl Error {
                     params: params.clone(),
                 };
             }
-            Self::InvalidName { .. }
-            | Self::Duplicate { .. }
-            | Self::UnknownCommand { .. }
-            | Self::InvalidOverload { .. }
-            | Self::DescriptionTooLong { .. }
-            | Self::ConflictingPermission { .. }
-            | Self::UnknownPermission { .. }
-            | Self::ConflictingEnum { .. }
-            | Self::InvalidSoftEnum { .. } => self.to_string(),
         };
         Line {
             text,
@@ -885,32 +823,6 @@ impl fmt::Display for Error {
             Self::Failed { message, params } => {
                 write!(f, "the command failed: {message} {params:?}")
             }
-            Self::InvalidName { name } => write!(f, "invalid command name {name:?}"),
-            Self::Duplicate { name } => write!(f, "two commands are named {name:?}"),
-            Self::UnknownCommand { name } => {
-                write!(f, "no command of Anchor's is named {name:?}")
-            }
-            Self::InvalidOverload { command, reason } => {
-                write!(f, "invalid overload of command {command:?}: {reason}")
-            }
-            Self::DescriptionTooLong { command } => {
-                write!(
-                    f,
-                    "the description of command {command:?} is longer than a client takes"
-                )
-            }
-            Self::ConflictingPermission { name } => {
-                write!(f, "permission {name:?} is registered with two defaults")
-            }
-            Self::UnknownPermission { name } => {
-                write!(f, "permission {name:?} has a default but is not registered")
-            }
-            Self::ConflictingEnum { name } => {
-                write!(f, "enum type {name:?} is registered with two value lists")
-            }
-            Self::InvalidSoftEnum { name } => {
-                write!(f, "no soft enum type {name:?} takes these values")
-            }
         }
     }
 }
@@ -929,7 +841,11 @@ mod tests {
 
     #[test]
     fn the_docs_name_the_limits_the_build_checks() {
-        let source = include_str!("command.rs");
+        let source = [
+            include_str!("command.rs"),
+            include_str!("command/register.rs"),
+        ]
+        .concat();
         let max = COMMAND_DESCRIPTION_MAX_LEN;
         let description = format!("{},{:03} bytes", max / 1000, max % 1000);
         let line_bytes = format!(
@@ -941,7 +857,7 @@ mod tests {
             format!("than {description}, the server refuses to build"),
             format!("longer than a client takes ({description})"),
             format!("A command names at most {MAX_PERMISSIONS}."),
-            format!("/// more than {MAX_PERMISSIONS} permissions."),
+            format!("names more than {MAX_PERMISSIONS} permissions."),
             format!("A suffix other than 1 to {MAX_NAME} ASCII letters"),
             format!("too long ({MAX_NAME} bytes)"),
             format!("longer than {MAX_LINE_CHARS} characters or {line_bytes}"),

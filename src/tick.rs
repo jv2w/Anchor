@@ -1308,7 +1308,7 @@ fn step_marked(
     command::sync(state);
     player::sync(state, output);
     drop_overflowed(state, output);
-    view::update(state, &mut output.requests);
+    view::update(state, pool, &mut output.requests);
     dispatch::run_deferred(state, &mut deferred_runs);
     block_entity::send_marked(state);
     let changes = view::take_changes(&mut state.worlds);
@@ -1535,19 +1535,20 @@ fn dropped(state: &mut State, session: SessionId, log: &mut InputLog) {
 
 /// The tick boundary after a step and its delivery: the callbacks that the quits of the sessions
 /// dropped there deferred, a save snapshot for the save thread if one is due, the offline player
-/// loads the tick asked for, then the tick's controls to the networking. It comes after the
-/// delivery because sessions dropped there change the state of the tick, and their quit listeners
-/// may defer callbacks or ask for controls or loads; none waits past the tick, where its
-/// checkpoint would not keep it.
+/// loads the tick asked for, what the tick let go of for the save thread to free, then the
+/// tick's controls to the networking. It comes after the delivery because sessions dropped there
+/// change the state of the tick, and their quit listeners may defer callbacks or ask for controls
+/// or loads; none waits past the tick, where its checkpoint would not keep it.
 pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
     dispatch::run_deferred(state, &mut output.deferred_runs);
     if let Some(request) = save::snapshot(state, log, false) {
         output.requests.push(request);
     }
     output.requests.extend(task::offline_requests(state));
-    let discarded = log.take_discarded();
-    if !discarded.is_empty() {
-        output.requests.push(Request::Discard(discarded));
+    let segments = log.take_discarded();
+    let chunks = std::mem::take(&mut state.chunks.discarded);
+    if !segments.is_empty() || !chunks.is_empty() {
+        output.requests.push(Request::Discard { segments, chunks });
     }
     state.network.flush();
 }
@@ -1729,7 +1730,13 @@ mod tests {
                 let pos = ChunkPos::new(center.x + x, center.z + z);
                 let chunk = Chunk::generate(&Flat, 0, pos);
                 let extras = extra::tests::sample(0, pos).extras;
-                let read = state.rules.read((0, pos), &extras, &chunk);
+                let read = rules::read_kept(
+                    (0, pos),
+                    &extras,
+                    &chunk,
+                    &state.rules.custom,
+                    state.rules.entities.types(),
+                );
                 state.worlds[0].insert_chunk(pos, chunk);
                 state.rules.load((0, pos), read, &extras);
                 state.chunks.extras.chunk_loaded((0, pos), extras);
@@ -1756,7 +1763,7 @@ mod tests {
                 }
                 Request::Worlds(_)
                 | Request::DeleteWorlds(_)
-                | Request::Discard(_)
+                | Request::Discard { .. }
                 | Request::Finish => {}
                 Request::Player(key) => out.push(Response::Player {
                     key,

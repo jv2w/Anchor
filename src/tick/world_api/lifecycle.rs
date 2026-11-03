@@ -371,15 +371,9 @@ impl Context<'_> {
             // Its chunks waiting in memory are its file's: none may reach a world made here.
             let all =
                 (i, ChunkPos::new(i32::MIN, i32::MIN))..=(i, ChunkPos::new(i32::MAX, i32::MAX));
-            let unsaved: Vec<_> = state
-                .chunks
-                .unsaved
-                .range(all)
-                .map(|(&key, _)| key)
-                .collect();
-            for key in unsaved {
-                state.chunks.unsaved.remove(&key);
-            }
+            let chunks = &mut state.chunks;
+            let unsaved = chunks.unsaved.extract_if(all, |_, _| true);
+            chunks.discarded.extend(unsaved.map(|(_, u)| u.chunk));
             super::world_at_mut(state, i).forget();
         }
         state.catalog.deleted.push(DeletedWorld {

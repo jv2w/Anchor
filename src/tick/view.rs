@@ -24,7 +24,7 @@ use tracing::{debug, warn};
 use super::extra::Extras;
 use super::queue::{Message, SessionId};
 use super::rules::Rules;
-use super::save::{Saving, Unsaved, keep_unloaded};
+use super::save::{Saving, Unsaved, is_kept_unloaded, unsaved_snapshot};
 use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
@@ -68,6 +68,10 @@ const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 2 * SUB_CHUNK_REQUESTS_PER_TICK;
 const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE_RANGE.end();
 /// The most positions refused changes send one player again in one tick ([`View::resync`]).
 pub(super) const MAX_RESYNCS: usize = 4096;
+/// Chunks one view phase brings back from memory ([`bring_back`]). Each costs one chunk's light
+/// and extras read on the CPU pool, which the tick waits for, so the bound keeps that wait to a
+/// few chunks; twice the default `chunks-per-tick`, it stays ahead of what a player is sent.
+const MAX_RETURNS_PER_TICK: usize = 8;
 /// The most chunks the chunk tickets hold together, a chunk counted once per ticket holding it:
 /// the save thread's chunk loads in flight times 4.
 pub const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
@@ -555,6 +559,13 @@ pub(super) struct Chunks {
     pub(super) unsaved: BTreeMap<Key, Unsaved>,
     /// Loads to ask for at the end of this tick; empty between ticks.
     batch: Vec<Key>,
+    /// Chunks of `unsaved` wanted this tick, which the view phase brings back ([`bring_back`]);
+    /// empty between ticks. At most [`MAX_RETURNS_PER_TICK`].
+    returning: BTreeSet<Key>,
+    /// Chunks the tick let go of, freed off the tick by the save thread
+    /// ([`Request::Discard`]): a released view lets go of a whole disc at once. Empty between
+    /// ticks.
+    pub(super) discarded: Vec<Chunk>,
     /// The extras of the loaded chunks.
     pub(super) extras: Extras,
     /// The spawn whose 3 × 3 chunks are held for each world, by world index: the world's spawn,
@@ -562,10 +573,10 @@ pub(super) struct Chunks {
     spawns: Vec<BlockPos>,
     /// The chunk events someone listens to, fixed when the server is built ([`hold_spawns`]).
     heard: Heard,
-    /// Chunks loaded or brought back from memory since the last view phase, for [`ChunkLoad`] in
-    /// the next one (`true`: the generator made it). Empty unless it is heard. A chunk held again
-    /// after the view phase (a ticket taken in a deferred callback) waits across the tick
-    /// boundary, so a checkpoint keeps it.
+    /// Chunks loaded or brought back from memory this tick, for [`ChunkLoad`] in the view phase
+    /// (`true`: the generator made it): loads are answered in the input phase and chunks come
+    /// back from memory in the view phase only, so it is empty between ticks. Empty unless it is
+    /// heard.
     loads: BTreeMap<Key, bool>,
     /// Chunks whose last holder let go: still loaded until the view phase unloads them, asking
     /// the [`ChunkUnload`] listeners first ([`announce`]).
@@ -601,8 +612,8 @@ pub(super) struct Chunks {
 }
 
 impl Chunks {
-    /// Writes what lasts between ticks; the batch and the sent chunks are empty then, and the
-    /// events heard and the view order are fixed at build.
+    /// Writes what lasts between ticks; the batch, the returning, discarded, loaded and sent
+    /// chunks are empty then, and the events heard and the view order are fixed at build.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
         let Self {
@@ -610,10 +621,12 @@ impl Chunks {
             requested,
             unsaved,
             batch: _,
+            returning: _,
+            discarded: _,
             extras,
             spawns,
             heard: _,
-            loads,
+            loads: _,
             unloading,
             kept,
             sent: _,
@@ -634,7 +647,6 @@ impl Chunks {
         }
         extras.checkpoint(w);
         spawns.encode(w);
-        loads.encode(w);
         unloading.encode(w);
         kept.encode(w);
         tickets.encode(w);
@@ -652,17 +664,19 @@ impl Chunks {
     /// Hashes what lasts between ticks, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The batch and the sent chunks are empty between ticks; the events heard and the view
-        // order are fixed.
+        // The batch, the returning, discarded, loaded and sent chunks are empty between ticks;
+        // the events heard and the view order are fixed.
         let Self {
             interest,
             requested,
             unsaved,
             batch: _,
+            returning: _,
+            discarded: _,
             extras,
             spawns,
             heard: _,
-            loads,
+            loads: _,
             unloading,
             kept,
             sent: _,
@@ -697,11 +711,6 @@ impl Chunks {
         h.usize(spawns.len());
         for p in spawns {
             h.bytes(&[p.x, p.y, p.z].map(i32::to_le_bytes).concat());
-        }
-        h.usize(loads.len());
-        for (k, &generated) in loads {
-            key(h, k);
-            h.u64(u64::from(generated));
         }
         h.usize(unloading.len());
         for k in unloading {
@@ -742,6 +751,8 @@ impl Chunks {
         self.requested.is_empty()
             && self.unsaved.is_empty()
             && self.batch.is_empty()
+            && self.returning.is_empty()
+            && self.discarded.is_empty()
             && self.loads.is_empty()
             && self.unloading.is_empty()
             && self.kept.is_empty()
@@ -812,10 +823,12 @@ impl Chunks {
             requested,
             unsaved,
             batch: Vec::new(),
+            returning: BTreeSet::new(),
+            discarded: Vec::new(),
             extras: Extras::restore(r, &mut ground.extras)?,
             spawns: Codec::decode(r)?,
             heard: self.heard,
-            loads: Codec::decode(r)?,
+            loads: BTreeMap::new(),
             unloading: Codec::decode(r)?,
             kept: Codec::decode(r)?,
             sent: Vec::new(),
@@ -1008,16 +1021,11 @@ impl Context<'_> {
             center,
             radius,
         };
-        let State {
-            worlds,
-            chunks,
-            rules,
-            ..
-        } = &mut *self.state;
+        let State { worlds, chunks, .. } = &mut *self.state;
         let n = chunks.next_ticket;
         chunks.next_ticket = n.saturating_add(1);
         for pos in ticket.area() {
-            hold(worlds, chunks, rules, (w, pos));
+            hold(chunks, (w, pos));
             chunks.by_chunk.insert(((w, pos), n));
             if worlds
                 .get(w)
@@ -1128,31 +1136,14 @@ struct EncodedSubChunk {
 /// in it, so each player reads its own world's alone.
 pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>>>;
 
-/// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, its
-/// terrain and extras with their dirty marks, so a load never reads a file older than the tick's
-/// data. The rules read such a chunk's extras again on the tick, and the world lights it again
-/// within its per-tick light budget; the chunks waiting for a commit (`MAX_UNSAVED_CHUNKS`) bound
-/// both.
-fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) {
+/// Adds one holder of `key`. A chunk not loaded is loaded once the view phase wants it
+/// ([`want`]), from memory if it waits there for a commit.
+fn hold(chunks: &mut Chunks, key: Key) {
     let count = chunks.interest.entry(key).or_insert(0);
     *count = count.saturating_add(1);
-    if *count > 1 {
-        return;
-    }
-    if chunks.unloading.remove(&key) {
+    if *count == 1 {
         // Let go and held again before the view phase asked about it: it never left.
-        return;
-    }
-    if let Some(Unsaved { chunk, extras, .. }) = chunks.unsaved.remove(&key)
-        && let Some(world) = worlds.get_mut(key.0)
-    {
-        let read = rules.read(key, extras.extras(), &chunk);
-        world.insert_chunk(key.1, chunk);
-        rules.load(key, read, extras.extras());
-        chunks.extras.chunk_restored(key, extras);
-        if chunks.heard.load {
-            chunks.loads.entry(key).or_insert(false);
-        }
+        chunks.unloading.remove(&key);
     }
 }
 
@@ -1171,19 +1162,29 @@ fn release(chunks: &mut Chunks, key: Key) {
 }
 
 /// Unloads a chunk nobody holds, with its extras. A chunk of a persistent world whose changes no
-/// commit holds yet stays in memory until one does.
+/// commit holds yet stays in memory until one does; any other is freed off the tick.
 fn unload(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
     rules.unload(key, &mut chunks.extras);
-    let extras = chunks.extras.chunk_unloaded(key);
+    let extras = chunks.extras.chunk_unloaded(key).unwrap_or_default();
     let Some(world) = worlds.get_mut(key.0) else {
         return;
     };
     let persistent = world.kind() == Kind::Persistent;
-    if let Some(chunk) = world.remove_chunk(key.1)
-        && persistent
-        && let Some(unsaved) = keep_unloaded(saving, &key, chunk, extras.unwrap_or_default())
-    {
-        chunks.unsaved.insert(key, unsaved);
+    let Some(chunk) = world.remove_chunk(key.1) else {
+        return;
+    };
+    if persistent && is_kept_unloaded(saving, &key, &chunk, &extras) {
+        let snapshot = unsaved_snapshot(saving, &key, &chunk, &extras);
+        chunks.unsaved.insert(
+            key,
+            Unsaved {
+                chunk,
+                extras,
+                snapshot,
+            },
+        );
+    } else {
+        chunks.discarded.push(chunk);
     }
 }
 
@@ -1220,7 +1221,7 @@ fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
 /// Moves the held spawn chunks of each world whose spawn moved to another chunk
 /// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
 /// then the old ones are released.
-fn move_spawns(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules) {
+fn move_spawns(worlds: &[World], chunks: &mut Chunks) {
     for world in 0..chunks.spawns.len() {
         let (Some(&held), Some(now)) = (
             chunks.spawns.get(world),
@@ -1233,7 +1234,7 @@ fn move_spawns(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules) {
         }
         if held.chunk() != now.chunk() {
             for pos in spawn_area(now.chunk()) {
-                hold(worlds, chunks, rules, (world, pos));
+                hold(chunks, (world, pos));
             }
             for pos in spawn_area(held.chunk()) {
                 release(chunks, (world, pos));
@@ -1247,14 +1248,7 @@ fn move_spawns(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules) {
 
 /// Opens or moves a player's view: the chunks it gains are held, those it loses released and
 /// forgotten as sent.
-fn set_view(
-    worlds: &mut [World],
-    chunks: &mut Chunks,
-    rules: &mut Rules,
-    player: &mut Player,
-    center: ChunkPos,
-    radius: u8,
-) {
+fn set_view(chunks: &mut Chunks, player: &mut Player, center: ChunkPos, radius: u8) {
     let (world, session, view) = (player.world, player.session, &mut player.view);
     let old = view.is_open().then_some((view.center, view.radius));
     let size = chunks.disc.size(radius);
@@ -1281,9 +1275,8 @@ fn set_view(
             }
         }
     }
-    // By x, then z: holding a chunk can restore its saved entities, which take ids in turn.
     for_each_outside(center, radius, old, |offset| {
-        hold(worlds, chunks, rules, (world, at(center, offset)));
+        hold(chunks, (world, at(center, offset)));
         #[expect(
             clippy::expect_used,
             reason = "invariant: an offset within the radius, at most MAX_RADIUS, has a rank"
@@ -1326,14 +1319,7 @@ pub(super) fn close(state: &mut State, player: &mut Player) {
 /// Grants a chunk radius: the view opens or resizes around the player.
 pub(super) fn set_radius(state: &mut State, player: &mut Player, radius: u8) {
     let center = chunk_of(player.position);
-    set_view(
-        &mut state.worlds,
-        &mut state.chunks,
-        &mut state.rules,
-        player,
-        center,
-        radius,
-    );
+    set_view(&mut state.chunks, player, center, radius);
 }
 
 /// Sends `session` the client data of the block entity at `pos` once the player sees the world's
@@ -1421,12 +1407,12 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
 /// ([`world_api::step`]), then opens the menus that waited for their blocks and closes those
 /// their player left behind ([`super::inventory::tick_menus`]), moves each view to its player and
 /// its granted radius, picks the chunks to send and the sub-chunk requests to answer this tick,
-/// and asks for the chunk loads they, the spawns and the tickets need. Puts in `requests` what
-/// the save thread is to do: the worlds deleted, the worlds it does not know yet (taken after the
-/// last listener that can make one before the loads, so every load names a world the save thread
-/// knows), then the loads. A world the chunk events make waits for the next view phase or
-/// snapshot.
-pub(super) fn update(state: &mut State, requests: &mut Vec<Request>) {
+/// and asks for the chunk loads they, the spawns and the tickets need, bringing back those that
+/// wait in memory ([`bring_back`]). Puts in `requests` what the save thread is to do: the worlds
+/// deleted, the worlds it does not know yet (taken after the last listener that can make one
+/// before the loads, so every load names a world the save thread knows), then the loads. A world
+/// the chunk events make waits for the next view phase or snapshot.
+pub(super) fn update(state: &mut State, pool: &Pool, requests: &mut Vec<Request>) {
     world_api::step(state);
     super::inventory::tick_menus(state);
     let State {
@@ -1451,14 +1437,21 @@ pub(super) fn update(state: &mut State, requests: &mut Vec<Request>) {
             usize::try_from(n).expect("a rest below the player count fits usize")
         });
     for player in players.values_mut().skip(first) {
-        update_player(settings, worlds, chunks, rules, player);
+        update_player(settings, worlds, chunks, player);
     }
     for player in players.values_mut().take(first) {
-        update_player(settings, worlds, chunks, rules, player);
+        update_player(settings, worlds, chunks, player);
     }
-    move_spawns(worlds, chunks, rules);
+    move_spawns(worlds, chunks);
     request_spawn_loads(worlds, chunks);
     request_ticket_loads(worlds, chunks);
+    bring_back(
+        worlds,
+        chunks,
+        rules,
+        pool,
+        settings.lighting.is_calculated(),
+    );
     let batch = std::mem::take(&mut chunks.batch);
     let deleted = world_api::take_deleted_worlds(state);
     let new = world_api::take_new_worlds(state);
@@ -1477,20 +1470,14 @@ pub(super) fn update(state: &mut State, requests: &mut Vec<Request>) {
 /// Runs one player's part of the view phase: moves its view to the player and its granted
 /// radius, picks the chunks to send and asks for the loads they need, lets the player spawn once
 /// its spawn chunks are sent, and takes the sub-chunk requests to answer this tick.
-fn update_player(
-    settings: &Settings,
-    worlds: &mut [World],
-    chunks: &mut Chunks,
-    rules: &mut Rules,
-    player: &mut Player,
-) {
+fn update_player(settings: &Settings, worlds: &[World], chunks: &mut Chunks, player: &mut Player) {
     if player.view.is_open() {
         let limits = settings.view(player.world);
         let center = chunk_of(player.position);
         // The radius granted since the last view phase (`spawn::request_chunk_radius`).
         let radius = player.chunk_radius.unwrap_or(player.view.radius);
         if center != player.view.center || radius != player.view.radius {
-            set_view(worlds, chunks, rules, player, center, radius);
+            set_view(chunks, player, center, radius);
         }
         // The official server sends a publisher update every tick (P6), so the client's chunk area follows the
         // player block by block rather than a chunk at a time; repeats of a block are left out.
@@ -1583,7 +1570,8 @@ fn announce(state: &mut State) {
 /// too, which the monitors see as a cancel; a cancel past the bound unloads the chunk, which they
 /// see as no cancel. A chunk held again meanwhile, or not loaded (a load in flight), unloads or
 /// stays without asking. Every chunk let go unloads in this one phase, as an unload only moves
-/// the chunk into memory ([`keep_unloaded`]), with no encoding and no disk.
+/// the chunk into memory ([`unload`]) or hands it to the save thread to free, with no encoding
+/// and no disk.
 fn unload_released(state: &mut State) {
     let tick = state.tick;
     while let Some(&(due, key)) = state.chunks.kept.first()
@@ -1710,8 +1698,16 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
     }
 }
 
-/// Asks for a load of `key` this tick unless it is in flight or the bounds are reached.
+/// Asks for a load of `key` this tick unless it is in flight or the bounds are reached. A chunk
+/// whose changes wait in memory for a commit comes back from there instead, so a load never
+/// reads a file older than the tick's data.
 fn want(chunks: &mut Chunks, key: Key) {
+    if chunks.unsaved.contains_key(&key) {
+        if chunks.returning.len() < MAX_RETURNS_PER_TICK {
+            chunks.returning.insert(key);
+        }
+        return;
+    }
     if chunks.requested.contains(&key)
         || chunks.batch.len() >= MAX_LOADS_PER_TICK
         || chunks.in_flight() >= MAX_LOADS_IN_FLIGHT
@@ -1758,18 +1754,53 @@ fn request_ticket_loads(worlds: &[World], chunks: &mut Chunks) {
     chunks.waiting = waiting;
 }
 
+/// Brings back from memory the chunks wanted this tick whose changes wait for a commit
+/// ([`want`]), their terrain and extras with their dirty marks. As the save thread does for a
+/// load, their light (when `lit`) and the typed form of their extras are worked out on the CPU
+/// pool, so each goes into its world lit, only to be connected to its lit neighbours.
+fn bring_back(
+    worlds: &mut [World],
+    chunks: &mut Chunks,
+    rules: &mut Rules,
+    pool: &Pool,
+    lit: bool,
+) {
+    if chunks.returning.is_empty() {
+        return;
+    }
+    let back: Vec<(Key, Unsaved)> = std::mem::take(&mut chunks.returning)
+        .into_iter()
+        .filter_map(|key| chunks.unsaved.remove_entry(&key))
+        .collect();
+    let (custom, types) = (&*rules.custom, &**rules.entities.types());
+    let read = pool.map_owned(back, |(key, mut unsaved)| {
+        if lit {
+            unsaved.chunk.populate_light();
+        }
+        let read =
+            super::rules::read_kept(key, unsaved.extras.extras(), &unsaved.chunk, custom, types);
+        (key, unsaved, read)
+    });
+    for (key, Unsaved { chunk, extras, .. }, read) in read {
+        let Some(world) = worlds.get_mut(key.0) else {
+            continue;
+        };
+        world.insert_chunk(key.1, chunk);
+        rules.load(key, read, extras.extras());
+        chunks.extras.chunk_restored(key, extras);
+        if chunks.heard.load {
+            chunks.loads.entry(key).or_insert(false);
+        }
+    }
+}
+
 /// Holds the chunks a world needs once it is made or loaded: its 3 × 3 spawn chunks.
 pub(super) fn hold_world(state: &mut State, world: WorldIndex) {
     let Some(spawn) = state.worlds.get(world).map(World::spawn) else {
         return;
     };
     for pos in spawn_area(spawn.chunk()) {
-        hold(
-            &mut state.worlds,
-            &mut state.chunks,
-            &mut state.rules,
-            (world, pos),
-        );
+        hold(&mut state.chunks, (world, pos));
     }
     match state.chunks.spawns.get_mut(world) {
         Some(held) => *held = spawn,
@@ -2499,7 +2530,7 @@ mod tests {
 
     /// Holds `key` and loads it as the generator made it.
     fn hold_loaded(state: &mut State, key: Key) {
-        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, key);
+        hold(&mut state.chunks, key);
         let chunk = Box::new(Chunk::generate(&Flat, 0, key.1));
         let answer = crate::tick::extra::tests::sample_loaded(state, key.0, key.1, chunk);
         loaded(state, key.0, key.1, answer);
@@ -2511,6 +2542,110 @@ mod tests {
 
     fn is_loaded(state: &State, key: Key) -> bool {
         state.worlds[key.0].is_chunk_loaded(key.1)
+    }
+
+    /// Holds `keys` again and brings them back from memory as the view phase does, on a pool of
+    /// two threads.
+    fn hold_back(state: &mut State, keys: &[Key]) {
+        for &key in keys {
+            hold(&mut state.chunks, key);
+            want(&mut state.chunks, key);
+        }
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        bring_back(
+            &mut state.worlds,
+            &mut state.chunks,
+            &mut state.rules,
+            &pool,
+            true,
+        );
+    }
+
+    /// Unloads `keys` after a change in each, so they wait in memory for a commit.
+    fn unload_changed(state: &mut State, keys: &[Key]) {
+        let stone = block::State::find("minecraft:stone", &[]).unwrap();
+        for &(world, pos) in keys {
+            state.worlds[world]
+                .set_block(BlockPos::new(pos.x * 16, -60, pos.z * 16), stone)
+                .unwrap();
+            let_go(state, (world, pos));
+        }
+        announce(state);
+        assert!(keys.iter().all(|k| state.chunks.unsaved.contains_key(k)));
+    }
+
+    /// A chunk back from memory has its light and its extras worked out on the CPU pool, as a
+    /// load from the file has: the tick thread reads none of its extras, and it comes back lit.
+    #[test]
+    fn a_chunk_back_from_memory_is_lit_and_read_on_the_cpu_pool() {
+        let mut state = state(Listeners::default());
+        let keys = [FAR, (0, ChunkPos::new(40, 41))];
+        for key in keys {
+            hold_loaded(&mut state, key);
+        }
+        unload_changed(&mut state, &keys);
+        crate::tick::rules::reads::take();
+        hold_back(&mut state, &keys);
+        let on_tick = crate::tick::rules::reads::take();
+        assert_eq!(
+            (on_tick.block_entities, on_tick.entities, on_tick.stacks),
+            (0, 0, 0)
+        );
+        for key in keys {
+            assert!(is_loaded(&state, key) && state.worlds[0].is_chunk_lit(key.1));
+            assert!(state.worlds[0].chunk(key.1).unwrap().is_dirty());
+        }
+        assert!(state.chunks.unsaved.is_empty() && state.chunks.returning.is_empty());
+    }
+
+    /// One view phase brings back at most [`MAX_RETURNS_PER_TICK`] chunks from memory, the ones
+    /// wanted first; the others wait in memory and never load from the file meanwhile.
+    #[test]
+    fn a_view_phase_brings_back_a_bounded_number_of_chunks() {
+        let mut state = state(Listeners::default());
+        let keys: Vec<Key> = (0..=MAX_RETURNS_PER_TICK)
+            .map(|z| (0, ChunkPos::new(40, 40 + i32::try_from(z).unwrap())))
+            .collect();
+        for &key in &keys {
+            hold_loaded(&mut state, key);
+        }
+        unload_changed(&mut state, &keys);
+        hold_back(&mut state, &keys);
+        let (back, waiting) = keys.split_at(MAX_RETURNS_PER_TICK);
+        assert!(back.iter().all(|&k| is_loaded(&state, k)));
+        assert!(!is_loaded(&state, waiting[0]));
+        assert!(state.chunks.unsaved.contains_key(&waiting[0]));
+        assert!(state.chunks.batch.is_empty() && state.chunks.requested.is_empty());
+    }
+
+    /// A chunk a released view lets go of, with nothing waiting for a commit, is freed off the
+    /// tick: the boundary hands it to the save thread.
+    #[test]
+    fn released_chunks_are_freed_by_the_save_thread() {
+        let mut state = state(Listeners::default());
+        // A chunk the sample gives no extras, so nothing of it changes.
+        let key = (0, ChunkPos::new(40, 43));
+        hold_loaded(&mut state, key);
+        let_go(&mut state, key);
+        announce(&mut state);
+        assert!(!is_loaded(&state, key) && !state.chunks.unsaved.contains_key(&key));
+        assert_eq!(state.chunks.discarded.len(), 1);
+        let mut output = Output::default();
+        crate::tick::boundary(
+            &mut state,
+            &mut output,
+            &mut crate::tick::log::InputLog::default(),
+        );
+        assert!(state.chunks.discarded.is_empty());
+        let freed: usize = output
+            .requests
+            .iter()
+            .map(|r| match r {
+                Request::Discard { chunks, .. } => chunks.len(),
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(freed, 1);
     }
 
     // api: ChunkLoadEvent, ChunkPopulateEvent
@@ -2541,7 +2676,7 @@ mod tests {
         announce(&mut state);
         assert!(logged().is_empty());
         assert!(!is_loaded(&state, FAR) && state.chunks.unsaved.contains_key(&FAR));
-        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
+        hold_back(&mut state, &[FAR]);
         announce(&mut state);
         assert_eq!(logged(), ["40 40 false true", "monitor 40"]);
         // A chunk let go before the view phase is still loaded there: it is announced, then
@@ -2598,7 +2733,7 @@ mod tests {
         let mut state = state(keeping());
         hold_loaded(&mut state, FAR);
         let_go(&mut state, FAR);
-        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
+        hold(&mut state.chunks, FAR);
         announce(&mut state);
         assert!(logged().is_empty());
         assert!(is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
@@ -2970,7 +3105,6 @@ mod tests {
                 players,
                 worlds,
                 chunks,
-                rules,
                 ..
             } = &mut state;
             let player = players.get_mut(&session).unwrap();
@@ -2982,7 +3116,7 @@ mod tests {
                 lost.sort_unstable();
                 released.sort_unstable();
                 assert_eq!(lost, released);
-                set_view(worlds, chunks, rules, player, to, r);
+                set_view(chunks, player, to, r);
                 (center, radius) = (to, r);
                 moves += 1;
             }
@@ -3663,29 +3797,5 @@ mod tests {
             .unwrap();
         tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(block_updates(received(&mut rx).0), [([17, 2, 1], 0, dirt)]);
-    }
-
-    /// A chunk load that waits for the view phase across a tick boundary, as a chunk held again
-    /// from memory by a deferred callback does, is in the checkpoint.
-    #[test]
-    fn chunk_loads_waiting_for_the_view_phase_are_in_the_checkpoint() {
-        use crate::tick::checkpoint::{Ground, Reader, Writer};
-        let mut chunks = Chunks::default();
-        chunks.loads.insert((0, ChunkPos::new(3, 4)), true);
-        chunks.loads.insert((1, ChunkPos::new(-2, 0)), false);
-        let mut w = Writer::default();
-        chunks.checkpoint(&mut w);
-        let (bytes, opaque) = w.into_parts();
-        assert_eq!(opaque, None);
-        let custom = crate::custom::Registry::default();
-        let entities = crate::tick::entity::Customs::default();
-        let mut restored = Chunks::default();
-        restored
-            .restore(
-                &mut Reader::new(&bytes, &custom, &entities),
-                &mut Ground::default(),
-            )
-            .unwrap();
-        assert_eq!(restored.loads, chunks.loads);
     }
 }
