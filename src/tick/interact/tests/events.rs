@@ -3,6 +3,7 @@
 //! lose items.
 
 use super::*;
+use crate::block::PropertyValue;
 use crate::event::{
     BlockBreak, BlockPlace, InteractAction, InventoryClose, Listeners, PlayerEntityInteract,
     PlayerInteract, PlayerItemUse, Priority, SignChange,
@@ -1553,6 +1554,67 @@ fn door_sounds(packets: &[Packet]) -> usize {
             matches!(p, Packet::LevelEvent(e) if e.event_type == i32::from(Event::SoundOpenDoor))
         })
         .count()
+}
+
+/// The halves of the iron door at [`TARGET`]: the lower, then the upper.
+fn iron_door(h: &mut Harness) -> [BlockPos; 2] {
+    let lower = Kind::IronDoor.default_state();
+    let upper = props::with_flag(lower, "upper_block_bit", true).unwrap();
+    let above = BlockPos::new(TARGET.x, TARGET.y + 1, TARGET.z);
+    h.set(TARGET, lower);
+    h.set(above, upper);
+    [TARGET, above]
+}
+
+/// A right click on either half of an iron door and on an iron trapdoor changes nothing, plays no
+/// door sound and sends the client the real blocks of the whole door again.
+#[test]
+fn a_right_click_leaves_iron_doors_and_trapdoors_shut() {
+    let mut h = Harness::new(|_| {});
+    h.hold(Stack::EMPTY);
+    let halves = iron_door(&mut h);
+    let before = halves.map(|p| h.block(p));
+    for clicked in halves {
+        h.run(Vec::new());
+        h.packets();
+        use_on(&mut h, clicked, Face::West);
+        assert_eq!(halves.map(|p| h.block(p)), before);
+        let sent = h.packets();
+        assert_eq!(door_sounds(&sent), 0);
+        let resynced = updates(&sent);
+        assert!(halves.iter().all(|p| resynced.contains(p)), "{resynced:?}");
+    }
+    let trapdoor = Kind::IronTrapdoor.default_state();
+    h.set(TARGET, trapdoor);
+    h.run(Vec::new());
+    h.packets();
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(h.block(TARGET), trapdoor);
+    let sent = h.packets();
+    assert_eq!(door_sounds(&sent), 0);
+    assert!(updates(&sent).contains(&TARGET));
+}
+
+// api: World::setBlock
+/// Code opens and closes both halves of an iron door and an iron trapdoor with the state's
+/// `open_bit`.
+#[test]
+fn code_opens_and_closes_iron_doors_and_trapdoors() {
+    let mut h = Harness::new(|_| {});
+    let halves = iron_door(&mut h);
+    h.set(BESIDE, Kind::IronTrapdoor.default_state());
+    for (open, expected) in [(1, true), (0, false)] {
+        for p in halves.into_iter().chain([BESIDE]) {
+            let s = h
+                .block(p)
+                .with("open_bit", PropertyValue::Byte(open))
+                .unwrap();
+            h.set(p, s);
+        }
+        for p in halves.into_iter().chain([BESIDE]) {
+            assert_eq!(props::flag(h.block(p), "open_bit"), Some(expected));
+        }
+    }
 }
 
 // api: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition

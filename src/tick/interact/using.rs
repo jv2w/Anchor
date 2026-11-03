@@ -10,7 +10,7 @@ use tracing::debug;
 use super::{
     Actor, Source, USE, adventure_allows, block_vec, center, place, props, return_items, stream,
 };
-use crate::block::{self, Class, Face, State as BlockState};
+use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
 use crate::event::{
     BlockPlace, InteractAction, PlayerEntityInteract, PlayerInteract, PlayerItemUse,
@@ -372,6 +372,11 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
     if block.custom_block().is_some() {
         u.ran_user_code = true;
         return super::custom::used(state, u.actor.session, u.actor.world, u.pos, block);
+    }
+    // Only code opens these two; the client is sent the real blocks again, which undoes any
+    // opening it drew itself.
+    if matches!(block.kind(), Kind::IronDoor | Kind::IronTrapdoor) {
+        return false;
     }
     for class in block.kind().classes() {
         match class {

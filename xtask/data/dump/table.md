@@ -9500,7 +9500,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::isSpawnChunk` | implemented | src/world.rs:784 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
 | `world\World::loadChunk` | differs | src/tick/view.rs:998 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
-| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
+| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
 | `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1000 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::registerChunkLoader` | implemented | src/tick/view.rs:997 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
@@ -9515,7 +9515,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::scheduleDelayedBlockUpdate` | skipped |  |  | block rule code: Anchor has no scheduled block updates |
 | `world\World::setAutoSave` | merged | src/tick/command.rs:972 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
 | `world\World::setBiomeId` | implemented | src/world.rs:1044 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::setBlock` | implemented | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::setBlock` | implemented | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setBlockAt` | implemented | src/world.rs:1080 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setChunk` | skipped |  |  | the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block` |
 | `world\World::setChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
