@@ -116,10 +116,10 @@ RakNet only.
 - Where outbound batches are cut (size and count) is in `protocol.md`'s batch format. Order is kept.
 - The Snappy format on the server side is confirmed against the official server.
 
-## Remaining risks and what cannot be verified
-These show only on the official client; neither the official server nor bots can settle them.
+## Behavior only the official client shows
+Neither the official server nor bots can settle these.
 - Whether the official client joins over RakNet.
-- A burst loss of 1,024 or more consecutive datagram numbers makes the server drop the later datagrams until the connection times out.
+- A jump of 1,024 or more datagram numbers is outside the receive record, so the server drops the later datagrams until the connection times out; the record's size is bounded to bound memory.
 - gophertunnel's comment reports, unconfirmed, that devices without AVX2 crash with Snappy (a Mojang bug report points the same way).
 - Whether a held right click's copies stay byte-identical within a client tick while the player moves, and whether other packets come every frame. If the position changes every frame, the copies cannot be dropped and count against the packet budget, so a client holding the button while moving at over 512 frames per second exceeds it and is disconnected. Copies do count against the byte budget, so holding a heavy item (NBT of a few KiB) at hundreds of frames per second can reach `max-batch-bytes` / 4 per second.
 - Whether 32 deferred packets before the join are enough, whether the strict ClientData JSON accepts all of the official client's output, and the number after a mode other than survival in the pong (the official server sends only `Survival;1`).

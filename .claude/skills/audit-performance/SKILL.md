@@ -43,7 +43,7 @@ A defect has all five, proven.
 ## Not candidates
 - Allocation and linear search on startup and shutdown paths, which run outside the tick path and async tasks. On the tick path and in async tasks, a linear search breaks `CLAUDE.md` §3 even on a rare path.
 - Collections and queues with a bound and a release point. Filling up to the bound is not a leak.
-- What the design decides: the `sleep` between ticks, blocking on the save thread and the blocking pool, codec, compression, and encryption on network workers, choices whose reason is written in `.claude/docs/`, and the known limits and risks in `.claude/docs/architecture.md`. They are candidates only when you show by code that the reason no longer fits the current code.
+- What the design decides: the `sleep` between ticks, blocking on the save thread and the blocking pool, codec, compression, and encryption on network workers, choices whose reason is written in `.claude/docs/`, and the design limits in `.claude/docs/architecture.md`. They are candidates only when you show by code that the reason no longer fits the current code.
 - What `cargo xtask check` already blocks (the `.clippy.toml` deny lists, `clone_on_ref_ptr`, and others). A spot lifted with `#[expect]` is a candidate for whether its reason is true.
 - `dyn` at extension points, costs the compiler removes (small `Copy` values, moves, small function calls), containers already sized.
 - Test code and generated files themselves (fix the cost of generated code in its generator).
@@ -51,7 +51,7 @@ A defect has all five, proven.
 - Several spots with one cause are one defect.
 
 ## Steps
-1. **Read**: `.claude/rules/architecture.md`, `.claude/docs/architecture.md` (threads and queues, the tick, known limits and risks), and the target topic's rules and docs.
+1. **Read**: `.claude/rules/architecture.md`, `.claude/docs/architecture.md` (threads and queues, the tick, design limits), and the target topic's rules and docs.
 2. **Collect**: start from frequency and resources, not from the look of the code.
    - Write a candidate down only when you can fill in the frequency, the bound N, and the cost formula (for example, N_player × N_entity comparisons every tick). Otherwise drop it on the spot.
    - For a large target, split it into groups (tick stages, network and session, storage, chunks and lighting) and give each to a subagent that only collects and edits no file. Have it read this file and return the frequency, N, cost formula, and `file:line` per candidate. Decide every candidate yourself.

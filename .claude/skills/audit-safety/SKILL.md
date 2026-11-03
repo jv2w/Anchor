@@ -38,14 +38,14 @@ A malicious client that only disconnects itself causes no harm (it is the same a
 ## Not candidates
 - What `cargo xtask check` already blocks: the lints in `[workspace.lints]` (`unwrap_used`, `indexing_slicing`, `panic`, and others) and the `.clippy.toml` deny lists (clocks, randomness, `HashMap`, locks, blocking I/O, and others). A spot lifted with `#[expect(..., reason = "...")]` is a candidate for whether that reason is true; in particular, an `invariant` tag whose invariant external input can break is a defect.
 - Test code (`#[cfg(test)]`, `tests/`) and generated files themselves. Look for defects of generated code in its generator (`xtask/src/gen*`) or in the hand-written helpers the generated code calls.
-- The known limits and risks in `.claude/docs/architecture.md`, intended decisions with a written reason, and `xtask/data/p6/intended.txt`. They are candidates only when you show the reason is wrong for the current code.
+- The design limits in `.claude/docs/architecture.md`, intended decisions with a written reason, and `xtask/data/p6/intended.txt`. They are candidates only when you show the reason is wrong for the current code.
 - Proposals to recheck a value already checked earlier, checks inside internal calls within the trust boundary, and error handling with no meaningful recovery.
 - Anything whose only evidence is a name, a comment, or the look of the code ("there is an `as`", "this could overflow"). Follow where the value actually comes from first.
 - Defects inside a dependency on paths Anchor never calls.
 - Several spots with one cause are one defect.
 
 ## Steps
-1. **Read**: the `.claude/rules/` and `.claude/docs/` topic files for the target, and the known limits and risks in `.claude/docs/architecture.md`. Knowing the bounds, policies, and known limits already set cuts noise.
+1. **Read**: the `.claude/rules/` and `.claude/docs/` topic files for the target, and the design limits in `.claude/docs/architecture.md`. Knowing the bounds, policies, and limits already set cuts noise.
 2. **Collect**: start from the input, not from the look of the code.
    - For each trust boundary, find where values enter and follow each value to where it is used before being checked (allocation size, index, arithmetic, cast, recursion depth, state change, save).
    - Write a candidate down only when you can fill in the trigger (who, which input), the path (chained `file:line`), and the result. Otherwise drop it on the spot.

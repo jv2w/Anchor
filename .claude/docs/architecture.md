@@ -236,7 +236,7 @@ There is one dimension, the overworld (y −64 to 319, 24 sub-chunks).
 - What a world file holds, and where the seed and spawn come from, is in `storage.md`.
 - Per-world values: difficulty (`set_world_difficulty`), time stop (`stop_time`, `start_time`; not saved), chunk tickets (`hold_chunks`; bounds `world::MAX_TICKETS`, `MAX_TICKET_CHUNKS`, `MAX_TICKET_RADIUS`), view and sending values (`[worlds.<name>]`), weather.
 
-## Known limits and risks
+## Design limits
 
 - What user code wrote to outside systems is not undone by a crash, and a replay does it again.
 - A segment whose checkpoint holds closures or Extensions cannot be replayed. Scheduled tasks are gone after a restart.

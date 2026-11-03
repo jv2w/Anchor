@@ -95,6 +95,6 @@ paths:
 - Record the report of Snappy crashes on devices without AVX2 in the `Compression` rustdoc.
 
 ## What cannot be verified
-- Design what only the official client shows to accept every case, and list it under the remaining risks in `.claude/docs/network.md`.
+- Design what only the official client shows to accept every case, and list it under the behavior only the official client shows in `.claude/docs/network.md`.
 
 Background and detailed facts are in `.claude/docs/network.md`.

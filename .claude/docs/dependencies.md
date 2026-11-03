@@ -56,7 +56,7 @@ Versions and features are the `=` pins in `Cargo.toml` and the locked versions i
 | 3 | Every growth doubles the file (or fills its trailing region, up to 4 GiB), so after `compact` any small commit doubles the file → grow by an eighth of the file, and at least twice the allocation | `a_small_commit_after_a_compaction_grows_the_file_by_a_step_not_double` in `xtask/tests/redb_repro.rs` |
 
 - The copy also corrects the one upstream test expectation that fix 2 contradicts (`tests/check_integrity_failure.rs`), and its `.gitignore` keeps the published `Cargo.lock`.
-- Remaining risks: a crafted file whose slot checksums also match allocates up to 4 GiB (#1503; random damage does not reach it). Page damage that appears while the server runs can panic a read (#1334): the save thread panics, the server exits, and the next start refuses the file.
+- Limits: a crafted file whose slot checksums also match allocates up to 4 GiB (#1503; random damage does not reach it). Page damage that appears while the server runs can panic a read (#1334): the save thread panics, the server exits, and the next start refuses the file.
 - Outside tests, redb starts no threads and reads no clock or randomness. Anchor lowers its cache (`CACHE_BYTES`, `src/storage.rs`). Its open, transaction, integrity check, compact, and commit entry points are denied outside the storage module.
 - redb has no integrity check that leaves the file untouched (the open and `check_integrity` write the header; a repair also writes the allocator state); the start check works around it (`storage.md`).
 

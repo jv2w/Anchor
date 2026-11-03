@@ -244,15 +244,15 @@ impl Commands {
         h.u64(u64::from(*stopping));
     }
 
+    /// The operator list, the bans and the whitelist, shared with the state until the next change.
+    pub(super) fn access_lists(&self) -> Arc<Lists> {
+        self.access.lists()
+    }
+
     /// Whether periodic saves are on: the save snapshot due every `save-interval-minutes` is
     /// taken only then.
     pub(super) fn is_auto_save_on(&self) -> bool {
         self.auto_save
-    }
-
-    /// The operator list, the bans and the whitelist, shared with the state until the next change.
-    pub(super) fn access_lists(&self) -> Arc<Lists> {
-        self.access.lists()
     }
 
     /// The source of a player's `AvailableCommands`, without the handlers, so that the output

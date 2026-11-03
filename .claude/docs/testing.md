@@ -131,7 +131,7 @@ P6 runs the same bot scenarios against the official server and Anchor and compar
 
 The bot and the official server cannot show the client's screen or the values the official client sends. The user's checklist, to go through by joining with the official client, is the real-client section at the end of `xtask/data/p6/facts.md` plus these items:
 
-- Network: the remaining risks listed in `network.md`, and how resource pack chunks are requested.
+- Network: the behavior only the official client shows, listed in `network.md`, and how resource pack chunks are requested.
 - Spawn: when PlayStatus(PlayerSpawn) is sent (Anchor sends it after the chunks of the `spawn-radius` circle), the chunk publisher update sent only when the player's block changes (not every tick, no repeats of the same value), the BiomeDefinitionList order.
 - Creative inventory: how education edition items show in creative, and the effect of `deprecated` block names.
 - Windows and worlds: the 2-tick window open delay, the pairing display of double chests, old chunks and the difficulty after a teleport to another world in the same dimension.

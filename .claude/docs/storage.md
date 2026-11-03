@@ -112,15 +112,15 @@ A crash (a killed process, a power cut, a panic of the tick or the save thread):
 
 Why one savepoint per file: the pages it holds are freed when the next save deletes it, so a file grows by at most one save's changes; a normal stop deletes it.
 
-Remaining risks:
+Limits:
 
 - What user callbacks did to outside systems (files, network) is not undone by a crash.
-- Defects redb has not fixed (`dependencies.md`): a crafted file with matching checksums can cause a large allocation, and page damage made by hardware while the server runs makes a read panic, which stops the server without saving (the next start's check refuses the file).
+- redb defects not fixed upstream (`dependencies.md`): a crafted file with matching checksums can cause a large allocation, and page damage made by hardware while the server runs makes a read panic, which stops the server without saving (the next start's check refuses the file).
 - With `integrity-check = "never"`, a start runs no redb integrity check; damage shows only when a value is read.
 - On Windows, a file creation or rename just before a power cut can be lost.
 - A newly made folder (`data/`, `data/worlds/`, a backup folder) is never flushed into its parent folder, on any system.
-- If another program changes a file between the start check and the start's open, those bytes are not checked: the check releases redb's lock before the open takes it again. At a server start the gap lasts until every start file is checked.
-- The start backup is made while the server runs. A crash before it ends leaves no new start backup, only the earlier backups.
+- The check releases redb's lock before the open takes it again, so bytes another program changes in between are not checked. At a server start the gap lasts until every start file is checked.
+- The start backup is made while the server runs, so a crash before it ends leaves no new start backup, only the earlier backups.
 
 ## Start and integrity check
 
