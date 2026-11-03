@@ -1,8 +1,8 @@
-//! Commands on the server: `/list`, `/save-all`, `/save-off`, `/save-on`, `/status`, `/stop`,
-//! `/about` and `/backup`. `/status` shows Anchor's own lines.
+//! Commands on the server: `/list`, `/save`, `/status`, `/stop`, `/about` and
+//! `/backup`. `/status` shows Anchor's own lines.
 
 use super::{Msg, announce, infallible};
-use crate::command::{Args, Command, Output, Result, Sender};
+use crate::command::{Args, Command, Output, Param, Result, Sender};
 use crate::permission;
 use crate::player::Player;
 use crate::protocol::packet::PROTOCOL_VERSION;
@@ -21,11 +21,11 @@ const BACKUP_START: Msg =
 const MIB: u64 = 1 << 20;
 /// The first line of `/list`.
 const PLAYERS_LIST: Msg = Msg::client("commands.players.list");
-/// The success line of `/save-off`.
+/// The success line of `/save off`.
 const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
-/// The success line of `/save-on`.
+/// The success line of `/save on`.
 const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
-/// The success line of `/save-all`.
+/// The success line of `/save all`.
 const SAVE_START: Msg = Msg::client("commands.save.start");
 /// The success line of `/stop`.
 const STOP_START: Msg = Msg::client("commands.stop.start");
@@ -36,15 +36,19 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("list", "commands.list.description")
             .permission(permission::COMMAND_LIST)
             .overload(&[], infallible(list)),
-        Command::new("save-all", "Saves every world and player now")
-            .permission(permission::COMMAND_SAVE_PERFORM)
-            .overload(&[], infallible(save_all)),
-        Command::new("save-off", "Turns automatic saving off until save-on")
-            .permission(permission::COMMAND_SAVE_DISABLE)
-            .overload(&[], infallible(save_off)),
-        Command::new("save-on", "commands.save-on.description")
-            .permission(permission::COMMAND_SAVE_ENABLE)
-            .overload(&[], infallible(save_on)),
+        Command::new(
+            "save",
+            "Turns automatic saving on or off, or saves everything now",
+        )
+        .permission(permission::COMMAND_SAVE)
+        .overload(
+            &[Param::enumeration(
+                "action",
+                "SaveAction",
+                &["on", "off", "all"],
+            )],
+            infallible(save),
+        ),
         Command::new("backup", "Saves the server and backs up its data files")
             .permission(permission::COMMAND_BACKUP)
             .overload(&[], backup),
@@ -70,35 +74,36 @@ fn list(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     PLAYERS_LIST.output(&[&count, &max]).line(names.join(", "))
 }
 
-/// Asks for a save of everything at the end of the tick, as one commit ([`Context::save`])
-/// (`/save-all`). The end of the commit is not reported: it comes later, off the tick.
-fn save_all(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    let out = announce(cx, *sender, SAVE_START, &[]);
-    cx.save();
-    out
+/// Turns the periodic save on, or off until the server stops or `/save on`
+/// ([`Context::set_auto_save_enabled`] says what still saves), or asks for a save of everything
+/// at the end of the tick, as one commit ([`Context::save`]) (`/save on|off|all`). The end of
+/// the commit is not reported: it comes later, off the tick.
+fn save(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
+    match args.string("action") {
+        Some("on") => {
+            cx.set_auto_save_enabled(true);
+            announce(cx, *sender, SAVE_ENABLED, &[])
+        }
+        Some("off") => {
+            cx.set_auto_save_enabled(false);
+            announce(cx, *sender, SAVE_DISABLED, &[])
+        }
+        _ => {
+            let out = announce(cx, *sender, SAVE_START, &[]);
+            cx.save();
+            out
+        }
+    }
 }
 
 /// Asks for a save of everything, then a backup of the saved data files while the server runs
 /// ([`Context::backup`]) (`/backup`). The backup ends later, off the tick, so the log tells its
-/// result, as for `/save-all`'s commit.
+/// result, as for `/save all`'s commit.
 fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
     if !cx.backup() {
         return Err(BACKUP_OFF.error(&[]));
     }
     Ok(announce(cx, *sender, BACKUP_START, &[]))
-}
-
-/// Turns the periodic save off until the server stops or `/save-on` (`/save-off`;
-/// [`Context::set_auto_save_enabled`] says what still saves).
-fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    cx.set_auto_save_enabled(false);
-    announce(cx, *sender, SAVE_DISABLED, &[])
-}
-
-/// Turns the periodic save back on (`/save-on`).
-fn save_on(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
-    cx.set_auto_save_enabled(true);
-    announce(cx, *sender, SAVE_ENABLED, &[])
 }
 
 /// Shows the uptime by the wall clock and in ticks, the TPS and tick times now and averaged over

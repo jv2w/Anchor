@@ -354,7 +354,7 @@ impl InputLog {
     }
 
     /// Whether the inputs recorded since the state of the last commit reach a quarter of the
-    /// bound: the tick then takes a snapshot even with periodic saves off (`/save-off`), so
+    /// bound: the tick then takes a snapshot even with periodic saves off (`/save off`), so
     /// recording does not stop at the bound while the commit is written. In a replay's log:
     /// whether the replayed log's snapshot started at `tick`, the tick of the boundary.
     pub(crate) fn wants_commit(&self, tick: u64) -> bool {

@@ -119,7 +119,7 @@ pub(crate) struct Commands {
     runs: u64,
     /// The operator list, the bans and the whitelist.
     access: Access,
-    /// Whether periodic saves are on (`/save-on`, `/save-off`); not saved.
+    /// Whether periodic saves are on (`/save on`, `/save off`); not saved.
     auto_save: bool,
     /// Whether a command or callback asked the server to stop after this tick.
     stopping: bool,

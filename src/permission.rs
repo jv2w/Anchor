@@ -328,12 +328,8 @@ builtin! {
     COMMAND_OP_GIVE = "anchor.command.op.give", Op;
     /// Take operator status away (`/deop`).
     COMMAND_OP_TAKE = "anchor.command.op.take", Op;
-    /// Turn periodic saving off (`/save-off`).
-    COMMAND_SAVE_DISABLE = "anchor.command.save.disable", Op;
-    /// Turn periodic saving on (`/save-on`).
-    COMMAND_SAVE_ENABLE = "anchor.command.save.enable", Op;
-    /// Save now (`/save-all`).
-    COMMAND_SAVE_PERFORM = "anchor.command.save.perform", Op;
+    /// Turn periodic saving on or off, or save now (`/save`).
+    COMMAND_SAVE = "anchor.command.save", Op;
     /// Show the server's uptime and load (`/status`).
     COMMAND_STATUS = "anchor.command.status", Op;
     /// Stop the server (`/stop`).

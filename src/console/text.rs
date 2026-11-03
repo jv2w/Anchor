@@ -7,7 +7,7 @@
 use crate::player::Message;
 
 /// Anchor's sentences by translation key, in key order; `{%0}`, `{%1}`... are the parameters.
-const TEXTS: [(&str, &str); 97] = [
+const TEXTS: [(&str, &str); 96] = [
     ("chat.type.admin", "[{%0}: {%1}]"),
     ("chat.type.announcement", "[{%0}] {%1}"),
     ("chat.type.text", "<{%0}> {%1}"),
@@ -101,7 +101,6 @@ const TEXTS: [(&str, &str); 97] = [
     ("commands.op.message", "You are an operator now"),
     ("commands.op.success", "{%0} is an operator now"),
     ("commands.players.list", "Players online: {%0} of {%1}"),
-    ("commands.save-on.description", "Turns automatic saving on"),
     ("commands.save.disabled", "Automatic saving is off"),
     ("commands.save.enabled", "Automatic saving is on"),
     ("commands.save.start", "Saving"),

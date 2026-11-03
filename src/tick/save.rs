@@ -797,7 +797,7 @@ mod tests {
         );
         state.commands.finish().unwrap();
         if !auto_save {
-            crate::tick::command::console(&mut state, "save-off");
+            crate::tick::command::console(&mut state, "save off");
             assert!(!state.commands.is_auto_save_on());
         }
         let pool = crate::runtime::cpu_pool(1).unwrap();

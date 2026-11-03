@@ -66,7 +66,7 @@ const OFFICIAL_OVERLOADS: [&str; 20] = [
     "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
 ];
 /// The commands that no longer exist, with the names they had.
-const REMOVED_COMMANDS: [&str; 22] = [
+const REMOVED_COMMANDS: [&str; 25] = [
     "help",
     "?",
     "me",
@@ -89,6 +89,9 @@ const REMOVED_COMMANDS: [&str; 22] = [
     "suicide",
     "pardon",
     "pardon-ip",
+    "save-on",
+    "save-off",
+    "save-all",
 ];
 
 #[test]
@@ -121,10 +124,10 @@ fn ok(state: &mut State, sender: Sender, line: &str) -> Vec<String> {
 fn every_builtin_registers_and_users_replace_or_drop_them() {
     let (state, _rx) = server(Vec::new());
     let mut names: Vec<&str> = state.commands.list.iter().map(Command::name).collect();
-    assert_eq!(names.len(), 23);
+    assert_eq!(names.len(), 21);
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 23);
+    assert_eq!(names.len(), 21);
     let mut commands = crate::Server::builder()
         .command(
             Command::new("list", "mine").overload(&[], |_, _, _| Ok(Output::from("user's list"))),
@@ -178,7 +181,7 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     let Packet::AvailableCommands(p) = &packet else {
         panic!("{packet:?}");
     };
-    assert_eq!(p.commands.len(), 23, "all");
+    assert_eq!(p.commands.len(), 21, "all");
     let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
     assert_eq!(tp.overloads.len(), 4);
     let shapes: Vec<Vec<&str>> = tp
@@ -1015,14 +1018,14 @@ fn stop_asks_the_tick_loop_to_end() {
 
 // api: WorldManager::setAutoSave, WorldManager::getAutoSave
 #[test]
-fn save_off_skips_the_periodic_save_but_not_save_all() {
+fn save_off_skips_the_periodic_save_but_not_save_on_request() {
     let (mut state, _rx) = with_op();
     // The commit `op` asked for is taken and answered.
     let mut output = TickOutput::default();
     tick(&mut state, &mut Vec::new(), &mut output);
     tick(&mut state, &mut Vec::new(), &mut output);
     assert_eq!(
-        ok(&mut state, id(1), "save-off"),
+        ok(&mut state, id(1), "save off"),
         ["commands.save.disabled"]
     );
     assert!(!Context { state: &mut state }.is_auto_save_enabled());
@@ -1030,21 +1033,42 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
     state.tick += 1_000_000;
     let mut log = InputLog::default();
     assert!(save::snapshot(&mut state, &mut log, false).is_none());
-    assert_eq!(ok(&mut state, id(1), "save-all"), ["commands.save.start"]);
+    assert_eq!(ok(&mut state, id(1), "save all"), ["commands.save.start"]);
     assert!(save::snapshot(&mut state, &mut log, false).is_some());
     let mut state = with_op().0;
     let mut output = TickOutput::default();
     tick(&mut state, &mut Vec::new(), &mut output);
     tick(&mut state, &mut Vec::new(), &mut output);
-    ok(&mut state, Sender::Console, "save-off");
+    ok(&mut state, Sender::Console, "save off");
     assert_eq!(
-        ok(&mut state, Sender::Console, "save-on"),
+        ok(&mut state, Sender::Console, "save on"),
         ["commands.save.enabled"]
     );
     assert!(Context { state: &mut state }.is_auto_save_enabled());
     state.tick += 1_000_000;
     assert!(save::snapshot(&mut state, &mut log, false).is_some());
-    assert!(is_refused(&run(&mut state, id(2), "save-all")));
+}
+
+#[test]
+fn save_is_for_operators_and_needs_one_of_on_off_or_all() {
+    let (mut state, _rx) = with_op();
+    assert_eq!(permission::COMMAND_SAVE.default(), permission::Default::Op);
+    for action in ["on", "off", "all"] {
+        assert!(
+            is_refused(&run(&mut state, id(2), &format!("save {action}"))),
+            "{action}"
+        );
+    }
+    assert!(Context { state: &mut state }.is_auto_save_enabled());
+    for line in ["save", "save nope"] {
+        assert!(is_usage(&run(&mut state, id(1), line)), "{line}");
+    }
+    for name in ["save-on", "save-off", "save-all"] {
+        assert!(matches!(
+            run(&mut state, id(1), name),
+            Err(Error::Unknown { .. })
+        ));
+    }
 }
 
 #[test]
