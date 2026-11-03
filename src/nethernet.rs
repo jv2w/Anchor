@@ -126,6 +126,12 @@ impl Handle {
 /// A request to the driver.
 #[derive(Debug)]
 enum Command {
+    /// A question whether a peer from `ip` would be admitted, asked before the offer's costly
+    /// verification. The answer is only a hint: `Open` checks the limits again.
+    Admit {
+        ip: IpAddr,
+        reply: oneshot::Sender<bool>,
+    },
     /// A peer wanted for a verified offer.
     Open {
         remote: peer::Remote,
@@ -292,9 +298,13 @@ impl Offers {
         local_ip: IpAddr,
     ) -> Result<String, Refusal> {
         let offer = sdp::parse_offer(text).map_err(Refusal::Offer)?;
+        if offer.identity.is_none() && self.auth.is_some() {
+            return Err(Refusal::NoIdentity);
+        }
+        // Before the verification, which costs signature checks and may fetch keys.
+        self.admit(client_ip).await?;
         let client_key = match &offer.identity {
             Some(assertion) => Some(self.verify(assertion, &offer.fingerprint).await?),
-            None if self.auth.is_some() => return Err(Refusal::NoIdentity),
             None => None,
         };
         let advertised = self.advertised(local_ip)?;
@@ -333,6 +343,23 @@ impl Offers {
             ice_pwd: &local.ice_pwd,
             fingerprint: &fingerprint,
         }))
+    }
+
+    /// Asks the driver whether a peer from `client_ip` fits the pre-login limits.
+    async fn admit(&self, client_ip: IpAddr) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        self.driver
+            .send(Command::Admit {
+                ip: client_ip,
+                reply,
+            })
+            .await
+            .map_err(|_| Refusal::DriverGone)?;
+        if answer.await.map_err(|_| Refusal::DriverGone)? {
+            Ok(())
+        } else {
+            Err(Refusal::Busy)
+        }
     }
 
     /// Verifies the offer identity: online against the authorization keys through
@@ -603,6 +630,12 @@ impl Driver {
         }
     }
 
+    /// Whether a peer from `ip` fits the pre-login limits and the driver is not stopping.
+    fn has_room(&self, ip: IpAddr) -> bool {
+        let per_ip = self.pre_login.get(&ip_key(ip)).copied().unwrap_or(0);
+        !self.stopping && self.pre_login_total < MAX_PRE_LOGIN && per_ip < MAX_PRE_LOGIN_PER_IP
+    }
+
     /// The timer pass: reads the connections' flags, applies the commands queued before them,
     /// then removes the closing peers that delivered everything and drives those whose time
     /// came.
@@ -656,6 +689,12 @@ impl Driver {
     fn command(&mut self, command: Command) {
         let now = clock::now();
         match command {
+            Command::Admit { ip, reply } => {
+                // An offer task that is gone no longer needs the answer.
+                if reply.send(self.has_room(ip)).is_err() {
+                    trace!("nethernet admission question withdrawn");
+                }
+            }
             Command::Open {
                 remote,
                 local,
@@ -703,12 +742,10 @@ impl Driver {
         ip: IpAddr,
         now: Instant,
     ) -> Result<peer::Local, Refusal> {
-        let key = ip_key(ip);
-        let per_ip = self.pre_login.get(&key).copied().unwrap_or(0);
-        if self.stopping || self.pre_login_total >= MAX_PRE_LOGIN || per_ip >= MAX_PRE_LOGIN_PER_IP
-        {
+        if !self.has_room(ip) {
             return Err(Refusal::Busy);
         }
+        let key = ip_key(ip);
         let mut made = None;
         for _ in 0..UFRAG_TRIES {
             let peer = Peer::new(
@@ -1398,6 +1435,11 @@ pub(crate) mod tests {
             reply,
         };
         let task = tokio::spawn(offers.answer(offer));
+        let admit = tokio::time::timeout(WAIT, commands.recv()).await.unwrap();
+        let Some(Command::Admit { reply, .. }) = admit else {
+            panic!("the offer did not ask for admission");
+        };
+        reply.send(true).unwrap();
         // The driver takes the peer request and never answers it.
         let held = tokio::time::timeout(WAIT, commands.recv()).await.unwrap();
         assert!(matches!(held, Some(Command::Open { .. })));
@@ -1414,7 +1456,12 @@ pub(crate) mod tests {
     #[test]
     fn an_offer_is_refused_with_its_reason() {
         run(async {
-            let (driver, _commands) = mpsc::channel(1);
+            let (driver, mut commands) = mpsc::channel(1);
+            let admitting = tokio::spawn(async move {
+                while let Some(Command::Admit { reply, .. }) = commands.recv().await {
+                    reply.send(true).unwrap();
+                }
+            });
             let offers = Offers {
                 identity: Arc::new(ServerIdentity::generate().unwrap()),
                 auth: None,
@@ -1444,6 +1491,57 @@ pub(crate) mod tests {
             let refusal = offers.negotiate(&offer, client, client).await.unwrap_err();
             assert!(matches!(refusal, Refusal::NoSocket), "{refusal:?}");
             assert_eq!(refusal.reply(), Reply::Code(Code::Internal));
+            admitting.abort();
+        });
+    }
+
+    /// An offer from an IP whose pre-login places are full is refused before its identity is
+    /// verified: an offer with a bad identity gets the busy refusal, not the identity one.
+    #[test]
+    fn an_offer_over_the_pre_login_limits_is_refused_before_it_is_verified() {
+        run(async {
+            let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+            let sockets = Sockets::bind(Some(localhost), None).unwrap();
+            let (mut driver, _connections) = driver(sockets);
+            let (_, client_cert) = certificates();
+            let fingerprint = *client_cert.fingerprint();
+            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000));
+            for _ in 0..MAX_PRE_LOGIN_PER_IP {
+                let (_client, remote) = Client::new(
+                    &client_cert,
+                    addr,
+                    DATAGRAM_MTU_TARGET,
+                    fingerprint,
+                    clock::now(),
+                );
+                let (reply, mut answer) = oneshot::channel();
+                driver.command(Command::Open {
+                    remote,
+                    local: addr,
+                    client_key: None,
+                    ip: addr.ip(),
+                    reply,
+                });
+                answer.try_recv().unwrap().unwrap();
+            }
+            let offers = Offers {
+                identity: Arc::new(ServerIdentity::generate().unwrap()),
+                auth: None,
+                public_ip: None,
+                udp_addrs: vec![addr],
+                driver: driver.commands.clone(),
+            };
+            let serving = tokio::spawn(async move { while driver.serve().await {} });
+
+            // The identity signs the fingerprint as written, so another digest fails it.
+            let offer = sdp::tests::OFFER.replace("8a:74:fb", "8a:74:fc");
+            let refusal = offers
+                .negotiate(&offer, addr.ip(), addr.ip())
+                .await
+                .unwrap_err();
+            assert!(matches!(refusal, Refusal::Busy), "{refusal:?}");
+            assert_eq!(refusal.reply(), Reply::Busy);
+            serving.abort();
         });
     }
 
