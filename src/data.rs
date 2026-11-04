@@ -21,7 +21,8 @@
 //! never overwritten: a player's reads as `None` and stays as saved, a server value refuses the
 //! start. The state hash and the replay compare values by their JSON, so a value's JSON must not
 //! depend on an order the value does not fix (a `HashMap`'s): its replay would diverge. Changes
-//! written to systems outside the data files are not undone by a crash.
+//! written to systems outside the data files are not undone by a crash. An item is kept as its
+//! NBT compound, which serde writes without losing a tag type or a float's bits ([`crate::nbt`]).
 
 use std::any::{Any, TypeId};
 use std::fmt;

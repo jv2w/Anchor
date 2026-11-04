@@ -1,5 +1,5 @@
 //! Public item type lookups: known names resolve, unknown input is `None` without panicking, and
-//! a vanilla stack reads back from its disk form.
+//! a vanilla stack reads back from its disk form, kept as JSON too.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -122,4 +122,21 @@ fn a_vanilla_stack_reads_back_from_its_disk_form() {
     );
     assert_eq!(Stack::from_nbt(&unknown), None);
     assert_eq!(Stack::from_nbt(&Compound::new()), None);
+}
+
+/// A stack kept in serde data as its disk form reads back as the same stack.
+#[test]
+fn a_stack_kept_as_json_reads_back() {
+    let worn = Stack::new(Kind::DiamondSword.default_type(), 1)
+        .with_damage(42)
+        .unwrap();
+    for stack in [
+        Stack::new(Kind::Stick.default_type(), 5),
+        worn,
+        Stack::EMPTY,
+    ] {
+        let json = serde_json::to_string(&stack.to_nbt()).unwrap();
+        let nbt: Compound = serde_json::from_str(&json).unwrap();
+        assert_eq!(Stack::from_nbt(&nbt), Some(stack));
+    }
 }

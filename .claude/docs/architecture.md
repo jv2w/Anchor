@@ -175,7 +175,7 @@ Phases:
 | Commands | `ServerBuilder::command(Command)` (typed arguments, AvailableCommands completion), `without_command`, `permission`, `permission_default` |
 | UI | Forms, menus (fake containers), scoreboards, boss bars, titles, fake blocks |
 | Scheduling and blocking work | `cx.schedule`, `schedule_repeating`, `ServerBuilder::every`, cancel handles, `cx.spawn_blocking(work, done)` (the result goes into the log as JSON through serde) |
-| User data | Per-player Extensions that are not saved (keyed by type, at most 64 types), `ServerBuilder::player_data` and `server_data` (serde types, in the same commit), the inventory and data of a player who is not online through `cx.hold_offline_player(xuid, name, done)` (64 tickets, `storage.md`) |
+| User data | Per-player Extensions that are not saved (keyed by type, at most 64 types), `ServerBuilder::player_data` and `server_data` (serde types, in the same commit; an item as its `nbt::Compound`, which serde writes losslessly), the inventory and data of a player who is not online through `cx.hold_offline_player(xuid, name, done)` (64 tickets, `storage.md`) |
 | Custom content | `custom_item`, `custom_block` (behaviour trait `custom::Behaviour`), `custom_entity` (`entity::Behaviour`), `creative_inventory`. The engine fills the StartGame properties, ItemRegistry, entity identifiers, and block hash IDs. Textures come from resource packs |
 | Resource packs | `ServerBuilder::resource_pack`, the setting `resource-packs` |
 | World generation | The `Generator` trait, `ServerBuilder::generator` (registered by name; `flat` and `void` are built in) |

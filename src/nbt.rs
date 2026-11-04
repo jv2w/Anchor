@@ -12,12 +12,22 @@
 //! allocation budget (`Cost`), so a store can keep what it writes readable.
 //!
 //! Reading and writing keep nested containers on a heap stack, not the thread stack. Dropping,
-//! cloning and comparing a [`Value`] recurse, which the depth limit bounds. Floats compare by
-//! their bits, the way they are written: `NaN` equals itself and `0.0` differs from `-0.0`.
+//! cloning, comparing and serde's writing of a [`Value`] recurse, which the depth limit bounds.
+//! Floats compare by their bits, the way they are written: `NaN` equals itself and `0.0` differs
+//! from `-0.0`.
+//!
+//! Serde writes a [`Value`] and a [`List`] with their tag type (`{"Short":3}`, `{"List":{"Int":
+//! [1,2]}}`) and a float as its IEEE 754 bits (`{"Float":1065353216}`), so a value reads back the
+//! same, `NaN` and `-0.0` included. Saved user data ([`crate::data`]) keeps an item this way, as
+//! the compound of [`Stack::to_nbt`](crate::item::Stack::to_nbt), and reads it back with
+//! [`Context::stack_from_nbt`](crate::Context::stack_from_nbt), which knows custom items too.
 
 use std::collections::{BTreeMap, btree_map};
 use std::mem::size_of;
 use std::slice;
+
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::protocol::{Error, Reader, Result, Writer, map_charges};
 
@@ -70,7 +80,7 @@ const TAG_LONG_ARRAY: u8 = 12;
 pub type Compound = BTreeMap<String, Value>;
 
 /// One NBT tag value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Value {
     /// A `TAG_Byte`, unsigned like gophertunnel.
     Byte(u8),
@@ -81,8 +91,10 @@ pub enum Value {
     /// A `TAG_Long`.
     Long(i64),
     /// A `TAG_Float`.
+    #[serde(serialize_with = "write_bits", deserialize_with = "read_bits")]
     Float(f32),
     /// A `TAG_Double`.
+    #[serde(serialize_with = "write_bits", deserialize_with = "read_bits")]
     Double(f64),
     /// A `TAG_Byte_Array`.
     ByteArray(Vec<u8>),
@@ -139,7 +151,7 @@ impl PartialEq for Value {
 
 /// A `TAG_List`. The variant is the element type, so all elements have one type and an empty
 /// list keeps its type.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum List {
     /// A list with element type `TAG_End`, which is always empty.
     #[default]
@@ -153,8 +165,16 @@ pub enum List {
     /// `TAG_Long` elements.
     Long(Vec<i64>),
     /// `TAG_Float` elements.
+    #[serde(
+        serialize_with = "write_bits_list",
+        deserialize_with = "read_bits_list"
+    )]
     Float(Vec<f32>),
     /// `TAG_Double` elements.
+    #[serde(
+        serialize_with = "write_bits_list",
+        deserialize_with = "read_bits_list"
+    )]
     Double(Vec<f64>),
     /// `TAG_Byte_Array` elements.
     ByteArray(Vec<Vec<u8>>),
@@ -240,6 +260,43 @@ impl PartialEq for List {
             (Self::LongArray(a), Self::LongArray(b)) => a == b,
             _ => false,
         }
+    }
+}
+
+/// A float serde writes as its IEEE 754 bits: JSON has no `NaN`, and a decimal form could read
+/// back as a neighbouring float.
+trait Bits: Copy {
+    /// The unsigned integer of the same width.
+    type Bits: Serialize + DeserializeOwned;
+
+    /// The float of `bits`.
+    fn from_bits(bits: Self::Bits) -> Self;
+
+    /// The bits of the float.
+    fn to_bits(self) -> Self::Bits;
+}
+
+impl Bits for f32 {
+    type Bits = u32;
+
+    fn from_bits(bits: u32) -> Self {
+        Self::from_bits(bits)
+    }
+
+    fn to_bits(self) -> u32 {
+        Self::to_bits(self)
+    }
+}
+
+impl Bits for f64 {
+    type Bits = u64;
+
+    fn from_bits(bits: u64) -> Self {
+        Self::from_bits(bits)
+    }
+
+    fn to_bits(self) -> u64 {
+        Self::to_bits(self)
     }
 }
 
@@ -969,6 +1026,28 @@ fn take_one(left: &mut usize) -> bool {
     more
 }
 
+/// Writes a float as its bits ([`Bits`]).
+fn write_bits<F: Bits, S: Serializer>(value: &F, serializer: S) -> Result<S::Ok, S::Error> {
+    value.to_bits().serialize(serializer)
+}
+
+/// Reads a float [`write_bits`] wrote.
+fn read_bits<'de, F: Bits, D: Deserializer<'de>>(deserializer: D) -> Result<F, D::Error> {
+    F::Bits::deserialize(deserializer).map(F::from_bits)
+}
+
+/// Writes floats as their bits ([`Bits`]).
+fn write_bits_list<F: Bits, S: Serializer>(values: &[F], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(values.iter().map(|v| v.to_bits()))
+}
+
+/// Reads the floats [`write_bits_list`] wrote.
+fn read_bits_list<'de, F: Bits, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<F>, D::Error> {
+    let bits = Vec::<F::Bits>::deserialize(deserializer)?;
+    // The same width: the collect reuses the allocation.
+    Ok(bits.into_iter().map(F::from_bits).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,6 +1166,38 @@ mod tests {
             assert_eq!(read(&bytes, encoding), Ok(every_tag()));
             assert_eq!(write(&read(&bytes, encoding).unwrap(), encoding), Ok(bytes));
         }
+    }
+
+    /// Serde's JSON keeps every tag type and every float's bits, so each tag, `NaN`, `-0.0` and
+    /// typed empty lists read back the same; a float written as a decimal is refused.
+    #[test]
+    fn every_tag_round_trips_through_json_with_its_type_and_float_bits() {
+        let mut map = every_tag();
+        map.extend([
+            ("nan".to_owned(), Value::Float(f32::NAN)),
+            ("negative_zero".to_owned(), Value::Double(-0.0)),
+            ("tiny".to_owned(), Value::Float(f32::from_bits(1))),
+            (
+                "list_nan".to_owned(),
+                Value::List(List::Double(vec![f64::NAN, -0.0])),
+            ),
+            (
+                "empty_floats".to_owned(),
+                Value::List(List::Float(Vec::new())),
+            ),
+        ]);
+        let json = serde_json::to_string(&map).unwrap();
+        assert_eq!(serde_json::from_str::<Compound>(&json).unwrap(), map);
+        let small = Compound::from([
+            ("f".to_owned(), Value::Float(1.0)),
+            ("l".to_owned(), Value::List(List::Short(vec![3]))),
+        ]);
+        assert_eq!(
+            serde_json::to_string(&small).unwrap(),
+            r#"{"f":{"Float":1065353216},"l":{"List":{"Short":[3]}}}"#
+        );
+        assert!(serde_json::from_str::<Value>(r#"{"Float":1.5}"#).is_err());
+        assert!(serde_json::from_str::<Value>(r#"{"Byte":256}"#).is_err());
     }
 
     /// What writing a root counts is exactly what reading it back takes from the budget and the
