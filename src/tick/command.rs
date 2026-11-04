@@ -854,7 +854,7 @@ impl Context<'_> {
         self.tell_admins(sender, &packets);
         if let Sender::Player(_) = sender {
             let source = self.sender_name(sender).unwrap_or_default();
-            info!(player = %source, %result, "command result");
+            debug!(player = %source, %result, "command result");
         }
         Ok(())
     }

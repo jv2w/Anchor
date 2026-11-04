@@ -942,8 +942,11 @@ fn status_reports_uptime_load_memory_threads_players_and_worlds() {
             "TPS: 10.00 now, 19.50 average".to_owned(),
             "Tick time: 100.00 ms now, 5.00 ms average".to_owned(),
             "Memory: 1.5 MiB resident".to_owned(),
-            "Threads: tick and save 2, network 3, CPU pool 9, blocking up to 8, console 1, log 1"
-                .to_owned(),
+            format!(
+                "Threads: tick and save 2, network 3, CPU pool 9, blocking up to {}, console 1, \
+                 log 1",
+                ThreadTotals::BLOCKING
+            ),
             "Players: 2 of 20".to_owned(),
             format!("World \"world\": {chunks} chunks, 1 entities, 0 block entities"),
             "World \"arena\": 0 chunks, 0 entities, 0 block entities".to_owned(),
