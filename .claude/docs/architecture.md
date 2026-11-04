@@ -73,12 +73,12 @@ vendor/                     patched dependency copies (dependencies.md)
 
 - How `"auto"` resolves the thread counts, and how settings over the compute-thread budget are refused, is in `config.md` (`network-threads`, `cpu-threads`).
 - Blocking threads wait on I/O, so they do not count against the budget. Neither do the run, console and log threads.
-- The 4 MiB stack holds the recursion of dropping NBT nested 512 deep, whatever the OS default or `RUST_MIN_STACK`.
+- Every thread gets a 4 MiB stack: it holds the recursion of dropping NBT nested to its depth limit (`protocol.md`), whatever the OS default or `RUST_MIN_STACK`.
 - Main queue bounds:
 
 | Queue | Bound | When full |
 |---|---|---|
-| Session → tick input | 1,024 per session; the queue is sized at start so every share fits (`network.md`); the tick applies at most 8,192 a tick | Only the session that used up its share disconnects |
+| Session → tick input | A share per session, sized so every share fits; a bounded number applied a tick (`network.md`) | Only the session that used up its share disconnects |
 | Tick → session outbound | 1,024 messages | The tick does not wait; it drops that session |
 | Tick → save requests / answers | 64 / 2,048 | Requests wait for the next tick; the tick applies at most 1,024 answers a tick, the rest in the next tick |
 | Player outbox (packets the serial phases queue) | 4,096 a tick | That player is disconnected (a runaway rule or callback) |

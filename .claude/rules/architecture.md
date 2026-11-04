@@ -30,7 +30,7 @@ paths:
 ## Threads
 - The tick thread never touches the disk.
 - Never leave tokio at its default of 512 blocking threads; `runtime` sets the bound.
-- Give every thread the same stack size, 4 MiB.
+- Give every thread the same stack size (`architecture.md`).
 - On a clean shutdown, wait until every CPU pool thread has ended.
 - The save thread uses the CPU pool only through `Pool::map_in_turns`.
 
