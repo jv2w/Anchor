@@ -5,14 +5,14 @@
 //! are written in byte order. A list keeps its element type even when empty ([`List`]), so every
 //! list reads and writes back to the same bytes. gophertunnel keeps the type only for empty
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
-//! Limits: containers nest at most 512 deep counting the root, one root takes at
-//! most 4 MiB on the wire (or a store's own limit), a string takes at most 32,767 bytes, and
+//! Limits: containers nest only to a fixed depth counting the root, one root takes only a fixed
+//! size on the wire (or a store's own limit), a string takes at most 32,767 bytes, and
 //! lengths and allocations go through the reader's limit check; a compound's keys take its tree
 //! nodes (`map_charges`). Writing a root also counts what reading it back takes from a reader's
 //! allocation budget (`Cost`), so a store can keep what it writes readable.
 //!
 //! Reading and writing keep nested containers on a heap stack, not the thread stack. Dropping,
-//! cloning and comparing a [`Value`] recurse, which the 512-deep limit bounds. Floats compare by
+//! cloning and comparing a [`Value`] recurse, which the depth limit bounds. Floats compare by
 //! their bits, the way they are written: `NaN` equals itself and `0.0` differs from `-0.0`.
 
 use std::collections::{BTreeMap, btree_map};

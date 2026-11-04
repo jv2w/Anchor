@@ -6,7 +6,7 @@
 //! `{name, states, version}`), kept as they are, so unknown blocks survive a round trip.
 //!
 //! Every record has the one layout of the current format (the seal refuses any other). NBT keeps
-//! the codec's limits: 512 levels and 4 MiB per root compound, except a player's extra compound,
+//! the codec's limits: [`crate::nbt::MAX_DEPTH`] levels and [`MAX_ROOT_BYTES`] per root compound, except a player's extra compound,
 //! which may fill its record ([`MAX_PLAYER_EXTRA_BYTES`]).
 
 use std::borrow::Cow;
@@ -36,7 +36,7 @@ pub(crate) const MAX_NAME_BYTES: usize = 256;
 const MAX_PAGES: usize = 1 << 16;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
 /// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
-/// user's data, more than the 4 MiB of one NBT root elsewhere; the record's reader budget covers
+/// user's data, more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
 /// it (`item::MAX_NBT_BYTES`).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
 /// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
