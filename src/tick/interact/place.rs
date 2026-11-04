@@ -11,7 +11,7 @@ use super::props::{self, Axis};
 use crate::block::{self, Class, Face, Kind, State, SupportType, Trait, TypeTag};
 use crate::item;
 use crate::math::Vec3;
-use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
+use crate::world::{BlockPos, MAX_Y, MIN_Y, World};
 
 /// The distance in blocks that decides whether a barrel faces up or down: the player's feet closer
 /// than this sideways, the eyes higher than this above it.
@@ -49,7 +49,7 @@ impl Attempt<'_> {
 
     /// The block next to the replaced position toward `face`.
     fn side(&self, face: Face) -> State {
-        block_at(self.world, self.replace.step(face))
+        self.world.block_for_rules(self.replace.step(face))
     }
 
     /// Whether `state` stacks onto the replaced block, which the click is on: the block is of the
@@ -173,7 +173,7 @@ pub(super) fn placement(
         world,
         item,
         replace,
-        replace_state: block_at(world, Some(replace)),
+        replace_state: world.block_for_rules(Some(replace)),
         clicked_state,
         face,
         click,
@@ -218,7 +218,7 @@ fn transaction(attempt: &Attempt<'_>) -> Option<Blocks> {
         // The other cell of a two-block block goes into a replaceable block only; a big dripleaf's
         // head below turns into its stem.
         let blocked = blocks.iter().any(|(p, s)| {
-            let old = block_at(attempt.world, Some(*p));
+            let old = attempt.world.block_for_rules(Some(*p));
             *p != attempt.replace
                 && !old.can_be_replaced()
                 && !(old.is(Class::BaseBigDripleaf) && s.kind() == Kind::BigDripleafStem)
@@ -284,7 +284,7 @@ fn place(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
             }
             Class::BaseBigDripleaf => {
                 let below_pos = attempt.replace.step(Face::Down)?;
-                let below = block_at(attempt.world, Some(below_pos));
+                let below = attempt.world.block_for_rules(Some(below_pos));
                 s = opposite_player(s);
                 // On a head the plant grows: the head below becomes its stem.
                 if below.is(Class::BaseBigDripleaf)
@@ -685,18 +685,9 @@ fn is_top_slab(state: State) -> bool {
 
 /// The support the block next to `pos` toward `face` gives back.
 fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
-    block_at(world, pos.step(face)).support(face.opposite())
-}
-
-/// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
-/// rules never load a chunk. An unknown state reads as bedrock (solid and full), which a
-/// placement does not replace.
-pub(crate) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
-    match pos.and_then(|p| world.entry(p)) {
-        Some(Entry::Known(s)) => s,
-        Some(Entry::Unknown(_)) => block::BEDROCK,
-        None => block::AIR,
-    }
+    world
+        .block_for_rules(pos.step(face))
+        .support(face.opposite())
 }
 
 #[cfg(test)]

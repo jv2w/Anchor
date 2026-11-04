@@ -45,7 +45,6 @@ use tracing::warn;
 
 use super::checkpoint::{self, Codec, Reader, Writer};
 use super::entity::Raise;
-use super::interact::place;
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, survival, trade};
 use crate::block::{self, Class, ItemForm};
 use crate::data::{MAX_PLAYER_TYPES, MAX_PLAYER_VALUE_BYTES};
@@ -1661,7 +1660,7 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
         state
             .worlds
             .get(world)
-            .map(|w| place::block_at(w, Some(side)))
+            .map(|w| w.block_for_rules(Some(side)))
     };
     let solid_beside =
         |at: BlockPos, face: block::Face| beside(at, face).is_some_and(block::State::is_solid);

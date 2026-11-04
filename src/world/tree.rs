@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{BlockPos, Entry, MIN_Y, World};
+use super::{BlockPos, MIN_Y, World};
 use crate::block::{self, Class, Face, Kind, PropertyValue, TypeTag};
 use crate::random::Random;
 
@@ -72,7 +72,7 @@ impl Tx {
     /// The block at `pos` once the transaction is applied (air where not loaded).
     fn fetch(&self, world: &World, pos: Option<BlockPos>) -> block::State {
         pos.and_then(|p| self.blocks.get(&p).copied())
-            .unwrap_or_else(|| block_at(world, pos))
+            .unwrap_or_else(|| world.block_for_rules(pos))
     }
 
     /// Adds a block to set (replacing one added before at the same position).
@@ -113,7 +113,7 @@ impl Tree {
             }
             for xx in -radius..=radius {
                 for zz in -radius..=radius {
-                    if !Self::can_override(block_at(world, pos.offset(xx, yy, zz)), kind) {
+                    if !Self::can_override(world.block_for_rules(pos.offset(xx, yy, zz)), kind) {
                         return None;
                     }
                 }
@@ -590,16 +590,6 @@ pub(crate) fn nether_vines_age(block: block::State) -> &'static str {
 /// Draws a number in `0..n`.
 fn below(rng: &mut Random, n: i32) -> i32 {
     rng.range(0, n - 1)
-}
-
-/// The block at `pos` as a tree sees it: air where nothing is loaded, bedrock for a state Anchor
-/// does not know.
-fn block_at(world: &World, pos: Option<BlockPos>) -> block::State {
-    match pos.and_then(|p| world.entry(p)) {
-        Some(Entry::Known(s)) => s,
-        Some(Entry::Unknown(_)) => block::BEDROCK,
-        None => block::AIR,
-    }
 }
 
 /// Picks an element of `items` with `rng`.

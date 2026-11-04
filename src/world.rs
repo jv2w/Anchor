@@ -33,7 +33,7 @@ pub use tree::TreeType;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
-use crate::block::{Facing, State};
+use crate::block::{self, Facing, State};
 
 /// The Bedrock world border: the farthest a player, an entity or a command position may be from
 /// the world's middle on an axis, in blocks.
@@ -625,6 +625,18 @@ impl World {
     #[inline]
     pub fn block(&self, pos: BlockPos) -> Option<State> {
         self.entry(pos)?.state()
+    }
+
+    /// The block at `pos` as the rules see it, air where there is none (`pos` is `None`, an
+    /// unloaded chunk, outside the world), so the rules never load a chunk. An unknown state
+    /// reads as bedrock (solid and full), which a placement does not replace.
+    #[inline]
+    pub(crate) fn block_for_rules(&self, pos: Option<BlockPos>) -> State {
+        match pos.and_then(|p| self.entry(p)) {
+            Some(Entry::Known(s)) => s,
+            Some(Entry::Unknown(_)) => block::BEDROCK,
+            None => block::AIR,
+        }
     }
 
     /// The block light at `pos`, 0 to 15, or `None` if its chunk is not loaded or not lit yet,
@@ -1429,6 +1441,36 @@ mod tests {
             w.set_stored_block(BlockPos::new(64, -60, 0), &StoredBlock::Known(block::AIR)),
             Err(Error::NotLoaded)
         );
+    }
+
+    /// The block the rules see is air for no position and for an unloaded chunk, bedrock for a
+    /// state Anchor does not know, and the state itself for a known one.
+    #[test]
+    fn rules_see_air_for_absent_bedrock_for_unknown_and_known_as_itself() {
+        use crate::nbt::{Compound, Value};
+        let nbt = Compound::from([
+            (
+                "name".to_owned(),
+                Value::String("minecraft:no_such_block".to_owned()),
+            ),
+            ("states".to_owned(), Value::Compound(Compound::new())),
+            (
+                "version".to_owned(),
+                Value::Int(crate::import::BLOCK_STATE_VERSION),
+            ),
+        ]);
+        let mut w = world(&Void, 0);
+        let unknown = BlockPos::new(0, -60, 0);
+        let known = BlockPos::new(1, -60, 0);
+        w.put_unknown(unknown, nbt).unwrap();
+        w.set_block(known, block::DIRT).unwrap();
+        assert_eq!(w.block_for_rules(None), block::AIR);
+        assert_eq!(
+            w.block_for_rules(Some(BlockPos::new(64, -60, 0))),
+            block::AIR
+        );
+        assert_eq!(w.block_for_rules(Some(unknown)), block::BEDROCK);
+        assert_eq!(w.block_for_rules(Some(known)), block::DIRT);
     }
 
     #[test]

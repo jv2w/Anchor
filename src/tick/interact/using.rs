@@ -107,7 +107,7 @@ fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
     state
         .worlds
         .get(world)
-        .map_or(block::AIR, |w| place::block_at(w, pos))
+        .map_or(block::AIR, |w| w.block_for_rules(pos))
 }
 
 /// Uses the held item on a block: the clicked block's interaction, the item's own use, then

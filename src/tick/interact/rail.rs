@@ -3,7 +3,6 @@
 //! A rail's shape is Bedrock `rail_direction`: two connections, each a horizontal face, one of
 //! which may ascend a block.
 
-use super::place::block_at;
 use super::props;
 use crate::block::{Class, Face, State};
 use crate::world::{BlockPos, World};
@@ -37,7 +36,7 @@ struct Link {
 /// turning those toward it, in the order to set them.
 pub(super) fn reconnect(world: &World, pos: BlockPos) -> Vec<(BlockPos, State)> {
     let mut out = Vec::new();
-    let this = block_at(world, Some(pos));
+    let this = world.block_for_rules(Some(pos));
     if !this.is(Class::BaseRail) {
         return out;
     }
@@ -98,14 +97,14 @@ fn neighbour(world: &World, pos: BlockPos, link: Link) -> Option<(BlockPos, Stat
     let back = link.face.opposite();
     if link.ascend {
         let p = side.step(Face::Up)?;
-        return Some((p, block_at(world, Some(p)), flat(back)));
+        return Some((p, world.block_for_rules(Some(p)), flat(back)));
     }
-    let s = block_at(world, Some(side));
+    let s = world.block_for_rules(Some(side));
     if s.is(Class::BaseRail) {
         return Some((side, s, flat(back)));
     }
     let p = side.step(Face::Down)?;
-    Some((p, block_at(world, Some(p)), up(back)))
+    Some((p, world.block_for_rules(Some(p)), up(back)))
 }
 
 /// The links the rail could still make, in the order they are tried.
@@ -245,17 +244,17 @@ mod tests {
         place(&mut w, at(0, 0), rail(0));
         place(&mut w, at(1, 0), rail(0));
         assert_eq!(
-            props::int(block_at(&w, Some(at(0, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(0, 0))), "rail_direction"),
             Some(1)
         );
         assert_eq!(
-            props::int(block_at(&w, Some(at(1, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(1, 0))), "rail_direction"),
             Some(1)
         );
         // A rail south of the east end makes a corner there (south-west: 7).
         place(&mut w, at(1, 1), rail(0));
         assert_eq!(
-            props::int(block_at(&w, Some(at(1, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(1, 0))), "rail_direction"),
             Some(7)
         );
         // A rail one block up to the west makes the west end ascend west (3).
@@ -263,7 +262,7 @@ mod tests {
             .unwrap();
         place(&mut w, BlockPos::new(-1, 2, 0), rail(0));
         assert_eq!(
-            props::int(block_at(&w, Some(at(0, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(0, 0))), "rail_direction"),
             Some(3)
         );
     }
