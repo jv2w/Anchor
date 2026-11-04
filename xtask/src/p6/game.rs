@@ -279,7 +279,7 @@ impl Running {
 
     /// Whether the bot has started its first step (it has joined and teleported).
     fn stepped(&self) -> Result<bool, String> {
-        let text = super::read_growing_text(&self.capture)?;
+        let text = super::read_text_if_exists(&self.capture)?.unwrap_or_default();
         Ok(text.contains(r#""type":"step""#))
     }
 
@@ -293,7 +293,7 @@ impl Running {
             .try_wait()
             .map_err(|e| format!("bot: {e}"))?
             .is_some();
-        let text = super::read_growing_text(&self.capture)?;
+        let text = super::read_text_if_exists(&self.capture)?.unwrap_or_default();
         for line in commands(&text)?.iter().skip(self.relayed) {
             console(line)?;
             self.relayed += 1;

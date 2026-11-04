@@ -568,6 +568,28 @@ pub(crate) fn read_if_exists(path: &Path) -> Result<Option<Vec<u8>>, String> {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
+pub(crate) fn read_text(path: &Path) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The text of the file at `path`, or none when there is no such file; any other failure is an
+/// error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn read_text_if_exists(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -601,9 +623,36 @@ pub(crate) fn remove_file(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Removes the directory tree at `path`; a directory that is already gone is not an error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn remove_dir(path: &Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reading a missing file as text fails with an error that starts with its path, and removing
+    /// a missing directory succeeds.
+    #[test]
+    fn missing_paths_read_as_errors_and_remove_as_done() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("no-such-entry");
+        assert!(
+            read_text(&path)
+                .unwrap_err()
+                .starts_with(&path.display().to_string())
+        );
+        assert_eq!(read_text_if_exists(&path), Ok(None));
+        assert_eq!(remove_dir(&path), Ok(()));
+    }
 
     /// The reference states of icicles, ice crystals and disc presses that borrow physics (20, 6
     /// and 4).

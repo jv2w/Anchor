@@ -27,7 +27,7 @@ use crate::dump::upgrade::{
     BLOCK_LEGACY_IDS, BLOCK_SCHEMAS, ITEM_BLOCKS, ITEM_LEGACY_IDS, ITEM_SCHEMAS, LEGACY_TABLE,
     OUT as DIR,
 };
-use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, read};
+use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, file_names, read};
 use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
 /// The block schemas that add properties after the dump source's data version, oldest first;
@@ -339,15 +339,9 @@ fn read_schemas(root: &Path) -> Result<Vec<Schema<'static>>, String> {
 
 /// The schema files of a folder (the dump source's `^(\d{4}).*\.json$`) with their number and bytes, by
 /// name.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
 fn schema_files(dir: &Path) -> Result<Vec<(u16, String, Vec<u8>)>, String> {
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
+    for name in file_names(dir)? {
         let id = name
             .get(..4)
             .filter(|d| d.bytes().all(|b| b.is_ascii_digit()))
@@ -355,7 +349,7 @@ fn schema_files(dir: &Path) -> Result<Vec<(u16, String, Vec<u8>)>, String> {
         if let Some(id) = id
             && Path::new(&name).extension() == Some("json".as_ref())
         {
-            let bytes = read(&entry.path())?;
+            let bytes = read(&dir.join(&name))?;
             files.push((id, name, bytes));
         }
     }

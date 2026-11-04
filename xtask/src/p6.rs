@@ -58,7 +58,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::dump::{
-    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, remove_file, write,
+    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, read_text,
+    read_text_if_exists, remove_dir, remove_file, write,
 };
 use crate::say;
 use compare::field;
@@ -2043,41 +2044,6 @@ fn now() -> Instant {
 )]
 fn pause() {
     std::thread::sleep(POLL);
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read_text(path: &Path) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The text of a file the bot is still writing: empty while the file does not exist yet.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read_growing_text(path: &Path) -> Result<String, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
-}
-
-/// Removes a directory tree; a missing directory is fine.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn remove_dir(path: &Path) -> Result<(), String> {
-    if let Err(e) = std::fs::remove_dir_all(path)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        return Err(format!("{}: {e}", path.display()));
-    }
-    Ok(())
 }
 
 #[expect(
