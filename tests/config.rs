@@ -189,6 +189,83 @@ fn missing_file_is_created_with_the_documented_default_text() {
     assert_eq!(again, first);
 }
 
+/// The `(table, key, is text, low, high)` of every row of the key tables of
+/// `.claude/docs/config.md` whose range is written as `A to B`.
+fn documented_ranges() -> Vec<(String, String, bool, i64, i64)> {
+    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
+    let mut table = String::new();
+    let mut range_column = 0;
+    let mut rows = Vec::new();
+    for line in doc.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            table = heading
+                .split_once("`[")
+                .and_then(|(_, rest)| rest.split_once("]`"))
+                .map_or_else(String::new, |(name, _)| name.to_owned());
+            continue;
+        }
+        if table.is_empty() || !line.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        if cells[0] == "Key" {
+            range_column = cells
+                .iter()
+                .position(|cell| cell.starts_with("Range"))
+                .expect("a key table has a range column");
+            continue;
+        }
+        let Some((before, after)) = cells[range_column].split_once(" to ") else {
+            continue;
+        };
+        let key = cells[0].trim_matches('`');
+        let Some(low) = before
+            .split_whitespace()
+            .next_back()
+            .and_then(|w| w.parse::<i64>().ok())
+        else {
+            continue;
+        };
+        let high = after
+            .split_whitespace()
+            .next()
+            .and_then(|w| w.parse::<i64>().ok())
+            .unwrap_or_else(|| panic!("row `{table}.{key}` has a range that is not `A to B`"));
+        let table = table.replace("<name>", "lobby");
+        rows.push((table, key.to_owned(), cells[1] == "string", low, high));
+    }
+    rows
+}
+
+#[test]
+fn documented_ranges_are_the_ranges_the_settings_enforce() {
+    let file = File::new("documented_ranges");
+    let rows = documented_ranges();
+    assert!(!rows.is_empty(), "the doc states ranges");
+    for (table, key, is_text, low, high) in rows {
+        let text = |n: i64| {
+            let value = if is_text {
+                let length = usize::try_from(n).expect("a length");
+                quoted(&"m".repeat(length))
+            } else {
+                n.to_string()
+            };
+            format!("[{table}]\n{key} = {value}\n")
+        };
+        let path = format!("{table}.{key}");
+        for n in [low, high] {
+            file.load(text(n))
+                .unwrap_or_else(|e| panic!("{path} = {n} is documented: {}", chain(&e)));
+        }
+        for n in [low - 1, high + 1] {
+            let error = file
+                .load(text(n))
+                .expect_err(&format!("{path} = {n} is outside the documented range"));
+            assert!(chain(&error).contains(&path), "{path} = {n}: {error}");
+        }
+    }
+}
+
 /// The config [`CUSTOM_FILE`] describes.
 fn custom() -> Config {
     let mut config = Config::default();
