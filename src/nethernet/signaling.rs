@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +49,10 @@ const MAX_CONNECTIONS_PER_IP: u8 = 4;
 const MAX_FRAMING_BYTES: usize = 8 * 1024;
 /// The largest request line and headers, the closing empty line included, in bytes.
 const MAX_HEAD_BYTES: usize = 8 * 1024;
+/// The longest DNS name a `Host` header may give, in bytes, without a final dot (RFC 1035).
+const MAX_HOST_NAME_BYTES: usize = 253;
+/// The longest label of a DNS name, in bytes (RFC 1035).
+const MAX_LABEL_BYTES: usize = 63;
 /// The digits of a decimal u64: the longest valid network id.
 const MAX_NETWORK_ID_DIGITS: usize = 20;
 /// The largest certificate chain or key file, in bytes.
@@ -155,6 +159,9 @@ pub(crate) struct Offer {
     pub(crate) peer: SocketAddr,
     /// The server's TCP address the client reached (IPv4-mapped IPv6 as IPv4).
     pub(crate) local: SocketAddr,
+    /// The host of the request's `Host` header: the address the client was given. `None`
+    /// without one, with more than one, or with one that is not an IP literal or a DNS name.
+    pub(crate) host: Option<Host>,
     /// Where the answer goes. It is dropped when the answer is written or the request deadline
     /// passes.
     pub(crate) reply: oneshot::Sender<Reply>,
@@ -168,8 +175,19 @@ impl fmt::Debug for Offer {
             .field("sdp_len", &self.sdp.len())
             .field("peer", &self.peer)
             .field("local", &self.local)
+            .field("host", &self.host)
             .finish_non_exhaustive()
     }
+}
+
+/// The host part of a `Host` header (RFC 9110 7.2), its port left out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Host {
+    /// An IP literal.
+    Ip(IpAddr),
+    /// A DNS name: dot-separated labels of letters, digits and inner hyphens, at most
+    /// [`MAX_HOST_NAME_BYTES`] bytes.
+    Name(String),
 }
 
 /// The error code of a failed negotiation (go-nethernet `ErrorCode…`).
@@ -367,6 +385,8 @@ struct Request {
     method: Method,
     /// The request target up to `?`: visible ASCII starting with `/`.
     path: String,
+    /// The `Host` header's host, as [`Offer::host`] holds it.
+    host: Option<Host>,
     /// At most [`MAX_BODY_BYTES`] bytes.
     body: Vec<u8>,
 }
@@ -424,6 +444,7 @@ struct Parser {
     state: State,
     method: Method,
     path: String,
+    host: Option<Host>,
     body: Vec<u8>,
     /// Chunked framing bytes so far, against [`MAX_FRAMING_BYTES`].
     framing: usize,
@@ -468,6 +489,7 @@ impl Parser {
         Ok(Some(Request {
             method: self.method,
             path: std::mem::take(&mut self.path),
+            host: self.host.take(),
             body: std::mem::take(&mut self.body),
         }))
     }
@@ -501,10 +523,11 @@ impl Parser {
         // The terminator was not in the bytes scanned before, so it ends in the new ones.
         let used = end.checked_sub(before).ok_or(Status::BadRequest)?;
         let head = self.head.get(..end).ok_or(Status::BadRequest)?;
-        let (method, path, framing) = parse_head(head)?;
+        let (method, path, host, framing) = parse_head(head)?;
         self.head = Vec::new();
         self.method = method;
         self.path = path;
+        self.host = host;
         self.state = match framing {
             Framing::Length(length) => {
                 self.body.reserve_exact(length);
@@ -599,6 +622,7 @@ impl Default for Parser {
             state: State::Head { scanned: 0 },
             method: Method::Other,
             path: String::new(),
+            host: None,
             body: Vec::new(),
             framing: 0,
         }
@@ -908,6 +932,7 @@ async fn answer(request: Request, peer: SocketAddr, local: SocketAddr, shared: &
                 sdp,
                 peer,
                 local,
+                host: request.host,
                 reply,
             };
             match shared.offers.try_send(offer) {
@@ -981,7 +1006,7 @@ fn encode(status: Status, kind: Kind, body: &[u8]) -> Vec<u8> {
 }
 
 /// Parses a head ending in CRLF CRLF.
-fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
+fn parse_head(head: &[u8]) -> Result<(Method, String, Option<Host>, Framing), Status> {
     // Without the final CRLF every line, the request line included, ends in CRLF.
     let head = head.strip_suffix(b"\r\n").ok_or(Status::BadRequest)?;
     let mut lines = head.split_inclusive(|&byte| byte == b'\n').map(|line| {
@@ -994,6 +1019,8 @@ fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
     let mut length = None;
     let mut chunked = false;
     let mut transfer_encoding = false;
+    let mut host = None;
+    let mut hosts = 0_usize;
     for line in lines {
         let line = line?;
         let colon = line
@@ -1021,6 +1048,10 @@ fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
             }
             transfer_encoding = true;
             chunked = true;
+        } else if name.eq_ignore_ascii_case(b"host") {
+            // Only a lone Host names the client's address; a request is never refused for it.
+            hosts = hosts.saturating_add(1);
+            host = if hosts == 1 { parse_host(value) } else { None };
         }
     }
     let framing = match (length, chunked) {
@@ -1032,7 +1063,47 @@ fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
         (Some(length), false) => Framing::Length(length),
         (None, false) => Framing::Length(0),
     };
-    Ok((method, path, framing))
+    Ok((method, path, host, framing))
+}
+
+/// The host of a `Host` value (`host [":" port]`, an IPv6 literal in brackets), or `None` when
+/// it is neither an IP literal nor a DNS name.
+fn parse_host(value: &[u8]) -> Option<Host> {
+    let text = std::str::from_utf8(value).ok()?;
+    let is_port = |port: &str| port.bytes().all(|byte| byte.is_ascii_digit());
+    if let Some(rest) = text.strip_prefix('[') {
+        let (literal, after) = rest.split_once(']')?;
+        if !(after.is_empty() || after.strip_prefix(':').is_some_and(is_port)) {
+            return None;
+        }
+        return literal
+            .parse::<Ipv6Addr>()
+            .ok()
+            .map(|ip| Host::Ip(ip.into()));
+    }
+    let name = match text.rsplit_once(':') {
+        Some((name, port)) if is_port(port) => name,
+        Some(_) => return None,
+        None => text,
+    };
+    if let Ok(ip) = name.parse::<Ipv4Addr>() {
+        return Some(Host::Ip(ip.into()));
+    }
+    is_dns_name(name).then(|| Host::Name(name.to_owned()))
+}
+
+/// Whether `name` is a DNS name: 1 to [`MAX_HOST_NAME_BYTES`] bytes of dot-separated labels,
+/// each 1 to [`MAX_LABEL_BYTES`] letters, digits and hyphens, not starting or ending with one.
+fn is_dns_name(name: &str) -> bool {
+    (1..=MAX_HOST_NAME_BYTES).contains(&name.len())
+        && name.split('.').all(|label| {
+            (1..=MAX_LABEL_BYTES).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 /// Parses `METHOD SP /target SP HTTP/1.x`; returns whether the version is 1.1.
@@ -1677,6 +1748,7 @@ mod tests {
             let expected = Request {
                 method: Method::Post,
                 path: "/v1/join/7".to_owned(),
+                host: None,
                 body: b"hello".to_vec(),
             };
             assert_eq!(parse(request, piece), Ok(Some(expected)));
@@ -1719,6 +1791,60 @@ mod tests {
         assert!(parser.body.capacity() <= MAX_BODY_BYTES);
         let request = parser.push(b"0\r\n\r\n").unwrap().unwrap();
         assert_eq!(request.body, vec![b'x'; 1000]);
+    }
+
+    /// A lone `Host` header gives the client's host without its port. One that is neither an IP
+    /// literal nor a DNS name, or a second one, gives none, and the request still goes through.
+    #[test]
+    fn a_lone_host_header_names_the_client_host() {
+        let host = |value: &str| parse_host(value.as_bytes());
+        let ip = |text: &str| Some(Host::Ip(text.parse().unwrap()));
+        let name = |text: &str| Some(Host::Name(text.to_owned()));
+        assert_eq!(host("203.0.113.7:19132"), ip("203.0.113.7"));
+        assert_eq!(host("203.0.113.7"), ip("203.0.113.7"));
+        assert_eq!(host("203.0.113.7:"), ip("203.0.113.7"));
+        assert_eq!(host("[2001:db8::1]:19132"), ip("2001:db8::1"));
+        assert_eq!(host("[2001:db8::1]"), ip("2001:db8::1"));
+        assert_eq!(host("play.example.net:19132"), name("play.example.net"));
+        assert_eq!(host("localhost"), name("localhost"));
+        let longest = format!("{}a", "a.".repeat(126));
+        assert_eq!(host(&longest), name(&longest));
+        for bad in [
+            String::new(),
+            ":19132".to_owned(),
+            "2001:db8::1".to_owned(),
+            "[2001:db8::1".to_owned(),
+            "[2001:db8::1]x".to_owned(),
+            "[2001:db8::1]:x".to_owned(),
+            "[203.0.113.7]".to_owned(),
+            "203.0.113.7:+1".to_owned(),
+            "example.net.".to_owned(),
+            "a..b".to_owned(),
+            "-a.b".to_owned(),
+            "a-.b".to_owned(),
+            "a_b".to_owned(),
+            "a b".to_owned(),
+            "\u{e9}.net".to_owned(),
+            "a".repeat(64),
+            format!("{longest}a"),
+        ] {
+            assert_eq!(host(&bad), None, "{bad}");
+        }
+
+        let request = |headers: &str| {
+            let head = format!("GET /v1/join HTTP/1.1\r\n{headers}\r\n");
+            parse(head.as_bytes(), 1).unwrap().unwrap().host
+        };
+        assert_eq!(request("Host: 203.0.113.7:19132\r\n"), ip("203.0.113.7"));
+        assert_eq!(
+            request("host:  example.net:19132 \r\n"),
+            name("example.net")
+        );
+        assert_eq!(request(""), None);
+        assert_eq!(request("Host: a_b\r\n"), None);
+        let twice = "Host: 203.0.113.7\r\nHost: 203.0.113.7\r\n";
+        assert_eq!(request(twice), None);
+        assert_eq!(request(&format!("{twice}Host: 203.0.113.7\r\n")), None);
     }
 
     #[test]

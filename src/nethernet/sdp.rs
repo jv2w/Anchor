@@ -15,7 +15,7 @@ use crate::login::MAX_TOKEN_PAYLOAD_BYTES;
 pub(super) const FINGERPRINT_ALGORITHM: &str = "sha-256";
 /// The bytes in a SHA-256 fingerprint.
 const FINGERPRINT_BYTES: usize = 32;
-/// The priority of the answer's host candidate, as the official server writes it.
+/// The priority of the answer's first host candidate, as the official server writes it.
 const HOST_PRIORITY: u32 = 2_122_260_223;
 /// The length of `ice-pwd` in characters (RFC 8839 5.4).
 const ICE_PWD_LEN_RANGE: RangeInclusive<usize> = 22..=256;
@@ -23,6 +23,9 @@ const ICE_PWD_LEN_RANGE: RangeInclusive<usize> = 22..=256;
 const ICE_UFRAG_LEN_RANGE: RangeInclusive<usize> = 4..=256;
 /// The protocol of the identity provider in an `a=identity` value.
 pub(super) const IDENTITY_PROTOCOL: &str = "default";
+/// One step of local preference in a candidate priority, whose bits 8 to 23 hold it (RFC 8445
+/// 5.1.2.1).
+const LOCAL_PREFERENCE_STEP: u32 = 256;
 /// The most usable candidates. A client offers one per interface and address family.
 const MAX_CANDIDATES: usize = 32;
 /// The longest identity provider domain, in bytes.
@@ -146,8 +149,9 @@ pub(crate) struct Answer<'a> {
     pub(crate) session_id: u64,
     /// The `a=identity` value: base64 of the server assertion.
     pub(crate) identity: &'a str,
-    /// The advertised host candidate. An IPv4-mapped IPv6 address is written as IPv4.
-    pub(crate) addr: SocketAddr,
+    /// The advertised host candidates, one address family, at least one; the first is also the
+    /// media address. An IPv4-mapped IPv6 address is written as IPv4.
+    pub(crate) addrs: &'a [SocketAddr],
     /// The server's ICE username fragment.
     pub(crate) ice_ufrag: &'a str,
     /// The server's ICE password.
@@ -486,14 +490,36 @@ fn decimal<T: FromStr>(text: &str) -> Option<T> {
     text.parse().ok()
 }
 
-/// Writes the answer with CRLF line ends. The candidate foundation is libwebrtc's classic one,
+/// Writes the answer with CRLF line ends. A candidate's foundation is libwebrtc's classic one,
 /// the decimal CRC-32 of `"local" + ip + "udp"`: stable per address, the shape the official server writes.
+/// The first candidate has the official server's priority; each later one has a local
+/// preference one lower, as RFC 8445 5.1.2.1 asks of host candidates of one component.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the offer task advertises at least one candidate"
+)]
 pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
-    let ip = answer.addr.ip().to_canonical();
+    let first = answer.addrs.first().expect("an answer has a candidate");
+    let ip = first.ip().to_canonical();
     let family = if ip.is_ipv4() { "IP4" } else { "IP6" };
-    let ip = ip.to_string();
-    let port = answer.addr.port();
-    let foundation = crc32(&[b"local", ip.as_bytes(), b"udp"]);
+    let port = first.port();
+    let priorities = std::iter::successors(Some(HOST_PRIORITY), |p| {
+        p.checked_sub(LOCAL_PREFERENCE_STEP)
+    });
+    let candidates = answer
+        .addrs
+        .iter()
+        .zip(priorities)
+        .map(|(addr, priority)| {
+            let ip = addr.ip().to_canonical().to_string();
+            let foundation = crc32(&[b"local", ip.as_bytes(), b"udp"]);
+            let port = addr.port();
+            format!(
+                "a=candidate:{foundation} 1 udp {priority} {ip} {port} typ host generation 0 network-id 1\r\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
     format!(
         "v=0\r\n\
          o=- {session_id} 2 IN IP4 127.0.0.1\r\n\
@@ -505,7 +531,7 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
          a=identity:{identity}\r\n\
          m=application {port} UDP/DTLS/SCTP webrtc-datachannel\r\n\
          c=IN {family} {ip}\r\n\
-         a=candidate:{foundation} 1 udp {HOST_PRIORITY} {ip} {port} typ host generation 0 network-id 1\r\n\
+         {candidates}\
          a=ice-ufrag:{ice_ufrag}\r\n\
          a=ice-pwd:{ice_pwd}\r\n\
          a=ice-options:trickle\r\n\
@@ -547,8 +573,12 @@ fn hex_digit(nibble: u8) -> char {
 pub(crate) mod tests {
     use super::*;
 
+    use std::net::{Ipv4Addr, SocketAddrV4};
+
     use crate::protocol::{self, fuzz};
 
+    /// The candidate of `answer`.
+    const ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 0, 2, 7), 19_133));
     /// A captured go-nethernet offer (offline, self-signed ES384 token). The
     /// candidate's `ufrag` extension differs from the capture; extensions are ignored.
     pub(crate) const OFFER: &str = "v=0
@@ -997,7 +1027,7 @@ a=max-message-size:262144
         Answer {
             session_id: 1_234_567_890_123,
             identity: "SUQ=",
-            addr: "192.0.2.7:19133".parse().unwrap(),
+            addrs: &[ADDR],
             ice_ufrag: "Ab+/",
             ice_pwd: "abcdefghijklmnopqrstuvwx",
             fingerprint: "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9",
@@ -1028,17 +1058,40 @@ a=max-message-size:262144\r
 ";
         assert_eq!(write_answer(&answer()), expected);
         let v6 = Answer {
-            addr: "[2001:db8::7]:19133".parse().unwrap(),
+            addrs: &["[2001:db8::7]:19133".parse().unwrap()],
             ..answer()
         };
         let text = write_answer(&v6);
         assert!(text.contains("\r\nc=IN IP6 2001:db8::7\r\n"));
         assert!(text.contains("a=candidate:391553795 1 udp 2122260223 2001:db8::7 19133 typ host"));
         let mapped = Answer {
-            addr: "[::ffff:192.0.2.7]:19133".parse().unwrap(),
+            addrs: &["[::ffff:192.0.2.7]:19133".parse().unwrap()],
             ..answer()
         };
         assert_eq!(write_answer(&mapped), expected);
+    }
+
+    /// Several candidates follow the media address in their order, each with its own
+    /// foundation and a priority one local preference below the one before.
+    #[test]
+    fn later_candidates_follow_with_lower_priorities() {
+        let addrs = [ADDR, "203.0.113.9:19133".parse().unwrap()];
+        let text = write_answer(&Answer {
+            addrs: &addrs,
+            ..answer()
+        });
+        let candidates = "c=IN IP4 192.0.2.7\r\n\
+            a=candidate:4154560954 1 udp 2122260223 192.0.2.7 19133 typ host generation 0 network-id 1\r\n\
+            a=candidate:500825825 1 udp 2122259967 203.0.113.9 19133 typ host generation 0 network-id 1\r\n\
+            a=ice-ufrag:";
+        assert!(text.contains(candidates), "{text}");
+        let offer = parse_offer(
+            &text
+                .replace("a=identity:SUQ=\r\n", "")
+                .replace("a=setup:active", "a=setup:actpass"),
+        )
+        .unwrap();
+        assert_eq!(offer.candidates, addrs);
     }
 
     #[test]
@@ -1058,7 +1111,7 @@ a=max-message-size:262144\r
             answer().fingerprint
         );
         assert_eq!(offer.max_message_bytes, MAX_MESSAGE_BYTES);
-        assert_eq!(offer.candidates, [answer().addr]);
+        assert_eq!(offer.candidates, [ADDR]);
     }
 
     #[test]

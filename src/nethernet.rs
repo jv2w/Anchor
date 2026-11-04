@@ -19,12 +19,12 @@ pub(crate) use peer::MAX_DATAGRAM;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
-use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, trace, warn};
 
@@ -40,17 +40,30 @@ use crate::tick::queue::LeaveReason;
 use crate::udp::Sockets;
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
-use signaling::{Code, Offer, Reply};
+use signaling::{Code, Host, Offer, Reply};
 
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
+/// How long an offer waits for the lookup of the DNS name its client gave. A resolver answers
+/// in milliseconds, the more so as the client has just resolved the same name; past this the
+/// answer goes without the name's addresses, well inside the signaling request deadline.
+const HOST_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 /// The identity key file in the data folder.
 const IDENTITY_FILE: &str = "identity.key";
+/// The host candidates one answer advertises at most: the signaling address and the addresses
+/// of the host the client gave.
+const MAX_ANSWER_CANDIDATES: usize = 4;
 /// The peers that may linger after their session closed them, at most; a new one removes the
 /// oldest. A closing peer keeps up to `MAX_UNSENT_BYTES` unacknowledged and its str0m state for
 /// `CLOSE_LINGER`, and the client can withhold the acknowledgements, so the count is bounded as
 /// the pre-login peers are (`MAX_PRE_LOGIN`).
 const MAX_CLOSING_PEERS: usize = 64;
+/// The DNS lookups of client-given names that run at once. A lookup runs on a blocking thread
+/// and keeps it until the OS resolver returns, even after its offer is gone, so this bounds the
+/// blocking threads names whose lookups hang can hold (`runtime` reserves them).
+pub(crate) const MAX_HOST_LOOKUPS: usize = 2;
+/// The addresses taken from one lookup, at most, in the resolver's order.
+const MAX_LOOKUP_ADDRS: usize = 16;
 /// The source addresses one peer may be reached from. A client knows its own ICE credentials, so
 /// its valid STUN request can carry any source address; the bound keeps one peer from filling
 /// the address index.
@@ -78,8 +91,9 @@ pub(crate) struct Settings {
     pub(crate) signaling_v4: Option<SocketAddrV4>,
     /// The IPv6 signaling address.
     pub(crate) signaling_v6: Option<SocketAddrV6>,
-    /// The host candidate address answered instead of the signaling address the client reached
-    /// (`public-ip`); it is the same family as a UDP socket the server has.
+    /// The one host candidate address answered instead of the signaling address the client
+    /// reached and the addresses of the host it gave (`public-ip`); it is the same family as a
+    /// UDP socket the server has.
     pub(crate) public_ip: Option<IpAddr>,
     /// The largest game message a client may send.
     pub(crate) max_message_bytes: usize,
@@ -231,6 +245,8 @@ struct Offers {
     public_ip: Option<IpAddr>,
     udp_addrs: Vec<SocketAddr>,
     driver: mpsc::Sender<Command>,
+    /// [`MAX_HOST_LOOKUPS`] permits, each held by a running lookup.
+    lookups: Arc<Semaphore>,
 }
 
 impl Offers {
@@ -265,13 +281,14 @@ impl Offers {
             sdp,
             peer,
             local,
+            host,
             mut reply,
         } = offer;
         let negotiated = tokio::select! {
             // First, so that an offer whose request is already gone is not negotiated at all.
             biased;
             () = reply.closed() => None,
-            negotiated = self.negotiate(&sdp, peer.ip(), local.ip()) => Some(negotiated),
+            negotiated = self.negotiate(&sdp, peer.ip(), local.ip(), host) => Some(negotiated),
         };
         let answer = match negotiated {
             Some(Ok(answer)) => Reply::Answer(answer),
@@ -296,11 +313,13 @@ impl Offers {
     }
 
     /// Verifies `text` and makes a peer for it; the answer SDP, or why the offer is refused.
+    /// `host` is the address the client was given, from its request.
     async fn negotiate(
         &self,
         text: &str,
         client_ip: IpAddr,
         local_ip: IpAddr,
+        host: Option<Host>,
     ) -> Result<String, Refusal> {
         let offer = sdp::parse_offer(text).map_err(Refusal::Offer)?;
         if offer.identity.is_none() && self.auth.is_some() {
@@ -313,6 +332,8 @@ impl Offers {
             None => None,
         };
         let advertised = self.advertised(local_ip)?;
+        // After the verification, so that only a verified offer makes the server look up a name.
+        let candidates = self.with_host_addrs(advertised, host).await;
         let remote = peer::Remote {
             ice_ufrag: offer.ice_ufrag,
             ice_pwd: offer.ice_pwd,
@@ -343,7 +364,7 @@ impl Offers {
         Ok(sdp::write_answer(&sdp::Answer {
             session_id: u64::from_le_bytes(session_id),
             identity: &assertion,
-            addr: advertised,
+            addrs: &candidates,
             ice_ufrag: &local.ice_ufrag,
             ice_pwd: &local.ice_pwd,
             fingerprint: &fingerprint,
@@ -399,8 +420,8 @@ impl Offers {
         .map_err(Refusal::Identity)
     }
 
-    /// The host candidate to advertise: `public-ip`, or the address the client reached the
-    /// signaling server on, with the UDP port of that address family.
+    /// The first host candidate to advertise, the one str0m holds: `public-ip`, or the address
+    /// the client reached the signaling server on, with the UDP port of that address family.
     fn advertised(&self, local_ip: IpAddr) -> Result<SocketAddr, Refusal> {
         let ip = self.public_ip.unwrap_or(local_ip).to_canonical();
         self.udp_addrs
@@ -408,6 +429,79 @@ impl Offers {
             .find(|a| a.is_ipv4() == ip.is_ipv4())
             .map(|a| SocketAddr::new(ip, a.port()))
             .ok_or(Refusal::NoSocket)
+    }
+
+    /// Every host candidate to advertise: `first`, then, without `public-ip`, the addresses of
+    /// `host` in its family and with its port, without repeats and at most
+    /// [`MAX_ANSWER_CANDIDATES`] in all. Behind a NAT the signaling address is a private one; the
+    /// host the client was given is an address it can reach. Only this client's answer carries
+    /// them: the server never sends to its own candidates.
+    async fn with_host_addrs(&self, first: SocketAddr, host: Option<Host>) -> Vec<SocketAddr> {
+        let mut candidates = vec![first];
+        let Some(host) = host.filter(|_| self.public_ip.is_none()) else {
+            return candidates;
+        };
+        for ip in self.resolve(host).await {
+            let addr = SocketAddr::new(ip.to_canonical(), first.port());
+            if candidates.len() == MAX_ANSWER_CANDIDATES {
+                break;
+            }
+            if addr.is_ipv4() == first.is_ipv4() && !candidates.contains(&addr) {
+                candidates.push(addr);
+            }
+        }
+        candidates
+    }
+
+    /// The addresses of `host`: the literal itself, or what the OS resolver gives for the name
+    /// within [`HOST_LOOKUP_TIMEOUT`]; none when the lookup fails or takes longer.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the lookup semaphore is never closed"
+    )]
+    async fn resolve(&self, host: Host) -> Vec<IpAddr> {
+        let name = match host {
+            Host::Ip(ip) => return vec![ip],
+            Host::Name(name) => name,
+        };
+        let lookups = Arc::clone(&self.lookups);
+        let looked_up = name.clone();
+        let lookup = async move {
+            let permit = lookups
+                .acquire_owned()
+                .await
+                .expect("the lookup semaphore stays open");
+            // The permit goes with the blocking thread, which outlives a cancelled offer.
+            tokio::task::spawn_blocking(move || {
+                let addrs = lookup(&looked_up);
+                drop(permit);
+                addrs
+            })
+            .await
+        };
+        match tokio::time::timeout(HOST_LOOKUP_TIMEOUT, lookup).await {
+            Ok(Ok(Ok(addrs))) => addrs,
+            Ok(Ok(Err(e))) => {
+                debug!(
+                    host = %name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "nethernet host lookup failed"
+                );
+                Vec::new()
+            }
+            Ok(Err(e)) => {
+                debug!(
+                    host = %name,
+                    error = &e as &(dyn std::error::Error + 'static),
+                    "nethernet host lookup task failed"
+                );
+                Vec::new()
+            }
+            Err(_) => {
+                debug!(host = %name, "nethernet host lookup timed out");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -969,6 +1063,7 @@ pub(crate) async fn start(
         public_ip: settings.public_ip,
         udp_addrs,
         driver: driver.commands.clone(),
+        lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
     };
     let offers = tokio::spawn(offers.run(offers_rx));
     Ok((Handle { signaling, offers }, driver))
@@ -983,6 +1078,20 @@ fn signaling_socket(addr: SocketAddr) -> String {
         "server-port"
     };
     format!("TCP {addr} ({settings}, NetherNet signaling)")
+}
+
+/// The first [`MAX_LOOKUP_ADDRS`] IP addresses the OS resolver gives for `name`. Blocking: call
+/// it on the blocking pool.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the offer task runs it on the blocking pool"
+)]
+fn lookup(name: &str) -> io::Result<Vec<IpAddr>> {
+    Ok((name, 0)
+        .to_socket_addrs()?
+        .map(|addr| addr.ip())
+        .take(MAX_LOOKUP_ADDRS)
+        .collect())
 }
 
 /// Whether a datagram on the shared UDP port is NetherNet's (RFC 7983 demultiplexing): DTLS,
@@ -1102,7 +1211,7 @@ fn accept(
 pub(crate) mod tests {
     use super::*;
 
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     use str0m::net::{Protocol, Receive};
     use str0m::{DATAGRAM_MTU_TARGET, Input};
@@ -1521,6 +1630,7 @@ pub(crate) mod tests {
             public_ip: None,
             udp_addrs: vec![server],
             driver,
+            lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
         });
         let (reply, replied) = oneshot::channel();
         let identity = format!("{}\n", sdp::tests::identity_line());
@@ -1530,6 +1640,7 @@ pub(crate) mod tests {
             sdp: sdp::tests::OFFER.replace(&identity, ""),
             peer: SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000)),
             local: server,
+            host: None,
             reply,
         };
         let task = tokio::spawn(offers.answer(offer));
@@ -1566,11 +1677,12 @@ pub(crate) mod tests {
                 public_ip: None,
                 udp_addrs: Vec::new(),
                 driver,
+                lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
             };
             let client = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
             let refusal = offers
-                .negotiate("v=1\r\n", client, client)
+                .negotiate("v=1\r\n", client, client, None)
                 .await
                 .unwrap_err();
             assert!(matches!(refusal, Refusal::Offer(sdp::Error::Malformed(_))));
@@ -1578,7 +1690,10 @@ pub(crate) mod tests {
 
             // The identity signs the fingerprint as written, so another digest fails it.
             let offer = sdp::tests::OFFER.replace("8a:74:fb", "8a:74:fc");
-            let refusal = offers.negotiate(&offer, client, client).await.unwrap_err();
+            let refusal = offers
+                .negotiate(&offer, client, client, None)
+                .await
+                .unwrap_err();
             assert!(matches!(refusal, Refusal::Identity(_)), "{refusal:?}");
             assert_eq!(refusal.reply(), Reply::Code(Code::Identity));
 
@@ -1586,7 +1701,10 @@ pub(crate) mod tests {
             // to advertise.
             let identity = format!("{}\n", sdp::tests::identity_line());
             let offer = sdp::tests::OFFER.replace(&identity, "");
-            let refusal = offers.negotiate(&offer, client, client).await.unwrap_err();
+            let refusal = offers
+                .negotiate(&offer, client, client, None)
+                .await
+                .unwrap_err();
             assert!(matches!(refusal, Refusal::NoSocket), "{refusal:?}");
             assert_eq!(refusal.reply(), Reply::Code(Code::Internal));
             admitting.abort();
@@ -1628,17 +1746,116 @@ pub(crate) mod tests {
                 public_ip: None,
                 udp_addrs: vec![addr],
                 driver: driver.commands.clone(),
+                lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
             };
             let serving = tokio::spawn(async move { while driver.serve().await {} });
 
             // The identity signs the fingerprint as written, so another digest fails it.
             let offer = sdp::tests::OFFER.replace("8a:74:fb", "8a:74:fc");
             let refusal = offers
-                .negotiate(&offer, addr.ip(), addr.ip())
+                .negotiate(&offer, addr.ip(), addr.ip(), None)
                 .await
                 .unwrap_err();
             assert!(matches!(refusal, Refusal::Busy), "{refusal:?}");
             assert_eq!(refusal.reply(), Reply::Busy);
+            serving.abort();
+        });
+    }
+
+    /// An offer offline, without an identity, as a client behind a NAT sends it.
+    fn offer_without_identity() -> String {
+        let identity = format!("{}\n", sdp::tests::identity_line());
+        sdp::tests::OFFER.replace(&identity, "")
+    }
+
+    /// Offers answered by a serving driver on a loopback UDP port, with `public_ip`; the port.
+    fn serving_offers(public_ip: Option<IpAddr>) -> (Offers, u16, JoinHandle<()>) {
+        let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+        let sockets = Sockets::bind(Some(localhost), None).unwrap();
+        let port = sockets.local_addrs()[0].port();
+        let (mut driver, _connections) = driver(sockets);
+        let offers = Offers {
+            identity: Arc::new(ServerIdentity::generate().unwrap()),
+            auth: None,
+            public_ip,
+            udp_addrs: vec![SocketAddr::from((Ipv4Addr::LOCALHOST, port))],
+            driver: driver.commands.clone(),
+            lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
+        };
+        let serving = tokio::spawn(async move { while driver.serve().await {} });
+        (offers, port, serving)
+    }
+
+    /// The `a=candidate` addresses of an answer.
+    fn answer_candidates(answer: &str) -> Vec<String> {
+        answer
+            .lines()
+            .filter_map(|line| line.strip_prefix("a=candidate:"))
+            .map(|candidate| {
+                let fields: Vec<&str> = candidate.split(' ').collect();
+                format!("{}:{}", fields[4], fields[5])
+            })
+            .collect()
+    }
+
+    /// Behind a NAT the address a client reached the signaling server on is private, so the
+    /// answer also advertises the host the client was given, at the UDP port: a client outside
+    /// can reach that one.
+    #[test]
+    fn an_answer_advertises_the_host_the_client_was_given() {
+        run(async {
+            let (offers, port, serving) = serving_offers(None);
+            let reached = IpAddr::V4(Ipv4Addr::new(192, 168, 0, 160));
+            let client = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4));
+            let given = Host::Ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+            let answer = offers
+                .negotiate(&offer_without_identity(), client, reached, Some(given))
+                .await
+                .unwrap();
+            assert_eq!(
+                answer_candidates(&answer),
+                [
+                    format!("192.168.0.160:{port}"),
+                    format!("203.0.113.7:{port}")
+                ]
+            );
+            assert!(answer.contains("\r\nc=IN IP4 192.168.0.160\r\n"));
+            serving.abort();
+        });
+    }
+
+    /// The host's addresses join the first candidate only when they are new, of its family and
+    /// within the candidate limit; a DNS name is looked up; `public-ip` stays the only one.
+    #[test]
+    fn host_addresses_join_only_new_candidates_of_one_family() {
+        run(async {
+            let (offers, port, serving) = serving_offers(None);
+            let first = SocketAddr::from((Ipv4Addr::new(192, 168, 0, 160), port));
+            let at = |ip: IpAddr| SocketAddr::new(ip, port);
+            let same = Host::Ip(first.ip());
+            assert_eq!(offers.with_host_addrs(first, Some(same)).await, [first]);
+            let v6 = Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST));
+            assert_eq!(offers.with_host_addrs(first, Some(v6)).await, [first]);
+            assert_eq!(offers.with_host_addrs(first, None).await, [first]);
+            let name = Host::Name("localhost".to_owned());
+            let loopback = at(IpAddr::V4(Ipv4Addr::LOCALHOST));
+            assert_eq!(
+                offers.with_host_addrs(first, Some(name)).await,
+                [first, loopback]
+            );
+            let mapped = Host::Ip(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped()));
+            assert_eq!(
+                offers.with_host_addrs(first, Some(mapped)).await,
+                [first, loopback]
+            );
+            serving.abort();
+
+            let public = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9));
+            let (offers, port, serving) = serving_offers(Some(public));
+            let first = offers.advertised(first.ip()).unwrap();
+            assert_eq!(first, SocketAddr::new(public, port));
+            let given = Host::Ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+            assert_eq!(offers.with_host_addrs(first, Some(given)).await, [first]);
             serving.abort();
         });
     }

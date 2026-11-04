@@ -573,7 +573,7 @@ mod tests {
         let answer = write_answer(&Answer {
             session_id: 7,
             identity: &value,
-            addr: "192.0.2.7:19133".parse().unwrap(),
+            addrs: &["192.0.2.7:19133".parse().unwrap()],
             ice_ufrag: "abcd",
             ice_pwd: "abcdefghijklmnopqrstuv",
             fingerprint: &fingerprint,

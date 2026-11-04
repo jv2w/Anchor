@@ -66,7 +66,7 @@ vendor/                     patched dependency copies (dependencies.md)
 | Save (`anchor-save`) | 1 | Chunk and player loads, snapshot commits, backups |
 | Network workers (tokio, `anchor-network`) | `network-threads` | Transports, sessions, codecs, compression, encryption, signaling |
 | CPU pool (rayon, `anchor-cpu-<n>`) | `cpu-threads` | The tick's parallel read-only phases; for the save thread, chunk decoding, generation and first lighting, chunk extras reading, chunk sealing, and the file checks at start |
-| Blocking pool (tokio) | at most 8 | 4 for the engine (the authorization fetch and key loading), 4 for user `spawn_blocking` jobs |
+| Blocking pool (tokio) | at most 10 | 4 for the engine (the authorization fetch and key loading), 2 for NetherNet's lookups of the host names clients give (`network.md`), 4 for user `spawn_blocking` jobs |
 | Run (`anchor-run`) | 1 | Creates, drives and stops the tokio runtime for `Server::run`, so the caller may be inside a tokio runtime; it waits, so it is not in the budget |
 | Console (`anchor-console`) | 1 | Puts standard input lines into a bounded queue (`console-input`) |
 | Console log (`anchor-log`) | 1 | Anchor's default console writer, writing standard error (when `log-level` is not `off` and `without_console_log` was not called) |

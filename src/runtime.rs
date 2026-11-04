@@ -11,15 +11,17 @@ use tracing::warn;
 use crate::config::{self, Threads};
 use crate::console::log;
 use crate::error::{Error, Result};
+use crate::nethernet::MAX_HOST_LOOKUPS;
 use crate::pool::Pool;
 
 /// The tick thread and the save thread, outside both pools.
 const FIXED_THREADS: usize = 2;
 /// Threads tokio may start for blocking work: 4 for the engine's own (the authorization fetch,
-/// pack and key loading) and [`USER_BLOCKING_THREADS`] for the user's jobs. tokio's default of 512
-/// would let blocking work grow without bound. Blocking threads wait on I/O and are
-/// not counted in the compute thread budget.
-const MAX_BLOCKING_THREADS: usize = 4 + USER_BLOCKING_THREADS;
+/// pack and key loading), [`MAX_HOST_LOOKUPS`] for NetherNet's lookups of client-given names, and
+/// [`USER_BLOCKING_THREADS`] for the user's jobs. tokio's default of 512 would let blocking work
+/// grow without bound. Blocking threads wait on I/O and are not counted in the compute thread
+/// budget.
+const MAX_BLOCKING_THREADS: usize = 4 + MAX_HOST_LOOKUPS + USER_BLOCKING_THREADS;
 /// The smallest thread budget, whatever the logical CPU count.
 const MIN_BUDGET: usize = 4;
 /// How long stopping the runtime waits for blocking work: the authorization fetch's limit,

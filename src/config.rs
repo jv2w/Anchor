@@ -48,8 +48,9 @@ enable-ipv6 = true
 # The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
 # TCP carries NetherNet signaling.
 server-port = 19132
-# Address NetherNet players use to reach this server, if it differs from the local one (NAT).
-# Empty: advertise the address each player reached the signaling port on.
+# Address NetherNet players use to reach this server, advertised alone. Rarely needed.
+# Empty: advertise the address each player reached the signaling port on and the address the
+# player typed, which also works behind a NAT with server-port forwarded.
 # An IPv6 address needs enable-ipv6.
 public-ip = ""
 max-players = 20
@@ -595,8 +596,10 @@ pub struct General {
     #[doc(alias = "Server::getPort")]
     #[doc(alias = "Server::getPortV6")]
     pub server_port: u16,
-    /// `public-ip`: the address NetherNet players use to reach this server; `None` advertises the
-    /// address each player reached the signaling port on. An IPv6 address needs `enable_ipv6`.
+    /// `public-ip`: the address NetherNet players use to reach this server, advertised alone;
+    /// `None` advertises the address each player reached the signaling port on and the address
+    /// the player typed, which also reaches a server behind a NAT through its port forward. An
+    /// IPv6 address needs `enable_ipv6`.
     pub public_ip: Option<IpAddr>,
     /// `max-players`: the most players online at once.
     pub max_players: u32,

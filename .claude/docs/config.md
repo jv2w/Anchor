@@ -31,8 +31,9 @@ enable-ipv6 = true
 # The one port players reach: UDP carries RakNet, NetherNet game data and server list pings;
 # TCP carries NetherNet signaling.
 server-port = 19132
-# Address NetherNet players use to reach this server, if it differs from the local one (NAT).
-# Empty: advertise the address each player reached the signaling port on.
+# Address NetherNet players use to reach this server, advertised alone. Rarely needed.
+# Empty: advertise the address each player reached the signaling port on and the address the
+# player typed, which also works behind a NAT with server-port forwarded.
 # An IPv6 address needs enable-ipv6.
 public-ip = ""
 max-players = 20
@@ -196,7 +197,7 @@ console-input = true
 | `server-ipv6` | string | `"::"` | IPv6 address | IPv6 address to listen on; `::` is every interface |
 | `enable-ipv6` | bool | `true` | | Whether to listen on IPv6 too |
 | `server-port` | integer | `19132` | 0 to 65535 | The one port number the server uses, on IPv4 and IPv6: UDP for RakNet, NetherNet game data, and server list pings; TCP for NetherNet signaling |
-| `public-ip` | string | `""` | empty or an IP address; IPv6 only with `enable-ipv6` | Address NetherNet players use to reach the server when it differs from the local one (NAT); empty advertises the address each player reached the signaling port on |
+| `public-ip` | string | `""` | empty or an IP address; IPv6 only with `enable-ipv6` | Address NetherNet players use to reach the server, advertised alone; empty advertises the address each player reached the signaling port on and the address the player typed, which reaches a server behind a NAT through its port forward (`network.md`) |
 | `max-players` | integer | `20` | 1 to 10000 | Most players online at once; sizes the player and session tables |
 | `xbox-auth` | bool | `true` | | Whether players must sign in to Xbox Live; `false` lets anyone join under any name |
 | `white-list` | bool | `false` | | Whether only listed players can join; the `whitelist` command manages the list |

@@ -296,8 +296,8 @@ pub(crate) struct Peer {
 }
 
 impl Peer {
-    /// A peer answering `remote`, reachable at `local_addr` (the advertised host candidate), that
-    /// reassembles messages of at most `max_message_bytes` bytes.
+    /// A peer answering `remote`, reachable at `local_addr` (the first advertised host
+    /// candidate), that reassembles messages of at most `max_message_bytes` bytes.
     pub(crate) fn new(
         remote: Remote,
         local_addr: SocketAddr,
@@ -468,8 +468,9 @@ impl Peer {
             trace!(addr = %from, len = datagram.len(), "dropped nethernet datagram");
             return;
         }
-        // ICE drops requests not addressed to a local candidate; the socket is bound to every
-        // interface, so the destination is the advertised candidate by definition.
+        // ICE drops requests not addressed to a local candidate. The socket is bound to every
+        // interface and a NAT rewrites the address the client sent to, so every datagram counts
+        // as sent to the one candidate str0m holds, whichever advertised address it went to.
         let local_addr = self.local_addr;
         let result = guard(&mut self.rtc, |rtc| {
             let Ok(receive) = Receive::new(Protocol::Udp, from, local_addr, datagram) else {
@@ -1072,7 +1073,7 @@ pub(crate) mod tests {
             let answer = sdp::write_answer(&sdp::Answer {
                 session_id: 1,
                 identity: "SUQ=",
-                addr: SERVER,
+                addrs: &[SERVER],
                 ice_ufrag: &local.ice_ufrag,
                 ice_pwd: &local.ice_pwd,
                 fingerprint: &sdp::fingerprint_text(&local.fingerprint),
