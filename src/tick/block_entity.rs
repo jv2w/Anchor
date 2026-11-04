@@ -1165,7 +1165,7 @@ fn create(
     if is_chest {
         pair_chest(state, world, pos, block, session);
     }
-    drop_all(state, world, center(pos), unfit);
+    drop_all(state, world, pos.to_center(), unfit);
     true
 }
 
@@ -1337,7 +1337,7 @@ fn discard(state: &mut State, world: WorldIndex, pos: BlockPos) {
         take_contents(e, &mut contents);
     }
     removed(state, world, pos);
-    drop_all(state, world, center(pos), contents);
+    drop_all(state, world, pos.to_center(), contents);
 }
 
 /// The block at `pos` is gone (broken, replaced, exploded): removes its block entity, closes the
@@ -1372,7 +1372,7 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
     if matches!(entity.kind, Kind::ShulkerBox { .. }) {
         return;
     }
-    drop_all(state, world, center(pos), entity.items);
+    drop_all(state, world, pos.to_center(), entity.items);
 }
 
 /// The sessions with a window open on the block at `pos`; a double chest window covers both
@@ -1557,7 +1557,7 @@ pub(super) fn tick(state: &mut State) {
                 break;
             };
             budget -= 1;
-            if !inventory::drop_stack(state, key.0, center(pos), stack) {
+            if !inventory::drop_stack(state, key.0, pos.to_center(), stack) {
                 full = Some(key.0);
                 break;
             }
@@ -1627,7 +1627,7 @@ pub(super) fn lid_sound(
         return;
     };
     let sound = if viewers > 0 { open } else { close };
-    super::emit::sound_as(state, world, center(pos), sound, raise);
+    super::emit::sound_as(state, world, pos.to_center(), sound, raise);
 }
 
 /// Marks the block entity at `pos` for [`send_marked`] to send its client form at the end of the
@@ -1795,15 +1795,6 @@ fn beside(pos: BlockPos, facing: Facing) -> Option<BlockPos> {
 /// The block at `pos` of `world`, if loaded.
 fn block_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<block::State> {
     state.worlds.get(world)?.block(pos)
-}
-
-/// The centre of a block.
-fn center(pos: BlockPos) -> Vec3 {
-    Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y) + 0.5,
-        f64::from(pos.z) + 0.5,
-    )
 }
 
 #[cfg(test)]
@@ -2760,7 +2751,7 @@ pub(in crate::tick) mod tests {
         let other = (1, ChunkPos::new(0, 0));
         load_chunk(&mut state, other);
         let spawn = state.worlds[0].spawn();
-        while entity::drop_item(&mut state, 0, center(spawn), food("minecraft:stick", 1)) {}
+        while entity::drop_item(&mut state, 0, spawn.to_center(), food("minecraft:stick", 1)) {}
         assert_eq!(state.rules.entities.count(0), MAX_ENTITIES_PER_WORLD);
         let stick = vec![food("minecraft:stick", 1)];
         let blocks = &mut state.rules.block_entities;

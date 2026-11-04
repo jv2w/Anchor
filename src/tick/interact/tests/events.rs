@@ -1718,7 +1718,7 @@ fn a_world_particle_listener_sees_a_broken_block_and_may_hide_it() {
     )]);
     assert_eq!(h.block(TARGET), block::AIR);
     let broken = crate::world::Particle::BlockBreak(dandelion());
-    assert_eq!(notes(SEEN), [dbg((center(TARGET), broken, vec![me()]))]);
+    assert_eq!(notes(SEEN), [dbg((TARGET.to_center(), broken, vec![me()]))]);
     assert_eq!(pieces(&h.packets()), 1);
     let mut h = Harness::with(creative, cancel(crate::event::WorldParticle::cancel));
     h.set(TARGET, dandelion());

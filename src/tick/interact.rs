@@ -410,15 +410,6 @@ fn can_act(player: &Player) -> bool {
     player.phase == Phase::Spawned && survival::is_alive(player)
 }
 
-/// The centre of a block.
-fn center(pos: BlockPos) -> Vec3 {
-    Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y) + 0.5,
-        f64::from(pos.z) + 0.5,
-    )
-}
-
 /// A block position of a packet.
 fn block_pos(p: [i32; 3]) -> BlockPos {
     BlockPos::new(p[0], p[1], p[2])
@@ -545,7 +536,7 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
         return;
     };
     let pos = block_pos(packet.position);
-    if center(pos).distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED {
+    if pos.to_center().distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED {
         return;
     }
     let Some(block) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
@@ -700,7 +691,8 @@ pub(super) fn tick(state: &mut State) {
         };
         let feet = survival::feet(player);
         if target.world != player.world
-            || feet.distance_squared(center(target.pos)) > MAX_BREAK_DISTANCE * MAX_BREAK_DISTANCE
+            || feet.distance_squared(target.pos.to_center())
+                > MAX_BREAK_DISTANCE * MAX_BREAK_DISTANCE
         {
             stop_breaking(state, session);
             continue;
@@ -796,7 +788,7 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
     let Some(actor) = actor(state, session) else {
         return;
     };
-    if center(pos).distance_squared(actor.feet) >= MAX_ACTION_DISTANCE_SQUARED {
+    if pos.to_center().distance_squared(actor.feet) >= MAX_ACTION_DISTANCE_SQUARED {
         return;
     }
     let around = |at: BlockPos| Face::all().iter().filter_map(move |&f| at.step(f));
@@ -1059,7 +1051,7 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
 /// Checks a left click: the block is near (100 blocks) and loaded, and the player is not a
 /// spectator. The block if so.
 fn left_click(state: &State, actor: &Actor, pos: BlockPos) -> Option<block::State> {
-    if center(pos).distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED
+    if pos.to_center().distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED
         || actor.mode == GameMode::Spectator
     {
         return None;
@@ -1158,7 +1150,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     let Some(mut actor) = actor(state, session) else {
         return false;
     };
-    if !actor.can_interact(center(pos), actor.reach()) {
+    if !actor.can_interact(pos.to_center(), actor.reach()) {
         debug!(session = session.get(), "break out of reach");
         return false;
     }
@@ -1202,7 +1194,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
         // would copy them), or taken the tool: the break must come out the same.
         let again = self::actor(state, session).filter(|a| {
             a.world == actor.world
-                && a.can_interact(center(pos), a.reach())
+                && a.can_interact(pos.to_center(), a.reach())
                 && held(state, session) == tool
                 && break_plan(state, a, pos, &tool).as_ref() == Some(&plan)
         });
@@ -1551,7 +1543,7 @@ fn apply_destruction(
             .set_block(p, block::AIR)
             .expect("an affected block is in a loaded chunk inside the world");
     }
-    block_entity::drop_all(state, world, center(pos), items);
+    block_entity::drop_all(state, world, pos.to_center(), items);
     Some(affected)
 }
 
@@ -1567,7 +1559,7 @@ fn destroyed(
 ) {
     if particles {
         for (p, s) in affected.into_iter().flatten() {
-            emit::particle(state, world, center(p), Particle::BlockBreak(s));
+            emit::particle(state, world, p.to_center(), Particle::BlockBreak(s));
         }
     }
     for (p, s) in affected.into_iter().flatten() {
@@ -1738,7 +1730,7 @@ fn interact_block(
         return false;
     };
     stop_using(state, session);
-    if !actor.can_interact(center(pos), actor.reach()) {
+    if !actor.can_interact(pos.to_center(), actor.reach()) {
         debug!(session = session.get(), "click out of reach");
         return false;
     }

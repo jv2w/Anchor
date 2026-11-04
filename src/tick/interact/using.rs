@@ -7,9 +7,7 @@
 
 use tracing::debug;
 
-use super::{
-    Actor, Source, USE, adventure_allows, block_vec, center, place, props, return_items, stream,
-};
+use super::{Actor, Source, USE, adventure_allows, block_vec, place, props, return_items, stream};
 use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
 use crate::event::{
@@ -237,7 +235,7 @@ fn click_again(
 ) -> Option<Actor> {
     super::actor(state, actor.session).filter(|a| {
         a.world == actor.world
-            && a.can_interact(center(pos), a.reach())
+            && a.can_interact(pos.to_center(), a.reach())
             && right_click(state, a, pos, face).is_some_and(|(c, h)| c == clicked && h.same(held))
     })
 }
@@ -287,7 +285,7 @@ fn place_held(
         if dispatch::listened::<BlockPlace>(state)
             && !super::actor(state, actor.session).is_some_and(|a| {
                 still_holds(state, actor, held)
-                    && a.can_interact(center(pos), a.reach())
+                    && a.can_interact(pos.to_center(), a.reach())
                     && placement(state, &a, held, pos, face, click).as_ref() == Some(&blocks)
             })
         {
@@ -327,7 +325,7 @@ fn place_held(
     let used = held.with_count(held.count().saturating_sub(1));
     return_items(state, actor.session, held, used);
     if let Some((first, s)) = blocks.first() {
-        emit::sound(state, world, center(*first), Sound::BlockPlace(*s));
+        emit::sound(state, world, first.to_center(), Sound::BlockPlace(*s));
     }
     for (p, s) in &blocks {
         if s.custom_block().is_some() {
@@ -458,7 +456,7 @@ pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
         let (dx, _, dz) = props::facing(block).unwrap_or(Face::South).offset();
         Vec3::new(f64::from(dx), 0.0, f64::from(dz))
     };
-    let to_player = feet - center(pos);
+    let to_player = feet - pos.to_center();
     facing.x * to_player.x + facing.z * to_player.z >= 0.0
 }
 

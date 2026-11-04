@@ -113,6 +113,15 @@ impl BlockPos {
         ))
     }
 
+    /// The centre of the block cell.
+    pub(crate) fn to_center(self) -> crate::math::Vec3 {
+        crate::math::Vec3::new(
+            f64::from(self.x) + 0.5,
+            f64::from(self.y) + 0.5,
+            f64::from(self.z) + 0.5,
+        )
+    }
+
     /// The position one block toward `facing`, if it is a valid `i32` position.
     fn side(self, facing: Facing) -> Option<Self> {
         let (dx, dz) = facing.offset();
@@ -1433,6 +1442,22 @@ mod tests {
             BlockPos::new(0, i32::MAX, i32::MIN)
         );
         assert_eq!(at(-0.5, 0.0, 0.0).chunk(), ChunkPos::new(-1, 0));
+    }
+
+    /// The centre of a block cell is half a block from its lowest corner on every axis, also for
+    /// negative coordinates.
+    #[test]
+    fn the_centre_of_a_block_is_half_a_block_from_its_corner() {
+        use crate::math::Vec3;
+        assert_eq!(BlockPos::new(0, 0, 0).to_center(), Vec3::new(0.5, 0.5, 0.5));
+        assert_eq!(
+            BlockPos::new(-1, -64, 16).to_center(),
+            Vec3::new(-0.5, -63.5, 16.5)
+        );
+        assert_eq!(
+            BlockPos::containing(BlockPos::new(-7, 319, -30).to_center()),
+            BlockPos::new(-7, 319, -30)
+        );
     }
 
     // api: World::getBlock, World::getBlockAt, World::setBlock, World::setBlockAt, World

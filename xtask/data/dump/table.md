@@ -5954,7 +5954,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | the API'supdate checker |
 | `event\world\ChunkEvent` | merged | src/event/world.rs:30 `chunk` | src/event/world.rs::chunk_events_name_the_chunk | into `ChunkEvent::getChunkX` |
 | `event\world\ChunkEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\world\ChunkEvent::getChunk` | merged | src/world.rs:700 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `event\world\ChunkEvent::getChunk` | merged | src/world.rs:709 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `event\world\ChunkEvent::getChunkX` | implemented | src/event/world.rs:30 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `event\world\ChunkEvent::getChunkZ` | implemented | src/event/world.rs:31 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `event\world\ChunkLoadEvent` | implemented | src/event/world.rs:17 `ChunkLoad` | src/event/world.rs::chunk_events_name_the_chunk<br>src/tick/view.rs::chunk_loads_name_new_and_restored_chunks_once<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
@@ -9366,7 +9366,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\ChunkListenerNoOpTrait::onChunkLoaded` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListenerNoOpTrait::onChunkPopulated` | skipped |  |  | chunk listeners: world changes are events |
 | `world\ChunkListenerNoOpTrait::onChunkUnloaded` | skipped |  |  | chunk listeners: world changes are events |
-| `world\ChunkLoader` | implemented | src/world.rs:399 `Ticket` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\ChunkLoader` | implemented | src/world.rs:408 `Ticket` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\ChunkLockId` | skipped |  |  | chunk loading is the engine's |
 | `world\ChunkLockId::__clone` | skipped |  |  | chunk loading is the engine's |
 | `world\ChunkLockId::__serialize` | skipped |  |  | chunk loading is the engine's |
@@ -9404,7 +9404,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\SimpleChunkManager::isInWorld` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
-| `world\World` | implemented | src/world.rs:530 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World` | implemented | src/world.rs:539 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::__construct` | merged | src/server.rs:683 `world`<br>src/tick/world_api/lifecycle.rs:314 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` |
@@ -9425,16 +9425,16 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::doChunkGarbageCollection` | skipped |  |  | chunk store internals |
 | `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1715 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `world\World::dropItem` | implemented | src/tick/entity/api.rs:1692 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `world\World::getAdjacentChunks` | merged | src/world.rs:700 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `world\World::getAdjacentChunks` | merged | src/world.rs:709 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `world\World::getAutoSave` | merged | src/tick/command.rs:659 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::getAutoSave` |
-| `world\World::getBiome` | implemented | src/world.rs:606 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getBiomeId` | implemented | src/world.rs:605 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getBlock` | implemented | src/world.rs:615 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::getBlockAt` | implemented | src/world.rs:614 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::getBiome` | implemented | src/world.rs:615 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getBiomeId` | implemented | src/world.rs:614 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getBlock` | implemented | src/world.rs:624 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::getBlockAt` | implemented | src/world.rs:623 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::getBlockCollisionBoxes` | implemented | src/tick/world_api.rs:284 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world |  |
-| `world\World::getBlockLightAt` | implemented | src/world.rs:629 `block_light` | src/world/light.rs::block_light_follows_the_spread_rules |  |
+| `world\World::getBlockLightAt` | implemented | src/world.rs:638 `block_light` | src/world/light.rs::block_light_follows_the_spread_rules |  |
 | `world\World::getBlockXYZ` | skipped |  |  | chunk store internals |
-| `world\World::getChunk` | implemented | src/world.rs:700 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
+| `world\World::getChunk` | implemented | src/world.rs:709 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
 | `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1596 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::getChunkLoaders` | implemented | src/tick/view.rs:932 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
@@ -9443,22 +9443,22 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1668 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getCollisionBlocks` | merged | src/tick/world_api.rs:284 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
 | `world\World::getCollisionBoxes` | merged | src/tick/world_api.rs:284 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world | into `World::getBlockCollisionBoxes` |
-| `world\World::getDifficulty` | implemented | src/world.rs:709 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
+| `world\World::getDifficulty` | implemented | src/world.rs:718 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::getDifficultyFromString` | skipped |  |  | settings are typed `Config` fields |
-| `world\World::getDisplayName` | implemented | src/world.rs:830 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getDisplayName` | implemented | src/world.rs:839 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\World::getEntities` | implemented | src/tick/entity/api.rs:1615 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getEntity` | implemented | src/tick/entity/api.rs:1623 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\World::getFolderName` | implemented | src/world.rs:829 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getFullLight` | merged | src/world.rs:723 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `world\World::getFullLightAt` | implemented | src/world.rs:723 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `world\World::getFolderName` | implemented | src/world.rs:838 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getFullLight` | merged | src/world.rs:732 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getFullLightAt` | implemented | src/world.rs:732 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
 | `world\World::getHighestAdjacentBlockLight` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentFullLightAt` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentPotentialBlockSkyLight` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentPotentialLightAt` | skipped |  |  | light rule code |
 | `world\World::getHighestAdjacentRealBlockSkyLight` | skipped |  |  | light rule code |
-| `world\World::getHighestBlockAt` | implemented | src/world.rs:739 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::getId` | implemented | src/world.rs:747 `id` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `world\World::getLoadedChunks` | implemented | src/world.rs:823 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getHighestBlockAt` | implemented | src/world.rs:748 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::getId` | implemented | src/world.rs:756 `id` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
+| `world\World::getLoadedChunks` | implemented | src/world.rs:832 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `world\World::getMaxY` | implemented | src/world.rs:44 `MAX_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getMinY` | implemented | src/world.rs:49 `MIN_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
@@ -9466,17 +9466,17 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1636 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getOrLoadChunkAtPosition` | skipped |  |  | chunks load off the tick and arrive as a later tick's input: a block of a chunk that is not loaded reads as `None` |
 | `world\World::getPlayers` | implemented | src/tick/world_api.rs:67 `players_in` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
-| `world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:863 `sky_light` | src/world/light.rs::sky_light_follows_the_spread_rules |  |
-| `world\World::getPotentialLight` | merged | src/world.rs:723 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `world\World::getPotentialLightAt` | merged | src/world.rs:723 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:872 `sky_light` | src/world/light.rs::sky_light_follows_the_spread_rules |  |
+| `world\World::getPotentialLight` | merged | src/world.rs:732 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `world\World::getPotentialLightAt` | merged | src/world.rs:732 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
 | `world\World::getProvider` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\World::getRandomTickedBlocks` | skipped |  |  | which states tick randomly is fixed by the block table (`State::ticks_randomly`) |
-| `world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:848 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:857 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
 | `world\World::getSafeSpawn` | implemented | src/tick/world_api.rs:303 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column |  |
-| `world\World::getSeed` | implemented | src/world.rs:855 `seed` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getSeed` | implemented | src/world.rs:864 `seed` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
 | `world\World::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `world\World::getSkyLightReduction` | skipped |  |  | light rule code |
-| `world\World::getSpawnLocation` | implemented | src/world.rs:869 `spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
+| `world\World::getSpawnLocation` | implemented | src/world.rs:878 `spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
 | `world\World::getSunAngleDegrees` | skipped |  |  | sky light rule code |
 | `world\World::getSunAnglePercentage` | skipped |  |  | sky light rule code |
 | `world\World::getSunAngleRadians` | skipped |  |  | sky light rule code |
@@ -9484,23 +9484,23 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getTickingChunks` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::getTile` | implemented | src/tick/block_entity/api.rs:24 `block_entity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `world\World::getTileAt` | implemented | src/tick/block_entity/api.rs:25 `block_entity` | src/tick/block_entity/api.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `world\World::getTime` | implemented | src/world.rs:894 `time_ticks` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once<br>src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
-| `world\World::getTimeOfDay` | implemented | src/world.rs:885 `time_of_day` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getTime` | implemented | src/world.rs:903 `time_ticks` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once<br>src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
+| `world\World::getTimeOfDay` | implemented | src/world.rs:894 `time_of_day` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
 | `world\World::getViewersForPosition` | implemented | src/tick/world_api.rs:50 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getXZ` | skipped |  |  | chunk store internals |
 | `world\World::isChunkGenerated` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isChunkInUse` | differs | src/tick/view.rs:933 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
-| `world\World::isChunkLoaded` | implemented | src/world.rs:759 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::isChunkLoaded` | implemented | src/world.rs:768 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isChunkLocked` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isChunkPopulated` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isDoingTick` | skipped |  |  | callbacks run only in the tick's serial step |
-| `world\World::isInLoadedTerrain` | merged | src/world.rs:759 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
-| `world\World::isInWorld` | implemented | src/world.rs:765 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::isInLoadedTerrain` | merged | src/world.rs:768 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
+| `world\World::isInWorld` | implemented | src/world.rs:774 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:276 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\World::isSpawnChunk` | implemented | src/world.rs:784 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
+| `world\World::isSpawnChunk` | implemented | src/world.rs:793 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
 | `world\World::loadChunk` | differs | src/tick/view.rs:1007 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
-| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
+| `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1090 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
 | `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1009 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::registerChunkLoader` | implemented | src/tick/view.rs:1006 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
@@ -9514,15 +9514,15 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `world\World::scheduleDelayedBlockUpdate` | skipped |  |  | block rule code: Anchor has no scheduled block updates |
 | `world\World::setAutoSave` | merged | src/tick/command.rs:972 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::setAutoSave` |
-| `world\World::setBiomeId` | implemented | src/world.rs:1044 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `world\World::setBlock` | implemented | src/world.rs:1081 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::setBlockAt` | implemented | src/world.rs:1080 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::setBiomeId` | implemented | src/world.rs:1053 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `world\World::setBlock` | implemented | src/world.rs:1090 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `world\World::setBlockAt` | implemented | src/world.rs:1089 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setChunk` | skipped |  |  | the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block` |
 | `world\World::setChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::setDifficulty` | implemented | src/tick/world_api/lifecycle.rs:475 `set_world_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\World::setDisplayName` | skipped |  |  | a world's name is its storage key and the reference of players' spawn points, so it never changes |
 | `world\World::setSleepTicks` | skipped |  |  | sleep rule code |
-| `world\World::setSpawnLocation` | implemented | src/world.rs:1123 `set_spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks<br>src/tick/world_api/tests.rs::a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays |  |
+| `world\World::setSpawnLocation` | implemented | src/world.rs:1132 `set_spawn` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks<br>src/tick/world_api/tests.rs::a_spawn_outside_the_world_border_is_refused_and_the_spawn_stays |  |
 | `world\World::setTime` | implemented | src/tick/world_api.rs:193 `set_time` | src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
 | `world\World::startTime` | implemented | src/tick/world_api/lifecycle.rs:500 `start_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players |  |
 | `world\World::stopTime` | implemented | src/tick/world_api/lifecycle.rs:511 `stop_time` | src/tick/world_api/lifecycle/tests.rs::a_stopped_time_stands_still_for_the_world_and_its_players<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
@@ -9537,19 +9537,19 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::updateAllLight` | skipped |  |  | light rule code |
 | `world\World::useBreakOn` | merged | src/action/interact.rs:41 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied | into `Player::breakBlock` |
 | `world\World::useItemOn` | merged | src/action/interact.rs:112 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied | into `Player::interactBlock` |
-| `world\WorldCreationOptions` | implemented | src/world.rs:273 `Options` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::__construct` | merged | src/world.rs:286 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `WorldCreationOptions::create` |
-| `world\WorldCreationOptions::create` | implemented | src/world.rs:286 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getDifficulty` | implemented | src/world.rs:293 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getGeneratorClass` | implemented | src/world.rs:301 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions` | implemented | src/world.rs:282 `Options` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::__construct` | merged | src/world.rs:295 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `WorldCreationOptions::create` |
+| `world\WorldCreationOptions::create` | implemented | src/world.rs:295 `new` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getDifficulty` | implemented | src/world.rs:302 `difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getGeneratorClass` | implemented | src/world.rs:310 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldCreationOptions::getGeneratorOptions` | skipped |  |  | a generator is a Rust value configured in code, not an options string |
-| `world\WorldCreationOptions::getSeed` | implemented | src/world.rs:312 `seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::getSpawnPosition` | implemented | src/world.rs:327 `spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setDifficulty` | implemented | src/world.rs:334 `with_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setGeneratorClass` | implemented | src/world.rs:344 `with_generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getSeed` | implemented | src/world.rs:321 `seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::getSpawnPosition` | implemented | src/world.rs:336 `spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setDifficulty` | implemented | src/world.rs:343 `with_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setGeneratorClass` | implemented | src/world.rs:353 `with_generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldCreationOptions::setGeneratorOptions` | skipped |  |  | a generator is a Rust value configured in code, not an options string |
-| `world\WorldCreationOptions::setSeed` | implemented | src/world.rs:359 `with_seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
-| `world\WorldCreationOptions::setSpawnPosition` | implemented | src/world.rs:375 `with_spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setSeed` | implemented | src/world.rs:368 `with_seed` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\WorldCreationOptions::setSpawnPosition` | implemented | src/world.rs:384 `with_spawn` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\WorldException` | skipped |  |  | PHP exception: Anchor returns `Result` with module `Error` enums |
 | `world\WorldManager` | merged | src/tick/world_api.rs:78 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |

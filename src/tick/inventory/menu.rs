@@ -430,12 +430,7 @@ pub(in crate::tick) fn tick(state: &mut State) {
 /// Whether a menu whose first block stands at `pos` is out of reach of a player whose eyes are
 /// at `eye`: farther than [`MAX_DISTANCE_SQUARED`] from the block's centre.
 fn is_far(eye: Vec3, pos: BlockPos) -> bool {
-    let centre = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y) + 0.5,
-        f64::from(pos.z) + 0.5,
-    );
-    eye.distance_squared(centre) > MAX_DISTANCE_SQUARED
+    eye.distance_squared(pos.to_center()) > MAX_DISTANCE_SQUARED
 }
 
 /// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
