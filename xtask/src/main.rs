@@ -260,13 +260,10 @@ fn dump_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
 fn table_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
     let report = match table::run(&root(), mode) {
         Ok(report) => report,
-        Err(e) => {
-            say(out, &format!("error: {e}"))?;
-            return Ok(false);
-        }
+        Err(e) => return fail(out, &e),
     };
     for error in &report.errors {
-        say(out, &format!("error: {error}"))?;
+        say_error(out, error)?;
     }
     if report.stale {
         say(
@@ -283,14 +280,11 @@ fn reasons_command(out: &mut impl Write) -> Result<bool, String> {
     match reasons::check(&root()) {
         Ok(errors) => {
             for error in &errors {
-                say(out, &format!("error: {error}"))?;
+                say_error(out, error)?;
             }
             Ok(errors.is_empty())
         }
-        Err(e) => {
-            say(out, &format!("error: {e}"))?;
-            Ok(false)
-        }
+        Err(e) => fail(out, &e),
     }
 }
 
@@ -312,10 +306,7 @@ fn report_files(
             }
             Ok(differ.is_empty())
         }
-        Err(e) => {
-            say(out, &format!("error: {e}"))?;
-            Ok(false)
-        }
+        Err(e) => fail(out, &e),
     }
 }
 
@@ -323,11 +314,19 @@ fn report_files(
 fn report_passed(out: &mut impl Write, result: Result<bool, String>) -> Result<bool, String> {
     match result {
         Ok(passed) => Ok(passed),
-        Err(e) => {
-            say(out, &format!("error: {e}"))?;
-            Ok(false)
-        }
+        Err(e) => fail(out, &e),
     }
+}
+
+/// Writes `error` as an error line and reports a failed command.
+fn fail(out: &mut impl Write, error: &str) -> Result<bool, String> {
+    say_error(out, error)?;
+    Ok(false)
+}
+
+/// Writes one `error: ...` line.
+fn say_error(out: &mut impl Write, error: &str) -> Result<(), String> {
+    say(out, &format!("error: {error}"))
 }
 
 fn exit(passed: bool) -> ExitCode {
