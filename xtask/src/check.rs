@@ -24,9 +24,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 
-use crate::dump::{create_dir, is_file, read_if_exists, write};
+use crate::dump::{create_dir, git, is_file, read_if_exists, write};
 use crate::table::{STATUS_PATH, sources};
 use crate::{
     CLIPPY, DOC, DOC_PRIVATE, FMT, Mode, SOURCE_DIRS, cargo_step, say, step, table_command,
@@ -433,23 +432,6 @@ fn stamp(root: &Path, files: &[String], includes: &Includes) -> Result<String, S
         }
     }
     Ok(format!("{hash:016x}"))
-}
-
-/// The output of `git <args>` at the repository root.
-fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("cannot run git: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(output.stdout)
 }
 
 /// The stamp of the last pass, if there is one.

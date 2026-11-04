@@ -474,19 +474,32 @@ fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Stri
 
 /// Fails unless the git checkout `dir` is at `commit`.
 fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(root.join(dir))
-        .output()
-        .map_err(|e| format!("cannot run git in {dir}: {e}"))?;
-    let head = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || head.trim() != commit {
+    let output = git(&root.join(dir), &["rev-parse", "HEAD"]).map_err(|e| format!("{dir}: {e}"))?;
+    let head = String::from_utf8_lossy(&output);
+    if head.trim() != commit {
         return Err(format!(
             "{dir} must be a checkout of commit {commit}, found {}",
             head.trim()
         ));
     }
     Ok(())
+}
+
+/// The output of `git <args>` in `folder`.
+pub(crate) fn git(folder: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(folder)
+        .output()
+        .map_err(|e| format!("cannot run git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(output.stdout)
 }
 
 #[expect(
