@@ -1,6 +1,9 @@
 //! The gophertunnel oracle (`xtask/go/oracle`): built once per test process and run on record
 //! files of `[u32 LE id][u32 LE len][bytes]`.
 
+#[path = "go_build.rs"]
+mod go_build;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -23,46 +26,8 @@ fn binary() -> &'static Path {
     BINARY.get_or_init(|| {
         let dir = work_dir();
         create_dir(&dir);
-        let exe = dir.join(format!("oracle{}", std::env::consts::EXE_SUFFIX));
-        let go_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("go");
-        let modfile = fixed_module(&go_dir, &dir);
-        let output = Command::new("go")
-            .arg("build")
-            .arg("-modfile")
-            .arg(&modfile)
-            .arg("-o")
-            .arg(&exe)
-            .arg("./oracle")
-            .current_dir(&go_dir)
-            .output()
-            .unwrap_or_else(|e| {
-                panic!("cannot run `go` (the protocol tests need Go on PATH): {e}")
-            });
-        assert!(
-            output.status.success(),
-            "go build ./oracle failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        exe
+        go_build::build(&dir, "oracle")
     })
-}
-
-/// Writes gophertunnel with Anchor's corrections (`xtask/go/fix`) into `dir` and returns the
-/// go.mod that builds against it.
-fn fixed_module(go_dir: &Path, dir: &Path) -> PathBuf {
-    let out = dir.join("fixmod");
-    let output = Command::new("go")
-        .args(["run", "./fixmod", "-out"])
-        .arg(&out)
-        .current_dir(go_dir)
-        .output()
-        .unwrap_or_else(|e| panic!("cannot run `go` (the protocol tests need Go on PATH): {e}"));
-    assert!(
-        output.status.success(),
-        "go run ./fixmod failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    out.join("go.mod")
 }
 
 /// Runs `oracle <args> [-in <name>.in] -out <name>.out` and returns the output records. `input`
