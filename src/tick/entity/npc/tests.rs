@@ -377,7 +377,8 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
     let magic = seen.iter().any(|p| {
         matches!(p,
         Packet::Animate(a) if a.entity_runtime_id == npc
-            && a.action_type == u8::from(AnimateAction::MagicCriticalHit))
+            && a.action_type == u8::from(AnimateAction::MagicCriticalHit)
+            && a.data == 15.0)
     });
     assert!(magic, "the enchanted hit shows on the NPC");
     h.state

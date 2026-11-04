@@ -1993,6 +1993,35 @@ mod tests {
         assert!(!server.take(1).iter().any(shown));
     }
 
+    /// A falling hit with a Sharpness sword shows the critical and the enchanted stars with
+    /// their particle counts: the client draws none for a count of 0.
+    #[test]
+    fn critical_and_enchanted_hits_show_their_stars() {
+        let mut server = duel(|_| {});
+        let sharp = enchanted(ItemKind::DiamondSword, &[(Enchantment::Sharpness, 1)]);
+        inventory::set_held(server.player_mut(1), sharp);
+        server.survival_mut(1).fall_distance = 1.0;
+        server.idle(1);
+        server.take(1);
+        attack_player(&mut server.state, sid(1), sid(2));
+        server.idle(1);
+        let stars: Vec<(u8, f32)> = server
+            .take(1)
+            .iter()
+            .filter_map(|p| match p {
+                Packet::Animate(a) => Some((a.action_type, a.data)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            stars,
+            [
+                (u8::from(AnimateAction::CriticalHit), 55.0),
+                (u8::from(AnimateAction::MagicCriticalHit), 15.0),
+            ]
+        );
+    }
+
     /// `durability = false`: a hit wears neither the weapon nor the armor, which still
     /// protects; with it both wear.
     #[test]

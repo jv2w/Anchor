@@ -1177,11 +1177,15 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     for (modifier, animation) in [
         (
             DamageModifier::Critical,
-            Animation::CriticalHit { particles: 0 },
+            Animation::CriticalHit {
+                particles: Animation::CRITICAL_HIT_PARTICLES,
+            },
         ),
         (
             DamageModifier::WeaponEnchantments,
-            Animation::MagicHit { particles: 0 },
+            Animation::MagicHit {
+                particles: Animation::MAGIC_HIT_PARTICLES,
+            },
         ),
     ] {
         // As the listeners left the hit: what added nothing shows nothing.

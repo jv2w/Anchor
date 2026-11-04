@@ -159,6 +159,7 @@
   - Anchor: 9·62·96은 보내지 않고 63·95·98·99는 공식 서버 값이다. 97은 0으로 두고 서버가 반경을 줄여 보낸다. 36은 구름이 물약 ID를 지니지 않아 보내지 않는다.
 - 위치 표시줄: 다른 플레이어가 보이게 되면 PlayerLocation{Type 0, 그 플레이어, 눈 위치}, LocatorBar 추가{Action 1, UpdateFlag 63, 색 = 그 플레이어의 목록 색, IconSize 0.2, `textures/ui/locator_bar_dot_3`, 위치 권한 서버, 보임}, 곧 갱신{Action 3, UpdateFlag 44, 위치 권한 클라이언트, IconSize 1, `locator_bar_dot_0`}. 죽으면 PlayerLocation{Type 1 숨김} + 갱신{UpdateFlag 2, Visible false}, 리스폰하면 갱신{UpdateFlag 2, Visible true}, 나가면 제거{Action 2, UpdateFlag 0}. GroupHandle은 공식 서버가 고른 UUID. Anchor도 같게 보낸다.
 - 피해 원인(ActorEvent hurt 데이터): 공격 2, 투사체 3, 익사 9, 번개 24. Anchor는 공식 서버 번호를 싣는다.
+- 치명타(`others`의 mover가 점프해 떨어지며 때림): 공식 서버는 맞은 플레이어에게 Animate{ActionType 4 CriticalHit, Data 55(별 개수)}를 때린 플레이어와 맞은 플레이어에게 보낸다(두 번 같음). Data 0이면 클라이언트가 별을 그리지 않는다. Anchor도 55를 싣는다. 마법 치명타(ActionType 5)는 공식 서버에서 보지 않았고, Anchor는 덤프의 기본값 15를 싣는다.
 - 리스폰한 플레이어 자신에게: Respawn(State 0, 위치 (0,32767,0)) → ActorEvent 18 → SetActorData{0 플래그(Breathing 포함), 53·54}. 리스폰 직후 Breathing은 켜져 있다. Anchor도 같다.
 - 죽고 리스폰하는 플레이어의 상자 크기(53·54): 죽을 때 SetActorData{127, 129, 53 0.2, 54 0.2}, 리스폰 때 ActorEvent 18 뒤 SetActorData{53 0.6, 54 1.8}를 본인과 보는 플레이어 모두에게 보낸다. 클라이언트는 죽은 플레이어의 작은 상자를 이 키가 올 때까지 두므로, 빠지면 보는 플레이어에게 리스폰한 플레이어의 히트박스가 작고 이름표가 낮다. Anchor도 같은 값을 보낸다(죽을 때 53·54는 127·129와 다른 SetActorData에 싣는다).
 - 다른 플레이어의 속성: 공식 서버는 플레이어 속성이 바뀌면 보는 플레이어에게도 UpdateAttributes를 보낸다. 맞으면 체력(예 19), 회복하면 20, 죽으면 체력 0, 리스폰하면 체력·배고픔·소모·포화·레벨·경험치 전부. 걷거나 때릴 때 소모(exhaustion)도 간다.
@@ -226,6 +227,7 @@
 - `locator-bar = false`(GameRulesChanged `playerWaypoints` 0, `locatorbar` true, 위치 표시줄 패킷 없음)에서 위치 표시줄에 다른 플레이어가 없는지. 공식 서버가 쓴 `level.dat`에는 `playerwaypoints`(int, 0인 월드와 1인 월드를 보았다)만 있고 `locatorbar` 키는 없다. 공식 서버가 `gamerule locatorbar false`에 보내는 GameRulesChanged는 보지 않았다.
 - 거래 때 Event EntityInteract를 보내지 않아도 클라이언트 동작에 차이가 없는지.
 - 가져온 월드에서 Anchor가 모르는 화분 식물(벚나무 묘목 등 비활성 블록)이 보이는지. BlockActorData `PlantBlock`에 공식 서버가 저장한 원본 그대로를 보낸다. 봇 시나리오로는 놓을 수 없다(Anchor에 그 아이템이 없음).
+- 치명타와 날카로움 검 공격에 별 입자(Animate Data 55, 15)가 보이는지.
 - Anchor가 모르는 배너 무늬 ID를 BlockActorData `Patterns`로 받을 때 클라이언트가 그 층만 무시하는지.
 - 서바이벌·크리에이티브에서 블록에 우클릭을 누르고 있을 때 `SimulationTick` 클릭 사이가 `PRESS_GAP_TICKS`(10틱)보다 벌어지는 일이 없는지(모험 모드에서만 봄).
 - 빌려주는 메뉴(`Menu::lending`)에서 커서에 빌린 아이템을 든 채 창을 닫을 때(ESC) 공식 클라이언트가 ContainerClose 앞에 커서 → 인벤토리 옮기기(Place) 요청을 보내는지. 보내면 그 요청은 빌린 것을 든 커서를 바꾸므로 처리기가 `Change`로 듣는다(`lent_before` > `lent_after`). 처리기가 받아들이면 빌린 것은 플레이어 칸으로 가 플레이어 것이 되고, 거절하면 화면이 되돌아가고 닫기에서 빌린 것은 처리기 것으로 남는다(`Close::lent`). 보내지 않으면 닫기가 빌린 것을 처리기에 남기고 UI 창(커서)을 비운 내용을 보낸다. 그때 클라이언트가 스스로 커서를 인벤토리 칸에 옮겨 그렸다면 그 칸은 다시 보내지 않으므로 유령 아이템이 보이는지도 본다.

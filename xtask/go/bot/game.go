@@ -987,9 +987,11 @@ type inputLoop struct {
 	flagTicks []uint64
 	// step and steps walk the bot (verify.go): each tick moves the position by step and turns the view by
 	// turn (pitch, yaw), while steps is above zero.
-	step    mgl32.Vec3
-	turn    mgl32.Vec2
-	steps   int
+	step  mgl32.Vec3
+	turn  mgl32.Vec2
+	steps int
+	// rise holds the height changes of a jump still to come, one per tick (verify.go).
+	rise    []float32
 	done    chan struct{}
 	stopped chan struct{}
 }
@@ -1027,9 +1029,19 @@ func (l *inputLoop) packet() (*packet.PlayerAuthInput, bool) {
 	defer l.mu.Unlock()
 	l.tick++
 	flags := protocol.NewInputFlags(packet.InputFlagCount)
-	flags.Set(packet.InputFlagVerticalCollision)
 	var move mgl32.Vec2
 	var delta mgl32.Vec3
+	airborne := false
+	if len(l.rise) > 0 {
+		l.pos[1] += l.rise[0]
+		delta[1] = l.rise[0]
+		l.rise = l.rise[1:]
+		// The last change lands the bot.
+		airborne = len(l.rise) > 0
+	}
+	if !airborne {
+		flags.Set(packet.InputFlagVerticalCollision)
+	}
 	if l.steps > 0 {
 		l.steps--
 		l.pos = l.pos.Add(l.step)
@@ -1137,6 +1149,22 @@ func (l *inputLoop) walk(step mgl32.Vec3, turn mgl32.Vec2, ticks int) {
 	l.mu.Lock()
 	l.step, l.turn, l.steps = step, turn, ticks
 	l.mu.Unlock()
+}
+
+// jump starts a jump in the next input: the bot rises and falls on the client's jump curve (a 0.42 block
+// first step, then 0.08 less each tick and 2% drag) until it is back at its height.
+func (l *inputLoop) jump() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.flags = append(l.flags, []int{packet.InputFlagStartJumping, packet.InputFlagJumping, packet.InputFlagJumpDown,
+		packet.InputFlagWantUp})
+	l.rise = nil
+	var height float32
+	for v := float32(0.42); height+v > 0; v = (v - 0.08) * 0.98 {
+		l.rise = append(l.rise, v)
+		height += v
+	}
+	l.rise = append(l.rise, -height)
 }
 
 // facing is the view direction (pitch, yaw in degrees).

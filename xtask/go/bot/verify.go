@@ -28,7 +28,7 @@ import (
 //	syntax     player commands with syntax errors and with game mode and effect names in their output
 //	limits     chat lines and commands of many-byte characters near the protocol's string limits
 //	others     a second player (the mover companion, -scenario mover) joins, walks, turns, attacks the bot,
-//	           dies and respawns: what the bot is sent about it
+//	           lands a critical hit from a jump, dies and respawns: what the bot is sent about it
 //	mover      the companion of others
 //	rules      game rules fallDamage and drowningDamage turned off (dodaylightcycle is off for the session)
 //	rulesjoin  joins with those rules off (facts: StartGame, game rules, clocks), then turns them on again
@@ -58,6 +58,9 @@ func init() {
 // moverName is the player name of the others scenario's companion (cargo xtask p6 names players after their
 // scenario).
 const moverName = "P6Mover"
+
+// criticalDelay is the time from the mover's jump to its attack: eight ticks, two past the top of the jump.
+const criticalDelay = 400 * time.Millisecond
 
 // othersName is the player name of the others scenario's bot.
 const othersName = "P6Others"
@@ -986,6 +989,29 @@ func playMover(g *game) error {
 	}}); err != nil {
 		return err
 	}
+	if err := g.settle(2 * time.Second); err != nil {
+		return err
+	}
+	g.step("critical attack", nil)
+	g.input.jump()
+	// Past the top of the jump: the bot falls.
+	if err := g.settle(criticalDelay); err != nil {
+		return err
+	}
+	if err := g.s.send(&packet.InventoryTransaction{TransactionData: &protocol.UseItemOnEntityTransactionData{
+		TargetEntityRuntimeID: other.EntityRuntimeID, ActionType: protocol.UseItemOnEntityActionAttack,
+		HotBarSlot: int32(g.held), HeldItem: st.instance(), Position: g.pos, ClickedPosition: mgl32.Vec3{0, 1, 0},
+	}}); err != nil {
+		return err
+	}
+	stars, err := g.until("the critical hit stars", gameWait, func(pk packet.Packet) bool {
+		a, ok := pk.(*packet.Animate)
+		return ok && a.EntityRuntimeID == other.EntityRuntimeID && a.ActionType == packet.AnimateActionCriticalHit
+	})
+	if err != nil {
+		return err
+	}
+	g.check("critical hit stars", stars.(*packet.Animate).Data)
 	if err := g.settle(2 * time.Second); err != nil {
 		return err
 	}

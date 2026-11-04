@@ -180,8 +180,18 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let State { rules, players, .. } = &mut *state;
     if let Some(npc) = rules.entities.get(target) {
         for (on, animation) in [
-            (melee_critical, Animation::CriticalHit { particles: 0 }),
-            (melee_magic, Animation::MagicHit { particles: 0 }),
+            (
+                melee_critical,
+                Animation::CriticalHit {
+                    particles: Animation::CRITICAL_HIT_PARTICLES,
+                },
+            ),
+            (
+                melee_magic,
+                Animation::MagicHit {
+                    particles: Animation::MAGIC_HIT_PARTICLES,
+                },
+            ),
         ] {
             if on {
                 send_to(players, &npc.viewers, &animation.packet(npc_runtime_id));

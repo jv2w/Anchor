@@ -72,6 +72,12 @@ pub enum Animation {
 }
 
 impl Animation {
+    /// The stars of a melee critical hit; the client draws as many as the packet asks, so 0
+    /// shows none.
+    pub(crate) const CRITICAL_HIT_PARTICLES: u16 = 55;
+    /// The stars of a melee hit that a weapon enchantment added damage to.
+    pub(crate) const MAGIC_HIT_PARTICLES: u16 = 15;
+
     /// The packet that plays it on the actor `runtime_id`.
     pub(crate) fn packet(self, runtime_id: u64) -> Packet {
         let event = |event: ActorEvent, data: i32| {
