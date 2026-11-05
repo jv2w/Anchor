@@ -144,9 +144,9 @@ enable-encryption = true
 # false: accept only NetherNet. A RakNet client gets no reply to its connection request;
 # the UDP port still answers server list pings.
 raknet = true
-# RakNet connection cookies: a fake sender address cannot take connection slots.
-# false only where a host's DDoS filter drops cookie handshakes.
-raknet-cookies = true
+# true: a RakNet client must send back a cookie before it gets a connection, so a fake
+# sender address cannot take connection slots. Some hosts' DDoS filters drop such handshakes.
+raknet-cookies = false
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
 max-mtu-size = 1492
 # PEM certificate chain and private key for HTTPS NetherNet signaling.
@@ -934,7 +934,7 @@ impl Default for Developer {
             max_batch_bytes: batch::Settings::DEFAULT_MAX_BATCH_BYTES,
             enable_encryption: true,
             raknet: true,
-            raknet_cookies: true,
+            raknet_cookies: false,
             max_mtu_size: crate::raknet::MAX_MTU,
             nethernet_tls_cert: None,
             nethernet_tls_key: None,

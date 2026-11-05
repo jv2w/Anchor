@@ -18,6 +18,13 @@ use anchor::protocol::compression::Compression;
 use anchor::world::{BORDER, BlockPos, Flat, Kind};
 use anchor::{Config, Server};
 
+/// `.claude/docs/config.md`, built in so that `cargo xtask check` reruns these tests when it
+/// changes.
+const CONFIG_DOC: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/.claude/docs/config.md"
+));
+
 /// A file that sets every key to a value other than its default.
 const CUSTOM_FILE: &str = r#"[general]
 motd = "Lobby"
@@ -56,6 +63,7 @@ level-seed = "-42"
 view-distance = 8
 save-player-data = false
 backups = false
+max-backups = 7
 shutdown-message = "Bye"
 resource-packs = ["a.mcpack", "lobby/b.zip"]
 force-resources = true
@@ -68,6 +76,7 @@ compression-level = 9
 max-batch-bytes = 8388608
 enable-encryption = false
 raknet = false
+raknet-cookies = true
 max-mtu-size = 1200
 nethernet-tls-cert = "cert.pem"
 nethernet-tls-key = "key.pem"
@@ -97,11 +106,39 @@ spawn = [-30000000, -60, 29999999]
 tick-radius = 1
 "#;
 
-/// The number of keys in the default file; the one place that pins it.
+/// The number of keys in the default file. The library's unit tests pin it too (in
+/// `src/config.rs`), since this crate cannot reach their constant.
 const DEFAULT_KEY_COUNT: usize = 65;
 
 /// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
+
+/// The keys whose range `.claude/docs/config.md` writes as `A to B`, in its order.
+const RANGED_KEYS: [&str; 23] = [
+    "general.motd",
+    "general.server-port",
+    "general.max-players",
+    "general.item-despawn-ticks",
+    "general.level-name",
+    "general.view-distance",
+    "general.max-backups",
+    "developer.compression-threshold",
+    "developer.compression-level",
+    "developer.max-batch-bytes",
+    "developer.max-mtu-size",
+    "developer.network-threads",
+    "developer.cpu-threads",
+    "developer.chunks-per-tick",
+    "developer.spawn-radius",
+    "developer.tick-radius",
+    "developer.fixed-light-level",
+    "developer.item-pickup-interval",
+    "developer.save-interval-minutes",
+    "worlds.lobby.view-distance",
+    "worlds.lobby.chunks-per-tick",
+    "worlds.lobby.spawn-radius",
+    "worlds.lobby.tick-radius",
+];
 
 #[expect(
     clippy::disallowed_methods,
@@ -162,8 +199,7 @@ fn read(path: &Path) -> String {
 
 /// The first toml block of `.claude/docs/config.md`: the documented default file.
 fn documented_default_file() -> String {
-    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
-    let (_, block) = doc
+    let (_, block) = CONFIG_DOC
         .split_once("```toml\n")
         .expect(".claude/docs/config.md has a toml block");
     let (block, _) = block.split_once("\n```").expect("the toml block closes");
@@ -187,83 +223,6 @@ fn missing_file_is_created_with_the_documented_default_text() {
     assert!(!exists(&file.path.with_extension("toml.tmp")));
     let again = Config::default().load(&file.path).expect("loads again");
     assert_eq!(again, first);
-}
-
-/// The `(table, key, is text, low, high)` of every row of the key tables of
-/// `.claude/docs/config.md` whose range is written as `A to B`.
-fn documented_ranges() -> Vec<(String, String, bool, i64, i64)> {
-    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
-    let mut table = String::new();
-    let mut range_column = 0;
-    let mut rows = Vec::new();
-    for line in doc.lines() {
-        if let Some(heading) = line.strip_prefix("## ") {
-            table = heading
-                .split_once("`[")
-                .and_then(|(_, rest)| rest.split_once("]`"))
-                .map_or_else(String::new, |(name, _)| name.to_owned());
-            continue;
-        }
-        if table.is_empty() || !line.starts_with('|') {
-            continue;
-        }
-        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-        if cells[0] == "Key" {
-            range_column = cells
-                .iter()
-                .position(|cell| cell.starts_with("Range"))
-                .expect("a key table has a range column");
-            continue;
-        }
-        let Some((before, after)) = cells[range_column].split_once(" to ") else {
-            continue;
-        };
-        let key = cells[0].trim_matches('`');
-        let Some(low) = before
-            .split_whitespace()
-            .next_back()
-            .and_then(|w| w.parse::<i64>().ok())
-        else {
-            continue;
-        };
-        let high = after
-            .split_whitespace()
-            .next()
-            .and_then(|w| w.parse::<i64>().ok())
-            .unwrap_or_else(|| panic!("row `{table}.{key}` has a range that is not `A to B`"));
-        let table = table.replace("<name>", "lobby");
-        rows.push((table, key.to_owned(), cells[1] == "string", low, high));
-    }
-    rows
-}
-
-#[test]
-fn documented_ranges_are_the_ranges_the_settings_enforce() {
-    let file = File::new("documented_ranges");
-    let rows = documented_ranges();
-    assert!(!rows.is_empty(), "the doc states ranges");
-    for (table, key, is_text, low, high) in rows {
-        let text = |n: i64| {
-            let value = if is_text {
-                let length = usize::try_from(n).expect("a length");
-                quoted(&"m".repeat(length))
-            } else {
-                n.to_string()
-            };
-            format!("[{table}]\n{key} = {value}\n")
-        };
-        let path = format!("{table}.{key}");
-        for n in [low, high] {
-            file.load(text(n))
-                .unwrap_or_else(|e| panic!("{path} = {n} is documented: {}", chain(&e)));
-        }
-        for n in [low - 1, high + 1] {
-            let error = file
-                .load(text(n))
-                .expect_err(&format!("{path} = {n} is outside the documented range"));
-            assert!(chain(&error).contains(&path), "{path} = {n}: {error}");
-        }
-    }
 }
 
 /// The config [`CUSTOM_FILE`] describes.
@@ -306,6 +265,7 @@ fn custom() -> Config {
     g.view_distance = 8;
     g.save_player_data = false;
     g.backups = false;
+    g.max_backups = 7;
     g.shutdown_message = "Bye".to_owned();
     g.resource_packs = vec![PathBuf::from("a.mcpack"), PathBuf::from("lobby/b.zip")];
     g.force_resources = true;
@@ -317,6 +277,7 @@ fn custom() -> Config {
     d.max_batch_bytes = 8 * MIB;
     d.enable_encryption = false;
     d.raknet = false;
+    d.raknet_cookies = true;
     d.max_mtu_size = 1200;
     d.nethernet_tls_cert = Some(PathBuf::from("cert.pem"));
     d.nethernet_tls_key = Some(PathBuf::from("key.pem"));
@@ -412,7 +373,7 @@ fn every_key_left_out_keeps_the_previous_value() {
 
 /// A file that sets only `path` (`table.key`) to `value`.
 fn one_key(path: &str, value: &str) -> String {
-    let (table, key) = path.split_once('.').expect("a dotted key");
+    let (table, key) = path.rsplit_once('.').expect("a dotted key");
     format!("[{table}]\n{key} = {value}\n")
 }
 
@@ -457,7 +418,8 @@ fn quoted(text: &str) -> String {
     format!("\"{text}\"")
 }
 
-/// Every key with values inside its rule and values just outside it.
+/// The keys with values inside their rule and values outside it, besides the edges of a range
+/// [`documented_ranges`] gives.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one table lists the cases of every key"
@@ -468,14 +430,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
     vec![
         (
             "general.motd",
-            vec![quoted("a"), quoted(&"m".repeat(256)), quoted("§aLobby")],
-            vec![
-                quoted(""),
-                quoted(&"m".repeat(257)),
-                quoted("a;b"),
-                quoted(r"a\nb"),
-                quoted(r"\u0007"),
-            ],
+            vec![quoted("§aLobby")],
+            vec![quoted("a;b"), quoted(r"a\nb"), quoted(r"\u0007")],
         ),
         (
             "general.server-ip",
@@ -489,19 +445,9 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         ("general.enable-ipv6", bools(), Vec::new()),
         (
-            "general.server-port",
-            s(&["0", "65535"]),
-            s(&["-1", "65536"]),
-        ),
-        (
             "general.public-ip",
             s(&[r#""""#, r#""203.0.113.5""#, r#""2001:db8::1""#]),
             s(&[r#""x""#, r#"" 1.2.3.4""#]),
-        ),
-        (
-            "general.max-players",
-            s(&["1", "10000"]),
-            s(&["0", "10001"]),
         ),
         ("general.xbox-auth", bools(), Vec::new()),
         ("general.white-list", bools(), Vec::new()),
@@ -532,11 +478,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.armor", bools(), Vec::new()),
         ("general.durability", bools(), Vec::new()),
         ("general.daylight-cycle", bools(), Vec::new()),
-        (
-            "general.item-despawn-ticks",
-            s(&["1", "72000"]),
-            s(&["0", "72001", "-1"]),
-        ),
+        ("general.item-despawn-ticks", Vec::new(), s(&["-1"])),
         (
             "general.critical-hits",
             s(&[r#""off""#, r#""sprint""#, r#""always""#]),
@@ -550,15 +492,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.show-death-messages", bools(), Vec::new()),
         (
             "general.level-name",
-            vec![quoted("a"), quoted(&"w".repeat(64))],
-            vec![
-                quoted(""),
-                quoted(&"w".repeat(65)),
-                quoted("a;b"),
-                quoted(r"a\tb"),
-                quoted("con"),
-                quoted("a/b"),
-            ],
+            Vec::new(),
+            vec![quoted("a;b"), quoted(r"a\tb"), quoted("con"), quoted("a/b")],
         ),
         (
             "general.level-type",
@@ -580,10 +515,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
                 r#""1.5""#,
             ]),
         ),
-        ("general.view-distance", s(&["2", "64"]), s(&["1", "65"])),
         ("general.save-player-data", bools(), Vec::new()),
         ("general.backups", bools(), Vec::new()),
-        ("general.max-backups", s(&["1", "1000"]), s(&["0", "1001"])),
         (
             "general.shutdown-message",
             vec![quoted(""), quoted(&"x".repeat(1024)), quoted(r"two\nlines")],
@@ -612,29 +545,16 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""snappy""#, r#""zlib""#]),
             s(&[r#""none""#, r#""Zlib""#]),
         ),
-        (
-            "developer.compression-threshold",
-            s(&["1", "65535"]),
-            s(&["0", "65536", "-1"]),
-        ),
-        (
-            "developer.compression-level",
-            s(&["1", "9"]),
-            s(&["0", "10", "256"]),
-        ),
+        ("developer.compression-threshold", Vec::new(), s(&["-1"])),
+        ("developer.compression-level", Vec::new(), s(&["256"])),
         (
             "developer.max-batch-bytes",
-            s(&["4210786", "67108864"]),
-            s(&["1048576", "4210785", "67108865", "-1"]),
+            Vec::new(),
+            s(&["1048576", "-1"]),
         ),
         ("developer.enable-encryption", bools(), Vec::new()),
         ("developer.raknet", bools(), Vec::new()),
         ("developer.raknet-cookies", bools(), Vec::new()),
-        (
-            "developer.max-mtu-size",
-            s(&["576", "1492"]),
-            s(&["575", "1493"]),
-        ),
         // Each needs the other; see `tls_cert_and_key_go_together`.
         (
             "developer.nethernet-tls-cert",
@@ -648,44 +568,22 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         (
             "developer.network-threads",
-            s(&[r#""auto""#, "1", "65535"]),
-            s(&["0", "65536", r#""Auto""#, r#""2""#]),
+            s(&[r#""auto""#]),
+            s(&[r#""Auto""#, r#""2""#]),
         ),
         (
             "developer.cpu-threads",
-            s(&[r#""auto""#, "1", "65535"]),
-            s(&["0", "65536", r#""Auto""#, r#""2""#]),
+            s(&[r#""auto""#]),
+            s(&[r#""Auto""#, r#""2""#]),
         ),
-        (
-            "developer.chunks-per-tick",
-            s(&["1", "256"]),
-            s(&["0", "257"]),
-        ),
-        ("developer.spawn-radius", s(&["1", "64"]), s(&["0", "65"])),
-        ("developer.tick-radius", s(&["1", "64"]), s(&["0", "65"])),
         ("developer.slow-empty-worlds", bools(), Vec::new()),
         (
             "developer.lighting",
             s(&[r#""dynamic""#, r#""on-load""#, r#""fixed""#]),
             s(&[r#""Dynamic""#, r#""onload""#, r#""""#, "1", "true", "false"]),
         ),
-        (
-            "developer.fixed-light-level",
-            s(&["0", "15"]),
-            s(&["-1", "16"]),
-        ),
-        (
-            "developer.item-pickup-interval",
-            s(&["1", "20"]),
-            s(&["0", "21"]),
-        ),
         ("developer.hook-movement-packets", bools(), Vec::new()),
         ("developer.hook-player-input", bools(), Vec::new()),
-        (
-            "developer.save-interval-minutes",
-            s(&["1", "1440"]),
-            s(&["0", "1441"]),
-        ),
         (
             "developer.integrity-check",
             s(&[r#""always""#, r#""after-unclean-shutdown""#, r#""never""#]),
@@ -695,18 +593,113 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
     ]
 }
 
+/// A key whose range `.claude/docs/config.md` writes as `A to B`.
+struct DocumentedRange {
+    /// The key's path, `table.key`, with `lobby` as the name of a world.
+    path: String,
+    /// Whether the value is text and the range its length in bytes.
+    is_text: bool,
+    low: i64,
+    high: i64,
+}
+
+/// The ranges of the rows of the key tables of `.claude/docs/config.md` that write one as
+/// `A to B`; those rows must be exactly the [`RANGED_KEYS`].
+fn documented_ranges() -> Vec<DocumentedRange> {
+    let mut table = String::new();
+    let mut range_column = None;
+    let mut ranges = Vec::new();
+    for line in CONFIG_DOC.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            table = heading
+                .split_once("`[")
+                .and_then(|(_, rest)| rest.split_once("]`"))
+                .map_or_else(String::new, |(name, _)| name.replace("<name>", "lobby"));
+            range_column = None;
+            continue;
+        }
+        if table.is_empty() || !line.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        if cells[0] == "Key" {
+            range_column = cells.iter().position(|cell| cell.starts_with("Range"));
+            continue;
+        }
+        let column = range_column.expect("a key table starts with a header row with a range");
+        let Some((before, after)) = cells[column].split_once(" to ") else {
+            continue;
+        };
+        let path = format!("{table}.{}", cells[0].trim_matches('`'));
+        let bound = |word: Option<&str>| {
+            word.and_then(|word| word.parse::<i64>().ok())
+                .unwrap_or_else(|| panic!("row `{path}` has a range that is not `A to B`"))
+        };
+        let (low, high) = (
+            bound(before.split_whitespace().next_back()),
+            bound(after.split_whitespace().next()),
+        );
+        ranges.push(DocumentedRange {
+            path,
+            is_text: cells[1] == "string",
+            low,
+            high,
+        });
+    }
+    let paths: Vec<&str> = ranges.iter().map(|range| range.path.as_str()).collect();
+    assert_eq!(paths, RANGED_KEYS, "the rows with an `A to B` range");
+    ranges
+}
+
+/// Text of `bytes` bytes, in two-byte characters but for an odd last byte, so that a length
+/// counted in characters fails the edges of a byte range.
+fn text_of_bytes(bytes: i64) -> String {
+    let bytes = usize::try_from(bytes).expect("a length");
+    "é".repeat(bytes / 2) + &"m".repeat(bytes % 2)
+}
+
+/// Every key accepts the edges of its documented range and rejects the values just beyond them,
+/// naming the key, and passes its other cases.
 #[test]
 fn every_key_accepts_its_edges_and_rejects_beyond() {
     let file = File::new("every_key_edges");
     let cases = cases();
-    let mut listed: Vec<String> = cases.iter().map(|(k, _, _)| (*k).to_owned()).collect();
+    let ranges = documented_ranges();
+    let mut covered: Vec<&str> = cases.iter().map(|(path, _, _)| *path).collect();
+    covered.extend(
+        ranges
+            .iter()
+            .map(|range| range.path.as_str())
+            .filter(|path| !path.starts_with("worlds.")),
+    );
+    covered.sort_unstable();
+    covered.dedup();
     let mut keys: Vec<String> = key_lines(&documented_default_file())
         .into_iter()
         .map(|(table, key, _)| format!("{table}.{key}"))
         .collect();
-    listed.sort();
     keys.sort();
-    assert_eq!(listed, keys, "every key has edge cases");
+    assert_eq!(covered, keys, "every key has edge cases");
+    for range in ranges {
+        let path = range.path.as_str();
+        let value = |n: i64| {
+            if range.is_text {
+                quoted(&text_of_bytes(n))
+            } else {
+                n.to_string()
+            }
+        };
+        for n in [range.low, range.high] {
+            file.load(one_key(path, &value(n)))
+                .unwrap_or_else(|e| panic!("{path} = {n} is documented: {}", chain(&e)));
+        }
+        for n in [range.low - 1, range.high + 1] {
+            let error = file
+                .load(one_key(path, &value(n)))
+                .expect_err(&format!("{path} = {n} is outside the documented range"));
+            assert!(chain(&error).contains(path), "{path} = {n}: {error}");
+        }
+    }
     for (path, accepted, rejected) in cases {
         for value in accepted {
             file.load(one_key(path, &value))
@@ -768,6 +761,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
     ] {
         assert!(on);
     }
+    assert!(!d.raknet_cookies);
     assert!(!d.slow_empty_worlds);
     assert!(!g.show_coordinates);
     assert!(!g.immediate_respawn);
@@ -824,30 +818,6 @@ fn world_tables_set_values_of_one_world() {
 fn world_tables_reject_bad_values_by_key() {
     let file = File::new("world_tables_bad");
     for (text, key) in [
-        (
-            "[worlds.lobby]\nview-distance = 1\n",
-            "worlds.lobby.view-distance",
-        ),
-        (
-            "[worlds.lobby]\nview-distance = 65\n",
-            "worlds.lobby.view-distance",
-        ),
-        (
-            "[worlds.lobby]\nchunks-per-tick = 0\n",
-            "worlds.lobby.chunks-per-tick",
-        ),
-        (
-            "[worlds.lobby]\nchunks-per-tick = 257\n",
-            "worlds.lobby.chunks-per-tick",
-        ),
-        (
-            "[worlds.lobby]\nspawn-radius = 0\n",
-            "worlds.lobby.spawn-radius",
-        ),
-        (
-            "[worlds.lobby]\ntick-radius = 65\n",
-            "worlds.lobby.tick-radius",
-        ),
         (
             "[worlds.lobby]\ntick-radius = \"4\"\n",
             "worlds.lobby.tick-radius",

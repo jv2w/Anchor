@@ -33,7 +33,8 @@ const DATAGRAM_HISTORY: usize = 1024;
 const FRAME_COST_BYTES: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
 /// Bytes held in reassemblies and ordering queues at most before `NewIncomingConnection`: every
 /// message of the handshake fits one datagram and arrives about in order, so a few datagrams
-/// cover reordering. Anyone can open a connection to this point (there is no cookie).
+/// cover reordering. Without cookies (`raknet-cookies = false`), anyone can open a connection to
+/// this point.
 const HANDSHAKE_HELD_BYTES: usize = 4 * MAX_MTU as usize;
 /// First congestion window, in datagrams carrying reliable frames.
 const INITIAL_CWND: usize = 32;

@@ -22,7 +22,7 @@ use crate::tick::queue::LeaveReason;
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 /// The cookie of a source changes every epoch, and one of the epoch before still counts, so a
 /// cookie lasts 2 to 4 seconds (go-raknet changes its salt every 2 seconds and keeps the last).
-const COOKIE_EPOCH_SECS: u64 = 2;
+const COOKIE_EPOCH: Duration = Duration::from_secs(2);
 /// From `OpenConnectionRequest2` to `NewIncomingConnection` at most (go-raknet listener).
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence after which a connection is dropped, plus two round trips (go-raknet `startTicking`).
@@ -53,7 +53,7 @@ pub(super) struct Listener {
     config: Config,
     pong: Arc<[u8]>,
     /// The key of the connection cookies; `None` asks for none (`raknet-cookies = false`).
-    cookies: Option<CookieKey>,
+    cookie_key: Option<CookieKey>,
     conns: BTreeMap<SocketAddr, Conn>,
     /// The closing connections, oldest first.
     closing: VecDeque<SocketAddr>,
@@ -69,11 +69,11 @@ pub(super) struct Listener {
 }
 
 impl Listener {
-    pub(super) fn new(config: Config, pong: Arc<[u8]>, cookies: Option<CookieKey>) -> Self {
+    pub(super) fn new(config: Config, pong: Arc<[u8]>, cookie_key: Option<CookieKey>) -> Self {
         Self {
             config,
             pong,
-            cookies,
+            cookie_key,
             conns: BTreeMap::new(),
             closing: VecDeque::new(),
             next_id: 0,
@@ -221,6 +221,21 @@ impl Listener {
         self.doomed = doomed;
     }
 
+    /// The cookie of `from` in the cookie epoch `back` epochs before the one of `now`; `None`
+    /// without cookies. Each source address (IP and port) has its own.
+    fn cookie(&self, now: Duration, from: SocketAddr, back: u64) -> Option<u32> {
+        let key = self.cookie_key.as_ref()?;
+        let epoch = (now.as_secs() / COOKIE_EPOCH.as_secs())
+            .saturating_sub(back)
+            .to_le_bytes();
+        let port = from.port().to_be_bytes();
+        // The family byte keeps an IPv4 address apart from IPv6 bytes that begin the same.
+        Some(match from.ip() {
+            IpAddr::V4(ip) => key.cookie(&[&epoch, &[4], &ip.octets(), &port]),
+            IpAddr::V6(ip) => key.cookie(&[&epoch, &[6], &ip.octets(), &port]),
+        })
+    }
+
     fn remove(&mut self, addr: SocketAddr, reason: Close, sink: &mut impl Sink) {
         let Some(mut conn) = self.conns.remove(&addr) else {
             return;
@@ -323,10 +338,14 @@ impl Listener {
         // (`MAX_PRE_LOGIN`, `MAX_PRE_LOGIN_PER_IP`, `HANDSHAKE_TIMEOUT` and `IDLE_TIMEOUT`) alone
         // bound what spoofed requests hold.
         cur.magic()?;
-        if self.cookies.is_some() {
+        if self.cookie_key.is_some() {
             let cookie = cur.u32()?;
-            // Whether the client answered a challenge, which RakNet's security would add; never.
-            cur.u8()?;
+            // go-raknet writes a 0 byte here, the flag of an answered challenge (Anchor sends
+            // none). Whether the official client writes it is unknown, so any other byte (the
+            // address family, 4 or 6) starts the address.
+            if cur.rest().first() == Some(&0) {
+                cur.u8()?;
+            }
             let fresh = |back| self.cookie(now, from, back) == Some(cookie);
             if !fresh(0) && !fresh(1) {
                 return Err(Error::Malformed("cookie"));
@@ -386,21 +405,6 @@ impl Listener {
         *self.pre_login_per_ip.entry(ip).or_default() += 1;
         self.reply_2(from, mtu, sink);
         Ok(())
-    }
-
-    /// The cookie of `from` in the cookie epoch `back` epochs before the one of `now`; `None`
-    /// without cookies. Each source address (IP and port) has its own.
-    fn cookie(&self, now: Duration, from: SocketAddr, back: u64) -> Option<u32> {
-        let key = self.cookies.as_ref()?;
-        let epoch = (now.as_secs() / COOKIE_EPOCH_SECS)
-            .saturating_sub(back)
-            .to_le_bytes();
-        let port = from.port().to_be_bytes();
-        // The family byte keeps an IPv4 address apart from IPv6 bytes that begin the same.
-        Some(match from.ip() {
-            IpAddr::V4(ip) => key.cookie(&[&epoch, &[4], &ip.octets(), &port]),
-            IpAddr::V6(ip) => key.cookie(&[&epoch, &[6], &ip.octets(), &port]),
-        })
     }
 
     fn reply_2(&mut self, to: SocketAddr, mtu: u16, sink: &mut impl Sink) {
@@ -821,18 +825,9 @@ pub(super) mod tests {
             data
         }
 
-        /// `OpenConnectionRequest2` without a cookie (go-raknet when the server has no security).
-        pub(in crate::raknet) fn request_2(mtu: u16, guid: u64) -> Vec<u8> {
-            Self::request_2_with(mtu, guid, None)
-        }
-
-        /// `OpenConnectionRequest2` with `cookie` when the server has security
-        /// (go-raknet `MarshalBinary`: the cookie, then a zero byte).
-        pub(in crate::raknet) fn request_2_with(
-            mtu: u16,
-            guid: u64,
-            cookie: Option<u32>,
-        ) -> Vec<u8> {
+        /// `OpenConnectionRequest2` as go-raknet's `MarshalBinary` writes it: with a `cookie` when
+        /// the server has security, followed by a zero byte, and without one when it has none.
+        fn request_2(mtu: u16, guid: u64, cookie: Option<u32>) -> Vec<u8> {
             let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_2];
             data.extend_from_slice(&wire::MAGIC);
             if let Some(cookie) = cookie {
@@ -846,7 +841,7 @@ pub(super) mod tests {
         }
 
         /// The cookie and the MTU of an `OpenConnectionReply1` (go-raknet `UnmarshalBinary`).
-        pub(in crate::raknet) fn reply_1(data: &[u8]) -> (Option<u32>, u16) {
+        fn reply_1(data: &[u8]) -> (Option<u32>, u16) {
             let u16_at = |at: usize| u16::from_be_bytes(data[at..at + 2].try_into().unwrap());
             if data[25] == 0 {
                 (None, u16_at(26))
@@ -872,7 +867,7 @@ pub(super) mod tests {
             match data[0] {
                 wire::ID_OPEN_CONNECTION_REPLY_1 => {
                     let (cookie, mtu) = Self::reply_1(data);
-                    outbox.push(Self::request_2_with(mtu, CLIENT_GUID | 5, cookie));
+                    outbox.push(Self::request_2(mtu, CLIENT_GUID | 5, cookie));
                 }
                 wire::ID_OPEN_CONNECTION_REPLY_2 if peer.is_none() => {
                     let at = data.len() - 3;
@@ -1123,14 +1118,14 @@ pub(super) mod tests {
         let from = addr(1, 1);
         let guid = CLIENT_GUID;
         for bad in [
-            Client::request_2(MAX_MTU, 5),
-            Client::request_2(MIN_MTU - 1, guid),
-            Client::request_2(MAX_MTU, guid)[..20].to_vec(),
+            Client::request_2(MAX_MTU, 5, None),
+            Client::request_2(MIN_MTU - 1, guid, None),
+            Client::request_2(MAX_MTU, guid, None)[..20].to_vec(),
         ] {
             assert!(offline_reply(&mut listener, from, &bad).is_empty());
         }
         assert!(listener.conns.is_empty());
-        let replies = offline_reply(&mut listener, from, &Client::request_2(1300, guid));
+        let replies = offline_reply(&mut listener, from, &Client::request_2(1300, guid, None));
         assert_eq!(replies.len(), 1);
         let reply = &replies[0];
         assert_eq!(reply[0], wire::ID_OPEN_CONNECTION_REPLY_2);
@@ -1139,7 +1134,8 @@ pub(super) mod tests {
         assert_eq!(reply[32..34], 1300_u16.to_be_bytes());
         assert_eq!(reply.len(), 35);
         // A larger request is cut to `max-mtu-size`.
-        let replies = offline_reply(&mut listener, addr(1, 2), &Client::request_2(1500, guid));
+        let request = Client::request_2(1500, guid, None);
+        let replies = offline_reply(&mut listener, addr(1, 2), &request);
         assert_eq!(replies[0][32..34], MAX_MTU.to_be_bytes());
     }
 
@@ -1148,7 +1144,7 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         let from = addr(1, 1);
-        let request = Client::request_2(MAX_MTU, CLIENT_GUID);
+        let request = Client::request_2(MAX_MTU, CLIENT_GUID, None);
         listener.receive(T, from, &request, &mut sink);
         listener.receive(T, from, &request, &mut sink);
         assert_eq!(sink.take(from).len(), 2);
@@ -1330,7 +1326,12 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         let from = addr(1, 1);
-        listener.receive(T, from, &Client::request_2(MAX_MTU, CLIENT_GUID), &mut sink);
+        listener.receive(
+            T,
+            from,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
         let frame = header(Reliability::Unreliable);
         let data = datagram(0, &[(frame, b"\xfegame")]);
         listener.receive(T, from, &data, &mut sink);
@@ -1351,7 +1352,7 @@ pub(super) mod tests {
             listener.receive(
                 T,
                 addr(last, 1),
-                &Client::request_2(MAX_MTU, CLIENT_GUID),
+                &Client::request_2(MAX_MTU, CLIENT_GUID, None),
                 &mut sink,
             );
         }
@@ -1483,7 +1484,12 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         let from = addr(1, 1);
-        listener.receive(T, from, &Client::request_2(MAX_MTU, CLIENT_GUID), &mut sink);
+        listener.receive(
+            T,
+            from,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
         listener.update(T + IDLE_TIMEOUT, &mut sink);
         assert_eq!(listener.conns.len(), 1);
         listener.update(T + IDLE_TIMEOUT + Duration::from_millis(1), &mut sink);
@@ -1492,7 +1498,12 @@ pub(super) mod tests {
         // Activity without NewIncomingConnection: the handshake timeout.
         let mut listener = self::listener();
         let mut sink = Recorder::new();
-        listener.receive(T, from, &Client::request_2(MAX_MTU, CLIENT_GUID), &mut sink);
+        listener.receive(
+            T,
+            from,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
         let frame = header(Reliability::Unreliable);
         for second in 0..10 {
             let now = T + Duration::from_secs(second);
@@ -1519,10 +1530,16 @@ pub(super) mod tests {
     }
 
     /// A client that sends the cookie back connects as one does without cookies; the reply
-    /// carries a cookie only from a listener that asks for them.
+    /// carries a cookie only from a listener that asks for them, with security on and the cookie
+    /// between the GUID and the MTU (go-raknet `OpenConnectionReply1`).
     #[test]
     fn a_client_that_sends_its_cookie_back_connects() {
         let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        let reply = offline_reply(&mut cookie_listener(), addr(1, 1), &request);
+        let data = &reply[0];
+        assert_eq!(data.len(), 32);
+        assert_eq!(data[25], 1, "security on");
+        assert_eq!(data[30..32], MAX_MTU.to_be_bytes());
         for (mut listener, asks) in [(cookie_listener(), true), (listener(), false)] {
             let reply = offline_reply(&mut listener, addr(1, 1), &request);
             let (cookie, mtu) = Client::reply_1(&reply[0]);
@@ -1533,6 +1550,13 @@ pub(super) mod tests {
         }
     }
 
+    /// The cookie `listener` gives `from` in its `OpenConnectionReply1` at `T`.
+    fn cookie_of(listener: &mut Listener, from: SocketAddr) -> u32 {
+        let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        let reply = offline_reply(listener, from, &request);
+        Client::reply_1(&reply[0]).0.unwrap()
+    }
+
     /// With cookies, a request 2 opens a connection only with the cookie its address got in the
     /// cookie epoch or the one before; any other request gets no reply and leaves no state, so a
     /// spoofed address cannot hold a pre-login slot.
@@ -1540,19 +1564,13 @@ pub(super) mod tests {
     fn a_request_2_opens_a_connection_only_with_the_cookie_of_its_address() {
         let mut listener = cookie_listener();
         let (from, other) = (addr(1, 1), addr(2, 1));
-        let reply = offline_reply(
-            &mut listener,
-            from,
-            &Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION),
-        );
-        let cookie = Client::reply_1(&reply[0]).0.unwrap();
-        let with = |cookie| Client::request_2_with(MAX_MTU, CLIENT_GUID, Some(cookie));
-        let epoch = Duration::from_secs(COOKIE_EPOCH_SECS);
+        let cookie = cookie_of(&mut listener, from);
+        let with = |cookie| Client::request_2(MAX_MTU, CLIENT_GUID, Some(cookie));
         for (source, request, at) in [
             (from, with(cookie ^ 1), T),
             (other, with(cookie), T),
-            (from, with(cookie), T + epoch * 2),
-            (from, Client::request_2(MAX_MTU, CLIENT_GUID), T),
+            (from, with(cookie), T + COOKIE_EPOCH * 2),
+            (from, Client::request_2(MAX_MTU, CLIENT_GUID, None), T),
         ] {
             let mut sink = Recorder::new();
             listener.receive(at, source, &request, &mut sink);
@@ -1560,9 +1578,31 @@ pub(super) mod tests {
             assert!(listener.conns.is_empty() && listener.pre_login == 0);
         }
         let mut sink = Recorder::new();
-        listener.receive(T + epoch, from, &with(cookie), &mut sink);
+        listener.receive(T + COOKIE_EPOCH, from, &with(cookie), &mut sink);
         assert_eq!(sink.take(from)[0][0], wire::ID_OPEN_CONNECTION_REPLY_2);
         assert_eq!(listener.pre_login, 1);
+    }
+
+    /// A request 2 with its cookie opens a connection with the zero byte go-raknet writes after
+    /// the cookie and without it, since only the official client shows which form it sends.
+    #[test]
+    fn a_request_2_with_its_cookie_connects_with_or_without_the_byte_after_it() {
+        let mut listener = cookie_listener();
+        let (flagged, bare) = (addr(1, 1), addr(1, 2));
+        let with_byte = Client::request_2(
+            MAX_MTU,
+            CLIENT_GUID,
+            Some(cookie_of(&mut listener, flagged)),
+        );
+        let mut without_byte =
+            Client::request_2(MAX_MTU, CLIENT_GUID, Some(cookie_of(&mut listener, bare)));
+        // The byte after the ID, the magic and the cookie.
+        assert_eq!(without_byte.remove(1 + wire::MAGIC.len() + 4), 0);
+        for (from, request) in [(flagged, with_byte), (bare, without_byte)] {
+            let replies = offline_reply(&mut listener, from, &request);
+            assert_eq!(replies[0][0], wire::ID_OPEN_CONNECTION_REPLY_2, "{from}");
+        }
+        assert_eq!(listener.pre_login, 2);
     }
 
     #[test]
@@ -1668,11 +1708,21 @@ pub(super) mod tests {
         let mut open = Client::new(addr(1, 1), MAX_MTU);
         connect(&mut listener, &mut sink, &mut open, T);
         let half = addr(1, 2);
-        listener.receive(T, half, &Client::request_2(MAX_MTU, CLIENT_GUID), &mut sink);
+        listener.receive(
+            T,
+            half,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
         listener.shutdown(T, &mut sink);
         assert_eq!(listener.conns.len(), 1);
         let late = addr(1, 3);
-        listener.receive(T, late, &Client::request_2(MAX_MTU, CLIENT_GUID), &mut sink);
+        listener.receive(
+            T,
+            late,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
         assert_eq!(listener.conns.len(), 1);
         let mut now = T;
         while !listener.is_empty() {
@@ -1707,7 +1757,7 @@ pub(super) mod tests {
         );
         let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
         assert!(offline_reply(&mut listener, from, &request).is_empty());
-        let request = Client::request_2(MAX_MTU, CLIENT_GUID);
+        let request = Client::request_2(MAX_MTU, CLIENT_GUID, None);
         assert!(offline_reply(&mut listener, from, &request).is_empty());
         assert!(listener.conns.is_empty());
     }
@@ -1832,24 +1882,30 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         let from = addr(1, 1);
-        // Offline messages from many addresses.
-        let offline = [
-            Client::ping(5),
-            Client::request_1(MIN_MTU, wire::PROTOCOL_VERSION),
-            Client::request_2(MAX_MTU, CLIENT_GUID),
-            vec![wire::ID_OPEN_CONNECTION_REQUEST_2],
-        ];
+        // Offline messages from many addresses, to a listener with cookies too, whose request 2
+        // seed carries the cookie of `from`.
+        let mut with_cookies = cookie_listener();
         let mut port = 0_u16;
-        for seed in &offline {
-            fuzz(seed, 1250, |data| {
-                port = port.wrapping_add(1);
-                listener.receive(T, addr(2, port), data, &mut sink);
-                listener.receive(T, from, data, &mut sink);
-                Ok(())
-            });
+        for listener in [&mut with_cookies, &mut listener] {
+            let request_1 = Client::request_1(MIN_MTU, wire::PROTOCOL_VERSION);
+            let (cookie, _) = Client::reply_1(&offline_reply(listener, from, &request_1)[0]);
+            let offline = [
+                Client::ping(5),
+                request_1,
+                Client::request_2(MAX_MTU, CLIENT_GUID, cookie),
+                vec![wire::ID_OPEN_CONNECTION_REQUEST_2],
+            ];
+            for seed in &offline {
+                fuzz(seed, 1250, |data| {
+                    port = port.wrapping_add(1);
+                    listener.receive(T, addr(2, port), data, &mut sink);
+                    listener.receive(T, from, data, &mut sink);
+                    Ok(())
+                });
+            }
+            listener.update(T + Duration::from_secs(20), &mut sink);
+            assert!(listener.conns.is_empty());
         }
-        listener.update(T + Duration::from_secs(20), &mut sink);
-        assert!(listener.conns.is_empty());
 
         // Connected datagrams: captured from a client, then mutated against a live connection.
         sink.sent.clear();

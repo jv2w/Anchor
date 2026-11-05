@@ -75,14 +75,14 @@ paths:
 - Keep the sans-IO core (`raknet/wire.rs`, `raknet/peer.rs`, `raknet/listener.rs`) apart from the driver.
 - The RakNet layer adds and removes the 0xfe byte; the session stays transport-independent.
 - RakNet timing uses the monotonic clock (`clock::now`).
-- Use the connection cookie unless `raknet-cookies = false`: a keyed MAC from the `crypto` module, never a checksum anyone can compute. Answer a request 2 without the right cookie with nothing, and keep no state for it.
+- Use the connection cookie only with `raknet-cookies = true`: a keyed MAC from the `crypto` module, never a checksum anyone can compute. Answer a request 2 without the right cookie with nothing, and keep no state for it.
 - Drop a malformed ACK or NAK, and a datagram whose number is the history (1,024) or more ahead, as that datagram alone, unless a second one follows within the history (then move the record there). Never close the connection for them.
 - Never preallocate for the fragment count a message declares.
 - Refuse `;` and control characters in `motd` and `level-name`.
 
 ## Encryption
 - Match gophertunnel `minecraft/conn.go` and `packet/encryption.go` as the ground truth for encryption.
-- Keep every cryptographic primitive of Anchor's code (ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness), base64, and the JWS compact form in the `crypto` module.
+- Keep every cryptographic primitive of Anchor's code (ES384, RS256, ECDH P-384, SHA-256, HMAC-SHA256, AES-256-CTR, randomness), base64, and the JWS compact form in the `crypto` module.
 
 ## Compression
 - Check `compression-threshold`, `compression-level`, and `max-batch-bytes` in one place, `batch::Settings::new`.

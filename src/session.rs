@@ -34,7 +34,7 @@ use tracing::{debug, error, info, warn};
 use crate::auth::Auth;
 use crate::clock;
 use crate::config::{Config, GameMode};
-use crate::crypto::{self, ServerKey};
+use crate::crypto::{self, CookieKey, ServerKey};
 use crate::error::{Error, Result};
 use crate::nethernet;
 use crate::pack::Offer;
@@ -95,12 +95,14 @@ impl Network {
 }
 
 /// What networking needs from the start before the tick and the data files: the authorization
-/// keys, the server key, the RakNet GUID and the bound UDP sockets.
+/// keys, the server key, the RakNet GUID and cookie key, and the bound UDP sockets.
 #[derive(Debug)]
 pub(crate) struct Prepared {
     auth: Option<Auth>,
     server_key: ServerKey,
     guid: u64,
+    /// The key of RakNet's connection cookies; `None` with `raknet-cookies = false`.
+    cookie_key: Option<CookieKey>,
     sockets: Arc<udp::Sockets>,
 }
 
@@ -444,9 +446,10 @@ struct Join<'a> {
 }
 
 /// Prepares networking on the current runtime: loads the authorization keys with
-/// `xbox-auth = true` (a server without keys does not start), makes the server key and the
-/// RakNet GUID and binds the UDP sockets. Nothing here needs the tick, the packs or a data
-/// file, so a start that fails here has opened none.
+/// `xbox-auth = true` (a server without keys does not start), makes the server key, the
+/// RakNet GUID and, with `raknet-cookies = true`, the cookie key, and binds the UDP sockets.
+/// Nothing here needs the tick, the packs or a data file, so a start that fails here has opened
+/// none.
 pub(crate) async fn prepare(config: &Config, data_dir: &Path) -> Result<Prepared> {
     let auth = if config.general.xbox_auth {
         let auth = Auth::start(data_dir, clock::token_now)
@@ -460,12 +463,18 @@ pub(crate) async fn prepare(config: &Config, data_dir: &Path) -> Result<Prepared
     let mut guid = [0; 8];
     crypto::fill_random(&mut guid).map_err(|e| Error::Start(std::io::Error::other(e)))?;
     let guid = u64::from_le_bytes(guid);
+    let cookie_key = if config.developer.raknet_cookies {
+        Some(CookieKey::generate().map_err(|e| Error::Start(std::io::Error::other(e)))?)
+    } else {
+        None
+    };
     let (v4, v6) = socket_addresses(config);
     let sockets = udp::Sockets::bind(Some(v4), v6)?;
     Ok(Prepared {
         auth,
         server_key,
         guid,
+        cookie_key,
         sockets,
     })
 }
@@ -491,6 +500,7 @@ pub(crate) async fn start(
         auth,
         server_key,
         guid,
+        cookie_key,
         sockets,
     } = prepared;
     let (v4, v6) = socket_addresses(&config);
@@ -513,17 +523,16 @@ pub(crate) async fn start(
         info!(%addr, "listening for NetherNet signaling on TCP");
     }
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = raknet_settings(&config, batch, guid)
-        .map_err(std::io::Error::other)
-        .and_then(|settings| {
-            raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets))
-                .map_err(std::io::Error::other)
-        });
-    let raknet = match raknet {
+    let raknet = match raknet::Driver::new(
+        raknet_settings(&config, batch, guid, cookie_key),
+        pong_rx,
+        raknet_tx,
+        Arc::clone(&sockets),
+    ) {
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
-            return Err(Error::Start(e));
+            return Err(Error::Start(std::io::Error::other(e)));
         }
     };
     let udp = udp::spawn(sockets, raknet, nethernet_driver);
@@ -615,26 +624,22 @@ fn nethernet_settings(
     }
 }
 
-/// The RakNet settings for `guid`, with a new cookie key unless `raknet-cookies = false`.
+/// The RakNet settings for `guid` and `cookie_key`.
 fn raknet_settings(
     config: &Config,
     batch: batch::Settings,
     guid: u64,
-) -> crypto::Result<raknet::Settings> {
-    let cookies = if config.developer.raknet_cookies {
-        Some(crypto::CookieKey::generate()?)
-    } else {
-        None
-    };
-    Ok(raknet::Settings {
+    cookie_key: Option<CookieKey>,
+) -> raknet::Settings {
+    raknet::Settings {
         max_mtu: config.developer.max_mtu_size,
         // An encrypted RakNet message adds the checksum to the batch.
         max_message_bytes: max_message_bytes(&batch)
             .saturating_add(crypto::encryption::CHECKSUM_BYTES),
         accept: config.developer.raknet,
         guid,
-        cookies,
-    })
+        cookie_key,
+    }
 }
 
 /// The largest game message a client may send, without transport framing: the
@@ -855,5 +860,23 @@ mod tests {
             network.stop().await;
         });
         std::fs::remove_dir_all(&dir).unwrap_or(());
+    }
+
+    /// The start makes a RakNet cookie key only with `raknet-cookies = true`; without it the
+    /// listener gets none and asks no client for a cookie.
+    #[test]
+    fn a_cookie_key_is_made_only_with_raknet_cookies() {
+        use std::net::Ipv4Addr;
+
+        for cookies in [false, true] {
+            let mut config = Config::default();
+            config.general.xbox_auth = false;
+            config.general.enable_ipv6 = false;
+            config.general.server_ip = Ipv4Addr::LOCALHOST;
+            config.general.server_port = 0;
+            config.developer.raknet_cookies = cookies;
+            let prepared = crate::raknet::tests::run(prepare(&config, Path::new(""))).unwrap();
+            assert_eq!(prepared.cookie_key.is_some(), cookies);
+        }
     }
 }

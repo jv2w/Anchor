@@ -289,7 +289,7 @@ impl CookieKey {
 
 impl fmt::Debug for CookieKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("CookieKey(..)")
+        f.debug_struct("CookieKey").finish_non_exhaustive()
     }
 }
 
