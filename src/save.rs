@@ -827,7 +827,7 @@ fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<Hel
 /// it ([`Storage::open`]).
 fn open_held(held: &mut Held, place: &Place, start: Start) -> Result<Storage, storage::Error> {
     match held.remove(&place.file) {
-        Some(handle) => Storage::open_checked(place, handle, start),
+        Some(handle) => Storage::open_checked(place, handle, start.backup, start.max_backups),
         None => Storage::open(place, start),
     }
 }

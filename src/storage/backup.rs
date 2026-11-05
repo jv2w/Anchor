@@ -6,8 +6,7 @@
 //! backup is never overwritten, and its name sorts after every backup already there: a second
 //! backup in the same second adds `-<n>`, and after the clock went back the name keeps the newest
 //! second found. So the newest backups are the last names. A copy is written under
-//! `<name>.tmp` and renamed when whole; the newest the file's start keeps
-//! ([`Start::kept`](super::Start), `max-backups`) stay.
+//! `<name>.tmp` and renamed when whole; then all but the `max-backups` newest are removed.
 
 use std::io;
 use std::iter::Peekable;
@@ -100,19 +99,18 @@ pub(crate) struct Online {
     /// The backup's name.
     path: PathBuf,
     dir: PathBuf,
-    /// The newest backups of `dir` kept once this one is whole, starts and online backups
-    /// together.
-    kept: usize,
+    /// The newest backups of `dir` kept once this one is whole ([`prune`]).
+    max_backups: usize,
 }
 
 impl Online {
     /// Starts a backup of `source`'s last commit into a new backup in `dir`, which keeps the
-    /// `kept` newest once whole.
+    /// `max_backups` newest once it is whole.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread starts an online backup"
     )]
-    pub(crate) fn begin(source: &Database, dir: &Path, kept: usize) -> Result<Self> {
+    pub(crate) fn begin(source: &Database, dir: &Path, max_backups: usize) -> Result<Self> {
         crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
@@ -127,7 +125,7 @@ impl Online {
             temp,
             path,
             dir: dir.to_path_buf(),
-            kept,
+            max_backups,
         })
     }
 
@@ -180,9 +178,9 @@ impl Online {
         Ok(())
     }
 
-    /// Commits the whole copy durably, closes and flushes it, gives it its backup name and keeps
-    /// the `kept` newest backups ([`Self::begin`]); returns its path. The durable commit is the one that makes
-    /// the steps' commits reach the disk; closing the copy alone could not report a failure.
+    /// Commits the whole copy durably, closes and flushes it, gives it its backup name and removes
+    /// old backups ([`prune`]); returns its path. The durable commit is the one that makes the
+    /// steps' commits reach the disk; closing the copy alone could not report a failure.
     ///
     /// The copy is not compacted: `compact` is one call that took
     /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
@@ -199,7 +197,7 @@ impl Online {
             temp,
             path,
             dir,
-            kept,
+            max_backups,
         } = self;
         db.begin_write()
             .map_err(Error::database)?
@@ -213,7 +211,7 @@ impl Online {
             .and_then(|file| file.sync_all())
             .map_err(Error::Io)?;
         temp.rename(&path)?;
-        if let Err(e) = prune(&dir, &path, kept) {
+        if let Err(e) = prune(&dir, &path, max_backups) {
             warn!(
                 path = %dir.display(),
                 error = &e as &(dyn std::error::Error + 'static),
@@ -306,16 +304,16 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     )))
 }
 
-/// Removes all but the `kept` newest backups in `dir`, never `newest` (the backup just made).
-/// Other files are left alone.
+/// Removes all but the `max_backups` newest backups in `dir`, never `newest` (the backup just
+/// made). Other files are left alone.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread prunes backups after an online backup"
 )]
-fn prune(dir: &Path, newest: &Path, kept: usize) -> Result<()> {
+fn prune(dir: &Path, newest: &Path, max_backups: usize) -> Result<()> {
     let mut backups = backups(dir)?;
     backups.sort_unstable();
-    let old = backups.len().saturating_sub(kept);
+    let old = backups.len().saturating_sub(max_backups);
     for (_, path) in backups.iter().take(old) {
         if path != newest {
             std::fs::remove_file(path).map_err(Error::Io)?;
