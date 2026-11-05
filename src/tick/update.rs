@@ -10,15 +10,16 @@
 //!    ([`block_entity::block_changed`], which closes the windows of a block entity that goes), and
 //!    the entities on or in the block and its neighbours see the change
 //!    ([`entity::block_changed`]).
-//! 2. **Random ticks**: the chunks within `tick-radius` of a player of the world whose view is open
-//!    (as for entities) and whose 3 × 3 neighbourhood is loaded and lit, in position order; in each
-//!    sub-chunk that is not air, [`RANDOM_TICKS_PER_SUB_CHUNK`] positions from the engine random
-//!    stream of the chunk and tick. A custom block ticks if its definition asks for it, through its
-//!    behaviour's `on_random_tick`.
+//! 2. **Random ticks**, only on a server with a custom block that takes them: the chunks within
+//!    `tick-radius` of a player of the world whose view is open (as for entities) and whose 3 × 3
+//!    neighbourhood is loaded and lit, in position order; in each sub-chunk that is not air,
+//!    [`RANDOM_TICKS_PER_SUB_CHUNK`] positions from the engine random stream of the chunk and
+//!    tick. A custom block ticks if its definition asks for it, through its behaviour's
+//!    `on_random_tick`.
 //!
 //! [`World::next_changed`]: crate::world::World::next_changed
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Context, State, block_entity, entity, interact, view};
 use crate::block::Face;
@@ -128,15 +129,25 @@ impl Context<'_> {
 /// blocks: handing the candidate positions to the CPU pool would not save more than it costs, and
 /// hooks change the blocks later candidates read.
 pub(super) fn tick(state: &mut State) {
+    // Only a custom block's behaviour acts on a random tick: without one that takes them, the
+    // random ticks are skipped whole. A tick's random stream is keyed by its chunk and tick, so
+    // skipping changes no other stream.
+    let random = state.custom.has_random_ticks();
     // The players' chunks, gathered in one pass for every world rather than one pass per world.
     // No update moves a player or changes its world.
-    let centers = view::tick_centres(state);
+    let centers = if random {
+        view::tick_centres(state)
+    } else {
+        BTreeMap::new()
+    };
     for at in 0..state.worlds.len() {
         let Some(world) = state.worlds.index_at(at).filter(|&w| state.is_awake(w)) else {
             continue;
         };
         run_changes(state, world);
-        run_random(state, world, centers.get(&world));
+        if random {
+            run_random(state, world, centers.get(&world));
+        }
     }
 }
 
@@ -460,6 +471,8 @@ mod tests {
                 assert_eq!(get(&state, BlockPos::new(x, -60, z)), plant);
             }
         }
+        // No custom block takes random ticks: no chunk was ever picked for them.
+        assert_eq!(state.rules.updates.ticking.capacity(), 0);
         drop(rx);
         assert!(pool.shutdown());
     }

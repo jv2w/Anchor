@@ -46,6 +46,9 @@ pub(crate) struct Registry {
     creatives: Creatives,
     /// The index in [`Self::creatives`] of each alternative's name.
     creative_names: BTreeMap<&'static str, u16>,
+    /// Whether a registered block takes random ticks: derived from the entries by
+    /// [`Self::finish`], so the tick skips random ticks at no cost without one.
+    random_ticks: bool,
 }
 
 impl Registry {
@@ -103,6 +106,12 @@ impl Registry {
             None => &empty,
         };
         block::State::custom(b, b.index_of(states)?, t.runtime_id())
+    }
+
+    /// Whether a registered custom block takes random ticks
+    /// ([`Block::random_ticks`](super::Block::random_ticks)).
+    pub(crate) fn has_random_ticks(&self) -> bool {
+        self.random_ticks
     }
 
     /// The `ItemRegistry` packet: the vanilla list, then the custom items.
@@ -220,6 +229,10 @@ impl Registry {
             entries: self.entries.clone(),
             types,
             by_name,
+            random_ticks: self
+                .entries
+                .iter()
+                .any(|e| matches!(e, Entry::Block(b) if b.has_random_ticks())),
             ..Self::default()
         };
         finished.resolve_creatives(&self.creative_inventory, &self.alternatives, &places)?;
