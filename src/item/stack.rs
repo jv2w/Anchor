@@ -42,8 +42,8 @@ use crate::protocol::{self, Writer};
 pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
 
 /// The most a stack's saved form may take from a reader's allocation budget to read back: four
-/// times its bytes, so [`MAX_SAVED_STACKS`](crate::tick::inventory::MAX_SAVED_STACKS) of them
-/// read within what a record's reader may allocate
+/// times its bytes, so `MAX_SAVED_STACKS` (`tick::inventory`) of them read within what a record's
+/// reader may allocate
 /// ([`DECODE_BUDGET`](crate::storage::seal::DECODE_BUDGET)). Only NBT of many small compounds
 /// comes near it: each takes a tree node (an enchantment takes about 56 times its 16 bytes).
 const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;

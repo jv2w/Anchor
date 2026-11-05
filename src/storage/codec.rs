@@ -36,9 +36,8 @@ pub(crate) const MAX_NAME_BYTES: usize = 256;
 /// Most pages a list takes: the page number of a key is a u16.
 const MAX_PAGES: usize = 1 << 16;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
-/// name and the position. It holds up to
-/// [`MAX_SAVED_STACKS`](crate::tick::inventory::MAX_SAVED_STACKS) stacks and the user's data,
-/// more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
+/// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
+/// user's data, more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
 /// it ([`MAX_NBT_BYTES`](crate::item::MAX_NBT_BYTES)).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD_BYTES - (2 + MAX_NAME_BYTES + 3 * 8);
 /// Most entries a chunk's block entity list keeps as read that are no block's block entity (no

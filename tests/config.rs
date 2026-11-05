@@ -630,15 +630,16 @@ fn documented_ranges() -> Vec<DocumentedRange> {
         let Some((before, after)) = cells[column].split_once(" to ") else {
             continue;
         };
-        let path = format!("{table}.{}", cells[0].trim_matches('`'));
-        let bound = |word: Option<&str>| {
-            word.and_then(|word| word.parse::<i64>().ok())
-                .unwrap_or_else(|| panic!("row `{path}` has a range that is not `A to B`"))
-        };
-        let (low, high) = (
+        let bound = |word: Option<&str>| word.and_then(|word| word.parse::<i64>().ok());
+        // Prose such as "relative to" is no range; the check of the paths below catches a range
+        // this skips.
+        let (Some(low), Some(high)) = (
             bound(before.split_whitespace().next_back()),
             bound(after.split_whitespace().next()),
-        );
+        ) else {
+            continue;
+        };
+        let path = format!("{table}.{}", cells[0].trim_matches('`'));
         ranges.push(DocumentedRange {
             path,
             is_text: cells[1] == "string",

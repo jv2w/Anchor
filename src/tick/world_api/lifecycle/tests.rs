@@ -1043,9 +1043,9 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
 /// only the chunks of its own world, and every table returns to its size.
 #[test]
 fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() {
-    let (mut state, mut output, _rx) = server(Listeners::default());
+    let (mut state, mut output, mut rx) = server(Listeners::default());
     let player = crate::player::Id::new(SessionId::new(1));
-    let cycle = |state: &mut State, output: &mut Output, i: usize| {
+    let mut cycle = |state: &mut State, output: &mut Output, i: usize| {
         let options = arena(1).with_generator("void");
         let id = context(state)
             .create_world(&format!("arena-{i}"), &options)
@@ -1060,8 +1060,12 @@ fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() 
         // The unload sends the player to the default world.
         context(state).unload_world(id).unwrap();
         tick(state, &mut Vec::new(), output);
+        // A session whose outbound queue fills is closed; a client reads what it is sent.
+        received(&mut rx);
     };
     cycle(&mut state, &mut output, 0);
+    // The player's chunks of the default world load again after the unload sent it there.
+    ticks(&mut state, &mut output, 4);
     settle(&mut state, &mut output);
     let start = (
         tables(&state),
@@ -1071,6 +1075,7 @@ fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() 
     for i in 1..MAX_WORLDS + 8 {
         cycle(&mut state, &mut output, i);
     }
+    ticks(&mut state, &mut output, 4);
     settle(&mut state, &mut output);
     let end = (
         tables(&state),
