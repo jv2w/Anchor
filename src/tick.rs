@@ -1349,6 +1349,10 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
             save::failed(start);
             output.save_failed = true;
         }
+        Response::LoadFailed => {
+            save::load_failed();
+            output.save_failed = true;
+        }
         Response::WorldOpenFailed { world } => save::world_open_failed(state, world),
         Response::Checked(found) => save::checked(state, &found),
     }
@@ -3520,6 +3524,7 @@ mod tests {
                     },
                     log::Answer::Committed(start) => Response::Committed { start: *start },
                     log::Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
+                    log::Answer::LoadFailed => Response::LoadFailed,
                     log::Answer::WorldOpenFailed(world) => {
                         Response::WorldOpenFailed { world: *world }
                     }
@@ -4329,5 +4334,16 @@ mod tests {
             last = Some(request);
         }
         assert!(matches!(last, Some(Request::Finish)));
+    }
+
+    #[test]
+    fn a_failed_chunk_load_stops_the_tick_like_a_failed_commit() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        log.begin(0);
+        respond(&mut state, Response::LoadFailed, &mut output, &mut log);
+        assert!(output.save_failed);
+        assert_eq!(log.ticks()[0].responses, [log::Answer::LoadFailed]);
     }
 }

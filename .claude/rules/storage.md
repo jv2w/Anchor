@@ -52,7 +52,7 @@ paths:
 - Make the next start roll every file later than the main file back to the main file's last save (`storage::settle`): remove a file whose savepoint holds no save and no world record, and refuse the start, keeping the file as it is, when the file has no savepoint or its savepoint is later too. Keep the roll back idempotent.
 
 ## Damage
-- Quarantine a chunk when any of its values fails its checksum or its decode, or its read fails after its retries. Never stop the server for a failed read.
+- Quarantine a chunk when any of its values fails its checksum or its decode.
 - Refuse the join of a player whose data is damaged, and keep the data as it is.
 - Treat a file redb repaired in place (`check_integrity()` returning `Ok(false)`) as damaged.
 - Never call redb `check_integrity()` while the server runs.

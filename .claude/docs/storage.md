@@ -75,7 +75,7 @@ The checksum is checked before the version, so a flipped version byte is damage,
 
 Leaving, chunk unloading and world unloading wait for the next snapshot so that no file holds another moment than the others.
 
-A failed commit drops redb's database, opens it again on the same file handle, which keeps redb's lock in between, and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log since the last commit is written to `data/crash/`, and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries quarantines that batch's chunks of the file instead (an error is logged once per batch): a failed read loses no change, so the server goes on, and the next load of each chunk reads it again.
+A failed commit drops redb's database, opens it again on the same file handle, which keeps redb's lock in between, and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log since the last commit is written to `data/crash/`, and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries stops the server the same way, without saving.
 
 The data-file errors `Error::DataDamaged`, `Error::DataNewerFormat` and `Error::Storage` carry the file in their `path` field. The place that knows the file adds it (`storage::Error::in_file`); a failure of no single file (the listing of `data/worlds/`, the save thread stopping) carries the data folder or the world folder.
 

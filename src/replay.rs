@@ -316,7 +316,7 @@ impl Replayer {
             .collect();
         let mut loaded: BTreeMap<_, Loaded> = BTreeMap::new();
         if !keys.is_empty() {
-            for answer in self.disk.load(&self.pool, &keys) {
+            for answer in self.disk.load(&self.pool, &keys).map_err(storage)? {
                 if let Response::Chunk {
                     world,
                     pos,
@@ -370,6 +370,7 @@ impl Replayer {
                 },
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
+                Answer::LoadFailed => Response::LoadFailed,
                 Answer::WorldOpenFailed(world) => Response::WorldOpenFailed { world: *world },
                 Answer::Checked(found) => Response::Checked(found.clone()),
             });
@@ -632,7 +633,7 @@ fn extras(
 ) -> Result<BTreeMap<(usize, crate::world::ChunkPos), save::ChunkExtras>> {
     let keys: Vec<_> = checkpoint.loaded().chain(checkpoint.unsaved()).collect();
     let mut extras = BTreeMap::new();
-    for answer in disk.load_stored(pool, &keys) {
+    for answer in disk.load_stored(pool, &keys).map_err(storage)? {
         let Response::Chunk { world, pos, loaded } = answer else {
             continue;
         };
@@ -685,5 +686,57 @@ mod tests {
         let read = read(&path).err();
         std::fs::remove_file(&path).unwrap();
         assert!(matches!(read, Some(Error::Format(_))), "{read:?}");
+    }
+
+    /// A logged chunk whose read keeps failing after its retries ends the replay as a data file
+    /// failure, never as a departure from the logged run.
+    #[test]
+    fn a_chunk_read_that_keeps_failing_is_a_storage_error() {
+        use crate::storage::tests::{Call, Disk, Fault, closed, memory};
+        use crate::world::{ChunkPos, Flat, Generator, Kind, World};
+        let disk = Disk::default();
+        drop(memory(&disk));
+        disk.arm(Fault::Every { call: Call::Read });
+        let config = Config::default();
+        let shared = tick::Shared::new(
+            config.batch_settings().unwrap(),
+            &crate::custom::Registry::default(),
+            &tick::Customs::default(),
+        )
+        .unwrap();
+        let world = World::new("world", Kind::Persistent, 0, Flat.spawn(0));
+        let mut replayer = Replayer {
+            state: State::new(
+                tick::Settings::new(&config),
+                shared,
+                Setup::default(),
+                vec![world],
+                0,
+            ),
+            disk: save::tests::thread_on(closed(&disk)),
+            pool: runtime::cpu_pool(1).unwrap(),
+            own: InputLog::default(),
+            receivers: BTreeMap::new(),
+            progress: Progress {
+                tick: None,
+                ticks: 0,
+                done: None,
+            },
+        };
+        let logged = tick::LoggedTick {
+            number: 0,
+            inputs: Vec::new(),
+            dropped: Vec::new(),
+            responses: vec![Answer::Chunk {
+                world: 0,
+                pos: ChunkPos::new(0, 1),
+                origin: Origin::Disk,
+                checksum: 0,
+            }],
+        };
+        let answered = replayer.responses(&logged).map(drop);
+        assert!(matches!(answered, Err(Error::Storage(_))), "{answered:?}");
+        let Replayer { pool, .. } = replayer;
+        assert!(pool.shutdown());
     }
 }
