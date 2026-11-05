@@ -23,12 +23,18 @@ const FIXED_THREADS: usize = 2;
 /// budget.
 const MAX_BLOCKING_THREADS: usize = 4 + MAX_HOST_LOOKUPS + USER_BLOCKING_THREADS;
 /// The fewest network threads `"auto"` gives: a session compressing a large batch holds its
-/// worker until it is done, and a second worker keeps the one UDP task, which every connection
-/// shares, running meanwhile.
+/// worker until it is done, and a second worker meanwhile runs the one UDP task, which every
+/// connection shares, whenever it is woken from another thread or queued behind other tasks. A
+/// wake from the compressing session itself puts it in tokio's LIFO slot of that worker, which
+/// no other worker steals, so it then waits for the compression.
 const MIN_AUTO_NETWORK_THREADS: usize = 2;
-/// The smallest thread budget, whatever the logical CPU count: the fixed threads, the fewest
-/// `"auto"` network threads and one CPU thread.
-const MIN_BUDGET: usize = FIXED_THREADS + MIN_AUTO_NETWORK_THREADS + 1;
+/// The smallest thread budget, whatever the logical CPU count (`CLAUDE.md`).
+const MIN_BUDGET: usize = 5;
+/// The fewest threads of the CPU pool.
+const MIN_CPU_THREADS: usize = 1;
+// The smallest budget holds the fixed threads, the fewest `"auto"` network threads and the
+// smallest CPU pool.
+const _: () = assert!(FIXED_THREADS + MIN_AUTO_NETWORK_THREADS + MIN_CPU_THREADS <= MIN_BUDGET);
 /// How long stopping the runtime waits for blocking work: the authorization fetch's limit,
 /// so a fetch in progress finishes and its thread is joined. Its DNS lookups are
 /// outside that limit, bounded only by the OS resolver; user jobs still running are abandoned
@@ -52,10 +58,11 @@ pub(crate) struct ThreadCounts {
 }
 
 impl ThreadCounts {
-    /// Resolves `"auto"` from `logical` CPUs: network = max(2, L/4), cpu = max(1, budget − 2 −
-    /// network), budget = max(L, 5). Fails with the key that is too large if network + cpu + 2
-    /// exceeds the budget: the network count when it leaves no room for one CPU thread, else
-    /// the CPU count.
+    /// Resolves `"auto"` from `logical` CPUs (L): network = max([`MIN_AUTO_NETWORK_THREADS`],
+    /// L/4), cpu = what the budget max(L, [`MIN_BUDGET`]) leaves after the [`FIXED_THREADS`] and
+    /// network. Fails with the key that is too large if network + cpu + [`FIXED_THREADS`] exceeds
+    /// the budget: the network count when it leaves no room for [`MIN_CPU_THREADS`], else the CPU
+    /// count.
     pub(crate) fn resolve(
         network: Threads,
         cpu: Threads,
@@ -63,12 +70,13 @@ impl ThreadCounts {
     ) -> Result<Self, config::Error> {
         let budget = logical.max(MIN_BUDGET);
         let network = match network {
+            // Where L/4 is under the minimum and the budget is L, the added network thread comes
+            // out of the CPU pool: the shared UDP task's latency weighs more than one pool thread.
             Threads::Auto => (logical / 4).max(MIN_AUTO_NETWORK_THREADS),
             Threads::Count(n) => usize::from(n.get()),
         };
         let usable = budget.saturating_sub(FIXED_THREADS);
-        // The CPU pool needs at least one thread.
-        let max_network = usable.saturating_sub(1);
+        let max_network = usable.saturating_sub(MIN_CPU_THREADS);
         if network > max_network {
             return Err(Self::over_budget(
                 "developer.network-threads",
@@ -189,13 +197,14 @@ impl Runtime {
     }
 }
 
-/// The logical CPU count, or 1 (a budget of 5 threads) if the OS does not tell.
+/// The logical CPU count, or 1 (a budget of [`MIN_BUDGET`] threads) if the OS does not tell.
 pub(crate) fn logical_cpus() -> usize {
     std::thread::available_parallelism().map_or_else(
         |e| {
             warn!(
                 error = &e as &(dyn std::error::Error + 'static),
-                "logical CPU count unknown; using a budget of 5 threads"
+                budget = MIN_BUDGET,
+                "logical CPU count unknown; using the smallest thread budget"
             );
             1
         },
@@ -308,10 +317,10 @@ mod tests {
     }
 
     #[test]
-    fn auto_always_fits_the_budget_with_two_network_threads() {
+    fn auto_always_fits_the_budget_with_the_fewest_network_threads() {
         for logical in 1..=512 {
             let t = auto(logical);
-            assert!(t.network >= 2, "L = {logical}");
+            assert!(t.network >= MIN_AUTO_NETWORK_THREADS, "L = {logical}");
             assert!(
                 t.network + t.cpu + FIXED_THREADS <= logical.max(MIN_BUDGET),
                 "L = {logical}"
