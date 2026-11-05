@@ -47,8 +47,9 @@ const SYNC_TICKS: u32 = 256;
 /// The world clocks' timers (each world keeps its own time).
 #[derive(Debug, Default)]
 pub(in crate::tick) struct Clock {
-    /// One per world, by world index (grown to the world count every tick, and to a world newer
-    /// than the last tick when its timers are first needed).
+    /// One per world, by place (grown to the world count every tick, and to a world newer than
+    /// the last tick when its timers are first needed); a world that takes a place takes its
+    /// timers on.
     worlds: Vec<WorldClock>,
 }
 
@@ -76,11 +77,12 @@ impl Clock {
         reason = "invariant: the table holds the world once it has grown"
     )]
     fn world_mut(&mut self, world: WorldIndex) -> &mut WorldClock {
-        if self.worlds.len() <= world {
-            let len = world.saturating_add(1);
+        let at = crate::save::place(world);
+        if self.worlds.len() <= at {
+            let len = at.saturating_add(1);
             self.worlds.resize(len, WorldClock::default());
         }
-        self.worlds.get_mut(world).expect("the world has a clock")
+        self.worlds.get_mut(at).expect("the world has a clock")
     }
 }
 
@@ -104,10 +106,14 @@ pub(super) fn tick(state: &mut State) {
     let daylight = state.settings.daylight_cycle;
     state.clock.worlds.resize(count, WorldClock::default());
     let mut any_corrected = false;
-    for world in 0..count {
-        if !state.catalog.is_loaded(world) || !state.is_awake(world) {
+    for at in 0..count {
+        let Some(world) = state
+            .worlds
+            .index_at(at)
+            .filter(|&w| state.catalog.is_loaded(w) && state.is_awake(w))
+        else {
             continue;
-        }
+        };
         if let Some(w) = state.worlds.get_mut(world) {
             w.add_age_tick();
             if daylight && !w.is_time_stopped() {
@@ -201,7 +207,7 @@ fn is_corrected(state: &State, world: WorldIndex) -> bool {
         && state
             .clock
             .worlds
-            .get(world)
+            .get(crate::save::place(world))
             .is_some_and(|c| c.sync_in == SYNC_TICKS - 1)
 }
 

@@ -13,7 +13,8 @@ mod lifecycle;
 
 pub(crate) use lifecycle::WorldSlot;
 pub(super) use lifecycle::{
-    Catalog, difficulty, difficulty_of, open_failed, step, take_deleted_worlds, take_new_worlds,
+    Catalog, Worlds, difficulty, difficulty_of, open_failed, step, take_deleted_worlds,
+    take_new_worlds,
 };
 
 use super::view::chunk_of;
@@ -88,9 +89,7 @@ impl Context<'_> {
         self.state
             .worlds
             .iter()
-            .enumerate()
-            .filter(|&(i, _)| catalog.is_loaded(i))
-            .map(|(_, w)| w)
+            .filter(|w| catalog.is_loaded(w.id().index()))
     }
 
     /// Shows `particle` at `pos` in `world` to the players who see its chunk, as
@@ -356,22 +355,22 @@ pub(super) fn is_in_world(player: &Player, world: usize) -> bool {
     player.world == world && player.phase != Phase::Loading
 }
 
-/// The world at `index`, an index of a world the server has had this run.
-fn world_at(state: &State, index: usize) -> &World {
+/// The world at `index`, the index of a world the server has.
+pub(super) fn world_at(state: &State, index: usize) -> &World {
     #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the server keeps every world it had this run at its index"
+        clippy::expect_used,
+        reason = "invariant: the server keeps every world it has at the place of its index"
     )]
-    &state.worlds[index]
+    state.worlds.get(index).expect("a world at the index")
 }
 
-/// The world at `index`, an index of a world the server has had this run, to change it.
-fn world_at_mut(state: &mut State, index: usize) -> &mut World {
+/// The world at `index`, the index of a world the server has, to change it.
+pub(super) fn world_at_mut(state: &mut State, index: usize) -> &mut World {
     #[expect(
-        clippy::indexing_slicing,
-        reason = "invariant: the server keeps every world it had this run at its index"
+        clippy::expect_used,
+        reason = "invariant: the server keeps every world it has at the place of its index"
     )]
-    &mut state.worlds[index]
+    state.worlds.get_mut(index).expect("a world at the index")
 }
 
 #[cfg(test)]

@@ -27,13 +27,13 @@ const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// ages.
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
-        0xbfad_e337_e316_5f55,
+        0x370a_4fae_6888_89cc,
         0x3940_4dc6_a003_819d,
         0xc4d0_b7b4_ec98_80fa,
         0xb713_398d_58c8_d5e5,
     ],
     [
-        0xcc44_4232_2519_d9a2,
+        0x70d0_e919_ca97_518f,
         0xce78_5002_959b_6c8a,
         0xc4d0_b7b4_ec98_80fa,
         0x8529_4a2b_6280_7bf4,

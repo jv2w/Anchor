@@ -66,7 +66,7 @@ use crate::protocol::Uuid;
 use crate::protocol::consts::DisconnectReason;
 use crate::protocol::packet::{Disconnect, Packet};
 use crate::random::Fnv;
-use crate::save::{Request, Response, WorldIndex};
+use crate::save::{Request, Response, WorldIndex, place};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
 use queue::{Identity, Input, InputKind, InputReceiver, LeaveReason, Message, Outbound, SessionId};
@@ -126,8 +126,8 @@ pub(crate) struct State {
     /// Callbacks deferred to after the running one ([`Context::defer`]); empty between ticks
     /// unless a tick hit its run limit.
     deferred: dispatch::Deferred,
-    /// The worlds the server had this run, by index, loaded or not (`world_api::Catalog`).
-    worlds: Vec<World>,
+    /// The worlds the server had this run, at their places, loaded or not (`world_api::Catalog`).
+    worlds: world_api::Worlds,
     /// Which worlds are loaded, the default one, the server file's other worlds, and the world
     /// events and unloads waiting for the view phase.
     catalog: world_api::Catalog,
@@ -157,7 +157,7 @@ pub(crate) struct State {
     identity: Option<u64>,
     /// The measured tick times and connection counts, and the controls for the networking.
     network: network::Network,
-    /// How each world runs its world rules this tick, by index, while `slow-empty-worlds` holds
+    /// How each world runs its world rules this tick, by place, while `slow-empty-worlds` holds
     /// worlds without players back ([`State::is_awake`]); empty when every world runs. Worked
     /// out at the start of the rules from `players`, its buffer kept from tick to tick.
     awake: Vec<Pace>,
@@ -199,6 +199,7 @@ impl State {
         for world in &mut worlds {
             world.set_lighting(settings.light_mode());
         }
+        let worlds = world_api::Worlds::new(worlds);
         let catalog = world_api::Catalog::new(&worlds, generators);
         let saving = save::Saving::new(tick, settings.save_interval, settings.save_player_data);
         let mut state = Self {
@@ -424,7 +425,8 @@ impl State {
         forms.hash_into(&mut h);
         // Callbacks are code; how many wait is state.
         h.usize(deferred.len());
-        for world in worlds {
+        for world in worlds.iter() {
+            h.usize(world.id().index());
             h.bytes(world.name().as_bytes());
             h.u64(u64::from(world.kind() == crate::world::Kind::Persistent));
             h.u64(world.seed().cast_unsigned());
@@ -502,7 +504,7 @@ impl State {
     /// Whether world `world` runs its world rules this tick: its time, block updates, block
     /// entities and light (`slow-empty-worlds`, [`wake`]). Server tasks and events always run.
     pub(crate) fn is_awake(&self, world: WorldIndex) -> bool {
-        self.awake.get(world) != Some(&Pace::Asleep)
+        self.awake.get(place(world)) != Some(&Pace::Asleep)
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -523,9 +525,7 @@ impl State {
         world: WorldIndex,
         chunk: crate::world::ChunkPos,
     ) -> impl Iterator<Item = SessionId> + Clone + '_ {
-        self.chunks
-            .viewers_of(chunk)
-            .filter(move |s| self.players.get(s).is_some_and(|p| p.world == world))
+        self.chunks.viewers_of((world, chunk))
     }
 
     /// Closes the session of `player`, which [`Self::remove`] returned, with `packet` after the
@@ -570,10 +570,9 @@ impl State {
         let Self {
             players, chunks, ..
         } = self;
-        for session in chunks.viewers_of(chunk) {
+        for session in chunks.viewers_of((world, chunk)) {
             if Some(session) != except
                 && let Some(player) = players.get_mut(&session)
-                && player.world == world
             {
                 player.send_to_viewer(packet.clone());
             }
@@ -806,7 +805,10 @@ impl Settings {
     /// `[worlds.<name>]` values over the global ones; for one made or loaded while it runs, its
     /// options' values over the global ones.
     pub(crate) fn view(&self, world: WorldIndex) -> ViewLimits {
-        self.world_views.get(world).copied().unwrap_or(self.view)
+        self.world_views
+            .get(place(world))
+            .copied()
+            .unwrap_or(self.view)
     }
 
     /// Whether XP orbs exist: `xp-orbs` with `xp`, as no XP means
@@ -1426,10 +1428,8 @@ fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
     mark(Part::Trade);
     block_entity::tick(state);
     mark(Part::BlockEntity);
-    for index in 0..state.worlds.len() {
-        if state.is_awake(index)
-            && let Some(world) = state.worlds.get_mut(index)
-        {
+    for world in state.worlds.iter_mut() {
+        if state.awake.get(place(world.id().index())) != Some(&Pace::Asleep) {
             world.step_light(LIGHT_BUDGET);
         }
     }
@@ -1446,7 +1446,7 @@ fn wake(state: &mut State) {
         return;
     }
     let tick = state.tick;
-    // World `w`'s phase is `w` itself, counted as a `u64` from 0.
+    // The phase of the world at place `w` is `w` itself, counted as a `u64` from 0.
     state
         .awake
         .extend((0_u64..).take(state.worlds.len()).map(|phase| {
@@ -1460,7 +1460,7 @@ fn wake(state: &mut State) {
             }
         }));
     for player in state.players.values() {
-        if let Some(pace) = state.awake.get_mut(player.world) {
+        if let Some(pace) = state.awake.get_mut(place(player.world)) {
             *pace = Pace::Every;
         }
     }

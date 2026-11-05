@@ -131,10 +131,10 @@ pub(super) fn tick(state: &mut State) {
     // The players' chunks, gathered in one pass for every world rather than one pass per world.
     // No update moves a player or changes its world.
     let centers = view::tick_centres(state);
-    for world in 0..state.worlds.len() {
-        if !state.is_awake(world) {
+    for at in 0..state.worlds.len() {
+        let Some(world) = state.worlds.index_at(at).filter(|&w| state.is_awake(w)) else {
             continue;
-        }
+        };
         run_changes(state, world);
         run_random(state, world, centers.get(&world));
     }

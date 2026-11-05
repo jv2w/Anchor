@@ -99,7 +99,7 @@ const CRASH_DIR: &str = "crash";
 const CRC_BYTES: usize = 4;
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`JobError::code`](crate::task::JobError::code)s.
 const JOB_DONE: u8 = 0;

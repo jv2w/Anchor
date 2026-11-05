@@ -237,11 +237,7 @@ impl Context<'_> {
     /// [`set_default_world`](Self::set_default_world) named another.
     #[doc(alias = "WorldManager::getDefaultWorld")]
     pub fn default_world(&self) -> &World {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the default world is always one of the server's, and loaded"
-        )]
-        &self.state.worlds[self.state.catalog.default_world()]
+        super::world_api::world_at(self.state, self.state.catalog.default_world())
     }
 
     /// The loaded world named `name`, if any.
@@ -347,11 +343,7 @@ impl Context<'_> {
     /// Lends the default world to change.
     pub fn default_world_mut(&mut self) -> &mut World {
         let index = self.state.catalog.default_world();
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the default world is always one of the server's, and loaded"
-        )]
-        &mut self.state.worlds[index]
+        super::world_api::world_at_mut(self.state, index)
     }
 
     /// Lends the loaded world named `name` to change, if any.

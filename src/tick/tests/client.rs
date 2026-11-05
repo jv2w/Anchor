@@ -684,7 +684,7 @@ fn ground_near(rng: &mut Rng, at: BlockPos) -> BlockPos {
 
 /// A random block that is not air near the feet at `at`, at foot level or below.
 fn solid_near(rng: &mut Rng, state: &State, at: BlockPos) -> Option<BlockPos> {
-    let world = state.worlds.first()?;
+    let world = state.worlds.get(0)?;
     let mut found = Vec::new();
     for dy in [-1, 0, 1] {
         for dx in -2..=2 {
@@ -701,7 +701,7 @@ fn solid_near(rng: &mut Rng, state: &State, at: BlockPos) -> Option<BlockPos> {
 
 /// The nearest container block within reach of the feet at `at`, if any.
 fn container_near(state: &State, at: BlockPos) -> Option<BlockPos> {
-    let world = state.worlds.first()?;
+    let world = state.worlds.get(0)?;
     for dy in [0, -1, 1] {
         for dx in -3..=3 {
             for dz in -3..=3 {

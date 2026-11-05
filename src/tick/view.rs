@@ -25,6 +25,7 @@ use super::extra::Extras;
 use super::queue::{Message, SessionId};
 use super::rules::Rules;
 use super::save::{Saving, Unsaved, is_kept_unloaded, unsaved_snapshot};
+use super::world_api::Worlds;
 use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
@@ -605,10 +606,10 @@ pub(super) struct Chunks {
     /// ticket and chunk (at most [`MAX_TICKET_CHUNKS`]): derived from `tickets`, so neither
     /// saved nor hashed.
     by_chunk: BTreeSet<(Key, u64)>,
-    /// The sessions whose view has each chunk position ([`View::can_see`]), in whatever world they
-    /// are (at most the chunks the views have): derived from the views, so neither saved nor
-    /// hashed. Who sees a chunk is looked up here rather than by asking every player.
-    viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>>,
+    /// The sessions whose view has each chunk ([`View::can_see`]) of each world (at most the
+    /// chunks the views have): derived from the views, so neither saved nor hashed. Who sees a
+    /// chunk is looked up here rather than by asking every player.
+    viewers: BTreeMap<Key, BTreeSet<SessionId>>,
     /// Chunks the tickets hold that are not loaded yet: asked for in the view phase until they
     /// load (or nobody holds them).
     waiting: BTreeSet<Key>,
@@ -781,25 +782,28 @@ impl Chunks {
     /// Whether [`Self::viewers`] holds exactly the chunks each view of `players` has (tests).
     #[cfg(test)]
     pub(super) fn viewers_match(&self, players: &BTreeMap<SessionId, Player>) -> bool {
-        let mut viewers: BTreeMap<ChunkPos, BTreeSet<SessionId>> = BTreeMap::new();
+        let mut viewers: BTreeMap<Key, BTreeSet<SessionId>> = BTreeMap::new();
         for (&session, player) in players {
             for &pos in &player.view.sent {
-                viewers.entry(pos).or_default().insert(session);
+                viewers
+                    .entry((player.world, pos))
+                    .or_default()
+                    .insert(session);
             }
         }
         viewers == self.viewers
     }
 
-    /// The sessions whose view has chunk `pos`, in whatever world they are, in session order.
-    pub(super) fn viewers_of(&self, pos: ChunkPos) -> impl Iterator<Item = SessionId> + Clone + '_ {
-        self.viewers.get(&pos).into_iter().flatten().copied()
+    /// The sessions whose view has chunk `key`, in session order.
+    pub(super) fn viewers_of(&self, key: Key) -> impl Iterator<Item = SessionId> + Clone + '_ {
+        self.viewers.get(&key).into_iter().flatten().copied()
     }
 
     /// Notes the chunks every view of `players` has ([`Self::viewers`]), after a restore.
     pub(super) fn index_views(&mut self, players: &BTreeMap<SessionId, Player>) {
         for (&session, player) in players {
             for &pos in &player.view.sent {
-                self.see(session, pos);
+                self.see(session, (player.world, pos));
             }
         }
     }
@@ -869,17 +873,17 @@ impl Chunks {
         self.requested.len().saturating_add(self.stale.len())
     }
 
-    /// Notes that the view of `session` has chunk `pos` now.
-    fn see(&mut self, session: SessionId, pos: ChunkPos) {
-        self.viewers.entry(pos).or_default().insert(session);
+    /// Notes that the view of `session` has chunk `key` now.
+    fn see(&mut self, session: SessionId, key: Key) {
+        self.viewers.entry(key).or_default().insert(session);
     }
 
-    /// Notes that the view of `session` lost chunk `pos`.
-    fn unsee(&mut self, session: SessionId, pos: ChunkPos) {
-        if let Some(sessions) = self.viewers.get_mut(&pos) {
+    /// Notes that the view of `session` lost chunk `key`.
+    fn unsee(&mut self, session: SessionId, key: Key) {
+        if let Some(sessions) = self.viewers.get_mut(&key) {
             sessions.remove(&session);
             if sessions.is_empty() {
-                self.viewers.remove(&pos);
+                self.viewers.remove(&key);
             }
         }
     }
@@ -1172,7 +1176,7 @@ fn release(chunks: &mut Chunks, key: Key) {
 
 /// Unloads a chunk nobody holds, with its extras. A chunk of a persistent world whose changes no
 /// commit holds yet stays in memory until one does; any other is freed off the tick.
-fn unload(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
+fn unload(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
     rules.unload(key, &mut chunks.extras);
     let extras = chunks.extras.chunk_unloaded(key).unwrap_or_default();
     let Some(world) = worlds.get_mut(key.0) else {
@@ -1208,9 +1212,7 @@ pub(super) fn hold_spawns(state: &mut State) {
         unload: dispatch::heard::<ChunkUnload>(state),
         sent: dispatch::heard::<PlayerPostChunkSend>(state),
     };
-    for (i, w) in state.worlds.iter_mut().enumerate() {
-        w.set_id(crate::world::Id::of(i));
-    }
+    // A new state's worlds are at the places of their indexes.
     for world in 0..state.worlds.len() {
         hold_world(state, world);
     }
@@ -1230,12 +1232,13 @@ fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
 /// Moves the held spawn chunks of each world whose spawn moved to another chunk
 /// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
 /// then the old ones are released.
-fn move_spawns(worlds: &[World], chunks: &mut Chunks) {
-    for world in 0..chunks.spawns.len() {
-        let (Some(&held), Some(now)) = (
-            chunks.spawns.get(world),
-            worlds.get(world).map(World::spawn),
-        ) else {
+fn move_spawns(worlds: &Worlds, chunks: &mut Chunks) {
+    for at in 0..chunks.spawns.len() {
+        let Some(world) = worlds.index_at(at) else {
+            continue;
+        };
+        let (Some(&held), Some(now)) = (chunks.spawns.get(at), worlds.get(world).map(World::spawn))
+        else {
             continue;
         };
         if held == now {
@@ -1249,7 +1252,7 @@ fn move_spawns(worlds: &[World], chunks: &mut Chunks) {
                 release(chunks, (world, pos));
             }
         }
-        if let Some(spawn) = chunks.spawns.get_mut(world) {
+        if let Some(spawn) = chunks.spawns.get_mut(at) {
             *spawn = now;
         }
     }
@@ -1301,7 +1304,7 @@ fn set_view(chunks: &mut Chunks, player: &mut Player, center: ChunkPos, radius: 
             release(chunks, (world, pos));
             if view.sent.remove(&pos) {
                 view.watered.remove(&pos);
-                chunks.unsee(session, pos);
+                chunks.unsee(session, (world, pos));
             }
         });
     }
@@ -1320,7 +1323,7 @@ pub(super) fn close(state: &mut State, player: &mut Player) {
         });
     }
     for &pos in &view.sent {
-        state.chunks.unsee(player.session, pos);
+        state.chunks.unsee(player.session, (world, pos));
     }
     player.view = View::default();
 }
@@ -1479,7 +1482,7 @@ pub(super) fn update(state: &mut State, pool: &Pool, requests: &mut Vec<Request>
 /// Runs one player's part of the view phase: moves its view to the player and its granted
 /// radius, picks the chunks to send and asks for the loads they need, lets the player spawn once
 /// its spawn chunks are sent, and takes the sub-chunk requests to answer this tick.
-fn update_player(settings: &Settings, worlds: &[World], chunks: &mut Chunks, player: &mut Player) {
+fn update_player(settings: &Settings, worlds: &Worlds, chunks: &mut Chunks, player: &mut Player) {
     if player.view.is_open() {
         let limits = settings.view(player.world);
         let center = chunk_of(player.position);
@@ -1652,7 +1655,7 @@ fn unload_now(state: &mut State, key: Key) {
 
 /// Picks up to `per_tick` loaded chunks of the view to send, nearest first, and asks for loads
 /// of the unloaded ones it passes.
-fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: usize) {
+fn pick(worlds: &Worlds, chunks: &mut Chunks, player: &mut Player, per_tick: usize) {
     let (world_index, session) = (player.world, player.session);
     let Some(world) = worlds.get(world_index) else {
         return;
@@ -1689,7 +1692,7 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
                 if world.chunk(pos).is_some_and(has_water) {
                     watered.insert(pos);
                 }
-                chunks.see(session, pos);
+                chunks.see(session, (world_index, pos));
                 *word &= !(1 << bit);
                 if chunks.heard.sent {
                     chunks.sent.push((session, pos));
@@ -1728,10 +1731,10 @@ fn want(chunks: &mut Chunks, key: Key) {
 }
 
 /// Asks for the held spawn chunks that are not loaded.
-fn request_spawn_loads(worlds: &[World], chunks: &mut Chunks) {
-    for (world, w) in worlds.iter().enumerate() {
+fn request_spawn_loads(worlds: &Worlds, chunks: &mut Chunks) {
+    for w in worlds.iter() {
         for pos in spawn_area(w.spawn().chunk()) {
-            let key = (world, pos);
+            let key = (w.id().index(), pos);
             if chunks.interest.contains_key(&key)
                 && !w.is_chunk_loaded(pos)
                 && !w.is_quarantined(pos)
@@ -1744,7 +1747,7 @@ fn request_spawn_loads(worlds: &[World], chunks: &mut Chunks) {
 
 /// Asks for the chunks the tickets hold that are not loaded; one that loaded (or that nobody
 /// holds any more) stops waiting.
-fn request_ticket_loads(worlds: &[World], chunks: &mut Chunks) {
+fn request_ticket_loads(worlds: &Worlds, chunks: &mut Chunks) {
     if chunks.waiting.is_empty() {
         return;
     }
@@ -1767,13 +1770,7 @@ fn request_ticket_loads(worlds: &[World], chunks: &mut Chunks) {
 /// ([`want`]), their terrain and extras with their dirty marks. As the save thread does for a
 /// load, their light (when `lit`) and the typed form of their extras are worked out on the CPU
 /// pool, so each goes into its world lit, only to be connected to its lit neighbours.
-fn bring_back(
-    worlds: &mut [World],
-    chunks: &mut Chunks,
-    rules: &mut Rules,
-    pool: &Pool,
-    lit: bool,
-) {
+fn bring_back(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, pool: &Pool, lit: bool) {
     if chunks.returning.is_empty() {
         return;
     }
@@ -1811,9 +1808,9 @@ pub(super) fn hold_world(state: &mut State, world: WorldIndex) {
     for pos in spawn_area(spawn.chunk()) {
         hold(&mut state.chunks, (world, pos));
     }
-    match state.chunks.spawns.get_mut(world) {
+    match state.chunks.spawns.get_mut(crate::save::place(world)) {
         Some(held) => *held = spawn,
-        // Worlds are numbered in order, so a new one is the next.
+        // Places are taken in order, so a new one is the next.
         None => state.chunks.spawns.push(spawn),
     }
 }
@@ -1836,7 +1833,7 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     for n in tickets {
         release_ticket(chunks, n);
     }
-    if let Some(&spawn) = chunks.spawns.get(world) {
+    if let Some(&spawn) = chunks.spawns.get(crate::save::place(world)) {
         for pos in spawn_area(spawn.chunk()) {
             release(chunks, (world, pos));
         }
@@ -1845,7 +1842,7 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     // world to move and holds nothing more for it; loading it again holds its spawn chunks
     // (`hold_world`).
     if let (Some(held), Some(now)) = (
-        chunks.spawns.get_mut(world),
+        chunks.spawns.get_mut(crate::save::place(world)),
         state.worlds.get(world).map(World::spawn),
     ) {
         *held = now;
@@ -1937,7 +1934,7 @@ fn wanted_sub_chunks(state: &State) -> Vec<SubChunkKey> {
 /// sub-chunk arrives. An all-air sub-chunk has no payload: it holds no block entity. `None` when
 /// the chunk is not loaded.
 fn encode(
-    worlds: &[World],
+    worlds: &Worlds,
     blocks: &super::block_entity::BlockEntities,
     key: SubChunkKey,
 ) -> Option<EncodedSubChunk> {
@@ -2221,9 +2218,10 @@ fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>)
 }
 
 /// Takes the block changes of every world.
-pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
+pub(super) fn take_changes(worlds: &mut Worlds) -> Changes {
     let mut changes = Changes::new();
-    for (i, world) in worlds.iter_mut().enumerate() {
+    for world in worlds.iter_mut() {
+        let i = world.id().index();
         let mut by_sub_chunk: BTreeMap<_, Vec<_>> = BTreeMap::new();
         for (pos, entry) in world.take_changes() {
             by_sub_chunk
@@ -2916,6 +2914,48 @@ mod tests {
         }
         assert_eq!(state.chunks.held(), start);
         assert_eq!(state.worlds[id.index()].loaded_chunks().count(), 0);
+    }
+
+    /// Who sees a chunk is known per world: of two players whose views have the same chunk
+    /// position in two worlds, each sees only the chunk of its own world.
+    #[test]
+    fn the_viewers_of_a_chunk_are_those_of_its_world() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let spawn = state.worlds[0].spawn();
+        let options = crate::world::Options::new()
+            .with_kind(Kind::Temporary)
+            .with_seed(1)
+            .with_spawn(spawn);
+        let id = Context { state: &mut state }
+            .create_world("arena", &options)
+            .unwrap();
+        let (a, _a) = join(1, 0);
+        let (b, _b) = join(2, 0);
+        tick(&mut state, &mut vec![a, b], &mut output);
+        tick(
+            &mut state,
+            &mut vec![radius(1, 1, 2), radius(2, 1, 2)],
+            &mut output,
+        );
+        let eye = Vec3::new(
+            f64::from(spawn.x) + 0.5,
+            f64::from(spawn.y),
+            f64::from(spawn.z) + 0.5,
+        );
+        let moved = crate::player::Id::new(SessionId::new(2));
+        Context { state: &mut state }
+            .teleport(moved, id, eye)
+            .unwrap();
+        for _ in 0..4 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let viewers = |state: &State, world| -> Vec<SessionId> {
+            state.chunks.viewers_of((world, spawn.chunk())).collect()
+        };
+        assert_eq!(viewers(&state, 0), [SessionId::new(1)]);
+        assert_eq!(viewers(&state, id.index()), [SessionId::new(2)]);
+        assert!(state.index_matches_players());
     }
 
     /// Runs the tick of a player who joins and asks for a radius of 1,000 in the test world

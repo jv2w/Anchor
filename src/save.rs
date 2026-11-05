@@ -62,7 +62,9 @@ pub(crate) const REQUEST_CAPACITY: usize = 64;
 /// answers on top, so the save thread never waits on a full queue in normal running.
 pub(crate) const RESPONSE_CAPACITY: usize = 2048;
 
-/// A world of the server, by its place in the tick's world list (the default world is 0).
+/// A world of the server: its place in the tick's world list ([`place`]; the default world is
+/// 0) plus [`MAX_WORLDS`] for each world that held the place before it this run, so a world that
+/// takes the place of one gone never has the index of the one before.
 pub(crate) type WorldIndex = usize;
 
 /// What the tick asks the save thread for.
@@ -245,8 +247,9 @@ impl WorldValues {
 }
 
 /// A world the tick made or loaded while the server runs: what the save thread loads,
-/// generates and commits its chunks with. A new one has the next index; one with an index the
-/// save thread has replaces its plan (a temporary world made again).
+/// generates and commits its chunks with. A new one takes the next place; one in a place the
+/// save thread has replaces its plan (a world made where a temporary world unloaded or a
+/// persistent one was deleted).
 pub(crate) struct NewWorld {
     pub(crate) index: WorldIndex,
     pub(crate) name: String,
@@ -485,7 +488,7 @@ impl Thread {
                 .partition(|name| storage::world_name_key(name) == key);
             self.deleted = deleted;
             if !made_again.is_empty()
-                && let Some(plan) = self.plans.get_mut(world.index)
+                && let Some(plan) = self.plans.get_mut(place(world.index))
             {
                 plan.clear = true;
             }
@@ -1535,6 +1538,11 @@ pub(crate) fn next_world_number(numbers: impl Iterator<Item = u32>) -> u32 {
     numbers.max().map_or(0, |n| n.saturating_add(1))
 }
 
+/// The place in the world list of the world at `index` ([`WorldIndex`]).
+pub(crate) fn place(index: WorldIndex) -> usize {
+    index % MAX_WORLDS
+}
+
 /// The meta value of the file's last commit (tick 0 and no commit identity for a new file).
 fn stored_meta(storage: &mut Storage) -> Result<Meta, storage::Error> {
     match storage.read(&[Key::Meta])?.into_iter().next() {
@@ -1567,13 +1575,13 @@ fn load_chunks(
 ) -> Result<(), storage::Error> {
     let mut by_world: BTreeMap<WorldIndex, Vec<ChunkId>> = BTreeMap::new();
     for &(w, pos) in keys {
-        if let Some(number) = plans.get(w).and_then(|p| p.number) {
+        if let Some(number) = plans.get(place(w)).and_then(|p| p.number) {
             by_world.entry(w).or_default().push(chunk_id(number, pos));
         }
     }
     let mut read: BTreeMap<WorldIndex, std::vec::IntoIter<ChunkValues>> = BTreeMap::new();
     for (w, ids) in by_world {
-        let values = match plans.get_mut(w).and_then(|p| p.file.as_mut()) {
+        let values = match plans.get_mut(place(w)).and_then(|p| p.file.as_mut()) {
             Some(file) => file
                 .storage
                 .read_chunks(&ids)
@@ -1590,7 +1598,7 @@ fn load_chunks(
     let plans: &[Plan] = plans;
     for turn in items.chunks(pool.threads()) {
         let mut answers = pool.map_in_turns(turn, |(world, pos, values)| {
-            let mut loaded = match (plans.get(*world), values) {
+            let mut loaded = match (plans.get(place(*world)), values) {
                 (None, _) => Loaded::Damaged,
                 (Some(plan), None) => Loaded::Generated(
                     Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, *pos)),
@@ -1856,24 +1864,25 @@ fn commit(
         identity: Some(snapshot.identity),
     };
     let plans: &[Plan] = &thread.plans;
-    // Each changed world's batch, and the values its record takes when the batch writes it.
-    let mut worlds: BTreeMap<WorldIndex, (Batch, Option<WorldValues>)> = BTreeMap::new();
-    for (world, _) in plans.iter().enumerate().filter(|(_, p)| p.clear) {
-        worlds.entry(world).or_default().0.clear();
+    // Each changed world's batch by its place, and the values its record takes when the batch
+    // writes it.
+    let mut worlds: BTreeMap<usize, (Batch, Option<WorldValues>)> = BTreeMap::new();
+    for (at, _) in plans.iter().enumerate().filter(|(_, p)| p.clear) {
+        worlds.entry(at).or_default().0.clear();
     }
     for &(world, values) in &snapshot.worlds {
-        if let Some(plan) = plans.get(world)
+        if let Some(plan) = plans.get(place(world))
             && let Some(record) = world_record(plan, values)
         {
-            let (batch, written) = worlds.entry(world).or_default();
+            let (batch, written) = worlds.entry(place(world)).or_default();
             batch.put(Key::World, seal(&Key::World.to_bytes(), &record)?);
             *written = Some(values);
         }
     }
     let sealed = pool.map_in_turns(&snapshot.chunks, |(world, pos, chunk)| {
-        let number = plans.get(*world).and_then(|p| p.number)?;
+        let number = plans.get(place(*world)).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
-        Some((*world, seal_terrain(id, chunk)))
+        Some((place(*world), seal_terrain(id, chunk)))
     });
     for (world, values) in sealed.into_iter().flatten() {
         let (batch, _) = worlds.entry(world).or_default();
@@ -1885,9 +1894,9 @@ fn commit(
         }
     }
     let sealed = pool.map_in_turns(&snapshot.extras, |(world, pos, kind, list)| {
-        let number = plans.get(*world).and_then(|p| p.number)?;
+        let number = plans.get(place(*world)).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
-        Some((*world, id, *kind, seal_pages(id, *kind, list)))
+        Some((place(*world), id, *kind, seal_pages(id, *kind, list)))
     });
     for (world, id, kind, pages) in sealed.into_iter().flatten() {
         let pages = pages?;
@@ -1940,8 +1949,8 @@ fn commit(
         main.put(key.clone(), seal(&key.to_bytes(), &Mark)?);
     }
     let sealed_meta = seal(&Key::Meta.to_bytes(), &meta)?;
-    for (world, (mut batch, written)) in worlds {
-        let Some(plan) = thread.plans.get_mut(world) else {
+    for (at, (mut batch, written)) in worlds {
+        let Some(plan) = thread.plans.get_mut(at) else {
             continue;
         };
         // A world whose file did not open holds only quarantined chunks: nothing to save.
@@ -2290,8 +2299,9 @@ pub(crate) fn resume(world: &mut World, record: WorldRecord) -> world::Result<()
     world.set_spawn(record.spawn)
 }
 
-/// Learns the worlds the tick made or loaded: a new one is the next index (the tick numbers its
-/// worlds in order and names each before any request about it), one made again replaces its plan.
+/// Learns the worlds the tick made or loaded: a new one takes the next place (the tick numbers
+/// its worlds in order and names each before any request about it), one in the place of a world
+/// gone replaces its plan.
 /// The tick's number is the world's: a file kept for a world deleted this run, whose deletion no
 /// commit holds yet, still holds the record of the deleted one. Returns the indexes of the worlds
 /// whose file did not open.
@@ -2313,7 +2323,7 @@ fn add_worlds(plans: &mut Vec<Plan>, opener: &Opener, worlds: &[NewWorld]) -> Ve
             plan.number = world.number;
             plan.values = None;
         }
-        match plans.get_mut(world.index) {
+        match plans.get_mut(place(world.index)) {
             Some(slot) => *slot = plan,
             None => plans.push(plan),
         }
@@ -2379,7 +2389,7 @@ fn world_file(storage: &mut Storage) -> Result<Option<WorldRecord>, storage::Err
 /// each at, if any (Windows cannot remove an open file), and saves nothing more of it.
 fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
     for world in worlds {
-        if let Some(plan) = world.index.and_then(|i| plans.get_mut(i)) {
+        if let Some(plan) = world.index.and_then(|i| plans.get_mut(place(i))) {
             plan.file = None;
             plan.number = None;
         }

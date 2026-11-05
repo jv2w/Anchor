@@ -254,7 +254,7 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
             .iter()
             .any(|p| matches!(p, P::MovePlayer(_)))
     );
-    // A temporary world unloaded is gone; one made again takes its place.
+    // A temporary world unloaded is gone; one made again takes its place with an `Id` of its own.
     let mut cx = context(&mut state);
     assert_eq!(
         cx.load_world("arena", &Options::new()),
@@ -265,7 +265,10 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
         cx.unload_world(world::Id::DEFAULT),
         Err(world::Error::DefaultWorld)
     );
-    assert_eq!(cx.create_world("arena", &arena(4)), Ok(id));
+    let old = id;
+    let id = cx.create_world("arena", &arena(4)).unwrap();
+    assert_ne!(id, old);
+    assert_eq!(save::place(id.index()), save::place(old.index()));
     // The default world moves; the settings' world may unload then.
     CANCEL.set(false);
     assert_eq!(cx.set_default_world(id), Ok(()));
@@ -273,7 +276,7 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     assert_eq!(cx.unload_world(id), Err(world::Error::DefaultWorld));
     assert_eq!(cx.unload_world(world::Id::DEFAULT), Ok(()));
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert_eq!(state.players[&SessionId::new(1)].world, 1);
+    assert_eq!(state.players[&SessionId::new(1)].world, id.index());
     assert!(!state.catalog.is_loaded(0));
     let mut cx = context(&mut state);
     assert_eq!(
@@ -889,7 +892,7 @@ fn tables(state: &State) -> Vec<usize> {
     ];
     let (a, b, c) = state.rules.block_entities.sizes();
     sizes.extend([a, b, c]);
-    for w in &state.worlds {
+    for w in state.worlds.iter() {
         sizes.extend([
             w.loaded_chunks().len(),
             w.quarantined().len(),
@@ -908,7 +911,7 @@ fn stone() -> crate::block::State {
 fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
     let (mut state, mut output, _rx) = server(world_listeners());
     // The places a temporary and a persistent world take, made once.
-    let id = context(&mut state)
+    let mut id = context(&mut state)
         .create_world("arena", &arena(1))
         .unwrap();
     let lobby = context(&mut state)
@@ -925,11 +928,13 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         logged();
         let start = tables(&state);
         let mut cx = context(&mut state);
-        assert_eq!(cx.create_world("arena", &arena(round)), Ok(id));
+        let again = cx.create_world("arena", &arena(round)).unwrap();
+        assert_eq!(save::place(again.index()), save::place(id.index()));
+        id = again;
         assert_eq!(cx.load_world("lobby", &Options::new()), Ok(lobby));
         let ticket = cx.hold_chunks(lobby, FAR, 1).unwrap();
         ticks(&mut state, &mut output, 2);
-        let eye = on_spawn(&state, 1);
+        let eye = on_spawn(&state, id.index());
         let mut cx = context(&mut state);
         cx.teleport(player, id, eye).unwrap();
         cx.world_mut(lobby)
@@ -949,19 +954,21 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         settle(&mut state, &mut output);
         assert_eq!(tables(&state), start, "round {round}");
         assert!(state.saving.is_idle());
+        // The unloads go in `Id` order: the arena made again has the higher one.
+        let made = id.index();
         assert_eq!(
             logged(),
             [
-                "init 1",
-                "load 1",
-                "load 2",
-                "unload 1",
-                "monitor false false",
-                "unload 2",
-                "monitor false false"
+                format!("init {made}"),
+                format!("load {made}"),
+                "load 2".to_owned(),
+                "unload 2".to_owned(),
+                "monitor false false".to_owned(),
+                format!("unload {made}"),
+                "monitor false false".to_owned()
             ]
         );
-        context(&mut state)
+        id = context(&mut state)
             .create_world("arena", &arena(round))
             .unwrap();
         context(&mut state)
@@ -969,6 +976,83 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
             .unwrap();
         ticks(&mut state, &mut output, 1);
     }
+}
+
+/// A new world takes the place of a world gone (a temporary world unloaded, a persistent world
+/// deleted) with an `Id` of its own: the `Id` of the world gone names no world, whatever world is
+/// in its place, and its name is free.
+#[test]
+fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let old = context(&mut state)
+        .create_world("arena-1", &arena(1))
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    context(&mut state).unload_world(old).unwrap();
+    ticks(&mut state, &mut output, 2);
+    let mut cx = context(&mut state);
+    let new = cx.create_world("arena-2", &arena(2)).unwrap();
+    assert_ne!(new, old);
+    assert_eq!(save::place(new.index()), save::place(old.index()));
+    assert!(cx.world(old).is_none());
+    assert_eq!(cx.unload_world(old), Err(world::Error::WorldNotLoaded));
+    assert_eq!(cx.world(new).map(World::name), Some("arena-2"));
+    assert!(!cx.is_world_generated("arena-1"));
+    assert_eq!(cx.world_named("arena-2").map(World::id), Some(new));
+    let again = cx.create_world("arena-1", &arena(1)).unwrap();
+    assert!(again != old && again != new, "a place of its own");
+    let lobby = cx.create_world("lobby", &Options::new()).unwrap();
+    ticks(&mut state, &mut output, 2);
+    context(&mut state).unload_world(lobby).unwrap();
+    ticks(&mut state, &mut output, 2);
+    settle(&mut state, &mut output);
+    let mut cx = context(&mut state);
+    cx.delete_world("lobby").unwrap();
+    let after = cx.create_world("arena-3", &arena(3)).unwrap();
+    assert_ne!(after, lobby);
+    assert_eq!(save::place(after.index()), save::place(lobby.index()));
+    assert!(cx.world(lobby).is_none());
+    ticks(&mut state, &mut output, 2);
+    let w = &state.worlds[after.index()];
+    assert!(
+        w.is_chunk_loaded(w.spawn().chunk()),
+        "its spawn chunks load"
+    );
+    assert_eq!(state.worlds.len(), 4);
+}
+
+/// A run makes and unloads far more temporary worlds, each under a name of its own, than the
+/// world list has places: each takes the place of one gone, and every table returns to its size.
+#[test]
+fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let cycle = |state: &mut State, output: &mut Output, i: usize| {
+        let options = arena(1).with_generator("void");
+        let id = context(state)
+            .create_world(&format!("arena-{i}"), &options)
+            .unwrap();
+        tick(state, &mut Vec::new(), output);
+        context(state).unload_world(id).unwrap();
+        tick(state, &mut Vec::new(), output);
+    };
+    cycle(&mut state, &mut output, 0);
+    settle(&mut state, &mut output);
+    let start = (
+        tables(&state),
+        state.catalog.names.len(),
+        state.catalog.free.len(),
+    );
+    for i in 1..MAX_WORLDS + 8 {
+        cycle(&mut state, &mut output, i);
+    }
+    settle(&mut state, &mut output);
+    let end = (
+        tables(&state),
+        state.catalog.names.len(),
+        state.catalog.free.len(),
+    );
+    assert_eq!(end, start);
+    assert_eq!(state.worlds.len(), 2);
 }
 
 #[test]
@@ -997,18 +1081,19 @@ fn a_load_in_flight_when_its_world_unloads_is_dropped_on_arrival() {
             .any(|a| matches!(a, Response::Chunk { world: 1, .. }))
     );
     context(&mut state).unload_world(id).unwrap();
-    // Made again with another seed before the old answers come: they are dropped.
+    // Made again in its place with another seed before the old answers come: they are dropped.
     tick(&mut state, &mut Vec::new(), &mut output);
-    context(&mut state)
+    let again = context(&mut state)
         .create_world("arena", &arena(77))
         .unwrap();
     output.answers = late;
     tick(&mut state, &mut Vec::new(), &mut output);
-    assert!(!state.worlds[1].is_chunk_loaded(spawn), "the stale answer");
+    let w = again.index();
+    assert!(!state.worlds[w].is_chunk_loaded(spawn), "the stale answer");
     assert!(state.chunks.stale.is_empty());
     ticks(&mut state, &mut output, 2);
     assert!(
-        state.worlds[1].is_chunk_loaded(spawn),
+        state.worlds[w].is_chunk_loaded(spawn),
         "asked again and loaded"
     );
     assert!(pool.shutdown());

@@ -365,10 +365,11 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         players: BTreeSet::new(),
         worlds: BTreeSet::new(),
     };
-    for (index, world) in state.worlds.iter_mut().enumerate() {
+    for world in state.worlds.iter_mut() {
         if world.kind() != Kind::Persistent {
             continue;
         }
+        let index = world.id().index();
         // Unloaded worlds too: a world unloaded since the last snapshot is saved by this one.
         snapshot.worlds.push((index, WorldValues::of(world)));
         held.worlds.insert(index);

@@ -2,10 +2,10 @@
 //! world, the time stop and each world's difficulty.
 //!
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
-//! state's list without chunks, holding only its settings, and loads again in the same place; a
-//! temporary world unloaded or a persistent world deleted, made again under its name, takes the
-//! place too. A run names at most [`MAX_WORLDS`] worlds, as many world files as `data/worlds/`
-//! may hold.
+//! state's list without chunks, holding only its settings, and a persistent one loads again in
+//! the same place. The place of a temporary world unloaded or a persistent world deleted is free:
+//! a new world takes it with an index of its own, so the `Id` of a world gone names no world. The
+//! list holds at most [`MAX_WORLDS`] places, as many world files as `data/worlds/` may hold.
 //!
 //! Every persistent world is its file `data/worlds/<name>.redb`. Names that differ only in letter
 //! case are one world: every call here finds a world by its name in any letter case, and the world
@@ -35,14 +35,92 @@ use crate::tick::checkpoint::{self, Codec};
 use crate::tick::{Context, Settings, State, dispatch, player, survival, view};
 use crate::world::{self, ChunkPos, Generators, Kind, World};
 
+/// The worlds the server had this run, each at its place ([`save::place`]), loaded or not. A
+/// world is found by its index, which no world that takes its place later shares.
+#[derive(Debug, Default)]
+pub(in crate::tick) struct Worlds(Vec<World>);
+
+impl Worlds {
+    /// The worlds of `list`, each at its place in the list, which is its index.
+    pub(in crate::tick) fn new(mut list: Vec<World>) -> Self {
+        for (i, w) in list.iter_mut().enumerate() {
+            w.set_id(world::Id::of(i));
+        }
+        Self(list)
+    }
+
+    /// The world at `index`.
+    pub(in crate::tick) fn get(&self, index: WorldIndex) -> Option<&World> {
+        self.0
+            .get(save::place(index))
+            .filter(|w| w.id().index() == index)
+    }
+
+    /// The index of the world at place `at`.
+    pub(in crate::tick) fn index_at(&self, at: usize) -> Option<WorldIndex> {
+        self.0.get(at).map(|w| w.id().index())
+    }
+
+    /// The worlds, in place order.
+    pub(in crate::tick) fn iter(&self) -> std::slice::Iter<'_, World> {
+        self.0.iter()
+    }
+
+    /// The places of the list: the worlds the server had this run, at most [`MAX_WORLDS`].
+    pub(in crate::tick) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The world at `index`, to change it.
+    pub(in crate::tick) fn get_mut(&mut self, index: WorldIndex) -> Option<&mut World> {
+        self.0
+            .get_mut(save::place(index))
+            .filter(|w| w.id().index() == index)
+    }
+
+    /// The worlds in place order, to change them.
+    pub(in crate::tick) fn iter_mut(&mut self) -> std::slice::IterMut<'_, World> {
+        self.0.iter_mut()
+    }
+
+    /// Puts `world` at the place of its index: the next place, or the place of a world it
+    /// replaces.
+    fn put(&mut self, world: World) {
+        match self.0.get_mut(save::place(world.id().index())) {
+            Some(slot) => *slot = world,
+            None => self.0.push(world),
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Index<WorldIndex> for Worlds {
+    type Output = World;
+
+    fn index(&self, index: WorldIndex) -> &World {
+        self.get(index).expect("a world at the index")
+    }
+}
+
+#[cfg(test)]
+impl std::ops::IndexMut<WorldIndex> for Worlds {
+    fn index_mut(&mut self, index: WorldIndex) -> &mut World {
+        self.get_mut(index).expect("a world at the index")
+    }
+}
+
 /// What the tick knows of its worlds besides the [`World`]s themselves.
 #[derive(Debug, Default)]
 pub(in crate::tick) struct Catalog {
-    /// Whether each world is loaded, by index.
-    loaded: Vec<bool>,
+    /// The indexes of the loaded worlds.
+    loaded: BTreeSet<WorldIndex>,
     /// Each world's index by [`world_name_key`] of its name, loaded or not: derived from the
-    /// worlds (a place keeps its name), so neither saved nor hashed.
+    /// worlds (a place keeps its name until a new world takes it), so neither saved nor hashed.
     names: BTreeMap<String, WorldIndex>,
+    /// The places a new world may take: those of temporary worlds unloaded and persistent ones
+    /// deleted, while the place has an index left ([`next_index`]). Derived from the worlds, so
+    /// neither saved nor hashed.
+    free: BTreeSet<usize>,
     /// The persistent worlds the server file holds that the server has not loaded, by
     /// [`world_name_key`] of their name: the name of their file and their record.
     stored: BTreeMap<String, (String, WorldRecord)>,
@@ -70,12 +148,12 @@ pub(in crate::tick) struct Catalog {
 impl Catalog {
     /// The catalog of a state made with `worlds`, all loaded, and the build's `generators`; the
     /// server file's part comes with [`State::open_worlds`].
-    pub(in crate::tick) fn new(worlds: &[World], generators: Generators) -> Self {
+    pub(in crate::tick) fn new(worlds: &Worlds, generators: Generators) -> Self {
         Self {
-            loaded: vec![true; worlds.len()],
-            names: (0..)
-                .zip(worlds)
-                .map(|(i, w)| (world_name_key(w.name()), i))
+            loaded: worlds.iter().map(|w| w.id().index()).collect(),
+            names: worlds
+                .iter()
+                .map(|w| (world_name_key(w.name()), w.id().index()))
                 .collect(),
             generators,
             ..Self::default()
@@ -88,6 +166,7 @@ impl Catalog {
         let Self {
             loaded: _,
             names: _,
+            free: _,
             stored,
             left_out,
             next_number,
@@ -120,6 +199,7 @@ impl Catalog {
         let Self {
             loaded,
             names: _,
+            free: _,
             stored,
             left_out,
             next_number,
@@ -132,8 +212,8 @@ impl Catalog {
             generators: _,
         } = self;
         h.usize(loaded.len());
-        for &l in loaded {
-            h.u64(u64::from(l));
+        for &i in loaded {
+            h.usize(i);
         }
         h.usize(stored.len());
         for (name, record) in stored.values() {
@@ -173,7 +253,7 @@ impl Catalog {
 
     /// Whether the world at `index` is loaded.
     pub(in crate::tick) fn is_loaded(&self, index: WorldIndex) -> bool {
-        self.loaded.get(index).copied().unwrap_or(false)
+        self.loaded.contains(&index)
     }
 
     /// The index of the world named `name`, in any letter case, the server has had this run,
@@ -183,15 +263,15 @@ impl Catalog {
     }
 
     /// The list as a checkpoint keeps it.
-    pub(in crate::tick) fn slots(&self, worlds: &[World]) -> Vec<WorldSlot> {
-        self.loaded
+    pub(in crate::tick) fn slots(&self, worlds: &Worlds) -> Vec<WorldSlot> {
+        worlds
             .iter()
-            .zip(worlds)
-            .map(|(&loaded, w)| WorldSlot {
+            .map(|w| WorldSlot {
+                index: w.id().index(),
                 name: w.name().to_owned(),
                 kind: w.kind(),
                 generator: w.generator().to_owned(),
-                loaded,
+                loaded: self.is_loaded(w.id().index()),
             })
             .collect()
     }
@@ -202,10 +282,15 @@ impl Catalog {
         r: &mut checkpoint::Reader<'_>,
         slots: &[WorldSlot],
     ) -> checkpoint::Result<()> {
-        self.loaded = slots.iter().map(|s| s.loaded).collect();
-        self.names = (0..)
-            .zip(slots)
-            .map(|(i, s)| (world_name_key(&s.name), i))
+        self.loaded = slots.iter().filter(|s| s.loaded).map(|s| s.index).collect();
+        self.names = slots
+            .iter()
+            .map(|s| (world_name_key(&s.name), s.index))
+            .collect();
+        self.free = slots
+            .iter()
+            .filter(|s| !s.loaded && s.kind == Kind::Temporary && next_index(s.index).is_some())
+            .map(|s| save::place(s.index))
             .collect();
         self.stored = Codec::decode(r)?;
         self.left_out = Codec::decode(r)?;
@@ -222,13 +307,12 @@ impl Catalog {
         Ok(())
     }
 
-    /// The slot of the world at `index` in [`Self::loaded`], to mark it loaded or not.
-    fn loaded_mut(&mut self, index: WorldIndex) -> &mut bool {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: every world the server had this run has a slot"
-        )]
-        &mut self.loaded[index]
+    /// Notes that the world at `index`, which no world holds after it, is gone: a new world may
+    /// take its place if the place has an index left.
+    fn note_gone(&mut self, index: WorldIndex) {
+        if next_index(index).is_some() {
+            self.free.insert(save::place(index));
+        }
     }
 }
 
@@ -250,6 +334,7 @@ checkpoint::variants!(Unload {
 /// replay makes the same worlds from it ([`crate::replay`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorldSlot {
+    pub(crate) index: WorldIndex,
     pub(crate) name: String,
     pub(crate) kind: Kind,
     pub(crate) generator: String,
@@ -257,6 +342,7 @@ pub(crate) struct WorldSlot {
 }
 
 checkpoint::fields!(WorldSlot {
+    index,
     name,
     kind,
     generator,
@@ -284,8 +370,9 @@ impl Context<'_> {
     /// registered under the options' generator name. A seed the options leave out is made from
     /// the name, and a spawn they leave out is the generator's. The server file keeps the world's
     /// chunks, time and spawn, never its options: [`load_world`](Self::load_world) after a
-    /// restart takes them again. A world made again under the name of a temporary world unloaded
-    /// or of a persistent world deleted this run takes its [`world::Id`].
+    /// restart takes them again. The world takes the place of a temporary world unloaded or a
+    /// persistent world deleted this run, if there is one, with a [`world::Id`] no world had
+    /// before: the `Id` of the world gone names no world.
     ///
     /// A persistent world is its file `data/worlds/<name>.redb`, made by the save thread after
     /// this returns. If the file cannot be opened, the save thread logs an error and the world is
@@ -305,8 +392,9 @@ impl Context<'_> {
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range,
     /// [`OutOfRange`](world::Error::OutOfRange) for a generator's spawn where a player would
-    /// stand outside the world border, and [`Full`](world::Error::Full) past
-    /// the most worlds a run names, or, for a persistent world, past as many world files: those of
+    /// stand outside the world border, and [`Full`](world::Error::Full) when the server has 1,024
+    /// worlds, none of them gone (a temporary world unloaded or a persistent world deleted), or,
+    /// for a persistent world, past as many world files: those of
     /// the run's persistent worlds and those `data/worlds/` held at start, damaged ones too. A
     /// file put there while the server runs (an import) is not counted: past the most, the save
     /// thread makes no file for the world, which then runs with its chunks held as damaged and is
@@ -322,15 +410,15 @@ impl Context<'_> {
             return Err(world::Error::InvalidName);
         }
         check_view(options)?;
-        let place = named(state, name);
         if name_taken(state, name) {
             return Err(world::Error::WorldExists);
         }
         let generator = generator_of(state, name, options)?;
         let persistent = options.kind() == Kind::Persistent;
-        if (place.is_none() && state.worlds.len() >= MAX_WORLDS)
-            || (persistent && persistent_count(state) >= MAX_WORLDS)
-        {
+        let Some(index) = new_index(state) else {
+            return Err(world::Error::Full);
+        };
+        if persistent && persistent_count(state) >= MAX_WORLDS {
             return Err(world::Error::Full);
         }
         let mut world = make_world(name, options.kind(), generator.as_ref(), options);
@@ -342,7 +430,6 @@ impl Context<'_> {
         });
         world.set_number(number);
         info!(world = name, seed = world.seed(), "world made");
-        let index = place.unwrap_or(state.worlds.len());
         Ok(install(state, index, world, options, true))
     }
 
@@ -375,6 +462,8 @@ impl Context<'_> {
             let unsaved = chunks.unsaved.extract_if(all, |_, _| true);
             chunks.discarded.extend(unsaved.map(|(_, u)| u.chunk));
             super::world_at_mut(state, i).forget();
+            state.catalog.unopened.remove(&i);
+            state.catalog.note_gone(i);
         }
         state.catalog.deleted.push(DeletedWorld {
             name: name.to_owned(),
@@ -418,8 +507,8 @@ impl Context<'_> {
     /// world, [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not
     /// registered, [`InvalidSettings`](world::Error::InvalidSettings) for a view value out of its
     /// range, [`OutOfRange`](world::Error::OutOfRange) for a stored spawn where a player would
-    /// stand outside the world border, and [`Full`](world::Error::Full) past the most worlds a
-    /// run names. The stored world stays stored then.
+    /// stand outside the world border, and [`Full`](world::Error::Full) when the server has 1,024
+    /// worlds, none of them gone. The stored world stays stored then.
     #[doc(alias = "WorldManager::loadWorld")]
     pub fn load_world(&mut self, name: &str, options: &world::Options) -> world::Result<world::Id> {
         let state = &mut *self.state;
@@ -439,13 +528,12 @@ impl Context<'_> {
         };
         check_view(options)?;
         let generator = generator_of(state, name, options)?;
-        if state.worlds.len() >= MAX_WORLDS {
+        let Some(index) = new_index(state) else {
             return Err(world::Error::Full);
-        }
+        };
         let mut world = make_world(file_name, Kind::Persistent, generator.as_ref(), options);
         save::resume(&mut world, *record)?;
         state.catalog.stored.remove(&key);
-        let index = state.worlds.len();
         Ok(install(state, index, world, options, false))
     }
 
@@ -516,9 +604,10 @@ impl Context<'_> {
     /// Unloads `world` in the next view phase, after [`WorldUnload`] listeners, who may cancel
     /// it: its players go to the default world's spawn, its chunks unload, and the commit that
     /// follows saves what changed. The unload is dropped, with no event, if the world is the
-    /// default one by then. Its [`world::Id`] stays its own: [`load_world`](Self::load_world)
-    /// loads a persistent world in the same place, and its file stays open until the server
-    /// stops.
+    /// default one by then. A persistent world keeps its [`world::Id`]:
+    /// [`load_world`](Self::load_world) loads it in the same place, and its file stays open until
+    /// the server stops. A temporary world is gone: its `Id` names no world from then on, and a
+    /// new world may take its place.
     ///
     /// # Errors
     ///
@@ -588,8 +677,8 @@ impl State {
         self.catalog
             .names
             .insert(world_name_key(world.name()), index);
-        self.worlds.push(world);
-        self.catalog.loaded.push(true);
+        self.worlds.put(world);
+        self.catalog.loaded.insert(index);
         self.settings.world_views.push(self.settings.view);
     }
 }
@@ -683,23 +772,25 @@ fn unload(state: &mut State, index: WorldIndex) {
     }
     player::redirect_teleports(state, index, default, eye);
     view::unload_world(state, index);
-    *state.catalog.loaded_mut(index) = false;
+    state.catalog.loaded.remove(&index);
     let world = super::world_at_mut(state, index);
     world.clear();
     info!(world = world.name(), kind = ?world.kind(), "world unloaded");
-    if world.kind() == Kind::Persistent {
-        state.saving.requested = true;
+    match world.kind() {
+        Kind::Persistent => state.saving.requested = true,
+        Kind::Temporary => state.catalog.note_gone(index),
     }
 }
 
 /// What the save thread must hear of worlds it does not know, taken: for the next request or the
-/// next snapshot, whichever comes first.
+/// next snapshot, whichever comes first. A world whose place another world took since is not
+/// named: no request names it.
 pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
     let pending = std::mem::take(&mut state.catalog.pending);
     pending
         .into_iter()
-        .map(|index| {
-            let world = super::world_at(state, index);
+        .filter_map(|index| {
+            let world = state.worlds.get(index)?;
             #[expect(
                 clippy::expect_used,
                 reason = "invariant: every world's generator is a registered one"
@@ -709,13 +800,13 @@ pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
                 .generators
                 .of_world(world.name(), world.generator())
                 .expect("a world's generator is registered");
-            NewWorld {
+            Some(NewWorld {
                 index,
                 name: world.name().to_owned(),
                 number: world.number(),
                 seed: world.seed(),
                 generator: Arc::clone(generator),
-            }
+            })
         })
         .collect()
 }
@@ -757,6 +848,23 @@ fn named(state: &State, name: &str) -> Option<WorldIndex> {
     state.catalog.named(name)
 }
 
+/// The index a new world takes: the next of the world gone at the lowest free place
+/// ([`Catalog::free`]), else the next place; `None` with [`MAX_WORLDS`] places and none free.
+fn new_index(state: &State) -> Option<WorldIndex> {
+    match state.catalog.free.first() {
+        Some(&at) => state.worlds.index_at(at).and_then(next_index),
+        None => (state.worlds.len() < MAX_WORLDS).then_some(state.worlds.len()),
+    }
+}
+
+/// The index the next world at the place of the world at `index` takes, if a [`world::Id`] holds
+/// it.
+fn next_index(index: WorldIndex) -> Option<WorldIndex> {
+    index
+        .checked_add(MAX_WORLDS)
+        .filter(|&next| world::Id::new(next).is_some())
+}
+
 /// The registered generator the world `name` gets from the generator name `options` give
 /// ([`world::Generators::of_world`]).
 fn generator_of<'a>(
@@ -796,9 +904,9 @@ fn make_world(
     world
 }
 
-/// Puts `world` at `index` (the next one, or a world's place it takes again), loaded, with the
-/// view values of `options`; the save thread hears of it before its first load, and the view
-/// phase raises its events. Holds its spawn chunks.
+/// Puts `world` at `index` ([`new_index`]: the next place, or the place of a world gone, whose
+/// name then names no world), loaded, with the view values of `options`; the save thread hears of
+/// it before its first load, and the view phase raises its events. Holds its spawn chunks.
 fn install(
     state: &mut State,
     index: WorldIndex,
@@ -810,18 +918,18 @@ fn install(
     world.set_id(id);
     world.set_lighting(state.settings.light_mode());
     set_view(state, index, options);
-    if let Some(place) = state.worlds.get_mut(index) {
-        *place = world;
-        *state.catalog.loaded_mut(index) = true;
-    } else {
-        // Worlds are numbered in order, so a new one is the next.
-        state
-            .catalog
-            .names
-            .insert(world_name_key(world.name()), index);
-        state.worlds.push(world);
-        state.catalog.loaded.push(true);
+    let at = save::place(index);
+    let catalog = &mut state.catalog;
+    if catalog.free.remove(&at)
+        && let Some(gone) = state.worlds.index_at(at)
+        && let Some(name) = state.worlds.get(gone).map(|w| world_name_key(w.name()))
+        && catalog.names.get(&name) == Some(&gone)
+    {
+        catalog.names.remove(&name);
     }
+    catalog.names.insert(world_name_key(world.name()), index);
+    catalog.loaded.insert(index);
+    state.worlds.put(world);
     state.catalog.pending.push(index);
     state.catalog.announced.push((index, made));
     view::hold_world(state, index);
@@ -832,9 +940,9 @@ fn install(
 fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
     let settings = &mut state.settings;
     let view = settings.global_view.apply(&options.settings());
-    match settings.world_views.get_mut(index) {
+    match settings.world_views.get_mut(save::place(index)) {
         Some(slot) => *slot = view,
-        // Every world has view values, and a new world is the next one.
+        // Every place has view values, and a new place is the next one.
         None => settings.world_views.push(view),
     }
 }
@@ -842,8 +950,16 @@ fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
 /// Notes that the file of the world at `index` did not open on the save thread, and unloads the
 /// world at the next view phase; loading it again makes the save thread try its file again.
 pub(in crate::tick) fn open_failed(state: &mut State, index: WorldIndex) {
-    state.catalog.unopened.insert(index);
-    state.catalog.unloads.insert(index, Unload::Forced);
+    // A world deleted since (made temporary, its place free for another world) has no file to
+    // try again.
+    if state
+        .worlds
+        .get(index)
+        .is_some_and(|w| w.kind() == Kind::Persistent)
+    {
+        state.catalog.unopened.insert(index);
+        state.catalog.unloads.insert(index, Unload::Forced);
+    }
 }
 
 /// Loads again the world at `index`, unloaded: the save thread still has it, unless its file did
@@ -852,7 +968,7 @@ fn reload(state: &mut State, index: WorldIndex) -> world::Id {
     if state.catalog.unopened.remove(&index) {
         state.catalog.pending.push(index);
     }
-    *state.catalog.loaded_mut(index) = true;
+    state.catalog.loaded.insert(index);
     state.catalog.announced.push((index, false));
     view::hold_world(state, index);
     world::Id::of(index)

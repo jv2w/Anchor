@@ -1006,8 +1006,8 @@ impl Context<'_> {
             return Err(crate::world::Error::Hardcore);
         }
         self.state.settings.difficulty = difficulty;
-        for (i, world) in self.state.worlds.iter_mut().enumerate() {
-            if self.state.catalog.is_loaded(i) {
+        for world in self.state.worlds.iter_mut() {
+            if self.state.catalog.is_loaded(world.id().index()) {
                 world.set_difficulty(None);
             }
         }
@@ -1570,11 +1570,7 @@ fn origin(state: &State, sender: Sender) -> Option<(usize, Vec3)> {
             .map(|p| (p.world().index(), p.position())),
         Sender::Console => {
             let default = state.catalog.default_world();
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "invariant: the default world is always one of the server's"
-            )]
-            let spawn = state.worlds[default].spawn();
+            let spawn = state.worlds.get(default)?.spawn();
             Some((
                 default,
                 Vec3::new(f64::from(spawn.x), f64::from(spawn.y), f64::from(spawn.z)),

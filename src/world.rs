@@ -156,9 +156,10 @@ impl ChunkPos {
 
 /// A world of the server: its place in the order the server first had it (the settings' world
 /// first, then the worlds of [`ServerBuilder::world`](crate::ServerBuilder::world) in
-/// registration order, then those made or loaded while it runs). A world keeps its `Id` while
-/// the server runs, through unloads and loads; only a world made again under its name, after a
-/// temporary world of that name unloaded or a persistent one was deleted, takes it.
+/// registration order, then those made or loaded while it runs), with a generation for a world
+/// that took the place of one gone. A world keeps its `Id` while the server runs, through unloads
+/// and loads; no other world ever has it, so the `Id` of a temporary world unloaded or a
+/// persistent world deleted names no world from then on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(u32);
 
@@ -167,12 +168,12 @@ impl Id {
     /// [`Context::set_default_world`](crate::Context::set_default_world) names another.
     pub const DEFAULT: Self = Self(0);
 
-    /// The world at `index` in the state's world list.
+    /// The world of index `index` ([`crate::save::WorldIndex`]).
     pub(crate) fn new(index: usize) -> Option<Self> {
         u32::try_from(index).ok().map(Self)
     }
 
-    /// The index in the state's world list.
+    /// The world's index ([`crate::save::WorldIndex`]).
     pub(crate) fn index(self) -> usize {
         // u32 fits usize on every target Anchor builds for (32 and 64 bits).
         self.0 as usize
@@ -182,7 +183,7 @@ impl Id {
     pub(crate) fn of(index: usize) -> Self {
         #[expect(
             clippy::expect_used,
-            reason = "invariant: a run names at most MAX_WORLDS (1,024) worlds, far fewer than 2^32"
+            reason = "invariant: a world takes an index only while it fits u32 (`next_index`)"
         )]
         Self::new(index).expect("a world index fits u32")
     }
@@ -239,7 +240,7 @@ pub enum Error {
     /// A view value of the world's [`Options::settings`] is outside the range its
     /// `[worlds.<name>]` key allows.
     InvalidSettings,
-    /// A limit is reached: the most worlds a run names (or the server file holds),
+    /// A limit is reached: the most worlds the server has at once (or the server file holds),
     /// [`MAX_TICKETS`] chunk tickets or [`MAX_TICKET_CHUNKS`] chunks they hold, a ticket radius
     /// over [`MAX_TICKET_RADIUS`], the unknown states a chunk can hold, or the lightning bolts
     /// still showing (1,024).

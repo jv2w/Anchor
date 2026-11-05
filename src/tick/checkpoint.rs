@@ -1244,13 +1244,20 @@ impl State {
         if worlds.len() != n || saved.len() != n || kept.len() != n {
             return Err(Error::Format("world count"));
         }
-        if !self
-            .worlds
-            .iter()
-            .zip(worlds)
-            .all(|(w, s)| w.name() == s.name && w.kind() == s.kind)
+        if !(0..)
+            .zip(self.worlds.iter().zip(worlds))
+            .all(|(at, (w, s))| {
+                w.name() == s.name
+                    && w.kind() == s.kind
+                    && crate::save::place(s.index) == at
+                    && world::Id::new(s.index).is_some()
+            })
         {
             return Err(Error::Format("worlds"));
+        }
+        // A world in the place of one gone has the index the checkpoint kept, not its place.
+        for (w, s) in self.worlds.iter_mut().zip(worlds) {
+            w.set_id(world::Id::of(s.index));
         }
         let mut ground = Ground {
             chunks: unsaved.iter().cloned().collect(),
@@ -1463,7 +1470,8 @@ pub(super) mod tests {
     /// The raw extras the data files hold for `state`'s chunks right after a snapshot.
     pub(in crate::tick) fn extras_of(state: &State) -> BTreeMap<Key, ChunkExtras> {
         let mut extras = BTreeMap::new();
-        for (w, world) in state.worlds.iter().enumerate() {
+        for world in state.worlds.iter() {
+            let w = world.id().index();
             for pos in world.loaded_chunks() {
                 if let Some(e) = state.chunks.extras.get((w, pos)) {
                     extras.insert((w, pos), e.clone());

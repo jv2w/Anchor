@@ -52,7 +52,7 @@ const LAUNCH_RANDOM: u64 = random::tag("api-firework-launch");
 pub struct Mut<'a> {
     id: Id,
     entities: &'a mut Entities,
-    worlds: &'a [World],
+    worlds: &'a crate::tick::world_api::Worlds,
     players: &'a mut BTreeMap<SessionId, Player>,
     /// The despawn delay a new dropped item gets now, which a dropped item may be set past.
     item_despawn_delay_ticks: i32,

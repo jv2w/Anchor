@@ -139,9 +139,8 @@ fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     let State {
         players, chunks, ..
     } = &mut *state;
-    for session in chunks.viewers_of(chunk_of(at)) {
+    for session in chunks.viewers_of((world, chunk_of(at))) {
         if let Some(p) = players.get_mut(&session)
-            && p.world == world
             && p.has_viewer_room()
         {
             for packet in &packets {

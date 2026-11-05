@@ -2141,7 +2141,7 @@ fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
 }
 
 /// The movement of `e` this tick, from its state now; `None` if its world is gone.
-fn step_of(worlds: &[World], tick: u64, e: &Entity) -> Option<Step> {
+fn step_of(worlds: &super::world_api::Worlds, tick: u64, e: &Entity) -> Option<Step> {
     let world = worlds.get(e.world)?;
     let key = random::key(UNSTICK_RANDOM, &[e.runtime_id]);
     let stuck = match &e.kind {
@@ -3956,7 +3956,7 @@ fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
             let (world, chunk) = (target.world, chunk_of(target.position));
             let want = state
                 .chunks
-                .viewers_of(chunk)
+                .viewers_of((world, chunk))
                 .filter(|&s| {
                     s != t
                         && state
@@ -3989,7 +3989,7 @@ pub(super) fn send_about_player(
         return;
     };
     let (world, chunk) = (player.world, chunk_of(player.position));
-    for s in chunks.viewers_of(chunk) {
+    for s in chunks.viewers_of((world, chunk)) {
         let Some(p) = players.get_mut(&s) else {
             continue;
         };
