@@ -9,6 +9,7 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anchor::config::{
     CriticalHits, Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel,
@@ -110,6 +111,9 @@ tick-radius = 1
 /// `src/config.rs`), since this crate cannot reach their constant.
 const DEFAULT_KEY_COUNT: usize = 65;
 
+/// The default file, as [`default_file`] reads it once.
+static DEFAULT_TEXT: OnceLock<String> = OnceLock::new();
+
 /// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
 
@@ -197,15 +201,6 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).expect("read a text file")
 }
 
-/// The first toml block of `.claude/docs/config.md`: the documented default file.
-fn documented_default_file() -> String {
-    let (_, block) = CONFIG_DOC
-        .split_once("```toml\n")
-        .expect(".claude/docs/config.md has a toml block");
-    let (block, _) = block.split_once("\n```").expect("the toml block closes");
-    format!("{block}\n")
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
@@ -215,11 +210,11 @@ fn exists(path: &Path) -> bool {
 }
 
 #[test]
-fn missing_file_is_created_with_the_documented_default_text() {
+fn missing_file_is_created_with_the_defaults() {
     let file = File::new("missing_file");
     let first = Config::default().load(&file.path).expect("loads");
     assert_eq!(first, Config::default());
-    assert_eq!(read(&file.path), documented_default_file());
+    assert!(exists(&file.path));
     assert!(!exists(&file.path.with_extension("toml.tmp")));
     let again = Config::default().load(&file.path).expect("loads again");
     assert_eq!(again, first);
@@ -346,10 +341,23 @@ fn key_lines(text: &str) -> Vec<(String, String, String)> {
     keys
 }
 
+/// The default file, as `Config::load` writes it where there is no file.
+fn default_file() -> String {
+    DEFAULT_TEXT
+        .get_or_init(|| {
+            let file = File::new("default_file");
+            Config::default()
+                .load(&file.path)
+                .expect("writes the default file");
+            read(&file.path)
+        })
+        .clone()
+}
+
 #[test]
 fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
-    let default = documented_default_file();
+    let default = default_file();
     let keys = key_lines(&default);
     assert_eq!(
         keys.len(),
@@ -392,7 +400,7 @@ fn chain(error: &dyn std::error::Error) -> String {
 #[test]
 fn every_key_rejects_a_wrong_type_by_name() {
     let file = File::new("every_key_wrong_type");
-    for (table, key, value) in key_lines(&documented_default_file()) {
+    for (table, key, value) in key_lines(&default_file()) {
         let path = format!("{table}.{key}");
         let typed = if value.starts_with('"') {
             "false"
@@ -675,7 +683,7 @@ fn every_key_accepts_its_edges_and_rejects_beyond() {
     );
     covered.sort_unstable();
     covered.dedup();
-    let mut keys: Vec<String> = key_lines(&documented_default_file())
+    let mut keys: Vec<String> = key_lines(&default_file())
         .into_iter()
         .map(|(table, key, _)| format!("{table}.{key}"))
         .collect();
@@ -1147,7 +1155,7 @@ fn write_and_update(file: &File, text: &str) -> (Update, String) {
 #[test]
 fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
     let file = File::new("update_each_key");
-    let default = documented_default_file();
+    let default = default_file();
     let keys: Vec<_> = blocks(&default)
         .into_iter()
         .filter(|(path, _)| !path.starts_with('['))
@@ -1165,15 +1173,15 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
 #[test]
 fn update_leaves_a_current_file_as_it_is() {
     let file = File::new("update_current");
-    let (update, updated) = write_and_update(&file, &documented_default_file());
+    let (update, updated) = write_and_update(&file, &default_file());
     assert!(update.is_empty());
-    assert_eq!(updated, documented_default_file());
+    assert_eq!(updated, default_file());
 }
 
 #[test]
 fn update_adds_missing_tables_at_the_end() {
     let file = File::new("update_tables");
-    let default = documented_default_file();
+    let default = default_file();
     let blocks = blocks(&default);
     // The header and keys of `table` with their comment lines, as the default file has them.
     let table_text = |table: &str| -> String {
@@ -1228,7 +1236,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
         assert!(!update.added().iter().any(|p| p == kept), "{kept}");
     }
     assert!(!updated.replace("\r\n", "").contains('\n'), "only CRLF");
-    let default = blocks(&documented_default_file());
+    let default = blocks(&default_file());
     let mut stripped = updated.clone();
     for path in update.added() {
         let (_, block) = default.iter().find(|(p, _)| p == path).expect("a key");
@@ -1254,7 +1262,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
 #[test]
 fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
     let file = File::new("update_unknown");
-    let default = documented_default_file();
+    let default = default_file();
     // A root key before the first comment, a key right below a header, a quoted key with a
     // multi-line value and a comment after it, and a key at the end without a line ending, a
     // blank line keeping the comment lines above it.

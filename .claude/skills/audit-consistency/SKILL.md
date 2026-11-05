@@ -37,7 +37,7 @@ A defect is one of these five, with its proof.
 
 ## Not candidates
 - Values or shapes that are equal by chance: constants with the same number but different meanings, two handlers that look alike but follow different rules (dump source behavior, protocol differences).
-- What tests, the compiler, or clippy already tie together: the test comparing the first toml block of `.claude/docs/config.md` with `DEFAULT_FILE` (`tests/config.rs`), state hashes that destructure without `..`, `multiple_crate_versions` with `allowed-duplicate-crates`, the `dead_code` and `unreachable_pub` warnings, and lints such as `mod_module_files`, `module_name_repetitions`, and `redundant_test_prefix`. An `allowed-duplicate-crates` entry or `#[expect]` reason that is no longer true is a candidate.
+- What tests, the compiler, or clippy already tie together: the test comparing the ranges of `.claude/docs/config.md` with the ranges the settings enforce (`tests/config.rs`), state hashes that destructure without `..`, `multiple_crate_versions` with `allowed-duplicate-crates`, the `dead_code` and `unreachable_pub` warnings, and lints such as `mod_module_files`, `module_name_repetitions`, and `redundant_test_prefix`. An `allowed-duplicate-crates` entry or `#[expect]` reason that is no longer true is a candidate.
 - Repetition inside generated files (the source is the generator), differences from external implementations, public API with no internal caller (Anchor is a library).
 - Deliberate exceptions with a written reason (for example, only the wait between ticks uses `std::thread::sleep`; `.claude/rules/architecture.md` requires it).
 - A rules file and a docs file covering one topic (rules and facts). It is a duplicate only when the same fact sentence is in both.

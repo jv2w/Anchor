@@ -11,7 +11,7 @@ paths:
 - Keep one configuration file, `anchor.toml`, with the tables `[general]` (settings for anyone running a server), `[developer]` (performance and protocol tuning), and per-world `[worlds.<name>]`.
 - Add only the keys that are needed. Name a key by what it sets, in kebab-case, with the shortest word for each concept (`xp`, `food`).
 - When a key is removed or renamed, change `DEFAULT_FILE`, the configuration struct, the doc, and the tests in the same change. Anchor reads no old key name and keeps no migration.
-- The canonical sources are the code that writes the default file (`DEFAULT_FILE` in `src/config.rs`) and `.claude/docs/config.md`. Change both in the same change: keep the default file as the doc's first `toml` block, byte-identical to `DEFAULT_FILE` (`tests/config.rs` compares them), and update the doc's key tables with it.
+- The default file and every key's default value live only in `DEFAULT_FILE` (`src/config.rs`). `.claude/docs/config.md` gives each key's type, range, and meaning in its key tables; change those tables in the same change as `DEFAULT_FILE`, and never copy the default file or its values into the doc.
 - Put every key in `DEFAULT_FILE`, with its comment lines directly above its line: `Config::update_file` copies exactly those lines into older files.
 
 ## New keys and behavior without a key
