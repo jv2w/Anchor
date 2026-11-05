@@ -25,7 +25,8 @@
 //! ([`Handle`]), so the file opened is the file checked (redb recovers a crash here again),
 //! create the tables and, with
 //! `backups = true`, begin an online backup of that first commit, which the save thread copies in
-//! steps while the server runs; it prunes to the [`backup::KEPT`] newest once whole. So a refused
+//! steps while the server runs; it prunes to the `max-backups` newest ([`Start::kept`]) once whole.
+//! So a refused
 //! file never has a start backup. A start does not compact: freed pages are reused by later
 //! commits, and only data that shrinks leaves free pages at the end.
 //!
@@ -722,27 +723,32 @@ impl Source {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartBackup {
     /// Begin an online backup of the start's first commit ([`Storage::begin_backup`]), which keeps
-    /// the [`backup::KEPT`] newest backups once whole. A file that existed before has one; a new
+    /// the [`Start::kept`] newest backups once whole. A file that existed before has one; a new
     /// one has nothing to back up.
     Make,
     /// Make none (`backups = false`).
     Skip,
 }
 
-/// How [`Storage::open`] starts on the data file: the `backups` and `integrity-check` settings.
+/// How [`Storage::open`] starts on the data file: the `backups`, `max-backups` and
+/// `integrity-check` settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Start {
     pub(crate) backup: StartBackup,
     pub(crate) check: IntegrityCheck,
+    /// The newest backups of the file kept, at least 1 (`max-backups`): every backup of the
+    /// opened file, start and online, prunes to it once whole.
+    pub(crate) kept: usize,
 }
 
 impl Start {
-    /// `backup` with a check, as the tests open data files.
+    /// `backup` with a check and the default backups kept, as the tests open data files.
     #[cfg(test)]
-    pub(crate) const fn checked(backup: StartBackup) -> Self {
+    pub(crate) fn checked(backup: StartBackup) -> Self {
         Self {
             backup,
             check: IntegrityCheck::Always,
+            kept: usize::from(crate::config::General::default().max_backups),
         }
     }
 
@@ -756,6 +762,7 @@ impl Start {
                 StartBackup::Skip
             },
             check: config.developer.integrity_check,
+            kept: usize::from(config.general.max_backups),
         }
     }
 }
@@ -770,6 +777,8 @@ pub(crate) struct Storage {
     check: Option<check::Check>,
     /// `None` after a failed commit could not reopen the file; the next call tries again.
     db: Option<Database>,
+    /// The newest backups each backup of the file prunes to ([`Start::kept`]).
+    kept: usize,
     source: Source,
     /// A replay's read-only file and what its commits wrote ([`Storage::open_replica`]); every
     /// call goes there instead.
@@ -782,7 +791,7 @@ impl Storage {
     /// as they were; then opens it on the handle the check left ([`Storage::open_checked`]).
     pub(crate) fn open(place: &Place, start: Start) -> Result<Self> {
         let checked = verify(&place.file, start.check)?;
-        Self::open_checked(place, checked, start.backup)
+        Self::open_checked(place, checked, start)
     }
 
     /// Opens the data file at `place` on `checked`, the handle its check left ([`verify`]), so
@@ -790,10 +799,11 @@ impl Storage {
     /// made now. With [`StartBackup::Make`] it begins an online backup of the first commit
     /// ([`Storage::begin_backup`]), which the caller steps to its end; a backup that cannot begin
     /// is logged and not made. A missing or empty file starts empty. Nothing is compacted.
+    /// `start.check` is not used: the check is made.
     pub(crate) fn open_checked(
         place: &Place,
         checked: Option<Arc<Handle>>,
-        backup: StartBackup,
+        start: Start,
     ) -> Result<Self> {
         let (world, backups) = (&place.file, &place.backups);
         let handle = if let Some(handle) = checked {
@@ -808,7 +818,7 @@ impl Storage {
         let existed = handle.len()? > 0;
         let source = Source::File(world.clone(), handle);
         let db = source.open()?;
-        let mut storage = Self::prepare(source, db)?;
+        let mut storage = Self::prepare(source, db, start.kept)?;
         let path = world.display();
         // redb's lock keeps other processes out, so none is writing a backup of the file. A
         // backup folder that fails costs only backups, as at run time: a stale name left is
@@ -824,7 +834,7 @@ impl Storage {
             // Its first commit flushed the file, not its name in the folder.
             crate::fs::sync_parent(world).map_err(Error::Io)?;
             info!(%path, "data file created");
-        } else if backup == StartBackup::Make {
+        } else if start.backup == StartBackup::Make {
             match storage.begin_backup(backups) {
                 Ok(_) => debug!(%path, "data file opened; its start backup began"),
                 Err(e) => {
@@ -849,6 +859,8 @@ impl Storage {
             backup: None,
             check: None,
             db: None,
+            // A replay writes no file, so it makes no backup to prune.
+            kept: 1,
             source: Source::ReadOnly(path.to_path_buf()),
             replica: Some(Box::new(Replica {
                 db,
@@ -930,7 +942,8 @@ impl Storage {
         if self.backup.is_some() {
             return Ok(false);
         }
-        let online = backup::Online::begin(self.database()?, dir)?;
+        let kept = self.kept;
+        let online = backup::Online::begin(self.database()?, dir, kept)?;
         self.backup = Some(online);
         Ok(true)
     }
@@ -1107,17 +1120,19 @@ impl Storage {
     fn start(source: Source) -> Result<Self> {
         let mut db = source.open()?;
         check_integrity(&mut db)?;
-        Self::prepare(source, db)
+        let kept = Start::checked(StartBackup::Skip).kept;
+        Self::prepare(source, db, kept)
     }
 
-    /// Prepares `db`, the database just opened at `source`: its first commit creates the tables a
-    /// new file lacks and removes the mark of a normal stop ([`CLOSED_KEY`]), so a stop that does
-    /// not reach [`close`](Self::close) leaves none.
-    fn prepare(source: Source, db: Database) -> Result<Self> {
+    /// Prepares `db`, the database just opened at `source`, whose backups prune to `kept`: its
+    /// first commit creates the tables a new file lacks and removes the mark of a normal stop
+    /// ([`CLOSED_KEY`]), so a stop that does not reach [`close`](Self::close) leaves none.
+    fn prepare(source: Source, db: Database, kept: usize) -> Result<Self> {
         let mut storage = Self {
             backup: None,
             check: None,
             db: Some(db),
+            kept,
             source,
             replica: None,
         };
@@ -2249,6 +2264,7 @@ pub(crate) mod tests {
             backup: None,
             check: None,
             db: None,
+            kept: Start::checked(StartBackup::Skip).kept,
             source: Source::Memory(disk.clone()),
             replica: None,
         }
@@ -2924,20 +2940,38 @@ pub(crate) mod tests {
         storage.close().unwrap();
     }
 
+    /// The backups kept by default (`max-backups`).
+    fn kept() -> usize {
+        Start::checked(StartBackup::Make).kept
+    }
+
     #[test]
-    fn backups_are_capped_at_three_and_never_overwritten() {
-        let dir = TempDir::new("backups");
-        start_whole(&dir, StartBackup::Make).close().unwrap();
-        let mut made = Vec::new();
-        for _ in 0..5 {
-            start_whole(&dir, StartBackup::Make).close().unwrap();
-            let names = dir.backups();
-            assert!(names.len() <= backup::KEPT, "{names:?}");
-            let newest = names.last().unwrap().clone();
-            assert!(!made.contains(&newest), "{newest} was made twice");
-            made.push(newest);
+    fn backups_are_capped_at_the_kept_count_and_never_overwritten() {
+        for kept in [kept(), 1, 5] {
+            let dir = TempDir::new(&format!("backups-{kept}"));
+            let start = Start {
+                kept,
+                ..Start::checked(StartBackup::Make)
+            };
+            let whole = || {
+                let mut storage = Storage::open(&dir.place(), start).unwrap();
+                while storage.is_backing_up() {
+                    storage.backup_step().unwrap();
+                }
+                storage.close().unwrap();
+            };
+            whole();
+            let mut made = Vec::new();
+            for _ in 0..kept + 2 {
+                whole();
+                let names = dir.backups();
+                assert!(names.len() <= kept, "{kept}: {names:?}");
+                let newest = names.last().unwrap().clone();
+                assert!(!made.contains(&newest), "{newest} was made twice");
+                made.push(newest);
+            }
+            assert_eq!(dir.backups(), made[made.len() - kept..], "{kept}");
         }
-        assert_eq!(dir.backups(), made[made.len() - backup::KEPT..]);
     }
 
     #[test]
@@ -3157,7 +3191,11 @@ pub(crate) mod tests {
         ] {
             start_whole(&dir, Skip).close().unwrap();
             CHECKS.set(0);
-            let storage = Storage::open(&dir.place(), Start { backup, check }).unwrap();
+            let start = Start {
+                check,
+                ..Start::checked(backup)
+            };
+            let storage = Storage::open(&dir.place(), start).unwrap();
             assert_eq!(
                 (CHECKS.get(), storage.is_backing_up()),
                 (checked, backing_up),
@@ -3170,8 +3208,8 @@ pub(crate) mod tests {
             drop(start_whole(&dir, Skip));
             CHECKS.set(0);
             let start = Start {
-                backup: Skip,
                 check,
+                ..Start::checked(Skip)
             };
             Storage::open(&dir.place(), start).unwrap().close().unwrap();
             assert_eq!(CHECKS.get(), checked, "{check:?}");
@@ -3194,8 +3232,8 @@ pub(crate) mod tests {
         // No file: nothing to check.
         assert!(!after_unclean());
         let start = Start {
-            backup: StartBackup::Skip,
             check: IntegrityCheck::AfterUncleanShutdown,
+            ..Start::checked(StartBackup::Skip)
         };
         Storage::open(&dir.place(), start).unwrap().close().unwrap();
         assert!(!after_unclean());
@@ -3242,7 +3280,8 @@ pub(crate) mod tests {
         start_whole(&dir, StartBackup::Skip).close().unwrap();
         let checked = verify(&place.file, IntegrityCheck::Always).unwrap();
         assert!(matches!(open_read_only(&place.file), Err(Error::InUse)));
-        let storage = Storage::open_checked(&place, checked, StartBackup::Skip).unwrap();
+        let storage =
+            Storage::open_checked(&place, checked, Start::checked(StartBackup::Skip)).unwrap();
         assert!(matches!(open_read_only(&place.file), Err(Error::InUse)));
         storage.close().unwrap();
         open_read_only(&place.file).unwrap();
@@ -3257,15 +3296,15 @@ pub(crate) mod tests {
 
     fn refuses_a_file_that_is_not_redb(start: StartBackup) {
         let dir = TempDir::new(&format!("not-redb-{start:?}"));
-        for _ in 0..=backup::KEPT {
+        for _ in 0..=kept() {
             start_whole(&dir, StartBackup::Make).close().unwrap();
         }
         let older = dir.backups();
-        assert_eq!(older.len(), backup::KEPT);
+        assert_eq!(older.len(), kept());
         // A torn first page or another file put at the path: redb finds no magic number.
         let bytes = b"not a redb file".to_vec();
         dir.set_world(&bytes);
-        for _ in 0..=backup::KEPT {
+        for _ in 0..=kept() {
             let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
             assert!(e.is_damage(), "{start:?}: {e:?}");
             assert!(
@@ -3283,7 +3322,10 @@ pub(crate) mod tests {
         use IntegrityCheck::{AfterUncleanShutdown, Always, Never};
         for backup in [StartBackup::Make, StartBackup::Skip] {
             for check in [Always, AfterUncleanShutdown, Never] {
-                refuses_a_newer_format(Start { backup, check });
+                refuses_a_newer_format(Start {
+                    check,
+                    ..Start::checked(backup)
+                });
             }
         }
     }
@@ -3766,7 +3808,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn online_and_start_backups_keep_the_three_newest_together() {
+    fn online_and_start_backups_keep_the_newest_together() {
         let dir = TempDir::new("online-kept");
         let backups = dir.place().backups;
         start_whole(&dir, StartBackup::Make).close().unwrap();
@@ -3778,9 +3820,9 @@ pub(crate) mod tests {
             assert!(storage.begin_backup(&backups).unwrap());
             let (path, _) = finish_backup(&mut storage);
             made.push(path.file_name().unwrap().to_str().unwrap().to_owned());
-            assert!(dir.backups().len() <= backup::KEPT);
+            assert!(dir.backups().len() <= kept());
         }
-        assert_eq!(dir.backups(), made[made.len() - backup::KEPT..]);
+        assert_eq!(dir.backups(), made[made.len() - kept()..]);
         storage.close().unwrap();
     }
 
@@ -4151,8 +4193,8 @@ pub(crate) mod tests {
         for (place, (check, written)) in places.iter().zip(checks) {
             let at = clock::now();
             let unchecked = Start {
-                backup,
                 check: IntegrityCheck::Never,
+                ..Start::checked(backup)
             };
             let storage = Storage::open(place, unchecked).unwrap();
             println!(

@@ -21,6 +21,10 @@ use crate::protocol::compression::Compression;
 use crate::protocol::consts::GameType;
 use crate::world::{BORDER, is_valid_spawn};
 
+/// The `max-backups` range: each backup is a whole copy of its file, so the most bounds the
+/// disk the backup folders take.
+const BACKUPS_RANGE: RangeInclusive<u16> = 1..=1000;
+
 /// The `chunks-per-tick` range: 0 would never send a chunk, and 256 sends the largest view in
 /// about 3 seconds.
 pub(crate) const CHUNKS_PER_TICK_RANGE: RangeInclusive<u32> = 1..=256;
@@ -108,6 +112,8 @@ view-distance = 16
 save-player-data = true
 # Copies of the data files in data/backups, at start and with the backup command.
 backups = true
+# Copies kept of each data file (1 to 1000); a new one removes the oldest past it.
+max-backups = 3
 # Message players see when the server stops.
 shutdown-message = "The server has stopped"
 # Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
@@ -565,6 +571,7 @@ impl Config {
             g.view_distance,
             VIEW_DISTANCE_RANGE,
         )?;
+        range(Key::general("max-backups"), g.max_backups, BACKUPS_RANGE)?;
         length(
             Key::general("shutdown-message"),
             &g.shutdown_message,
@@ -672,6 +679,8 @@ pub struct General {
     /// `backups`: whether the data files are copied to `data/backups` at start and by the backup
     /// command.
     pub backups: bool,
+    /// `max-backups`: the backups kept of each data file; a new one removes the oldest past it.
+    pub max_backups: u16,
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
     /// `resource-packs`: resource pack files, relative to `packs` in the data folder, none empty.
@@ -735,6 +744,7 @@ impl General {
                 "view-distance" => self.view_distance = int(value, key, VIEW_DISTANCE_RANGE)?,
                 "save-player-data" => self.save_player_data = boolean(value, key)?,
                 "backups" => self.backups = boolean(value, key)?,
+                "max-backups" => self.max_backups = int(value, key, BACKUPS_RANGE)?,
                 "shutdown-message" => text(value, key)?.clone_into(&mut self.shutdown_message),
                 "resource-packs" => {
                     self.resource_packs = strings(value, key)?.map(PathBuf::from).collect();
@@ -787,6 +797,7 @@ impl Default for General {
             view_distance: 16,
             save_player_data: true,
             backups: true,
+            max_backups: 3,
             shutdown_message: "The server has stopped".to_owned(),
             resource_packs: Vec::new(),
             force_resources: false,
@@ -1649,7 +1660,7 @@ mod tests {
     use super::*;
 
     /// The number of keys in the default file.
-    pub(super) const DEFAULT_KEY_COUNT: usize = 63;
+    pub(super) const DEFAULT_KEY_COUNT: usize = 64;
 
     fn apply(text: &str) -> Result<Config> {
         Config::default().apply(text.as_bytes())

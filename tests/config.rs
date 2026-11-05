@@ -98,7 +98,7 @@ tick-radius = 1
 "#;
 
 /// The number of keys in the default file; the one place that pins it.
-const DEFAULT_KEY_COUNT: usize = 63;
+const DEFAULT_KEY_COUNT: usize = 64;
 
 /// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
@@ -583,6 +583,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.view-distance", s(&["2", "64"]), s(&["1", "65"])),
         ("general.save-player-data", bools(), Vec::new()),
         ("general.backups", bools(), Vec::new()),
+        ("general.max-backups", s(&["1", "1000"]), s(&["0", "1001"])),
         (
             "general.shutdown-message",
             vec![quoted(""), quoted(&"x".repeat(1024)), quoted(r"two\nlines")],

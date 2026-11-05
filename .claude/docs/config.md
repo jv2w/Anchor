@@ -91,6 +91,8 @@ view-distance = 16
 save-player-data = true
 # Copies of the data files in data/backups, at start and with the backup command.
 backups = true
+# Copies kept of each data file (1 to 1000); a new one removes the oldest past it.
+max-backups = 3
 # Message players see when the server stops.
 shutdown-message = "The server has stopped"
 # Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
@@ -228,6 +230,7 @@ console-input = true
 | `view-distance` | integer | `16` | 2 to 64 | Largest view distance a player may use, in chunks |
 | `save-player-data` | bool | `true` | | Whether inventories and positions are kept between joins |
 | `backups` | bool | `true` | | Whether the data files are copied to `data/backups` at start and by the `backup` command (`storage.md`) |
+| `max-backups` | integer | `3` | 1 to 1000 | The backups kept of each data file, start and online backups together; once a new one is whole, the oldest past this many are removed |
 | `shutdown-message` | string | `"The server has stopped"` | at most 1024 bytes | Message players see when the server stops |
 | `resource-packs` | array of strings | `[]` | non-empty paths; a relative path is relative to `data/packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version: raise the manifest version when a pack changes |
 | `force-resources` | bool | `false` | | Whether players must accept the resource packs to join |

@@ -6,7 +6,8 @@
 //! backup is never overwritten, and its name sorts after every backup already there: a second
 //! backup in the same second adds `-<n>`, and after the clock went back the name keeps the newest
 //! second found. So the newest backups are the last names. A copy is written under
-//! `<name>.tmp` and renamed when whole; the [`KEPT`] newest are kept.
+//! `<name>.tmp` and renamed when whole; the newest the file's start keeps
+//! ([`Start::kept`](super::Start), `max-backups`) stay.
 
 use std::io;
 use std::iter::Peekable;
@@ -21,8 +22,6 @@ use crate::{clock, fs};
 
 /// Names tried when another process takes the chosen one first.
 const ATTEMPTS: u32 = 100;
-/// Backups kept, of starts and online backups together.
-pub(crate) const KEPT: usize = 3;
 /// Key and value bytes an online backup copies (and a check reads) in one step, unless one value
 /// alone is larger: the save thread serves its queued requests between steps, so a load waits at
 /// most one step.
@@ -101,15 +100,19 @@ pub(crate) struct Online {
     /// The backup's name.
     path: PathBuf,
     dir: PathBuf,
+    /// The newest backups of `dir` kept once this one is whole, starts and online backups
+    /// together.
+    kept: usize,
 }
 
 impl Online {
-    /// Starts a backup of `source`'s last commit into a new backup in `dir`.
+    /// Starts a backup of `source`'s last commit into a new backup in `dir`, which keeps the
+    /// `kept` newest once whole.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread starts an online backup"
     )]
-    pub(crate) fn begin(source: &Database, dir: &Path) -> Result<Self> {
+    pub(crate) fn begin(source: &Database, dir: &Path, kept: usize) -> Result<Self> {
         crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
@@ -124,6 +127,7 @@ impl Online {
             temp,
             path,
             dir: dir.to_path_buf(),
+            kept,
         })
     }
 
@@ -177,7 +181,7 @@ impl Online {
     }
 
     /// Commits the whole copy durably, closes and flushes it, gives it its backup name and keeps
-    /// the [`KEPT`] newest backups; returns its path. The durable commit is the one that makes
+    /// the `kept` newest backups ([`Self::begin`]); returns its path. The durable commit is the one that makes
     /// the steps' commits reach the disk; closing the copy alone could not report a failure.
     ///
     /// The copy is not compacted: `compact` is one call that took
@@ -195,6 +199,7 @@ impl Online {
             temp,
             path,
             dir,
+            kept,
         } = self;
         db.begin_write()
             .map_err(Error::database)?
@@ -208,7 +213,7 @@ impl Online {
             .and_then(|file| file.sync_all())
             .map_err(Error::Io)?;
         temp.rename(&path)?;
-        if let Err(e) = prune(&dir, &path) {
+        if let Err(e) = prune(&dir, &path, kept) {
             warn!(
                 path = %dir.display(),
                 error = &e as &(dyn std::error::Error + 'static),
@@ -301,16 +306,16 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     )))
 }
 
-/// Removes all but the [`KEPT`] newest backups in `dir`, never `newest` (the backup just made).
+/// Removes all but the `kept` newest backups in `dir`, never `newest` (the backup just made).
 /// Other files are left alone.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread prunes backups after an online backup"
 )]
-fn prune(dir: &Path, newest: &Path) -> Result<()> {
+fn prune(dir: &Path, newest: &Path, kept: usize) -> Result<()> {
     let mut backups = backups(dir)?;
     backups.sort_unstable();
-    let old = backups.len().saturating_sub(KEPT);
+    let old = backups.len().saturating_sub(kept);
     for (_, path) in backups.iter().take(old) {
         if path != newest {
             std::fs::remove_file(path).map_err(Error::Io)?;
@@ -522,7 +527,7 @@ mod tests {
         }
         txn.commit().unwrap();
         let backups = dir.join("backups");
-        let mut online = Online::begin(&source, &backups).unwrap();
+        let mut online = Online::begin(&source, &backups, 1).unwrap();
         // (syncs, file growths) of each step.
         let mut steps = Vec::new();
         while !online.is_copied() {
