@@ -168,6 +168,8 @@ fn char_len(rest: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
+    use crate::fs::{create_dir, remove_dir, write};
+
     #[test]
     fn reasons_are_found_outside_comments_and_literals() {
         let text = r###"
@@ -207,28 +209,20 @@ let reason = "a variable";
         );
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: xtask is a development tool"
-    )]
-    fn remove_dir(path: &Path) {
-        std::fs::remove_dir_all(path).expect("cleanup");
-    }
-
     #[test]
     fn examples_and_xtask_tests_are_checked() {
         let root = std::env::temp_dir().join(format!("anchor-reasons-{}", std::process::id()));
         for dir in ["examples", "xtask/tests"] {
             let dir = root.join(dir);
-            crate::dump::create_dir(&dir).expect("dir");
-            crate::dump::write(
+            create_dir(&dir).expect("dir");
+            write(
                 &dir.join("a.rs"),
                 br#"#[expect(clippy::a, reason = "no tag")]"#,
             )
             .expect("source");
         }
         let errors = check(&root);
-        remove_dir(&root);
+        remove_dir(&root).expect("cleanup");
         let errors = errors.expect("check");
         assert_eq!(errors.len(), 2, "{errors:?}");
         assert!(errors[0].starts_with("examples/a.rs:1: "), "{errors:?}");

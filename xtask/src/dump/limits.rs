@@ -9,6 +9,8 @@ use std::path::Path;
 
 use serde_json::Value as Json;
 
+use crate::fs::{read, read_dir};
+
 /// Schema limits Anchor applies: schema title, property path (the JSON path without
 /// `properties`), and the fields it limits as `<Go type>.<field>`. A field limits a string or
 /// list read straight into it or through an `Optional`; `[]` after it limits each element of
@@ -692,8 +694,8 @@ const UNUSED: &[(&str, &str, &str)] = &[
 /// Reads every schema in `json` (the docs' `json/` directory) and returns the text of [`FILE`].
 pub(crate) fn generate(json: &Path) -> Result<String, String> {
     let mut found: BTreeMap<(String, String), u64> = BTreeMap::new();
-    for path in super::read_dir(json)? {
-        let schema: Json = serde_json::from_slice(&super::read(&path)?)
+    for path in read_dir(json)? {
+        let schema: Json = serde_json::from_slice(&read(&path)?)
             .map_err(|e| format!("{}: {e}", path.display()))?;
         let title = schema
             .get("title")

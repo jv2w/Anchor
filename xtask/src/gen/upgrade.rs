@@ -27,7 +27,8 @@ use crate::dump::upgrade::{
     BLOCK_LEGACY_IDS, BLOCK_SCHEMAS, ITEM_BLOCKS, ITEM_LEGACY_IDS, ITEM_SCHEMAS, LEGACY_TABLE,
     OUT as DIR,
 };
-use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, file_names, read};
+use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR};
+use crate::fs::{file_names, read, read_text};
 use apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 
 /// The block schemas that add properties after the dump source's data version, oldest first;
@@ -353,7 +354,6 @@ fn schema_files(dir: &Path) -> Result<Vec<(u16, String, Vec<u8>)>, String> {
             files.push((id, name, bytes));
         }
     }
-    files.sort();
     Ok(files)
 }
 
@@ -465,7 +465,7 @@ fn legacy(
     reference: &BTreeSet<(String, States)>,
 ) -> Result<(Legacy, Vec<String>), String> {
     let path = root.join(DIR).join(LEGACY_TABLE);
-    let text = String::from_utf8(read(&path)?).map_err(|e| format!("{LEGACY_TABLE}: {e}"))?;
+    let text = read_text(&path)?;
     let mut entries = BTreeMap::new();
     let mut states: BTreeMap<(String, States), usize> = BTreeMap::new();
     let mut outside = Vec::new();

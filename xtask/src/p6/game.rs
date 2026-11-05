@@ -21,6 +21,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+use crate::fs::{read_text, read_text_if_exists, remove_file, write};
+use crate::say;
+
 /// How long the harness waits for a bot past its own time limit before killing it.
 const BOT_GRACE: Duration = Duration::from_secs(30);
 /// The bot's time limit for one game scenario.
@@ -55,7 +58,7 @@ pub(crate) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Resu
     let exe = super::official_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
-    super::say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
@@ -64,7 +67,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
     let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
     let bot = super::build_bot(root)?;
     let passed = anchor_session(root, &bot, &scenarios, out)?;
-    super::say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
@@ -138,7 +141,7 @@ pub(crate) fn session(
 /// Writes `<dir>/<scenario>.txt`, the trace of the scenario's capture.
 fn write_report(dir: &Path, scenario: &str, blocks: &BTreeMap<u32, String>) -> Result<(), String> {
     let steps = read_trace(dir, scenario, blocks)?;
-    super::write(
+    write(
         &dir.join(format!("{scenario}.txt")),
         trace::report(&steps).as_bytes(),
     )
@@ -151,9 +154,9 @@ fn read_trace(
     blocks: &BTreeMap<u32, String>,
 ) -> Result<Vec<trace::Step>, String> {
     let capture = dir.join(format!("{scenario}.jsonl"));
-    let items = trace::item_names(&super::read_text(&super::items_path(&capture))?)
+    let items = trace::item_names(&read_text(&super::items_path(&capture))?)
         .map_err(|e| format!("{}: {e}", capture.display()))?;
-    trace::trace(&super::read_text(&capture)?, &items, blocks)
+    trace::trace(&read_text(&capture)?, &items, blocks)
         .map_err(|e| format!("{}: {e}", capture.display()))
 }
 
@@ -189,9 +192,9 @@ fn compare_scenarios(
             &read_trace(b, scenario, &blocks)?,
         );
         for d in &differences {
-            super::say(out, &format!("{scenario}: {d}"))?;
+            say(out, &format!("{scenario}: {d}"))?;
         }
-        super::say(
+        say(
             out,
             &format!(
                 "{} game {scenario}",
@@ -204,7 +207,7 @@ fn compare_scenarios(
         )?;
         same &= differences.is_empty();
     }
-    super::say(out, if same { "SAME" } else { "DIFFERENT" })?;
+    say(out, if same { "SAME" } else { "DIFFERENT" })?;
     Ok(same)
 }
 
@@ -212,7 +215,7 @@ fn compare_scenarios(
 fn run_spawn(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
     let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
     let outcome = super::run_bot(bot, &args, &dir.join("spawn.jsonl"))?;
-    super::say(
+    say(
         out,
         &format!(
             "{} raknet spawn{}",
@@ -254,7 +257,7 @@ impl Running {
         script: Option<&Path>,
     ) -> Result<Self, String> {
         let capture = dir.join(format!("{scenario}.jsonl"));
-        super::remove_file(&capture)?;
+        remove_file(&capture)?;
         let name = player(scenario);
         let timeout = format!("{}s", BOT_TIMEOUT.as_secs());
         let mut command = Command::new(bot);
@@ -279,8 +282,8 @@ impl Running {
 
     /// Whether the bot has started its first step (it has joined and teleported).
     fn stepped(&self) -> Result<bool, String> {
-        let text = super::read_text_if_exists(&self.capture)?.unwrap_or_default();
-        Ok(text.contains(r#""type":"step""#))
+        let text = read_text_if_exists(&self.capture)?;
+        Ok(text.is_some_and(|text| text.contains(r#""type":"step""#)))
     }
 
     /// Passes the bot's new command records to `console`; true once the bot has exited.
@@ -293,10 +296,11 @@ impl Running {
             .try_wait()
             .map_err(|e| format!("bot: {e}"))?
             .is_some();
-        let text = super::read_text_if_exists(&self.capture)?.unwrap_or_default();
-        for line in commands(&text)?.iter().skip(self.relayed) {
-            console(line)?;
-            self.relayed += 1;
+        if let Some(text) = read_text_if_exists(&self.capture)? {
+            for line in commands(&text)?.iter().skip(self.relayed) {
+                console(line)?;
+                self.relayed += 1;
+            }
         }
         Ok(exited)
     }
@@ -321,7 +325,7 @@ impl Running {
         } else {
             format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
         };
-        super::say(
+        say(
             out,
             &format!(
                 "{} game {} ({} commands){failure}",
@@ -424,6 +428,7 @@ fn commands(capture: &str) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
+    use crate::fs::{create_dir, remove_dir};
     use crate::p6;
 
     #[test]
@@ -473,13 +478,13 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         let items = br#"{"type":"packet","name":"ItemRegistry","fields":{"Items":[]}}"#;
         for (d, scenario) in [(&a, "trade"), (&b, "trade"), (&a, "second")] {
-            p6::create_dir(d).expect("dir");
-            p6::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
-            p6::write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
+            create_dir(d).expect("dir");
+            write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+            write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
         }
         let mut out = Vec::new();
         let same = compare_scenarios(&crate::root(), &a, &b, &["trade", "second"], &mut out);
-        p6::remove_dir(&dir).expect("cleanup");
+        remove_dir(&dir).expect("cleanup");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(

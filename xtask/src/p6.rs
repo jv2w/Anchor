@@ -57,11 +57,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::dump::{
-    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE, create_dir, is_file, read_text,
-    read_text_if_exists, remove_dir, remove_file, write,
-};
-use crate::say;
+use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE};
+use crate::fs::{create_dir, create_file, is_file, read_text, remove_dir, remove_file, write};
+use crate::{process, say};
 use compare::field;
 
 /// The official server log line of a `setblock` that ran.
@@ -579,13 +577,10 @@ fn report_written(
     written: Result<(), String>,
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    match written {
-        Ok(()) => Ok(true),
-        Err(e) => {
-            say(out, &format!("FAIL {scenario} report: {e}"))?;
-            Ok(false)
-        }
-    }
+    written.map(|()| true).or_else(|e| {
+        say(out, &format!("FAIL {scenario} report: {e}"))?;
+        Ok(false)
+    })
 }
 
 /// The official server executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
@@ -1787,13 +1782,10 @@ fn load_deferred(root: &Path) -> Result<compare::Deferred, String> {
 /// The text of a capture to report, or `None` after a note saying why it cannot be read: a bot
 /// that failed early leaves no capture, and its failure is reported by the run.
 fn readable_capture(capture: &Path, out: &mut impl Write) -> Result<Option<String>, String> {
-    match read_text(capture) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) => {
-            say(out, &format!("no capture to report: {e}"))?;
-            Ok(None)
-        }
-    }
+    read_text(capture).map(Some).or_else(|e| {
+        say(out, &format!("no capture to report: {e}"))?;
+        Ok(None)
+    })
 }
 
 /// Prints the spawn window of a capture without deferred packets.
@@ -1827,39 +1819,7 @@ fn report_window(
 fn build_bot(root: &Path) -> Result<PathBuf, String> {
     let dir = root.join(OUT_DIR);
     create_dir(&dir)?;
-    let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));
-    let go_dir = root.join("xtask").join("go");
-    // The bot reads packets with Anchor's gophertunnel corrections (`xtask/go/fix`).
-    let fixmod = dir.join("fixmod");
-    let output = Command::new("go")
-        .args(["run", "./fixmod", "-out"])
-        .arg(&fixmod)
-        .current_dir(&go_dir)
-        .output()
-        .map_err(|e| format!("cannot run `go` ({e}); install Go and put it on PATH"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "go run ./fixmod failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    let output = Command::new("go")
-        .arg("build")
-        .arg("-modfile")
-        .arg(fixmod.join("go.mod"))
-        .arg("-o")
-        .arg(&exe)
-        .arg("./bot")
-        .current_dir(&go_dir)
-        .output()
-        .map_err(|e| format!("cannot run `go` ({e}); install Go and put it on PATH"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "go build ./bot failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(exe)
+    process::build_go(&dir, "bot")
 }
 
 /// Runs the bot with `args` and `-out capture`.
@@ -2044,14 +2004,6 @@ fn now() -> Instant {
 )]
 fn pause() {
     std::thread::sleep(POLL);
-}
-
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn create_file(path: &Path) -> Result<std::fs::File, String> {
-    std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]

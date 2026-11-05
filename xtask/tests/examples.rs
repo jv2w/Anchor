@@ -7,6 +7,10 @@
 
 #[path = "support/bot.rs"]
 mod bot;
+#[path = "support/fs.rs"]
+mod fs;
+#[path = "../src/process.rs"]
+mod process;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -14,6 +18,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
+
+use fs::{create_dir, read, remove_dir, write};
 
 /// The example's settings: loopback ports the system picks, offline, a small view, no console.
 const SETTINGS: &str = "[general]\n\
@@ -79,7 +85,7 @@ impl Example {
         let dir = work_dir().join(name);
         remove_dir(&dir);
         create_dir(&dir);
-        write(&dir.join("anchor.toml"), SETTINGS);
+        write(&dir.join("anchor.toml"), SETTINGS.as_bytes());
         let child = Command::new(&exe)
             .current_dir(&dir)
             .stdin(Stdio::null())
@@ -201,52 +207,11 @@ fn the_custom_example_serves_its_pack_items_blocks_and_entities() {
 }
 
 #[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn create_dir(path: &Path) {
-    std::fs::create_dir_all(path).expect("create a test directory");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn remove_dir(path: &Path) {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => panic!("remove {}: {e}", path.display()),
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn write(path: &Path, text: &str) {
-    std::fs::write(path, text).expect("write a test file");
-}
-
-#[expect(
     clippy::disallowed_types,
     reason = "off-tick: test tooling outside the server"
 )]
 fn create_file(path: &Path) -> std::fs::File {
     std::fs::File::create(path).expect("create a test file")
-}
-
-/// The text of the file at `path`; empty while the example has not created it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn read(path: &Path) -> String {
-    match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => panic!("read {}: {e}", path.display()),
-    }
 }
 
 #[expect(

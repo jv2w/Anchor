@@ -14,8 +14,10 @@
 
 mod check;
 pub mod dump;
+mod fs;
 mod r#gen;
 mod p6;
+mod process;
 mod reasons;
 mod table;
 mod vendor;
@@ -124,27 +126,36 @@ pub(crate) enum Mode {
     Check,
 }
 
-fn main() -> Result<ExitCode, String> {
-    run()
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn run() -> Result<ExitCode, String> {
+fn main() -> ExitCode {
+    let passed = run().unwrap_or_else(|e| {
+        // Only a failed write to standard output gets here, so the error goes to standard error;
+        // the exit code reports the failure even when that write fails too.
+        let _unreported = say_error(&mut io::stderr(), &e);
+        false
+    });
+    exit(passed)
+}
+
+/// Runs the command the arguments name, writing its lines to standard output, and returns whether
+/// it passed.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn run() -> Result<bool, String> {
     let mut out = io::stdout().lock();
     let args: Vec<String> = env::args().skip(1).collect();
-    let passed = match args
+    match args
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>()
         .as_slice()
     {
-        ["check"] => {
-            let result = check::command(&root(), &mut out);
-            report_passed(&mut out, result)
-        }
+        ["check"] => check::command(&root(), &mut out),
         ["gen"] => gen_command(&mut out, Mode::Write),
         ["gen", "--check"] => gen_command(&mut out, Mode::Check),
         ["verify"] => verify(&mut out),
@@ -152,10 +163,9 @@ fn run() -> Result<ExitCode, String> {
         ["dump", "--check"] => dump_command(&mut out, Mode::Check),
         ["table"] => table_command(&mut out, Mode::Write),
         ["table", "--check"] => table_command(&mut out, Mode::Check),
-        ["vendor-test", "str0m"] => report_passed(&mut out, vendor::str0m(&root())),
+        ["vendor-test", "str0m"] => vendor::str0m(&root()).or_else(|e| report_error(&mut out, &e)),
         ["p6", rest @ ..] => {
-            let result = p6::command(&root(), rest, &mut out);
-            report_passed(&mut out, result)
+            p6::command(&root(), rest, &mut out).or_else(|e| report_error(&mut out, &e))
         }
         _ => {
             say(
@@ -169,8 +179,7 @@ fn run() -> Result<ExitCode, String> {
             )?;
             Ok(false)
         }
-    }?;
-    Ok(exit(passed))
+    }
 }
 
 /// Writes `text` and a newline to `out`.
@@ -212,10 +221,18 @@ fn step<W: Write>(
     Ok(ok)
 }
 
-/// Runs `cargo <args>` at the repository root with its builds in `target/<target>` and writes
-/// `ok` or `FAIL` with the command, after the output of a failure. It passes on a successful exit
-/// that printed no warning.
+/// Runs `cargo <args>` ([`run_cargo`]) and writes `ok` or `FAIL` with the command, after the
+/// output of a failure or the error of a cargo that cannot start.
 fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, String> {
+    step(out, &format!("cargo {}", args.join(" ")), |out| {
+        run_cargo(out, args, target).or_else(|e| report_error(out, &e))
+    })
+}
+
+/// Runs `cargo <args>` at the repository root with its builds in `target/<target>`, writes its
+/// output to `out` when it fails, and returns whether it passed: a successful exit that printed no
+/// warning.
+fn run_cargo(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, String> {
     let mut command = Command::new(cargo());
     if cfg!(windows) && args.contains(&DIMPL) {
         command.env("OPENSSL_SRC_PERL", root().join(PERL));
@@ -230,7 +247,7 @@ fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool,
         .env("RUSTDOCFLAGS", "-D warnings")
         .env("CARGO_TERM_COLOR", "never")
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("cannot run cargo: {e}"))?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option, only as a
     // warning with a successful exit code.
@@ -243,7 +260,6 @@ fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool,
         out.write_all(&output.stdout).map_err(|e| e.to_string())?;
         out.write_all(&output.stderr).map_err(|e| e.to_string())?;
     }
-    say(out, &format!("{} cargo {}", status(ok), args.join(" ")))?;
     Ok(ok)
 }
 
@@ -260,7 +276,7 @@ fn dump_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
 fn table_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
     let report = match table::run(&root(), mode) {
         Ok(report) => report,
-        Err(e) => return fail(out, &e),
+        Err(e) => return report_error(out, &e),
     };
     for error in &report.errors {
         say_error(out, error)?;
@@ -284,7 +300,7 @@ fn reasons_command(out: &mut impl Write) -> Result<bool, String> {
             }
             Ok(errors.is_empty())
         }
-        Err(e) => fail(out, &e),
+        Err(e) => report_error(out, &e),
     }
 }
 
@@ -306,20 +322,12 @@ fn report_files(
             }
             Ok(differ.is_empty())
         }
-        Err(e) => fail(out, &e),
-    }
-}
-
-/// `passed` of a command that reports through `out` itself, or its error written to `out`.
-fn report_passed(out: &mut impl Write, result: Result<bool, String>) -> Result<bool, String> {
-    match result {
-        Ok(passed) => Ok(passed),
-        Err(e) => fail(out, &e),
+        Err(e) => report_error(out, &e),
     }
 }
 
 /// Writes `error` as an error line and reports a failed command.
-fn fail(out: &mut impl Write, error: &str) -> Result<bool, String> {
+pub(crate) fn report_error(out: &mut impl Write, error: &str) -> Result<bool, String> {
     say_error(out, error)?;
     Ok(false)
 }
@@ -345,6 +353,12 @@ fn status(ok: bool) -> &'static str {
 /// The cargo that launched this task, so every step uses the same toolchain.
 fn cargo() -> OsString {
     env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
+}
+
+/// The standard output of `git <args>` in `dir`; a failed run is an error with git's standard
+/// error.
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    process::stdout(Command::new("git").args(args).current_dir(dir))
 }
 
 /// The build directory `target/<name>` under the repository root.

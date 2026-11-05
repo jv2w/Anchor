@@ -14,9 +14,7 @@
 //! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
 //! made from the committed data instead).
 //!
-//! It is also xtask's file layer: [`read`], [`read_if_exists`], [`write()`], [`create_dir`] and
-//! [`is_file`] give every command the same path-carrying errors, and `upgrade::sha256` is the one
-//! hash.
+//! Its `upgrade::sha256` is xtask's one hash.
 
 #[path = "../../src/block/hash.rs"]
 pub mod hash;
@@ -24,15 +22,16 @@ pub(crate) mod limits;
 pub(crate) mod upgrade;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use crate::Mode;
+use crate::fs::{create_dir, is_dir, read, read_if_exists, write};
 use crate::r#gen::biomes::{self, Biome, Colour};
 use crate::r#gen::upgrade::SCHEMA_1_26_60;
+use crate::{Mode, git};
 
 /// Source B's biome definitions without chunk generation data: the content the official server
 /// sends. `biome_definitions.json` holds generation data the official server does not send.
@@ -474,8 +473,8 @@ fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Stri
 
 /// Fails unless the git checkout `dir` is at `commit`.
 fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
-    let output = git(&root.join(dir), &["rev-parse", "HEAD"]).map_err(|e| format!("{dir}: {e}"))?;
-    let head = String::from_utf8_lossy(&output);
+    let stdout = git(&root.join(dir), &["rev-parse", "HEAD"]).map_err(|e| format!("{dir}: {e}"))?;
+    let head = String::from_utf8_lossy(&stdout);
     if head.trim() != commit {
         return Err(format!(
             "{dir} must be a checkout of commit {commit}, found {}",
@@ -485,174 +484,11 @@ fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The output of `git <args>` in `folder`.
-pub(crate) fn git(folder: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(folder)
-        .output()
-        .map_err(|e| format!("cannot run git: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(output.stdout)
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn is_dir(path: &Path) -> bool {
-    path.is_dir()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn is_file(path: &Path) -> bool {
-    path.is_file()
-}
-
-/// The names of the entries directly in `dir`, sorted.
-pub(crate) fn file_names(dir: &Path) -> Result<Vec<String>, String> {
-    Ok(read_dir(dir)?
-        .iter()
-        .filter_map(|path| path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .collect())
-}
-
-/// The files in a directory, sorted.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read_dir(path: &Path) -> Result<Vec<PathBuf>, String> {
-    let error = |e: std::io::Error| format!("{}: {e}", path.display());
-    let mut paths = Vec::new();
-    for entry in std::fs::read_dir(path).map_err(error)? {
-        paths.push(entry.map_err(error)?.path());
-    }
-    paths.sort();
-    Ok(paths)
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn read(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The bytes of the file at `path`, or none when there is no such file; any other failure is an
-/// error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn read_if_exists(path: &Path) -> Result<Option<Vec<u8>>, String> {
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn read_text(path: &Path) -> Result<String, String> {
-    std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The text of the file at `path`, or none when there is no such file; any other failure is an
-/// error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn read_text_if_exists(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn create_dir(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn rename(from: &Path, to: &Path) -> Result<(), String> {
-    std::fs::rename(from, to).map_err(|e| format!("{}: {e}", from.display()))
-}
-
-/// Removes the file at `path`; a file that is already gone is not an error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn remove_file(path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
-}
-
-/// Removes the directory tree at `path`; a directory that is already gone is not an error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-pub(crate) fn remove_dir(path: &Path) -> Result<(), String> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Reading a missing file as text fails with an error that starts with its path, and removing
-    /// a missing directory succeeds.
-    #[test]
-    fn missing_paths_read_as_errors_and_remove_as_done() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("no-such-entry");
-        assert!(
-            read_text(&path)
-                .unwrap_err()
-                .starts_with(&path.display().to_string())
-        );
-        assert_eq!(read_text_if_exists(&path), Ok(None));
-        assert_eq!(remove_dir(&path), Ok(()));
-    }
+    use crate::fs::is_file;
 
     /// The reference states of icicles, ice crystals and disc presses that borrow physics (20, 6
     /// and 4).

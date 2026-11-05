@@ -17,8 +17,9 @@ use super::info::{Break, EVERY_TOOL, Identity, ItemData, Physics, Tables, exact,
 use super::upgrade::{ADDING, block_schema};
 use crate::dump::{
     BLOCK_PHYSICS, DUMP_BLOCKS, DUMP_DESERIALIZED, DUMP_DIR, DUMP_ITEMS, DUMP_TABLES,
-    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
+    REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS,
 };
+use crate::fs::read;
 
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
 pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];

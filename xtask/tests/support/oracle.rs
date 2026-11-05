@@ -1,12 +1,12 @@
 //! The gophertunnel oracle (`xtask/go/oracle`): built once per test process and run on record
 //! files of `[u32 LE id][u32 LE len][bytes]`.
 
-#[path = "go_build.rs"]
-mod go_build;
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+
+use super::fs::{create_dir, write};
+use super::process::build_go;
 
 /// The oracle executable, built on first use.
 static BINARY: OnceLock<PathBuf> = OnceLock::new();
@@ -20,13 +20,12 @@ fn work_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(concat!("oracle-", env!("CARGO_CRATE_NAME")))
 }
 
-/// Builds the oracle on first use and returns its path. Fails the test if Go is missing
-/// (the protocol tests need Go).
+/// Builds the oracle on first use and returns its path; a failed build fails the test.
 fn binary() -> &'static Path {
     BINARY.get_or_init(|| {
         let dir = work_dir();
         create_dir(&dir);
-        go_build::build(&dir, "oracle")
+        build_go(&dir, "oracle").unwrap_or_else(|e| panic!("{e}"))
     })
 }
 
@@ -79,22 +78,6 @@ pub(crate) fn run(name: &str, args: &[&str], input: Option<&[Record]>) -> Vec<Re
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
-fn create_dir(path: &Path) {
-    std::fs::create_dir_all(path).expect("create the oracle directory");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
 fn read(path: &Path) -> Vec<u8> {
     std::fs::read(path).expect("read an oracle output file")
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn write(path: &Path, bytes: &[u8]) {
-    std::fs::write(path, bytes).expect("write an oracle input file");
 }

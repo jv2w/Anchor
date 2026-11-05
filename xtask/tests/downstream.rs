@@ -6,10 +6,19 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[expect(
+    dead_code,
+    reason = "consistency: the one test file layer, of which this test needs a part"
+)]
+#[path = "support/fs.rs"]
+mod fs;
+
 use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
+
+use fs::{create_dir, remove_dir, write};
 
 /// The repository root.
 fn root() -> &'static Path {
@@ -42,34 +51,6 @@ fn copies() -> Vec<String> {
     names
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn write(path: &Path, text: &str) {
-    std::fs::write(path, text).expect("write a test file");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn create_dir(path: &Path) {
-    std::fs::create_dir_all(path).expect("create a test directory");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn remove_dir(path: &Path) {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => panic!("remove {}: {e}", path.display()),
-    }
-}
-
 /// Resolves a fresh user project that depends on Anchor by path and returns `cargo metadata`.
 fn user_project_metadata() -> Value {
     // The OS temporary directory is outside the repository, so no Anchor manifest or
@@ -79,13 +60,14 @@ fn user_project_metadata() -> Value {
     create_dir(&dir.join("src"));
     write(
         &dir.join("Cargo.toml"),
-        &format!(
+        format!(
             "[package]\nname = \"user\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
              [dependencies]\nanchor = {{ path = '{}' }}\n",
             root().display()
-        ),
+        )
+        .as_bytes(),
     );
-    write(&dir.join("src").join("main.rs"), "fn main() {}\n");
+    write(&dir.join("src").join("main.rs"), b"fn main() {}\n");
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--offline"])
         .current_dir(&dir)

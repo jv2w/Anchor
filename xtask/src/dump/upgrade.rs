@@ -12,7 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{DUMP_SOURCE, PHP, create_dir, file_names, read, write};
+use super::{DUMP_SOURCE, PHP};
+use crate::fs::{create_dir, file_names, read, write};
 
 /// The legacy block ID map, in the source and inside [`OUT`].
 pub(crate) const BLOCK_LEGACY_IDS: &str = "block_legacy_id_map.json";

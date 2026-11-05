@@ -34,7 +34,7 @@ use anchor::player::Player;
 use anchor::world::{self, BlockPos};
 use anchor::{Context, effect, inventory};
 
-use crate::p6;
+use crate::{p6, say};
 
 /// The seconds an `effect` command without a duration lasts (the official server's default).
 const DEFAULT_EFFECT_SECONDS: u32 = 30;
@@ -219,14 +219,14 @@ impl Console {
             }
         }
         while let Ok(answer) = self.answers.try_recv() {
-            p6::say(out, &format!("note anchor form: {answer}"))?;
+            say(out, &format!("note anchor form: {answer}"))?;
         }
         for Report { line, result } in &late {
             let text = format!(
                 "note anchor console `{line}` answered after an earlier scenario gave up on it: \
                  {result:?}"
             );
-            p6::say(out, &text)?;
+            say(out, &text)?;
         }
         let mut ran = true;
         for Report { line, result } in &reports {
@@ -238,7 +238,7 @@ impl Console {
                     format!("FAIL anchor console `{line}`: {why}")
                 }
             };
-            p6::say(out, &text)?;
+            say(out, &text)?;
         }
         Ok(ran)
     }

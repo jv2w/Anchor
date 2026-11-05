@@ -26,7 +26,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::Mode;
-use crate::dump::{file_names, is_dir, read, read_if_exists, write};
+use crate::fs::{file_names, is_dir, read, read_if_exists, read_text, write};
 use status::{Kind, Rule};
 
 /// Where items carry aliases.
@@ -365,8 +365,7 @@ pub(crate) fn run(root: &Path, mode: Mode) -> Result<Report, String> {
         list.dedup();
     }
 
-    let status_text = String::from_utf8(read(&root.join(STATUS_PATH))?)
-        .map_err(|e| format!("{STATUS_PATH}: {e}"))?;
+    let status_text = read_text(&root.join(STATUS_PATH))?;
     let (rules, errors) = status::parse(&status_text);
     push_errors(&mut report.errors, STATUS_PATH, errors);
     // One error per missing target, at its first rule: a target the code lacks is one thing
@@ -581,8 +580,7 @@ pub(crate) fn sources(root: &Path, dirs: &[&str]) -> Result<Vec<(String, String)
     paths
         .into_iter()
         .map(|path| {
-            let bytes = read(&root.join(&path))?;
-            let text = String::from_utf8(bytes).map_err(|e| format!("{path}: {e}"))?;
+            let text = read_text(&root.join(&path))?;
             Ok((path, text))
         })
         .collect()

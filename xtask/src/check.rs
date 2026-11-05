@@ -25,10 +25,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 
-use crate::dump::{create_dir, git, is_file, read_if_exists, write};
+use crate::fs::{create_dir, is_dir, is_file, read_if_exists, write};
 use crate::table::{STATUS_PATH, sources};
 use crate::{
-    CLIPPY, DOC, DOC_PRIVATE, FMT, Mode, SOURCE_DIRS, cargo_step, say, step, table_command,
+    CLIPPY, DOC, DOC_PRIVATE, FMT, Mode, SOURCE_DIRS, cargo_step, git, report_error, say, step,
+    table_command,
 };
 
 /// The comments that mark a file the API table reads.
@@ -161,12 +162,20 @@ impl Plan {
     }
 }
 
-/// Runs the check, writing its lines and `PASS` or `FAIL` to `out`, and returns whether it
-/// passed.
+/// Runs the check, writing its lines and then `PASS` or `FAIL` to `out` (`FAIL` after an error
+/// line when it cannot run), and returns whether it passed.
 pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let passed = run(root, out).or_else(|e| report_error(out, &e))?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
+    Ok(passed)
+}
+
+/// Runs the check unless the tree is the same as at the last pass, writing its lines to `out`,
+/// remembers a pass, and returns whether it passed.
+fn run(root: &Path, out: &mut impl Write) -> Result<bool, String> {
     let before = Snapshot::take(root)?;
     if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
-        say(out, "unchanged since the last pass\nPASS")?;
+        say(out, "unchanged since the last pass")?;
         return Ok(true);
     }
     let passed = check(root, &before.files, &before.includes, out)?;
@@ -177,8 +186,8 @@ pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
     Ok(passed)
 }
 
-/// Runs the steps the changed `files` need, stopping at the first failure, and writes their
-/// lines and `PASS` or `FAIL` to `out`.
+/// Runs the steps the changed `files` need, stopping at the first failure, writes their lines to
+/// `out`, and returns whether they passed.
 fn check(
     root: &Path,
     files: &[String],
@@ -187,7 +196,7 @@ fn check(
 ) -> Result<bool, String> {
     let plan = Plan::new(root, files, includes)?;
     if !plan.code && !plan.table {
-        say(out, "no code changed\nPASS")?;
+        say(out, "no code changed")?;
         return Ok(true);
     }
     if plan.table
@@ -195,11 +204,9 @@ fn check(
             table_command(out, Mode::Check)
         })?
     {
-        say(out, "FAIL")?;
         return Ok(false);
     }
     if !plan.code {
-        say(out, "PASS")?;
         return Ok(true);
     }
     let mut steps: Vec<(Vec<String>, &str)> = vec![(args(FMT), TARGET), (args(CLIPPY), TARGET)];
@@ -211,11 +218,9 @@ fn check(
     for (cargo, target) in &steps {
         let cargo: Vec<&str> = cargo.iter().map(String::as_str).collect();
         if !cargo_step(out, &cargo, target)? {
-            say(out, "FAIL")?;
             return Ok(false);
         }
     }
-    say(out, "PASS")?;
     Ok(true)
 }
 
@@ -359,23 +364,19 @@ fn args(list: &[&str]) -> Vec<String> {
 /// The library module a source file (`rel`, without `src/`) is tested with: its own module when
 /// it has submodules, else the module that owns its directory, else a top-level module's own;
 /// `None` for the crate root, whose change runs every test.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
 fn module(root: &Path, rel: &str) -> Option<String> {
     let src = root.join("src");
     let stem = rel.strip_suffix(".rs").unwrap_or(rel);
     if stem == "lib" {
         return None;
     }
-    if src.join(stem).is_dir() {
+    if is_dir(&src.join(stem)) {
         return Some(stem.replace('/', "::"));
     }
     let mut dir = Path::new(stem).parent();
     while let Some(d) = dir.filter(|d| !d.as_os_str().is_empty()) {
         let name = d.to_string_lossy().replace('\\', "/");
-        if src.join(format!("{name}.rs")).is_file() {
+        if is_file(&src.join(format!("{name}.rs"))) {
             return Some(name.replace('/', "::"));
         }
         dir = d.parent();
@@ -452,7 +453,25 @@ fn write_stamp(root: &Path, stamp: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    use crate::fs::remove_dir;
     use crate::root;
+
+    /// A check that cannot run (its folder is no git checkout) writes its error and ends with
+    /// `FAIL`.
+    #[test]
+    fn a_check_that_cannot_run_ends_with_fail() {
+        let dir = std::env::temp_dir().join(format!("anchor-check-{}", std::process::id()));
+        create_dir(&dir).expect("dir");
+        let mut out = Vec::new();
+        let passed = command(&dir, &mut out);
+        remove_dir(&dir).expect("cleanup");
+        assert_eq!(passed, Ok(false));
+        let text = String::from_utf8_lossy(&out);
+        assert!(
+            text.starts_with("error: ") && text.ends_with("\nFAIL\n"),
+            "{text}"
+        );
+    }
 
     fn plan(files: &[&str]) -> Plan {
         let files: Vec<String> = files.iter().map(|f| (*f).to_owned()).collect();

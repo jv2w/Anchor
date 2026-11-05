@@ -39,6 +39,8 @@ use serde_json::Value;
 
 use super::compare::{self, Received, field};
 use super::game;
+use crate::fs::{create_dir, read_text, remove_dir, write};
+use crate::say;
 
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
@@ -242,7 +244,7 @@ pub(crate) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Resu
     let exe = super::official_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
-    super::say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
@@ -251,7 +253,7 @@ pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result
     let scenarios = super::pick_scenarios(args, &SCENARIOS, "API")?;
     let bot = super::build_bot(root)?;
     let passed = anchor_session(root, &bot, &scenarios, out)?;
-    super::say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
@@ -314,15 +316,15 @@ fn install_pack(pack: &Path, official: &Path) -> Result<(), String> {
     let target = official
         .join("development_behavior_packs")
         .join(FORMS_PACK_DIR);
-    super::remove_dir(&target)?;
+    remove_dir(&target)?;
     for file in FORMS_PACK_FILES {
         let to = target.join(file);
         if let Some(parent) = to.parent() {
-            super::create_dir(parent)?;
+            create_dir(parent)?;
         }
-        super::write(&to, super::read_text(&pack.join(file))?.as_bytes())?;
+        write(&to, read_text(&pack.join(file))?.as_bytes())?;
     }
-    let manifest: Value = serde_json::from_str(&super::read_text(&pack.join("manifest.json"))?)
+    let manifest: Value = serde_json::from_str(&read_text(&pack.join("manifest.json"))?)
         .map_err(|e| format!("{FORMS_PACK}/manifest.json: {e}"))?;
     let header = field(&manifest, "header");
     let entry = serde_json::json!([{
@@ -330,8 +332,8 @@ fn install_pack(pack: &Path, official: &Path) -> Result<(), String> {
         "version": field(header, "version"),
     }]);
     let world = official.join("worlds").join(super::LEVEL_NAME);
-    super::create_dir(&world)?;
-    super::write(
+    create_dir(&world)?;
+    write(
         &world.join("world_behavior_packs.json"),
         entry.to_string().as_bytes(),
     )
@@ -410,11 +412,8 @@ fn compare_scenarios(
     out: &mut impl Write,
 ) -> Result<bool, String> {
     let deferred = super::load_deferred(root)?;
-    let fields = compare::parse_fields(
-        &super::read_text(&root.join(compare::FIELDS_PATH))?,
-        &deferred,
-    )?;
-    let intended = parse_intended(&super::read_text(&root.join(INTENDED))?)
+    let fields = compare::parse_fields(&read_text(&root.join(compare::FIELDS_PATH))?, &deferred)?;
+    let intended = parse_intended(&read_text(&root.join(INTENDED))?)
         .map_err(|e| format!("{INTENDED}: {e}"))?;
     let mut same = true;
     let with_companions = scenarios
@@ -428,7 +427,7 @@ fn compare_scenarios(
         }
         let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
         let read = |dir: &Path| {
-            steps(&super::read_text(&capture(dir))?)
+            steps(&read_text(&capture(dir))?)
                 .map_err(|e| format!("{}: {e}", capture(dir).display()))
         };
         let checks_only = fields.only(&[]);
@@ -439,14 +438,14 @@ fn compare_scenarios(
         };
         let (differences, notes) = compare_steps(&read(a)?, &read(b)?, listed);
         for note in &notes {
-            super::say(out, &format!("note {scenario}: {note}"))?;
+            say(out, &format!("note {scenario}: {note}"))?;
         }
         let facts = FACTS_ONLY.contains(scenario);
         let mut differ = false;
         for d in &differences {
             let kind = match intended.reason(scenario, d) {
                 Some(reason) => {
-                    super::say(out, &format!("intended {scenario}: {d}\n  why: {reason}"))?;
+                    say(out, &format!("intended {scenario}: {d}\n  why: {reason}"))?;
                     continue;
                 }
                 None if facts => "note",
@@ -455,15 +454,15 @@ fn compare_scenarios(
                     "DIFFERENT"
                 }
             };
-            super::say(out, &format!("{kind} {scenario}: {d}"))?;
+            say(out, &format!("{kind} {scenario}: {d}"))?;
         }
         for unseen in intended.unseen(scenario, &differences) {
-            super::say(
+            say(
                 out,
                 &format!("note {scenario}: intended difference not found: {unseen}"),
             )?;
         }
-        super::say(
+        say(
             out,
             &format!(
                 "{} api {scenario}",
@@ -472,7 +471,7 @@ fn compare_scenarios(
         )?;
         same &= !differ;
     }
-    super::say(out, if same { "SAME" } else { "DIFFERENT" })?;
+    say(out, if same { "SAME" } else { "DIFFERENT" })?;
     Ok(same)
 }
 
@@ -572,9 +571,8 @@ fn write_reports(dir: &Path, scenario: &str, out: &mut impl Write) -> Result<boo
 /// Writes `<dir>/<scenario>.txt`, the report of the scenario's capture.
 fn write_report(dir: &Path, scenario: &str) -> Result<(), String> {
     let capture = dir.join(format!("{scenario}.jsonl"));
-    let steps =
-        steps(&super::read_text(&capture)?).map_err(|e| format!("{}: {e}", capture.display()))?;
-    super::write(
+    let steps = steps(&read_text(&capture)?).map_err(|e| format!("{}: {e}", capture.display()))?;
+    write(
         &dir.join(format!("{scenario}.txt")),
         report(&steps).as_bytes(),
     )
@@ -1032,12 +1030,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-p6-api-{}", std::process::id()));
         let (a, b) = (dir.join("a"), dir.join("b"));
         for (d, scenario) in [(&a, "commands"), (&b, "commands"), (&a, "kick")] {
-            p6::create_dir(d).expect("dir");
-            p6::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+            create_dir(d).expect("dir");
+            write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
         }
         let mut out = Vec::new();
         let same = compare_scenarios(&crate::root(), &a, &b, &["commands", "kick"], &mut out);
-        p6::remove_dir(&dir).expect("cleanup");
+        remove_dir(&dir).expect("cleanup");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(report.contains("DIFFERENT kick: no capture in"), "{report}");

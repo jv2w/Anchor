@@ -34,12 +34,14 @@ use anchor::protocol::consts::SubChunkResult;
 use serde_json::Value;
 
 use super::api::{INTENDED, parse_intended};
+use super::compare::field;
 use super::{
-    OUT_DIR, OfficialSession, anchor_config, block_states, build_bot, create_dir, field,
-    install_log, official_exe, official_session_with, read_text, remove_dir, run_anchor, run_bot,
-    say, state_text,
+    OUT_DIR, OfficialSession, anchor_config, block_states, build_bot, install_log, official_exe,
+    official_session_with, run_anchor, run_bot, state_text,
 };
+use crate::fs::{copy_dir, create_dir, read_text, remove_dir};
 use crate::r#gen::data::Data;
+use crate::say;
 
 /// Blocks in a sub-chunk layer.
 const BLOCKS: usize = 4096;
@@ -524,25 +526,6 @@ fn excuse(
         }
     }
     None
-}
-
-/// Copies the folder `from` with everything in it to `to`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
-    create_dir(to)?;
-    for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
-        let entry = entry.map_err(|e| format!("{}: {e}", from.display()))?;
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
-        if source.is_dir() {
-            copy_dir(&source, &target)?;
-        } else {
-            std::fs::copy(&source, &target).map_err(|e| format!("{}: {e}", source.display()))?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

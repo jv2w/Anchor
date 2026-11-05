@@ -17,6 +17,10 @@
 
 #[path = "support/bot.rs"]
 mod bot;
+#[path = "support/fs.rs"]
+mod fs;
+#[path = "../src/process.rs"]
+mod process;
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -35,6 +39,8 @@ use serde_json::Value;
 use tracing::field::{Field, Visit};
 use tracing::level_filters::LevelFilter;
 use tracing::{Event, Level, Metadata, Subscriber, span};
+
+use fs::{create_dir, read, remove_dir, write};
 
 /// Cycles of the NetherNet session cycle test.
 const CYCLES: usize = 5;
@@ -988,44 +994,11 @@ fn spawn<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> JoinHandl
     clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
-fn create_dir(path: &Path) {
-    std::fs::create_dir_all(path).expect("create a test directory");
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn remove_dir(path: &Path) {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => panic!("remove {}: {e}", path.display()),
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
 fn remove_file(path: &Path) {
     match std::fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => panic!("remove {}: {e}", path.display()),
-    }
-}
-
-/// The text of the file at `path`; empty while the bot has not created it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn read(path: &Path) -> String {
-    match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => panic!("read {}: {e}", path.display()),
     }
 }
 
@@ -1111,12 +1084,10 @@ fn pack_bytes(uuid: &str, size: usize) -> Vec<u8> {
 fn the_bot_downloads_the_resource_packs_over_both_transports() {
     let dir = data_dir("packs");
     let file = dir.join("a.zip");
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    std::fs::write(
+    write(
         &file,
-        pack_bytes("6f1d9c2a-3b4e-4f50-8a61-7c2d3e4f5a6b", 400_000),
-    )
-    .unwrap();
+        &pack_bytes("6f1d9c2a-3b4e-4f50-8a61-7c2d3e4f5a6b", 400_000),
+    );
     let mut config = config(Compression::Snappy);
     config.general.resource_packs = vec![file];
     config.general.force_resources = true;

@@ -36,7 +36,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::Mode;
-use crate::dump::{REFERENCE_DIR, create_dir, limits, read, read_if_exists, write};
+use crate::dump::{REFERENCE_DIR, limits};
+use crate::fs::{create_dir, read, read_if_exists, write};
 
 /// The IR, relative to the repository root.
 const IR_PATH: &str = "xtask/data/protocol.json";

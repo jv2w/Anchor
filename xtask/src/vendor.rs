@@ -11,7 +11,7 @@ use std::process::Command;
 use serde::Deserialize;
 
 use crate::dump::upgrade::{hex, sha256};
-use crate::dump::{create_dir, is_file, read, remove_file, rename, write};
+use crate::fs::{create_dir, is_file, read, read_text, remove_file, rename, write};
 use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO, VERIFY_TARGET, cargo, target_dir};
 
 /// The download cache, git-ignored.
@@ -38,7 +38,7 @@ struct Git {
 pub(crate) fn str0m(root: &Path) -> Result<bool, String> {
     let vcs: VcsInfo = serde_json::from_slice(&read(&root.join(VCS_INFO))?)
         .map_err(|e| format!("{VCS_INFO}: {e}"))?;
-    let list = String::from_utf8(read(&root.join(LIST))?).map_err(|e| format!("{LIST}: {e}"))?;
+    let list = read_text(&root.join(LIST))?;
     let cache = root.join(CACHE);
     create_dir(&cache)?;
     let mut files = Vec::new();

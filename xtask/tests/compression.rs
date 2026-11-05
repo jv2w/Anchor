@@ -4,8 +4,16 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[expect(
+    dead_code,
+    reason = "consistency: the one test file layer, of which the oracle needs a part"
+)]
+#[path = "support/fs.rs"]
+mod fs;
 #[path = "support/oracle.rs"]
 mod oracle;
+#[path = "../src/process.rs"]
+mod process;
 #[path = "../../tests/support/rng.rs"]
 mod rng;
 
