@@ -264,7 +264,7 @@ pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
 /// user's data values included (`task::save_player`).
 #[expect(
     clippy::expect_used,
-    reason = "invariant: a world keeps its index for the whole run, unloaded too"
+    reason = "invariant: a player is in a loaded world, which no other world replaces at its place"
 )]
 pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
     PlayerData {
@@ -600,15 +600,16 @@ pub(super) fn load_failed() {
 
 /// The file of the world at `index` did not open on the save thread: the world unloads, and
 /// loading it again tries its file again, so the failure shows to the program that loaded it.
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: the save thread names a world the tick sent it"
-)]
 pub(super) fn world_open_failed(state: &mut State, index: WorldIndex) {
-    let world = state
+    // A world gone since the answer was sent (deleted, made temporary, or its place taken by
+    // another world) has no file to try again.
+    let Some(world) = state
         .worlds
         .get(index)
-        .expect("a world the save thread names is one of the worlds");
+        .filter(|w| w.kind() == Kind::Persistent)
+    else {
+        return;
+    };
     warn!(
         world = world.name(),
         "world file did not open; unloading the world"
@@ -928,6 +929,31 @@ mod tests {
             .load_world("arena", &options)
             .unwrap();
         assert_eq!(crate::tick::world_api::take_new_worlds(&mut state).len(), 1);
+    }
+
+    /// The failed open of a world's file, heard after the world was deleted and another world
+    /// took its place, changes nothing: the world in the place stays loaded.
+    #[test]
+    fn a_late_open_failure_of_a_world_gone_leaves_the_world_in_its_place() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let options = crate::world::Options::new();
+        let old = Context { state: &mut state }
+            .create_world("arena", &options)
+            .unwrap();
+        tick(&mut state, &mut Vec::new(), &mut output);
+        Context { state: &mut state }.unload_world(old).unwrap();
+        tick(&mut state, &mut Vec::new(), &mut output);
+        let mut cx = Context { state: &mut state };
+        cx.delete_world("arena").unwrap();
+        let new = cx.create_world("lobby", &options).unwrap();
+        assert_eq!(
+            crate::save::place(new.index()),
+            crate::save::place(old.index())
+        );
+        world_open_failed(&mut state, old.index());
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(Context { state: &mut state }.is_world_loaded("lobby"));
     }
 
     // api: WorldSaveEvent, WorldEvent::getWorld

@@ -949,7 +949,7 @@ impl World {
     }
 
     /// Makes an unloaded persistent world temporary when it is deleted: nothing of it is saved
-    /// again, and a world of its name may be made in its place.
+    /// again, and a new world may take its place.
     pub(crate) fn forget(&mut self) {
         self.kind = Kind::Temporary;
         self.number = None;

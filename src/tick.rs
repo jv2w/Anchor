@@ -66,7 +66,7 @@ use crate::protocol::Uuid;
 use crate::protocol::consts::DisconnectReason;
 use crate::protocol::packet::{Disconnect, Packet};
 use crate::random::Fnv;
-use crate::save::{Request, Response, WorldIndex, place};
+use crate::save::{Request, Response, WorldIndex};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
 use queue::{Identity, Input, InputKind, InputReceiver, LeaveReason, Message, Outbound, SessionId};
@@ -504,7 +504,7 @@ impl State {
     /// Whether world `world` runs its world rules this tick: its time, block updates, block
     /// entities and light (`slow-empty-worlds`, [`wake`]). Server tasks and events always run.
     pub(crate) fn is_awake(&self, world: WorldIndex) -> bool {
-        self.awake.get(place(world)) != Some(&Pace::Asleep)
+        self.awake.get(crate::save::place(world)) != Some(&Pace::Asleep)
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -678,9 +678,9 @@ pub(crate) struct Settings {
     global_view: ViewLimits,
     /// The view values of the worlds with `[worlds.<name>]` values, by name.
     named_views: BTreeMap<String, ViewLimits>,
-    /// The view values of the worlds the server started with, by index ([`State::new`]), and
-    /// of the worlds made or loaded since, from their options (`Context::create_world`,
-    /// `Context::load_world`).
+    /// The view values of each place's world, by place: of the worlds the server started with
+    /// ([`State::new`]), and of the worlds made or loaded since, from their options
+    /// (`Context::create_world`, `Context::load_world`).
     world_views: Vec<ViewLimits>,
     max_players: u32,
     shutdown_message: String,
@@ -806,7 +806,7 @@ impl Settings {
     /// options' values over the global ones.
     pub(crate) fn view(&self, world: WorldIndex) -> ViewLimits {
         self.world_views
-            .get(place(world))
+            .get(crate::save::place(world))
             .copied()
             .unwrap_or(self.view)
     }
@@ -1428,8 +1428,10 @@ fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
     mark(Part::Trade);
     block_entity::tick(state);
     mark(Part::BlockEntity);
-    for world in state.worlds.iter_mut() {
-        if state.awake.get(place(world.id().index())) != Some(&Pace::Asleep) {
+    for at in 0..state.worlds.len() {
+        if let Some(index) = state.worlds.index_at(at).filter(|&w| state.is_awake(w))
+            && let Some(world) = state.worlds.get_mut(index)
+        {
             world.step_light(LIGHT_BUDGET);
         }
     }
@@ -1460,7 +1462,7 @@ fn wake(state: &mut State) {
             }
         }));
     for player in state.players.values() {
-        if let Some(pace) = state.awake.get_mut(place(player.world)) {
+        if let Some(pace) = state.awake.get_mut(crate::save::place(player.world)) {
             *pace = Pace::Every;
         }
     }

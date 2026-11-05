@@ -578,7 +578,7 @@ pub(super) struct Chunks {
     pub(super) discarded: Vec<Chunk>,
     /// The extras of the loaded chunks.
     pub(super) extras: Extras,
-    /// The spawn whose 3 × 3 chunks are held for each world, by world index: the world's spawn,
+    /// The spawn whose 3 × 3 chunks are held for each place's world, by place: the world's spawn,
     /// or its old one until the view phase moves the hold ([`move_spawns`]).
     spawns: Vec<BlockPos>,
     /// The chunk events someone listens to, fixed when the server is built ([`hold_spawns`]).
@@ -773,7 +773,13 @@ impl Chunks {
             && self.stale.is_empty()
     }
 
-    /// The chunk positions some view has ([`Self::viewers`]), for leak tests.
+    /// The places whose spawn is noted ([`Self::spawns`]), for leak tests.
+    #[cfg(test)]
+    pub(super) fn spawns_held(&self) -> usize {
+        self.spawns.len()
+    }
+
+    /// The chunks some view has, of every world ([`Self::viewers`]), for leak tests.
     #[cfg(test)]
     pub(super) fn viewed(&self) -> usize {
         self.viewers.len()
@@ -1201,8 +1207,8 @@ fn unload(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, saving: &
     }
 }
 
-/// Numbers the worlds by their place in the list ([`World::id`]) and holds the spawn chunks of
-/// every world (3 × 3 around the spawn), so they stay loaded without players.
+/// Holds the spawn chunks of every world (3 × 3 around the spawn), so they stay loaded without
+/// players.
 ///
 /// It also notes which chunk events someone listens to: listeners are fixed when the server is
 /// built, and the chunk code that runs on split borrows of the state cannot ask.

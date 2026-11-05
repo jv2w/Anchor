@@ -107,6 +107,7 @@ use super::interact::drops::level as level_of;
 use super::interact::level_event;
 use super::survival::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::view::{Key, View, chunk_of};
+use super::world_api::Worlds;
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, inventory, survival};
 use crate::block::{self, Class};
 use crate::config::GameMode;
@@ -2141,7 +2142,7 @@ fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
 }
 
 /// The movement of `e` this tick, from its state now; `None` if its world is gone.
-fn step_of(worlds: &super::world_api::Worlds, tick: u64, e: &Entity) -> Option<Step> {
+fn step_of(worlds: &Worlds, tick: u64, e: &Entity) -> Option<Step> {
     let world = worlds.get(e.world)?;
     let key = random::key(UNSTICK_RANDOM, &[e.runtime_id]);
     let stuck = match &e.kind {

@@ -1013,13 +1013,13 @@ variants!(super::Phase {
 pub(crate) struct Checkpoint {
     /// The engine tick of the state: the first tick a replay from it applies.
     tick: u64,
-    /// The worlds the server had, loaded or not, by world index: a replay makes the same ones.
+    /// The worlds the server had, loaded or not, by place: a replay makes the same ones.
     worlds: Vec<super::world_api::WorldSlot>,
-    /// Each world's plain fields, by world index.
+    /// Each world's plain fields, by place.
     saved: Vec<world::Saved>,
     /// The rest of the state, encoded.
     body: Vec<u8>,
-    /// Each world's light work and loaded chunks, by world index, and the unloaded chunks
+    /// Each world's light work and loaded chunks, by place, and the unloaded chunks
     /// waiting for a commit: shared with the state until they change, encoded when a crash log
     /// is written.
     kept: Vec<world::Kept>,
@@ -1046,9 +1046,10 @@ impl Checkpoint {
 
     /// The loaded chunks, whose terrain and extras a replay reads from the data files.
     pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
-        (0..)
+        self.worlds
+            .iter()
             .zip(&self.saved)
-            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w, p)))
+            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w.index, p)))
     }
 
     /// What has no checkpoint form, if anything.
@@ -1056,7 +1057,7 @@ impl Checkpoint {
         self.opaque.as_deref()
     }
 
-    /// The seed of each world, by world index.
+    /// The seed of each world, by place.
     pub(crate) fn seeds(&self) -> impl Iterator<Item = i64> + '_ {
         self.saved.iter().map(|s| s.seed)
     }
@@ -1089,7 +1090,7 @@ impl Checkpoint {
         self.unsaved.iter().map(|(k, _)| *k)
     }
 
-    /// The worlds the server had, loaded or not, by world index.
+    /// The worlds the server had, loaded or not, by place.
     pub(crate) fn worlds(&self) -> &[super::world_api::WorldSlot] {
         &self.worlds
     }
@@ -1515,8 +1516,12 @@ pub(super) mod tests {
             );
             return false;
         }
+        // Only the chunks the checkpoint names get their extras, as a replay reads them.
+        let mut stored = extras_of(state);
+        let named: BTreeSet<Key> = read.loaded().chain(read.unsaved()).collect();
+        stored.retain(|key, _| named.contains(key));
         fresh
-            .restore(&read, extras_of(state), |_| outbound_queue_sender())
+            .restore(&read, stored, |_| outbound_queue_sender())
             .expect("a checkpoint restores");
         assert_eq!(fresh.hash(), state.hash(), "the restored state's hash");
         assert!(fresh.index_matches_players());

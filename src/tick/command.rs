@@ -1570,7 +1570,7 @@ fn origin(state: &State, sender: Sender) -> Option<(usize, Vec3)> {
             .map(|p| (p.world().index(), p.position())),
         Sender::Console => {
             let default = state.catalog.default_world();
-            let spawn = state.worlds.get(default)?.spawn();
+            let spawn = super::world_api::world_at(state, default).spawn();
             Some((
                 default,
                 Vec3::new(f64::from(spawn.x), f64::from(spawn.y), f64::from(spawn.z)),

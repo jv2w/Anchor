@@ -28,16 +28,16 @@ use tracing::info;
 use crate::config::Difficulty;
 use crate::event::{WorldInit, WorldLoad, WorldUnload};
 use crate::protocol::packet::{Packet, SetDifficulty};
-use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
+use crate::save::{DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
 use crate::storage::{MAX_WORLDS, world_name_key};
 use crate::tick::checkpoint::{self, Codec};
 use crate::tick::{Context, Settings, State, dispatch, player, survival, view};
 use crate::world::{self, ChunkPos, Generators, Kind, World};
 
-/// The worlds the server had this run, each at its place ([`save::place`]), loaded or not. A
-/// world is found by its index, which no world that takes its place later shares.
-#[derive(Debug, Default)]
+/// The worlds the server had this run, each at its place ([`crate::save::place`]), loaded or not.
+/// A world is found by its index, which no world that takes its place later shares.
+#[derive(Debug)]
 pub(in crate::tick) struct Worlds(Vec<World>);
 
 impl Worlds {
@@ -52,7 +52,7 @@ impl Worlds {
     /// The world at `index`.
     pub(in crate::tick) fn get(&self, index: WorldIndex) -> Option<&World> {
         self.0
-            .get(save::place(index))
+            .get(crate::save::place(index))
             .filter(|w| w.id().index() == index)
     }
 
@@ -74,7 +74,7 @@ impl Worlds {
     /// The world at `index`, to change it.
     pub(in crate::tick) fn get_mut(&mut self, index: WorldIndex) -> Option<&mut World> {
         self.0
-            .get_mut(save::place(index))
+            .get_mut(crate::save::place(index))
             .filter(|w| w.id().index() == index)
     }
 
@@ -86,7 +86,7 @@ impl Worlds {
     /// Puts `world` at the place of its index: the next place, or the place of a world it
     /// replaces.
     fn put(&mut self, world: World) {
-        match self.0.get_mut(save::place(world.id().index())) {
+        match self.0.get_mut(crate::save::place(world.id().index())) {
             Some(slot) => *slot = world,
             None => self.0.push(world),
         }
@@ -112,10 +112,10 @@ impl std::ops::IndexMut<WorldIndex> for Worlds {
 /// What the tick knows of its worlds besides the [`World`]s themselves.
 #[derive(Debug, Default)]
 pub(in crate::tick) struct Catalog {
-    /// The indexes of the loaded worlds.
-    loaded: BTreeSet<WorldIndex>,
-    /// Each world's index by [`world_name_key`] of its name, loaded or not: derived from the
-    /// worlds (a place keeps its name until a new world takes it), so neither saved nor hashed.
+    /// The index of the world at each place if it is loaded, `None` if it is not.
+    loaded: Vec<Option<WorldIndex>>,
+    /// The index of each world not gone (loaded, or persistent and not deleted) by
+    /// [`world_name_key`] of its name: derived from the worlds, so neither saved nor hashed.
     names: BTreeMap<String, WorldIndex>,
     /// The places a new world may take: those of temporary worlds unloaded and persistent ones
     /// deleted, while the place has an index left ([`next_index`]). Derived from the worlds, so
@@ -125,7 +125,7 @@ pub(in crate::tick) struct Catalog {
     /// [`world_name_key`] of their name: the name of their file and their record.
     stored: BTreeMap<String, (String, WorldRecord)>,
     /// The world files the server file held at start that are no world of the run
-    /// ([`save::Catalog::left_out`]): they count toward [`MAX_WORLDS`].
+    /// ([`crate::save::Catalog::left_out`]): they count toward [`MAX_WORLDS`].
     left_out: usize,
     /// The `chunks` key number of the next new persistent world.
     next_number: u32,
@@ -150,7 +150,7 @@ impl Catalog {
     /// server file's part comes with [`State::open_worlds`].
     pub(in crate::tick) fn new(worlds: &Worlds, generators: Generators) -> Self {
         Self {
-            loaded: worlds.iter().map(|w| w.id().index()).collect(),
+            loaded: worlds.iter().map(|w| Some(w.id().index())).collect(),
             names: worlds
                 .iter()
                 .map(|w| (world_name_key(w.name()), w.id().index()))
@@ -211,8 +211,8 @@ impl Catalog {
             deleted,
             generators: _,
         } = self;
-        h.usize(loaded.len());
-        for &i in loaded {
+        h.usize(loaded.iter().flatten().count());
+        for &i in loaded.iter().flatten() {
             h.usize(i);
         }
         h.usize(stored.len());
@@ -253,11 +253,11 @@ impl Catalog {
 
     /// Whether the world at `index` is loaded.
     pub(in crate::tick) fn is_loaded(&self, index: WorldIndex) -> bool {
-        self.loaded.contains(&index)
+        self.loaded.get(crate::save::place(index)) == Some(&Some(index))
     }
 
-    /// The index of the world named `name`, in any letter case, the server has had this run,
-    /// loaded or not.
+    /// The index of the world named `name`, in any letter case, that the server has and that is
+    /// not gone, loaded or not.
     pub(in crate::tick) fn named(&self, name: &str) -> Option<WorldIndex> {
         self.names.get(&world_name_key(name)).copied()
     }
@@ -282,15 +282,17 @@ impl Catalog {
         r: &mut checkpoint::Reader<'_>,
         slots: &[WorldSlot],
     ) -> checkpoint::Result<()> {
-        self.loaded = slots.iter().filter(|s| s.loaded).map(|s| s.index).collect();
+        // The checkpoint keeps each world at its place.
+        self.loaded = slots.iter().map(|s| s.loaded.then_some(s.index)).collect();
         self.names = slots
             .iter()
+            .filter(|s| !s.is_gone())
             .map(|s| (world_name_key(&s.name), s.index))
             .collect();
         self.free = slots
             .iter()
-            .filter(|s| !s.loaded && s.kind == Kind::Temporary && next_index(s.index).is_some())
-            .map(|s| save::place(s.index))
+            .filter(|s| s.is_gone() && next_index(s.index).is_some())
+            .map(|s| crate::save::place(s.index))
             .collect();
         self.stored = Codec::decode(r)?;
         self.left_out = Codec::decode(r)?;
@@ -307,11 +309,29 @@ impl Catalog {
         Ok(())
     }
 
-    /// Notes that the world at `index`, which no world holds after it, is gone: a new world may
-    /// take its place if the place has an index left.
-    fn note_gone(&mut self, index: WorldIndex) {
+    /// Notes that the world at `index`, named `name`, is gone: its name names no world, and a new
+    /// world may take its place if the place has an index left.
+    fn note_gone(&mut self, index: WorldIndex, name: &str) {
+        self.names.remove(&world_name_key(name));
         if next_index(index).is_some() {
-            self.free.insert(save::place(index));
+            self.free.insert(crate::save::place(index));
+        }
+    }
+
+    /// Notes that the world at `index` is loaded: at its place, or at the next place for a new
+    /// one.
+    fn mark_loaded(&mut self, index: WorldIndex) {
+        match self.loaded.get_mut(crate::save::place(index)) {
+            Some(slot) => *slot = Some(index),
+            // Places are taken in order, so a new one is the next.
+            None => self.loaded.push(Some(index)),
+        }
+    }
+
+    /// Notes that the world at `index` is not loaded.
+    fn mark_unloaded(&mut self, index: WorldIndex) {
+        if let Some(slot) = self.loaded.get_mut(crate::save::place(index)) {
+            *slot = None;
         }
     }
 }
@@ -339,6 +359,14 @@ pub(crate) struct WorldSlot {
     pub(crate) kind: Kind,
     pub(crate) generator: String,
     loaded: bool,
+}
+
+impl WorldSlot {
+    /// Whether the world is gone: a temporary world unloaded or a persistent world deleted (made
+    /// temporary), whose place a new world may take.
+    fn is_gone(&self) -> bool {
+        !self.loaded && self.kind == Kind::Temporary
+    }
 }
 
 checkpoint::fields!(WorldSlot {
@@ -463,7 +491,7 @@ impl Context<'_> {
             chunks.discarded.extend(unsaved.map(|(_, u)| u.chunk));
             super::world_at_mut(state, i).forget();
             state.catalog.unopened.remove(&i);
-            state.catalog.note_gone(i);
+            state.catalog.note_gone(i, name);
         }
         state.catalog.deleted.push(DeletedWorld {
             name: name.to_owned(),
@@ -532,7 +560,7 @@ impl Context<'_> {
             return Err(world::Error::Full);
         };
         let mut world = make_world(file_name, Kind::Persistent, generator.as_ref(), options);
-        save::resume(&mut world, *record)?;
+        crate::save::resume(&mut world, *record)?;
         state.catalog.stored.remove(&key);
         Ok(install(state, index, world, options, false))
     }
@@ -652,8 +680,8 @@ checkpoint::variants!(Kind {
 impl State {
     /// Gives the state what the server file says of the worlds it does not start with: the
     /// persistent worlds it may load, the world files it left out, and the next world number.
-    pub(crate) fn open_worlds(&mut self, catalog: save::Catalog) {
-        let save::Catalog {
+    pub(crate) fn open_worlds(&mut self, catalog: crate::save::Catalog) {
+        let crate::save::Catalog {
             stored,
             next_number,
             left_out,
@@ -678,7 +706,7 @@ impl State {
             .names
             .insert(world_name_key(world.name()), index);
         self.worlds.put(world);
-        self.catalog.loaded.insert(index);
+        self.catalog.mark_loaded(index);
         self.settings.world_views.push(self.settings.view);
     }
 }
@@ -772,13 +800,16 @@ fn unload(state: &mut State, index: WorldIndex) {
     }
     player::redirect_teleports(state, index, default, eye);
     view::unload_world(state, index);
-    state.catalog.loaded.remove(&index);
+    state.catalog.mark_unloaded(index);
     let world = super::world_at_mut(state, index);
     world.clear();
     info!(world = world.name(), kind = ?world.kind(), "world unloaded");
     match world.kind() {
         Kind::Persistent => state.saving.requested = true,
-        Kind::Temporary => state.catalog.note_gone(index),
+        Kind::Temporary => {
+            let name = world.name().to_owned();
+            state.catalog.note_gone(index, &name);
+        }
     }
 }
 
@@ -898,15 +929,15 @@ fn make_world(
     generator: &dyn world::Generator,
     options: &world::Options,
 ) -> World {
-    let mut world = save::new_world(name, kind, generator, options.seed(), options.spawn());
+    let mut world = crate::save::new_world(name, kind, generator, options.seed(), options.spawn());
     world.set_generator(generator.name());
     world.set_difficulty(options.difficulty());
     world
 }
 
-/// Puts `world` at `index` ([`new_index`]: the next place, or the place of a world gone, whose
-/// name then names no world), loaded, with the view values of `options`; the save thread hears of
-/// it before its first load, and the view phase raises its events. Holds its spawn chunks.
+/// Puts `world` at `index` ([`new_index`]: the next place, or the place of a world gone), loaded,
+/// with the view values of `options`; the save thread hears of it before its first load, and the
+/// view phase raises its events. Holds its spawn chunks.
 fn install(
     state: &mut State,
     index: WorldIndex,
@@ -918,17 +949,10 @@ fn install(
     world.set_id(id);
     world.set_lighting(state.settings.light_mode());
     set_view(state, index, options);
-    let at = save::place(index);
     let catalog = &mut state.catalog;
-    if catalog.free.remove(&at)
-        && let Some(gone) = state.worlds.index_at(at)
-        && let Some(name) = state.worlds.get(gone).map(|w| world_name_key(w.name()))
-        && catalog.names.get(&name) == Some(&gone)
-    {
-        catalog.names.remove(&name);
-    }
+    catalog.free.remove(&crate::save::place(index));
     catalog.names.insert(world_name_key(world.name()), index);
-    catalog.loaded.insert(index);
+    catalog.mark_loaded(index);
     state.worlds.put(world);
     state.catalog.pending.push(index);
     state.catalog.announced.push((index, made));
@@ -940,26 +964,19 @@ fn install(
 fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
     let settings = &mut state.settings;
     let view = settings.global_view.apply(&options.settings());
-    match settings.world_views.get_mut(save::place(index)) {
+    match settings.world_views.get_mut(crate::save::place(index)) {
         Some(slot) => *slot = view,
         // Every place has view values, and a new place is the next one.
         None => settings.world_views.push(view),
     }
 }
 
-/// Notes that the file of the world at `index` did not open on the save thread, and unloads the
-/// world at the next view phase; loading it again makes the save thread try its file again.
+/// Notes that the file of the world at `index`, a persistent world of the server, did not open on
+/// the save thread, and unloads the world at the next view phase; loading it again makes the save
+/// thread try its file again.
 pub(in crate::tick) fn open_failed(state: &mut State, index: WorldIndex) {
-    // A world deleted since (made temporary, its place free for another world) has no file to
-    // try again.
-    if state
-        .worlds
-        .get(index)
-        .is_some_and(|w| w.kind() == Kind::Persistent)
-    {
-        state.catalog.unopened.insert(index);
-        state.catalog.unloads.insert(index, Unload::Forced);
-    }
+    state.catalog.unopened.insert(index);
+    state.catalog.unloads.insert(index, Unload::Forced);
 }
 
 /// Loads again the world at `index`, unloaded: the save thread still has it, unless its file did
@@ -968,7 +985,7 @@ fn reload(state: &mut State, index: WorldIndex) -> world::Id {
     if state.catalog.unopened.remove(&index) {
         state.catalog.pending.push(index);
     }
-    state.catalog.loaded.insert(index);
+    state.catalog.mark_loaded(index);
     state.catalog.announced.push((index, false));
     view::hold_world(state, index);
     world::Id::of(index)

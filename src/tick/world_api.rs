@@ -54,12 +54,10 @@ impl Context<'_> {
         world: world::Id,
         chunk: ChunkPos,
     ) -> impl Iterator<Item = player::Id> + '_ {
-        let w = index(self.state, world);
-        self.state
-            .players
-            .iter()
-            .filter(move |(_, p)| Some(p.world) == w && p.view.can_see(chunk))
-            .map(|(&s, _)| player::Id::new(s))
+        index(self.state, world)
+            .into_iter()
+            .flat_map(move |w| self.state.chunk_viewers(w, chunk))
+            .map(player::Id::new)
     }
 
     /// The players in `world` who have their saved data (joining or spawned), in `Id` order;

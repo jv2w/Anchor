@@ -268,7 +268,10 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     let old = id;
     let id = cx.create_world("arena", &arena(4)).unwrap();
     assert_ne!(id, old);
-    assert_eq!(save::place(id.index()), save::place(old.index()));
+    assert_eq!(
+        crate::save::place(id.index()),
+        crate::save::place(old.index())
+    );
     // The default world moves; the settings' world may unload then.
     CANCEL.set(false);
     assert_eq!(cx.set_default_world(id), Ok(()));
@@ -889,6 +892,11 @@ fn tables(state: &State) -> Vec<usize> {
         state.catalog.announced.len(),
         state.catalog.unloads.len(),
         state.worlds.len(),
+        state.chunks.viewed(),
+        state.chunks.spawns_held(),
+        state.clock.worlds_len(),
+        state.settings.world_views.len(),
+        state.awake.len(),
     ];
     let (a, b, c) = state.rules.block_entities.sizes();
     sizes.extend([a, b, c]);
@@ -929,7 +937,10 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         let start = tables(&state);
         let mut cx = context(&mut state);
         let again = cx.create_world("arena", &arena(round)).unwrap();
-        assert_eq!(save::place(again.index()), save::place(id.index()));
+        assert_eq!(
+            crate::save::place(again.index()),
+            crate::save::place(id.index())
+        );
         id = again;
         assert_eq!(cx.load_world("lobby", &Options::new()), Ok(lobby));
         let ticket = cx.hold_chunks(lobby, FAR, 1).unwrap();
@@ -993,7 +1004,10 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
     let mut cx = context(&mut state);
     let new = cx.create_world("arena-2", &arena(2)).unwrap();
     assert_ne!(new, old);
-    assert_eq!(save::place(new.index()), save::place(old.index()));
+    assert_eq!(
+        crate::save::place(new.index()),
+        crate::save::place(old.index())
+    );
     assert!(cx.world(old).is_none());
     assert_eq!(cx.unload_world(old), Err(world::Error::WorldNotLoaded));
     assert_eq!(cx.world(new).map(World::name), Some("arena-2"));
@@ -1010,7 +1024,10 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
     cx.delete_world("lobby").unwrap();
     let after = cx.create_world("arena-3", &arena(3)).unwrap();
     assert_ne!(after, lobby);
-    assert_eq!(save::place(after.index()), save::place(lobby.index()));
+    assert_eq!(
+        crate::save::place(after.index()),
+        crate::save::place(lobby.index())
+    );
     assert!(cx.world(lobby).is_none());
     ticks(&mut state, &mut output, 2);
     let w = &state.worlds[after.index()];
@@ -1022,16 +1039,25 @@ fn a_world_made_in_the_place_of_one_gone_has_an_id_of_its_own() {
 }
 
 /// A run makes and unloads far more temporary worlds, each under a name of its own, than the
-/// world list has places: each takes the place of one gone, and every table returns to its size.
+/// world list has places, a player seeing each: each takes the place of one gone, the player sees
+/// only the chunks of its own world, and every table returns to its size.
 #[test]
 fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() {
     let (mut state, mut output, _rx) = server(Listeners::default());
+    let player = crate::player::Id::new(SessionId::new(1));
     let cycle = |state: &mut State, output: &mut Output, i: usize| {
         let options = arena(1).with_generator("void");
         let id = context(state)
             .create_world(&format!("arena-{i}"), &options)
             .unwrap();
         tick(state, &mut Vec::new(), output);
+        let eye = on_spawn(state, id.index());
+        context(state).teleport(player, id, eye).unwrap();
+        tick(state, &mut Vec::new(), output);
+        let spawn = (id.index(), state.worlds[id.index()].spawn().chunk());
+        assert!(state.chunks.viewers_of(spawn).eq([player.session()]));
+        assert!(state.index_matches_players());
+        // The unload sends the player to the default world.
         context(state).unload_world(id).unwrap();
         tick(state, &mut Vec::new(), output);
     };
@@ -1053,6 +1079,102 @@ fn temporary_worlds_past_the_places_of_the_list_take_the_places_of_those_gone() 
     );
     assert_eq!(end, start);
     assert_eq!(state.worlds.len(), 2);
+}
+
+/// A checkpoint of a world in the place of one gone, with chunks loaded, restores as a replay
+/// restores it: the chunks it names are those of the world's own index.
+#[test]
+fn a_checkpoint_of_a_world_in_the_place_of_one_gone_restores() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let old = context(&mut state)
+        .create_world("arena-1", &arena(1))
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    context(&mut state).unload_world(old).unwrap();
+    ticks(&mut state, &mut output, 2);
+    let new = context(&mut state)
+        .create_world("arena-2", &arena(2))
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    assert!(new.index() >= MAX_WORLDS);
+    let w = &state.worlds[new.index()];
+    assert!(w.is_chunk_loaded(w.spawn().chunk()));
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    assert!(checkpoint::tests::assert_round_trip(
+        &state,
+        fresh_like(&state),
+        &pool
+    ));
+    assert!(pool.shutdown());
+}
+
+/// `state` restored from its checkpoint into a state as a replay makes it.
+fn restored(state: &State, pool: &Pool) -> State {
+    let bytes = state.checkpoint(pool).to_bytes();
+    let mut restored = fresh_like(state);
+    let custom = Arc::clone(&restored.custom);
+    let entities = restored.rules.entities.take_customs();
+    let read = checkpoint::Checkpoint::read(&bytes, &custom, &entities).unwrap();
+    restored.rules.entities.set_customs(entities);
+    restored
+        .restore(&read, checkpoint::tests::extras_of(state), |_| {
+            outbound_queue().0
+        })
+        .unwrap();
+    restored
+}
+
+/// A name that a world gone and a world not gone share names the world not gone, after a
+/// restore as in the run.
+#[test]
+fn a_name_of_a_world_gone_and_one_not_gone_names_the_one_not_gone_after_a_restore() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let mut cx = context(&mut state);
+    let a = cx.create_world("a", &arena(1)).unwrap();
+    let b = cx.create_world("b", &arena(2)).unwrap();
+    ticks(&mut state, &mut output, 2);
+    let mut cx = context(&mut state);
+    cx.unload_world(a).unwrap();
+    cx.unload_world(b).unwrap();
+    ticks(&mut state, &mut output, 2);
+    // The lowest free place is the first one: the world gone named "b" keeps its place.
+    let again = context(&mut state).create_world("b", &arena(3)).unwrap();
+    assert_eq!(
+        crate::save::place(again.index()),
+        crate::save::place(a.index())
+    );
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let mut copy = restored(&state, &pool);
+    for s in [&mut state, &mut copy] {
+        let mut cx = context(s);
+        assert_eq!(cx.world_named("b").map(World::id), Some(again));
+        assert_eq!(
+            cx.create_world("b", &arena(4)),
+            Err(world::Error::WorldExists)
+        );
+    }
+    assert!(pool.shutdown());
+}
+
+/// A world slot whose index is past the places of the list reads back as written.
+#[test]
+fn a_world_slot_past_the_places_of_the_list_reads_back() {
+    let slot = WorldSlot {
+        index: MAX_WORLDS + 1,
+        name: "arena".to_owned(),
+        kind: Kind::Temporary,
+        generator: "flat".to_owned(),
+        loaded: true,
+    };
+    let mut w = checkpoint::Writer::default();
+    slot.encode(&mut w);
+    let (bytes, opaque) = w.into_parts();
+    assert_eq!(opaque, None);
+    let custom = crate::custom::Registry::default();
+    let entities = crate::tick::entity::Customs::default();
+    let mut r = checkpoint::Reader::new(&bytes, &custom, &entities);
+    assert_eq!(WorldSlot::decode(&mut r), Ok(slot));
+    assert!(r.is_empty());
 }
 
 #[test]
@@ -1353,7 +1475,7 @@ fn a_world_is_found_by_its_name_in_any_letter_case() {
         assert!(lobby.time_ticks() >= 4000);
         assert_eq!(
             (lobby.name(), lobby.seed()),
-            ("lobby", save::default_seed("lobby"))
+            ("lobby", crate::save::default_seed("lobby"))
         );
         assert_eq!(cx.load_world("LOBBY", &Options::new()), Ok(id));
         assert!(cx.is_world_loaded("lobby"));
