@@ -14,7 +14,7 @@ use std::borrow::Cow;
 use std::mem::size_of;
 
 use super::ChunkKind;
-use super::seal::{DECODE_BUDGET, MAX_RECORD};
+use super::seal::{DECODE_BUDGET, MAX_RECORD_BYTES};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
 use crate::protocol::{
     BLOCKS, Error, Reader, Result, WIDTHS, Writer, length, length_max, word_count,
@@ -40,7 +40,7 @@ const MAX_PAGES: usize = 1 << 16;
 /// [`MAX_SAVED_STACKS`](crate::tick::inventory::MAX_SAVED_STACKS) stacks and the user's data,
 /// more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
 /// it ([`MAX_NBT_BYTES`](crate::item::MAX_NBT_BYTES)).
-pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
+pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD_BYTES - (2 + MAX_NAME_BYTES + 3 * 8);
 /// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
 /// place in the chunk, or a second at a place): every entry of a list an import writes.
 pub(crate) const MAX_RAW_BLOCK_ENTITIES: usize = MAX_EXTRA_ENTRIES;
@@ -258,9 +258,9 @@ impl ExtraRecord<'_> {
     /// ([`MAX_ROOT_BYTES`]) and a quarter of the budget (an error otherwise), so with `max` at
     /// least four times the root every full page holds more than three quarters of `max` or of
     /// the budget. More pages than a key numbers ([`MAX_PAGES`], an error) so need over half that
-    /// many full pages of one of the two: at [`MAX_RECORD`] pages, hundreds of GiB of NBT or TiB
-    /// of reading budget, far past what a server holds in memory. A list over [`max_entries`] is an
-    /// error too. An empty list has none.
+    /// many full pages of one of the two: at [`MAX_RECORD_BYTES`] pages, hundreds of GiB of NBT or
+    /// TiB of reading budget, far past what a server holds in memory. A list over [`max_entries`]
+    /// is an error too. An empty list has none.
     pub(crate) fn pages(kind: ChunkKind, list: &[Compound], max: usize) -> Result<Vec<Vec<u8>>> {
         if list.len() > max_entries(kind) {
             return Err(Error::Size);

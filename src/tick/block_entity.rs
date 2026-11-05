@@ -2551,10 +2551,10 @@ pub(in crate::tick) mod tests {
     /// decoding: what a load reads back.
     pub(in crate::tick) fn committed(list: &[Compound]) -> Vec<Compound> {
         use crate::storage::codec::ExtraRecord;
-        use crate::storage::seal::{MAX_RECORD, seal_encoded, unseal};
+        use crate::storage::seal::{MAX_RECORD_BYTES, seal_encoded, unseal};
         let mut read = Vec::new();
         let kind = crate::storage::ChunkKind::BlockEntities;
-        for page in ExtraRecord::pages(kind, list, MAX_RECORD).expect("the list encodes") {
+        for page in ExtraRecord::pages(kind, list, MAX_RECORD_BYTES).expect("the list encodes") {
             let sealed = seal_encoded(b"key", &page).expect("the page seals");
             let ExtraRecord(entries) =
                 unseal::<ExtraRecord<'_>>(b"key", &sealed).expect("the page reads back");

@@ -56,7 +56,7 @@ Every value is a 12-byte header and a body, little-endian.
 | 8 to 11 | CRC-32C over the key, the first 8 header bytes and the body |
 
 - The checksum covers the key, so a value moved under another key is caught, and the version bytes, so a newer value (a matching checksum, a larger version) is told from a damaged one.
-- A record holds at most `storage::seal::MAX_RECORD` bytes before compression. The largest sub-chunk value takes about 0.92 MB with 4,096 vanilla states and about 9.4 MB with 4,096 custom states of the longest NBT; a whole column would take up to 24 times that, which is why the terrain is stored by sub-chunk. A record decoder may allocate `storage::seal::DECODE_BUDGET`.
+- A record holds at most `storage::seal::MAX_RECORD_BYTES` bytes before compression. The largest sub-chunk value takes about 0.92 MB with 4,096 vanilla states and about 9.4 MB with 4,096 custom states of the longest NBT; a whole column would take up to 24 times that, which is why the terrain is stored by sub-chunk. A record decoder may allocate `storage::seal::DECODE_BUDGET`.
 - Records under 64 bytes are stored as they are. Compression is libdeflate level 6: levels 9 and 12 are 1.2% and 4.1% smaller on a whole imported world, and both slower.
 - redb's reads do not verify its page checksums, so every value carries its own.
 

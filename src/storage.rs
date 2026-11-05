@@ -195,7 +195,7 @@ pub(crate) enum Error {
         version: u16,
     },
     /// A record cannot be encoded: a field is invalid or it is larger than
-    /// [`MAX_RECORD`](seal::MAX_RECORD).
+    /// [`MAX_RECORD_BYTES`](seal::MAX_RECORD_BYTES).
     Encode(crate::protocol::Error),
     /// `data/worlds/` holds more than [`MAX_WORLDS`] world files, or a new one would make it.
     TooManyWorlds,
@@ -404,8 +404,8 @@ impl ChunkId {
 
 /// What a `chunks` value holds, told by the bytes after its chunk's prefix: a kind byte, then
 /// for an extras page after the first the page number. Every value stays under
-/// [`MAX_RECORD`](seal::MAX_RECORD): the terrain is one value per sub-chunk and an extras list
-/// is split into pages.
+/// [`MAX_RECORD_BYTES`](seal::MAX_RECORD_BYTES): the terrain is one value per sub-chunk and an
+/// extras list is split into pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChunkPart {
     /// A page of an extras list ([`ExtraRecord`](codec::ExtraRecord)), kind 1 or 2: page 0

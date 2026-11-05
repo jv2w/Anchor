@@ -4,8 +4,8 @@
 //! reserved u8 (0), record length u32, CRC-32C u32 over the key, the first 8 header bytes and the
 //! body, so a flipped version byte is a checksum failure, not a newer format. Opening checks the
 //! checksum, then the version (a newer one is [`Error::NewerFormat`]), and checks the declared
-//! length against [`MAX_RECORD`] before it allocates. Only the current format reads: a value of
-//! an older one is damage.
+//! length against [`MAX_RECORD_BYTES`] before it allocates. Only the current format reads: a value
+//! of an older one is damage.
 
 use std::borrow::Cow;
 
@@ -18,7 +18,7 @@ use crate::protocol::{Reader, Writer};
 /// Bytes a record decoder may allocate: four times the record, for palette NBT. Extras pages
 /// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
 /// bounded so that it does (`item::MAX_NBT_BYTES`).
-pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD;
+pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD_BYTES;
 /// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
 /// a whole imported world, both slower.
 const DEFLATE_LEVEL: u8 = 6;
@@ -39,7 +39,7 @@ const HEADER_BYTES: usize = 12;
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
 /// whole column would take up to 24 times that, which is why the terrain is stored by
 /// sub-chunk. Extras lists are split into pages of at most this.
-pub(crate) const MAX_RECORD: usize = 16 << 20;
+pub(crate) const MAX_RECORD_BYTES: usize = 16 << 20;
 /// The method byte of a record stored as it is.
 const METHOD_STORED: u8 = 0;
 /// The method byte of a record compressed with raw DEFLATE.
@@ -103,7 +103,7 @@ pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
 /// Seals record bytes already encoded in the current format (an extras page) under `key`,
 /// compressed with raw DEFLATE when that makes them smaller.
 pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
-    if record.len() > MAX_RECORD {
+    if record.len() > MAX_RECORD_BYTES {
         return Err(Error::Encode(crate::protocol::Error::Size));
     }
     let raw_len =
@@ -182,7 +182,7 @@ fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
 }
 
 /// Checks a sealed value's header and checksum; returns its compression method, its record
-/// length (at most [`MAX_RECORD`]) and its body.
+/// length (at most [`MAX_RECORD_BYTES`]) and its body.
 fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
     let (header, body) = sealed
         .split_first_chunk::<HEADER_BYTES>()
@@ -205,7 +205,7 @@ fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
     }
     let raw_len = usize::try_from(u32::from_le_bytes([l0, l1, l2, l3]))
         .map_err(|_| Error::Malformed("record length over the limit"))?;
-    if raw_len > MAX_RECORD {
+    if raw_len > MAX_RECORD_BYTES {
         return Err(Error::Malformed("record length over the limit"));
     }
     Ok((method, raw_len, body))
@@ -379,7 +379,7 @@ mod tests {
     fn over_limit_lengths_are_refused_before_allocating() {
         // A declared record length over the limit.
         let mut sealed = seal(KEY, &terrain_chunk(&mut Rng(4))).unwrap();
-        let over = u32::try_from(MAX_RECORD + 1).unwrap();
+        let over = u32::try_from(MAX_RECORD_BYTES + 1).unwrap();
         sealed[4..8].copy_from_slice(&over.to_le_bytes());
         reseal(KEY, &mut sealed);
         assert!(matches!(
@@ -396,7 +396,7 @@ mod tests {
             Err(Error::Compression(_))
         ));
         // Encoding refuses a record over the limit.
-        let big = vec![0_u8; MAX_RECORD + 1];
+        let big = vec![0_u8; MAX_RECORD_BYTES + 1];
         assert!(matches!(seal_encoded(KEY, &big), Err(Error::Encode(_))));
         // A player extra or an extras list whose NBT declares more than is there.
         let mut record = encode(&PlayerRecord {

@@ -13,10 +13,10 @@
 //! to the main file's last save ([`storage::settle`]), and a deleted world's file goes only once a
 //! main file's commit holds the deletion ([`remove_world_files`]).
 //!
-//! A chunk is its terrain and its extras: block entities and entities. Every value is under [`MAX_RECORD`] however
-//! much a chunk holds: the terrain is one value per sub-chunk (none for an empty
-//! sub-chunk of plains, [`seal_terrain`]) and each extras list is
-//! split into pages, all under keys that share the chunk's prefix. One load reads them all in
+//! A chunk is its terrain and its extras: block entities and entities. Every value is under
+//! [`MAX_RECORD_BYTES`] however much a chunk holds: the terrain is one value per sub-chunk (none
+//! for an empty sub-chunk of plains, [`seal_terrain`]) and each extras list is split into pages,
+//! all under keys that share the chunk's prefix. One load reads them all in
 //! one read transaction and answers them together; damage in any of them quarantines the chunk.
 //!
 //! The operator list, the bans and the whitelist are read once when the files
@@ -44,7 +44,7 @@ use crate::storage::codec::{
     BanRecord, Biomes, BlockLayer, ChunkRecord, ExtraRecord, Mark, Meta, PlayerRecord,
     SubChunkRecord, UserRecord, WorldRecord, max_entries,
 };
-use crate::storage::seal::{Crc32c, MAX_RECORD, seal, seal_encoded, stored_checksum, unseal};
+use crate::storage::seal::{Crc32c, MAX_RECORD_BYTES, seal, seal_encoded, stored_checksum, unseal};
 use crate::storage::{
     self, AccessKey, AccessKind, Batch, CHUNK_PREFIX, Checked, ChunkId, ChunkKey, ChunkKind,
     ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, StartBackup, Storage,
@@ -2072,7 +2072,7 @@ pub(crate) fn seal_pages(
     kind: ChunkKind,
     list: &[Compound],
 ) -> Result<Vec<(Key, Vec<u8>)>, storage::Error> {
-    let pages = ExtraRecord::pages(kind, list, MAX_RECORD).map_err(storage::Error::Encode)?;
+    let pages = ExtraRecord::pages(kind, list, MAX_RECORD_BYTES).map_err(storage::Error::Encode)?;
     (0..=u16::MAX)
         .zip(pages)
         .map(|(page, bytes)| {
@@ -3612,7 +3612,7 @@ pub(crate) mod tests {
         let dir = TempDir::new("signs");
         let pos = ChunkPos::new(1, 1);
         let signs: Vec<Compound> = (0..7568).map(max_text_sign).collect();
-        assert!(encode(&ExtraRecord(Cow::Borrowed(&signs))).len() > MAX_RECORD);
+        assert!(encode(&ExtraRecord(Cow::Borrowed(&signs))).len() > MAX_RECORD_BYTES);
         for (start, list) in [(1, signs.clone()), (2, signs[..10].to_vec())] {
             let snapshot = Snapshot {
                 start,
@@ -3681,7 +3681,7 @@ pub(crate) mod tests {
                 palette: if i < 22 { vanilla.clone() } else { custom(i) },
             }];
         }
-        assert!(encode(&record).len() > 2 * MAX_RECORD);
+        assert!(encode(&record).len() > 2 * MAX_RECORD_BYTES);
         let chunk = to_chunk(record.clone(), &Registry::default()).unwrap();
         let snapshot = Snapshot {
             start: 1,

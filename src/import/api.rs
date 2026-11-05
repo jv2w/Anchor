@@ -33,7 +33,7 @@ use crate::nbt::{Compound, Value};
 use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
 use crate::storage::codec::{BlockLayer, ChunkRecord, SubChunkRecord, WorldRecord};
-use crate::storage::seal::{MAX_RECORD, seal};
+use crate::storage::seal::{MAX_RECORD_BYTES, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
 use crate::world::{self, BlockPos, Chunk, ChunkPos, MIN_SUB_CHUNK_Y, Paletted, SLOTS, SUB_CHUNKS};
 
@@ -586,7 +586,7 @@ fn convert(pos: ChunkPos, raw: Raw, target: &Target<'_>) -> super::Result<Conver
     }
     let too_large = |_| Error::TooLarge {
         what: "bytes in a chunk record",
-        limit: MAX_RECORD as u64,
+        limit: MAX_RECORD_BYTES as u64,
     };
     let id = save::chunk_id(target.number, pos);
     // A new world: the empty sub-chunks a value leaves out are not there to delete.
