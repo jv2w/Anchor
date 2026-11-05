@@ -593,11 +593,6 @@ pub(super) fn failed(start: u64) {
     );
 }
 
-/// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
-pub(super) fn load_failed() {
-    error!("a world file could not be read; stopping without saving (the last save is kept)");
-}
-
 /// The file of the world at `index` did not open on the save thread: the world unloads, and
 /// loading it again tries its file again, so the failure shows to the program that loaded it.
 #[expect(

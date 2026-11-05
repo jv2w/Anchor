@@ -69,12 +69,10 @@ const ANSWER_PLAYER: u8 = 1;
 const ANSWER_COMMITTED: u8 = 2;
 /// The tag of a failed commit answer.
 const ANSWER_COMMIT_FAILED: u8 = 3;
-/// The tag of a failed load answer.
-const ANSWER_LOAD_FAILED: u8 = 4;
 /// The tag of a data file check answer.
-const ANSWER_CHECKED: u8 = 5;
+const ANSWER_CHECKED: u8 = 4;
 /// The tag of a world file open failure answer.
-const ANSWER_WORLD_OPEN_FAILED: u8 = 6;
+const ANSWER_WORLD_OPEN_FAILED: u8 = 5;
 /// What the commit identity chains before an answer.
 const CHAIN_ANSWER: u8 = b'A';
 /// What the commit identity chains before a forgotten session.
@@ -99,7 +97,7 @@ const CRASH_DIR: &str = "crash";
 const CRC_BYTES: usize = 4;
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 2;
+const FORMAT: u32 = 3;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`JobError::code`](crate::task::JobError::code)s.
 const JOB_DONE: u8 = 0;
@@ -450,7 +448,6 @@ impl InputLog {
                 Response::Player { .. } => ANSWER_PLAYER,
                 Response::Committed { .. } => ANSWER_COMMITTED,
                 Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
-                Response::LoadFailed => ANSWER_LOAD_FAILED,
                 Response::Checked(_) => ANSWER_CHECKED,
                 Response::WorldOpenFailed { .. } => ANSWER_WORLD_OPEN_FAILED,
             },
@@ -908,7 +905,6 @@ pub(crate) enum Answer {
     },
     Committed(u64),
     CommitFailed(u64),
-    LoadFailed,
     Checked(Checked),
     /// The file of the world at this index did not open on the save thread.
     WorldOpenFailed(WorldIndex),
@@ -943,7 +939,6 @@ impl Answer {
             }
             Response::Committed { start } => (Self::Committed(*start), 0),
             Response::CommitFailed { start } => (Self::CommitFailed(*start), 0),
-            Response::LoadFailed => (Self::LoadFailed, 0),
             Response::Checked(found) => {
                 let size = match found {
                     Checked::Passed { .. } => 0,
@@ -1324,7 +1319,6 @@ impl<'a> Read<'a> {
             }
             ANSWER_COMMITTED => Answer::Committed(self.u64()?),
             ANSWER_COMMIT_FAILED => Answer::CommitFailed(self.u64()?),
-            ANSWER_LOAD_FAILED => Answer::LoadFailed,
             ANSWER_CHECKED => Answer::Checked(match self.u8()? {
                 CHECK_PASSED => Checked::Passed {
                     values: self.u64()?,
@@ -1547,7 +1541,6 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
             out.push(ANSWER_COMMIT_FAILED);
             out.extend_from_slice(&start.to_le_bytes());
         }
-        Answer::LoadFailed => out.push(ANSWER_LOAD_FAILED),
         Answer::Checked(found) => {
             out.push(ANSWER_CHECKED);
             match found {
@@ -1874,7 +1867,7 @@ mod tests {
                 EntryKind::Measure(Measure::TickTime(tick_time)),
                 0,
             );
-            log.response(&Response::LoadFailed);
+            log.response(&Response::CommitFailed { start: 1 });
             log.dropped(SessionId::new(2));
             log.snapshot(1);
             log
@@ -2262,17 +2255,6 @@ mod tests {
             InputLog::decode(&bytes),
             Err(Error::Format("job outcome"))
         ));
-    }
-
-    #[test]
-    fn load_failures_survive_the_written_log() {
-        let mut log = InputLog::default();
-        log.begin(0);
-        log.response(&Response::LoadFailed);
-        let bytes = log.encode().unwrap();
-        let read = InputLog::decode(&bytes).unwrap();
-        assert_eq!(read.ticks(), log.ticks());
-        assert_eq!(read.ticks()[0].responses, [Answer::LoadFailed]);
     }
 
     #[test]

@@ -316,7 +316,7 @@ impl Replayer {
             .collect();
         let mut loaded: BTreeMap<_, Loaded> = BTreeMap::new();
         if !keys.is_empty() {
-            for answer in self.disk.load(&self.pool, &keys).map_err(storage)? {
+            for answer in self.disk.load(&self.pool, &keys) {
                 if let Response::Chunk {
                     world,
                     pos,
@@ -370,7 +370,6 @@ impl Replayer {
                 },
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
-                Answer::LoadFailed => Response::LoadFailed,
                 Answer::WorldOpenFailed(world) => Response::WorldOpenFailed { world: *world },
                 Answer::Checked(found) => Response::Checked(found.clone()),
             });
@@ -633,7 +632,7 @@ fn extras(
 ) -> Result<BTreeMap<(usize, crate::world::ChunkPos), save::ChunkExtras>> {
     let keys: Vec<_> = checkpoint.loaded().chain(checkpoint.unsaved()).collect();
     let mut extras = BTreeMap::new();
-    for answer in disk.load_stored(pool, &keys).map_err(storage)? {
+    for answer in disk.load_stored(pool, &keys) {
         let Response::Chunk { world, pos, loaded } = answer else {
             continue;
         };

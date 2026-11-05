@@ -110,9 +110,6 @@ pub(crate) enum Response {
     /// The snapshot taken before tick `start` could not be committed, even after reopening the
     /// file: the server stops without saving.
     CommitFailed { start: u64 },
-    /// A batch of chunks could not be read, even after reopening the file: the server stops
-    /// without saving, as for a failed commit.
-    LoadFailed,
     /// The file of a persistent world did not open: its chunks are quarantined and nothing of it
     /// is saved until told again.
     WorldOpenFailed { world: WorldIndex },
@@ -533,11 +530,7 @@ impl Thread {
 
     /// Loads chunks as the save thread does for a [`Request::Chunks`] (a replay's loads after its
     /// start). A replay calls it on its own thread.
-    pub(crate) fn load(
-        &mut self,
-        pool: &Pool,
-        keys: &[(WorldIndex, ChunkPos)],
-    ) -> Result<Vec<Response>, storage::Error> {
+    pub(crate) fn load(&mut self, pool: &Pool, keys: &[(WorldIndex, ChunkPos)]) -> Vec<Response> {
         let prepare = Prepare::Tick {
             lighting: self.lighting,
             entity_types: &self.entity_types,
@@ -546,8 +539,8 @@ impl Thread {
         load_chunks(&mut self.plans, pool, keys, &self.custom, prepare, |a| {
             answers.push(a);
             true
-        })?;
-        Ok(answers)
+        });
+        answers
     }
 
     /// Loads chunks as they are stored: neither lit nor their extras read (a replay's start:
@@ -556,7 +549,7 @@ impl Thread {
         &mut self,
         pool: &Pool,
         keys: &[(WorldIndex, ChunkPos)],
-    ) -> Result<Vec<Response>, storage::Error> {
+    ) -> Vec<Response> {
         let mut answers = Vec::with_capacity(keys.len());
         load_chunks(
             &mut self.plans,
@@ -568,8 +561,8 @@ impl Thread {
                 answers.push(a);
                 true
             },
-        )?;
-        Ok(answers)
+        );
+        answers
     }
 
     /// Reads the user's server data values `names`, before the threads start: the
@@ -633,6 +626,15 @@ enum Prepare<'a> {
     },
     /// Nothing: a replay's start takes the light and typed state from its checkpoint.
     Stored,
+}
+
+/// What a load read for a chunk of a persistent world.
+enum Read {
+    /// Its stored values, or the damage reading them found.
+    Values(ChunkValues),
+    /// The read of its world's chunks failed after its retries: the chunk is quarantined, and
+    /// the next load of it reads again.
+    Failed,
 }
 
 /// The sub-chunk records of a chunk's terrain values, `None` for a sub-chunk without a value.
@@ -1218,9 +1220,10 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
 /// The save thread: answers requests in order until [`Request::Finish`], then marks every open
 /// file closed after a normal stop. If the tick drops its sender without `Finish` (it died), the
 /// requests still queued are dropped and the files are closed as they are.
-/// Returns the error of a commit or a chunk read that failed after its retries, or of the final
-/// close. After such a failure no later snapshot is committed: it would write a state without the
-/// changes of the one that failed.
+/// Returns the error of a commit that failed after its retries, or of the final close. After such
+/// a failure no later snapshot is committed: it would write a state without the changes of the
+/// one that failed. A chunk read that fails after its retries quarantines its chunks instead
+/// ([`load_chunks`]): it loses no change, so the server goes on.
 ///
 /// A snapshot with its backup flag starts an online backup of every open file once committed,
 /// unless one is being made: that request is refused. The backups are copied
@@ -1274,17 +1277,10 @@ pub(crate) fn run(
             continue;
         }
         let answers = match request {
-            Request::Chunks(keys) => match load_requested(&mut thread, pool, &keys, responses) {
-                Ok(()) => continue,
-                Err(e) => {
-                    error!(
-                        error = &e as &(dyn std::error::Error + 'static),
-                        "chunk read failed after its retries"
-                    );
-                    failure = Some(e);
-                    vec![Response::LoadFailed]
-                }
-            },
+            Request::Chunks(keys) => {
+                load_requested(&mut thread, pool, &keys, responses);
+                continue;
+            }
             Request::Worlds(worlds) => thread
                 .add_worlds(&worlds)
                 .into_iter()
@@ -1337,7 +1333,7 @@ pub(crate) fn run(
             }
         }
     }
-    // A failed read or commit makes no normal stop: the files get no mark of one, so the next
+    // A failed commit makes no normal stop: the files get no mark of one, so the next
     // start with `integrity-check = "after-unclean-shutdown"` checks them.
     if !finished || failure.is_some() {
         return failure.map_or(Ok(()), Err);
@@ -1381,7 +1377,7 @@ fn load_requested(
     pool: &Pool,
     keys: &[(WorldIndex, ChunkPos)],
     responses: &mpsc::Sender<Response>,
-) -> Result<(), storage::Error> {
+) {
     let prepare = Prepare::Tick {
         lighting: thread.lighting,
         entity_types: &thread.entity_types,
@@ -1393,7 +1389,7 @@ fn load_requested(
         &thread.custom,
         prepare,
         |answer| responses.blocking_send(answer).is_ok(),
-    )
+    );
 }
 
 /// Whether an online backup or a check waits for its next step.
@@ -1558,8 +1554,10 @@ fn stored_meta(storage: &mut Storage) -> Result<Meta, storage::Error> {
 /// Loads a batch: reads every value of the persistent worlds' chunks, in one read transaction per
 /// world file ([`Storage::read_chunks`] retries a failed read on the reopened file), then decodes
 /// or generates every chunk on the CPU pool, resolves its saved custom blocks and prepares it as
-/// `prepare` says. Only damage quarantines a chunk (and every chunk of a world whose file did not
-/// open); a read that fails after its retries fails the batch, answering none of its chunks.
+/// `prepare` says. Damage quarantines a chunk, and so does a read that fails after its retries
+/// (every chunk of the batch in that world file), as every chunk of a world whose file did not
+/// open: a quarantined chunk is neither changed nor saved, so its stored values stay as they are,
+/// and the next load of it reads again. Nothing else stops for it.
 ///
 /// The chunks go through the pool one turn (a chunk per pool thread) at a time, and each turn's
 /// answers go to `send` in key order as soon as the turn is done, so a chunk waits only for the
@@ -1572,39 +1570,57 @@ fn load_chunks(
     custom: &Registry,
     prepare: Prepare<'_>,
     mut send: impl FnMut(Response) -> bool,
-) -> Result<(), storage::Error> {
+) {
     let mut by_world: BTreeMap<WorldIndex, Vec<ChunkId>> = BTreeMap::new();
     for &(w, pos) in keys {
         if let Some(number) = plans.get(place(w)).and_then(|p| p.number) {
             by_world.entry(w).or_default().push(chunk_id(number, pos));
         }
     }
-    let mut read: BTreeMap<WorldIndex, std::vec::IntoIter<ChunkValues>> = BTreeMap::new();
+    // The values of each persistent world's chunks; `None` for a world whose read failed.
+    let mut read: BTreeMap<WorldIndex, Option<std::vec::IntoIter<ChunkValues>>> = BTreeMap::new();
     for (w, ids) in by_world {
         let values = match plans.get_mut(place(w)).and_then(|p| p.file.as_mut()) {
-            Some(file) => file
-                .storage
-                .read_chunks(&ids)
-                .map_err(|e| e.in_file(&file.place.file))?,
-            None => ids.iter().map(|_| Err(storage::Error::Closed)).collect(),
+            Some(file) => match file.storage.read_chunks(&ids) {
+                Ok(values) => Some(values),
+                Err(e) => {
+                    error!(
+                        path = %file.place.file.display(),
+                        error = &e as &(dyn std::error::Error + 'static),
+                        chunks = ids.len(),
+                        "chunk read failed after its retries; the chunks are quarantined until \
+                         they load again"
+                    );
+                    None
+                }
+            },
+            None => Some(ids.iter().map(|_| Err(storage::Error::Closed)).collect()),
         };
-        read.insert(w, values.into_iter());
+        read.insert(w, values.map(Vec::into_iter));
     }
-    // Each key with the values it got, if its world is persistent.
-    let items: Vec<(WorldIndex, ChunkPos, Option<ChunkValues>)> = keys
+    // Each key with what it got: `None` for a chunk of a temporary world, which is generated.
+    let items: Vec<(WorldIndex, ChunkPos, Option<Read>)> = keys
         .iter()
-        .map(|&(w, pos)| (w, pos, read.get_mut(&w).and_then(Iterator::next)))
+        .map(|&(w, pos)| {
+            let got = read.get_mut(&w).map(|values| match values {
+                Some(values) => values.next().map_or(Read::Failed, Read::Values),
+                None => Read::Failed,
+            });
+            (w, pos, got)
+        })
         .collect();
     let plans: &[Plan] = plans;
     for turn in items.chunks(pool.threads()) {
-        let mut answers = pool.map_in_turns(turn, |(world, pos, values)| {
-            let mut loaded = match (plans.get(place(*world)), values) {
-                (None, _) => Loaded::Damaged,
+        let mut answers = pool.map_in_turns(turn, |(world, pos, got)| {
+            let mut loaded = match (plans.get(place(*world)), got) {
+                (None, _) | (Some(_), Some(Read::Failed)) => Loaded::Damaged,
                 (Some(plan), None) => Loaded::Generated(
                     Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, *pos)),
                     Stored::default(),
                 ),
-                (Some(plan), Some(values)) => decode_chunk(plan, *pos, values, custom),
+                (Some(plan), Some(Read::Values(values))) => {
+                    decode_chunk(plan, *pos, values, custom)
+                }
             };
             if let Prepare::Tick { lighting: true, .. } = prepare
                 && let Loaded::Generated(chunk, _) | Loaded::Disk(chunk, _) = &mut loaded
@@ -1622,11 +1638,10 @@ fn load_chunks(
         }
         for answer in answers {
             if !send(answer) {
-                return Ok(());
+                return;
             }
         }
     }
-    Ok(())
 }
 
 /// Reads the extras of the loaded chunks among `answers` into the rule modules' form
@@ -2585,7 +2600,7 @@ pub(crate) mod tests {
         commit(&mut thread_on(memory(&disk)), &pool, snapshot).unwrap();
         let mut thread = thread_on(closed(&disk));
         thread.set_custom(custom, entity_types);
-        let answers = thread.load(&pool, keys).unwrap();
+        let answers = thread.load(&pool, keys);
         assert!(pool.shutdown());
         answers
     }
@@ -2598,7 +2613,7 @@ pub(crate) mod tests {
         keys: &[(WorldIndex, ChunkPos)],
         lighting: bool,
         custom: &Registry,
-    ) -> Result<Vec<Response>, storage::Error> {
+    ) -> Vec<Response> {
         let entity_types = EntityTypes::default();
         let prepare = Prepare::Tick {
             lighting,
@@ -2608,8 +2623,8 @@ pub(crate) mod tests {
         load_chunks(plans, pool, keys, custom, prepare, |a| {
             answers.push(a);
             true
-        })?;
-        Ok(answers)
+        });
+        answers
     }
 
     /// Random extras: each kind empty or a few random compounds.
@@ -3723,8 +3738,7 @@ pub(crate) mod tests {
             &[(0, pos)],
             true,
             &registry,
-        )
-        .unwrap();
+        );
         let Ok::<[Response; 1], _>(
             [
                 Response::Chunk {
@@ -3761,8 +3775,7 @@ pub(crate) mod tests {
                 &[(0, pos)],
                 false,
                 &Registry::default(),
-            )
-            .unwrap();
+            );
             let Ok::<[Response; 1], _>(
                 [
                     Response::Chunk {
@@ -3843,8 +3856,7 @@ pub(crate) mod tests {
                 &[(0, pos)],
                 false,
                 &Registry::default(),
-            )
-            .unwrap();
+            );
             match <[Response; 1]>::try_from(answers) {
                 Ok(
                     [
@@ -3931,8 +3943,7 @@ pub(crate) mod tests {
                 &[(0, pos)],
                 false,
                 &Registry::default(),
-            )
-            .unwrap();
+            );
             let loaded = matches!(
                 &answers[..],
                 [Response::Chunk { loaded: Loaded::Disk(chunk, _), .. }]
@@ -3970,8 +3981,7 @@ pub(crate) mod tests {
                 call: Call::Read,
                 at,
             });
-            let answers =
-                load_all(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).unwrap();
+            let answers = load_all(&mut plans, &pool, &[(0, pos)], false, &Registry::default());
             assert!(
                 matches!(
                     &answers[..],
@@ -4013,25 +4023,44 @@ pub(crate) mod tests {
                     }
                     sent.len() < taken
                 },
-            )
-            .unwrap();
+            );
             assert_eq!(sent, keys[..taken]);
         }
         assert!(pool.shutdown());
     }
 
+    /// A batch read that keeps failing quarantines its chunks and nothing else: the load answers
+    /// every chunk, and once the file reads again the next load of the chunk reads it.
     #[test]
-    fn a_batch_read_that_keeps_failing_fails_the_batch() {
+    fn a_batch_read_that_keeps_failing_quarantines_its_chunks_until_they_load_again() {
         use crate::storage::tests::{Call, Disk, Fault, closed, memory};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         drop(memory(&disk));
         let mut plans = plans(closed(&disk));
         disk.arm(Fault::Every { call: Call::Read });
-        let pos = ChunkPos::new(0, 1);
-        assert!(load_all(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).is_err());
+        let keys = [(0, ChunkPos::new(0, 1)), (0, ChunkPos::new(2, 3))];
+        let damaged = |answers: &[Response]| {
+            answers
+                .iter()
+                .map(|a| {
+                    matches!(
+                        a,
+                        Response::Chunk {
+                            loaded: Loaded::Damaged,
+                            ..
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let answers = load_all(&mut plans, &pool, &keys, false, &Registry::default());
+        assert_eq!(damaged(&answers), [true, true]);
         // The first try and its three retries.
         assert!(disk.failed() >= 4, "only {} reads failed", disk.failed());
+        disk.arm(Fault::None);
+        let answers = load_all(&mut plans, &pool, &keys, false, &Registry::default());
+        assert_eq!(damaged(&answers), [false, false]);
         assert!(pool.shutdown());
     }
 
