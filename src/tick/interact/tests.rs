@@ -20,6 +20,7 @@ use crate::protocol::{
     FlagSet, InputFlags, InventoryTransactionData, NormalTransactionData, PlayerBlockAction,
     ReleaseItemTransactionData, UseItemTransactionData,
 };
+use crate::save::palette_entry;
 use crate::tick::queue::{Input, InputKind, Message, Outbound, SessionId};
 use crate::tick::survival::EYE_HEIGHT;
 use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
@@ -1856,19 +1857,6 @@ fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
     assert_eq!(cx.trade_offers(spawned).map(|o| o.len()), Some(1));
 }
 
-/// A stored block state of `name` with no properties, as a server file holds it.
-fn stored(name: &str) -> crate::nbt::Compound {
-    use crate::nbt::{Compound, Value};
-    Compound::from([
-        ("name".to_owned(), Value::String(name.to_owned())),
-        ("states".to_owned(), Value::Compound(Compound::new())),
-        (
-            "version".to_owned(),
-            Value::Int(crate::import::BLOCK_STATE_VERSION),
-        ),
-    ])
-}
-
 /// Whether `packets` set `pos` to the block of network ID `id`.
 fn sets(packets: &[Packet], pos: BlockPos, id: u32) -> bool {
     blocks_set(packets).contains(&(pos, id))
@@ -2030,7 +2018,13 @@ fn a_second_cell_does_not_replace_an_unknown_block() {
         let mut h = Harness::new(|_| {});
         h.set(ground, below.default_state());
         let unknown = h.state.worlds[0]
-            .put_unknown(second, stored("minecraft:not_a_block"))
+            .put_unknown(
+                second,
+                palette_entry(
+                    "minecraft:not_a_block".to_owned(),
+                    crate::nbt::Compound::new(),
+                ),
+            )
             .unwrap();
         assert!(matches!(unknown, Entry::Unknown(_)), "{unknown:?}");
         h.hold(item.clone());

@@ -1017,7 +1017,7 @@ fn collision_box(b: Aabb) -> Compound {
     ])
 }
 
-/// The `minecraft:selection_box` component of a box (its origin is from the bottom centre of the
+/// The `minecraft:selection_box` component of a box (its origin is from the bottom center of the
 /// cell).
 fn selection_box(b: Aabb) -> Compound {
     let half_cell = to_f32(PIXELS_PER_BLOCK / 2.0);

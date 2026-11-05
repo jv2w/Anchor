@@ -30,7 +30,7 @@ use crate::tick::interact::props::rotate_clockwise;
 use crate::tick::{block_entity, emit};
 use crate::world::{BlockPos, Particle, Sound, World};
 
-/// The damage of a burst at its centre before its explosions add theirs.
+/// The damage of a burst at its center before its explosions add theirs.
 const BURST_DAMAGE_BASE: f64 = 5.0;
 /// The damage each explosion adds to a burst.
 const BURST_DAMAGE_PER_EXPLOSION: f64 = 2.0;
@@ -103,9 +103,9 @@ pub(super) fn painting_broke(state: &mut State, world: WorldIndex, at: Vec3, pai
         let stack = Stack::new(item::Kind::Painting.default_type(), 1);
         block_entity::drop_all(state, world, at, vec![stack]);
     }
-    let centre = at + Vec3::new(0.5, 0.5, 0.5);
+    let center = at + Vec3::new(0.5, 0.5, 0.5);
     let planks = Particle::BlockBreak(block::Kind::OakPlanks.default_state());
-    emit::particle(state, world, centre, planks);
+    emit::particle(state, world, center, planks);
 }
 
 /// A new painting's kind.
@@ -213,7 +213,7 @@ pub(super) fn painting_box(pos: BlockPos, facing: Face, motive: PaintingMotive) 
     );
     extend(Face::Down, f64::from(vertical));
     extend(Face::Up, f64::from(height - 1 - vertical));
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    let at = pos.to_corner();
     Aabb::new(min + at, max + at)
 }
 

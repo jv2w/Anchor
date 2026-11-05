@@ -44,7 +44,7 @@ use crate::protocol::packet::{Packet, TakeItemActor};
 use crate::random::{self, Random};
 use crate::tick::dispatch;
 use crate::tick::{Context, Phase, block_entity, inventory, survival};
-use crate::world::particle_id;
+use crate::world::{BlockPos, particle_id};
 
 /// An arrow's base damage.
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
@@ -1031,7 +1031,7 @@ fn potion_hit(
     splash_effect(state, world, at, super::track::effect_colour(effects));
     if linger {
         let cloud = new_cloud(effects);
-        let place = at.floor() + Vec3::new(0.5, 0.5, 0.5);
+        let place = BlockPos::containing(at).to_center();
         // At the entity limit the cloud is not made (a potion cannot be given back).
         create(state, world, place, Kind::Cloud(cloud), |_| {
             (Vec3::ZERO, 0.0, 0.0)
@@ -1551,7 +1551,6 @@ mod tests {
     use crate::tick::entity::tests::{
         Harness, TEST_HOOKS, at, calls, room, session, standing, taken,
     };
-    use crate::world::BlockPos;
 
     /// A potion item of `potion`, splash or lingering.
     fn potion_item(potion: &str, lingering: bool) -> Stack {

@@ -86,7 +86,7 @@ pub(super) struct Step {
 /// Where an entity is and how it moves.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct Body {
-    /// The centre of the bottom of the bounding box.
+    /// The center of the bottom of the bounding box.
     pub(super) position: Vec3,
     /// Blocks per tick.
     pub(super) motion: Vec3,
@@ -477,22 +477,22 @@ fn clip_move(world: &World, boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb,
 }
 
 /// The move `d` of the box `moving` along the horizontal unit axis `along`, cut so that the
-/// box's centre stays in its chunk when the chunk it would move into is not loaded. The wall
+/// box's center stays in its chunk when the chunk it would move into is not loaded. The wall
 /// cubes of such a chunk stop only a box that does not overlap them yet, so a box that already
 /// reaches into it (dropped at its border, grown by a scale) needs this to keep the entity in the
 /// loaded chunks, where it is indexed and saved.
 fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
-    let centre = Vec3::new(
+    let center = Vec3::new(
         f64::midpoint(moving.min.x, moving.max.x),
         moving.min.y,
         f64::midpoint(moving.min.z, moving.max.z),
     );
-    if d == 0.0 || world.is_chunk_loaded(BlockPos::containing(centre + along * d).chunk()) {
+    if d == 0.0 || world.is_chunk_loaded(BlockPos::containing(center + along * d).chunk()) {
         return d;
     }
-    let c = centre.x * along.x + centre.z * along.z;
+    let c = center.x * along.x + center.z * along.z;
     let low = (c / CHUNK_WIDTH).floor() * CHUNK_WIDTH;
-    // Both cuts stop EPSILON inside the chunk: the centre is rebuilt from the moved box's
+    // Both cuts stop EPSILON inside the chunk: the center is rebuilt from the moved box's
     // corners, and that sum rounds past an exact border.
     if d > 0.0 {
         max(math::min(d, low + CHUNK_WIDTH - EPSILON - c), 0.0)
@@ -557,7 +557,7 @@ pub(super) fn heading(motion: Vec3) -> (f64, f64) {
 /// [`STUCK_REACH`]; a block that is not loaded holds it.
 fn can_hold(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
     let area = bounds.grow(Vec3::new(STUCK_REACH, STUCK_REACH, STUCK_REACH));
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    let at = pos.to_corner();
     let cell = cell(world, pos.x, pos.y, pos.z);
     match cell.boxes() {
         Some(boxes) => boxes.iter().any(|b| b.offset(at).intersects(area)),
@@ -773,7 +773,7 @@ pub(in crate::tick) fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
 /// `bounds`: the one rule for players and entities.
 pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
     let cell = BlockPos::containing(eye);
-    let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
+    let at = cell.to_corner();
     world.block(cell).is_some_and(|s| {
         s.is_solid()
             && !s.is_transparent()
@@ -802,7 +802,7 @@ pub(super) fn block_intercept(
     from: Vec3,
     to: Vec3,
 ) -> Option<(Vec3, Face)> {
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    let at = pos.to_corner();
     let cube = [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0))];
     let cell = cell(world, pos.x, pos.y, pos.z);
     let boxes: &[Aabb] = match cell.boxes() {
@@ -1138,10 +1138,10 @@ pub(super) mod tests {
     }
 
     /// A box as wide as a player's (a custom or scaled entity) that already reaches west or north
-    /// into a chunk that is not loaded keeps its centre in the loaded chunk when it moves that
-    /// way, though the sums that rebuild its centre round.
+    /// into a chunk that is not loaded keeps its center in the loaded chunk when it moves that
+    /// way, though the sums that rebuild its center round.
     #[test]
-    fn a_wide_box_reaching_into_an_unloaded_chunk_keeps_its_centre_loaded() {
+    fn a_wide_box_reaching_into_an_unloaded_chunk_keeps_its_center_loaded() {
         let mut w = World::new("test", WorldKind::Persistent, 0, BlockPos::new(0, -60, 0));
         for x in 0..=1 {
             for z in 0..=1 {
@@ -1154,7 +1154,7 @@ pub(super) mod tests {
             ..*item_physics()
         };
         for west in [true, false] {
-            // Every centre in the 0.3 blocks where the box reaches over the border.
+            // Every center in the 0.3 blocks where the box reaches over the border.
             for i in 1..3000 {
                 let c = f64::from(i) * 0.0001;
                 let (position, motion) = if west {
@@ -1169,8 +1169,8 @@ pub(super) mod tests {
                     ..Body::default()
                 };
                 let p = step(&w, &input(start, &wide)).body.position;
-                let centre = if west { p.x } else { p.z };
-                assert!(centre >= 0.0, "start {c}: centre {centre}");
+                let center = if west { p.x } else { p.z };
+                assert!(center >= 0.0, "start {c}: center {center}");
             }
         }
     }

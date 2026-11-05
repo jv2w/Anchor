@@ -1,11 +1,11 @@
 //! Primed TNT, end crystals' explosions and explosions.
 //!
-//! An explosion casts 1,352 rays from its centre; each ray starts with the size × 0.7 to 1.3
+//! An explosion casts 1,352 rays from its center; each ray starts with the size × 0.7 to 1.3
 //! (engine randomness) and loses force per 0.3-block step and per block by the block's blast
 //! resistance; the blocks it still has force for are destroyed through
 //! `interact::destroy_deferring_hooks` (drops with 1 / size chance, containers spill; TNT drops its
 //! own item like any block, so explosions never light more TNT). Entities and players within twice the size are hurt and
-//! pushed by their exposure (the share of rays from the centre to points of their box no block
+//! pushed by their exposure (the share of rays from the center to points of their box no block
 //! stops). With `fire`, a third of the destroyed blocks become fire where the block under them is
 //! a full top; that fire is a plain block, which never spreads or burns out.
 //!
@@ -484,8 +484,8 @@ fn affected(
     (blocks, ignitions)
 }
 
-/// Hurts and pushes the entities and players within twice the size of the centre: damage by the
-/// impact (closeness × exposure), a push along the line from the centre by the impact; living
+/// Hurts and pushes the entities and players within twice the size of the center: damage by the
+/// impact (closeness × exposure), a push along the line from the center by the impact; living
 /// things also take the knockback of a hit from an exploding entity.
 fn hit_entities(
     state: &mut State,
@@ -801,13 +801,8 @@ mod tests {
             );
         }
         for p in &destroyed {
-            let c = Vec3::new(
-                f64::from(p.x) + 0.5,
-                f64::from(p.y) + 0.5,
-                f64::from(p.z) + 0.5,
-            );
             assert!(
-                c.distance_squared(center) < 3.5 * 3.5,
+                p.to_center().distance_squared(center) < 3.5 * 3.5,
                 "stone stops the rays: {p:?}"
             );
         }
@@ -1099,7 +1094,7 @@ mod tests {
     fn explosions_stop_at_chunks_that_are_not_loaded_and_can_set_fire() {
         let h = Harness::new(1);
         let w = &h.state.worlds[0];
-        // Chunk 5 (x 80..) is not loaded around a centre at the loaded edge (x 79).
+        // Chunk 5 (x 80..) is not loaded around a center at the loaded edge (x 79).
         let edge = Vec3::new(79.5, -60.0, 0.5);
         assert!(w.block(BlockPos::new(80, -61, 0)).is_none());
         let mut r = Random::new(0, 0, 1);

@@ -1735,9 +1735,9 @@ fn respawn_packet(position: Vec3, state: RespawnState, runtime_id: u64) -> Packe
 }
 
 /// The world and eye position the player respawns at: its spawn point in whichever world holds
-/// it, else the default world's spawn; the block's centre, moved up to the first two free blocks
+/// it, else the default world's spawn; the block's center, moved up to the first two free blocks
 /// of the loaded chunks ([`world::World::safe_spawn`]). A spawn point in a world that is not
-/// loaded, or whose centre lies outside the world border, counts as none; with neither, the
+/// loaded, or whose center lies outside the world border, counts as none; with neither, the
 /// player respawns where it is.
 fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
     let Some(player) = state.players.get(&session) else {

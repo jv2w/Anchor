@@ -1403,7 +1403,7 @@ impl Entity {
         self.pitch
     }
 
-    /// Where it is: the centre of the bottom of its box.
+    /// Where it is: the center of the bottom of its box.
     #[doc(alias = "Entity::getPosition")]
     #[doc(alias = "Entity::getLocation")]
     pub fn position(&self) -> Vec3 {
@@ -1947,8 +1947,13 @@ impl Context<'_> {
         if !object::is_horizontal(facing) {
             return Err(Error::OutOfRange);
         }
-        let corner = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-        self.spawn(world, corner, object::painting(facing, motive), Vec3::ZERO)
+        // A painting hanging in a block stands at its corner.
+        self.spawn(
+            world,
+            pos.to_corner(),
+            object::painting(facing, motive),
+            Vec3::ZERO,
+        )
     }
 
     /// Launches `projectile` from `pos` in `world` with `motion` in blocks per tick.

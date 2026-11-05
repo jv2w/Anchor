@@ -208,7 +208,7 @@ fn takes(attempt: &Attempt<'_>) -> bool {
 fn transaction(attempt: &Attempt<'_>) -> Option<Blocks> {
     for state in candidates(attempt).into_iter().flatten() {
         // A form whose rules refuse leaves the next to try (a hanging sign's edges, then its
-        // centre).
+        // center).
         let Some(blocks) = place(attempt, state) else {
             continue;
         };
@@ -357,7 +357,7 @@ fn place(attempt: &Attempt<'_>, state: State) -> Option<Blocks> {
                 }
                 s = opposite_player(s);
                 // A sign hangs by its edges from a full block or along another hanging sign; a
-                // thinner block above gives the form that hangs from its centre.
+                // thinner block above gives the form that hangs from its center.
                 let up = attempt.side(Face::Up);
                 let along = |other: State| {
                     (other.is(Class::WallHangingSign) || other.is(Class::CeilingEdgesHangingSign))
@@ -814,9 +814,9 @@ mod tests {
         assert_eq!(beside.first().map(|b| b.0), Some(BlockPos::new(0, 1, 0)));
     }
 
-    /// A hanging sign clicked under a block too thin for the edge form hangs from its centre.
+    /// A hanging sign clicked under a block too thin for the edge form hangs from its center.
     #[test]
-    fn a_hanging_sign_under_a_fence_hangs_from_its_centre() {
+    fn a_hanging_sign_under_a_fence_hangs_from_its_center() {
         let mut w = world();
         w.set_block(BlockPos::new(0, 2, 0), Kind::OakFence.default_state())
             .unwrap();
@@ -828,7 +828,7 @@ mod tests {
             Vec3::new(0.5, 0.0, 0.5),
             Some(&placer()),
         )
-        .expect("the centre form places");
+        .expect("the center form places");
         let list = blocks.to_vec();
         let [(pos, state)] = list.as_slice() else {
             panic!("one block: {blocks:?}");

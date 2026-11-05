@@ -2295,18 +2295,18 @@ pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
     BlockPos::containing(position).chunk()
 }
 
-/// Collects the chunks the players whose view is open stand in, by world: the centres of the
+/// Collects the chunks the players whose view is open stand in, by world: the centers of the
 /// areas within `tick-radius` ([`in_disc`]) where blocks and entities tick. A player whose view
 /// is not open yet has been sent nothing that would tick.
-pub(super) fn tick_centres(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
-    let mut centres: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
+pub(super) fn tick_centers(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
+    let mut centers: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
     for player in state.players.values().filter(|p| p.view.is_open()) {
-        centres
+        centers
             .entry(player.world)
             .or_default()
             .insert(chunk_of(player.position));
     }
-    centres
+    centers
 }
 
 /// Computes the squared horizontal distance between two chunks.

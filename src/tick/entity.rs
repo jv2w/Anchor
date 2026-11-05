@@ -2058,7 +2058,7 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
 }
 
 /// Turns the block at `pos` into a falling block entity: the block becomes air and the entity
-/// starts at the bottom centre of its cell. False, with the block left as it is, when
+/// starts at the bottom center of its cell. False, with the block left as it is, when
 /// [`can_create`] refuses or `pos` is outside the world height.
 #[cfg(test)]
 pub(super) fn fall(
@@ -2102,7 +2102,7 @@ pub(super) fn remove(state: &mut State, id: Id) -> bool {
 /// cell move at their next tick even at rest, so an item falls when the block under it goes.
 /// Block updates call it for each changed block and its neighbours.
 pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    let at = pos.to_corner();
     let cell = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
     let entities = &mut state.rules.entities;
     for id in entities.nearby(world, cell) {
@@ -2248,18 +2248,18 @@ fn given(e: &mut Entity, runtime_id: u64) {
 }
 
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
-/// world whose view is open (as blocks, [`super::view::tick_centres`]), with a runtime ID and
+/// world whose view is open (as blocks, [`super::view::tick_centers`]), with a runtime ID and
 /// not flagged, put in `ids` (emptied first) in `Id` order.
 fn ticking(state: &State, ids: &mut Vec<Id>) {
     let entities = &state.rules.entities;
     ids.clear();
     // By world, so only the columns of worlds with players are walked, each against its own.
-    for (world, centres) in super::view::tick_centres(state) {
+    for (world, centers) in super::view::tick_centers(state) {
         let radius = state.settings.view(world).tick_radius;
         let all =
             (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
         for (&(_, pos), column) in entities.columns.range(all) {
-            let near = centres
+            let near = centers
                 .iter()
                 .any(|&c| super::view::in_disc(c, pos, radius));
             if near {

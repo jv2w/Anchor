@@ -52,7 +52,7 @@ use crate::world::{self, BlockPos};
 const BEHIND_HORIZONTAL: f64 = 1.6;
 /// The vertical offset factor of the same place (see [`BEHIND_HORIZONTAL`]).
 const BEHIND_VERTICAL: f64 = 2.8;
-/// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
+/// A menu closes when its player's eyes are farther than this from its block's center (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
 /// blocks and their data when the window opens. The delay the official client needs is not
@@ -428,7 +428,7 @@ pub(in crate::tick) fn tick(state: &mut State) {
 }
 
 /// Whether a menu whose first block stands at `pos` is out of reach of a player whose eyes are
-/// at `eye`: farther than [`MAX_DISTANCE_SQUARED`] from the block's centre.
+/// at `eye`: farther than [`MAX_DISTANCE_SQUARED`] from the block's center.
 fn is_far(eye: Vec3, pos: BlockPos) -> bool {
     eye.distance_squared(pos.to_center()) > MAX_DISTANCE_SQUARED
 }

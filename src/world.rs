@@ -98,7 +98,7 @@ impl BlockPos {
     /// The position one block toward `face`, if it is a valid `i32` position (the world height
     /// is not checked).
     #[doc(alias = "Position::getSide")]
-    pub fn step(self, face: crate::block::Face) -> Option<Self> {
+    pub fn step(self, face: block::Face) -> Option<Self> {
         let (dx, dy, dz) = face.offset();
         self.offset(dx, dy, dz)
     }
@@ -113,13 +113,18 @@ impl BlockPos {
         ))
     }
 
-    /// The centre of the block cell.
+    /// The center of the block cell.
     pub(crate) fn to_center(self) -> crate::math::Vec3 {
         crate::math::Vec3::new(
             f64::from(self.x) + 0.5,
             f64::from(self.y) + 0.5,
             f64::from(self.z) + 0.5,
         )
+    }
+
+    /// The lowest corner of the block cell.
+    pub(crate) fn to_corner(self) -> crate::math::Vec3 {
+        crate::math::Vec3::new(f64::from(self.x), f64::from(self.y), f64::from(self.z))
     }
 
     /// The position one block toward `facing`, if it is a valid `i32` position.
@@ -628,9 +633,9 @@ impl World {
         self.entry(pos)?.state()
     }
 
-    /// The block at `pos` as the rules see it, air where there is none (`pos` is `None`, an
-    /// unloaded chunk, outside the world), so the rules never load a chunk. An unknown state
-    /// reads as bedrock (solid and full), which a placement does not replace.
+    /// The block at `pos` as the rules see it: air where there is none (`pos` is `None`, its chunk
+    /// is not loaded or is quarantined, or `pos` is outside the world height), and bedrock (solid
+    /// and full, which a placement does not replace) for a state Anchor does not know.
     #[inline]
     pub(crate) fn block_for_rules(&self, pos: Option<BlockPos>) -> State {
         match pos.and_then(|p| self.entry(p)) {
@@ -1381,8 +1386,11 @@ mod tests {
     use super::*;
 
     use super::chunk::tests::plain_states;
-    use crate::block::{self, Face, PropertyValue};
+    use crate::block::{Face, PropertyValue};
+    use crate::math::Vec3;
+    use crate::nbt::Compound;
     use crate::protocol::Rng;
+    use crate::save::palette_entry;
 
     /// A world with the chunks of x and z from `-r` to `r` loaded from its generator.
     fn world(generator: &dyn Generator, r: i32) -> World {
@@ -1401,18 +1409,7 @@ mod tests {
     /// once there however often it is set, and its clients are sent it as the chunk sends it.
     #[test]
     fn a_stored_unknown_block_copies_to_another_chunk_listed_once() {
-        use crate::nbt::{Compound, Value};
-        let nbt = Compound::from([
-            (
-                "name".to_owned(),
-                Value::String("minecraft:no_such_block".to_owned()),
-            ),
-            ("states".to_owned(), Value::Compound(Compound::new())),
-            (
-                "version".to_owned(),
-                Value::Int(crate::import::BLOCK_STATE_VERSION),
-            ),
-        ]);
+        let nbt = palette_entry("minecraft:no_such_block".to_owned(), Compound::new());
         let mut w = world(&Void, 1);
         let from = BlockPos::new(0, -60, 0);
         let entry = w.put_unknown(from, nbt.clone()).unwrap();
@@ -1444,39 +1441,35 @@ mod tests {
         );
     }
 
-    /// The block the rules see is air for no position and for an unloaded chunk, bedrock for a
-    /// state Anchor does not know, and the state itself for a known one.
+    /// The block the rules see is air for no position, an unloaded or quarantined chunk and a
+    /// position outside the world height, bedrock for a state Anchor does not know, and the state
+    /// itself for a known one.
     #[test]
     fn rules_see_air_for_absent_bedrock_for_unknown_and_known_as_itself() {
-        use crate::nbt::{Compound, Value};
-        let nbt = Compound::from([
-            (
-                "name".to_owned(),
-                Value::String("minecraft:no_such_block".to_owned()),
-            ),
-            ("states".to_owned(), Value::Compound(Compound::new())),
-            (
-                "version".to_owned(),
-                Value::Int(crate::import::BLOCK_STATE_VERSION),
-            ),
-        ]);
-        let mut w = world(&Void, 0);
+        let nbt = palette_entry("minecraft:no_such_block".to_owned(), Compound::new());
+        let mut w = world(&Void, 1);
         let unknown = BlockPos::new(0, -60, 0);
         let known = BlockPos::new(1, -60, 0);
+        let quarantined = BlockPos::new(16, -60, 0);
         w.put_unknown(unknown, nbt).unwrap();
         w.set_block(known, block::DIRT).unwrap();
+        w.set_block(quarantined, block::DIRT).unwrap();
+        w.quarantine(quarantined.chunk());
         assert_eq!(w.block_for_rules(None), block::AIR);
-        assert_eq!(
-            w.block_for_rules(Some(BlockPos::new(64, -60, 0))),
-            block::AIR
-        );
+        for absent in [
+            BlockPos::new(64, -60, 0),
+            quarantined,
+            BlockPos::new(1, MAX_Y + 1, 0),
+            BlockPos::new(1, MIN_Y - 1, 0),
+        ] {
+            assert_eq!(w.block_for_rules(Some(absent)), block::AIR, "{absent:?}");
+        }
         assert_eq!(w.block_for_rules(Some(unknown)), block::BEDROCK);
         assert_eq!(w.block_for_rules(Some(known)), block::DIRT);
     }
 
     #[test]
     fn a_point_is_in_the_block_its_coordinates_round_down_to() {
-        use crate::math::Vec3;
         let at = |x, y, z| BlockPos::containing(Vec3::new(x, y, z));
         assert_eq!(at(0.5, -59.0, 15.99), BlockPos::new(0, -59, 15));
         assert_eq!(at(-0.01, -64.5, -16.0), BlockPos::new(-1, -65, -16));
@@ -1487,15 +1480,18 @@ mod tests {
         assert_eq!(at(-0.5, 0.0, 0.0).chunk(), ChunkPos::new(-1, 0));
     }
 
-    /// The centre of a block cell is half a block from its lowest corner on every axis, also for
+    /// The center of a block cell is half a block from its lowest corner on every axis, also for
     /// negative coordinates.
     #[test]
-    fn the_centre_of_a_block_is_half_a_block_from_its_corner() {
-        use crate::math::Vec3;
+    fn the_center_of_a_block_is_half_a_block_from_its_corner() {
         assert_eq!(BlockPos::new(0, 0, 0).to_center(), Vec3::new(0.5, 0.5, 0.5));
         assert_eq!(
             BlockPos::new(-1, -64, 16).to_center(),
             Vec3::new(-0.5, -63.5, 16.5)
+        );
+        assert_eq!(
+            BlockPos::new(-1, -64, 16).to_corner(),
+            Vec3::new(-1.0, -64.0, 16.0)
         );
         assert_eq!(
             BlockPos::containing(BlockPos::new(-7, 319, -30).to_center()),

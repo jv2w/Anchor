@@ -19,7 +19,7 @@
 //!
 //! [`World::next_changed`]: crate::world::World::next_changed
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::{Context, State, block_entity, entity, interact, view};
 use crate::block::Face;
@@ -129,23 +129,20 @@ impl Context<'_> {
 /// blocks: handing the candidate positions to the CPU pool would not save more than it costs, and
 /// hooks change the blocks later candidates read.
 pub(super) fn tick(state: &mut State) {
-    // Only a custom block's behaviour acts on a random tick: without one that takes them, the
-    // random ticks are skipped whole. A tick's random stream is keyed by its chunk and tick, so
-    // skipping changes no other stream.
-    let random = state.custom.has_random_ticks();
-    // The players' chunks, gathered in one pass for every world rather than one pass per world.
-    // No update moves a player or changes its world.
-    let centers = if random {
-        view::tick_centres(state)
-    } else {
-        BTreeMap::new()
-    };
+    // Each random stream is keyed by its chunk and tick, so skipping random ticks changes no
+    // other stream. The players' chunks are gathered once before the worlds rather than once per
+    // world (the entity tick gathers its own after them), so a player a hook moves counts where it
+    // stood until the next tick.
+    let centers = state
+        .custom
+        .has_random_ticks()
+        .then(|| view::tick_centers(state));
     for at in 0..state.worlds.len() {
         let Some(world) = state.worlds.index_at(at).filter(|&w| state.is_awake(w)) else {
             continue;
         };
         run_changes(state, world);
-        if random {
+        if let Some(centers) = &centers {
             run_random(state, world, centers.get(&world));
         }
     }
@@ -235,7 +232,7 @@ fn random_position(chunk: ChunkPos, base_y: i32, bits: u64) -> BlockPos {
 
 /// Fills `chunks` with the chunks of `world` that take random ticks, in order: within `radius`
 /// of `centers` ([`view::Disc::around`]), the chunks of the players in the world whose view is
-/// open ([`view::tick_centres`]), with their 3 × 3 neighbourhood loaded and lit. Players in one
+/// open ([`view::tick_centers`]), with their 3 × 3 neighbourhood loaded and lit. Players in one
 /// chunk share a center.
 fn ticking_chunks(
     state: &State,
@@ -438,12 +435,12 @@ mod tests {
         assert_eq!(state.worlds[0].changed_len(), 0);
     }
 
-    /// Vanilla blocks around a player whose view is open get any number of random ticks and stay
-    /// as they are.
+    /// Vanilla blocks around a player whose view is open get any number of random ticks (a
+    /// custom block that takes them is registered) and stay as they are.
     #[test]
     fn random_ticks_leave_vanilla_blocks_as_they_are() {
         let pool = pool();
-        let mut state = server();
+        let (mut state, _, _) = custom_server();
         let farmland = crate::block::State::find(
             "minecraft:farmland",
             &[("moisturized_amount", PropertyValue::Int(7))],
@@ -471,10 +468,32 @@ mod tests {
                 assert_eq!(get(&state, BlockPos::new(x, -60, z)), plant);
             }
         }
-        // No custom block takes random ticks: no chunk was ever picked for them.
-        assert_eq!(state.rules.updates.ticking.capacity(), 0);
+        assert!(
+            !state.rules.updates.ticking.is_empty(),
+            "random ticks picked no chunk"
+        );
         drop(rx);
         assert!(pool.shutdown());
+    }
+
+    /// On a server without a custom block that takes random ticks, no chunk is ever picked for
+    /// them; with one, the same player's chunks are.
+    #[test]
+    fn random_ticks_pick_no_chunk_without_a_block_that_takes_them() {
+        let picked = |mut state: State| {
+            let pool = pool();
+            let mut output = Output::default();
+            let (j, rx) = join(1, 0);
+            full_tick(&mut state, vec![j, radius(1, 1, 4)], &pool, &mut output);
+            for _ in 0..5 {
+                full_tick(&mut state, Vec::new(), &pool, &mut output);
+            }
+            drop(rx);
+            assert!(pool.shutdown());
+            state.rules.updates.ticking.capacity()
+        };
+        assert_eq!(picked(server()), 0);
+        assert!(picked(custom_server().0) > 0);
     }
 
     /// A floor of custom blocks around a player, every other one taking random ticks: those get

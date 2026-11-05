@@ -964,9 +964,9 @@ fn an_explosion_breaks_tnt_blocks_into_their_item_and_primes_none() {
 /// Scaled primed TNT explodes at half its scaled height, as its box scales.
 #[test]
 fn scaled_tnt_explodes_at_half_its_scaled_height() {
-    let centres: Log<Vec3> = log();
+    let centers: Log<Vec3> = log();
     let mut listeners = Listeners::default();
-    let sink = centres.sink();
+    let sink = centers.sink();
     listeners.push(
         Priority::Normal,
         move |e: &mut EntityExplode, _: &mut Context<'_>| sink.push(e.position()),
@@ -987,10 +987,10 @@ fn scaled_tnt_explodes_at_half_its_scaled_height() {
     for _ in 0..5 {
         h.entities();
     }
-    let [centre] = got(&centres)[..] else {
+    let [center] = got(&centers)[..] else {
         panic!("one explosion");
     };
-    assert!((centre.y - start.y - 0.98).abs() < 1e-9, "{centre:?}");
+    assert!((center.y - start.y - 0.98).abs() < 1e-9, "{center:?}");
 }
 
 /// A scaled falling block lands in the block its scaled box names: its position less half its

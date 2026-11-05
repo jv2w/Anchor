@@ -38,7 +38,7 @@ impl Action for Attack {}
 /// entities it hurts and pushes ([`EntityDamage`](crate::event::EntityDamage),
 /// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
 /// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world that is not
-/// loaded, a centre that is not finite or outside the world border, or a size that is not finite
+/// loaded, a center that is not finite or outside the world border, or a size that is not finite
 /// or not above 0.
 #[doc(alias = "Explosion::explodeA")]
 #[doc(alias = "Explosion::explodeB")]

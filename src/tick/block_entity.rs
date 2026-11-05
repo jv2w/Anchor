@@ -1603,7 +1603,7 @@ pub(super) fn animate(state: &mut State, world: WorldIndex, pos: BlockPos, viewe
 }
 
 /// Plays the open sound (`viewers` above 0) or the close sound of the chest-like block at `pos`
-/// at its centre; other blocks play none.
+/// at its center; other blocks play none.
 pub(super) fn lid_sound(
     state: &mut State,
     world: WorldIndex,
@@ -2528,20 +2528,10 @@ pub(in crate::tick) mod tests {
                 ("z".to_owned(), Value::Int(pos.z)),
             ])
         };
-        let sapling = Compound::from([
-            (
-                "name".to_owned(),
-                Value::String("minecraft:cherry_sapling".to_owned()),
-            ),
-            (
-                "states".to_owned(),
-                Value::Compound(Compound::from([("age_bit".to_owned(), Value::Byte(0))])),
-            ),
-            (
-                "version".to_owned(),
-                Value::Int(crate::import::BLOCK_STATE_VERSION),
-            ),
-        ]);
+        let sapling = crate::save::palette_entry(
+            "minecraft:cherry_sapling".to_owned(),
+            Compound::from([("age_bit".to_owned(), Value::Byte(0))]),
+        );
         let modded = Compound::from([
             ("name".to_owned(), Value::String("example:plant".to_owned())),
             ("states".to_owned(), Value::Compound(Compound::new())),

@@ -7,7 +7,7 @@
 
 use tracing::debug;
 
-use super::{Actor, Source, USE, adventure_allows, block_vec, place, props, return_items, stream};
+use super::{Actor, Source, USE, adventure_allows, place, props, return_items, stream};
 use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
 use crate::event::{
@@ -100,14 +100,6 @@ pub(super) fn set(state: &mut State, world: WorldIndex, pos: BlockPos, block: Bl
             "block not set"
         );
     }
-}
-
-/// The block at `pos` (air where nothing is loaded).
-fn get(state: &State, world: WorldIndex, pos: Option<BlockPos>) -> BlockState {
-    state
-        .worlds
-        .get(world)
-        .map_or(block::AIR, |w| w.block_for_rules(pos))
 }
 
 /// Uses the held item on a block: the clicked block's interaction, the item's own use, then
@@ -398,7 +390,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 if let Some(s) = props::with_flag(block, "open_bit", open) {
                     set(state, u.actor.world, u.pos, s);
                 }
-                u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
+                u.play(u.pos.to_corner(), Sound::Door { pitch: 0.0 });
                 return true;
             }
             _ => {}
@@ -413,7 +405,10 @@ fn door(state: &mut State, u: &mut Use) -> bool {
     let open = props::flag(u.block, "open_bit") != Some(true);
     let top = props::flag(u.block, "upper_block_bit") == Some(true);
     let other_pos = u.pos.step(if top { Face::Down } else { Face::Up });
-    let other = get(state, world, other_pos);
+    let other = state
+        .worlds
+        .get(world)
+        .map_or(block::AIR, |w| w.block_for_rules(other_pos));
     if let Some(p) = other_pos
         && other.kind() == u.block.kind()
         && let Some(s) = props::with_flag(other, "open_bit", open)
@@ -423,7 +418,7 @@ fn door(state: &mut State, u: &mut Use) -> bool {
     if let Some(s) = props::with_flag(u.block, "open_bit", open) {
         set(state, world, u.pos, s);
     }
-    u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
+    u.play(u.pos.to_corner(), Sound::Door { pitch: 0.0 });
     true
 }
 
@@ -439,7 +434,7 @@ fn fence_gate(state: &mut State, u: &mut Use) -> bool {
         }
     }
     set(state, world, u.pos, next);
-    u.play(block_vec(u.pos), Sound::Door { pitch: 0.0 });
+    u.play(u.pos.to_corner(), Sound::Door { pitch: 0.0 });
     true
 }
 
@@ -468,7 +463,10 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         return Outcome::None;
     };
     let placed = if item.is(item::Class::SpawnEgg) {
-        let Some(at) = u.replace().map(|p| block_vec(p) + Vec3::new(0.5, 0.0, 0.5)) else {
+        let Some(at) = u
+            .replace()
+            .map(|p| p.to_corner() + Vec3::new(0.5, 0.0, 0.5))
+        else {
             return Outcome::None;
         };
         let yaw = u.rng.unit() * 360.0;
@@ -477,7 +475,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         // The clicked point, 0.15 out of the clicked face.
         let (dx, dy, dz) = u.face.offset();
         let out = Vec3::new(f64::from(dx), f64::from(dy), f64::from(dz)) * 0.15;
-        let at = block_vec(u.pos) + u.click + out;
+        let at = u.pos.to_corner() + u.click + out;
         if entity::launch_firework(state, u.actor.session, world, at, &u.item, &mut u.rng) {
             entity::Placed::Made
         } else {

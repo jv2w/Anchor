@@ -1681,12 +1681,10 @@ fn a_double_chest_sounds_once_at_its_left_half() {
         .and_then(|win| win.kind.blocks()[0])
         .map(|(_, p)| p)
         .unwrap();
-    let centre = crate::math::Vec3::new(
-        f64::from(left.x) + 0.5,
-        f64::from(left.y) + 0.5,
-        f64::from(left.z) + 0.5,
+    assert_eq!(
+        opened,
+        [("chest.open".to_owned(), left.to_center().to_f32())]
     );
-    assert_eq!(opened, [("chest.open".to_owned(), centre.to_f32())]);
 }
 
 #[test]

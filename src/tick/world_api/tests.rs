@@ -6,7 +6,9 @@ use tokio::sync::mpsc;
 use super::*;
 use crate::config::Config;
 use crate::event::Listeners;
+use crate::nbt::Compound;
 use crate::protocol::packet::{LevelEvent as LevelEventPacket, Packet as P};
+use crate::save::palette_entry;
 use crate::tick::queue::Outbound;
 use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 use crate::tick::{MAX_OUTBOX, Output, SessionId, Setup, Shared};
@@ -292,19 +294,6 @@ fn the_safe_spawn_is_the_first_two_free_blocks_up_the_column() {
     assert_eq!(world.safe_spawn(far), far);
 }
 
-/// The stored state of the block `name` with no properties, which Anchor does not know.
-fn stored_state(name: &str) -> crate::nbt::Compound {
-    use crate::nbt::{Compound, Value};
-    Compound::from([
-        ("name".to_owned(), Value::String(name.to_owned())),
-        ("states".to_owned(), Value::Compound(Compound::new())),
-        (
-            "version".to_owned(),
-            Value::Int(crate::import::BLOCK_STATE_VERSION),
-        ),
-    ])
-}
-
 /// The safe spawn stands no player in a block the entity rules find solid: a solid block only
 /// clients know, or a block neither Anchor nor clients know.
 #[test]
@@ -313,12 +302,14 @@ fn the_safe_spawn_finds_solid_the_blocks_anchor_does_not_know() {
     let spawn = state.worlds[0].spawn();
     let column = |y| BlockPos::new(spawn.x + 1, y, spawn.z);
     let world = &mut state.worlds[0];
-    world
-        .put_unknown(column(-60), stored_state("minecraft:moss_block"))
-        .unwrap();
-    world
-        .put_unknown(column(-58), stored_state("minecraft:no_such_block"))
-        .unwrap();
+    for (y, name) in [
+        (-60, "minecraft:moss_block"),
+        (-58, "minecraft:no_such_block"),
+    ] {
+        world
+            .put_unknown(column(y), palette_entry(name.to_owned(), Compound::new()))
+            .unwrap();
+    }
     assert_eq!(world.safe_spawn(column(-61)), column(-57));
 }
 
@@ -366,11 +357,7 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     let (mut state, _rx) = state();
     let spawn = state.worlds[0].spawn();
     let below = BlockPos::new(spawn.x + 6, spawn.y - 1, spawn.z);
-    let center = Vec3::new(
-        f64::from(below.x) + 0.5,
-        f64::from(below.y) + 0.5,
-        f64::from(below.z) + 0.5,
-    );
+    let center = below.to_center();
     let before = state.worlds[0].block(below);
     let mut cx = context(&mut state);
     assert_eq!(

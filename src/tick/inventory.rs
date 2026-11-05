@@ -1651,21 +1651,13 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
     }
     // The block beside `at` reads as the placement rules read it: an inert block as its stand-in.
     let beside = |at: BlockPos, face: block::Face| {
-        let (dx, dy, dz) = face.offset();
-        let side = BlockPos::new(
-            at.x.saturating_add(dx),
-            at.y.saturating_add(dy),
-            at.z.saturating_add(dz),
-        );
         state
             .worlds
             .get(world)
-            .map(|w| w.block_for_rules(Some(side)))
+            .map_or(block::AIR, |w| w.block_for_rules(at.step(face)))
     };
-    let solid_beside =
-        |at: BlockPos, face: block::Face| beside(at, face).is_some_and(block::State::is_solid);
-    let opaque_beside =
-        |at: BlockPos, face: block::Face| beside(at, face).is_some_and(|b| !b.is_transparent());
+    let solid_beside = |at: BlockPos, face: block::Face| beside(at, face).is_solid();
+    let opaque_beside = |at: BlockPos, face: block::Face| !beside(at, face).is_transparent();
     match kind {
         WindowKind::Container {
             kind: Container::Chest,

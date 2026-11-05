@@ -1636,7 +1636,7 @@ fn a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played()
     h.hold(Stack::EMPTY);
     use_on(&mut h, TARGET, Face::West);
     let door = crate::world::Sound::Door { pitch: 0.0 };
-    let at = block_vec(TARGET);
+    let at = TARGET.to_corner();
     assert_eq!(
         notes(SEEN),
         [dbg((crate::world::Id::DEFAULT, at, door, vec![me()]))]

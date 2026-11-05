@@ -643,7 +643,7 @@ impl Player {
 
     /// The player's own respawn point: the world name and block, set by
     /// [`set_spawn`](Self::set_spawn); `None` respawns it at the default world's spawn. A point in
-    /// a world the server does not run, or whose centre lies outside the world border, counts as
+    /// a world the server does not run, or whose center lies outside the world border, counts as
     /// none when the player respawns.
     #[doc(alias = "Player::getSpawn")]
     #[doc(alias = "Player::hasValidCustomSpawn")]
@@ -1386,7 +1386,7 @@ impl Player {
     }
 
     /// Sets or clears the player's respawn point: a world name and the block to respawn on. It is
-    /// saved. A block whose centre lies outside the world border counts as none when the player
+    /// saved. A block whose center lies outside the world border counts as none when the player
     /// respawns. Fails for a world name longer than 250 bytes, which no world has.
     ///
     /// # Errors

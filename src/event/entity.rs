@@ -580,7 +580,7 @@ getters!(EntityExplode {
     entity: entity::Id,
     /// The world of the explosion.
     world: world::Id,
-    /// The centre of the explosion.
+    /// The center of the explosion.
     #[doc(alias = "EntityExplodeEvent::getPosition")]
     position: Vec3,
     /// The blocks that break.

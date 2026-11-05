@@ -46,8 +46,7 @@ pub(crate) struct Registry {
     creatives: Creatives,
     /// The index in [`Self::creatives`] of each alternative's name.
     creative_names: BTreeMap<&'static str, u16>,
-    /// Whether a registered block takes random ticks: derived from the entries by
-    /// [`Self::finish`], so the tick skips random ticks at no cost without one.
+    /// Whether a registered block takes random ticks; set by [`Self::finish`].
     random_ticks: bool,
 }
 
@@ -108,8 +107,7 @@ impl Registry {
         block::State::custom(b, b.index_of(states)?, t.runtime_id())
     }
 
-    /// Whether a registered custom block takes random ticks
-    /// ([`Block::random_ticks`](super::Block::random_ticks)).
+    /// Whether a registered custom block takes random ticks ([`Block::random_ticks`]).
     pub(crate) fn has_random_ticks(&self) -> bool {
         self.random_ticks
     }
@@ -473,6 +471,8 @@ mod tests {
         Block::new("test:changed", "test_changed").with_properties(&[Property::bool("lit")]);
     /// The same block with no properties.
     static PLAIN: Block = Block::new("test:changed", "test_changed");
+    /// A block that takes random ticks.
+    static TICKING: Block = Block::new("test:ticking", "test_ticking").random_ticks();
 
     /// A custom block's item saved under one definition of its block reads back under another
     /// with other properties: the item is known by its name.
@@ -485,6 +485,20 @@ mod tests {
         assert_eq!(
             Stack::from_nbt_with(&saved, &after),
             Some(Stack::new(item(&after, &LIT), 9))
+        );
+    }
+
+    /// A registry takes random ticks only when one of its blocks does.
+    #[test]
+    fn a_registry_takes_random_ticks_only_with_a_block_that_does() {
+        assert!(!finished(|_| {}).has_random_ticks());
+        assert!(!finished(|r| r.add_block(&PLAIN)).has_random_ticks());
+        assert!(
+            finished(|r| {
+                r.add_block(&PLAIN);
+                r.add_block(&TICKING);
+            })
+            .has_random_ticks()
         );
     }
 }

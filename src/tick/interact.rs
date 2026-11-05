@@ -706,7 +706,8 @@ pub(super) fn tick(state: &mut State) {
             t.speed = speed;
             t.fx = t.fx.wrapping_add(1);
         }
-        let at = block_vec(target.pos);
+        // Cracking events are at the block's corner.
+        let at = target.pos.to_corner();
         if changed {
             let data = crack_data(speed);
             level_event(state, target.world, at, Event::UpdateBlockCracking, data);
@@ -726,12 +727,6 @@ pub(super) fn tick(state: &mut State) {
 /// that break at once (the official server sends 65535).
 fn crack_data(speed: f64) -> i32 {
     props::float_to_i32((65_535.0 * math::min(speed, 1.0)).floor())
-}
-
-/// A block position as a vector: the block's corner (cracking events are there, a
-/// painting hanging in the block stands there).
-pub(super) fn block_vec(pos: BlockPos) -> Vec3 {
-    Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z))
 }
 
 /// Shows a level event to the players who see the chunk of `at`: what the official server sends
@@ -976,7 +971,7 @@ pub(super) fn stop_breaking(state: &mut State, session: SessionId) {
         level_event(
             state,
             target.world,
-            block_vec(target.pos),
+            target.pos.to_corner(),
             Event::StopBlockCracking,
             0,
         );
@@ -1104,7 +1099,7 @@ fn attack(
         level_event(
             state,
             actor.world,
-            block_vec(pos),
+            pos.to_corner(),
             Event::StartBlockCracking,
             crack_data(speed),
         );
@@ -1234,7 +1229,7 @@ fn finish_break(
             level_event(
                 state,
                 actor.world,
-                block_vec(pos),
+                pos.to_corner(),
                 Event::StopBlockCracking,
                 0,
             );

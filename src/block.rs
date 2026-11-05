@@ -999,7 +999,7 @@ impl BreakInfo {
 pub enum SupportType {
     /// The whole face.
     Full,
-    /// The centre of the face (a fence post's top).
+    /// The center of the face (a fence post's top).
     Center,
     /// The edge of the face (a cauldron's rim).
     Edge,
@@ -1008,13 +1008,13 @@ pub enum SupportType {
 }
 
 impl SupportType {
-    /// Whether the face supports a block that needs the edge (a torch needs the centre).
+    /// Whether the face supports a block that needs the edge (a torch needs the center).
     #[doc(alias = "SupportType::hasEdgeSupport")]
     pub fn has_edge_support(self) -> bool {
         matches!(self, Self::Full | Self::Edge)
     }
 
-    /// Whether the face supports a block that needs the centre.
+    /// Whether the face supports a block that needs the center.
     #[doc(alias = "SupportType::hasCenterSupport")]
     pub fn has_center_support(self) -> bool {
         matches!(self, Self::Full | Self::Center)

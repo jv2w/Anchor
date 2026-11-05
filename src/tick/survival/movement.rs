@@ -601,7 +601,7 @@ fn has_collision(world: &World, bb: Aabb) -> bool {
 
 /// Whether block-local collision boxes at `pos` overlap `bb`.
 fn boxes_collide(boxes: &[Aabb], pos: BlockPos, bb: Aabb) -> bool {
-    let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+    let at = pos.to_corner();
     boxes.iter().any(|b| b.offset(at).intersects(bb))
 }
 
