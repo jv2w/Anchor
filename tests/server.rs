@@ -262,7 +262,7 @@ fn the_smallest_explicit_thread_counts_always_fit() {
     let mut config = Config::default();
     config.developer.network_threads = one;
     config.developer.cpu_threads = one;
-    // 1 + 1 + 2 never exceeds max(logical CPUs, 4).
+    // 1 + 1 + 2 never exceeds max(logical CPUs, 5).
     Server::builder().config(config).build().unwrap();
 }
 
