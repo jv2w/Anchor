@@ -15,10 +15,14 @@ use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
 use super::wire::{self, Cursor, FLAG_DATAGRAM, UDP_HEADER_BYTES};
 use super::{Error, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, Result};
 use crate::bucket::{Bucket, Rate};
+use crate::crypto::CookieKey;
 use crate::tick::queue::LeaveReason;
 
 /// How long a closing connection may take to deliver what it queued (go-raknet `Close`).
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+/// The cookie of a source changes every epoch, and one of the epoch before still counts, so a
+/// cookie lasts 2 to 4 seconds (go-raknet changes its salt every 2 seconds and keeps the last).
+const COOKIE_EPOCH_SECS: u64 = 2;
 /// From `OpenConnectionRequest2` to `NewIncomingConnection` at most (go-raknet listener).
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence after which a connection is dropped, plus two round trips (go-raknet `startTicking`).
@@ -48,6 +52,8 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 pub(super) struct Listener {
     config: Config,
     pong: Arc<[u8]>,
+    /// The key of the connection cookies; `None` asks for none (`raknet-cookies = false`).
+    cookies: Option<CookieKey>,
     conns: BTreeMap<SocketAddr, Conn>,
     /// The closing connections, oldest first.
     closing: VecDeque<SocketAddr>,
@@ -63,10 +69,11 @@ pub(super) struct Listener {
 }
 
 impl Listener {
-    pub(super) fn new(config: Config, pong: Arc<[u8]>) -> Self {
+    pub(super) fn new(config: Config, pong: Arc<[u8]>, cookies: Option<CookieKey>) -> Self {
         Self {
             config,
             pong,
+            cookies,
             conns: BTreeMap::new(),
             closing: VecDeque::new(),
             next_id: 0,
@@ -289,7 +296,8 @@ impl Listener {
                     let mtu = u16::try_from(mtu)
                         .unwrap_or(u16::MAX)
                         .min(self.config.max_mtu);
-                    wire::open_connection_reply_1(&mut self.buf, self.config.guid, mtu);
+                    let cookie = self.cookie(now, from, 0);
+                    wire::open_connection_reply_1(&mut self.buf, self.config.guid, cookie, mtu);
                 } else {
                     wire::incompatible_protocol_version(&mut self.buf, self.config.guid);
                 }
@@ -310,11 +318,20 @@ impl Listener {
         mut cur: Cursor<'_>,
         sink: &mut impl Sink,
     ) -> Result<()> {
-        // No cookie: the reply says security off, and the official client's cookie handling cannot
-        // be observed. A spoofed source therefore can open a connection state here; the pre-login
-        // caps (`MAX_PRE_LOGIN`, `MAX_PRE_LOGIN_PER_IP`, `HANDSHAKE_TIMEOUT` and `IDLE_TIMEOUT`)
-        // bound what such requests hold.
+        // With cookies, only a source that got `OpenConnectionReply1` can open a connection
+        // state: a spoofed one gets no reply and leaves nothing. Without them, the pre-login caps
+        // (`MAX_PRE_LOGIN`, `MAX_PRE_LOGIN_PER_IP`, `HANDSHAKE_TIMEOUT` and `IDLE_TIMEOUT`) alone
+        // bound what spoofed requests hold.
         cur.magic()?;
+        if self.cookies.is_some() {
+            let cookie = cur.u32()?;
+            // Whether the client answered a challenge, which RakNet's security would add; never.
+            cur.u8()?;
+            let fresh = |back| self.cookie(now, from, back) == Some(cookie);
+            if !fresh(0) && !fresh(1) {
+                return Err(Error::Malformed("cookie"));
+            }
+        }
         cur.address()?;
         let mtu = cur.u16()?;
         let guid = cur.u64()?;
@@ -369,6 +386,21 @@ impl Listener {
         *self.pre_login_per_ip.entry(ip).or_default() += 1;
         self.reply_2(from, mtu, sink);
         Ok(())
+    }
+
+    /// The cookie of `from` in the cookie epoch `back` epochs before the one of `now`; `None`
+    /// without cookies. Each source address (IP and port) has its own.
+    fn cookie(&self, now: Duration, from: SocketAddr, back: u64) -> Option<u32> {
+        let key = self.cookies.as_ref()?;
+        let epoch = (now.as_secs() / COOKIE_EPOCH_SECS)
+            .saturating_sub(back)
+            .to_le_bytes();
+        let port = from.port().to_be_bytes();
+        // The family byte keeps an IPv4 address apart from IPv6 bytes that begin the same.
+        Some(match from.ip() {
+            IpAddr::V4(ip) => key.cookie(&[&epoch, &[4], &ip.octets(), &port]),
+            IpAddr::V6(ip) => key.cookie(&[&epoch, &[6], &ip.octets(), &port]),
+        })
     }
 
     fn reply_2(&mut self, to: SocketAddr, mtu: u16, sink: &mut impl Sink) {
@@ -673,7 +705,7 @@ pub(super) mod tests {
     }
 
     fn listener() -> Listener {
-        Listener::new(config(), Arc::from(PONG))
+        Listener::new(config(), Arc::from(PONG), None)
     }
 
     /// Records what the listener does.
@@ -791,12 +823,37 @@ pub(super) mod tests {
 
         /// `OpenConnectionRequest2` without a cookie (go-raknet when the server has no security).
         pub(in crate::raknet) fn request_2(mtu: u16, guid: u64) -> Vec<u8> {
+            Self::request_2_with(mtu, guid, None)
+        }
+
+        /// `OpenConnectionRequest2` with `cookie` when the server has security
+        /// (go-raknet `MarshalBinary`: the cookie, then a zero byte).
+        pub(in crate::raknet) fn request_2_with(
+            mtu: u16,
+            guid: u64,
+            cookie: Option<u32>,
+        ) -> Vec<u8> {
             let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_2];
             data.extend_from_slice(&wire::MAGIC);
+            if let Some(cookie) = cookie {
+                data.extend_from_slice(&cookie.to_be_bytes());
+                data.push(0);
+            }
             wire::put_address(&mut data, SocketAddr::from(([127, 0, 0, 1], 19_132)));
             data.extend_from_slice(&mtu.to_be_bytes());
             data.extend_from_slice(&guid.to_be_bytes());
             data
+        }
+
+        /// The cookie and the MTU of an `OpenConnectionReply1` (go-raknet `UnmarshalBinary`).
+        pub(in crate::raknet) fn reply_1(data: &[u8]) -> (Option<u32>, u16) {
+            let u16_at = |at: usize| u16::from_be_bytes(data[at..at + 2].try_into().unwrap());
+            if data[25] == 0 {
+                (None, u16_at(26))
+            } else {
+                let cookie = u32::from_be_bytes(data[26..30].try_into().unwrap());
+                (Some(cookie), u16_at(30))
+            }
         }
 
         pub(in crate::raknet) fn start(&mut self) {
@@ -814,8 +871,8 @@ pub(super) mod tests {
             } = self;
             match data[0] {
                 wire::ID_OPEN_CONNECTION_REPLY_1 => {
-                    let mtu = u16::from_be_bytes(data[26..28].try_into().unwrap());
-                    outbox.push(Self::request_2(mtu, CLIENT_GUID | 5));
+                    let (cookie, mtu) = Self::reply_1(data);
+                    outbox.push(Self::request_2_with(mtu, CLIENT_GUID | 5, cookie));
                 }
                 wire::ID_OPEN_CONNECTION_REPLY_2 if peer.is_none() => {
                     let at = data.len() - 3;
@@ -1025,6 +1082,7 @@ pub(super) mod tests {
                 ..config()
             },
             Arc::from(PONG),
+            None,
         );
         for (request, reply) in [
             (MAX_MTU, 1200),
@@ -1454,6 +1512,59 @@ pub(super) mod tests {
         assert_eq!(sink.closed, [(id, LeaveReason::TimedOut)]);
     }
 
+    /// A listener that asks for connection cookies.
+    fn cookie_listener() -> Listener {
+        let key = CookieKey::generate().unwrap();
+        Listener::new(config(), Arc::from(PONG), Some(key))
+    }
+
+    /// A client that sends the cookie back connects as one does without cookies; the reply
+    /// carries a cookie only from a listener that asks for them.
+    #[test]
+    fn a_client_that_sends_its_cookie_back_connects() {
+        let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        for (mut listener, asks) in [(cookie_listener(), true), (listener(), false)] {
+            let reply = offline_reply(&mut listener, addr(1, 1), &request);
+            let (cookie, mtu) = Client::reply_1(&reply[0]);
+            assert_eq!((cookie.is_some(), mtu), (asks, MAX_MTU));
+            let mut sink = Recorder::new();
+            let mut client = Client::new(addr(1, 2), MAX_MTU);
+            connect(&mut listener, &mut sink, &mut client, T);
+        }
+    }
+
+    /// With cookies, a request 2 opens a connection only with the cookie its address got in the
+    /// cookie epoch or the one before; any other request gets no reply and leaves no state, so a
+    /// spoofed address cannot hold a pre-login slot.
+    #[test]
+    fn a_request_2_opens_a_connection_only_with_the_cookie_of_its_address() {
+        let mut listener = cookie_listener();
+        let (from, other) = (addr(1, 1), addr(2, 1));
+        let reply = offline_reply(
+            &mut listener,
+            from,
+            &Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION),
+        );
+        let cookie = Client::reply_1(&reply[0]).0.unwrap();
+        let with = |cookie| Client::request_2_with(MAX_MTU, CLIENT_GUID, Some(cookie));
+        let epoch = Duration::from_secs(COOKIE_EPOCH_SECS);
+        for (source, request, at) in [
+            (from, with(cookie ^ 1), T),
+            (other, with(cookie), T),
+            (from, with(cookie), T + epoch * 2),
+            (from, Client::request_2(MAX_MTU, CLIENT_GUID), T),
+        ] {
+            let mut sink = Recorder::new();
+            listener.receive(at, source, &request, &mut sink);
+            assert!(sink.sent.is_empty(), "{source} at {at:?}");
+            assert!(listener.conns.is_empty() && listener.pre_login == 0);
+        }
+        let mut sink = Recorder::new();
+        listener.receive(T + epoch, from, &with(cookie), &mut sink);
+        assert_eq!(sink.take(from)[0][0], wire::ID_OPEN_CONNECTION_REPLY_2);
+        assert_eq!(listener.pre_login, 1);
+    }
+
     #[test]
     fn disconnect_notification_closes_without_reply() {
         let mut listener = listener();
@@ -1587,6 +1698,7 @@ pub(super) mod tests {
                 ..config()
             },
             Arc::from(PONG),
+            None,
         );
         let from = addr(1, 1);
         assert_eq!(

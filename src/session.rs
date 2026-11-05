@@ -513,16 +513,17 @@ pub(crate) async fn start(
         info!(%addr, "listening for NetherNet signaling on TCP");
     }
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::Driver::new(
-        raknet_settings(&config, batch, guid),
-        pong_rx,
-        raknet_tx,
-        Arc::clone(&sockets),
-    ) {
+    let raknet = raknet_settings(&config, batch, guid)
+        .map_err(std::io::Error::other)
+        .and_then(|settings| {
+            raknet::Driver::new(settings, pong_rx, raknet_tx, Arc::clone(&sockets))
+                .map_err(std::io::Error::other)
+        });
+    let raknet = match raknet {
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
-            return Err(Error::Start(std::io::Error::other(e)));
+            return Err(Error::Start(e));
         }
     };
     let udp = udp::spawn(sockets, raknet, nethernet_driver);
@@ -614,16 +615,26 @@ fn nethernet_settings(
     }
 }
 
-/// The RakNet settings for `guid`.
-fn raknet_settings(config: &Config, batch: batch::Settings, guid: u64) -> raknet::Settings {
-    raknet::Settings {
+/// The RakNet settings for `guid`, with a new cookie key unless `raknet-cookies = false`.
+fn raknet_settings(
+    config: &Config,
+    batch: batch::Settings,
+    guid: u64,
+) -> crypto::Result<raknet::Settings> {
+    let cookies = if config.developer.raknet_cookies {
+        Some(crypto::CookieKey::generate()?)
+    } else {
+        None
+    };
+    Ok(raknet::Settings {
         max_mtu: config.developer.max_mtu_size,
         // An encrypted RakNet message adds the checksum to the batch.
         max_message_bytes: max_message_bytes(&batch)
             .saturating_add(crypto::encryption::CHECKSUM_BYTES),
         accept: config.developer.raknet,
         guid,
-    }
+        cookies,
+    })
 }
 
 /// The largest game message a client may send, without transport framing: the

@@ -334,12 +334,20 @@ pub(super) fn unconnected_pong(
     Ok(())
 }
 
-/// Writes `OpenConnectionReply1` with security off and no cookie.
-pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, mtu: u16) {
+/// Writes `OpenConnectionReply1`: with security on and `cookie`, or off without one.
+pub(super) fn open_connection_reply_1(buf: &mut Vec<u8>, guid: u64, cookie: Option<u32>, mtu: u16) {
     buf.push(ID_OPEN_CONNECTION_REPLY_1);
     buf.extend_from_slice(&MAGIC);
     buf.extend_from_slice(&guid.to_be_bytes());
-    buf.push(0);
+    // The security flag, then the cookie the client sends back in `OpenConnectionRequest2`
+    // (go-raknet `OpenConnectionReply1`).
+    match cookie {
+        Some(cookie) => {
+            buf.push(1);
+            buf.extend_from_slice(&cookie.to_be_bytes());
+        }
+        None => buf.push(0),
+    }
     buf.extend_from_slice(&mtu.to_be_bytes());
 }
 

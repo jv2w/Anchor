@@ -75,7 +75,7 @@ paths:
 - Keep the sans-IO core (`raknet/wire.rs`, `raknet/peer.rs`, `raknet/listener.rs`) apart from the driver.
 - The RakNet layer adds and removes the 0xfe byte; the session stays transport-independent.
 - RakNet timing uses the monotonic clock (`clock::now`).
-- Never use the connection cookie (security).
+- Use the connection cookie unless `raknet-cookies = false`: a keyed MAC from the `crypto` module, never a checksum anyone can compute. Answer a request 2 without the right cookie with nothing, and keep no state for it.
 - Drop a malformed ACK or NAK, and a datagram whose number is the history (1,024) or more ahead, as that datagram alone, unless a second one follows within the history (then move the record there). Never close the connection for them.
 - Never preallocate for the fragment count a message declares.
 - Refuse `;` and control characters in `motd` and `level-name`.

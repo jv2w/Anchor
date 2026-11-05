@@ -144,6 +144,9 @@ enable-encryption = true
 # false: accept only NetherNet. A RakNet client gets no reply to its connection request;
 # the UDP port still answers server list pings.
 raknet = true
+# RakNet connection cookies: a fake sender address cannot take connection slots.
+# false only where a host's DDoS filter drops cookie handshakes.
+raknet-cookies = true
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
 max-mtu-size = 1492
 # PEM certificate chain and private key for HTTPS NetherNet signaling.
@@ -823,6 +826,9 @@ pub struct Developer {
     /// `raknet`: whether RakNet connections are accepted; pings are answered either way, and a
     /// RakNet client that tries to connect gets no reply when it is `false`.
     pub raknet: bool,
+    /// `raknet-cookies`: whether a RakNet client must send back the cookie of its address before
+    /// it gets a connection, so a spoofed address cannot take connection slots.
+    pub raknet_cookies: bool,
     /// `max-mtu-size`: the largest RakNet packet in bytes.
     pub max_mtu_size: u16,
     /// `nethernet-tls-cert`: the PEM certificate chain for HTTPS signaling; `None` is plain HTTP.
@@ -880,6 +886,7 @@ impl Developer {
                 }
                 "enable-encryption" => self.enable_encryption = boolean(value, key)?,
                 "raknet" => self.raknet = boolean(value, key)?,
+                "raknet-cookies" => self.raknet_cookies = boolean(value, key)?,
                 "max-mtu-size" => self.max_mtu_size = int(value, key, MTU_SIZE_RANGE)?,
                 "nethernet-tls-cert" => {
                     self.nethernet_tls_cert = optional(value, key, "empty or a path")?;
@@ -927,6 +934,7 @@ impl Default for Developer {
             max_batch_bytes: batch::Settings::DEFAULT_MAX_BATCH_BYTES,
             enable_encryption: true,
             raknet: true,
+            raknet_cookies: true,
             max_mtu_size: crate::raknet::MAX_MTU,
             nethernet_tls_cert: None,
             nethernet_tls_key: None,
@@ -1660,7 +1668,7 @@ mod tests {
     use super::*;
 
     /// The number of keys in the default file.
-    pub(super) const DEFAULT_KEY_COUNT: usize = 64;
+    pub(super) const DEFAULT_KEY_COUNT: usize = 65;
 
     fn apply(text: &str) -> Result<Config> {
         Config::default().apply(text.as_bytes())

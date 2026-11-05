@@ -5833,8 +5833,8 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:127 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
 | `event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:692 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:692 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:695 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:695 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerRespawnAnchorUseEvent` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -8247,11 +8247,11 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\DatFilePlayerDataProvider::hasData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\DatFilePlayerDataProvider::loadData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\DatFilePlayerDataProvider::saveData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
-| `player\GameMode` | implemented | src/config.rs:1140 `GameMode` | src/config.rs::game_modes_parse_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
+| `player\GameMode` | implemented | src/config.rs:1148 `GameMode` | src/config.rs::game_modes_parse_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
 | `player\GameMode::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `player\GameMode::fromString` | implemented | src/config.rs:1190 `from_name` | src/config.rs::game_modes_parse_names_letters_and_numbers |  |
+| `player\GameMode::fromString` | implemented | src/config.rs:1198 `from_name` | src/config.rs::game_modes_parse_names_letters_and_numbers |  |
 | `player\GameMode::getAliases` | skipped |  |  | the settings take one name per game mode |
 | `player\GameMode::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::getEnglishName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
@@ -8640,15 +8640,15 @@ implemented 22, differs 0, merged 6, skipped 6, blank 0 (of 34 rows)
 | `resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:157 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `resourcepacks\ResourcePackException` | implemented | src/pack.rs:403 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:689 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
+| `resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:692 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
 | `resourcepacks\ResourcePackManager::getPackById` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:127 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager::getPackIdList` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
 | `resourcepacks\ResourcePackManager::getResourceStack` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:692 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:695 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
 | `resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:191 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:693 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:696 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
 | `resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
 | `resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:59 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:110 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
@@ -8724,8 +8724,8 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getGamemode` | implemented | src/tick/task.rs:138 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getIPBans` | implemented | src/tick/command.rs:653 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `Server::getIp` | implemented | src/config.rs:594 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `Server::getIpV6` | implemented | src/config.rs:597 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::getIp` | implemented | src/config.rs:597 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::getIpV6` | implemented | src/config.rs:600 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `Server::getLoader` | skipped |  |  | PHP class loader |
 | `Server::getLogger` | skipped |  |  | Anchor logs with `tracing` |
@@ -8737,7 +8737,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getNetwork` | skipped |  |  | protocol internals |
 | `Server::getOfflinePlayer` | skipped |  |  | the API'soffline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:280 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
-| `Server::getOnlineMode` | implemented | src/config.rs:614 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::getOnlineMode` | implemented | src/config.rs:617 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getOnlinePlayers` | implemented | src/tick/task.rs:174 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_in_the_game |  |
 | `Server::getOps` | implemented | src/tick/command.rs:718 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `Server::getPlayerByPrefix` | implemented | src/tick/task.rs:207 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
@@ -8748,8 +8748,8 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getPluginManager` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getPluginPath` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getPocketMineVersion` | implemented | src/tick/task.rs:53 `ANCHOR_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getPort` | implemented | src/config.rs:603 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `Server::getPortV6` | implemented | src/config.rs:604 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::getPort` | implemented | src/config.rs:606 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::getPortV6` | implemented | src/config.rs:607 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `Server::getResourcePackManager` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
@@ -8776,7 +8776,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow |
 | `Server::removeOp` | implemented | src/tick/command.rs:864 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
 | `Server::removeWhitelist` | implemented | src/tick/command.rs:918 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `Server::requiresAuthentication` | implemented | src/config.rs:615 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `Server::requiresAuthentication` | implemented | src/config.rs:618 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:321 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `Server::sendUsage` | skipped |  |  | the API'susage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:164 `is_player_data_saved` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |

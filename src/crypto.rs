@@ -1,4 +1,5 @@
-//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR and randomness.
+//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, HMAC-SHA256, AES-256-CTR and
+//! randomness.
 //!
 //! On top of them sit base64, JWS and RakNet encryption. Small pieces aws-lc-rs lacks live here
 //! too: MD5 for version 3 UUIDs, the CRC-32 checksum, and bounded JSON checks for untrusted
@@ -23,13 +24,15 @@ pub(crate) use md5::md5;
 use std::fmt;
 
 use aws_lc_rs::agreement::{self, ECDH_P384};
-use aws_lc_rs::digest;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::{
     ECDSA_P384_SHA384_FIXED, ECDSA_P384_SHA384_FIXED_SIGNING, EcdsaKeyPair, KeyPair,
     ParsedPublicKey, RSA_PKCS1_2048_8192_SHA256, RsaPublicKeyComponents,
 };
+use aws_lc_rs::{digest, hmac};
 
+/// Bytes of a connection cookie key: the SHA-256 output size, the least RFC 2104 advises.
+const COOKIE_KEY_BYTES: usize = 32;
 /// Bytes of an ES384 signature: `r || s`, one coordinate size each.
 const ES384_SIGNATURE_BYTES: usize = 2 * P384_COORDINATE_BYTES;
 /// The most bytes an RSA exponent has once its leading zeros are trimmed: 32 bits.
@@ -253,6 +256,40 @@ impl RsaPublicKey {
         self.0
             .verify_sig(message, sig)
             .map_err(|_| Error::Signature)
+    }
+}
+
+/// The key of RakNet's connection cookies: a random HMAC-SHA256 key drawn once at start. A
+/// cookie is a keyed MAC, so nobody without the key can make one for an address it cannot
+/// receive at (go-raknet's CRC-32 cookie is forged from any one cookie).
+pub(crate) struct CookieKey(hmac::Key);
+
+impl CookieKey {
+    /// A new random key.
+    pub(crate) fn generate() -> Result<Self> {
+        let mut key = [0_u8; COOKIE_KEY_BYTES];
+        fill_random(&mut key)?;
+        Ok(Self(hmac::Key::new(hmac::HMAC_SHA256, &key)))
+    }
+
+    /// The cookie of `parts`: the first four bytes of the HMAC-SHA256 of their concatenation.
+    pub(crate) fn cookie(&self, parts: &[&[u8]]) -> u32 {
+        let mut context = hmac::Context::with_key(&self.0);
+        for part in parts {
+            context.update(part);
+        }
+        let tag = context.sign();
+        let mut first = [0_u8; 4];
+        for (f, t) in first.iter_mut().zip(tag.as_ref()) {
+            *f = *t;
+        }
+        u32::from_be_bytes(first)
+    }
+}
+
+impl fmt::Debug for CookieKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("CookieKey(..)")
     }
 }
 

@@ -123,6 +123,9 @@ enable-encryption = true
 # false: accept only NetherNet. A RakNet client gets no reply to its connection request;
 # the UDP port still answers server list pings.
 raknet = true
+# RakNet connection cookies: a fake sender address cannot take connection slots.
+# false only where a host's DDoS filter drops cookie handshakes.
+raknet-cookies = true
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
 max-mtu-size = 1492
 # PEM certificate chain and private key for HTTPS NetherNet signaling.
@@ -248,6 +251,7 @@ Packs are read only from `data/packs`, as the files the `resource-packs` list na
 | `max-batch-bytes` | integer | `16777216` | 4210786 to 67108864 | Largest decompressed batch received from a player or sent to one, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
 | `enable-encryption` | bool | `true` | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
 | `raknet` | bool | `true` | | Whether RakNet connections are accepted; `false` accepts only NetherNet: a RakNet client gets no reply to its connection request, and the UDP port still answers server list pings |
+| `raknet-cookies` | bool | `true` | | Whether `OpenConnectionReply1` carries a cookie the client must send back in `OpenConnectionRequest2` before it gets a connection (`network.md`). `false` sends security off and takes any request 2, for a host whose DDoS filter drops cookie handshakes |
 | `max-mtu-size` | integer | `1492` | 576 to 1492 | Largest RakNet packet in bytes; lower it behind tunnels or VPNs. go-raknet's dialer probes 1492, 1200, and 576 |
 | `nethernet-tls-cert` | string | `""` | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | `""` | empty or a path | PEM private key for HTTPS signaling |

@@ -104,7 +104,7 @@ impl Driver {
             accept: settings.accept,
             limits: Limits::new(settings.max_message_bytes)?,
         };
-        let listener = Listener::new(config, Arc::clone(&pong.borrow()));
+        let listener = Listener::new(config, Arc::clone(&pong.borrow()), settings.cookies);
         let (outbound, commands) = mpsc::channel(COMMAND_QUEUE);
         Ok(Self {
             listener,
@@ -229,7 +229,7 @@ impl Driver {
 }
 
 /// Limit settings for [`Driver::new`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) struct Settings {
     /// Largest MTU to negotiate (`max-mtu-size`, at least 400).
     pub(crate) max_mtu: u16,
@@ -239,6 +239,8 @@ pub(crate) struct Settings {
     pub(crate) accept: bool,
     /// The server GUID in pongs and replies.
     pub(crate) guid: u64,
+    /// The key of the connection cookies; `None` (config `raknet-cookies = false`) asks for none.
+    pub(crate) cookies: Option<crate::crypto::CookieKey>,
 }
 
 /// The sockets and session channels: the listener's `Sink`.
@@ -529,6 +531,7 @@ pub(crate) mod tests {
             max_message_bytes: MAX_MESSAGE,
             accept: true,
             guid: GUID,
+            cookies: Some(crate::crypto::CookieKey::generate().unwrap()),
         }
     }
 

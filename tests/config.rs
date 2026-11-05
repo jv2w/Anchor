@@ -98,7 +98,7 @@ tick-radius = 1
 "#;
 
 /// The number of keys in the default file; the one place that pins it.
-const DEFAULT_KEY_COUNT: usize = 64;
+const DEFAULT_KEY_COUNT: usize = 65;
 
 /// The bytes of one mebibyte.
 const MIB: usize = 1024 * 1024;
@@ -629,6 +629,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         ("developer.enable-encryption", bools(), Vec::new()),
         ("developer.raknet", bools(), Vec::new()),
+        ("developer.raknet-cookies", bools(), Vec::new()),
         (
             "developer.max-mtu-size",
             s(&["576", "1492"]),
