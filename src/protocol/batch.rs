@@ -456,7 +456,7 @@ fn decode_into(payload: &[u8], settings: &Settings, out: &mut Vec<(Header, Packe
 /// # Errors
 ///
 /// [`Error::Packet`] for a length or header that does not end, an empty packet, and, as
-/// [`protocol::Error::Size`], a length over the bytes left or more packets than a batch may hold.
+/// [`protocol::Error::Size`], a length over the bytes left or more than `MAX_PACKETS` packets.
 pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
     let mut packets = Packets {
         rest: payload,
@@ -499,11 +499,11 @@ pub(crate) fn encode_bodies<'p>(
 
 /// Encodes `packets` in order into batch payloads and calls `flush` with each, in order.
 ///
-/// Each packet goes under a header of its own ID and sub-client 0. A payload is cut before it
-/// would pass the payload size limit or the most packets a batch may hold; a packet over that size
-/// goes alone in its own payload. `payload` is a working buffer kept for reuse; its contents on
-/// return are unspecified. Payloads given to `flush` before an error stay given, and the rest are
-/// dropped.
+/// Each packet goes under a header of its own ID and sub-client 0. A payload holds at most
+/// `MAX_PACKETS` packets, and a packet that would take it past `SPLIT_BYTES` starts the next one,
+/// so only a payload of one packet passes that size. `payload` is a working buffer kept for reuse;
+/// its contents on return are unspecified. Payloads given to `flush` before an error stay given,
+/// and the rest are dropped.
 ///
 /// # Errors
 ///

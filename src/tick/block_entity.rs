@@ -185,8 +185,8 @@ impl BlockEntities {
     /// Appends to `out` the client form of the block entities in sub-chunk `index` (0 is the
     /// lowest) of a loaded chunk, as network little-endian NBT roots one after another: what a
     /// sub-chunk answer carries after the blocks. Nothing when there are none. `pos` is within
-    /// the world border and `index` below [`crate::world::SUB_CHUNKS`] (a sub-chunk a player
-    /// asks for, `view::encode`).
+    /// the world border and `index` below [`SUB_CHUNKS`](crate::world::SUB_CHUNKS) (a sub-chunk a
+    /// player asks for, `view::encode`).
     ///
     /// Each root is built as a [`Compound`] (owned keys) once for each answer built: an answer is
     /// cached per sub-chunk and a change marks its block entity once a tick ([`send_marked`]).

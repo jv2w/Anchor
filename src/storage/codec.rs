@@ -6,8 +6,9 @@
 //! `{name, states, version}`), kept as they are, so unknown blocks survive a round trip.
 //!
 //! Every record has the one layout of the current format (the seal refuses any other). NBT keeps
-//! the codec's limits: [`crate::nbt::MAX_DEPTH`] levels and [`MAX_ROOT_BYTES`] per root compound, except a player's extra compound,
-//! which may fill its record ([`MAX_PLAYER_EXTRA_BYTES`]).
+//! the codec's limits: [`MAX_DEPTH`](crate::nbt::MAX_DEPTH) levels and [`MAX_ROOT_BYTES`] per
+//! root compound, except a player's extra compound, which may fill its record
+//! ([`MAX_PLAYER_EXTRA_BYTES`]).
 
 use std::borrow::Cow;
 use std::mem::size_of;
@@ -35,9 +36,10 @@ pub(crate) const MAX_NAME_BYTES: usize = 256;
 /// Most pages a list takes: the page number of a key is a u16.
 const MAX_PAGES: usize = 1 << 16;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
-/// name and the position. It holds up to `MAX_SAVED_STACKS` (`tick::inventory`) stacks and the
-/// user's data, more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
-/// it (`item::MAX_NBT_BYTES`).
+/// name and the position. It holds up to
+/// [`MAX_SAVED_STACKS`](crate::tick::inventory::MAX_SAVED_STACKS) stacks and the user's data,
+/// more than the [`MAX_ROOT_BYTES`] of one NBT root elsewhere; the record's reader budget covers
+/// it ([`MAX_NBT_BYTES`](crate::item::MAX_NBT_BYTES)).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME_BYTES + 3 * 8);
 /// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
 /// place in the chunk, or a second at a place): every entry of a list an import writes.
@@ -253,12 +255,12 @@ impl ExtraRecord<'_> {
     /// Returns the encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
     /// `max` bytes and read back within the [`DECODE_BUDGET`] of a record's reader: entries are
     /// added to a page until the next would not fit either. An entry is at most an NBT root
-    /// (4 MiB) and a quarter of the budget (an error otherwise), so with `max` at least four
-    /// times the root every full page holds more than three quarters of `max` or of the budget.
-    /// More pages than a key numbers ([`MAX_PAGES`], an error) so need over 32,767 full pages of
-    /// one of the two: at 16 MiB pages, 384 GiB of NBT or 1.5 TiB of reading budget, far past
-    /// what a server holds in memory. A list over [`max_entries`] is an error too. An empty list
-    /// has none.
+    /// ([`MAX_ROOT_BYTES`]) and a quarter of the budget (an error otherwise), so with `max` at
+    /// least four times the root every full page holds more than three quarters of `max` or of
+    /// the budget. More pages than a key numbers ([`MAX_PAGES`], an error) so need over half that
+    /// many full pages of one of the two: at [`MAX_RECORD`] pages, hundreds of GiB of NBT or TiB
+    /// of reading budget, far past what a server holds in memory. A list over [`max_entries`] is an
+    /// error too. An empty list has none.
     pub(crate) fn pages(kind: ChunkKind, list: &[Compound], max: usize) -> Result<Vec<Vec<u8>>> {
         if list.len() > max_entries(kind) {
             return Err(Error::Size);

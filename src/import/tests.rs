@@ -383,7 +383,7 @@ fn a_level_dat_over_its_limit_is_refused_before_reading() {
     let dir = TempDir::new("import-big-level-dat");
     std::fs::write(
         dir.0.join("level.dat"),
-        vec![0; usize::try_from(MAX_LEVEL_DAT).unwrap() + 1],
+        vec![0; usize::try_from(MAX_LEVEL_DAT_BYTES).unwrap() + 1],
     )
     .unwrap();
     let error = Source::open(&dir.0).unwrap_err();

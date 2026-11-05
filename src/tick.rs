@@ -1603,8 +1603,8 @@ pub(crate) fn tick_of(state: &State) -> u64 {
     state.tick
 }
 
-/// Whether a player position is finite and inside the world border ([`crate::world::BORDER`])
-/// on every axis.
+/// Whether a player position is finite and inside the world border
+/// ([`BORDER`](crate::world::BORDER)) on every axis.
 fn inside_border(pos: Vec3) -> bool {
     let border = f64::from(crate::world::BORDER);
     pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border)

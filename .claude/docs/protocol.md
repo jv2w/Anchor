@@ -56,7 +56,7 @@ Mojang schemas ──(cargo xtask dump)──> xtask/data/reference/protocol_lim
 - Mapping: `Optional` → `Option`, slice → `Vec`, union interface → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT compound → `BTreeMap<String, nbt::Value>` (keys written in byte order, a repeated key keeps its last value, as gophertunnel's Go map does), EntityMetadata → `BTreeMap<u32, _>` (gophertunnel also writes its keys sorted). The types written by hand and the external types are `HAND_TYPES` and `EXTERNAL_TYPES` in `xtask/src/gen/model.rs`.
 - Strings are `String`; gophertunnel does not check UTF-8.
 - Fields of which the server sends one value to many players (`PlayerListEntry.skin`, `PlayerSkin.skin`: `SHARED_FIELDS` in `model.rs`) are `Arc<T>`, so the tick shares a skin of up to 4 MiB instead of copying it into every packet. Decoding takes that allocation from the budget too.
-- Because an NBT list keeps its element type even when empty, every list writes back to the same bytes; gophertunnel keeps the type only for empty `TAG_Int` and `TAG_Long` lists and writes other empty lists as `TAG_End`. Reading and writing keep NBT nesting on a heap stack, so the thread stack stays flat at any depth; dropping, cloning and comparing a value recurse, and the decoder bounds the depth at 512.
+- Because an NBT list keeps its element type even when empty, every list writes back to the same bytes; gophertunnel keeps the type only for empty `TAG_Int` and `TAG_Long` lists and writes other empty lists as `TAG_End`. Reading and writing keep NBT nesting on a heap stack, so the thread stack stays flat at any depth; dropping, cloning and comparing a value recurse, which the NBT depth limit (below) bounds.
 - Why `anchor::protocol` is public: packet hooks handle packet values, and the xtask tests call this layer. Storage uses NBT too.
 
 ### Hand-written codecs
@@ -71,13 +71,13 @@ Login's connection-request envelope (`login.rs`) and the network sub-chunk paylo
 
 ### Batch format (`src/protocol/batch.rs`)
 - Packet header, a varuint32: the packet ID in bits 0 to 9, the sender sub-client in bits 10 and 11, the target sub-client in bits 12 and 13. Reading ignores higher bits, like gophertunnel: only official clients show whether they set them, so the reading side accepts every case.
-- A batch holds at most 812 packets (gophertunnel `maximumInBatch`). Encoding cuts a payload before it would pass 256 KiB or 812 packets. The compressed and decompressed size limits are in `network.md`.
+- A batch holds at most `MAX_PACKETS` packets (gophertunnel `maximumInBatch`). Encoding starts a new payload at `MAX_PACKETS` packets and before a packet that would take it past `SPLIT_BYTES`, so only a payload of one packet is larger. The compressed and decompressed size limits are in `network.md`.
 
 ## Decode limits
 - A declared length is at most the remaining input. A list count is at most 1024 (gophertunnel `maxSliceLength`; the EntityMetadata count included) and at most the remaining input.
 - Allocation budget: one batch shares 2 × `max-batch-bytes`, the decoded packet list included. Why: count limits alone let nested lists and large elements allocate tens of times the input size.
 - Maps (NBT compounds, `EntityMetadata`) take their `BTreeMap` nodes from the budget, not only their entries (`map_charges` in `src/protocol/io.rs`): the first key one node (11 entries, counted as an internal node with 12 child links), each further key a fifth of a node. While a map only grows, every node but the root holds at least 5 entries, so n keys take at most 1 + (n − 1)/5 nodes. The NBT encoder counts the same amount (`Cost.alloc`), so storage splits its pages at what reading them back takes (`src/storage/codec.rs`).
-- NBT: depth at most 512, the root included; one root at most 4 MiB on the wire.
+- NBT: depth at most `nbt::MAX_DEPTH`, the root included; one root at most `nbt::MAX_ROOT_BYTES` on the wire.
 - Lists nest at most 64 deep, a packet's own lists included (`MAX_LIST_DEPTH`). The decoder of the self-containing type `DataStorePropertyValue` recurses on the thread stack once per list; without the bound, one packet overflows the stack and ends the process.
 - Per-field limits:
   - `cargo xtask dump` reads the schemas at the pinned commit and writes `xtask/data/reference/protocol_limits.json` through the table in `xtask/src/dump/limits.rs` that joins each schema limit to the gophertunnel fields it limits. Strings and byte slices count bytes, lists count elements; a key ending in `[]` limits each element of its list.

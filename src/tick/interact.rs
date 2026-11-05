@@ -745,8 +745,8 @@ pub(super) fn level_event(state: &mut State, world: WorldIndex, at: Vec3, event:
 /// the user's), otherwise the real block (a state Anchor does not know as the chunk sends it),
 /// once per position, so a later change in the same tick is not undone on the client; a real
 /// block's block entity follows it ([`view::restore_block_data`]: the client foresaw the change
-/// and lost it). More than [`super::view::MAX_RESYNCS`] positions in one tick disconnect the
-/// player, as a full outbox does.
+/// and lost it). More than [`MAX_RESYNCS`](super::view::MAX_RESYNCS) positions in one tick
+/// disconnect the player, as a full outbox does.
 fn resync(state: &mut State, session: SessionId, positions: impl IntoIterator<Item = BlockPos>) {
     for pos in positions {
         let Some(player) = state.players.get_mut(&session) else {

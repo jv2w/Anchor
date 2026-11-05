@@ -28,8 +28,9 @@ use crate::protocol::packet::{
 /// download at 64 KiB/s.
 pub(super) const CHUNK_ALLOWANCE: Duration = Duration::from_secs(2);
 /// Bytes per chunk.
-/// This is gophertunnel's `DefaultResourcePackChunkSize`; a chunk of 256 KiB with its
-/// packet header no longer fits one 256 KiB batch.
+/// This is gophertunnel's `DefaultResourcePackChunkSize`; a chunk of
+/// [`SPLIT_BYTES`](crate::protocol::batch::SPLIT_BYTES) with its packet header no longer fits one
+/// batch of that size.
 pub(super) const CHUNK_BYTES: u32 = 128 * 1024;
 /// The least time between two chunks to one client.
 /// This is gophertunnel's `DefaultResourcePackChunkSendDelay`: clients after 1.26.30 may fail

@@ -56,9 +56,10 @@ const DEMAND: &str = "demand";
 /// The first network ID of an offer; `CraftingData` is empty, so no crafting recipe takes one.
 pub(super) const FIRST_NET_ID: u32 = 1;
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
-/// reader's budget to read back: half of one NBT root ([`crate::nbt::MAX_ROOT_BYTES`]), which
-/// the villager's entity and its `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of
-/// three stacks could take 36 MiB (`item::MAX_NBT_BYTES` each).
+/// reader's budget to read back: half of one NBT root
+/// ([`MAX_ROOT_BYTES`](crate::nbt::MAX_ROOT_BYTES)), which the villager's entity and its
+/// `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of three stacks could take 36 MiB
+/// (`item::MAX_NBT_BYTES` each).
 const MAX_SAVED_BYTES: usize = crate::nbt::MAX_ROOT_BYTES / 2;
 /// An offer's maximum uses.
 const MAX_USES: &str = "maxUses";

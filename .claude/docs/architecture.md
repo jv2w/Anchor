@@ -73,7 +73,7 @@ vendor/                     patched dependency copies (dependencies.md)
 
 - How `"auto"` resolves the thread counts, and how settings over the compute-thread budget are refused, is in `config.md` (`network-threads`, `cpu-threads`).
 - Blocking threads wait on I/O, so they do not count against the budget. Neither do the run, console and log threads.
-- Every thread gets a 4 MiB stack: it holds the recursion of dropping NBT nested to its depth limit (`protocol.md`), whatever the OS default or `RUST_MIN_STACK`.
+- Every thread gets the same stack (`runtime::STACK_BYTES`): it holds the recursion of dropping NBT nested to its depth limit (`protocol.md`), whatever the OS default or `RUST_MIN_STACK`.
 - Main queue bounds:
 
 | Queue | Bound | When full |

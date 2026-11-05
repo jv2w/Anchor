@@ -30,7 +30,7 @@ paths:
 ## Threads
 - The tick thread never touches the disk.
 - Never leave tokio at its default of 512 blocking threads; `runtime` sets the bound.
-- Give every thread the same stack size (`architecture.md`).
+- Give every thread the same stack size (`.claude/docs/architecture.md`).
 - On a clean shutdown, wait until every CPU pool thread has ended.
 - The save thread uses the CPU pool only through `Pool::map_in_turns`.
 
@@ -108,7 +108,7 @@ paths:
 ## Villager trading
 - Send prices as the real counts. Never rely on the client's price formula.
 - Process a trade request ID once, accept only offer IDs of the list as it is now, and check the payments and the uses left.
-- Repeat a trade at most 256 times per request. Apply a trade as one unit; on failure undo all of it.
+- Repeat a trade at most `MAX_REPEAT` times per request (`src/tick/trade.rs`). Apply a trade as one unit; on failure undo all of it.
 - Return the payment slots' items when the window closes or the villager is gone.
 - Never drop a saved offer Anchor cannot use; write it back as it was.
 

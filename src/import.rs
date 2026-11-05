@@ -37,8 +37,9 @@ use leveldb::Stamp;
 /// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks
 /// across). A list of positions this long takes 32 MiB. The export lists at most as many.
 pub(crate) const MAX_CHUNKS: usize = 1 << 22;
-/// The largest `level.dat`: its header and the NBT limit ([`crate::nbt::MAX_ROOT_BYTES`]).
-const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
+/// The largest `level.dat`: its header and the NBT limit
+/// ([`MAX_ROOT_BYTES`](crate::nbt::MAX_ROOT_BYTES)).
+const MAX_LEVEL_DAT_BYTES: u64 = (level_dat::HEADER_BYTES + crate::nbt::MAX_ROOT_BYTES) as u64;
 /// The most chunks the import and the export read, then convert, per step: with [`STEP_BYTES`],
 /// it bounds the chunk data held at once.
 pub(crate) const STEP: usize = 256;
@@ -205,7 +206,7 @@ impl Source {
             source: Box::new(e),
         };
         let level_dat_stamp = stamp(&level_dat_path).map_err(located)?;
-        let bytes = read_file(&level_dat_path, MAX_LEVEL_DAT).map_err(located)?;
+        let bytes = read_file(&level_dat_path, MAX_LEVEL_DAT_BYTES).map_err(located)?;
         let world = level_dat::parse(&bytes).map_err(located)?;
         let db = Db::open(dir)?;
         Ok(Self {

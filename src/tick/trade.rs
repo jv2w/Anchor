@@ -14,9 +14,9 @@
 //!   screen's IDs fail.
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
 //!   its item changes committed (a check/apply pair; `traded` cannot fail after `offer`
-//!   succeeded in the same request). A trade counts uses (at most [`MAX_REPEAT`] per request), gives the
-//!   villager xp and tiers, and drops reward orbs at the villager. No
-//!   `UpdateTrade` follows a trade, not even one that reaches a new tier (P6 `tradeup`).
+//!   succeeded in the same request). A trade counts uses (at most [`MAX_REPEAT`] per request),
+//!   gives the villager xp and tiers, and drops reward orbs at the villager. No `UpdateTrade`
+//!   follows a trade, not even one that reaches a new tier (P6 `tradeup`).
 //! - [`closed`]: the inventory module's report that the trade window closed (it returns the
 //!   payment slots). [`tick`] closes the window of every player whose villager is gone or in
 //!   another world.

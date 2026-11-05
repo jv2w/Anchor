@@ -720,8 +720,8 @@ fn changes_are_all_or_nothing_and_reach_the_traders() {
     assert_ne!(server.state.hash(), before);
 }
 
-/// Builds offers too large for one `UpdateTrade`: [`crate::custom::MAX_OFFERS`] offers, each
-/// selling a stack of 60 KB, read as a saved entity's.
+/// Builds offers too large for one `UpdateTrade`: [`MAX_OFFERS`](crate::custom::MAX_OFFERS)
+/// offers, each selling a stack of 60 KB, read as a saved entity's.
 fn too_large_to_send() -> Offers {
     let sell = stack(Kind::Stick, 1)
         .with_extra(Some(Extra {

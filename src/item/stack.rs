@@ -42,14 +42,16 @@ use crate::protocol::{self, Writer};
 pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
 
 /// The most a stack's saved form may take from a reader's allocation budget to read back: four
-/// times its bytes, so `MAX_SAVED_STACKS` of them read within the 64 MiB a record's reader may allocate. Only
-/// NBT of many small compounds comes near it: each takes a tree node (an enchantment takes about
-/// 56 times its 16 bytes).
+/// times its bytes, so [`MAX_SAVED_STACKS`](crate::tick::inventory::MAX_SAVED_STACKS) of them
+/// read within what a record's reader may allocate
+/// ([`DECODE_BUDGET`](crate::storage::seal::DECODE_BUDGET)). Only NBT of many small compounds
+/// comes near it: each takes a tree node (an enchantment takes about 56 times its 16 bytes).
 const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
 /// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
-/// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS` (`tick::inventory`) such stacks and its user
-/// data (16 values of 64 KiB) a player's record stays under 15 MiB, and a container's 27 under
-/// 2.6 MiB (one NBT root takes at most 4 MiB).
+/// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS`
+/// (`tick::inventory`) such stacks and its user data (16 values of 64 KiB) a player's record
+/// stays under 15 MiB, and a container's 27 under 2.6 MiB (one NBT root takes at most
+/// `nbt::MAX_ROOT_BYTES`).
 pub const MAX_NBT_BYTES: usize = 96 << 10;
 /// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
 /// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
@@ -625,8 +627,8 @@ pub struct Extra {
 #[non_exhaustive]
 pub enum Error {
     /// Its saved form is over [`MAX_NBT_BYTES`], or of so many tiny elements that reading it back
-    /// takes more than four times that, or it cannot be saved at all (a string over 32,767
-    /// bytes, nesting deeper than 512).
+    /// takes more than four times that, or it cannot be saved at all (a string over
+    /// `nbt::MAX_STRING_BYTES`, nesting deeper than `nbt::MAX_DEPTH`).
     TooLarge,
     /// Its custom name is over [`MAX_NAME_BYTES`] bytes, the most a placed block keeps.
     NameTooLong,

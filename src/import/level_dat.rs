@@ -13,6 +13,8 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 // Decoding `level.dat` allocates within the data files' own budget.
 use crate::storage::seal::DECODE_BUDGET;
 
+/// The bytes of the header before the root compound: the storage version and the length.
+pub(crate) const HEADER_BYTES: usize = 8;
 /// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
 pub(crate) const SPAWN_Y_UNSET: i32 = 32_767;
 /// The newest `StorageVersion` read.
@@ -31,7 +33,7 @@ pub(crate) struct WorldData {
 /// Reads `level.dat`.
 pub(crate) fn parse(bytes: &[u8]) -> Result<WorldData> {
     let (header, body) = bytes
-        .split_first_chunk::<8>()
+        .split_first_chunk::<HEADER_BYTES>()
         .ok_or(Error::Malformed("level.dat shorter than its header"))?;
     let [_, _, _, _, l0, l1, l2, l3] = *header;
     let length = u32::from_le_bytes([l0, l1, l2, l3]);

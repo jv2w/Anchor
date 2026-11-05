@@ -865,7 +865,7 @@ impl Presence {
 
     /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
     /// reads no wall clock; it dates it from the join time and the ticks since, one
-    /// [`super::TICK`] each).
+    /// [`TICK`](super::TICK) each).
     pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
         let ticks = u128::from(tick.saturating_sub(self.placed_tick));
         let since =

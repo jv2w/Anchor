@@ -5,11 +5,12 @@
 //! are written in byte order. A list keeps its element type even when empty ([`List`]), so every
 //! list reads and writes back to the same bytes. gophertunnel keeps the type only for empty
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
-//! Limits: containers nest only to a fixed depth counting the root, one root takes only a fixed
-//! size on the wire (or a store's own limit), a string takes at most 32,767 bytes, and
-//! lengths and allocations go through the reader's limit check; a compound's keys take its tree
-//! nodes (`map_charges`). Writing a root also counts what reading it back takes from a reader's
-//! allocation budget (`Cost`), so a store can keep what it writes readable.
+//! Limits: containers nest at most `MAX_DEPTH` deep counting the root, one root takes at most
+//! `MAX_ROOT_BYTES` on the wire (or a store's own limit), a string takes at most
+//! `MAX_STRING_BYTES`, and lengths and allocations go through the reader's limit check; a
+//! compound's keys take its tree nodes (`map_charges`). Writing a root also counts what reading
+//! it back takes from a reader's allocation budget (`Cost`), so a store can keep what it writes
+//! readable.
 //!
 //! Reading and writing keep nested containers on a heap stack, not the thread stack. Dropping,
 //! cloning, comparing and serde's writing of a [`Value`] recurse, which the depth limit bounds.
@@ -41,7 +42,7 @@ pub(crate) const MAX_DEPTH: usize = 512;
 /// The most bytes one root tag may take on the wire.
 pub(crate) const MAX_ROOT_BYTES: usize = 4 << 20;
 /// The longest string in bytes (gophertunnel `maxStringSize`).
-const MAX_STRING_LEN: u16 = 0x7fff;
+const MAX_STRING_BYTES: u16 = 0x7fff;
 /// Returned where a child does not fit its frame or the stack would not end in its root, which
 /// the stack discipline rules out.
 const STACK_ORDER: Error = Error::InvalidValue {
@@ -459,7 +460,7 @@ impl Decoder<'_, '_> {
             Encoding::NetworkLittleEndian => u64::from(self.r.varuint32()?),
             Encoding::LittleEndian => u64::try_from(self.r.int16()?).map_err(|_| Error::Size)?,
         };
-        if len > u64::from(MAX_STRING_LEN) {
+        if len > u64::from(MAX_STRING_BYTES) {
             return Err(Error::Size);
         }
         self.r.utf8(len)
@@ -762,7 +763,7 @@ impl Encoder<'_> {
     }
 
     fn string(&mut self, x: &str) -> Result<()> {
-        if x.len() > usize::from(MAX_STRING_LEN) {
+        if x.len() > usize::from(MAX_STRING_BYTES) {
             return Err(Error::Size);
         }
         self.room(x.len())?;

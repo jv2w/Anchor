@@ -314,7 +314,8 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
 /// A player holding the largest stack everywhere commits and reads back.
 /// It holds the largest stack in every slot (main, armor, offhand, ender chest, cursor) and in
 /// the stacks waiting for room, and 16 user data values of the largest size.
-/// Its extra compound is over one NBT root (4 MiB) but within its record.
+/// Its extra compound is over one NBT root ([`MAX_ROOT_BYTES`](crate::nbt::MAX_ROOT_BYTES)) but
+/// within its record.
 #[test]
 fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
     use crate::storage::codec::PlayerRecord;

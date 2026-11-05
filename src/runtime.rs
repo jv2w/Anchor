@@ -40,9 +40,9 @@ const _: () = assert!(FIXED_THREADS + MIN_AUTO_NETWORK_THREADS + MIN_CPU_THREADS
 /// outside that limit, bounded only by the OS resolver; user jobs still running are abandoned
 /// ([`Context::spawn_blocking`](crate::Context::spawn_blocking)).
 const SHUTDOWN_GRACE: Duration = crate::auth::HTTP_TIMEOUT;
-/// Stack size of every thread Anchor creates. Network workers drop NBT nested 512 deep, which
-/// recurses; one size for every thread keeps the bound independent of the OS
-/// default and of `RUST_MIN_STACK`.
+/// Stack size of every thread Anchor creates. Network workers drop NBT nested
+/// [`MAX_DEPTH`](crate::nbt::MAX_DEPTH) deep, which recurses; one size for every thread keeps the
+/// bound independent of the OS default and of `RUST_MIN_STACK`.
 const STACK_BYTES: usize = 4 << 20;
 /// Blocking jobs of the user ([`Context::spawn_blocking`](crate::Context::spawn_blocking)) that
 /// run at once; the others wait their turn, so they never hold every blocking thread.
