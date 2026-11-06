@@ -141,9 +141,10 @@ max-batch-bytes = 16777216
 # can then read it and change it, login included. Use false only on a trusted network.
 # NetherNet traffic is always encrypted by its own transport.
 enable-encryption = true
-# false: accept only NetherNet. A RakNet client gets no reply to its connection request;
-# the UDP port still answers server list pings.
-raknet = true
+# Transports that accept players: "all", "nethernet" or "raknet".
+# "nethernet": a RakNet client gets no reply to its connection request; the UDP port still
+# answers server list pings. "raknet": no NetherNet signaling on TCP and no NetherNet traffic.
+transport = "all"
 # true: a RakNet client must send back a cookie before it gets a connection, so a fake
 # sender address cannot take connection slots. Some hosts' DDoS filters drop such handshakes.
 raknet-cookies = false
@@ -823,9 +824,8 @@ pub struct Developer {
     /// `enable-encryption`: whether RakNet game traffic is encrypted. NetherNet traffic always is,
     /// by its own transport.
     pub enable_encryption: bool,
-    /// `raknet`: whether RakNet connections are accepted; pings are answered either way, and a
-    /// RakNet client that tries to connect gets no reply when it is `false`.
-    pub raknet: bool,
+    /// `transport`: the transports that accept players.
+    pub transport: Transports,
     /// `raknet-cookies`: whether a RakNet client must send back the cookie of its address before
     /// it gets a connection, so a spoofed address cannot take connection slots.
     pub raknet_cookies: bool,
@@ -885,7 +885,7 @@ impl Developer {
                     self.max_batch_bytes = int(value, key, usize::MIN..=usize::MAX)?;
                 }
                 "enable-encryption" => self.enable_encryption = boolean(value, key)?,
-                "raknet" => self.raknet = boolean(value, key)?,
+                "transport" => self.transport = choice(value, key, &Transports::NAMES)?,
                 "raknet-cookies" => self.raknet_cookies = boolean(value, key)?,
                 "max-mtu-size" => self.max_mtu_size = int(value, key, MTU_SIZE_RANGE)?,
                 "nethernet-tls-cert" => {
@@ -933,7 +933,7 @@ impl Default for Developer {
             compression_level: batch::Settings::DEFAULT_ZLIB_LEVEL,
             max_batch_bytes: batch::Settings::DEFAULT_MAX_BATCH_BYTES,
             enable_encryption: true,
-            raknet: true,
+            transport: Transports::All,
             raknet_cookies: false,
             max_mtu_size: crate::raknet::MAX_MTU,
             nethernet_tls_cert: None,
@@ -1061,6 +1061,39 @@ impl ViewLimits {
                 .unwrap_or(self.tick_radius)
                 .min(view_distance),
         }
+    }
+}
+
+/// The transports that accept players (`transport`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Transports {
+    /// `"all"`: RakNet and NetherNet.
+    All,
+    /// `"nethernet"`: NetherNet only. A RakNet client gets no reply to its connection request,
+    /// and the UDP port still answers server list pings.
+    Nethernet,
+    /// `"raknet"`: RakNet only. No NetherNet code runs: the TCP signaling port stays closed and
+    /// the identity key is neither loaded nor created.
+    Raknet,
+}
+
+impl Transports {
+    /// The `transport` values.
+    const NAMES: [(&str, Self); 3] = [
+        ("all", Self::All),
+        ("nethernet", Self::Nethernet),
+        ("raknet", Self::Raknet),
+    ];
+
+    /// Whether NetherNet accepts players.
+    pub(crate) fn has_nethernet(self) -> bool {
+        self != Self::Raknet
+    }
+
+    /// Whether RakNet accepts players.
+    pub(crate) fn has_raknet(self) -> bool {
+        self != Self::Nethernet
     }
 }
 

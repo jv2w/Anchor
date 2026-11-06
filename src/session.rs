@@ -1,9 +1,9 @@
 //! Connection sessions: batches, encryption, the login sequence and the tick queues.
 //!
 //! [`prepare`] loads the authorization keys and binds the UDP sockets before any data file is
-//! opened, so a busy port or missing keys stops the start first. [`start`] opens both transports
-//! (one UDP port for both, and NetherNet's TCP signaling on the same port number) and spawns the
-//! accept task. The
+//! opened, so a busy port or missing keys stops the start first. [`start`] opens the transports
+//! `transport` names (one UDP port for both, and NetherNet's TCP signaling on the same port
+//! number) and spawns the accept task. The
 //! accept task numbers new connections of both in arrival order (the one place that allocates
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
@@ -33,7 +33,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::auth::Auth;
 use crate::clock;
-use crate::config::{Config, GameMode};
+use crate::config::{Config, GameMode, Transports};
 use crate::crypto::{self, CookieKey, ServerKey};
 use crate::error::{Error, Result};
 use crate::nethernet;
@@ -69,7 +69,8 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 #[derive(Debug)]
 pub(crate) struct Network {
     udp: udp::Handle,
-    nethernet: nethernet::Handle,
+    /// `None` with `transport = "raknet"`.
+    nethernet: Option<nethernet::Handle>,
     stop: oneshot::Sender<()>,
     accept: JoinHandle<()>,
 }
@@ -90,7 +91,12 @@ impl Network {
         }
         // Signaling stops while the UDP task lets both transports' connections deliver their
         // last messages.
-        join!(self.udp.shutdown(), self.nethernet.shutdown());
+        let signaling = async {
+            if let Some(nethernet) = self.nethernet {
+                nethernet.shutdown().await;
+            }
+        };
+        join!(self.udp.shutdown(), signaling);
     }
 }
 
@@ -153,14 +159,15 @@ struct Accept {
     /// The counts last reported: all connections, logged in.
     reported: (u32, u32),
     raknet: mpsc::Receiver<raknet::Connection>,
-    nethernet: mpsc::Receiver<nethernet::Connection>,
+    /// `None` with `transport = "raknet"`, as is `json`.
+    nethernet: Option<mpsc::Receiver<nethernet::Connection>>,
     events: mpsc::Receiver<Event>,
     sessions: JoinSet<()>,
     next_session: u64,
     logged_in: usize,
     status: Status,
     pong: watch::Sender<Arc<[u8]>>,
-    json: watch::Sender<Arc<[u8]>>,
+    json: Option<watch::Sender<Arc<[u8]>>>,
     shutdown: watch::Sender<bool>,
 }
 
@@ -188,7 +195,7 @@ impl Accept {
                         raknet = false;
                     }
                 }
-                conn = self.nethernet.recv(), if nethernet => {
+                conn = accepted(self.nethernet.as_mut()), if nethernet => {
                     if let Some(conn) = conn {
                         self.spawn(Transport::Nethernet(conn));
                     } else {
@@ -287,14 +294,18 @@ impl Accept {
     /// Shows the status with the logged-in count in the pong and the join status.
     fn show_status(&self) {
         self.pong.send_replace(self.status.pong(self.logged_in));
-        self.json.send_replace(self.status.json(self.logged_in));
+        if let Some(json) = &self.json {
+            json.send_replace(self.status.json(self.logged_in));
+        }
     }
 
     /// Tells sessions to end and waits for them, at most [`STOP_GRACE`]; the rest are aborted.
     async fn drain(&mut self) {
         self.shutdown.send_replace(true);
         self.raknet.close();
-        self.nethernet.close();
+        if let Some(nethernet) = &mut self.nethernet {
+            nethernet.close();
+        }
         let grace = tokio::time::sleep(STOP_GRACE);
         pin!(grace);
         loop {
@@ -482,8 +493,9 @@ pub(crate) async fn prepare(config: &Config, data_dir: &Path) -> Result<Prepared
 /// Starts networking on the `prepared` sockets of the current runtime; sessions queue their
 /// inputs on `inputs`.
 ///
-/// NetherNet loads its identity key from `data_dir`. The accept task takes the tick's
-/// `controls` and reports the connection counts on `inputs`. Players are offered `packs`.
+/// NetherNet, unless `transport = "raknet"`, loads its identity key from `data_dir`. The accept
+/// task takes the tick's `controls` and reports the connection counts on `inputs`. Players are
+/// offered `packs`.
 pub(crate) async fn start(
     config: Arc<Config>,
     prepared: Prepared,
@@ -506,43 +518,40 @@ pub(crate) async fn start(
     let (v4, v6) = socket_addresses(&config);
     let status = Status::new(&config, guid);
     let (pong_tx, pong_rx) = watch::channel(status.pong(0));
-    let (json_tx, json_rx) = watch::channel(status.json(0));
 
-    // The UDP task starts last: a pong then means that every listener is ready.
-    let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let (nethernet, nethernet_driver) = nethernet::start(
-        nethernet_settings(&config, batch, v4, v6),
-        data_dir,
-        json_rx,
-        auth.clone(),
-        nethernet_tx,
-        Arc::clone(&sockets),
-    )
-    .await?;
-    for addr in nethernet.signaling_addrs() {
-        info!(%addr, "listening for NetherNet signaling on TCP");
-    }
+    // The RakNet driver comes first: it starts nothing, so its failure leaves nothing to stop.
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::Driver::new(
+    let raknet = raknet::Driver::new(
         raknet_settings(&config, batch, guid, cookie_key),
         pong_rx,
         raknet_tx,
         Arc::clone(&sockets),
-    ) {
-        Ok(raknet) => raknet,
-        Err(e) => {
-            nethernet.shutdown().await;
-            return Err(Error::Start(std::io::Error::other(e)));
+    )
+    .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+    let transport = config.developer.transport;
+    let (nethernet, nethernet_driver, nethernet_rx, json_tx) = if transport.has_nethernet() {
+        let (json, json_rx) = watch::channel(status.json(0));
+        let (accepted_tx, accepted) = mpsc::channel(ACCEPT_QUEUE);
+        let (handle, driver) = nethernet::start(
+            nethernet_settings(&config, batch, v4, v6),
+            data_dir,
+            json_rx,
+            auth.clone(),
+            accepted_tx,
+            Arc::clone(&sockets),
+        )
+        .await?;
+        for addr in handle.signaling_addrs() {
+            info!(%addr, "listening for NetherNet signaling on TCP");
         }
-    };
-    let udp = udp::spawn(sockets, raknet, nethernet_driver);
-    let udp_use = if config.developer.raknet {
-        "listening for RakNet, NetherNet game data and server list pings on UDP"
+        (Some(handle), Some(driver), Some(accepted), Some(json))
     } else {
-        "listening for NetherNet game data and server list pings on UDP (raknet = false)"
+        (None, None, None, None)
     };
+    // The UDP task starts last: a pong then means that every listener is ready.
+    let udp = udp::spawn(sockets, raknet, nethernet_driver);
     for addr in udp.local_addrs() {
-        info!(%addr, "{udp_use}");
+        info!(%addr, "{}", udp_use(transport));
     }
 
     let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
@@ -604,6 +613,19 @@ fn socket_addresses(config: &Config) -> (SocketAddrV4, Option<SocketAddrV6>) {
     (v4, v6)
 }
 
+/// The start log's text for the UDP port under `transport`.
+fn udp_use(transport: Transports) -> &'static str {
+    match transport {
+        Transports::All => "listening for RakNet, NetherNet game data and server list pings on UDP",
+        Transports::Nethernet => {
+            "listening for NetherNet game data and server list pings on UDP (transport = nethernet)"
+        }
+        Transports::Raknet => {
+            "listening for RakNet and server list pings on UDP (transport = raknet)"
+        }
+    }
+}
+
 /// The NetherNet settings: signaling on `v4` and `v6`, `public-ip` and the TLS files.
 fn nethernet_settings(
     config: &Config,
@@ -636,7 +658,7 @@ fn raknet_settings(
         // An encrypted RakNet message adds the checksum to the batch.
         max_message_bytes: max_message_bytes(&batch)
             .saturating_add(crypto::encryption::CHECKSUM_BYTES),
-        accept: config.developer.raknet,
+        accept: config.developer.transport.has_raknet(),
         guid,
         cookie_key,
     }
@@ -659,6 +681,17 @@ fn max_send_extension(max_players: u32) -> Duration {
         .saturating_mul(SPAWN_PLAYER_LISTS)
         .saturating_mul(crate::tick::MAX_LIST_ENTRY_BYTES);
     packs::send_allowance(bytes)
+}
+
+/// The next NetherNet connection of `queue`, `None` once it closed; without a queue
+/// (`transport = "raknet"`), waits forever.
+async fn accepted(
+    queue: Option<&mut mpsc::Receiver<nethernet::Connection>>,
+) -> Option<nethernet::Connection> {
+    let Some(queue) = queue else {
+        return std::future::pending().await;
+    };
+    queue.recv().await
 }
 
 #[cfg(test)]
@@ -791,7 +824,7 @@ mod tests {
             .await
             .unwrap();
             let raknet: SocketAddr = network.udp.local_addrs()[0];
-            let signaling: SocketAddr = network.nethernet.signaling_addrs()[0];
+            let signaling: SocketAddr = network.nethernet.as_ref().unwrap().signaling_addrs()[0];
             let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
                 .await
                 .unwrap();
@@ -856,6 +889,55 @@ mod tests {
             };
             assert!(!crate::raknet::tests::disconnected_before(raknet, reported).await);
             assert_eq!(counts.first(), Some(&(1, 0)), "{counts:?}");
+            drop(controls);
+            network.stop().await;
+        });
+        std::fs::remove_dir_all(&dir).unwrap_or(());
+    }
+
+    /// With `transport = "raknet"` no NetherNet code runs: there is no signaling server and no
+    /// identity key is created, while the UDP port still answers pings through RakNet.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test keeps a data folder"
+    )]
+    fn raknet_alone_starts_no_nethernet() {
+        use std::net::Ipv4Addr;
+
+        use crate::tick::queue::{control_queue, input_queue};
+
+        let dir =
+            std::env::temp_dir().join(format!("anchor-session-raknet-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut config = Config::default();
+        config.general.xbox_auth = false;
+        config.general.enable_ipv6 = false;
+        config.general.server_ip = Ipv4Addr::LOCALHOST;
+        config.general.server_port = 0;
+        config.developer.transport = Transports::Raknet;
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let (controls, control_queue) = control_queue();
+            let packs =
+                Offer::load(&[], Vec::new(), config.general.force_resources.into()).unwrap();
+            let prepared = prepare(&config, &dir).await.unwrap();
+            let network = start(
+                Arc::new(config),
+                prepared,
+                packs,
+                &dir,
+                inputs,
+                control_queue,
+            )
+            .await
+            .unwrap();
+            assert!(network.nethernet.is_none());
+            assert!(!dir.join(nethernet::IDENTITY_FILE).exists());
+            let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            shows(&socket, network.udp.local_addrs()[0], "MCPE;Anchor Server;").await;
             drop(controls);
             network.stop().await;
         });

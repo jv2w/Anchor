@@ -236,7 +236,7 @@ pub(crate) struct Settings {
     pub(crate) max_mtu: u16,
     /// Largest game message in bytes, without the 0xfe byte.
     pub(crate) max_message_bytes: usize,
-    /// Whether to accept connections; `false` (config `raknet = false`) answers pings only.
+    /// Whether to accept connections; `false` (config `transport = "nethernet"`) answers pings only.
     pub(crate) accept: bool,
     /// The server GUID in pongs and replies.
     pub(crate) guid: u64,
@@ -721,7 +721,7 @@ pub(crate) mod tests {
             let sockets = udp::Sockets::bind(Some(v4), Some(v6)).unwrap();
             let raknet = Driver::new(settings(), pongs, accepted, Arc::clone(&sockets)).unwrap();
             let (nethernet, _) = crate::nethernet::tests::driver(Arc::clone(&sockets));
-            let handle = udp::spawn(sockets, raknet, nethernet);
+            let handle = udp::spawn(sockets, raknet, Some(nethernet));
             assert_eq!(handle.local_addrs(), [v4.into(), v6.into()]);
 
             let socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();

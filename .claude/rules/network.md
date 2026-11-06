@@ -30,7 +30,7 @@ paths:
 - Build every per-IP limit key with the one function `raknet::ip_key`; RakNet, signaling, and NetherNet peers share it.
 - Keep NetherNet's TCP signaling.
 - Never open a socket per NetherNet connection: every peer shares the `server-port` sockets.
-- Always keep the RakNet code. With `raknet = false`, accept no RakNet connection but still answer server list pings.
+- Always keep the RakNet code. With `transport = "nethernet"`, accept no RakNet connection but still answer server list pings. With `transport = "raknet"`, start no NetherNet part (signaling, identity key, driver) and hand every datagram to RakNet.
 
 ## Sessions
 - Decompress, decrypt, decode, and verify the login in one session task per connection (tasks run in parallel).

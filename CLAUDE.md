@@ -10,7 +10,7 @@
 - A Minecraft: Bedrock Edition server **library** in Rust. Users depend on `anchor` and build their server in their own binary with `Server::builder()`. No plugin folder, no dynamic loading, no scripting language.
 - A broad API in Rust idiom. Every public item with a counterpart in the API table (`xtask/data/dump/`) carries that name as `#[doc(alias = "Player::getName")]`. Defects of the counterpart API are fixed, never copied.
 - Exactly one protocol version at a time; the ground truth is the pinned gophertunnel, go-raknet, and go-nethernet (`.claude/docs/protocol.md`).
-- NetherNet (preferred) and RakNet (fallback, can be turned off) together. The only TCP is NetherNet HTTP signaling; all game data is UDP.
+- NetherNet (preferred) and RakNet (fallback) together; either can be turned off. The only TCP is NetherNet HTTP signaling; all game data is UDP.
 - Multi-world without other dimensions: every world is a separate world inside the overworld dimension.
 - Targets minigames, PvP, lobbies, and custom servers. Out of scope: redstone, mob AI, vanilla terrain generation, other dimensions, the vanilla villager economy, the weather cycle, fishing, crafting, block updates, and design for other servers or proxies. Setting villager trade lists is in scope. Changing this scope is the user's decision.
 - What Anchor removes is what vanilla does on its own and vanilla's reactions to player actions; the developer functions beneath them stay. The kept and removed behavior is listed in `.claude/docs/architecture.md`.

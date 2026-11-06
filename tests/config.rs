@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use anchor::config::{
     CriticalHits, Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel,
-    Threads, Update, WorldSettings,
+    Threads, Transports, Update, WorldSettings,
 };
 use anchor::protocol::compression::Compression;
 use anchor::world::{BORDER, BlockPos, Flat, Kind};
@@ -76,7 +76,7 @@ compression-threshold = 512
 compression-level = 9
 max-batch-bytes = 8388608
 enable-encryption = false
-raknet = false
+transport = "nethernet"
 raknet-cookies = true
 max-mtu-size = 1200
 nethernet-tls-cert = "cert.pem"
@@ -271,7 +271,7 @@ fn custom() -> Config {
     d.compression_level = 9;
     d.max_batch_bytes = 8 * MIB;
     d.enable_encryption = false;
-    d.raknet = false;
+    d.transport = Transports::Nethernet;
     d.raknet_cookies = true;
     d.max_mtu_size = 1200;
     d.nethernet_tls_cert = Some(PathBuf::from("cert.pem"));
@@ -561,7 +561,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1048576", "-1"]),
         ),
         ("developer.enable-encryption", bools(), Vec::new()),
-        ("developer.raknet", bools(), Vec::new()),
+        (
+            "developer.transport",
+            s(&[r#""all""#, r#""nethernet""#, r#""raknet""#]),
+            s(&[r#""All""#, r#""both""#, r#""""#, "true", "false"]),
+        ),
         ("developer.raknet-cookies", bools(), Vec::new()),
         // Each needs the other; see `tls_cert_and_key_go_together`.
         (
@@ -779,6 +783,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
     assert_eq!(g.item_despawn_ticks, 6000);
     assert_eq!(g.log_level, LogLevel::Info);
     assert_eq!(g.shutdown_message, "The server has stopped");
+    assert_eq!(d.transport, Transports::All);
     assert_eq!(d.lighting, Lighting::Dynamic);
     assert_eq!(d.fixed_light_level, 15);
     assert_eq!(d.item_pickup_interval, 1);
@@ -1210,7 +1215,7 @@ fn update_adds_missing_tables_at_the_end() {
     );
     assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 1);
 
-    let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
+    let (update, updated) = write_and_update(&file, "[developer]\ntransport = \"nethernet\"\n");
     assert!(updated.starts_with("[developer]\n"));
     assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
     assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 1);
@@ -1224,14 +1229,14 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
     // the end.
     let text = "\u{feff}# my server\r\n[general]\r\nmotd = \"Lobby\" # shown in the list\r\n\
                 shutdown-message = \"\"\"\r\n[bye]\r\n\"\"\"\r\n\r\n[developer] # tuning\r\n\
-                raknet = false\r\n\r\n\
+                transport = \"nethernet\"\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
     assert_eq!(update.added().len(), DEFAULT_KEY_COUNT - 3);
     for kept in [
         "general.motd",
         "general.shutdown-message",
-        "developer.raknet",
+        "developer.transport",
     ] {
         assert!(!update.added().iter().any(|p| p == kept), "{kept}");
     }

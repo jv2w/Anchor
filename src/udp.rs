@@ -150,7 +150,8 @@ impl Handle {
 struct Driver {
     sockets: Arc<Sockets>,
     raknet: raknet::Driver,
-    nethernet: nethernet::Driver,
+    /// `None` with `transport = "raknet"`: every datagram then goes to RakNet.
+    nethernet: Option<nethernet::Driver>,
     buf: Vec<u8>,
 }
 
@@ -166,18 +167,28 @@ impl Driver {
                 Ok(socket) = readable(sockets.v4.as_ref()) => self.receive(socket),
                 Ok(socket) = readable(sockets.v6.as_ref()) => self.receive(socket),
                 true = self.raknet.serve() => {}
-                true = self.nethernet.serve() => {}
+                true = serve(self.nethernet.as_mut()) => {}
                 _ = interval.tick() => {
                     self.raknet.tick();
-                    self.nethernet.tick();
+                    if let Some(nethernet) = &mut self.nethernet {
+                        nethernet.tick();
+                    }
                 }
                 _ = &mut stopped, if !stopping => {
                     stopping = true;
                     self.raknet.stop();
-                    self.nethernet.stop();
+                    if let Some(nethernet) = &mut self.nethernet {
+                        nethernet.stop();
+                    }
                 }
             }
-            if stopping && self.raknet.is_empty() && self.nethernet.is_empty() {
+            if stopping
+                && self.raknet.is_empty()
+                && self
+                    .nethernet
+                    .as_ref()
+                    .is_none_or(nethernet::Driver::is_empty)
+            {
                 debug!("udp task stopped");
                 return;
             }
@@ -188,13 +199,12 @@ impl Driver {
         for _ in 0..RECV_BATCH {
             match socket.try_recv_from(&mut self.buf) {
                 Ok((len, from)) => match self.buf.get(..len) {
-                    Some(data) if len < RECV_BUFFER_BYTES => {
-                        if nethernet::is_nethernet(data) {
-                            self.nethernet.receive(from, data);
-                        } else {
-                            self.raknet.receive(from, data);
+                    Some(data) if len < RECV_BUFFER_BYTES => match &mut self.nethernet {
+                        Some(nethernet) if nethernet::is_nethernet(data) => {
+                            nethernet.receive(from, data);
                         }
-                    }
+                        _ => self.raknet.receive(from, data),
+                    },
                     _ => trace!(addr = %from, len, "udp oversized datagram dropped"),
                 },
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
@@ -226,11 +236,12 @@ pub(crate) fn socket_text(addr: SocketAddr) -> String {
     format!("UDP {addr} ({settings}, RakNet and NetherNet)")
 }
 
-/// Spawns the task that runs both drivers on `sockets`, on the current tokio runtime.
+/// Spawns the task that runs both drivers on `sockets`, on the current tokio runtime; without
+/// `nethernet`, RakNet takes every datagram.
 pub(crate) fn spawn(
     sockets: Arc<Sockets>,
     raknet: raknet::Driver,
-    nethernet: nethernet::Driver,
+    nethernet: Option<nethernet::Driver>,
 ) -> Handle {
     let local_addrs = sockets.local_addrs().to_vec();
     let (stop, stopped) = oneshot::channel();
@@ -271,6 +282,14 @@ async fn readable(socket: Option<&UdpSocket>) -> io::Result<&UdpSocket> {
     };
     socket.readable().await?;
     Ok(socket)
+}
+
+/// Serves `driver`'s commands ([`nethernet::Driver::serve`]); without a driver, waits forever.
+async fn serve(driver: Option<&mut nethernet::Driver>) -> bool {
+    let Some(driver) = driver else {
+        return std::future::pending().await;
+    };
+    driver.serve().await
 }
 
 #[cfg(test)]

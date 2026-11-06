@@ -49,7 +49,7 @@ const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// answer goes without the name's addresses, well inside the signaling request deadline.
 const HOST_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 /// The identity key file in the data folder.
-const IDENTITY_FILE: &str = "identity.key";
+pub(crate) const IDENTITY_FILE: &str = "identity.key";
 /// The host candidates one answer advertises at most: the signaling address and the addresses
 /// of the host the client gave.
 const MAX_ANSWER_CANDIDATES: usize = 4;
@@ -1316,7 +1316,7 @@ pub(crate) mod tests {
         let (nethernet, connections) = driver(Arc::clone(&sockets));
         let commands = nethernet.commands.clone();
         let (raknet, _) = crate::raknet::tests::driver(Arc::clone(&sockets));
-        let handle = udp::spawn(sockets, raknet, nethernet);
+        let handle = udp::spawn(sockets, raknet, Some(nethernet));
         (handle, server, commands, connections)
     }
 
