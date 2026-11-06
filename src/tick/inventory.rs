@@ -2395,6 +2395,17 @@ fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
     match r {
         // The client may ignore `InventorySlot` for the off hand.
         SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
+        // The client keeps its own stack network ID for an armor slot told the item it already
+        // shows (armor worn by a click it predicted), and a request naming that ID fails; the slot
+        // emptied first makes it take the new one.
+        SlotRef::Armor(i) => {
+            let slot = u32::from(i);
+            if item.stack_network_id != 0 {
+                let empty = ItemInstance::default();
+                player.send_packet(slot_packet(WINDOW_ID_ARMOUR, slot, empty));
+            }
+            player.send_packet(slot_packet(WINDOW_ID_ARMOUR, slot, item));
+        }
         SlotRef::Ender(i) => {
             if let Some(window) = &player.inventory.window
                 && window.id != 0

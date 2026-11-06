@@ -491,6 +491,78 @@ fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
     assert_eq!(run(true, true), [1]);
 }
 
+/// Armor worn by a click in the air reaches the client as its slot emptied, then the armor with
+/// its stack network ID; a request naming that ID takes it off.
+#[test]
+fn worn_armor_is_sent_emptied_first_and_comes_off_by_its_id() {
+    use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
+    use crate::protocol::{
+        FullContainerName, ItemStackRequest, StackRequestAction, StackRequestSlotInfo,
+        TakeStackRequestAction, TransferStackRequestAction,
+    };
+
+    let helmet = stack(ItemKind::IronHelmet);
+    let mut h = Harness::new(|_| {});
+    h.hold(helmet.clone());
+    let slot = h.player().inventory.held_slot();
+    let mut data = air(&helmet);
+    data.actions = vec![predicted(WINDOW_ID_INVENTORY, slot, &helmet, &Stack::EMPTY)];
+    let input = h.auth(Vec::new(), Some(data));
+    h.packets();
+    h.run(vec![input]);
+    let sent: Vec<(u16, i32)> = h
+        .packets()
+        .iter()
+        .filter_map(|p| match p {
+            Packet::InventorySlot(s) if s.window_id == WINDOW_ID_ARMOUR && s.slot == 0 => {
+                Some((s.new_item.stack.count, s.new_item.stack_network_id))
+            }
+            _ => None,
+        })
+        .collect();
+    let [(0, 0), (1, id)] = sent[..] else {
+        panic!("the armor slot sent as {sent:?}");
+    };
+    assert_ne!(id, 0);
+    let slot_info = |container: ContainerId, stack_network_id: i32| StackRequestSlotInfo {
+        container: FullContainerName {
+            container_id: container as u8,
+            dynamic_container_id: None,
+        },
+        slot: 0,
+        stack_network_id,
+    };
+    let take = StackRequestAction::Take(TakeStackRequestAction {
+        transfer_stack_request_action: TransferStackRequestAction {
+            count: 1,
+            source: slot_info(ContainerId::Armor, id),
+            destination: slot_info(ContainerId::Cursor, 0),
+        },
+    });
+    let request = h.input(Packet::ItemStackRequest(
+        crate::protocol::packet::ItemStackRequest {
+            requests: vec![ItemStackRequest {
+                request_id: -2,
+                actions: vec![take],
+                ..ItemStackRequest::default()
+            }],
+        },
+    ));
+    h.run(vec![request]);
+    let statuses: Vec<u8> = h
+        .packets()
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::ItemStackResponse(r) => Some(r.responses),
+            _ => None,
+        })
+        .flatten()
+        .map(|r| r.status)
+        .collect();
+    assert_eq!(statuses, [ItemStackResponseStatus::Ok as u8]);
+    assert!(h.player().inventory.armor()[0].is_empty());
+}
+
 // api: BlockPlaceEvent
 #[test]
 fn a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement() {
