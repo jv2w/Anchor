@@ -6067,10 +6067,10 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\CallbackInventoryListener::onSlotChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `inventory\CreativeCategory` | implemented | src/custom.rs:40 `Category` | src/custom/tests.rs::the_creative_inventory_lists_custom_entries_after_the_vanilla_ones |  |
 | `inventory\CreativeCategory::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `inventory\CreativeGroup` | implemented | src/custom/creative.rs:220 `CreativeGroup` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
-| `inventory\CreativeGroup::__construct` | implemented | src/custom/creative.rs:228 `new` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
-| `inventory\CreativeGroup::getIcon` | implemented | src/custom/creative.rs:237 `icon` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
-| `inventory\CreativeGroup::getName` | implemented | src/custom/creative.rs:243 `name` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
+| `inventory\CreativeGroup` | implemented | src/custom/creative.rs:221 `CreativeGroup` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
+| `inventory\CreativeGroup::__construct` | implemented | src/custom/creative.rs:229 `new` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
+| `inventory\CreativeGroup::getIcon` | implemented | src/custom/creative.rs:238 `icon` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
+| `inventory\CreativeGroup::getName` | implemented | src/custom/creative.rs:244 `name` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
 | `inventory\CreativeInventory` | implemented | src/custom/creative.rs:56 `CreativeInventory` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
 | `inventory\CreativeInventory::__destruct` | skipped |  |  | PHP destructor hooks: Rust has Drop and Anchor states each resource's release |
 | `inventory\CreativeInventory::add` | implemented | src/custom/creative.rs:65 `add` | src/custom/tests.rs::builder_changes_remove_clear_and_add_creative_entries_and_groups |  |
@@ -7629,7 +7629,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\cache\CraftingDataCache::reset` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\cache\CraftingDataCache::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `network\mcpe\cache\CreativeInventoryCache` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\cache\CreativeInventoryCache::buildPacket` | implemented | src/custom/creative.rs:317 `new` | src/custom/tests.rs::the_creative_inventory_lists_custom_entries_after_the_vanilla_ones<br>src/item.rs::creative_content_is_the_dump_inventory |  |
+| `network\mcpe\cache\CreativeInventoryCache::buildPacket` | implemented | src/custom/creative.rs:318 `new` | src/custom/tests.rs::the_creative_inventory_lists_custom_entries_after_the_vanilla_ones<br>src/item.rs::creative_content_is_the_dump_inventory |  |
 | `network\mcpe\cache\CreativeInventoryCache::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `network\mcpe\cache\CreativeInventoryCache::reset` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\cache\CreativeInventoryCache::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |

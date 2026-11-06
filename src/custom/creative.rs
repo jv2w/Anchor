@@ -156,27 +156,28 @@ impl CreativeInventory {
                 return Err(too_many_entries());
             }
         }
-        // A custom place's group shows the first custom item of that category and group.
-        let mut icons: Vec<(Category, &'static str, protocol::ItemStack)> = Vec::new();
+        // A custom place joins the inventory's group of that category and name by taking its icon,
+        // as equal names and icons are one group; a new group shows its first custom item.
+        let mut icons: BTreeMap<(u8, &'static str), protocol::ItemStack> = BTreeMap::new();
+        for entry in &entries {
+            if let Some((name, icon)) = &entry.group {
+                icons
+                    .entry((entry.category, *name))
+                    .or_insert_with(|| icon.clone());
+            }
+        }
         for &(t, place) in places {
             let stack = Stack::new(t, 1);
             let net = stack.to_network();
+            let category = place.category.id();
             let group = place.group.map(|name| {
-                let first = icons
-                    .iter()
-                    .find(|(c, n, _)| *c == place.category && *n == name);
-                let icon = if let Some((_, _, icon)) = first {
-                    icon.clone()
-                } else {
-                    icons.push((place.category, name, net.clone()));
-                    net.clone()
-                };
-                (name, icon)
+                let icon = icons.entry((category, name)).or_insert_with(|| net.clone());
+                (name, icon.clone())
             });
             entries.push(Entry {
                 stack,
                 net,
-                category: place.category.id(),
+                category,
                 group,
             });
         }

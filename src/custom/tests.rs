@@ -41,6 +41,9 @@ static HEAD_STACK: Item = Item::new("test:head_stack", "Stack", "stack")
 /// An item worn on the head.
 pub(crate) static HELMET: Item =
     Item::new("test:helmet", "Helmet", "test_helmet").with_armor_slot(item::ArmorSlot::Head);
+/// An item placed in a vanilla creative group.
+static IN_VANILLA_GROUP: Item = Item::new("test:in_vanilla_group", "Helmet", "x")
+    .with_creative(Creative::new(Category::Equipment).with_group("itemGroup.name.helmet"));
 /// A transparent block with three properties, a geometry, a collision box and materials.
 pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     .with_properties(&[
@@ -542,6 +545,20 @@ fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: 
         Some((g, i)) if g.name.is_empty() => i.group_index,
         _ => u32::try_from(content.groups.len()).unwrap(),
     }
+}
+
+#[test]
+fn a_custom_item_placed_in_a_vanilla_group_joins_it() {
+    let mut r = Registry::default();
+    r.add_item(&IN_VANILLA_GROUP);
+    r.finish().unwrap();
+    let vanilla = vanilla_content();
+    let content = r.creative_content();
+    assert_eq!(content.groups, vanilla.groups, "no second group");
+    let joined = content.items.last().unwrap();
+    let group = &content.groups[usize::try_from(joined.group_index).unwrap()];
+    assert_eq!(group.name, "itemGroup.name.helmet");
+    assert_eq!(group.category, CreativeCategory::Equipment as u8);
 }
 
 // api: CreativeCategory, CreativeInventoryCache::buildPacket

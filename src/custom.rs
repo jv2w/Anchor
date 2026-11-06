@@ -65,8 +65,8 @@ impl Category {
 
 /// Where a custom item or block's item shows in the default creative inventory, after its own
 /// entries: a tab and an optional group (a vanilla group name such as `itemGroup.name.sword`, or
-/// a name of the resource pack). Custom entries with the same tab and group share one group shown
-/// with the first of them.
+/// a name of the resource pack). An entry joins the inventory's group of that tab and name; without
+/// one, custom entries with the same tab and group share a new group shown with the first of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Creative {
     category: Category,
