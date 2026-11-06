@@ -30,6 +30,17 @@ static BIG_STACK: Item = Item::new("test:big", "Big", "big").with_max_stack_size
 static BRIGHT: Block = Block::new("test:bright", "x").with_light_emission(16);
 /// A block that tells the client it burns.
 static FLAMMABLE: Block = Block::new("test:flammable", "x").with_flammability(5, 20);
+/// An item both worn and eaten.
+static HEAD_FOOD: Item = Item::new("test:head_food", "Food", "food")
+    .with_armor_slot(item::ArmorSlot::Head)
+    .with_food(1, 1.0);
+/// An item worn with a stack size.
+static HEAD_STACK: Item = Item::new("test:head_stack", "Stack", "stack")
+    .with_armor_slot(item::ArmorSlot::Head)
+    .with_max_stack_size(2);
+/// An item worn on the head.
+pub(crate) static HELMET: Item =
+    Item::new("test:helmet", "Helmet", "test_helmet").with_armor_slot(item::ArmorSlot::Head);
 /// A transparent block with three properties, a geometry, a collision box and materials.
 pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     .with_properties(&[
@@ -231,6 +242,45 @@ fn custom_types_answer_the_rules_from_their_definition() {
     assert_ne!(ruby, apple);
     assert!(item::Kind::Stick.default_type() < ruby && ruby < apple);
     assert_eq!(format!("{ruby:?}"), "Type { name: \"test:ruby\", meta: 0 }");
+}
+
+#[test]
+fn a_worn_item_is_armor_of_no_protection_in_its_slot() {
+    let mut r = Registry::default();
+    r.add_item(&HELMET);
+    r.finish().unwrap();
+    let helmet = r.item_type(&HELMET).unwrap();
+    assert_eq!(
+        helmet.armor().map(item::Armor::slot),
+        Some(item::ArmorSlot::Head)
+    );
+    assert_eq!(helmet.armor_points(), 0);
+    assert_eq!(helmet.max_stack_size(), 1);
+    assert_eq!(helmet.max_durability(), None);
+    assert_eq!(helmet.classes(), [item::Class::Armor, item::Class::Item]);
+    let components = HELMET.to_components();
+    let components = child_compound(&components, "components");
+    let wearable = child_compound(components, "minecraft:wearable");
+    assert_eq!(
+        wearable.get("slot"),
+        Some(&Value::String("slot.armor.head".to_owned()))
+    );
+    assert_eq!(wearable.get("protection"), Some(&Value::Int(0)));
+    // Later settings keep the slot.
+    let durable = Item::new("a:b", "n", "i")
+        .with_armor_slot(item::ArmorSlot::Feet)
+        .with_durability(5)
+        .with_attack_damage(2);
+    assert_eq!(
+        durable.classes(),
+        [item::Class::Armor, item::Class::Durable, item::Class::Item]
+    );
+    let components = durable.to_components();
+    let components = child_compound(&components, "components");
+    assert_eq!(
+        child_compound(components, "minecraft:wearable").get("slot"),
+        Some(&Value::String("slot.armor.feet".to_owned()))
+    );
 }
 
 #[test]
@@ -829,7 +879,12 @@ fn invalid_definitions_refuse_the_build() {
             identifier: "test:ruby"
         })
     );
-    for (item, what) in [(&BIG_STACK, "stack size"), (&WORN_STACK, "durability")] {
+    for (item, what) in [
+        (&BIG_STACK, "stack size"),
+        (&WORN_STACK, "durability"),
+        (&HEAD_FOOD, "worn food"),
+        (&HEAD_STACK, "worn stack"),
+    ] {
         assert!(
             matches!(finish(|r| r.add_item(item)), Err(Error::Definition { .. })),
             "{what}"

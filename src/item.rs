@@ -36,7 +36,7 @@ use crate::nbt::{self, StaticCompound};
 use crate::protocol::{self, ItemType, packet};
 
 /// The data of a custom block's item: a plain block item.
-static CUSTOM_BLOCK_ITEM: Info = Info::custom(MAX_STACK, 0, 1, None);
+static CUSTOM_BLOCK_ITEM: Info = Info::custom(MAX_STACK, 0, 1, None, None);
 
 /// The dye colours by dye colour ID (white 0 … black 15): the dye item's name and the colour's
 /// RGB value.
@@ -715,12 +715,13 @@ impl Info {
     /// `use_duration`.
     const CUSTOM_EAT_TICKS: u16 = 32;
 
-    /// The row of a custom item with this stack size, durability (0: none), attack damage and
-    /// food. A food item is consumed whole, leaving nothing, with no effects.
+    /// The row of a custom item with this stack size, durability (0: none), attack damage, armor
+    /// and food. A food item is consumed whole, leaving nothing, with no effects.
     pub(crate) const fn custom(
         max_stack: u8,
         max_durability: u16,
         attack_points: u8,
+        armor: Option<Armor>,
         food: Option<Food>,
     ) -> Self {
         let edible = food.is_some();
@@ -735,7 +736,7 @@ impl Info {
             tool_type: ToolType::NONE,
             harvest_level: 0,
             efficiency: 1.0,
-            armor: None,
+            armor,
             food,
             consumable: if edible {
                 Some(Consumable::new(None, Some((0, 0))))
@@ -747,6 +748,11 @@ impl Info {
             throw_force: None,
             potion: None,
         }
+    }
+
+    /// What the item is as armor.
+    pub(crate) const fn armor(&self) -> Option<Armor> {
+        self.armor
     }
 
     /// The damage of a hit.
@@ -816,6 +822,15 @@ pub struct Armor {
 }
 
 impl Armor {
+    /// What a custom item worn in `slot` is: no toughness.
+    pub(crate) const fn custom(slot: ArmorSlot) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "invariant: a slot's index is from 0 to 3"
+        )]
+        Self::new(slot.index() as u8, 0)
+    }
+
     const fn new(slot: u8, toughness: u8) -> Self {
         Self { slot, toughness }
     }

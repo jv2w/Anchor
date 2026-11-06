@@ -3,7 +3,7 @@
 
 use super::{Category, Creative};
 use crate::inventory::MAX_STACK;
-use crate::item::{self, Class, Food};
+use crate::item::{self, Armor, ArmorSlot, Class, Food};
 use crate::nbt::{Compound, Value};
 
 /// The `use_animation` of eating (1 eat, 2 drink).
@@ -37,6 +37,12 @@ pub struct Item {
 }
 
 impl Item {
+    /// The classes of an item worn, without durability.
+    const CLASSES_ARMOR: [Class; 2] = [Class::Armor, Class::Item];
+
+    /// The classes of an item worn, with durability.
+    const CLASSES_ARMOR_DURABLE: [Class; 3] = [Class::Armor, Class::Durable, Class::Item];
+
     /// The classes of a durable item.
     const CLASSES_DURABLE: [Class; 2] = [Class::Durable, Class::Item];
 
@@ -53,8 +59,8 @@ impl Item {
     const MAX_ICON_BYTES: usize = 256;
 
     /// An item named `identifier` (`namespace:name`, not in `minecraft`) that players see as
-    /// `display_name` with the icon `icon`: stacks of 64, no durability, not food, not in the
-    /// creative inventory, breaking blocks in creative mode as any item does.
+    /// `display_name` with the icon `icon`: stacks of 64, no durability, not worn, not food, not
+    /// in the creative inventory, breaking blocks in creative mode as any item does.
     pub const fn new(
         identifier: &'static str,
         display_name: &'static str,
@@ -64,7 +70,7 @@ impl Item {
             identifier,
             display_name,
             icon,
-            info: item::Info::custom(MAX_STACK, 0, 1, None),
+            info: item::Info::custom(MAX_STACK, 0, 1, None, None),
             creative: None,
             off_hand_allowed: false,
             hand_equipped: false,
@@ -93,9 +99,15 @@ impl Item {
         if self.info.max_durability() > 0 && stack != 1 {
             return Some("an item with durability stacks to more than 1");
         }
+        if self.info.armor().is_some() && stack != 1 {
+            return Some("an item worn stacks to more than 1");
+        }
         if let Some(food) = self.info.food() {
             if self.info.max_durability() > 0 {
                 return Some("an item with durability is also food");
+            }
+            if self.info.armor().is_some() {
+                return Some("an item worn is also food");
             }
             if !food.saturation_restore().is_finite() || food.saturation_restore() < 0.0 {
                 return Some("a food saturation that is negative or not finite");
@@ -104,10 +116,16 @@ impl Item {
         None
     }
 
-    /// The classes the rules see: a food, a durable item or a plain item.
+    /// The classes the rules see: a food, an item worn, a durable item or a plain item.
     pub(crate) fn classes(&self) -> &'static [Class] {
         if self.info.food().is_some() {
             &Self::CLASSES_FOOD
+        } else if self.info.armor().is_some() {
+            if self.info.max_durability() > 0 {
+                &Self::CLASSES_ARMOR_DURABLE
+            } else {
+                &Self::CLASSES_ARMOR
+            }
         } else if self.info.max_durability() > 0 {
             &Self::CLASSES_DURABLE
         } else {
@@ -156,6 +174,20 @@ impl Item {
         self
     }
 
+    /// The same item worn in `slot`, protecting from nothing; such an item stacks to 1. It cannot
+    /// be food.
+    #[must_use]
+    pub const fn with_armor_slot(mut self, slot: ArmorSlot) -> Self {
+        self.info = item::Info::custom(
+            1,
+            self.info.max_durability(),
+            self.info.attack_points(),
+            Some(Armor::custom(slot)),
+            self.info.food(),
+        );
+        self
+    }
+
     /// The same item dealing `damage` per hit (1 for other items).
     #[must_use]
     pub const fn with_attack_damage(mut self, damage: u8) -> Self {
@@ -163,6 +195,7 @@ impl Item {
             self.info.max_stack(),
             self.info.max_durability(),
             damage,
+            self.info.armor(),
             self.info.food(),
         );
         self
@@ -179,19 +212,26 @@ impl Item {
     /// it without durability but still stacking to 1. It cannot be food.
     #[must_use]
     pub const fn with_durability(mut self, durability: u16) -> Self {
-        self.info = item::Info::custom(1, durability, self.info.attack_points(), self.info.food());
+        self.info = item::Info::custom(
+            1,
+            durability,
+            self.info.attack_points(),
+            self.info.armor(),
+            self.info.food(),
+        );
         self
     }
 
     /// The same item eaten for `food` points and `saturation` when the player is hungry;
     /// [`with_food_always`](Self::with_food_always) makes one eaten at any time. It cannot have
-    /// durability.
+    /// durability or be worn.
     #[must_use]
     pub const fn with_food(mut self, food: u8, saturation: f64) -> Self {
         self.info = item::Info::custom(
             self.info.max_stack(),
             self.info.max_durability(),
             self.info.attack_points(),
+            self.info.armor(),
             Some(Food::new(food, saturation, true)),
         );
         self
@@ -205,6 +245,7 @@ impl Item {
             self.info.max_stack(),
             self.info.max_durability(),
             self.info.attack_points(),
+            self.info.armor(),
             Some(Food::new(food, saturation, false)),
         );
         self
@@ -217,6 +258,7 @@ impl Item {
             size,
             self.info.max_durability(),
             self.info.attack_points(),
+            self.info.armor(),
             self.info.food(),
         );
         self
@@ -231,7 +273,7 @@ impl Item {
     }
 
     /// The `ItemRegistry` data of the item: the item properties (icon, creative place, stack
-    /// size and the flags), the display name, and the durability and food components.
+    /// size and the flags), the display name, and the durability, wearable and food components.
     pub(crate) fn to_components(&self) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category, c.group.unwrap_or_default()),
@@ -290,6 +332,18 @@ impl Item {
                 )])),
             );
         }
+        if let Some(armor) = self.info.armor() {
+            components.insert(
+                "minecraft:wearable".to_owned(),
+                Value::Compound(Compound::from([
+                    ("protection".to_owned(), Value::Int(0)),
+                    (
+                        "slot".to_owned(),
+                        Value::String(wearable_slot(armor.slot()).to_owned()),
+                    ),
+                ])),
+            );
+        }
         if let Some(food) = self.info.food() {
             let ticks = i32::from(self.info.use_ticks());
             properties.insert("use_duration".to_owned(), Value::Int(ticks));
@@ -304,6 +358,16 @@ impl Item {
         }
         components.insert("item_properties".to_owned(), Value::Compound(properties));
         Compound::from([("components".to_owned(), Value::Compound(components))])
+    }
+}
+
+/// The name of an armor slot in the `minecraft:wearable` component.
+fn wearable_slot(slot: ArmorSlot) -> &'static str {
+    match slot {
+        ArmorSlot::Head => "slot.armor.head",
+        ArmorSlot::Chest => "slot.armor.chest",
+        ArmorSlot::Legs => "slot.armor.legs",
+        ArmorSlot::Feet => "slot.armor.feet",
     }
 }
 

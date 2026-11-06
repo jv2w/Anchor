@@ -3764,14 +3764,14 @@ implemented 9, differs 0, merged 14, skipped 656, blank 0 (of 679 rows)
 | `data\bedrock\EffectIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EffectIdMap::toId` | implemented | src/effect.rs:301 `id` | src/effect.rs::ids_round_trip<br>src/effect.rs::every_effect_and_potion_has_the_dump_values |  |
 | `data\bedrock\EffectIds` | merged | src/effect.rs:271 `from_id` | src/effect.rs::ids_round_trip | into `EffectIdMap::fromId` |
-| `data\bedrock\EnchantmentIdMap` | merged | src/item.rs:1056 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
-| `data\bedrock\EnchantmentIdMap::fromId` | implemented | src/item.rs:1056 `from_id` | src/item.rs::enchantment_ids_round_trip |  |
+| `data\bedrock\EnchantmentIdMap` | merged | src/item.rs:1071 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
+| `data\bedrock\EnchantmentIdMap::fromId` | implemented | src/item.rs:1071 `from_id` | src/item.rs::enchantment_ids_round_trip |  |
 | `data\bedrock\EnchantmentIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EnchantmentIdMap::register` | skipped |  |  | no custom enchantments (the client cannot show them) |
 | `data\bedrock\EnchantmentIdMap::reset` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `data\bedrock\EnchantmentIdMap::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `data\bedrock\EnchantmentIdMap::toId` | implemented | src/item.rs:1068 `id` | src/item.rs::enchantment_ids_round_trip |  |
-| `data\bedrock\EnchantmentIds` | merged | src/item.rs:1056 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
+| `data\bedrock\EnchantmentIdMap::toId` | implemented | src/item.rs:1083 `id` | src/item.rs::enchantment_ids_round_trip |  |
+| `data\bedrock\EnchantmentIds` | merged | src/item.rs:1071 `from_id` | src/item.rs::enchantment_ids_round_trip | into `EnchantmentIdMap::fromId` |
 | `data\bedrock\FireworkRocketTypeIdMap` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\FireworkRocketTypeIdMap::fromId` | skipped |  |  | save ID tables are generated from the dump |
 | `data\bedrock\FireworkRocketTypeIdMap::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
@@ -4449,8 +4449,8 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\AttributeMap::get` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\AttributeMap::getAll` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
 | `entity\AttributeMap::needSend` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
-| `entity\Consumable` | implemented | src/item.rs:882 `Consumable` | src/item.rs::food_and_armor_are_the_dump_values |  |
-| `entity\Consumable::getAdditionalEffects` | implemented | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
+| `entity\Consumable` | implemented | src/item.rs:897 `Consumable` | src/item.rs::food_and_armor_are_the_dump_values |  |
+| `entity\Consumable::getAdditionalEffects` | implemented | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\Consumable::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `entity\Entity` | implemented | src/tick/entity.rs:377 `Entity` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Entity::__construct` | skipped |  |  | entities are made with `Context::spawn_*` |
@@ -4602,10 +4602,10 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\ExperienceManager::tick` | skipped |  |  | xp rule code |
 | `entity\Explosive` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:161 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
 | `entity\Explosive::explode` | merged | src/action/entity.rs:43 `Explode`<br>src/tick/world_api.rs:161 `explode` | src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/world_api/tests.rs::explosions_break_blocks_and_refuse_what_cannot_explode | into `Explosion::explodeA` |
-| `entity\FoodSource` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `entity\FoodSource::getFoodRestore` | implemented | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
-| `entity\FoodSource::getSaturationRestore` | implemented | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
-| `entity\FoodSource::requiresHunger` | implemented | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
+| `entity\FoodSource` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `entity\FoodSource::getFoodRestore` | implemented | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
+| `entity\FoodSource::getSaturationRestore` | implemented | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
+| `entity\FoodSource::requiresHunger` | implemented | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\Human` | implemented | src/entity.rs:89 `Human` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Human::__construct` | implemented | src/tick/entity/api.rs:1912 `spawn_human` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
@@ -6235,12 +6235,12 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
 | `item\Apple` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Apple::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Apple::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Apple::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Apple::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Armor` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Armor::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Armor::clearCustomColor` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Armor::getArmorSlot` | implemented | src/item.rs:824 `slot` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
+| `item\Armor::getArmorSlot` | implemented | src/item.rs:839 `slot` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Armor::getCustomColor` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Armor::getDefensePoints` | merged | src/item.rs:354 `armor_points` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getDefensePoints` |
 | `item\Armor::getEnchantability` | skipped |  |  | enchanting is out of scope: the enchanting table does nothing |
@@ -6257,11 +6257,11 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\ArmorMaterial::getEquipSound` | skipped |  |  | armour materials are a generated table |
 | `item\ArmorTypeInfo` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ArmorTypeInfo::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\ArmorTypeInfo::getArmorSlot` | merged | src/item.rs:824 `slot` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Armor::getArmorSlot` |
+| `item\ArmorTypeInfo::getArmorSlot` | merged | src/item.rs:839 `slot` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Armor::getArmorSlot` |
 | `item\ArmorTypeInfo::getDefensePoints` | merged | src/item.rs:354 `armor_points` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getDefensePoints` |
 | `item\ArmorTypeInfo::getMaterial` | skipped |  |  | armour materials are a generated table |
 | `item\ArmorTypeInfo::getMaxDurability` | merged | src/item.rs:405 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\ArmorTypeInfo::getToughness` | implemented | src/item.rs:838 `toughness` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
+| `item\ArmorTypeInfo::getToughness` | implemented | src/item.rs:853 `toughness` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\ArmorTypeInfo::isFireProof` | merged | src/item.rs:390 `is_fire_proof` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::isFireProof` |
 | `item\Arrow` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Axe` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6271,8 +6271,8 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Axe::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `item\Axe::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
 | `item\BakedPotato` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\BakedPotato::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\BakedPotato::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\BakedPotato::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\BakedPotato::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Bamboo` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bamboo::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\Bamboo::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
@@ -6283,15 +6283,15 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Banner::setColor` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\Banner::setPatterns` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Beetroot` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Beetroot::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Beetroot::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Beetroot::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Beetroot::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\BeetrootSeeds` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\BeetrootSeeds::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\BeetrootSoup` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\BeetrootSoup::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\BeetrootSoup::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\BeetrootSoup::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\BeetrootSoup::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
-| `item\BeetrootSoup::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\BeetrootSoup::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\BeetrootSoup::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\BlazeRod` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\BlazeRod::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Boat` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6317,54 +6317,54 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Bowl` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bowl::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Bread` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Bread::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Bread::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Bread::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Bread::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Bucket` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bucket::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\Bucket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\Carrot` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Carrot::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
-| `item\Carrot::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Carrot::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Carrot::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Carrot::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\ChorusFruit` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\ChorusFruit::getCooldownTag` | merged | src/item.rs:928 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
-| `item\ChorusFruit::getCooldownTicks` | merged | src/item.rs:934 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
-| `item\ChorusFruit::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\ChorusFruit::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\ChorusFruit::getCooldownTag` | merged | src/item.rs:943 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
+| `item\ChorusFruit::getCooldownTicks` | merged | src/item.rs:949 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
+| `item\ChorusFruit::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\ChorusFruit::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\ChorusFruit::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `item\ChorusFruit::requiresHunger` | merged | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
+| `item\ChorusFruit::requiresHunger` | merged | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
 | `item\Clock` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Clownfish` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Clownfish::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Clownfish::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Clownfish::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Clownfish::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Coal` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Coal::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\CocoaBeans` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\CocoaBeans::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\Compass` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ConsumableItem` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\ConsumableItem::getResidue` | implemented | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
+| `item\ConsumableItem::getResidue` | implemented | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `item\CookedChicken` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedChicken::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedChicken::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedChicken::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedChicken::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CookedFish` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedFish::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedFish::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedFish::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedFish::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CookedMutton` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedMutton::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedMutton::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedMutton::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedMutton::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CookedPorkchop` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedPorkchop::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedPorkchop::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedPorkchop::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedPorkchop::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CookedRabbit` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedRabbit::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedRabbit::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedRabbit::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedRabbit::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CookedSalmon` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\CookedSalmon::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\CookedSalmon::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\CookedSalmon::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\CookedSalmon::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Cookie` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Cookie::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Cookie::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Cookie::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Cookie::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\CoralFan` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\CoralFan::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\CoralFan::describeBlockItemState` | skipped |  |  | the API'sruntime state bit packing: Anchor's item types are a generated table |
@@ -6377,8 +6377,8 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\CoralFan::setCoralType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\CoralFan::setDead` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\DriedKelp` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\DriedKelp::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\DriedKelp::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\DriedKelp::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\DriedKelp::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Durable` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Durable::applyDamage` | merged | src/item/stack.rs:342 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::setDamage` |
 | `item\Durable::getDamage` | implemented | src/item/stack.rs:245 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
@@ -6398,8 +6398,8 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\EndCrystal` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\EndCrystal::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\EnderPearl` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\EnderPearl::getCooldownTag` | merged | src/item.rs:928 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
-| `item\EnderPearl::getCooldownTicks` | merged | src/item.rs:934 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
+| `item\EnderPearl::getCooldownTag` | merged | src/item.rs:943 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
+| `item\EnderPearl::getCooldownTicks` | merged | src/item.rs:949 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
 | `item\EnderPearl::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\EnderPearl::getThrowForce` | merged | src/item.rs:508 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `ProjectileItem::getThrowForce` |
 | `item\ExperienceBottle` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6442,21 +6442,21 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\FlintSteel::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\Food` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Food::canStartUsingItem` | skipped |  |  | item rule code |
-| `item\Food::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\Food::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\Food::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\Food::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
 | `item\Food::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `item\Food::requiresHunger` | merged | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
+| `item\Food::requiresHunger` | merged | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
 | `item\FoodSourceItem` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\GlassBottle` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\GlassBottle::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\GlowBerries` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\GlowBerries::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
-| `item\GlowBerries::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\GlowBerries::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\GlowBerries::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\GlowBerries::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\GoatHorn` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\GoatHorn::canStartUsingItem` | skipped |  |  | item rule code |
-| `item\GoatHorn::getCooldownTag` | merged | src/item.rs:928 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
-| `item\GoatHorn::getCooldownTicks` | merged | src/item.rs:934 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
+| `item\GoatHorn::getCooldownTag` | merged | src/item.rs:943 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
+| `item\GoatHorn::getCooldownTicks` | merged | src/item.rs:949 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
 | `item\GoatHorn::getHornType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\GoatHorn::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\GoatHorn::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
@@ -6464,15 +6464,15 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\GoatHornType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\GoatHornType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\GoldenApple` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\GoldenApple::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\GoldenApple::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\GoldenApple::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
-| `item\GoldenApple::requiresHunger` | merged | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
+| `item\GoldenApple::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\GoldenApple::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\GoldenApple::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\GoldenApple::requiresHunger` | merged | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
 | `item\GoldenAppleEnchanted` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\GoldenAppleEnchanted::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\GoldenAppleEnchanted::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\GoldenCarrot` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\GoldenCarrot::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\GoldenCarrot::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\GoldenCarrot::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\GoldenCarrot::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\HangingSign` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\HangingSign::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\HangingSign::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
@@ -6484,14 +6484,14 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Hoe::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `item\Hoe::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
 | `item\HoneyBottle` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\HoneyBottle::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\HoneyBottle::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\HoneyBottle::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\HoneyBottle::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
-| `item\HoneyBottle::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\HoneyBottle::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\HoneyBottle::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\HoneyBottle::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `item\HoneyBottle::requiresHunger` | merged | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
+| `item\HoneyBottle::requiresHunger` | merged | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
 | `item\IceBomb` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\IceBomb::getCooldownTicks` | merged | src/item.rs:934 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
+| `item\IceBomb::getCooldownTicks` | merged | src/item.rs:949 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTicks` |
 | `item\IceBomb::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\IceBomb::getThrowForce` | merged | src/item.rs:508 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `ProjectileItem::getThrowForce` |
 | `item\Item` | implemented | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
@@ -6512,8 +6512,8 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Item::getBlockToolType` | implemented | src/item.rs:309 `block_tool_type` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getCanDestroy` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::getCanPlaceOn` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::getCooldownTag` | implemented | src/item.rs:928 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
-| `item\Item::getCooldownTicks` | implemented | src/item.rs:934 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
+| `item\Item::getCooldownTag` | implemented | src/item.rs:943 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
+| `item\Item::getCooldownTicks` | implemented | src/item.rs:949 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Item::getCount` | implemented | src/item/stack.rs:231 `count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getCustomBlockData` | merged | src/item/stack.rs:621 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::getCustomName` | implemented | src/item/stack.rs:610 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
@@ -6577,7 +6577,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\ItemBlockWallOrFloor::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\ItemBlockWallOrFloor::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\ItemBlockWallOrFloor::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\ItemCooldownTags` | merged | src/item.rs:928 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
+| `item\ItemCooldownTags` | merged | src/item.rs:943 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
 | `item\ItemEnchantmentHandlingTrait` | merged | src/item/stack.rs:617 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\ItemEnchantmentHandlingTrait::addEnchantment` | merged | src/item/stack.rs:617 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\ItemEnchantmentHandlingTrait::getEnchantment` | merged | src/item/stack.rs:617 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
@@ -6620,9 +6620,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\LiquidBucket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\Medicine` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Medicine::canStartUsingItem` | skipped |  |  | item rule code |
-| `item\Medicine::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\Medicine::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Medicine::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\Medicine::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\Medicine::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
 | `item\Medicine::getType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\Medicine::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `item\Medicine::setType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
@@ -6636,23 +6636,23 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\MedicineType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\MedicineType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\Melon` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Melon::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Melon::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Melon::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Melon::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\MelonSeeds` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\MelonSeeds::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\MilkBucket` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\MilkBucket::canStartUsingItem` | skipped |  |  | item rule code |
-| `item\MilkBucket::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\MilkBucket::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\MilkBucket::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\MilkBucket::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\MilkBucket::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
 | `item\MilkBucket::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `item\Minecart` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Minecart::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\MushroomStew` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\MushroomStew::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\MushroomStew::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\MushroomStew::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\MushroomStew::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
-| `item\MushroomStew::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\MushroomStew::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\MushroomStew::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\NameTag` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\NameTag::onInteractEntity` | skipped |  |  | item rule code: listeners see PlayerEntityInteract |
 | `item\PaintingItem` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6666,18 +6666,18 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\PitcherPod` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\PitcherPod::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\PoisonousPotato` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\PoisonousPotato::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\PoisonousPotato::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\PoisonousPotato::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\PoisonousPotato::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\PoisonousPotato::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\PoisonousPotato::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Potato` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Potato::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
-| `item\Potato::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Potato::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Potato::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Potato::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Potion` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Potion::canStartUsingItem` | skipped |  |  | item rule code |
-| `item\Potion::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\Potion::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Potion::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\Potion::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\Potion::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
 | `item\Potion::getType` | implemented | src/item.rs:492 `potion` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Potion::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `item\Potion::setType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
@@ -6694,41 +6694,41 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\ProjectileItem::getThrowForce` | implemented | src/item.rs:508 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4168 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
 | `item\Pufferfish` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\Pufferfish::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Pufferfish::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\Pufferfish::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Pufferfish::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\PumpkinPie` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\PumpkinPie::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\PumpkinPie::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\PumpkinPie::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\PumpkinPie::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\PumpkinSeeds` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\PumpkinSeeds::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\RabbitStew` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RabbitStew::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RabbitStew::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\RabbitStew::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\RabbitStew::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
-| `item\RabbitStew::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RabbitStew::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\RabbitStew::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawBeef` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawBeef::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawBeef::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawBeef::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawBeef::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawChicken` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawChicken::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\RawChicken::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawChicken::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawChicken::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\RawChicken::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawChicken::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawFish` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawFish::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawFish::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawFish::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawFish::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawMutton` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawMutton::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawMutton::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawMutton::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawMutton::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawPorkchop` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawPorkchop::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawPorkchop::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawPorkchop::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawPorkchop::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawRabbit` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawRabbit::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawRabbit::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawRabbit::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawRabbit::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\RawSalmon` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RawSalmon::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RawSalmon::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RawSalmon::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RawSalmon::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Record` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Record::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Record::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
@@ -6738,9 +6738,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Releasable` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Releasable::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\RottenFlesh` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\RottenFlesh::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\RottenFlesh::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\RottenFlesh::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\RottenFlesh::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\RottenFlesh::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\RottenFlesh::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Shears` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Shears::getBlockToolHarvestLevel` | merged | src/item.rs:303 `block_tool_harvest_level` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getBlockToolHarvestLevel` |
 | `item\Shears::getBlockToolType` | merged | src/item.rs:309 `block_tool_type` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getBlockToolType` |
@@ -6758,9 +6758,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\SpawnEgg` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\SpawnEgg::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\SpiderEye` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\SpiderEye::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\SpiderEye::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\SpiderEye::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\SpiderEye::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\SpiderEye::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\SpiderEye::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\SplashPotion` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\SplashPotion::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\SplashPotion::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
@@ -6772,8 +6772,8 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Spyglass::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\Spyglass::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\Steak` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\Steak::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\Steak::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\Steak::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\Steak::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Stick` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Stick::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\StringItem` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6789,26 +6789,26 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\StringToItemParser::reset` | skipped |  |  | the API'sstring-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`) |
 | `item\StringToItemParser::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `item\SuspiciousStew` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\SuspiciousStew::getAdditionalEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
-| `item\SuspiciousStew::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\SuspiciousStew::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\SuspiciousStew::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\SuspiciousStew::getMaxStackSize` | merged | src/item.rs:412 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\SuspiciousStew::getResidue` | merged | src/item.rs:909 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
-| `item\SuspiciousStew::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\SuspiciousStew::getResidue` | merged | src/item.rs:924 `residue` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `ConsumableItem::getResidue` |
+| `item\SuspiciousStew::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\SuspiciousStew::getType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
-| `item\SuspiciousStew::requiresHunger` | merged | src/item.rs:868 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
+| `item\SuspiciousStew::requiresHunger` | merged | src/item.rs:883 `can_eat_when_full` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::requiresHunger` |
 | `item\SuspiciousStew::setType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\SuspiciousStewType` | merged | src/item.rs:398 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\SuspiciousStewType::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\SuspiciousStewType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\SuspiciousStewType::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\SuspiciousStewType::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `item\SuspiciousStewType::getEffects` | merged | src/item.rs:897 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
+| `item\SuspiciousStewType::getEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\SuspiciousStewType::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\SuspiciousStewType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\SweetBerries` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\SweetBerries::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
-| `item\SweetBerries::getFoodRestore` | merged | src/item.rs:862 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
-| `item\SweetBerries::getSaturationRestore` | merged | src/item.rs:874 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
+| `item\SweetBerries::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
+| `item\SweetBerries::getSaturationRestore` | merged | src/item.rs:889 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Sword` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Sword::getAttackPoints` | merged | src/item.rs:285 `attack_points` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getAttackPoints` |
 | `item\Sword::getBlockToolHarvestLevel` | merged | src/item.rs:303 `block_tool_harvest_level` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getBlockToolHarvestLevel` |
@@ -6861,332 +6861,332 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\VanillaArmorMaterials::NETHERITE` | skipped |  |  | armour materials are a generated table |
 | `item\VanillaArmorMaterials::TURTLE` | skipped |  |  | armour materials are a generated table |
 | `item\VanillaArmorMaterials::getAll` | skipped |  |  | armour materials are a generated table |
-| `item\VanillaItems` | implemented | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data |  |
-| `item\VanillaItems::ACACIA_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ACACIA_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ACACIA_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::AIR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::AMETHYST_SHARD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::APPLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ARROW` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BAKED_POTATO` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BAMBOO` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BAMBOO_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BAMBOO_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BANNER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BEETROOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BEETROOT_SEEDS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BEETROOT_SOUP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BIRCH_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BIRCH_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BIRCH_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BLAZE_POWDER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BLAZE_ROD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BLEACH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BONE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BONE_MEAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BOOK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BOW` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BOWL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BREAD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BRICK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::BUCKET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CARROT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHAINMAIL_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHAINMAIL_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHAINMAIL_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHAINMAIL_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHARCOAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_ALUMINIUM_OXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_AMMONIA` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_BARIUM_SULPHATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_BENZENE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_BORON_TRIOXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_CALCIUM_BROMIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_CALCIUM_CHLORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_CERIUM_CHLORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_CHARCOAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_CRUDE_OIL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_GLUE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_HYDROGEN_PEROXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_HYPOCHLORITE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_INK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_IRON_SULPHIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_LATEX` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_LITHIUM_HYDRIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_LUMINOL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_MAGNESIUM_NITRATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_MAGNESIUM_OXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_MAGNESIUM_SALTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_MERCURIC_CHLORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_POLYETHYLENE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_POTASSIUM_CHLORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_POTASSIUM_IODIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_RUBBISH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SALT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SOAP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_ACETATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_FLUORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_HYDRIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_HYDROXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_HYPOCHLORITE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SODIUM_OXIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SUGAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_SULPHATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_TUNGSTEN_CHLORIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHEMICAL_WATER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHERRY_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHERRY_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CHORUS_FRUIT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CLAY` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CLOCK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CLOWNFISH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COAST_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COCOA_BEANS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COMPASS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_CHICKEN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_FISH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_MUTTON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_PORKCHOP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_RABBIT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKED_SALMON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COOKIE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_INGOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_NUGGET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::COPPER_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CORAL_FAN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CRIMSON_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::CRIMSON_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DARK_OAK_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DARK_OAK_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DARK_OAK_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DIAMOND_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DISC_FRAGMENT_5` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DRAGON_BREATH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DRIED_KELP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DUNE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::DYE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ECHO_SHARD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::EGG` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::EMERALD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ENCHANTED_BOOK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ENCHANTED_GOLDEN_APPLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ENDER_PEARL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::END_CRYSTAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::EXPERIENCE_BOTTLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::EYE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FEATHER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FERMENTED_SPIDER_EYE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FIREWORK_ROCKET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FIREWORK_STAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FIRE_CHARGE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FISHING_ROD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FLINT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::FLINT_AND_STEEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GHAST_TEAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GLASS_BOTTLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GLISTERING_MELON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GLOWSTONE_DUST` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GLOW_BERRIES` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GLOW_INK_SAC` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOAT_HORN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_APPLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_CARROT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLDEN_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLD_INGOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GOLD_NUGGET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::GUNPOWDER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::HEART_OF_THE_SEA` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::HONEYCOMB` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::HONEY_BOTTLE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::HOST_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ICE_BOMB` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::INK_SAC` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_INGOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_NUGGET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::IRON_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::JUNGLE_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::JUNGLE_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::JUNGLE_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LAPIS_LAZULI` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LAVA_BUCKET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LEATHER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LEATHER_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LEATHER_CAP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LEATHER_PANTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LEATHER_TUNIC` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::LINGERING_POTION` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MAGMA_CREAM` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MANGROVE_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MANGROVE_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MANGROVE_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MEDICINE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MELON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MELON_SEEDS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MILK_BUCKET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MINECART` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::MUSHROOM_STEW` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NAME_TAG` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NAUTILUS_SHELL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_BOOTS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_CHESTPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_INGOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_LEGGINGS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_SCRAP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHERITE_UPGRADE_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHER_BRICK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHER_QUARTZ` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::NETHER_STAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::OAK_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::OAK_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::OAK_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::OMINOUS_BANNER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PAINTING` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PALE_OAK_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PALE_OAK_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PAPER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PHANTOM_MEMBRANE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PITCHER_POD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::POISONOUS_POTATO` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::POPPED_CHORUS_FRUIT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::POTATO` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::POTION` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PRISMARINE_CRYSTALS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PRISMARINE_SHARD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PUFFERFISH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PUMPKIN_PIE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::PUMPKIN_SEEDS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RABBIT_FOOT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RABBIT_HIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RABBIT_STEW` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAISER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_BEEF` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_CHICKEN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_COPPER` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_FISH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_GOLD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_IRON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_MUTTON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_PORKCHOP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_RABBIT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RAW_SALMON` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_11` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_13` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_5` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_BLOCKS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_CAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_CHIRP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_CREATOR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_CREATOR_MUSIC_BOX` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_FAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_LAVA_CHICKEN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_MALL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_MELLOHI` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_OTHERSIDE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_PIGSTEP` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_PRECIPICE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_RELIC` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_STAL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_STRAD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_WAIT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECORD_WARD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RECOVERY_COMPASS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::REDSTONE_DUST` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RESIN_BRICK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::RIB_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ROTTEN_FLESH` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SCUTE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SENTRY_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SHAPER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SHEARS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SHULKER_SHELL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SLIMEBALL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SNOWBALL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPIDER_EYE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPIRE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPLASH_POTION` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPRUCE_BOAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPRUCE_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPRUCE_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SPYGLASS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SQUID_SPAWN_EGG` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STEAK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STICK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STONE_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STONE_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STONE_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STONE_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STONE_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::STRING` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SUGAR` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SUSPICIOUS_STEW` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::SWEET_BERRIES` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::TIDE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::TORCHFLOWER_SEEDS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::TOTEM` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::TRIDENT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::TURTLE_HELMET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::VEX_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::VILLAGER_SPAWN_EGG` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WARD_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WARPED_HANGING_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WARPED_SIGN` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WATER_BUCKET` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WAYFINDER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WHEAT` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WHEAT_SEEDS` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WILD_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WOODEN_AXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WOODEN_HOE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WOODEN_PICKAXE` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WOODEN_SHOVEL` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WOODEN_SWORD` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WRITABLE_BOOK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::WRITTEN_BOOK` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::ZOMBIE_SPAWN_EGG` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
-| `item\VanillaItems::getAll` | merged | src/item.rs:1086 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems` | implemented | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data |  |
+| `item\VanillaItems::ACACIA_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ACACIA_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ACACIA_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::AIR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::AMETHYST_SHARD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::APPLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ARROW` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BAKED_POTATO` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BAMBOO` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BAMBOO_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BAMBOO_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BANNER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BEETROOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BEETROOT_SEEDS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BEETROOT_SOUP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BIRCH_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BIRCH_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BIRCH_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BLAZE_POWDER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BLAZE_ROD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BLEACH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BONE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BONE_MEAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BOOK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BOW` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BOWL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BREAD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BRICK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::BUCKET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CARROT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHAINMAIL_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHAINMAIL_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHAINMAIL_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHAINMAIL_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHARCOAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_ALUMINIUM_OXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_AMMONIA` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_BARIUM_SULPHATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_BENZENE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_BORON_TRIOXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_CALCIUM_BROMIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_CALCIUM_CHLORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_CERIUM_CHLORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_CHARCOAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_CRUDE_OIL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_GLUE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_HYDROGEN_PEROXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_HYPOCHLORITE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_INK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_IRON_SULPHIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_LATEX` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_LITHIUM_HYDRIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_LUMINOL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_MAGNESIUM_NITRATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_MAGNESIUM_OXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_MAGNESIUM_SALTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_MERCURIC_CHLORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_POLYETHYLENE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_POTASSIUM_CHLORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_POTASSIUM_IODIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_RUBBISH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SALT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SOAP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_ACETATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_FLUORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_HYDRIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_HYDROXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_HYPOCHLORITE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SODIUM_OXIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SUGAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_SULPHATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_TUNGSTEN_CHLORIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHEMICAL_WATER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHERRY_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHERRY_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CHORUS_FRUIT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CLAY` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CLOCK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CLOWNFISH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COAST_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COCOA_BEANS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COMPASS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_CHICKEN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_FISH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_MUTTON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_PORKCHOP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_RABBIT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKED_SALMON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COOKIE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_INGOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_NUGGET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::COPPER_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CORAL_FAN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CRIMSON_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::CRIMSON_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DARK_OAK_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DARK_OAK_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DARK_OAK_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DIAMOND_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DISC_FRAGMENT_5` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DRAGON_BREATH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DRIED_KELP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DUNE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::DYE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ECHO_SHARD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::EGG` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::EMERALD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ENCHANTED_BOOK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ENCHANTED_GOLDEN_APPLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ENDER_PEARL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::END_CRYSTAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::EXPERIENCE_BOTTLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::EYE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FEATHER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FERMENTED_SPIDER_EYE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FIREWORK_ROCKET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FIREWORK_STAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FIRE_CHARGE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FISHING_ROD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FLINT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::FLINT_AND_STEEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GHAST_TEAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GLASS_BOTTLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GLISTERING_MELON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GLOWSTONE_DUST` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GLOW_BERRIES` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GLOW_INK_SAC` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOAT_HORN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_APPLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_CARROT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLDEN_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLD_INGOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GOLD_NUGGET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::GUNPOWDER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::HEART_OF_THE_SEA` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::HONEYCOMB` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::HONEY_BOTTLE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::HOST_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ICE_BOMB` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::INK_SAC` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_INGOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_NUGGET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::IRON_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::JUNGLE_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::JUNGLE_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::JUNGLE_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LAPIS_LAZULI` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LAVA_BUCKET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LEATHER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LEATHER_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LEATHER_CAP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LEATHER_PANTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LEATHER_TUNIC` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::LINGERING_POTION` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MAGMA_CREAM` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MANGROVE_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MANGROVE_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MANGROVE_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MEDICINE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MELON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MELON_SEEDS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MILK_BUCKET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MINECART` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::MUSHROOM_STEW` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NAME_TAG` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NAUTILUS_SHELL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_BOOTS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_CHESTPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_INGOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_LEGGINGS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_SCRAP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHERITE_UPGRADE_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHER_BRICK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHER_QUARTZ` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::NETHER_STAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::OAK_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::OAK_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::OAK_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::OMINOUS_BANNER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PAINTING` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PALE_OAK_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PALE_OAK_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PAPER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PHANTOM_MEMBRANE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PITCHER_POD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::POISONOUS_POTATO` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::POPPED_CHORUS_FRUIT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::POTATO` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::POTION` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PRISMARINE_CRYSTALS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PRISMARINE_SHARD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PUFFERFISH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PUMPKIN_PIE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::PUMPKIN_SEEDS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RABBIT_FOOT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RABBIT_HIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RABBIT_STEW` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAISER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_BEEF` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_CHICKEN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_COPPER` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_FISH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_GOLD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_IRON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_MUTTON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_PORKCHOP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_RABBIT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RAW_SALMON` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_11` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_13` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_5` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_BLOCKS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_CAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_CHIRP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_CREATOR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_CREATOR_MUSIC_BOX` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_FAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_LAVA_CHICKEN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_MALL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_MELLOHI` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_OTHERSIDE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_PIGSTEP` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_PRECIPICE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_RELIC` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_STAL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_STRAD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_WAIT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECORD_WARD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RECOVERY_COMPASS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::REDSTONE_DUST` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RESIN_BRICK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::RIB_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ROTTEN_FLESH` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SCUTE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SENTRY_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SHAPER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SHEARS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SHULKER_SHELL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SLIMEBALL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SNOWBALL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPIDER_EYE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPIRE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPLASH_POTION` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPRUCE_BOAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPRUCE_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPRUCE_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SPYGLASS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SQUID_SPAWN_EGG` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STEAK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STICK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STONE_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STONE_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STONE_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STONE_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STONE_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::STRING` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SUGAR` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SUSPICIOUS_STEW` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::SWEET_BERRIES` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::TIDE_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::TORCHFLOWER_SEEDS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::TOTEM` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::TRIDENT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::TURTLE_HELMET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::VEX_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::VILLAGER_SPAWN_EGG` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WARD_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WARPED_HANGING_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WARPED_SIGN` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WATER_BUCKET` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WAYFINDER_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WHEAT` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WHEAT_SEEDS` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WILD_ARMOR_TRIM_SMITHING_TEMPLATE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WOODEN_AXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WOODEN_HOE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WOODEN_PICKAXE` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WOODEN_SHOVEL` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WOODEN_SWORD` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WRITABLE_BOOK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::WRITTEN_BOOK` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::ZOMBIE_SPAWN_EGG` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
+| `item\VanillaItems::getAll` | merged | src/item.rs:1101 `default_type` | src/item.rs::every_type_has_its_data | into `VanillaItems` |
 | `item\WheatSeeds` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\WheatSeeds::getBlock` | merged | src/item.rs:457 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\WritableBook` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |

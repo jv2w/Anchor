@@ -1,12 +1,13 @@
 //! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
 //! and drops, a villager's offers read, changed and checked as typed values, custom items kept
-//! through a save and a restart, and a custom item that breaks nothing in creative mode.
+//! through a save and a restart, a custom item that breaks nothing in creative mode, and a custom
+//! helmet worn by a click in the air.
 
 use std::sync::Arc;
 
 use super::*;
 use crate::Context as Ctx;
-use crate::custom::tests::{ORE, RUBY, SWORD};
+use crate::custom::tests::{HELMET, ORE, RUBY, SWORD};
 use crate::custom::{Behaviour, Block, ItemRef, Offer, Property, Registry};
 use crate::item::Extra;
 use crate::save::{Request, Response};
@@ -75,13 +76,14 @@ impl Behaviour for Switch {
     }
 }
 
-/// The test server's custom content: `RUBY`, `ORE`, `SWITCH` and `SWORD`.
+/// The test server's custom content: `RUBY`, `ORE`, `SWITCH`, `SWORD` and `HELMET`.
 fn registry() -> Registry {
     let mut r = Registry::default();
     r.add_item(&RUBY);
     r.add_block(&ORE);
     r.add_block(&SWITCH);
     r.add_item(&SWORD);
+    r.add_item(&HELMET);
     r.finish().unwrap();
     r
 }
@@ -98,6 +100,17 @@ fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
     h.state.custom = Arc::clone(&r);
     h.state.rules.custom = Arc::clone(&r);
     (h, r)
+}
+
+#[test]
+fn a_custom_helmet_goes_on_by_a_click_in_the_air() {
+    let (mut h, r) = harness();
+    let helmet = Stack::new(r.item_type(&HELMET).unwrap(), 1);
+    h.hold(helmet.clone());
+    let input = h.auth(Vec::new(), Some(air(&helmet)));
+    h.run(vec![input]);
+    assert_eq!(h.player().inventory.armor()[0], helmet);
+    assert!(h.held().is_empty());
 }
 
 // api: Item::nbtSerialize, Item::nbtDeserialize
