@@ -10,7 +10,7 @@ use tracing::debug;
 use super::attributes::{self, ABSORPTION, HEALTH};
 use super::effects::{self, Active};
 use super::{
-    ENTITY_REACH, EYE_HEIGHT, MAX_FIRE_TICKS, PLAYER_HEIGHT, Point, Survival, broadcast_from,
+    ENTITY_REACH, EYE_HEIGHT, MAX_FIRE_TICKS, PLAYER_HEIGHT, Point, Stay, Survival, broadcast_from,
     broadcast_to_viewers, can_interact, feet, food, movement, player_random, sound, world_seed,
 };
 use crate::config::{CriticalHits, GameMode};
@@ -1784,17 +1784,19 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
 /// [`PlayerRespawn`] listener sends it (a world the server does not run or a place outside the
 /// world border is ignored); nothing unless it is dead. In hardcore the player comes back as a
 /// spectator, unless a [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener
-/// cancels that.
-pub(super) fn respawn(state: &mut State, session: SessionId) {
+/// cancels that. Another world raises [`PlayerWorldChange`](crate::event::PlayerWorldChange)
+/// before the [`PlayerRespawn`] monitors, unless the player is leaving (`stay`).
+pub(super) fn respawn(state: &mut State, session: SessionId, stay: Stay) {
     // A death the API made runs later in the tick (drops, event, death screen); the respawn waits
     // for it.
-    if !state
+    let Some(from) = state
         .players
         .get(&session)
-        .is_some_and(|p| p.survival.motion.death_shown)
-    {
+        .filter(|p| p.survival.motion.death_shown)
+        .map(|p| p.world)
+    else {
         return;
-    }
+    };
     let Some((world, position, event)) = revive(state, session, Phase::Spawned) else {
         return;
     };
@@ -1835,6 +1837,9 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     }
     if burning {
         extinguished(state, session, ExtinguishCause::Respawn);
+    }
+    if stay == Stay::Online {
+        super::world_changed(state, session, from);
     }
     super::watch(state, event.as_ref());
 }

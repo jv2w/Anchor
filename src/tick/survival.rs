@@ -41,7 +41,7 @@ use crate::config::{Difficulty, GameMode};
 use crate::effect;
 use crate::event::{
     CombustSource, DamageCause, DamageSource, Event, ExhaustCause, PlayerGameModeChange,
-    RegainReason,
+    PlayerWorldChange, RegainReason,
 };
 use crate::item::Stack;
 use crate::math::{Vec3, to_f32};
@@ -454,6 +454,17 @@ pub(super) struct Melee {
     pub(super) magic: bool,
 }
 
+/// Whether the player a respawn moves stays online or is leaving, its
+/// [`PlayerQuit`](crate::event::PlayerQuit) raised: the move of a leaving player raises no
+/// [`PlayerWorldChange`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Stay {
+    /// The player stays.
+    Online,
+    /// The player leaves once the rule is done.
+    Leaving,
+}
+
 /// Reads the player's survival keys from its saved extra (empty for a new player), its items
 /// with the server's `custom` items and blocks.
 pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::custom::Registry) {
@@ -533,6 +544,26 @@ fn watch<E: Event>(state: &mut State, event: Option<&E>) {
     if let Some(event) = event {
         dispatch::watch(state, event);
     }
+}
+
+/// Raises [`PlayerWorldChange`] if the player of `session` is no longer in the world `from`, the
+/// one it was in before a rule moved it ([`teleport`], which raises nothing). The one place the
+/// event is raised: each rule that may move a player into another world calls it once the move
+/// and the rest of the rule are done.
+pub(super) fn world_changed(state: &mut State, session: SessionId, from: WorldIndex) {
+    let Some(to) = state
+        .players
+        .get(&session)
+        .map(|p| p.world)
+        .filter(|&w| w != from)
+    else {
+        return;
+    };
+    notify(state, || PlayerWorldChange {
+        player: Id::new(session),
+        old_world: crate::world::Id::of(from),
+        new_world: crate::world::Id::of(to),
+    });
 }
 
 /// Raises an event that only announces what happened (it has nothing to cancel or change):
@@ -2562,7 +2593,7 @@ mod tests {
                 .any(|p| matches!(p, Packet::PlayerLocation(l) if l.r#type == 1))
         );
         assert_eq!(waypoints(&seen), [(3, 2, Some(false))]);
-        damage::respawn(&mut server.state, sid(2));
+        damage::respawn(&mut server.state, sid(2), Stay::Online);
         server.idle(1);
         assert_eq!(waypoints(&server.take(1)), [(3, 2, Some(true))]);
     }
@@ -2586,7 +2617,7 @@ mod tests {
         );
         assert!(server.hurt(2, 100.0, Damage::Magic));
         server.idle(1);
-        damage::respawn(&mut server.state, sid(2));
+        damage::respawn(&mut server.state, sid(2), Stay::Online);
         server.idle(1);
         server.run(vec![leave(2, 99)]);
         server.idle(1);
@@ -2757,7 +2788,7 @@ mod tests {
             c.general.difficulty = Difficulty::Hard;
         });
         server.hurt(1, 100.0, Damage::Magic);
-        damage::respawn(&mut server.state, sid(1));
+        damage::respawn(&mut server.state, sid(1), Stay::Online);
         assert_eq!(
             game_mode(&server.state, server.player(1)),
             GameMode::Spectator
@@ -2776,7 +2807,7 @@ mod tests {
         server.player_mut(1).set_can_fly(false);
         server.player_mut(1).set_block_collision(true);
         server.hurt(1, 100.0, Damage::Magic);
-        damage::respawn(&mut server.state, sid(1));
+        damage::respawn(&mut server.state, sid(1), Stay::Online);
         let player = server.player(1);
         assert_eq!(game_mode(&server.state, player), GameMode::Spectator);
         assert!(player.can_fly());
@@ -3725,7 +3756,7 @@ mod tests {
             pos: BlockPos::new(2, -60, 2),
         });
         assert!(server.hurt(1, 100.0, Damage::Magic));
-        damage::respawn(&mut server.state, sid(1));
+        damage::respawn(&mut server.state, sid(1), Stay::Online);
         let p = server.player(1);
         assert_eq!(p.world, 1);
         assert_eq!(p.position, Vec3::new(2.5, -60.0 + EYE_HEIGHT, 2.5));
@@ -3737,7 +3768,7 @@ mod tests {
         });
         server.idle(80);
         assert!(server.hurt(1, 100.0, Damage::Magic));
-        damage::respawn(&mut server.state, sid(1));
+        damage::respawn(&mut server.state, sid(1), Stay::Online);
         assert_eq!(server.player(1).world, 0);
         let home = server.state.worlds[0].spawn();
         assert_eq!(server.player(1).position.x, f64::from(home.x) + 0.5);

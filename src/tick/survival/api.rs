@@ -12,7 +12,7 @@ use super::attributes::{
 };
 use super::effects::{self, Active};
 use super::{
-    MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival,
+    MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Stay, Survival,
     appearance, broadcast_from, broadcast_to_viewers, damage, food, has_finite_resources,
     is_survival,
 };
@@ -1634,9 +1634,10 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
 /// Applies the marks of a spawned player's survival state at the end of the tick: an API death
 /// drops its items, a respawn happens, and the attributes and entity data changed since the
 /// rules' flush are sent. These are the game's own steps in the tick's serial phase, so they raise
-/// their events (the call raised none, what follows from it does). A changed skin is left marked
-/// for [`appearance::send_skins`].
-pub(in crate::tick) fn sync(state: &mut State, session: SessionId) {
+/// their events (the call raised none, what follows from it does), but for the world change of a
+/// player that is leaving ([`Stay`]). A changed skin is left marked for
+/// [`appearance::send_skins`].
+pub(in crate::tick) fn sync(state: &mut State, session: SessionId, stay: Stay) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1672,7 +1673,7 @@ pub(in crate::tick) fn sync(state: &mut State, session: SessionId) {
         damage::die(state, session, damage::GENERIC_DEATH, None);
     }
     if respawn {
-        damage::respawn(state, session);
+        damage::respawn(state, session, stay);
     }
     if killed || respawn || touched {
         attributes::flush_one(state, session);
@@ -1902,7 +1903,7 @@ mod tests {
         assert!(p.kill());
         // The client asks to respawn in the same input phase, before the death runs.
         let session = crate::tick::SessionId::new(1);
-        damage::respawn(&mut state, session);
+        damage::respawn(&mut state, session, Stay::Online);
         assert!(!player_mut(&mut state, 1).is_alive(), "not revived first");
         run(&mut state, Vec::new());
         let deaths = received(&mut rx1)
@@ -1916,7 +1917,7 @@ mod tests {
             inventory::take_all(p).iter().all(Stack::is_empty),
             "dropped"
         );
-        damage::respawn(&mut state, session);
+        damage::respawn(&mut state, session, Stay::Online);
         assert!(player_mut(&mut state, 1).is_alive());
     }
 

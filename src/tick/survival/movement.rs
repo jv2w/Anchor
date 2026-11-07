@@ -9,7 +9,7 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
-use super::{Survival, attributes, feet, food, sound};
+use super::{Stay, Survival, attributes, feet, food, sound};
 use crate::block::{self, Class};
 use crate::effect::Type as Effect;
 use crate::event::{
@@ -474,7 +474,7 @@ pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &P
         return;
     };
     if action == Action::Respawn {
-        damage::respawn(state, session);
+        damage::respawn(state, session, Stay::Online);
         return;
     }
     let Some(player) = state.players.get(&session) else {

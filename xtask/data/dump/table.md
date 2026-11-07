@@ -3401,10 +3401,10 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\CommandSender` | implemented | src/command.rs:482 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\CommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `command\CommandSender::getName` | implemented | src/tick/command.rs:750 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:215 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
+| `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:216 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:954 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
-| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:398 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
+| `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:399 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
 | `command\SimpleCommandMap` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
@@ -4452,7 +4452,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Consumable` | implemented | src/item.rs:897 `Consumable` | src/item.rs::food_and_armor_are_the_dump_values |  |
 | `entity\Consumable::getAdditionalEffects` | implemented | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\Consumable::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `entity\Entity` | implemented | src/tick/entity.rs:377 `Entity` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
+| `entity\Entity` | implemented | src/tick/entity.rs:378 `Entity` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Entity::__construct` | skipped |  |  | entities are made with `Context::spawn_*` |
 | `entity\Entity::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -4473,11 +4473,11 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:376 `set_fire_ticks`<br>src/tick/survival/api.rs:1011 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
-| `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:490 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:491 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:1108 `direction`<br>src/tick/survival/api.rs:338 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
 | `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:1108 `direction`<br>src/tick/survival/api.rs:338 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:1120 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
-| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1134 `eye_position`<br>src/tick/player.rs:207 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:1134 `eye_position`<br>src/tick/player.rs:208 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:1140 `fall_distance`<br>src/tick/survival/api.rs:369 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:1155 `fire_ticks`<br>src/tick/survival/api.rs:375 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:1183 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
@@ -4485,7 +4485,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:429 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `entity\Entity::getId` | implemented | src/tick/entity/api.rs:1451 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:574 `last_damage_cause` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
-| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1408 `position`<br>src/tick/player.rs:201 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:1408 `position`<br>src/tick/player.rs:202 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:1289 `max_health`<br>src/tick/survival/api.rs:594 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:1296 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:1319 `name_tag`<br>src/tick/survival/api.rs:609 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4495,15 +4495,15 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::getOwningEntity` | implemented | src/tick/entity/api.rs:1342 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\Entity::getOwningEntityId` | implemented | src/tick/entity/api.rs:1343 `owning_player` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
 | `entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:1374 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_its_picked_item |  |
-| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1407 `position`<br>src/tick/player.rs:200 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
+| `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1407 `position`<br>src/tick/player.rs:201 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
 | `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:1457 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:639 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::getSize` | merged | src/tick/entity.rs:490 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\Entity::getSize` | merged | src/tick/entity.rs:491 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1482 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getViewers` | implemented | src/tick/entity/api.rs:1511 `viewers` | src/tick/entity/api/tests.rs::owners_targets_and_viewers_are_players |  |
-| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1535 `world`<br>src/tick/player.rs:255 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:1535 `world`<br>src/tick/player.rs:256 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:1189 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
 | `entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:417 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
@@ -4559,7 +4559,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::spawnToAll` | implemented | src/tick/entity/custom.rs:316 `spawn_custom_entity` | src/tick/entity/custom/tests.rs::custom_entities_are_shown_with_their_identifier_health_and_box_and_removed |  |
-| `entity\Entity::teleport` | implemented | src/action/survival.rs:179 `Teleport`<br>src/tick/entity/api.rs:866 `teleport`<br>src/tick/player.rs:608 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
+| `entity\Entity::teleport` | implemented | src/action/survival.rs:179 `Teleport`<br>src/tick/entity/api.rs:866 `teleport`<br>src/tick/player.rs:610 `teleport` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `entity\EntityDataHelper` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseLocation` | skipped |  |  | entity NBT is internal to the chunk store |
 | `entity\EntityDataHelper::parseVec3` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4572,11 +4572,11 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\EntityFactory::register` | implemented | src/tick/entity/custom.rs:298 `custom_entity` | src/tick/entity/custom/tests.rs::registration_refuses_bad_identifiers_duplicates_and_values |  |
 | `entity\EntityFactory::reset` | skipped |  |  | entity types are a closed enum made with `Context::spawn_*` |
 | `entity\EntityFactory::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `entity\EntitySizeInfo` | merged | src/tick/entity.rs:490 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo` | merged | src/tick/entity.rs:491 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::__construct` | skipped |  |  | entity sizes are fixed per type |
 | `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:1120 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
-| `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:490 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
-| `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:490 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:491 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:491 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:723 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
 | `entity\ExperienceManager` | merged | src/tick/survival/api.rs:658 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\ExperienceManager::__construct` | skipped |  |  | every player has its xp |
@@ -4617,13 +4617,13 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:51 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getHungerManager` | merged | src/tick/survival/api.rs:387 `food` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `entity\Human::getInventory` | implemented | src/tick/inventory/api.rs:47 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `entity\Human::getName` | merged | src/tick/player.rs:166 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `entity\Human::getName` | merged | src/tick/player.rs:167 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Human::getNetworkTypeId` | merged | src/tick/entity/api.rs:1325 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
 | `entity\Human::getOffHandInventory` | implemented | src/tick/inventory/api.rs:49 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Human::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Human::getSkin` | implemented | src/tick/player.rs:235 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `entity\Human::getSkin` | implemented | src/tick/player.rs:236 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `entity\Human::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `entity\Human::getUniqueId` | merged | src/tick/player.rs:241 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
+| `entity\Human::getUniqueId` | merged | src/tick/player.rs:242 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getUniqueId` |
 | `entity\Human::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
 | `entity\Human::getXpManager` | merged | src/tick/survival/api.rs:658 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\Human::jump` | skipped |  |  | movement rule code: listeners see PlayerJump |
@@ -4664,7 +4664,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::getAirSupplyTicks` | implemented | src/tick/survival/api.rs:269 `air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Living::getArmorInventory` | implemented | src/tick/inventory/api.rs:48 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `entity\Living::getArmorPoints` | implemented | src/tick/survival/api.rs:276 `armor_points` | src/tick/survival/api.rs::armor_points_and_the_last_damage_cause |  |
-| `entity\Living::getDisplayName` | merged | src/tick/player.rs:76 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `entity\Living::getDisplayName` | merged | src/tick/player.rs:77 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `entity\Living::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `entity\Living::getEffects` | implemented | src/tick/survival/api.rs:353 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed |  |
 | `entity\Living::getFrostWalkerLevel` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
@@ -4674,7 +4674,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:587 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:1290 `max_health`<br>src/tick/survival/api.rs:595 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:602 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `entity\Living::getName` | merged | src/tick/player.rs:166 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `entity\Living::getName` | merged | src/tick/player.rs:167 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
 | `entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1549 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the xp in EntityDeath |
@@ -5103,11 +5103,11 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\CancellableTrait::cancel` | implemented | src/event/player.rs:379 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
 | `event\CancellableTrait::isCancelled` | implemented | src/event/player.rs:358 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
 | `event\CancellableTrait::uncancel` | implemented | src/event/player.rs:400 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\Event` | implemented | src/event.rs:482 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `event\Event` | implemented | src/event.rs:483 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `event\Event::call` | skipped |  |  | only the rule code raises events; direct API calls raise none |
 | `event\Event::getEventName` | skipped |  |  | an event is its Rust type |
 | `event\Event::hasHandlers` | skipped |  |  | only the rule code raises events, and builds one only when a listener hears it |
-| `event\EventPriority` | implemented | src/event.rs:461 `Priority` | tests/server.rs::listeners_of_every_priority_build_and_run<br>tests/server.rs::priorities_order_from_lowest_to_highest |  |
+| `event\EventPriority` | implemented | src/event.rs:462 `Priority` | tests/server.rs::listeners_of_every_priority_build_and_run<br>tests/server.rs::priorities_order_from_lowest_to_highest |  |
 | `event\EventPriority::fromString` | skipped |  |  | priorities are a Rust enum chosen in code |
 | `event\HandlerList` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerList::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5948,7 +5948,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\server\QueryRegenerateEvent` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `event\server\QueryRegenerateEvent::__construct` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `event\server\QueryRegenerateEvent::getQueryInfo` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
-| `event\server\ServerEvent` | merged | src/event.rs:482 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run | into `Event` |
+| `event\server\ServerEvent` | merged | src/event.rs:483 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run | into `Event` |
 | `event\server\UpdateNotifyEvent` | skipped |  |  | the API'supdate checker |
 | `event\server\UpdateNotifyEvent::__construct` | skipped |  |  | the API'supdate checker |
 | `event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | the API'supdate checker |
@@ -6313,7 +6313,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\Bow::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Bow::getMaxDurability` | merged | src/item.rs:405 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4176 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
+| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4179 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
 | `item\Bowl` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bowl::getFuelTime` | skipped |  |  | fuel is out of scope: furnaces do nothing |
 | `item\Bread` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6692,7 +6692,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\ProjectileItem` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ProjectileItem::getThrowForce` | implemented | src/item.rs:508 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
-| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4168 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
+| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4171 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
 | `item\Pufferfish` | merged | src/item/stack.rs:99 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:912 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Pufferfish::getFoodRestore` | merged | src/item.rs:877 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
@@ -7346,14 +7346,14 @@ implemented 0, differs 0, merged 8, skipped 10, blank 0 (of 18 rows)
 | `lang\Language::translate` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\Language::translateString` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `lang\LanguageNotFoundException` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `lang\Translatable` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::__construct` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::format` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameter` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getParameters` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::getText` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::postfix` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `lang\Translatable::prefix` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::__construct` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::format` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameter` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getParameters` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::getText` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::postfix` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `lang\Translatable::prefix` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
 
 ## `network`
 
@@ -7493,49 +7493,49 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkBroadcastUtils::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::__construct` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:309 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnect` | merged | src/tick/player.rs:310 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::disconnectIncompatibleProtocol` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:309 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
+| `network\mcpe\NetworkSession::disconnectWithError` | merged | src/tick/player.rs:310 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::disconnect` |
 | `network\mcpe\NetworkSession::getBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getCompressor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:76 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
+| `network\mcpe\NetworkSession::getDisplayName` | merged | src/tick/player.rs:77 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `network\mcpe\NetworkSession::getEntityEventBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::getInvManager` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:131 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `network\mcpe\NetworkSession::getIp` | implemented | src/tick/player.rs:132 `ip` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `network\mcpe\NetworkSession::getLogger` | skipped |  |  | Anchor logs with `tracing` |
-| `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:174 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
+| `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:175 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
 | `network\mcpe\NetworkSession::getPlayer` | skipped |  |  | the session is the player: `Context::player` |
 | `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
-| `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:191 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:192 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `network\mcpe\NetworkSession::getTypeConverter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleAckReceipt` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleDataPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleEncoded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:145 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
+| `network\mcpe\NetworkSession::isConnected` | merged | src/tick/player.rs:146 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick | into `Player::isConnected` |
 | `network\mcpe\NetworkSession::notifyTerrainReady` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:365 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
-| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
-| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:368 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
+| `network\mcpe\NetworkSession::onActionBar` | merged | src/tick/player.rs:366 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendActionBarMessage` |
+| `network\mcpe\NetworkSession::onChatMessage` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendMessage` |
+| `network\mcpe\NetworkSession::onClearTitle` | merged | src/tick/player.rs:369 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::removeTitles` |
 | `network\mcpe\NetworkSession::onClientDisconnect` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onCloseAllForms` | merged | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them | into `Player::closeAllForms` |
 | `network\mcpe\NetworkSession::onEnterWorld` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
 | `network\mcpe\NetworkSession::onItemCooldownChanged` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:364 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
+| `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:365 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
 | `network\mcpe\NetworkSession::onOpenSignEditor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerAdded` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerDestroyed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onPlayerRemoved` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:363 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
-| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:369 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
+| `network\mcpe\NetworkSession::onPopup` | merged | src/tick/player.rs:364 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendPopup` |
+| `network\mcpe\NetworkSession::onResetTitleOptions` | merged | src/tick/player.rs:370 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::resetTitles` |
 | `network\mcpe\NetworkSession::onServerDeath` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onServerRespawn` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:367 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
-| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
-| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:366 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
-| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:370 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
-| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:371 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
+| `network\mcpe\NetworkSession::onSubTitle` | merged | src/tick/player.rs:368 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendSubTitle` |
+| `network\mcpe\NetworkSession::onTip` | merged | src/tick/player.rs:363 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTip` |
+| `network\mcpe\NetworkSession::onTitle` | merged | src/tick/player.rs:367 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendTitle` |
+| `network\mcpe\NetworkSession::onTitleDuration` | merged | src/tick/player.rs:371 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::setTitleDuration` |
+| `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:372 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:951 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
@@ -7556,7 +7556,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::syncWorldSpawnPoint` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::syncWorldTime` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:443 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
+| `network\mcpe\NetworkSession::transfer` | merged | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:444 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere | into `Player::transfer` |
 | `network\mcpe\PacketBroadcaster` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketBroadcaster::broadcastPackets` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\PacketRateLimiter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8259,10 +8259,10 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\GameMode::id` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\GameMode::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `player\IPlayer` | skipped |  |  | the API'sinterface over Player and OfflinePlayer: Anchor has no offline player objects with a name and play history (operator, ban and whitelist calls take names; a saved player's inventories and data are `player::Offline`) |
-| `player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:87 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
-| `player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:153 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `player\IPlayer::getName` | merged | src/tick/player.rs:166 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
-| `player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:108 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `player\IPlayer::getFirstPlayed` | differs | src/tick/player.rs:88 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `player\IPlayer::getLastPlayed` | differs | src/tick/player.rs:154 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `player\IPlayer::getName` | merged | src/tick/player.rs:167 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
+| `player\IPlayer::hasPlayedBefore` | implemented | src/tick/player.rs:109 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\OfflinePlayer` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::__construct` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getFirstPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
@@ -8276,7 +8276,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1564 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:18 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
-| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4229 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
+| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4232 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:41 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
 | `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1797 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `player\Player::broadcastSound` | merged | src/tick/world_api.rs:119 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
@@ -8294,7 +8294,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::closeAllForms` | implemented | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
 | `player\Player::continueBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `player\Player::disconnect` | implemented | src/tick/player.rs:309 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::disconnect` | implemented | src/tick/player.rs:310 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
 | `player\Player::dropItem` | implemented | src/tick/survival/api.rs:1578 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
@@ -8305,51 +8305,51 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:58 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:50 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:329 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::getDisplayName` | implemented | src/tick/player.rs:76 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getDisplayName` | implemented | src/tick/player.rs:77 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
 | `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:620 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `player\Player::getFirstPlayed` | differs | src/tick/player.rs:86 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
+| `player\Player::getFirstPlayed` | differs | src/tick/player.rs:87 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:381 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:555 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:435 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1513 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1520 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `player\Player::getLastPlayed` | differs | src/tick/player.rs:152 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
+| `player\Player::getLastPlayed` | differs | src/tick/player.rs:153 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
 | `player\Player::getLeaveMessage` | merged | src/event/player.rs:1376 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
-| `player\Player::getLocale` | implemented | src/tick/player.rs:159 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `player\Player::getName` | implemented | src/tick/player.rs:166 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getLocale` | implemented | src/tick/player.rs:160 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `player\Player::getName` | implemented | src/tick/player.rs:167 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
 | `player\Player::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `player\Player::getPlayerInfo` | merged | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
-| `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:215 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:216 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
 | `player\Player::getSpawn` | implemented | src/tick/survival/api.rs:648 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::getUniqueId` | implemented | src/tick/player.rs:241 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getUniqueId` | implemented | src/tick/player.rs:242 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getUsedChunkStatus` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::getUsedChunks` | skipped |  |  | chunk sending is the engine's |
-| `player\Player::getViewDistance` | implemented | src/tick/player.rs:249 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::getViewDistance` | implemented | src/tick/player.rs:250 `view_distance` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::getXpDropAmount` | skipped |  |  | player rule code: listeners see and change the xp in PlayerDeath |
-| `player\Player::getXuid` | implemented | src/tick/player.rs:261 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::getXuid` | implemented | src/tick/player.rs:262 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::handleMovement` | skipped |  |  | movement rule code: listeners see PlayerMove |
 | `player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:393 `has_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:399 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:411 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1488 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::hasPermission` | implemented | src/tick/command.rs:647 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:107 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
+| `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:108 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:649 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1747 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::interactBlock` | implemented | src/action/interact.rs:112 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
-| `player\Player::interactEntity` | implemented | src/action/interact.rs:64 `InteractEntity`<br>src/tick/entity.rs:4237 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::interactEntity` | implemented | src/action/interact.rs:64 `InteractEntity`<br>src/tick/entity.rs:4240 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:441 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `player\Player::isAuthenticated` | implemented | src/tick/player.rs:137 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
-| `player\Player::isConnected` | implemented | src/tick/player.rs:145 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::isAuthenticated` | implemented | src/tick/player.rs:138 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
+| `player\Player::isConnected` | implemented | src/tick/player.rs:146 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::isCreative` | implemented | src/tick/survival/api.rs:459 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isFlying` | implemented | src/tick/survival/api.rs:465 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `player\Player::isOnline` | implemented | src/tick/player.rs:144 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
+| `player\Player::isOnline` | implemented | src/tick/player.rs:145 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `player\Player::isPermissionSet` | implemented | src/tick/command.rs:695 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::isSleeping` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:524 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
@@ -8359,7 +8359,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:567 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
-| `player\Player::kick` | implemented | src/action/survival.rs:93 `Kick`<br>src/tick/player.rs:308 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `player\Player::kick` | implemented | src/action/survival.rs:93 `Kick`<br>src/tick/player.rs:309 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/player.rs::messages_sent_in_the_leaving_step_reach_the_player_before_its_disconnect<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `player\Player::missSwing` | skipped |  |  | player rule code: listeners see PlayerMissSwing |
 | `player\Player::onBlockChanged` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkChanged` | skipped |  |  | chunk sending is the engine's |
@@ -8375,24 +8375,24 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::releaseHeldItem` | merged | src/action/interact.rs:92 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
 | `player\Player::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:199 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `player\Player::removeTitles` | implemented | src/tick/player.rs:368 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::removeTitles` | implemented | src/tick/player.rs:369 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1104 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1600 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::resetTitles` | implemented | src/tick/player.rs:369 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::resetTitles` | implemented | src/tick/player.rs:370 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::respawn` | implemented | src/tick/survival/api.rs:829 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `player\Player::save` | skipped |  |  | player records commit with the world |
 | `player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:89 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
-| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:365 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:366 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
 | `player\Player::sendForm` | implemented | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
-| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:364 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendMessage` | implemented | src/tick/player.rs:361 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendPopup` | implemented | src/tick/player.rs:363 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:365 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendMessage` | implemented | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendPopup` | implemented | src/tick/player.rs:364 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
-| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:367 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTip` | implemented | src/tick/player.rs:362 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendTitle` | implemented | src/tick/player.rs:366 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:371 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendSubTitle` | implemented | src/tick/player.rs:368 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTip` | implemented | src/tick/player.rs:363 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendTitle` | implemented | src/tick/player.rs:367 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::sendToastNotification` | implemented | src/tick/player.rs:372 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:932 `set_can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:877 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setBasePermission` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
@@ -8400,16 +8400,16 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:223 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:213 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:966 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `player\Player::setDisplayName` | implemented | src/tick/player.rs:385 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
+| `player\Player::setDisplayName` | implemented | src/tick/player.rs:386 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
 | `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1029 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setFlying` | implemented | src/tick/survival/api.rs:1092 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setGamemode` | implemented | src/action/survival.rs:153 `SetGameMode`<br>src/tick/survival/api.rs:1068 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_and_teleport_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:888 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setMotion` | implemented | src/tick/survival/api.rs:1247 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:398 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:399 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
 | `player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1395 `set_spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
-| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:370 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `player\Player::setTitleDuration` | implemented | src/tick/player.rs:371 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `player\Player::setViewDistance` | implemented | src/tick/spawn.rs:424 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1817 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
@@ -8417,13 +8417,13 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\Player::stopSleep` | skipped |  |  | sleeping is removed: a bed click does nothing |
-| `player\Player::teleport` | implemented | src/action/survival.rs:180 `Teleport`<br>src/tick/player.rs:607 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
+| `player\Player::teleport` | implemented | src/action/survival.rs:180 `Teleport`<br>src/tick/player.rs:609 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty<br>src/tick/world_api/lifecycle/tests.rs::a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload |  |
 | `player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSneak` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
-| `player\Player::transfer` | implemented | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:443 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `player\Player::transfer` | implemented | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:444 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `player\Player::unsetBasePermission` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::useHeldItem` | implemented | src/action/interact.rs:92 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
@@ -8434,9 +8434,9 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\PlayerDataSaveException` | skipped |  |  | player records commit with the world |
 | `player\PlayerInfo` | implemented | src/event/player.rs:1244 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::__construct` | skipped |  |  | login makes it |
-| `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:51 `client_random_id`<br>src/tick/player.rs:57 `device_id`<br>src/tick/player.rs:63 `device_model`<br>src/tick/player.rs:69 `device_os`<br>src/tick/player.rs:94 `game_version`<br>src/tick/player.rs:124 `input_mode`<br>src/tick/player.rs:184 `playfab_id`<br>src/tick/player.rs:222 `self_signed_id`<br>src/tick/player.rs:229 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
-| `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:160 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
-| `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:235 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
+| `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:52 `client_random_id`<br>src/tick/player.rs:58 `device_id`<br>src/tick/player.rs:64 `device_model`<br>src/tick/player.rs:70 `device_os`<br>src/tick/player.rs:95 `game_version`<br>src/tick/player.rs:125 `input_mode`<br>src/tick/player.rs:185 `playfab_id`<br>src/tick/player.rs:223 `self_signed_id`<br>src/tick/player.rs:230 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
+| `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:161 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
+| `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:236 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
 | `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1256 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\SurvivalBlockBreakHandler` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -9569,7 +9569,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\WorldManager::setAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:575 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::tick` | skipped |  |  | the tick loop ticks every world |
-| `world\WorldManager::unloadWorld` | implemented | src/tick/world_api/lifecycle.rs:511 `force_unload_world`<br>src/tick/world_api/lifecycle.rs:644 `unload_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
+| `world\WorldManager::unloadWorld` | implemented | src/tick/world_api/lifecycle.rs:511 `force_unload_world`<br>src/tick/world_api/lifecycle.rs:645 `unload_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::a_world_unload_raises_chunk_unload_for_each_chunk_it_loaded |  |
 | `world\WorldTimings` | skipped |  |  | PHP timings profiler |
 | `world\WorldTimings::__construct` | skipped |  |  | PHP timings profiler |
 | `world\biome\Biome` | skipped |  |  | vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`) |

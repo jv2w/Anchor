@@ -161,7 +161,7 @@ Phases:
   - `cx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
 - Why the entity tick raises EntitySpawn and ItemSpawn: listeners never run in the middle of another rule or of a direct API call.
 - Why user code that is no event of an action runs only after the action is applied: a listener that changes the hand or the block in between would duplicate or lose items.
-- The events are in `event/{block,entity,inventory,player,server,world}.rs`, all public flat as `anchor::event::*`. The API table's events out of scope (plugins, operations internals, redstone) are left out; the raw packet events (DataPacketReceive, DataPacketSend, DataPacketDecode) are the packet hooks; PlayerPreLogin is merged into PlayerLogin. `TradeOpen` and `Trade` have no API-table counterpart.
+- The events are in `event/{block,entity,inventory,player,server,world}.rs`, all public flat as `anchor::event::*`. The API table's events out of scope (plugins, operations internals, redstone) are left out; the raw packet events (DataPacketReceive, DataPacketSend, DataPacketDecode) are the packet hooks; PlayerPreLogin is merged into PlayerLogin. `TradeOpen`, `Trade`, and `PlayerWorldChange` have no API-table counterpart.
 - Why a PlayerDataSave cancel is ignored: it keeps the save atomic.
 
 ## Extension points

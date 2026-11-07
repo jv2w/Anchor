@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 use super::queue::SessionId;
+use super::survival::Stay;
 use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
 use crate::event::{
     Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, QuitReason, TeleportCause,
@@ -591,10 +592,11 @@ impl Context<'_> {
 
     /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, it
     /// wakes, its breaking stops, its fall ends, and its client and viewers see it there; another
-    /// world sends its chunks again. [`Player::position`] is the new place at once; a second
-    /// teleport in the tick wins, and a world that unloads before the player moves sends it to
-    /// the default world's spawn as it sends the world's players. The player keeps its rotation
-    /// unless [`Player::set_rotation`] turns it.
+    /// world sends its chunks again and raises
+    /// [`PlayerWorldChange`](crate::event::PlayerWorldChange). [`Player::position`] is the new
+    /// place at once; a second teleport in the tick wins, and a world that unloads before the
+    /// player moves sends it to the default world's spawn as it sends the world's players. The
+    /// player keeps its rotation unless [`Player::set_rotation`] turns it.
     ///
     /// # Errors
     ///
@@ -941,7 +943,12 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
         }
         inventory::answer_held(player);
         skins_wait |= survival::skin_waits(player);
-        apply_marks(state, session);
+        let from = player.world;
+        teleport_marked(state, session);
+        // Here and not in `quit`: a player that leaves has had its `PlayerQuit`. Before the
+        // survival marks, so a respawn into a third world comes after it.
+        survival::world_changed(state, session, from);
+        survival::sync(state, session, Stay::Online);
     }
     if skins_wait {
         survival::send_skins(state);
@@ -961,8 +968,8 @@ pub(super) fn redirect_teleports(state: &mut State, from: WorldIndex, to: WorldI
     }
 }
 
-/// Moves the player of `session` if it was teleported and does its survival marks.
-fn apply_marks(state: &mut State, session: SessionId) {
+/// Moves the player of `session` if it was teleported.
+fn teleport_marked(state: &mut State, session: SessionId) {
     if let Some((world, eye)) = state
         .players
         .get_mut(&session)
@@ -970,7 +977,6 @@ fn apply_marks(state: &mut State, session: SessionId) {
     {
         survival::teleport(state, session, world, eye);
     }
-    survival::sync(state, session);
 }
 
 /// The player of `session` is about to leave for `reason`:
@@ -1006,7 +1012,8 @@ pub(super) fn quit(
     } else {
         quit_message
     };
-    apply_marks(state, session);
+    teleport_marked(state, session);
+    survival::sync(state, session, Stay::Leaving);
     if !message.is_empty() {
         let message = if message == LEFT {
             Message::Translation {

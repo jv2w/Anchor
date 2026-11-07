@@ -258,6 +258,7 @@ mod sealed {
         player_toggle_swim: super::PlayerToggleSwim,
         player_transfer: super::PlayerTransfer,
         player_view_distance_change: super::PlayerViewDistanceChange,
+        player_world_change: super::PlayerWorldChange,
         player_xp_change: super::PlayerXpChange,
         projectile_hit_block: super::ProjectileHitBlock,
         projectile_hit_entity: super::ProjectileHitEntity,
@@ -422,8 +423,8 @@ pub use player::{
     PlayerInfo, PlayerInteract, PlayerItemConsume, PlayerItemHeld, PlayerItemUse, PlayerJoin,
     PlayerJump, PlayerKick, PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend,
     PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
-    PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerViewDistanceChange, PlayerXpChange,
-    QuitReason,
+    PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerViewDistanceChange,
+    PlayerWorldChange, PlayerXpChange, QuitReason,
 };
 pub(crate) use sealed::Listeners;
 pub use server::{Command, ServerStart};

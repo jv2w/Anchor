@@ -1687,6 +1687,34 @@ getters!(PlayerViewDistanceChange {
     new_distance: u8,
 });
 
+/// Raised after a player moved into another world, once per move, when the rule that moved it is
+/// done: a teleport the API or an action marked, at the end of the tick; an ender pearl, after its
+/// fall damage; a respawn, after the player's health, food, effects, fire and air are reset, so a
+/// listener's changes to them stay; an unload of its world, which sends it to the default world's
+/// spawn (`old_world` then names a world no longer loaded). Listeners see the player in the new
+/// world: [`Player::world`](crate::player::Player::world) is `new_world` unless a teleport that
+/// waits for the end of the tick is marked. The new world's chunks are sent later in the tick.
+/// When it is raised at the end of the tick (a teleport, a respawn
+/// [`Player::respawn`](crate::player::Player::respawn) asked for, an unload), a teleport or kick
+/// its listeners ask for the player is applied at the next tick's end. A player moved after it
+/// joined and before it spawned raises it before [`PlayerJoin`]. Joining, a move within one
+/// world, and a move applied as the player leaves (after its [`PlayerQuit`]) raise nothing.
+#[derive(Debug)]
+pub struct PlayerWorldChange {
+    pub(crate) player: player::Id,
+    pub(crate) old_world: world::Id,
+    pub(crate) new_world: world::Id,
+}
+
+getters!(PlayerWorldChange {
+    /// The player.
+    player: player::Id,
+    /// The world the player left.
+    old_world: world::Id,
+    /// The world the player is in now.
+    new_world: world::Id,
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2375,6 +2403,20 @@ mod tests {
         assert_eq!(
             (view.player(), view.old_distance(), view.new_distance()),
             (player(1), None, 8)
+        );
+    }
+
+    #[test]
+    fn world_change_names_the_player_and_both_worlds() {
+        let arena = world::Id::of(1);
+        let e = PlayerWorldChange {
+            player: player(1),
+            old_world: WORLD,
+            new_world: arena,
+        };
+        assert_eq!(
+            (e.player(), e.old_world(), e.new_world()),
+            (player(1), WORLD, arena)
         );
     }
 

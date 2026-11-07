@@ -32,7 +32,7 @@ use crate::save::{DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
 use crate::storage::{MAX_WORLDS, world_name_key};
 use crate::tick::checkpoint::{self, Codec};
-use crate::tick::{Context, Settings, State, dispatch, player, survival, view};
+use crate::tick::{Context, SessionId, Settings, State, dispatch, player, survival, view};
 use crate::world::{self, ChunkPos, Generators, Kind, World};
 
 /// The worlds the server had this run, each at its place ([`crate::save::place`]), loaded or not.
@@ -630,8 +630,9 @@ impl Context<'_> {
     }
 
     /// Unloads `world` in the next view phase, after [`WorldUnload`] listeners, who may cancel
-    /// it: its players go to the default world's spawn, its chunks unload, and the commit that
-    /// follows saves what changed. The unload is dropped, with no event, if the world is the
+    /// it: its players go to the default world's spawn, each raising
+    /// [`PlayerWorldChange`](crate::event::PlayerWorldChange), its chunks unload, and the commit
+    /// that follows saves what changed. The unload is dropped, with no event, if the world is the
     /// default one by then. A persistent world keeps its [`world::Id`]:
     /// [`load_world`](Self::load_world) loads it in the same place, and its file stays open until
     /// the server stops. A temporary world is gone: its `Id` names no world from then on, and a
@@ -735,8 +736,9 @@ pub(in crate::tick) fn difficulty_of(settings: &Settings, world: &World) -> Diff
 
 /// The start of the view phase: the events of the worlds made and loaded since the last one
 /// ([`WorldInit`], then [`WorldLoad`]), then the unloads asked for, each after [`WorldUnload`]
-/// listeners; its monitors see only an unload that happened. The save thread hears of new worlds
-/// later in the phase, with the worlds these listeners make.
+/// listeners; its monitors see only an unload that happened, after the
+/// [`PlayerWorldChange`](crate::event::PlayerWorldChange) of each player it sent away. The save
+/// thread hears of new worlds later in the phase, with the worlds these listeners make.
 pub(in crate::tick) fn step(state: &mut State) {
     for (index, made) in std::mem::take(&mut state.catalog.announced) {
         if !state.catalog.is_loaded(index) {
@@ -776,7 +778,9 @@ pub(in crate::tick) fn step(state: &mut State) {
             }
             e.cancelled = false;
         }
-        unload(state, index);
+        for session in unload(state, index) {
+            survival::world_changed(state, session, index);
+        }
         if let Some(e) = &event {
             dispatch::watch(state, e);
         }
@@ -784,8 +788,9 @@ pub(in crate::tick) fn step(state: &mut State) {
 }
 
 /// Unloads the world at `index`, not the default one: its players go to the default world's safe
-/// spawn, its chunks unload and the next tick boundary commits what changed.
-fn unload(state: &mut State, index: WorldIndex) {
+/// spawn, its chunks unload and the next tick boundary commits what changed. Returns the sessions
+/// of the players it sent away.
+fn unload(state: &mut State, index: WorldIndex) -> Vec<SessionId> {
     let default = state.catalog.default;
     let home = super::world_at(state, default);
     let eye = survival::standing_eye(home.safe_spawn(home.spawn()));
@@ -795,7 +800,7 @@ fn unload(state: &mut State, index: WorldIndex) {
         .filter(|(_, p)| super::is_in_world(p, index))
         .map(|(&s, _)| s)
         .collect();
-    for session in players {
+    for &session in &players {
         survival::teleport(state, session, default, eye);
     }
     player::redirect_teleports(state, index, default, eye);
@@ -811,6 +816,7 @@ fn unload(state: &mut State, index: WorldIndex) {
             state.catalog.note_gone(index, &name);
         }
     }
+    players
 }
 
 /// What the save thread must hear of worlds it does not know, taken: for the next request or the

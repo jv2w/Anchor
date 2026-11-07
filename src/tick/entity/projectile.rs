@@ -916,7 +916,8 @@ fn may_hurt_player(state: &State, source: DamageSource) -> bool {
 /// An ender pearl lands at `at`: its thrower, if still in the world and alive, is moved there
 /// and takes 5 fall damage. [`EntityTeleport`] comes first: cancelling keeps the thrower where it
 /// is (and unhurt), and a listener may send it elsewhere; a place no teleport may go
-/// (`survival::check_destination`) counts as a cancel.
+/// (`survival::check_destination`) counts as a cancel. A move into another world raises
+/// [`PlayerWorldChange`](crate::event::PlayerWorldChange) after the damage.
 fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, hooks: Hooks) {
     let Some(owner) = owner else {
         return;
@@ -968,6 +969,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
         survival::Damage::Fall,
         DamageSource::None,
     );
+    (hooks.world_changed)(state, owner, world);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }

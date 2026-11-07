@@ -1230,7 +1230,7 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
     );
     assert!(s[0].2.z > 2.0, "to where it landed: {:?}", s[0].2);
     assert!(
-        calls(|c| c.teleports.is_empty() && c.damage.is_empty()),
+        calls(|c| c.teleports.is_empty() && c.damage.is_empty() && c.world_changes.is_empty()),
         "cancelled"
     );
     set(switch, 1);
@@ -1242,11 +1242,14 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
         "the listener's place"
     );
     assert_eq!(calls(|c| c.damage.len()), 1);
+    // The world change is asked for from the world the thrower left.
+    assert_eq!(calls(|c| c.world_changes.clone()), [(1, 0)]);
     // A place no teleport may go counts as a cancel: no teleport, no damage.
     set(switch, 2);
     land(&mut h);
     assert_eq!(calls(|c| c.teleports.clone()), teleports);
     assert_eq!(calls(|c| c.damage.len()), 1);
+    assert_eq!(calls(|c| c.world_changes.len()), 1);
 }
 
 // api: AreaEffectCloudApplyEvent

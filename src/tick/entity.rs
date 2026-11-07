@@ -156,6 +156,7 @@ const HOOKS: Hooks = Hooks {
     heal: survival::heal,
     set_on_fire: survival::set_on_fire_by,
     teleport: survival::teleport,
+    world_changed: survival::world_changed,
     is_alive: survival::is_alive,
     look: survival::rotation,
     has_arrow: inventory::has_arrow,
@@ -1668,6 +1669,8 @@ struct Hooks {
     set_on_fire: fn(&mut State, SessionId, u32, CombustSource),
     /// Moves a player (eye position) in a world.
     teleport: fn(&mut State, SessionId, WorldIndex, Vec3),
+    /// Raises the world change of a player if it left a world.
+    world_changed: fn(&mut State, SessionId, WorldIndex),
     /// Whether a player is alive.
     is_alive: fn(&Player) -> bool,
     /// The yaw and pitch a player looks along, in degrees.
@@ -4588,6 +4591,7 @@ mod tests {
         heal,
         set_on_fire,
         teleport,
+        world_changed,
         is_alive,
         look,
         has_arrow,
@@ -4614,6 +4618,8 @@ mod tests {
         pub(super) xp_cooldown: BTreeSet<u64>,
         /// Teleports: session, world, eye position.
         pub(super) teleports: Vec<(u64, usize, Vec3)>,
+        /// World changes raised: session, the world left.
+        pub(super) world_changes: Vec<(u64, usize)>,
         /// Dead players.
         pub(super) dead: BTreeSet<u64>,
         /// The look of every player: yaw, pitch.
@@ -4948,6 +4954,11 @@ mod tests {
             p.position = eye;
         }
         player_moved(state);
+    }
+
+    /// A stand-in world change: records it.
+    fn world_changed(_: &mut State, session: SessionId, from: usize) {
+        calls(|c| c.world_changes.push((session.get(), from)));
     }
 
     fn is_alive(player: &Player) -> bool {

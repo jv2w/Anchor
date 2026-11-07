@@ -13,10 +13,10 @@ use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, EntityTeleport,
     ExtinguishCause, Listeners, MAX_DAMAGE, PlayerChangeSkin, PlayerChat, PlayerDeath, PlayerEmote,
-    PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJump, PlayerKick,
+    PlayerExhaust, PlayerGameModeChange, PlayerItemConsume, PlayerJoin, PlayerJump, PlayerKick,
     PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide,
-    PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerXpChange,
-    Priority, QuitReason, TeleportCause,
+    PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, PlayerWorldChange,
+    PlayerXpChange, Priority, QuitReason, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -35,6 +35,9 @@ const FOOD_ATTRIBUTES: [&str; 3] = [
 ];
 /// The seconds of skin changes the skin budget is checked over.
 const SECONDS: usize = 60;
+/// Feet in the middle of the spawn block, x 0, y -60, z 0, of both test worlds: the flat default
+/// one and the arena ([`add_arena`]).
+const SPAWN_FEET: Vec3 = Vec3::new(0.5, -60.0, 0.5);
 /// The attributes an xp change sends.
 const XP_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
 
@@ -702,7 +705,7 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
         c.general.difficulty = Difficulty::Hard;
     });
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     assert_eq!(game.player(1).position(), target);
     assert_eq!(game.player(1).game_mode(), GameMode::Survival);
     // A world the server does not run is ignored.
@@ -712,7 +715,7 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     let mut game = Game::new(1, listeners);
     let spawn = game.player(1).position;
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     assert_eq!(game.player(1).position, spawn);
 }
 
@@ -726,7 +729,7 @@ fn a_respawn_listener_turns_off_auto_jump() {
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
     game.idle(1);
     game.take(1);
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     game.idle(1);
     let sent = game.take(1);
     assert!(
@@ -744,9 +747,20 @@ fn a_respawned_player_neither_swims_nor_glides() {
     game.player_mut(1).set_swimming(true);
     game.player_mut(1).set_gliding(true);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     let motion = &game.survival_mut(1).motion;
     assert!(!motion.swimming && !motion.gliding);
+}
+
+/// Adds the empty, loaded world "arena", the second one; returns its ID.
+fn add_arena(game: &mut Game) -> world::Id {
+    game.state.add_world(world::World::new(
+        "arena",
+        world::Kind::Temporary,
+        0,
+        BlockPos::new(0, -60, 0),
+    ));
+    world::Id::new(1).unwrap()
 }
 
 /// A world unloaded since is ignored too: the player respawns at its respawn point.
@@ -754,15 +768,10 @@ fn a_respawned_player_neither_swims_nor_glides() {
 fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
     let arena = world::Id::new(1).unwrap();
     let listeners = on(move |e: &mut PlayerRespawn, _: &mut Context<'_>| {
-        e.set_position(arena, Vec3::new(0.5, -60.0, 0.5));
+        e.set_position(arena, SPAWN_FEET);
     });
     let mut game = Game::new(1, listeners);
-    game.state.add_world(world::World::new(
-        "arena",
-        world::Kind::Temporary,
-        0,
-        BlockPos::new(0, -60, 0),
-    ));
+    add_arena(&mut game);
     Context {
         state: &mut game.state,
     }
@@ -772,7 +781,7 @@ fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
     let spawn = game.player(1).position;
     game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     assert_eq!(game.player(1).world, 0);
     assert_eq!(game.player(1).position, spawn);
 }
@@ -790,7 +799,7 @@ fn respawn_monitors_see_the_place_used_not_an_ignored_one() {
     });
     let mut game = Game::new(1, listeners);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     let feet = game.player(1).position();
     assert_eq!(drain(&mut watched), [(world::Id::DEFAULT, feet)]);
 }
@@ -808,7 +817,7 @@ fn a_respawn_point_outside_the_border_respawns_at_the_world_spawn() {
     });
     game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
     assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
-    damage::respawn(&mut game.state, sid(1));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
     assert_eq!(game.player(1).position, spawn);
 }
 
@@ -1455,12 +1464,7 @@ fn a_menu_a_close_listener_opens_does_not_follow_a_teleport_to_another_world() {
         },
     );
     let mut game = Game::new(1, listeners);
-    game.state.add_world(world::World::new(
-        "arena",
-        world::Kind::Temporary,
-        0,
-        BlockPos::new(0, -60, 0),
-    ));
+    add_arena(&mut game);
     let barrel = BlockPos::new(2, -60, 2);
     game.state.worlds[0]
         .set_block(barrel, block::Kind::Barrel.default_state())
@@ -1485,6 +1489,254 @@ fn the_teleport_action_names_its_cause_to_the_listeners() {
     let feet = Vec3::new(1.0, -60.0, 1.0);
     game.perform(action::Teleport::new(pid(1), world::Id::DEFAULT, feet));
     assert_eq!(game.player(1).position(), Vec3::new(3.0, -60.0, 3.0));
+}
+
+/// Listeners that record every [`PlayerWorldChange`] into `tx`: the player, the world it left,
+/// the world it entered, and the world [`Player::world`] gives the listener.
+fn world_changes(tx: mpsc::Sender<(Id, world::Id, world::Id, world::Id)>) -> Listeners {
+    on(move |e: &mut PlayerWorldChange, cx: &mut Context<'_>| {
+        let now = cx.player(e.player()).unwrap().world();
+        tx.try_send((e.player(), e.old_world(), e.new_world(), now))
+            .unwrap();
+    })
+}
+
+/// A direct teleport into another world raises nothing at the call: the move, and its world
+/// change, come at the tick's sync, once.
+#[test]
+fn a_direct_teleport_to_another_world_raises_its_world_change_once_at_the_sync() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(1, world_changes(tx));
+    let arena = add_arena(&mut game);
+    Context {
+        state: &mut game.state,
+    }
+    .teleport(pid(1), arena, SPAWN_FEET)
+    .unwrap();
+    assert!(drain(&mut seen).is_empty(), "nothing at the call");
+    game.idle(1);
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), world::Id::DEFAULT, arena, arena)]
+    );
+    game.idle(2);
+    assert!(drain(&mut seen).is_empty(), "once");
+}
+
+#[test]
+fn the_teleport_action_to_another_world_raises_its_world_change_once() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(1, world_changes(tx));
+    let arena = add_arena(&mut game);
+    game.perform(action::Teleport::new(pid(1), arena, SPAWN_FEET));
+    game.idle(2);
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), world::Id::DEFAULT, arena, arena)]
+    );
+}
+
+/// A teleport within the player's world, by the API or an action, raises no world change; one
+/// into another world does.
+#[test]
+fn a_teleport_within_the_world_raises_no_world_change() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(1, world_changes(tx));
+    let arena = add_arena(&mut game);
+    let feet = Vec3::new(3.5, -60.0, 3.5);
+    let mut cx = Context {
+        state: &mut game.state,
+    };
+    cx.teleport(pid(1), world::Id::DEFAULT, feet).unwrap();
+    game.idle(1);
+    game.perform(action::Teleport::new(
+        pid(1),
+        world::Id::DEFAULT,
+        SPAWN_FEET,
+    ));
+    assert_eq!(game.player(1).position(), SPAWN_FEET);
+    assert!(drain(&mut seen).is_empty());
+    game.perform(action::Teleport::new(pid(1), arena, SPAWN_FEET));
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), world::Id::DEFAULT, arena, arena)]
+    );
+}
+
+/// An ender pearl an [`EntityTeleport`] listener sends into another world raises the world change
+/// once, after its fall damage.
+#[test]
+fn an_ender_pearl_into_another_world_raises_its_world_change_after_the_damage() {
+    let arena = world::Id::new(1).unwrap();
+    let (tx, mut seen) = record();
+    let mut listeners = on(move |e: &mut PlayerWorldChange, cx: &mut Context<'_>| {
+        let health = cx.player(e.player()).unwrap().health();
+        tx.try_send((e.player(), e.old_world(), e.new_world(), health))
+            .unwrap();
+    });
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityTeleport, _: &mut Context<'_>| {
+            assert_eq!(e.cause(), TeleportCause::EnderPearl);
+            e.set_target(arena, SPAWN_FEET);
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    add_arena(&mut game);
+    let pearl = stack(ItemKind::EnderPearl, 1);
+    assert!(crate::tick::entity::throw(&mut game.state, sid(1), &pearl));
+    game.idle(60);
+    assert_eq!(game.player(1).world(), arena, "it landed");
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), world::Id::DEFAULT, arena, 15.0)]
+    );
+}
+
+/// A respawn a [`PlayerRespawn`] listener sends into another world raises the world change once,
+/// after the reset: an effect its listener gives stays.
+#[test]
+fn a_respawn_in_another_world_raises_its_world_change_after_the_reset() {
+    let arena = world::Id::new(1).unwrap();
+    let speed = effect::Instance::new(effect::Type::Speed, 100, 0, true, false);
+    let (tx, mut seen) = record();
+    let mut listeners = on(move |e: &mut PlayerWorldChange, cx: &mut Context<'_>| {
+        cx.player_mut(e.player()).unwrap().add_effect(speed);
+        tx.try_send((e.player(), e.old_world(), e.new_world()))
+            .unwrap();
+    });
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerRespawn, _: &mut Context<'_>| {
+            e.set_position(arena, SPAWN_FEET);
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    add_arena(&mut game);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1), Stay::Online);
+    assert_eq!(drain(&mut seen), [(pid(1), world::Id::DEFAULT, arena)]);
+    assert!(game.player(1).has_effect(effect::Type::Speed));
+}
+
+/// An unload sends each player of the world to the default world, raising the world change from
+/// the world unloaded; a player elsewhere raises nothing.
+#[test]
+fn an_unload_raises_the_world_change_of_each_player_it_sends_away() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(2, world_changes(tx));
+    let arena = add_arena(&mut game);
+    let eye = SPAWN_FEET + Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    teleport(&mut game.state, sid(1), arena.index(), eye);
+    assert!(
+        drain(&mut seen).is_empty(),
+        "the rule's teleport raises nothing itself"
+    );
+    Context {
+        state: &mut game.state,
+    }
+    .force_unload_world(arena)
+    .unwrap();
+    game.idle(1);
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), arena, world::Id::DEFAULT, world::Id::DEFAULT)]
+    );
+}
+
+/// A teleport applied as its player leaves raises no world change: the player has had its
+/// [`PlayerQuit`]. Another player's teleport in the same tick does.
+#[test]
+fn a_teleport_applied_as_the_player_quits_raises_no_world_change() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(2, world_changes(tx));
+    let arena = add_arena(&mut game);
+    let mut cx = Context {
+        state: &mut game.state,
+    };
+    cx.teleport(pid(1), arena, SPAWN_FEET).unwrap();
+    cx.teleport(pid(2), arena, SPAWN_FEET).unwrap();
+    cx.player_mut(pid(1)).unwrap().kick("bye").unwrap();
+    game.idle(1);
+    assert!(!game.state.players.contains_key(&sid(1)));
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(2), world::Id::DEFAULT, arena, arena)]
+    );
+}
+
+/// A respawn into another world applied as its player leaves raises no world change: the player
+/// has had its [`PlayerQuit`]. Another player's respawn there in the same tick does.
+#[test]
+fn a_respawn_applied_as_the_player_quits_raises_no_world_change() {
+    let arena = world::Id::new(1).unwrap();
+    let (tx, mut seen) = record();
+    let (respawn_tx, mut respawned) = record();
+    let mut listeners = world_changes(tx);
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerRespawn, _: &mut Context<'_>| {
+            e.set_position(arena, SPAWN_FEET);
+        },
+    );
+    listeners.push_monitor(move |e: &PlayerRespawn, _: &Context<'_>| {
+        respawn_tx.try_send(e.player()).unwrap();
+    });
+    let mut game = Game::new(2, listeners);
+    add_arena(&mut game);
+    for s in 1..=2 {
+        assert!(damage(&mut game.state, sid(s), 100.0, Damage::Magic));
+        assert!(game.player_mut(s).respawn());
+    }
+    game.player_mut(1).kick("bye").unwrap();
+    game.idle(1);
+    assert!(!game.state.players.contains_key(&sid(1)));
+    assert_eq!(drain(&mut respawned), [pid(1), pid(2)], "both respawned");
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(2), world::Id::DEFAULT, arena, arena)]
+    );
+}
+
+/// A join placing the player in a default world other than the first raises no world change: it
+/// is a first place. A move before the player spawns is one, raised before its [`PlayerJoin`].
+#[test]
+fn a_join_raises_no_world_change() {
+    let (tx, mut seen) = record();
+    let join_tx = tx.clone();
+    let mut listeners = on(move |e: &mut PlayerWorldChange, _: &mut Context<'_>| {
+        tx.try_send((e.player(), Some((e.old_world(), e.new_world()))))
+            .unwrap();
+    });
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerJoin, _: &mut Context<'_>| {
+            join_tx.try_send((e.player(), None)).unwrap();
+        },
+    );
+    let mut game = Game::new(0, listeners);
+    let arena = add_arena(&mut game);
+    let mut cx = Context {
+        state: &mut game.state,
+    };
+    cx.set_default_world(arena).unwrap();
+    let (joined, rx) = join(1, 0);
+    game.receivers.push(rx);
+    game.run(vec![joined, radius(1, 1, 8)]);
+    assert_eq!(game.player(1).world(), arena);
+    assert_ne!(game.player(1).phase, Phase::Spawned);
+    assert!(drain(&mut seen).is_empty());
+    let mut cx = Context {
+        state: &mut game.state,
+    };
+    cx.teleport(pid(1), world::Id::DEFAULT, SPAWN_FEET).unwrap();
+    game.idle(1);
+    game.run(vec![initialised(1, 2, 1)]);
+    assert_eq!(game.player(1).phase, Phase::Spawned);
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), Some((arena, world::Id::DEFAULT))), (pid(1), None)]
+    );
 }
 
 // api: PlayerTransferEvent, Player::transfer
@@ -1836,7 +2088,7 @@ fn rules_without_listeners_build_no_events_and_change_nothing() {
         game.run(vec![input]);
         assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
         game.idle(2);
-        damage::respawn(&mut game.state, sid(1));
+        damage::respawn(&mut game.state, sid(1), Stay::Online);
         game.idle(2);
         game.state.hash()
     };
