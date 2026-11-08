@@ -184,8 +184,8 @@ impl Pack {
         &self.manifest.version
     }
 
-    /// The pack with the key its contents are encrypted with. Anchor does not decrypt the pack:
-    /// players get the key to decrypt it themselves.
+    /// The same pack with the key its contents are encrypted with. Anchor does not decrypt the
+    /// pack: players get the key to decrypt it themselves.
     ///
     /// # Errors
     ///

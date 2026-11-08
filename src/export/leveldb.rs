@@ -136,7 +136,7 @@ pub(super) struct Writer {
 }
 
 impl Writer {
-    /// Creates a writer of the database in the folder `dir`, which must exist and be empty.
+    /// A writer of the database in the folder `dir`, which must exist and be empty.
     pub(super) fn new(dir: PathBuf) -> Self {
         Self {
             dir,
