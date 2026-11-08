@@ -286,7 +286,13 @@ func itemList(sourceA, sourceB string) ([]item, error) {
 	for _, it := range items {
 		byName[it.Name] = it
 	}
+	// With the counts equal, B naming each of A's items once means both hold the same items.
+	seen := map[string]bool{}
 	for _, c := range cb {
+		if seen[c.Name] {
+			return nil, fmt.Errorf("source B has item %v twice", c.Name)
+		}
+		seen[c.Name] = true
 		it, ok := byName[c.Name]
 		if !ok {
 			return nil, fmt.Errorf("source B has item %v, source A does not", c.Name)

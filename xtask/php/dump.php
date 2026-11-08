@@ -28,7 +28,7 @@
  * - tables.json: status effects, potion types, enchantments, and banner patterns.
  *
  * NBT values are written as {"type": value} objects: byte, short, int, long, float, double,
- * string, byte_array, int_array, long_array, list ({"type": element type, "values": [...]}) and
+ * string, byte_array, int_array, list ({"type": element type, "values": [...]}) and
  * compound (keys sorted). NBT floats are written as their bit patterns so the JSON is exact. Other
  * numbers (hardness, friction, boxes) are PHP floats written in their shortest exact form.
  *
@@ -53,7 +53,6 @@ use pocketmine\block\Tripwire;
 use pocketmine\block\TripwireHook;
 use pocketmine\block\utils\BannerPatternType;
 use pocketmine\block\utils\StairShape;
-use pocketmine\block\utils\SupportType;
 use pocketmine\block\VanillaBlocks;
 use pocketmine\block\Wall;
 use pocketmine\color\Color;

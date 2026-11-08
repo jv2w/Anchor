@@ -1,23 +1,14 @@
-//! `cargo xtask dump [--check]`: rebuilds the committed block and item data from
-//! the pinned external checkouts in `.cache/`. It converts the reference lists of sources A and B
-//! with `xtask/go/reference` into `xtask/data/reference/` first, as the dump run
-//! reads every reference block state with the dump source's deserializer; then it runs the dump
-//! source's own registries through `xtask/php/dump.php` with the dump PHP binary into
-//! `xtask/data/dump/`. It also copies source B's biome definitions, entity types and block shapes into
-//! `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and entity
-//! property definitions as network NBT and this command writes the per-field decode limits from
-//! Mojang's protocol schemas (`limits`). The block and item upgrade schemas and their golden files
-//! go to `xtask/data/upgrade/` (see `upgrade`); then the official server's per-state block physics of every
-//! reference state goes to `block_physics.json` (for the block states Anchor shows but does not
-//! implement), which reads the copied 1.26.60 block schema. With `--check` it writes into
-//! `target/` and fails if a committed file differs. `verify` does not run it: it needs the
-//! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
-//! made from the committed data instead).
-//!
-//! Its `upgrade::sha256` is xtask's one hash.
+//! `cargo xtask dump [--check]`: rebuilds the committed data of `xtask/data/dump/`,
+//! `xtask/data/reference/` and `xtask/data/upgrade/` from the pinned external checkouts in
+//! `.cache/`, in the steps `data.md` lists; with `--check` it writes into `target/` and fails if
+//! a committed file differs.
 
 #[path = "../../src/block/hash.rs"]
-pub mod hash;
+#[expect(
+    unreachable_pub,
+    reason = "consistency: the file is shared with anchor, whose public API holds its `PropertyValue`"
+)]
+pub(crate) mod hash;
 pub(crate) mod limits;
 pub(crate) mod upgrade;
 
@@ -70,8 +61,7 @@ pub(crate) const DUMP_TABLES: &str = "tables.json";
 /// Source B files Anchor sends byte for byte: `AvailableActorIdentifiers`
 /// and the shapes of `VoxelShapes`.
 const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
-/// The dump PHP binary (php-build-524, PHP 8.4 for Windows): plain PHP lacks the extensions the
-/// dump source's registries load.
+/// The dump PHP binary: plain PHP lacks the extensions the dump source's registries load.
 const PHP: &str = ".cache/dump-php/bin/php/php.exe";
 /// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
 const PROTOCOL_DOCS: (&str, &str) = (

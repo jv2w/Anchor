@@ -1,19 +1,18 @@
 <?php
 
-//! Public API inventory: reflects every class-like in the dump source's src/ and generated/ into sorted JSON.
-
 /*
- * Run with the dump PHP binary from the pinned dump source checkout (`.cache/dump`) as the
+ * Public API inventory of the dump source, for `cargo xtask table`. Run with the dump PHP binary from the pinned dump source checkout (`.cache/dump`) as the
  * working directory:
  *
  *     php api.php <output file>
  *
  * It finds the class-likes each file under src/ and generated/ (the registries its codegen
  * writes, such as VanillaBlocks) declares (by its tokens, so files that declare none are skipped),
- * loads them through composer's autoloader and writes, for each one, its kind, parent, interfaces
- * (all, inherited included), docblock tags, file (relative to the checkout), the `@method` names
- * of its docblock, its public constants, enum cases and the public methods it declares itself.
- * Every list is sorted, so the same checkout writes the same bytes.
+ * loads them through composer's autoloader and writes, for each one, its parent, interfaces
+ * (all, inherited included), whether its docblock marks it `@internal`, the `@method` names of
+ * its docblock, its public constants, enum cases and the public methods it declares itself (name
+ * and `@internal`). Every list is sorted and each class-like is one line, so the same checkout
+ * writes the same bytes.
  */
 
 declare(strict_types=1);
@@ -67,40 +66,6 @@ function declaredNames(string $file) : array{
 	return $names;
 }
 
-/** A default parameter value as source-like text. */
-function defaultText(\ReflectionParameter $p) : string{
-	if($p->isDefaultValueConstant()){
-		return $p->getDefaultValueConstantName();
-	}
-	$value = $p->getDefaultValue();
-	return match(true){
-		is_object($value) => $value instanceof \UnitEnum ? get_class($value) . "::" . $value->name : "new " . get_class($value),
-		is_array($value) => json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
-		$value === null => "null",
-		default => var_export($value, true),
-	};
-}
-
-function parameterText(\ReflectionParameter $p) : string{
-	$text = $p->hasType() ? (string) $p->getType() . " " : "";
-	$text .= ($p->isPassedByReference() ? "&" : "") . ($p->isVariadic() ? "..." : "") . "$" . $p->getName();
-	if($p->isDefaultValueAvailable()){
-		$text .= " = " . defaultText($p);
-	}
-	return $text;
-}
-
-function kind(\ReflectionClass $class) : string{
-	return match(true){
-		$class->isEnum() => "enum",
-		$class->isInterface() => "interface",
-		$class->isTrait() => "trait",
-		$class->isAbstract() => "abstract",
-		$class->isFinal() => "final",
-		default => "class",
-	};
-}
-
 /** The names of the `@method` lines of a docblock (magic accessors such as VanillaBlocks::STONE()). @return string[] */
 function magicMethods(string|false $doc) : array{
 	if($doc === false){
@@ -112,7 +77,7 @@ function magicMethods(string|false $doc) : array{
 	return $names;
 }
 
-function describe(\ReflectionClass $class, string $root) : array{
+function describe(\ReflectionClass $class) : array{
 	$name = $class->getName();
 	$doc = $class->getDocComment();
 	$interfaces = $class->getInterfaceNames();
@@ -138,31 +103,20 @@ function describe(\ReflectionClass $class, string $root) : array{
 		if($method->getDeclaringClass()->getName() !== $name){
 			continue;
 		}
-		$methodDoc = $method->getDocComment();
 		$methods[] = [
 			"name" => $method->getName(),
-			"static" => $method->isStatic(),
-			"abstract" => $method->isAbstract(),
-			"internal" => hasTag($methodDoc, "internal"),
-			"deprecated" => hasTag($methodDoc, "deprecated"),
-			"params" => implode(", ", array_map(fn($p) => parameterText($p), $method->getParameters())),
-			"returns" => $method->hasReturnType() ? (string) $method->getReturnType() : "",
+			"internal" => hasTag($method->getDocComment(), "internal"),
 		];
 	}
 	usort($methods, fn(array $a, array $b) => strcmp($a["name"], $b["name"]));
 
-	$magic = magicMethods($doc);
 	$parent = $class->getParentClass();
 	return [
 		"name" => $name,
-		"kind" => kind($class),
 		"parent" => $parent === false ? null : $parent->getName(),
 		"interfaces" => $interfaces,
 		"internal" => hasTag($doc, "internal"),
-		"deprecated" => hasTag($doc, "deprecated"),
-		"file" => str_replace("\\", "/", substr($class->getFileName() ?: "", strlen($root) + 1)),
-		"magic_method_count" => count($magic),
-		"magic_methods" => $magic,
+		"magic_methods" => magicMethods($doc),
 		"constants" => $constants,
 		"cases" => $cases,
 		"methods" => $methods,
@@ -206,7 +160,7 @@ foreach($files as $file){
 		if(!str_starts_with($class->getName(), "pocketmine\\")){
 			continue;
 		}
-		$classes[$class->getName()] = describe($class, $root);
+		$classes[$class->getName()] = describe($class);
 	}
 }
 ksort($classes, SORT_STRING);
@@ -214,8 +168,8 @@ ksort($classes, SORT_STRING);
 foreach($failed as $line){
 	fwrite(STDERR, "api: cannot load $line\n");
 }
-$json = json_encode(array_values($classes), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-if(file_put_contents($out, $json . "\n") === false){
+$lines = array_map(fn(array $class) => json_encode($class, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), array_values($classes));
+if(file_put_contents($out, "[\n" . implode(",\n", $lines) . "\n]\n") === false){
 	fail("cannot write $out");
 }
 fwrite(STDOUT, sprintf("api: %d class-likes from %d files, %d failed to load\n", count($classes), count($files), count($failed)));
