@@ -20,15 +20,15 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 
 - `UnknownKey`: a key Anchor does not know, at the top level or inside a known table (`[general]`, `[developer]`, `[worlds.<name>]`).
 - `UnknownTable`: an unknown top-level table. `load` keeps it and `build` rejects it.
+- `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 - `Invalid`: a value of the wrong type or form.
 - `Range`: a whole number outside its range, with the key, the value, the minimum, and the maximum.
-- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` inside the codec's 1 MiB to 64 MiB but below one player list entry (4210786 bytes) is `Invalid`.
+- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` that the codec accepts but that is below one player list entry (the table's minimum) is `Invalid`.
 - `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
 - A `level-name` that cannot be a world file name is `Invalid`, naming `general.level-name`.
 - An IPv6 `public-ip` with `enable-ipv6 = false` is `Invalid`, naming `general.public-ip`.
 - A `[worlds.<name>]` `spawn` with a number outside the world border (`world::BORDER`, from -BORDER to BORDER - 1) is `Invalid`, naming `worlds.<name>.spawn`.
 - `nethernet-tls-cert` and `nethernet-tls-key` are both empty or both set (`Invalid`).
-- `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 
 `build` also fails, with `Invalid` naming the thread key, when the thread counts exceed the budget (see `cpu-threads`), and with `anchor::Error::InvalidWorldName` when the name of a world declared with `ServerBuilder::world` cannot be a file name.
 
@@ -54,7 +54,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `pvp` | bool | | Whether players can hurt each other |
 | `food` | bool | | Food |
 | `xp` | bool | | Gaining XP points and levels. `false` also means no XP orbs |
-| `xp-orbs` | bool | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (the orbs of loading chunks are deleted), and refuses throwing bottles; no XP is given directly in their place. Points and levels follow `xp` only |
+| `xp-orbs` | bool | | XP orbs and throwing bottles o' enchanting. `false` computes no dropped XP, makes and reads no orbs (a loading chunk's saved orbs stay as saved and are written back), and refuses throwing bottles; no XP is given directly in their place. Points and levels follow `xp` only |
 | `fall-damage` | bool | | Fall damage |
 | `drowning` | bool | | Air supply under water, drowning damage, and suffocation damage |
 | `armor` | bool | | Armor protection, armor wear, and thorns; `false` removes all three |
@@ -80,8 +80,6 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `force-resources` | bool | | Whether players must accept the resource packs to join |
 | `log-level` | string | `off`, `error`, `warn`, `info`, `debug`, `trace` | Detail of Anchor's console log; `off` writes no console log |
 
-Packs are read only from `data/packs`, as the files the `resource-packs` list names.
-
 ## `[developer]`
 
 | Key | Type | Range and form | Meaning |
@@ -92,16 +90,16 @@ Packs are read only from `data/packs`, as the files the `resource-packs` list na
 | `max-batch-bytes` | integer | 4210786 to 67108864 | Largest decompressed batch received from a player or sent to one, in bytes. The minimum is one player list entry with the largest skin (`MAX_SKIN_BYTES`, 4 MiB): an entry cannot be split, so it must fit one batch |
 | `enable-encryption` | bool | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
 | `transport` | string | `all`, `nethernet`, `raknet` | Transports that accept players. `nethernet`: a RakNet client gets no reply to its connection request, and the UDP port still answers server list pings. `raknet`: no NetherNet code runs (no TCP signaling listener, no `data/identity.key`), every UDP datagram goes to RakNet, and the NetherNet keys (`public-ip`, `nethernet-tls-cert`, `nethernet-tls-key`) are checked but unused |
-| `raknet-cookies` | bool | | Whether a RakNet client must send back a connection cookie before it gets a connection; what the cookie is, what each value does, and why the default is `false` are in `network.md` |
+| `raknet-cookies` | bool | | Whether a RakNet client must send back a connection cookie before it gets a connection; what the cookie is, what each value does, and the reason for the default are in `network.md` |
 | `max-mtu-size` | integer | 576 to 1492 | Largest RakNet packet in bytes; lower it behind tunnels or VPNs. go-raknet's dialer probes 1492, 1200, and 576 |
 | `nethernet-tls-cert` | string | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | empty or a path | PEM private key for HTTPS signaling |
 | `network-threads` | string or integer | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(2, ⌊L/4⌋), L being the logical CPU count |
-| `cpu-threads` | string or integer | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, B − 2 − network threads), B being the thread budget (`CLAUDE.md`). When network threads + CPU threads + 2 (the tick and save threads) exceed B, `build` fails with `anchor::Error::Config` (`config::Error::Invalid`) naming `developer.network-threads` when the total leaves no room for one CPU thread, or else `developer.cpu-threads` |
+| `cpu-threads` | string or integer | `"auto"` or 1 to 65535 | Threads for parallel game work. `auto` is max(1, B − 2 − network threads), B being the thread budget max(L, 5), the bound on compute threads in `CLAUDE.md`. When network threads + CPU threads + 2 (the tick and save threads) exceed B, `build` fails with `anchor::Error::Config` (`config::Error::Invalid`) naming `developer.network-threads` when the total leaves no room for one CPU thread, or else `developer.cpu-threads` |
 | `chunks-per-tick` | integer | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
 | `spawn-radius` | integer | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) and, before a player spawns, the radius that player asks for |
 | `tick-radius` | integer | 1 to 64 | Chunk radius around players where custom blocks get random ticks and entities are ticked; the effective value is min(value, `view-distance`) |
-| `slow-empty-worlds` | bool | | Whether a world without players runs only on ticks that are multiples of 100 |
+| `slow-empty-worlds` | bool | | Whether a world without players runs only one tick in every 100. Each world's ticks are offset by its place among the worlds, so empty worlds do not all run on one tick |
 | `lighting` | string | `dynamic`, `on-load`, `fixed` | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level` |
 | `fixed-light-level` | integer | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
 | `item-pickup-interval` | integer | 1 to 20 | Ticks between checks for items a player can pick up |
@@ -119,9 +117,9 @@ A table may exist for each declared world. Each key it sets replaces the global 
 |---|---|---|---|
 | `view-distance` | integer | 2 to 64 | The world's largest view distance |
 | `chunks-per-tick` | integer | 1 to 256 | The world's chunks per player per tick |
-| `spawn-radius` | integer | 1 to 64 | The world's chunk radius sent before spawning, at most the world's view distance |
-| `tick-radius` | integer | 1 to 64 | The world's tick radius, at most the world's view distance |
-| `spawn` | three integers `[x, y, z]` | each inside the world border | Where players appear in the world when it is new; without it, the generator's spawn |
+| `spawn-radius` | integer | 1 to 64 | The world's chunk radius sent before spawning; the effective value is min(value, the world's view distance) |
+| `tick-radius` | integer | 1 to 64 | The world's tick radius; the effective value is min(value, the world's view distance) |
+| `spawn` | three integers `[x, y, z]` | each inside the world border | Where players appear in the world; without it, the generator's spawn |
 
 `spawn` applies only to a world whose file has no record yet; from then on the world file keeps its spawn as world state (`storage.md`). A world made or loaded at run time (`Context::create_world`, `Context::load_world`) takes these values from its `world::Options`, never from a `[worlds.<name>]` table, which only declared worlds may have. A table's name must equal a declared world's name exactly; world files ignore letter case, tables do not.
 
@@ -135,7 +133,6 @@ Running the server program as `<program> update-config` updates a file written b
 - No value is fixed. When the result would not load (an unknown key, an out-of-range value, a syntax error), the update returns that error and leaves the file as it was. It also refuses, leaving the file, when a table that lacks a key is written without its header (an inline table or dotted keys: `HeaderlessTable`) and when the result would exceed 1 MiB (`TooLarge`).
 - The file is written only when something changed, whole (a temporary file renamed into place). The returned `config::Update` lists the added keys (`added`, in default file order) and the removed keys (`removed`, in file order). A second run changes nothing.
 - The added values are the defaults, so the file means what it meant without them. A value set in code before `load`, for a key the update adds, is then replaced by the file's value, as with a missing file.
-- The comments of keys already present are not changed.
 
 ## Feature switches
 

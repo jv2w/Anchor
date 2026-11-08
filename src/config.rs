@@ -29,10 +29,6 @@ const BACKUPS_RANGE: RangeInclusive<u16> = 1..=1000;
 /// about 3 seconds.
 pub(crate) const CHUNKS_PER_TICK_RANGE: RangeInclusive<u32> = 1..=256;
 
-/// The `compression` values.
-const COMPRESSION_NAMES: [(&str, Compression); 2] =
-    [("snappy", Compression::Snappy), ("zlib", Compression::Zlib)];
-
 /// The file [`Config::load`] writes when the settings file is missing; a test checks that it
 /// loads as the default settings. [`Config::update_file`] adds a missing key with the comment
 /// lines right above it here, and a missing table with those above its header.
@@ -74,12 +70,12 @@ pvp = true
 food = true
 # Gaining XP points and levels. false also means no XP orbs.
 xp = true
-# XP orbs and throwing bottles o' enchanting. false deletes the orbs of loading chunks.
+# XP orbs and throwing bottles o' enchanting. false keeps saved orbs in their chunks unused.
 xp-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
-# Armor protection and armor wear.
+# Armor protection, armor wear and thorns.
 armor = true
 # Tools, weapons and armor wear out with use.
 durability = true
@@ -204,7 +200,8 @@ pub(crate) const ITEM_DESPAWN_TICKS_RANGE: RangeInclusive<u32> = 1..=72_000;
 /// The `item-pickup-interval` range: every tick to once a second.
 const ITEM_PICKUP_INTERVAL_RANGE: RangeInclusive<u8> = 1..=20;
 
-/// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
+/// The largest settings file read. The default file is about 7 KiB; the cap bounds the parser's
+/// memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
 /// The longest `level-name`, in bytes; the bound is explained at [`MAX_MOTD_BYTES`].
@@ -232,7 +229,7 @@ const RADIUS_RANGE: RangeInclusive<u8> = 1..=*VIEW_DISTANCE_RANGE.end();
 const SAVE_INTERVAL_MINUTES_RANGE: RangeInclusive<u16> = 1..=1440;
 
 /// The `network-threads` and `cpu-threads` counts; the runtime checks the total against the
-/// logical CPUs.
+/// thread budget, the larger of the logical CPU count and 5.
 const THREADS_RANGE: RangeInclusive<u16> = 1..=u16::MAX;
 
 /// The `view-distance` range the settings file accepts.
@@ -265,42 +262,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Updates the settings file at `path` to this Anchor's keys and returns what changed.
-    ///
-    /// Each key of the default file that the file lacks is added with its default value and the
-    /// comment lines right above it in the default file: after the line of the key before it
-    /// there, or after the table's header when the file has none of those. A table the file
-    /// lacks is added at its end. A `key = value` that Anchor does not know, at the top, in a
-    /// table of the default file or in a `[worlds.<name>]` table written with its header, is
-    /// removed with the comment lines right above it. Every other byte stays as it was: values,
-    /// comments, key order and line endings. Unknown tables are not touched, and no key is added
-    /// to a `[worlds.<name>]` table, since a key left out there means the global value.
-    ///
-    /// The added values are the defaults, so the file means what it meant without them. A value
-    /// set in code before [`Config::load`] for a key this adds is then replaced by the file's, as
-    /// with a missing file.
-    ///
-    /// The update fixes no value. The file is left as it was, and the error returned, when it is
-    /// missing ([`Error::Read`]), when it would not load after the update, when a table lacking a
-    /// key is written without its `[table]` header ([`Error::HeaderlessTable`]), or when the
-    /// update would make it larger than 1 MiB. Otherwise, if anything changed, the file is
-    /// replaced whole (a temporary file renamed into place), so running it again changes nothing.
-    ///
-    /// A server program started as `<program> update-config` runs this from [`Config::load`],
-    /// whether the server runs or not: a running server reads the file only at its next start.
-    /// This does blocking file I/O.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Read`] for a file that is missing or cannot be read.
-    /// [`Error::Write`] for an update that cannot be written.
-    /// [`Error::TooLarge`] for a file, or an update, of more than 1 MiB.
-    /// [`Error::HeaderlessTable`] for a table lacking a key that is written without its header.
-    /// Every other [`Error`] for a file that would not load after the update.
-    pub fn update_file(path: impl AsRef<Path>) -> Result<Update> {
-        update::run(path.as_ref())
-    }
-
     /// The batch compression settings, checked by [`batch::Settings::new`].
     pub(crate) fn batch_settings(&self) -> Result<batch::Settings> {
         let d = &self.developer;
@@ -364,6 +325,42 @@ impl Config {
         packs.iter().map(|p| folder.join(p)).collect()
     }
 
+    /// Updates the settings file at `path` to this Anchor's keys and returns what changed.
+    ///
+    /// Each key of the default file that the file lacks is added with its default value and the
+    /// comment lines right above it in the default file: after the line of the key before it
+    /// there, or after the table's header when the file has none of those. A table the file
+    /// lacks is added at its end. A `key = value` that Anchor does not know, at the top, in a
+    /// table of the default file or in a `[worlds.<name>]` table written with its header, is
+    /// removed with the comment lines right above it. Every other byte stays as it was: values,
+    /// comments, key order and line endings. Unknown tables are not touched, and no key is added
+    /// to a `[worlds.<name>]` table, since a key left out there means the global value.
+    ///
+    /// The added values are the defaults, so the file means what it meant without them. A value
+    /// set in code before [`Config::load`] for a key this adds is then replaced by the file's, as
+    /// with a missing file.
+    ///
+    /// The update fixes no value. The file is left as it was, and the error returned, when it is
+    /// missing ([`Error::Read`]), when it would not load after the update, when a table lacking a
+    /// key is written without its `[table]` header ([`Error::HeaderlessTable`]), or when the
+    /// update would make it larger than 1 MiB. Otherwise, if anything changed, the file is
+    /// replaced whole (a temporary file renamed into place), so running it again changes nothing.
+    ///
+    /// A server program started as `<program> update-config` runs this from [`Config::load`],
+    /// whether the server runs or not: a running server reads the file only at its next start.
+    /// This does blocking file I/O.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Read`] for a file that is missing or cannot be read.
+    /// [`Error::Write`] for an update that cannot be written.
+    /// [`Error::TooLarge`] for a file, or an update, of more than 1 MiB.
+    /// [`Error::HeaderlessTable`] for a table lacking a key that is written without its header.
+    /// Every other [`Error`] for a file that would not load after the update.
+    pub fn update_file(path: impl AsRef<Path>) -> Result<Update> {
+        update::run(path.as_ref())
+    }
+
     /// What [`Config::load`] changed in the file under `<program> update-config`; `None` when
     /// it did not run so.
     pub(crate) fn updated(&self) -> Option<&Update> {
@@ -405,11 +402,11 @@ impl Config {
     /// [`Error::TooLarge`] for a file of more than 1 MiB.
     /// [`Error::Syntax`] for a file that is not UTF-8 TOML.
     /// [`Error::UnknownKey`] for a key Anchor does not know.
+    /// [`Error::HeaderlessTable`] for an update that cannot add a key to a table written without
+    /// its header.
     /// [`Error::Invalid`] for a value of the wrong type or form.
     /// [`Error::Range`] for a whole number outside its range.
     /// [`Error::Batch`] for a compression setting that [`batch::Settings::new`] rejects.
-    /// [`Error::HeaderlessTable`] for an update that cannot add a key to a table written without
-    /// its header.
     pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         match crate::args::current() {
@@ -417,65 +414,6 @@ impl Config {
             // A usage error is reported by `Server::run`, which reads the arguments again.
             _ => self.load_file(path),
         }
-    }
-
-    /// [`Config::load`] after updating the file first, as `<program> update-config` asks.
-    fn load_updated(mut self, path: &Path) -> Result<Self> {
-        // Before the read: an old file may not load until it is updated.
-        self.updated = Some(update::run(path)?);
-        self.load_file(path)
-    }
-
-    /// [`Config::load`] without the update: the file's keys over these values, or, when the file
-    /// is missing, the default file written and read.
-    fn load_file(self, path: &Path) -> Result<Self> {
-        if let Some(bytes) = read(path)? {
-            return self.apply(&bytes);
-        }
-        let written = fs::write_atomic(path, DEFAULT_FILE.as_bytes(), Access::Shared);
-        written.map_err(|source| Error::Write {
-            path: path.to_owned(),
-            source,
-        })?;
-        self.apply(DEFAULT_FILE.as_bytes())
-    }
-
-    /// Parses a settings file's bytes, lays its keys over these values and checks the result.
-    fn apply(mut self, bytes: &[u8]) -> Result<Self> {
-        let text = utf8(bytes)?;
-        let table = text.parse::<Table>().map_err(|e| syntax(text, &e))?;
-        let sections = update::sections();
-        for (name, value) in &table {
-            // A key the default file lacks is unknown here as it is to `update-config`, which
-            // removes it.
-            if let Some(section) = sections.iter().find(|s| s.name == name)
-                && let Some(key) = table_of(value, Key::top(name))?
-                    .keys()
-                    .find(|key| !section.has_key(key))
-            {
-                return Err(Key::new(name, key).unknown());
-            }
-            match name.as_str() {
-                "general" => self.general.merge(table_of(value, Key::top(name))?)?,
-                "developer" => self.developer.merge(table_of(value, Key::top(name))?)?,
-                "worlds" => {
-                    for (world, values) in table_of(value, Key::top(name))? {
-                        let table = format!("worlds.{world}");
-                        let values = table_of(values, Key::top(&table))?;
-                        self.worlds
-                            .entry(world.clone())
-                            .or_default()
-                            .merge(&table, values)?;
-                    }
-                }
-                _ if value.is_table() => {
-                    self.unknown_tables.insert(name.clone());
-                }
-                _ => return Err(Key::top(name).unknown()),
-            }
-        }
-        self.check()?;
-        Ok(self)
     }
 
     /// The first value that breaks its rule, as an error; the one check for loaded and code-set
@@ -583,9 +521,68 @@ impl Config {
         )?;
         if g.resource_packs.iter().any(|p| p.as_os_str().is_empty()) {
             return Err(Key::general("resource-packs")
-                .invalid("a list of non-empty paths relative to data/packs"));
+                .invalid("a list of non-empty paths (relative ones to data/packs)"));
         }
         Ok(())
+    }
+
+    /// [`Config::load`] after updating the file first, as `<program> update-config` asks.
+    fn load_updated(mut self, path: &Path) -> Result<Self> {
+        // Before the read: an old file may not load until it is updated.
+        self.updated = Some(update::run(path)?);
+        self.load_file(path)
+    }
+
+    /// [`Config::load`] without the update: the file's keys over these values, or, when the file
+    /// is missing, the default file written and read.
+    fn load_file(self, path: &Path) -> Result<Self> {
+        if let Some(bytes) = read(path)? {
+            return self.apply(&bytes);
+        }
+        let written = fs::write_atomic(path, DEFAULT_FILE.as_bytes(), Access::Shared);
+        written.map_err(|source| Error::Write {
+            path: path.to_owned(),
+            source,
+        })?;
+        self.apply(DEFAULT_FILE.as_bytes())
+    }
+
+    /// Parses a settings file's bytes, lays its keys over these values and checks the result.
+    fn apply(mut self, bytes: &[u8]) -> Result<Self> {
+        let text = utf8(bytes)?;
+        let table = text.parse::<Table>().map_err(|e| syntax(text, &e))?;
+        let sections = update::sections();
+        for (name, value) in &table {
+            // A key the default file lacks is unknown here as it is to `update-config`, which
+            // removes it.
+            if let Some(section) = sections.iter().find(|s| s.name == name)
+                && let Some(key) = table_of(value, Key::top(name))?
+                    .keys()
+                    .find(|key| !section.has_key(key))
+            {
+                return Err(Key::new(name, key).unknown());
+            }
+            match name.as_str() {
+                "general" => self.general.merge(table_of(value, Key::top(name))?)?,
+                "developer" => self.developer.merge(table_of(value, Key::top(name))?)?,
+                "worlds" => {
+                    for (world, values) in table_of(value, Key::top(name))? {
+                        let table = format!("worlds.{world}");
+                        let values = table_of(values, Key::top(&table))?;
+                        self.worlds
+                            .entry(world.clone())
+                            .or_default()
+                            .merge(&table, values)?;
+                    }
+                }
+                _ if value.is_table() => {
+                    self.unknown_tables.insert(name.clone());
+                }
+                _ => return Err(Key::top(name).unknown()),
+            }
+        }
+        self.check()?;
+        Ok(self)
     }
 }
 
@@ -704,7 +701,7 @@ impl General {
     /// Replaces the values of the keys present in `table`.
     fn merge(&mut self, table: &Table) -> Result<()> {
         for (name, value) in table {
-            let key = Key::new("general", name);
+            let key = Key::general(name);
             match name.as_str() {
                 "motd" => text(value, key)?.clone_into(&mut self.motd),
                 "server-ip" => self.server_ip = parsed(value, key, "an IPv4 address")?,
@@ -870,9 +867,9 @@ impl Developer {
     /// Replaces the values of the keys present in `table`.
     fn merge(&mut self, table: &Table) -> Result<()> {
         for (name, value) in table {
-            let key = Key::new("developer", name);
+            let key = Key::developer(name);
             match name.as_str() {
-                "compression" => self.compression = choice(value, key, &COMPRESSION_NAMES)?,
+                "compression" => self.compression = choice(value, key, &Compression::NAMES)?,
                 // The other limits of these three live in `batch::Settings::new`, which `check`
                 // calls; here a value only has to fit the field.
                 "compression-threshold" => {
@@ -1499,6 +1496,11 @@ impl<'a> Key<'a> {
             format!("{}.{}", self.table, self.name)
         }
     }
+}
+
+impl Compression {
+    /// The `compression` values.
+    const NAMES: [(&str, Self); 2] = [("snappy", Self::Snappy), ("zlib", Self::Zlib)];
 }
 
 fn table_of<'v>(value: &'v Value, key: Key<'_>) -> Result<&'v Table> {
