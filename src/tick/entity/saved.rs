@@ -53,15 +53,15 @@ use super::Entity;
 use super::custom::{self, EntityTypes};
 use super::kind::{
     Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY_TICKS, Falling, Form, Item,
-    Kind, MAX_DESPAWN_DELAY_TICKS, MAX_NAME_TAG_BYTES, NEVER, Orb, Painting, Pickup, Projectile,
-    Shot, Tnt, Trident,
+    Kind, MAX_DESPAWN_DELAY_TICKS, MAX_NAME_TAG_BYTES, NEVER, Orb, Painting, Projectile, Shot, Tnt,
+    Trident,
 };
 use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
 use crate::config::ITEM_DESPAWN_TICKS_RANGE;
 use crate::custom::Registry;
 use crate::effect::{self, Potion};
-use crate::entity::{PaintingMotive, Skin};
+use crate::entity::{ArrowPickup, PaintingMotive, Skin};
 use crate::item::Stack;
 use crate::math::{Vec3, to_f32};
 use crate::nbt::{Compound, List, Value};
@@ -77,13 +77,6 @@ const BABY: &str = "IsBaby";
 pub(super) const DATA_KEY: &str = "AnchorData";
 /// The key of an NPC's held item: Bedrock's mob key, a list of one item compound.
 const MAINHAND: &str = "Mainhand";
-/// The longest a cloud lives, in ticks (one day of the world).
-pub(super) const MAX_CLOUD_AGE_TICKS: i32 = 24_000;
-/// The largest cloud radius and radius change read, in blocks.
-pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
-/// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
-pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
-    super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
 
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
@@ -175,12 +168,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
         }
         Kind::XpOrb(orb) => {
             put("Age", Value::Short(age_ticks(orb.despawn_delay)));
-            #[expect(
-                clippy::expect_used,
-                reason = "invariant: an orb's value is 1 to `i16::MAX` (`Orb`)"
-            )]
-            let value = i16::try_from(orb.value).expect("an orb's value fits the saved short");
-            put("Value", Value::Short(value));
+            put("Value", Value::Short(orb.value.cast_signed()));
         }
         Kind::FallingBlock(falling) => {
             put(
@@ -189,12 +177,7 @@ pub(super) fn save(entity: &Entity) -> Compound {
             );
         }
         Kind::Tnt(tnt) => {
-            #[expect(
-                clippy::expect_used,
-                reason = "invariant: a fuse is at most `MAX_FUSE`, `i16::MAX` (`Tnt`)"
-            )]
-            let fuse = i16::try_from(tnt.fuse).expect("a fuse fits the saved short");
-            put("Fuse", Value::Short(fuse));
+            put("Fuse", Value::Short(tnt.fuse.cast_signed()));
             if tnt.underwater {
                 put("AllowUnderwater", Value::Byte(1));
             }
@@ -286,6 +269,7 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
                 put("punch", Value::Byte(a.punch));
             }
         }
+        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::XpBottle | Shot::IceBomb => {}
         Shot::Potion { potion, .. } => {
             put("PotionId", Value::Short(i16::from(potion.id())));
         }
@@ -293,7 +277,6 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
             put("Trident", Value::Compound(t.item.to_nbt()));
             put("isCreative", Value::Byte(u8::from(t.creative)));
         }
-        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::XpBottle | Shot::IceBomb => {}
     }
 }
 
@@ -559,12 +542,7 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
         None => Some(String::new()),
     };
     // Anchor's key for a delay `Age` cannot hold; a value outside that range is not Anchor's.
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: the longest `item-despawn-ticks` is a constant that fits an int"
-    )]
-    let longest = i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end())
-        .expect("the despawn delay bound fits an int");
+    let longest = ITEM_DESPAWN_TICKS_RANGE.end().cast_signed();
     let despawn_delay = match c.get("DespawnDelay") {
         Some(Value::Int(d)) if (MAX_DESPAWN_DELAY_TICKS + 1..=longest).contains(d) => *d,
         _ => despawn_delay_ticks(c),
@@ -592,14 +570,14 @@ fn load_orb(c: &Compound) -> Orb {
     }
 }
 
-/// A projectile's keys: the damage (finite, 0 to [`MAX_PROJECTILE_DAMAGE`]) and the block it is
+/// A projectile's keys: the damage (finite, 0 to [`Projectile::MAX_DAMAGE`]) and the block it is
 /// stuck in.
 fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
     let damage = match c.get("damage") {
-        Some(Value::Double(d)) if d.is_finite() && (0.0..=MAX_PROJECTILE_DAMAGE).contains(d) => *d,
+        Some(Value::Double(d)) if d.is_finite() && (0.0..=Projectile::MAX_DAMAGE).contains(d) => *d,
         Some(_) => return None,
         None => match shot {
-            Shot::Arrow(_) => super::projectile::ARROW_DAMAGE,
+            Shot::Arrow(_) => Arrow::DAMAGE,
             Shot::Trident(_) => Trident::DAMAGE,
             _ => 0.0,
         },
@@ -690,7 +668,7 @@ fn load_arrow(c: &Compound) -> Arrow {
     };
     Arrow {
         critical: byte("crit") == Some(1),
-        pickup: byte("pickup").map_or(Pickup::Any, Pickup::from_byte),
+        pickup: byte("pickup").map_or(ArrowPickup::Any, ArrowPickup::from_byte),
         punch: byte("punch").unwrap_or(0),
         life: match c.get("life") {
             Some(Value::Short(l)) => (*l).clamp(0, Arrow::MAX_LIFE),
@@ -716,13 +694,13 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     };
     let float = |k: &str, default: f64| match c.get(k) {
         Some(Value::Float(v)) if v.is_finite() => {
-            crate::math::clamp(f64::from(*v), -MAX_CLOUD_RADIUS, MAX_CLOUD_RADIUS)
+            crate::math::clamp(f64::from(*v), -Cloud::MAX_RADIUS, Cloud::MAX_RADIUS)
         }
         _ => default,
     };
     let age = match c.get("SpawnTick") {
         Some(Value::Long(t)) => {
-            u32::try_from(t.saturating_neg().clamp(0, i64::from(MAX_CLOUD_AGE_TICKS))).unwrap_or(0)
+            u32::try_from(t.saturating_neg().clamp(0, i64::from(Cloud::MAX_AGE_TICKS))).unwrap_or(0)
         }
         _ => 0,
     };
@@ -738,24 +716,23 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
         Some(Value::List(List::End)) | None => {}
         Some(_) => return None,
     }
-    let initial_radius = float("InitialRadius", super::projectile::CLOUD_RADIUS);
+    let initial_radius = float("InitialRadius", Cloud::DEFAULT_RADIUS);
     Some(Cloud {
         effects,
         age,
-        max_age: int("Duration", super::projectile::CLOUD_DURATION_TICKS)
-            .clamp(0, MAX_CLOUD_AGE_TICKS),
-        max_age_on_use: int("DurationOnUse", 0).clamp(-MAX_CLOUD_AGE_TICKS, MAX_CLOUD_AGE_TICKS),
-        reapplication_delay: int("ReapplicationDelay", super::projectile::CLOUD_REAPPLICATION)
-            .clamp(0, MAX_CLOUD_AGE_TICKS),
+        max_age: int("Duration", Cloud::DEFAULT_MAX_AGE_TICKS).clamp(0, Cloud::MAX_AGE_TICKS),
+        max_age_on_use: int("DurationOnUse", 0).clamp(-Cloud::MAX_AGE_TICKS, Cloud::MAX_AGE_TICKS),
+        reapplication_delay: int(
+            "ReapplicationDelay",
+            Cloud::DEFAULT_REAPPLICATION_DELAY_TICKS,
+        )
+        .clamp(0, Cloud::MAX_AGE_TICKS),
         pickup_count: int("PickupCount", 0),
         initial_radius,
         radius: float("Radius", initial_radius),
-        radius_on_pickup: float(
-            "RadiusChangeOnPickup",
-            super::projectile::CLOUD_RADIUS_ON_USE,
-        ),
-        radius_on_use: float("RadiusOnUse", super::projectile::CLOUD_RADIUS_ON_USE),
-        radius_per_tick: float("RadiusPerTick", super::projectile::CLOUD_RADIUS_PER_TICK),
+        radius_on_pickup: float("RadiusChangeOnPickup", Cloud::DEFAULT_RADIUS_ON_USE),
+        radius_on_use: float("RadiusOnUse", Cloud::DEFAULT_RADIUS_ON_USE),
+        radius_per_tick: float("RadiusPerTick", Cloud::DEFAULT_RADIUS_PER_TICK),
         victims: BTreeMap::new(),
     })
 }
@@ -838,7 +815,8 @@ fn age_ticks(delay_ticks: i32) -> i16 {
               and the load keep it there); `as` saturates otherwise"
 )]
 fn health_short(health: f64) -> i16 {
-    health.round() as i16
+    // Up, so an item with a fraction of a point left loads alive.
+    health.ceil() as i16
 }
 
 /// A list of three doubles.
@@ -991,7 +969,7 @@ pub(super) mod tests {
             projectile(
                 Shot::Arrow(Arrow {
                     critical: true,
-                    pickup: Pickup::Creative,
+                    pickup: ArrowPickup::Creative,
                     punch: 2,
                     life: 0,
                 }),
@@ -1001,7 +979,7 @@ pub(super) mod tests {
             projectile(
                 Shot::Arrow(Arrow {
                     critical: false,
-                    pickup: Pickup::Any,
+                    pickup: ArrowPickup::Any,
                     punch: 0,
                     life: 300,
                 }),
@@ -1152,7 +1130,7 @@ pub(super) mod tests {
             projectile(
                 Shot::Arrow(Arrow {
                     critical: true,
-                    pickup: Pickup::Any,
+                    pickup: ArrowPickup::Any,
                     punch: u8::MAX,
                     life: 0,
                 }),
@@ -1224,6 +1202,19 @@ pub(super) mod tests {
             panic!("the effects are saved");
         };
         assert_eq!(effects[0].get("Duration"), Some(&Value::Int(-1)));
+    }
+
+    /// An item with less than half a point of health saves with health left, so it loads alive.
+    #[test]
+    fn an_item_with_a_fraction_of_health_loads_alive() {
+        let kind = kinds()
+            .into_iter()
+            .find(|k| matches!(k, Kind::Item(_)))
+            .expect("an item kind");
+        let mut e = entity(kind, Vec3::new(5.25, -59.5, -3.75));
+        e.health = 0.3;
+        let loaded = load_without_custom(&save(&e), ChunkPos::new(0, -1)).expect("loads");
+        assert!(loaded.health > 0.0, "health {}", loaded.health);
     }
 
     /// An entity the tick holds far above or below the world height (an item a flying player

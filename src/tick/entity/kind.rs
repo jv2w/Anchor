@@ -4,26 +4,24 @@
 //! kind is a new variant with an arm in each `match` here and in the rules of [`super`]; nothing
 //! else changes shape.
 
-pub(super) use crate::entity::ArrowPickup as Pickup;
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::custom::Spec;
 use crate::block::{self, Face};
 use crate::effect::{self, Potion};
-use crate::entity::{Id, PaintingMotive, Skin, Type};
+use crate::entity::{ArrowPickup, Id, PaintingMotive, Skin, Type};
 use crate::event::DamageCause;
 use crate::item::Stack;
 use crate::nbt::Compound;
 use crate::protocol::Uuid;
 use crate::tick::SessionId;
-use crate::tick::checkpoint::{self, Codec, Reader, Writer, fields, variants};
+use crate::tick::checkpoint::{self, Codec, Reader, Writer};
 use crate::tick::survival::{self, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::tick::trade::Offers;
 use crate::world::{BlockPos, PLAYER_ENTITY_TYPE};
 
-/// An arrow: 0.25 × 0.25, gravity 0.05, drag 0.01 before gravity.
+/// An arrow.
 const ARROW: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -35,12 +33,12 @@ const ARROW: Physics = Physics {
     ray: true,
     water: false,
 };
-/// An xp bottle: gravity 0.07.
+/// An xp bottle: a thrown item that falls faster.
 const BOTTLE: Physics = Physics {
     gravity: 0.07,
     ..THROWN
 };
-/// A cloud: no gravity, no drag; [`Kind::size`] gives its box.
+/// A cloud; [`Kind::size`] gives its box.
 const CLOUD: Physics = Physics {
     width: 0.5,
     height: 0.5,
@@ -55,13 +53,13 @@ const CLOUD: Physics = Physics {
 /// The ticks a new orb lives, which the saved `Age` counts from.
 /// It is 5 minutes; a dropped item lives `item-despawn-ticks`.
 pub(super) const DEFAULT_DESPAWN_DELAY_TICKS: i32 = 6000;
-/// An end crystal: 2 × 2, no gravity, a drag of 1 that stops every motion before it moves.
+/// An end crystal: a painting's drag, which stops every motion before it moves.
 const END_CRYSTAL: Physics = Physics {
     width: 2.0,
     height: 2.0,
     ..PAINTING
 };
-/// A falling block: 0.98 × 0.98, gravity 0.04, drag 0.02, not moved by liquids.
+/// A falling block, not moved by liquids.
 const FALLING: Physics = Physics {
     width: 0.98,
     height: 0.98,
@@ -73,7 +71,7 @@ const FALLING: Physics = Physics {
     ray: false,
     water: false,
 };
-/// A firework rocket: 0.25 × 0.25, no gravity, no drag; liquids push it.
+/// A firework rocket, which liquids push.
 const FIREWORK: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -81,7 +79,7 @@ const FIREWORK: Physics = Physics {
     currents: true,
     ..PAINTING
 };
-/// A human NPC: a player's box.
+/// A human NPC, with a player's box.
 const HUMAN: Physics = Physics {
     width: PLAYER_WIDTH,
     height: PLAYER_HEIGHT,
@@ -92,7 +90,7 @@ const ICE_BOMB: Physics = Physics {
     water: true,
     ..THROWN
 };
-/// A dropped item: 0.25 × 0.25, gravity 0.04, drag 0.02 before gravity.
+/// A dropped item.
 pub(super) const ITEM: Physics = Physics {
     width: 0.25,
     height: 0.25,
@@ -112,12 +110,12 @@ pub(super) const MAX_DESPAWN_DELAY_TICKS: i32 = i16::MAX as i32 + DEFAULT_DESPAW
 pub const MAX_NAME_TAG_BYTES: usize = 1024;
 /// The value of a pickup or despawn delay that means never.
 pub(super) const NEVER: i16 = -1;
-/// An xp orb: as an item, with drag after gravity.
+/// An xp orb, which applies drag after gravity.
 const ORB: Physics = Physics {
     drag_before_gravity: false,
     ..ITEM
 };
-/// A painting: a 0.5 box, no gravity, a drag of 1 that stops every motion.
+/// A painting: a drag that stops every motion.
 /// The box is not used, and [`Kind::size`] is not its box either (`Entity::bounding_box` is).
 /// Liquids do not move it.
 const PAINTING: Physics = Physics {
@@ -131,12 +129,12 @@ const PAINTING: Physics = Physics {
     ray: false,
     water: false,
 };
-/// A thrown potion: gravity 0.05.
+/// A thrown potion.
 const POTION: Physics = Physics {
     gravity: 0.05,
     ..THROWN
 };
-/// A thrown item: as an arrow with gravity 0.03.
+/// A thrown item: an arrow's drag and ray with its own gravity.
 const THROWN: Physics = Physics {
     gravity: 0.03,
     ..ARROW
@@ -146,14 +144,14 @@ const TNT: Physics = Physics {
     currents: true,
     ..FALLING
 };
-/// A thrown trident: 0.25 wide, 0.35 high, gravity 0.1, drag 0.01 before gravity.
+/// A thrown trident.
 const TRIDENT: Physics = Physics {
     width: 0.25,
     height: 0.35,
     gravity: 0.1,
     ..ARROW
 };
-/// A villager (gravity 0.08, drag 0.02): 0.6 × 1.9.
+/// A villager.
 const VILLAGER: Physics = Physics {
     width: 0.6,
     height: 1.9,
@@ -165,7 +163,7 @@ const VILLAGER: Physics = Physics {
     ray: false,
     water: false,
 };
-/// A zombie: as a villager, 0.6 × 1.9.
+/// A zombie, which has a villager's physics.
 const ZOMBIE: Physics = VILLAGER;
 
 /// What an entity is, with the data only that kind has.
@@ -462,7 +460,7 @@ impl Kind {
     }
 }
 
-variants!(Kind {
+checkpoint::variants!(Kind {
     0 => Item(item),
     1 => XpOrb(orb),
     2 => FallingBlock(falling),
@@ -491,7 +489,7 @@ pub(super) struct Item {
     pub(super) thrower: String,
 }
 
-fields!(Item {
+checkpoint::fields!(Item {
     stack,
     pickup_delay,
     despawn_delay,
@@ -517,7 +515,7 @@ impl Orb {
     pub(super) const MAX_VALUE: u16 = i16::MAX.cast_unsigned();
 }
 
-fields!(Orb {
+checkpoint::fields!(Orb {
     value,
     despawn_delay,
     look_for_target,
@@ -531,7 +529,7 @@ pub(super) struct Falling {
     pub(super) block: block::State,
 }
 
-fields!(Falling { block });
+checkpoint::fields!(Falling { block });
 
 /// Primed TNT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,10 +543,10 @@ pub(super) struct Tnt {
 
 impl Tnt {
     /// The longest fuse: what the saved `Fuse` short holds.
-    pub(super) const MAX_FUSE: u16 = 32_767;
+    pub(super) const MAX_FUSE: u16 = i16::MAX.cast_unsigned();
 }
 
-fields!(Tnt { fuse, underwater });
+checkpoint::fields!(Tnt { fuse, underwater });
 
 /// An arrow or thrown item.
 #[derive(Debug, Clone, PartialEq)]
@@ -565,7 +563,13 @@ pub(super) struct Projectile {
     pub(super) owner_runtime_id: u64,
 }
 
-fields!(Projectile {
+impl Projectile {
+    /// The largest base damage: that of an arrow from a bow of the highest Power.
+    pub(super) const MAX_DAMAGE: f64 =
+        super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
+}
+
+checkpoint::fields!(Projectile {
     shot,
     damage,
     stuck,
@@ -599,7 +603,7 @@ pub(super) enum Shot {
     IceBomb,
 }
 
-variants!(Shot {
+checkpoint::variants!(Shot {
     0 => Arrow(arrow),
     1 => Snowball,
     2 => Egg,
@@ -616,7 +620,7 @@ pub(super) struct Arrow {
     /// Whether it is fully drawn: more damage, and a trail.
     pub(super) critical: bool,
     /// Who may pick it up once stuck.
-    pub(super) pickup: Pickup,
+    pub(super) pickup: ArrowPickup,
     /// The Punch level: extra knockback, 0 to 255.
     pub(super) punch: u8,
     /// The ticks it has been stuck; it goes after [`Self::MAX_LIFE`].
@@ -624,11 +628,13 @@ pub(super) struct Arrow {
 }
 
 impl Arrow {
+    /// An arrow's base damage.
+    pub(super) const DAMAGE: f64 = 2.0;
     /// The ticks a stuck arrow stays: it goes once it has been stuck for more.
     pub(super) const MAX_LIFE: i16 = 1200;
 }
 
-fields!(Arrow {
+checkpoint::fields!(Arrow {
     critical,
     pickup,
     punch,
@@ -653,7 +659,7 @@ impl Trident {
     pub(super) const DAMAGE: f64 = 8.0;
 }
 
-fields!(Trident {
+checkpoint::fields!(Trident {
     item,
     creative,
     can_collide,
@@ -672,13 +678,13 @@ pub(super) struct Cloud {
     pub(super) max_age_on_use: i32,
     /// The ticks before an affected entity is affected again.
     pub(super) reapplication_delay: i32,
-    /// The bottles of dragon breath taken (the saved `PickupCount`), kept for the saved form.
+    /// The bottles of dragon breath taken (the saved `PickupCount`), shown to clients.
     pub(super) pickup_count: i32,
     /// The radius it started with, in blocks.
     pub(super) initial_radius: f64,
     /// The radius now, in blocks, at least 0.5 while it exists.
     pub(super) radius: f64,
-    /// The change of the radius when a bottle takes from it, kept for the saved form.
+    /// The change of the radius when a bottle takes from it, shown to clients.
     pub(super) radius_on_pickup: f64,
     /// The change of the radius per entity it affects.
     pub(super) radius_on_use: f64,
@@ -691,11 +697,26 @@ pub(super) struct Cloud {
 }
 
 impl Cloud {
+    /// A new cloud's life, in ticks.
+    pub(super) const DEFAULT_MAX_AGE_TICKS: i32 = 600;
+    /// A new cloud's first radius, in blocks.
+    pub(super) const DEFAULT_RADIUS: f64 = 3.0;
+    /// A new cloud's radius change per entity it affects, in blocks.
+    pub(super) const DEFAULT_RADIUS_ON_USE: f64 = -0.5;
+    /// A new cloud's radius change per tick, in blocks: it shrinks to nothing over its life.
+    pub(super) const DEFAULT_RADIUS_PER_TICK: f64 =
+        -(Self::DEFAULT_RADIUS / Self::DEFAULT_MAX_AGE_TICKS as f64);
+    /// The ticks before a new cloud affects an entity again.
+    pub(super) const DEFAULT_REAPPLICATION_DELAY_TICKS: i32 = 40;
+    /// The longest a cloud lives, in ticks (one day of the world).
+    pub(super) const MAX_AGE_TICKS: i32 = 24_000;
     /// The most effects a cloud keeps from a saved compound (a potion has at most 3).
     pub(super) const MAX_EFFECTS: usize = 32;
+    /// The largest cloud radius and radius change, in blocks.
+    pub(super) const MAX_RADIUS: f64 = 64.0;
 }
 
-fields!(Cloud {
+checkpoint::fields!(Cloud {
     effects,
     age,
     max_age,
@@ -719,7 +740,7 @@ pub(super) enum Victim {
     Entity(Id),
 }
 
-variants!(Victim {
+checkpoint::variants!(Victim {
     0 => Player(session),
     1 => Entity(id),
 });
@@ -751,7 +772,7 @@ impl Character {
     pub(super) const MAX_DEAD_TICKS: u8 = 25;
 }
 
-fields!(Character {
+checkpoint::fields!(Character {
     form,
     invulnerable,
     attack_time,
@@ -790,11 +811,11 @@ pub(super) enum Form {
     Custom(Custom),
 }
 
-variants!(Form {
+checkpoint::variants!(Form {
     0 => Villager {
         profession,
         offers,
-        baby
+        baby,
     },
     1 => Zombie { baby },
     2 => Human { uuid, skin },
@@ -841,7 +862,7 @@ pub(super) struct Painting {
     pub(super) drops: bool,
 }
 
-fields!(Painting {
+checkpoint::fields!(Painting {
     motive,
     facing,
     drops,
@@ -859,7 +880,7 @@ pub(super) struct Crystal {
     pub(super) primed: bool,
 }
 
-fields!(Crystal {
+checkpoint::fields!(Crystal {
     show_base,
     beam_target,
     primed,
@@ -888,11 +909,11 @@ impl Firework {
     pub(super) const MAX_EXPLOSIONS: usize = 256;
 }
 
-fields!(Firework {
+checkpoint::fields!(Firework {
     max_flight,
     explosions,
     owner;
-    flight
+    flight,
 });
 
 /// The physics constants of a kind.

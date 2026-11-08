@@ -10,9 +10,9 @@
 //! (direct calls do not re-enter). A spawned entity is found by [`Context::entity`] and
 //! [`Context::entity_mut`] at once, though a runtime ID comes at the next entity tick.
 //!
-//! Lookups go through the store's slots and indexes: an [`Id`] or a runtime ID is O(1)
-//! (O(log n)), "what is near" visits the chunk index, and the entities of a world are the store's
-//! slots in `Id` order.
+//! Lookups go through the store's slots and indexes: an [`Id`] is O(1), a runtime ID O(log n),
+//! "what is near" visits the chunk index, and the entities of a world are the store's slots in
+//! `Id` order.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -22,7 +22,6 @@ use super::kind::{
     Arrow, Character, Cloud, Falling, Form, Item, Kind, MAX_DESPAWN_DELAY_TICKS,
     MAX_NAME_TAG_BYTES, NEVER, Orb, Projectile, Shot, Tnt, Trident,
 };
-use super::saved::{MAX_CLOUD_AGE_TICKS, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
 use super::{
     Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
     MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, chunk_of, create, drop_stack, hurt_in,
@@ -39,6 +38,7 @@ use crate::math::{self, Aabb, Vec3, to_f32};
 use crate::nbt::Compound;
 use crate::player;
 use crate::random::{self, Random};
+use crate::save::WorldIndex;
 use crate::tick::world_api::{Worlds, index};
 use crate::tick::{Context, Phase, Player, survival};
 use crate::world::{self, BlockPos, ChunkPos, World};
@@ -100,8 +100,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a value that is not a number and [`Error::NotAlive`] for an
-    /// entity that does not live (a dying NPC).
+    /// [`Error::OutOfRange`] for a value that is not a number.
+    /// [`Error::NotAlive`] for an entity that does not live (a dying NPC).
     #[doc(alias = "Entity::setHealth")]
     #[doc(alias = "Living::setHealth")]
     pub fn set_health(&mut self, health: f64) -> Result<()> {
@@ -206,11 +206,11 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a damage outside that range and [`Error::WrongKind`] for another
-    /// kind.
+    /// [`Error::OutOfRange`] for a damage outside that range.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "Projectile::setBaseDamage")]
     pub fn set_base_damage(&mut self, damage: f64) -> Result<()> {
-        if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {
+        if !(0.0..=Projectile::MAX_DAMAGE).contains(&damage) {
             return Err(Error::OutOfRange);
         }
         match &mut self.entity_mut().kind {
@@ -257,10 +257,11 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
     pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> Result<()> {
-        if !(-MAX_CLOUD_AGE_TICKS..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+        if !(-Cloud::MAX_AGE_TICKS..=Cloud::MAX_AGE_TICKS).contains(&ticks) {
             return Err(Error::OutOfRange);
         }
         self.cloud_mut(|c| c.max_age_on_use = ticks)
@@ -270,10 +271,11 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setMaxAge")]
     pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> Result<()> {
-        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+        if !(0..=Cloud::MAX_AGE_TICKS).contains(&ticks) {
             return Err(Error::OutOfRange);
         }
         self.shown_cloud_mut(|c| c.max_age = ticks)
@@ -283,7 +285,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setRadiusChangeOnPickup")]
     pub fn set_cloud_radius_change_on_pickup(&mut self, blocks: f64) -> Result<()> {
         let blocks = f64::from(to_f32(blocks));
@@ -297,7 +300,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setRadiusChangeOnUse")]
     pub fn set_cloud_radius_change_on_use(&mut self, blocks: f64) -> Result<()> {
         let blocks = f64::from(to_f32(blocks));
@@ -311,7 +315,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setRadiusChangePerTick")]
     pub fn set_cloud_radius_change_per_tick(&mut self, blocks: f64) -> Result<()> {
         let blocks = f64::from(to_f32(blocks));
@@ -325,10 +330,11 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
     pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> Result<()> {
-        if !(0..=MAX_CLOUD_AGE_TICKS).contains(&ticks) {
+        if !(0..=Cloud::MAX_AGE_TICKS).contains(&ticks) {
             return Err(Error::OutOfRange);
         }
         self.cloud_mut(|c| c.reapplication_delay = ticks)
@@ -350,7 +356,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a value outside that, and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for a value outside that.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setDespawnDelay")]
     #[doc(alias = "ExperienceOrb::setDespawnDelay")]
     pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> Result<()> {
@@ -385,11 +392,11 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`], changing nothing, for
-    /// more than 256 explosions, a compound that is no explosion (a shape byte 0 to 4, at least
-    /// one colour, colours 0 to 15) or one bigger than Anchor takes (more than 16 colours in a
-    /// list, or a key other than `FireworkType`, `FireworkColor`, `FireworkFade`,
-    /// `FireworkFlicker` and `FireworkTrail`).
+    /// [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`], changing nothing, for more than 256 explosions, a compound that is
+    /// no explosion (a shape byte 0 to 4, at least one colour, colours 0 to 15) or one bigger than
+    /// Anchor takes (more than 16 colours in a list, or a key other than `FireworkType`,
+    /// `FireworkColor`, `FireworkFade`, `FireworkFlicker` and `FireworkTrail`).
     #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
     pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> Result<()> {
         if !matches!(self.kind, Kind::Firework(_)) {
@@ -408,7 +415,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer fuse and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for a longer fuse.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "PrimedTNT::setFuse")]
     pub fn set_fuse_ticks(&mut self, ticks: u16) -> Result<()> {
         if ticks > Tnt::MAX_FUSE {
@@ -457,7 +465,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for an empty stack.
+    /// [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for an empty stack.
     #[doc(alias = "entity\\projectile\\Trident::setItem")]
     pub fn set_item(&mut self, item: Stack) -> Result<()> {
         let Kind::Projectile(Projectile {
@@ -541,13 +550,14 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
     #[doc(alias = "Entity::setNameTag")]
-    pub fn set_name_tag(&mut self, name: &str) -> Result<()> {
+    pub fn set_name_tag(&mut self, name: impl Into<String>) -> Result<()> {
+        let name = name.into();
         if name.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::OutOfRange);
         }
-        name.clone_into(&mut self.shown_mut().name_tag);
+        self.shown_mut().name_tag = name;
         Ok(())
     }
 
@@ -576,16 +586,17 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
-    /// kind.
+    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setOwner")]
-    pub fn set_owner(&mut self, owner: &str) -> Result<()> {
+    pub fn set_owner(&mut self, owner: impl Into<String>) -> Result<()> {
+        let owner = owner.into();
         if owner.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::OutOfRange);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
-                owner.clone_into(&mut item.owner);
+                item.owner = owner;
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -598,8 +609,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
-    /// kind.
+    /// [`Error::NotOnline`] for a player who is not online.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "Entity::setOwningEntity")]
     pub fn set_owning_player(&mut self, owner: Option<player::Id>) -> Result<()> {
         let runtime_id = match owner {
@@ -717,9 +728,9 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for a painting, whose box is its picture on the wall, and
-    /// [`Error::OutOfRange`] unless the scale is above 0 and the scaled box is at most 16 blocks
-    /// wide and high.
+    /// [`Error::WrongKind`] for a painting, whose box is its picture on the wall.
+    /// [`Error::OutOfRange`] for a scale that is not above 0, or whose scaled box is more than 16
+    /// blocks wide or high.
     #[doc(alias = "Entity::setScale")]
     pub fn set_scale(&mut self, scale: f64) -> Result<()> {
         let scale = f64::from(to_f32(scale));
@@ -756,7 +767,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another count and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another count.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setStackSize")]
     pub fn set_stack_size(&mut self, count: u8) -> Result<()> {
         let max = match &self.kind {
@@ -783,8 +795,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotOnline`] for a player who is not online and [`Error::WrongKind`] for another
-    /// kind.
+    /// [`Error::NotOnline`] for a player who is not online.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ExperienceOrb::setTargetPlayer")]
     pub fn set_target_player(&mut self, target: Option<player::Id>) -> Result<()> {
         if target.is_some_and(|id| {
@@ -807,16 +819,17 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] over [`MAX_NAME_TAG_BYTES`] and [`Error::WrongKind`] for another
-    /// kind.
+    /// [`Error::OutOfRange`] for a name over [`MAX_NAME_TAG_BYTES`].
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setThrower")]
-    pub fn set_thrower(&mut self, thrower: &str) -> Result<()> {
+    pub fn set_thrower(&mut self, thrower: impl Into<String>) -> Result<()> {
+        let thrower = thrower.into();
         if thrower.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::OutOfRange);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
-                thrower.clone_into(&mut item.thrower);
+                item.thrower = thrower;
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -843,7 +856,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value and [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ExperienceOrb::setXpValue")]
     pub fn set_xp_value(&mut self, value: u16) -> Result<()> {
         if value == 0 || value > Orb::MAX_VALUE {
@@ -1069,7 +1083,7 @@ impl Entity {
     }
 
     /// The change of a cloud's radius when a bottle takes from it.
-    /// Anchor keeps it for the saved form: it has no dragon's breath.
+    /// Clients are shown it, but nothing takes from a cloud: Anchor has no dragon's breath.
     #[doc(alias = "AreaEffectCloud::getRadiusChangeOnPickup")]
     pub fn cloud_radius_change_on_pickup(&self) -> Option<f64> {
         self.cloud().map(|c| c.radius_on_pickup)
@@ -1178,8 +1192,7 @@ impl Entity {
     }
 
     /// The downward acceleration its kind falls with, in blocks per tick².
-    /// It is per kind: 0.04 for items, 0.05 for arrows, 0.03 for thrown items... Gravity may not
-    /// pull it now ([`Self::has_gravity`]).
+    /// It is per kind. Gravity may not pull it now ([`Self::has_gravity`]).
     #[doc(alias = "Entity::getGravity")]
     pub fn gravity(&self) -> f64 {
         self.kind.physics().gravity
@@ -1772,7 +1785,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
         let w = index(self.state, world)
             .filter(|_| is_valid_position(pos))
@@ -1829,8 +1842,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for more effects, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails.
+    /// [`Error::OutOfRange`] for more effects.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "AreaEffectCloud::__construct")]
     pub fn spawn_area_effect_cloud(
         &mut self,
@@ -1850,7 +1863,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     pub fn spawn_end_crystal(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
         self.spawn(world, pos, object::crystal(), Vec3::ZERO)
     }
@@ -1861,7 +1874,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "FallingBlock::__construct")]
     pub fn spawn_falling_block(
         &mut self,
@@ -1880,7 +1893,8 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`Error::OutOfRange`] for explosions [`Mut::set_firework_explosions`] refuses or a motion
-    /// that is not finite, [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    /// that is not finite.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "entity\\object\\FireworkRocket::__construct")]
     pub fn spawn_firework_rocket(
         &mut self,
@@ -1907,24 +1921,22 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer name, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails.
+    /// [`Error::OutOfRange`] for a longer name.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "Human::__construct")]
     pub fn spawn_human(
         &mut self,
         world: world::Id,
         pos: Vec3,
-        name: &str,
+        name: impl Into<String>,
         skin: Option<Skin>,
     ) -> Result<Id> {
+        let name = name.into();
         if name.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::OutOfRange);
         }
         let w = index(self.state, world).ok_or(Error::NotSpawned)?;
-        let npc = Npc::Human {
-            name: name.to_owned(),
-            skin,
-        };
+        let npc = Npc::Human { name, skin };
         super::spawn_npc(self.state, w, pos, npc).ok_or(Error::NotSpawned)
     }
 
@@ -1934,8 +1946,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for an up or down facing, [`Error::NotSpawned`] where
-    /// [`Self::drop_item`] fails.
+    /// [`Error::OutOfRange`] for an up or down facing.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "Painting::__construct")]
     pub fn spawn_painting(
         &mut self,
@@ -1961,8 +1973,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a motion that is not finite, [`Error::NotSpawned`] where
-    /// [`Self::drop_item`] fails.
+    /// [`Error::OutOfRange`] for a motion that is not finite.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     #[doc(alias = "Projectile::__construct")]
     pub fn spawn_projectile(
         &mut self,
@@ -1983,7 +1995,7 @@ impl Context<'_> {
                     punch: 0,
                     life: 0,
                 };
-                (Shot::Arrow(arrow), projectile::ARROW_DAMAGE)
+                (Shot::Arrow(arrow), Arrow::DAMAGE)
             }
             P::Snowball => (Shot::Snowball, 0.0),
             P::Egg => (Shot::Egg, 0.0),
@@ -2020,8 +2032,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a longer fuse, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails.
+    /// [`Error::OutOfRange`] for a longer fuse.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse_ticks: u16) -> Result<Id> {
         if fuse_ticks > Tnt::MAX_FUSE {
             return Err(Error::OutOfRange);
@@ -2071,8 +2083,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for another value, [`Error::NotSpawned`] where [`Self::drop_item`]
-    /// fails or with `xp = false` or `xp-orbs = false`.
+    /// [`Error::OutOfRange`] for another value.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses, and with
+    /// `xp = false` or `xp-orbs = false`.
     #[doc(alias = "ExperienceOrb::__construct")]
     pub fn spawn_xp_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Result<Id> {
         if value == 0 || value > Orb::MAX_VALUE {
@@ -2096,7 +2109,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSpawned`] where [`Self::drop_item`] fails.
+    /// [`Error::NotSpawned`] for a world or place [`Self::drop_item`] refuses.
     pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Result<Id> {
         let w = index(self.state, world).ok_or(Error::NotSpawned)?;
         super::spawn_npc(self.state, w, pos, Npc::Zombie).ok_or(Error::NotSpawned)
@@ -2134,7 +2147,7 @@ impl action::Sealed for action::Explode {
 
 impl Entities {
     /// The live, unflagged entities of `world` in `Id` order: the store's slots, filtered.
-    fn of_world(&self, world: usize) -> impl Iterator<Item = (Id, &Entity)> + '_ {
+    fn of_world(&self, world: WorldIndex) -> impl Iterator<Item = (Id, &Entity)> + '_ {
         (0_u32..).zip(&self.slots).filter_map(move |(i, s)| {
             let e = s.entity.as_ref()?;
             (e.world == world && !e.flagged).then_some((Id::new(i, s.generation), e))
@@ -2142,7 +2155,7 @@ impl Entities {
     }
 
     /// Moves a live entity's count to world `to`; the caller checked the cap and reindexes it.
-    fn move_world(&mut self, id: Id, to: usize) {
+    fn move_world(&mut self, id: Id, to: WorldIndex) {
         let Some(e) = self.get_mut(id) else {
             return;
         };
@@ -2183,7 +2196,7 @@ fn arrow(kind: &Kind) -> Option<&Arrow> {
 
 /// Whether a cloud takes `blocks` as a radius change (finite, within the saved form's bound).
 fn is_radius_change(blocks: f64) -> bool {
-    (-MAX_CLOUD_RADIUS..=MAX_CLOUD_RADIUS).contains(&blocks)
+    (-Cloud::MAX_RADIUS..=Cloud::MAX_RADIUS).contains(&blocks)
 }
 
 #[cfg(test)]

@@ -251,7 +251,7 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
         let mut cx = h.context();
         let mut e = cx.entity_mut(id).unwrap();
         e.set_name_tag("Boom").unwrap();
-        assert!(e.set_name_tag(&"x".repeat(1025)).is_err());
+        assert!(e.set_name_tag("x".repeat(1025)).is_err());
         e.set_name_tag_visible(false);
         e.set_name_tag_always_visible(true);
         e.set_scale(2.0).unwrap();
@@ -760,7 +760,7 @@ fn spawns_are_refused_where_the_world_cannot_take_them_and_items_come_back() {
         cx.spawn_projectile(WORLD, ok, Projectile::Egg, Vec3::new(0.0, f64::NAN, 0.0))
             .is_err()
     );
-    assert!(cx.spawn_human(WORLD, ok, &"n".repeat(1025), None).is_err());
+    assert!(cx.spawn_human(WORLD, ok, "n".repeat(1025), None).is_err());
     assert!(cx.entity_mut(Id::new(77, 0)).is_none());
     // At the cap nothing more is made and the stack comes back.
     let n = MAX_ENTITIES_PER_WORLD - cx.entities(WORLD).count();

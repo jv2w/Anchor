@@ -14,11 +14,11 @@
 
 use super::EPSILON;
 use super::kind::Physics;
-use crate::block::{self, Class, Face};
+use crate::block::{self, Class};
 use crate::event::DamageCause;
-use crate::math::{self, Aabb, Vec3, max};
+use crate::math::{self, Aabb, Vec3};
 use crate::random::Random;
-use crate::tick::checkpoint::fields;
+use crate::tick::checkpoint;
 use crate::tick::interact::props::{self, Axis};
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
@@ -76,7 +76,7 @@ pub(super) struct Step {
     /// A projectile's flight this tick: the serial phase looks for entities on it.
     pub(super) flight: Option<Flight>,
     /// The block a projectile's ray met.
-    pub(super) hit: Option<BlockHit>,
+    pub(super) hit: Option<BlockPos>,
     /// A projectile's new yaw and pitch (it turns along its flight while nothing is hit).
     pub(super) rotation: Option<(f64, f64)>,
     /// The block a stuck projectile was stuck in changed and holds it no more.
@@ -113,7 +113,7 @@ impl Body {
     }
 }
 
-fields!(Body {
+checkpoint::fields!(Body {
     position,
     motion,
     on_ground,
@@ -129,17 +129,6 @@ pub(super) struct Flight {
     pub(super) motion: Vec3,
     /// Where it stopped: the first block on the way, or `start + motion`.
     pub(super) end: Vec3,
-}
-
-/// Where a projectile's ray met a block.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct BlockHit {
-    /// The block.
-    pub(super) pos: BlockPos,
-    /// The point on its box.
-    pub(super) point: Vec3,
-    /// The face of the box it entered.
-    pub(super) face: Face,
 }
 
 /// What a block the entity is inside does to it, for the serial phase: these change health and
@@ -194,7 +183,7 @@ impl Touch {
 pub(in crate::tick) enum Harm {
     /// Fire (1) or soul fire (2) fire damage, then burning.
     Fire(u8),
-    /// Lava, in a block or (`cauldron`) a cauldron: 4 lava damage, then burning; lava in a block
+    /// Lava, in a block or (`cauldron`) a cauldron: lava damage, then burning; lava in a block
     /// ends the fall.
     Lava {
         /// In a lava cauldron.
@@ -495,9 +484,9 @@ fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
     // Both cuts stop EPSILON inside the chunk: the center is rebuilt from the moved box's
     // corners, and that sum rounds past an exact border.
     if d > 0.0 {
-        max(math::min(d, low + CHUNK_WIDTH - EPSILON - c), 0.0)
+        math::max(math::min(d, low + CHUNK_WIDTH - EPSILON - c), 0.0)
     } else {
-        math::min(max(d, low + EPSILON - c), 0.0)
+        math::min(math::max(d, low + EPSILON - c), 0.0)
     }
 }
 
@@ -519,14 +508,26 @@ fn fly(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
             block_intercept(world, pos, start, end)
         };
         match met {
-            Some((point, face)) => {
+            Some(point) => {
                 end = point;
-                hit = Some(BlockHit { pos, point, face });
+                hit = Some(pos);
                 true
             }
             None => false,
         }
     });
+    // A ray stopped by a chunk that is not loaded can end on that chunk's west or north border,
+    // which belongs to it: the end steps back over each such border it crossed, into the loaded
+    // chunk it came through, where the projectile is indexed and saved.
+    if hit.is_some() && !world.is_chunk_loaded(BlockPos::containing(end).chunk()) {
+        let on_border = |v: f64| v == (v / CHUNK_WIDTH).floor() * CHUNK_WIDTH;
+        if end.x > start.x && on_border(end.x) {
+            end.x -= EPSILON;
+        }
+        if end.z > start.z && on_border(end.z) {
+            end.z -= EPSILON;
+        }
+    }
     body.position = end;
     out.flight = Some(Flight {
         start,
@@ -794,14 +795,9 @@ pub(super) fn is_clear(world: &World, from: Vec3, to: Vec3) -> bool {
     !blocked
 }
 
-/// The nearest point where the segment `from`–`to` enters a collision box of the block at `pos`,
-/// and the face; a block that is not loaded is a full cube.
-pub(super) fn block_intercept(
-    world: &World,
-    pos: BlockPos,
-    from: Vec3,
-    to: Vec3,
-) -> Option<(Vec3, Face)> {
+/// The nearest point where the segment `from`–`to` enters a collision box of the block at `pos`;
+/// a block that is not loaded is a full cube.
+fn block_intercept(world: &World, pos: BlockPos, from: Vec3, to: Vec3) -> Option<Vec3> {
     let at = pos.to_corner();
     let cube = [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0))];
     let cell = cell(world, pos.x, pos.y, pos.z);
@@ -810,60 +806,40 @@ pub(super) fn block_intercept(
         None if matches!(cell, Cell::Wall) => &cube,
         None => return None,
     };
-    let mut best: Option<(Vec3, Face, f64)> = None;
+    let mut best: Option<(Vec3, f64)> = None;
     for b in boxes {
-        if let Some((point, face)) = intercept(b.offset(at), from, to) {
+        if let Some(point) = intercept(b.offset(at), from, to) {
             let d = point.distance_squared(from);
-            if best.is_none_or(|(_, _, bd)| d < bd) {
-                best = Some((point, face, d));
+            if best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((point, d));
             }
         }
     }
-    best.map(|(p, f, _)| (p, f))
+    best.map(|(p, _)| p)
 }
 
-/// The point nearest `from` where the segment `from`–`to` meets a face of `b`, and that face.
-pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
+/// The point nearest `from` where the segment `from`–`to` meets a face of `b`.
+pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<Vec3> {
     let across_x = |v: &Vec3| v.y >= b.min.y && v.y <= b.max.y && v.z >= b.min.z && v.z <= b.max.z;
     let across_y = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.z >= b.min.z && v.z <= b.max.z;
     let across_z = |v: &Vec3| v.x >= b.min.x && v.x <= b.max.x && v.y >= b.min.y && v.y <= b.max.y;
     // In the order x, y, z with the lower face first: the first of equal distances wins.
     let candidates = [
-        (
-            Face::West,
-            on_plane(from, to, Axis::X, b.min.x).filter(across_x),
-        ),
-        (
-            Face::East,
-            on_plane(from, to, Axis::X, b.max.x).filter(across_x),
-        ),
-        (
-            Face::Down,
-            on_plane(from, to, Axis::Y, b.min.y).filter(across_y),
-        ),
-        (
-            Face::Up,
-            on_plane(from, to, Axis::Y, b.max.y).filter(across_y),
-        ),
-        (
-            Face::North,
-            on_plane(from, to, Axis::Z, b.min.z).filter(across_z),
-        ),
-        (
-            Face::South,
-            on_plane(from, to, Axis::Z, b.max.z).filter(across_z),
-        ),
+        on_plane(from, to, Axis::X, b.min.x).filter(across_x),
+        on_plane(from, to, Axis::X, b.max.x).filter(across_x),
+        on_plane(from, to, Axis::Y, b.min.y).filter(across_y),
+        on_plane(from, to, Axis::Y, b.max.y).filter(across_y),
+        on_plane(from, to, Axis::Z, b.min.z).filter(across_z),
+        on_plane(from, to, Axis::Z, b.max.z).filter(across_z),
     ];
-    let mut best: Option<(Vec3, Face, f64)> = None;
-    for (face, v) in candidates {
-        if let Some(v) = v {
-            let d = from.distance_squared(v);
-            if best.is_none_or(|(_, _, bd)| d < bd) {
-                best = Some((v, face, d));
-            }
+    let mut best: Option<(Vec3, f64)> = None;
+    for v in candidates.into_iter().flatten() {
+        let d = from.distance_squared(v);
+        if best.is_none_or(|(_, bd)| d < bd) {
+            best = Some((v, d));
         }
     }
-    best.map(|(v, f, _)| (v, f))
+    best.map(|(v, _)| v)
 }
 
 /// The point where the segment `from`–`to` crosses the plane where the coordinate of `axis` is
@@ -892,7 +868,7 @@ fn on_plane(from: Vec3, to: Vec3, axis: Axis, value: f64) -> Option<Vec3> {
 
 /// Visits the cells the segment `start`–`end` passes ([`cells_along`]); at most
 /// [`MAX_RAY_CELLS`].
-pub(super) fn cells(start: Vec3, end: Vec3, visit: impl FnMut(i32, i32, i32) -> bool) {
+fn cells(start: Vec3, end: Vec3, visit: impl FnMut(i32, i32, i32) -> bool) {
     let length = start.distance_squared(end).sqrt();
     if !(length > 0.0 && length.is_finite()) {
         return;
@@ -1006,7 +982,11 @@ pub(crate) fn bounded(v: Vec3) -> Vec3 {
 
 /// The fall distance a stored value may have: finite and not negative.
 pub(super) fn fall_distance(v: f64) -> f64 {
-    if v.is_finite() { max(v, 0.0) } else { 0.0 }
+    if v.is_finite() {
+        math::max(v, 0.0)
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -1135,6 +1115,35 @@ pub(super) mod tests {
         };
         let body = step(&w, &input(edge, item_physics())).body;
         assert_eq!(body.position.x, 48.0 - 0.125);
+    }
+
+    /// A ray stopped by the west or north border of a chunk that is not loaded ends in the loaded
+    /// chunk, where the projectile is indexed and saved.
+    #[test]
+    fn a_ray_stopped_by_an_unloaded_chunk_ends_in_the_loaded_chunk() {
+        let w = flat();
+        let ray = Physics {
+            ray: true,
+            gravity: 0.0,
+            drag: 0.0,
+            ..*item_physics()
+        };
+        for (position, motion) in [
+            (Vec3::new(47.5, -55.0, 0.5), Vec3::new(1.5, 0.0, 0.0)),
+            (Vec3::new(0.5, -55.0, 47.5), Vec3::new(0.0, 0.0, 1.5)),
+            // Through the corner of the loaded area.
+            (Vec3::new(47.5, -55.0, 47.5), Vec3::new(1.0, 0.0, 1.0)),
+        ] {
+            let start = Body {
+                position,
+                motion,
+                ..Body::default()
+            };
+            let s = step(&w, &input(start, &ray));
+            assert!(s.hit.is_some(), "the unloaded chunk stops it");
+            let end = BlockPos::containing(s.body.position).chunk();
+            assert!(w.is_chunk_loaded(end), "it ends in chunk {end:?}");
+        }
     }
 
     /// A box as wide as a player's (a custom or scaled entity) that already reaches west or north
