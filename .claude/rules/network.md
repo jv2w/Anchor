@@ -26,7 +26,7 @@ paths:
 - Open UDP on `server-port` only: one IPv4 socket and one IPv6-only socket, shared by both transports. Never give a transport a port of its own.
 - One UDP task (`udp.rs`) owns both sockets, the RakNet driver, and the NetherNet driver, and hands each datagram to a transport by its first bytes. Use no locks and never copy a datagram to another task.
 - Both drivers apply the commands sessions queued before they apply close flags and before they stop, so a session's last packets go out before its close.
-- Skip per-datagram receive errors (Windows reports an ICMP port unreachable as WSAECONNRESET) and keep reading.
+- Skip per-datagram receive errors and keep reading.
 - Build every per-IP limit key with the one function `raknet::ip_key`; RakNet, signaling, and NetherNet peers share it.
 - Keep NetherNet's TCP signaling.
 - Never open a socket per NetherNet connection: every peer shares the `server-port` sockets.
@@ -52,7 +52,7 @@ paths:
 - Test online login with a test issuer (an OpenID configuration and JWKS from its own RSA key) placed in `auth.json`. Never add a test-only entry point to the engine.
 
 ## NetherNet
-- Match the pinned df-mc/go-nethernet (version in `xtask/go/go.mod`) as the ground truth, with Mojang's NetherNet onboarding guide as secondary evidence.
+- Match the pinned go-nethernet (version in `xtask/go/go.mod`) as the ground truth, with Mojang's NetherNet onboarding guide as secondary evidence.
 - Signaling (`nethernet/signaling.rs`) only routes and enforces limits; it never interprets the offer.
 - Refuse a signaling request that carries both `Content-Length` and `Transfer-Encoding: chunked` with 400.
 - Refuse to start when the `nethernet-tls-cert` or `nethernet-tls-key` PEM is invalid.
@@ -76,7 +76,7 @@ paths:
 - The RakNet layer adds and removes the 0xfe byte; the session stays transport-independent.
 - RakNet timing uses the monotonic clock (`clock::now`).
 - Use the connection cookie only with `raknet-cookies = true`: a keyed MAC from the `crypto` module, never a checksum anyone can compute. Answer a request 2 without the right cookie with nothing, and keep no state for it.
-- Drop a malformed ACK or NAK, and a datagram whose number is the history (1,024) or more ahead, as that datagram alone, unless a second one follows within the history (then move the record there). Never close the connection for them.
+- Drop a malformed ACK or NAK, and a datagram whose number is too far ahead of the received-number record, as that datagram alone; move the record only as `.claude/docs/network.md` gives. Never close the connection for them.
 - Never preallocate for the fragment count a message declares.
 - Refuse `;` and control characters in `motd` and `level-name`.
 
