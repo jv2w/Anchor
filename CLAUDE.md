@@ -24,7 +24,7 @@ The final goal is **completeness**: a complete server library no player and no d
 **Safety**
 - Idempotency: a request arriving twice has the result of once. Client request IDs are processed once; saves write absolute values. Every handler taking a request ID has a test that applying it twice gives the same state hash as once.
 - Determinism: the same start state and input log give the same state hash on any thread count and OS. The engine provides time, randomness, and IDs. Parallel stages never sum floats; tick state never holds NaN or Inf.
-- Robustness: external input (network, disk, configuration, public API arguments) never reaches a panic or unbounded resource use. Lengths and counts are checked with the bound-check helper before allocating. Arithmetic on external values is `checked_*`, `saturating_*`, or `try_from`.
+- Robustness: external input (network, disk, configuration, public API arguments) never reaches a panic or unbounded resource use. Lengths and counts are checked against a named bound before allocating (`Reader::limit` for packets, `fs::read_bounded` for files). Arithmetic on external values is `checked_*`, `saturating_*`, or `try_from`.
 - Code outside tests never panics and never discards an error; only internal invariant violations use `expect` with the `invariant` tag. Corrupt data is neither read nor overwritten; the original is preserved.
 
 **Performance**: hold TPS fixed and drive MSPT as low as possible. Write the fastest form from the start; when code alone cannot decide, measure, choose, and write the reason.
