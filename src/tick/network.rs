@@ -17,12 +17,12 @@ use super::{State, TICK};
 use crate::runtime::ThreadTotals;
 
 /// The ticks the averages cover: one second's.
-const AVERAGED: u32 = 20;
+const AVERAGED: u32 = crate::Context::TICKS_PER_SECOND;
 
 /// The tick's view of its load and of the networking.
 #[derive(Debug, Default)]
 pub(super) struct Network {
-    /// Microseconds each of the last 20 measured ticks took, the oldest replaced first; 0 before a tick was measured.
+    /// Microseconds each of the last [`AVERAGED`] measured ticks took, the oldest replaced first; 0 before a tick was measured.
     tick_times: [u32; AVERAGED as usize],
     /// The slot of the latest measured tick.
     latest: usize,
@@ -43,13 +43,13 @@ pub(super) struct Network {
 }
 
 impl Network {
-    /// The mean of the last 20 measured tick times.
+    /// The mean of the last [`AVERAGED`] measured tick times.
     pub(super) fn average_mspt(&self) -> Duration {
         let sum: u64 = self.tick_times.iter().map(|&t| u64::from(t)).sum();
         Duration::from_micros(sum / u64::from(AVERAGED))
     }
 
-    /// The mean of the last 20 ticks' [`Self::tps`].
+    /// The mean of the last [`AVERAGED`] ticks' [`Self::tps`].
     pub(super) fn average_tps(&self) -> f64 {
         // Summed in slot order, serially: the same on every run and thread count.
         let sum: f64 = self.tick_times.iter().map(|&t| tps_of(t)).sum();
@@ -165,8 +165,11 @@ super::checkpoint::fields!(Network {
     logged_in,
     memory,
     uptime_ms;
+    // The running server's threads, not the recorded one's: `restore` keeps the live value.
     threads,
+    // Empty between ticks, where a checkpoint is taken.
     controls,
+    // A channel to the running networking, which a checkpoint cannot hold.
     link,
 });
 
