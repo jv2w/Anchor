@@ -6,10 +6,10 @@
 //! value out of range keeps the default, except that the health is cut to the maximum health, the
 //! air to [`MIN_AIR_TICKS`]..=[`MAX_AIR_TICKS`], the xp level to
 //! [`MAX_LEVEL`](crate::player::MAX_LEVEL), the xp ever collected to [`MAX_LIFETIME_XP`], and
-//! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
+//! the food timer wraps at [`FOOD_CYCLE_TICKS`]; nothing here panics.
 
 use super::effects::Active;
-use super::food::{FOOD_CYCLE, MAX_LIFETIME_XP};
+use super::food::{FOOD_CYCLE_TICKS, MAX_LIFETIME_XP};
 use super::{
     MAX_AIR_TICKS, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, MIN_AIR_TICKS, Point,
     Survival,
@@ -17,7 +17,7 @@ use super::{
 use crate::config::GameMode;
 use crate::effect::Instance;
 use crate::item::Stack;
-use crate::math::to_f32;
+use crate::math::{self, to_f32};
 use crate::nbt::{Compound, List, Value};
 use crate::world::BlockPos;
 
@@ -54,7 +54,9 @@ const LAST_PLAYED: &str = "lastPlayed";
 /// The most effects read: one per effect type.
 const MAX_EFFECTS: usize = crate::effect::TYPE_COUNT;
 /// The most falling distance kept (a longer fall kills anyway).
-const MAX_FALL: f64 = 4096.0;
+pub(super) const MAX_FALL: f64 = 4096.0;
+/// The key of the food saturation.
+const SATURATION: &str = "foodSaturationLevel";
 /// The saved IDs of the game modes, for saving and loading. Spectator is 3 here, unlike the
 /// protocol's game type.
 const SAVED_MODES: [(GameMode, i32); 4] = [
@@ -63,8 +65,6 @@ const SAVED_MODES: [(GameMode, i32); 4] = [
     (GameMode::Adventure, 2),
     (GameMode::Spectator, 3),
 ];
-/// The key of the food saturation.
-const SATURATION: &str = "foodSaturationLevel";
 /// The keys of the spawn position's coordinates.
 const SPAWN: [&str; 3] = ["SpawnX", "SpawnY", "SpawnZ"];
 /// The key of the spawn position's world.
@@ -80,61 +80,6 @@ const XP_TOTAL: &str = "XpTotal";
 /// `StartGame`).
 pub(in crate::tick) fn game_mode_id(mode: GameMode) -> i32 {
     i32::from(mode.game_type())
-}
-
-/// The saved ID of a game mode.
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: `SAVED_MODES` lists every game mode"
-)]
-fn saved_mode(mode: GameMode) -> i32 {
-    SAVED_MODES
-        .iter()
-        .find(|&&(m, _)| m == mode)
-        .map(|&(_, id)| id)
-        .expect("every game mode has a saved ID")
-}
-
-fn int(extra: &Compound, key: &str) -> Option<i32> {
-    match extra.get(key) {
-        Some(Value::Int(v)) => Some(*v),
-        _ => None,
-    }
-}
-
-fn short(extra: &Compound, key: &str) -> Option<i16> {
-    match extra.get(key) {
-        Some(Value::Short(v)) => Some(*v),
-        _ => None,
-    }
-}
-
-/// A float key that is finite and within `lo..=hi`.
-fn float(extra: &Compound, key: &str, lo: f64, hi: f64) -> Option<f64> {
-    match extra.get(key) {
-        Some(Value::Float(v)) => {
-            let v = f64::from(*v);
-            (v.is_finite() && v >= lo && v <= hi).then_some(v)
-        }
-        _ => None,
-    }
-}
-
-fn string<'a>(extra: &'a Compound, key: &str) -> Option<&'a str> {
-    match extra.get(key) {
-        Some(Value::String(v)) => Some(v),
-        _ => None,
-    }
-}
-
-/// A point saved as a world name and three int keys.
-fn point(extra: &Compound, world: &str, keys: [&str; 3]) -> Option<Point> {
-    let world = string(extra, world)?;
-    let [x, y, z] = keys.map(|k| int(extra, k));
-    Some(Point {
-        world: world.to_owned(),
-        pos: BlockPos::new(x?, y?, z?),
-    })
 }
 
 /// Reads the survival keys; each missing or bad key keeps its default, but for the few the module
@@ -155,8 +100,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         }
     }
     if let Some(health) = float(extra, HEALTH, 0.0, f64::MAX) {
-        let max = s.max_health();
-        s.health = if health > max { max } else { health };
+        s.health = math::min(health, s.max_health());
     }
     if let Some(absorption) = float(extra, ABSORPTION, 0.0, f64::from(f32::MAX)) {
         s.absorption = absorption;
@@ -174,7 +118,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         s.exhaustion = exhaustion;
     }
     if let Some(timer) = int(extra, FOOD_TIMER).and_then(|timer| u32::try_from(timer).ok()) {
-        s.food_timer = timer % FOOD_CYCLE;
+        s.food_timer = timer % FOOD_CYCLE_TICKS;
     }
     if let Some(level) = int(extra, XP_LEVEL).and_then(|level| u32::try_from(level).ok()) {
         s.xp_level = level.min(crate::player::MAX_LEVEL);
@@ -215,11 +159,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
 /// The saved play history (longs of milliseconds since the Unix epoch): the first join and the
 /// last save, each `None` when missing or not a long.
 pub(in crate::tick) fn load_played(extra: &Compound) -> (Option<i64>, Option<i64>) {
-    let long = |key| match extra.get(key) {
-        Some(Value::Long(v)) => Some(*v),
-        _ => None,
-    };
-    (long(FIRST_PLAYED), long(LAST_PLAYED))
+    (long(extra, FIRST_PLAYED), long(extra, LAST_PLAYED))
 }
 
 /// Writes the play history: the first join and the time of this save.
@@ -255,7 +195,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     put(EXHAUSTION, Some(Value::Float(to_f32(s.exhaustion))));
     #[expect(
         clippy::expect_used,
-        reason = "invariant: the food timer stays below `FOOD_CYCLE`"
+        reason = "invariant: the food timer stays below `FOOD_CYCLE_TICKS`"
     )]
     let food_timer = i32::try_from(s.food_timer).expect("the food timer fits an int");
     put(FOOD_TIMER, Some(Value::Int(food_timer)));
@@ -281,12 +221,12 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
         EFFECTS,
         (!effects.is_empty()).then_some(Value::List(List::Compound(effects))),
     );
-    put(
-        FIRE,
-        Some(Value::Short(
-            i16::try_from(s.fire_ticks).unwrap_or(i16::MAX),
-        )),
-    );
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the burning time is at most `MAX_FIRE_TICKS`"
+    )]
+    let fire = i16::try_from(s.fire_ticks).expect("the burning time fits a short");
+    put(FIRE, Some(Value::Short(fire)));
     put(AIR, Some(Value::Short(s.air)));
     put(FALL, Some(Value::Float(to_f32(s.fall_distance))));
     for (world, keys, point) in [
@@ -310,6 +250,68 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
             ))
         }),
     );
+}
+
+/// A float key that is finite and within `lo..=hi`.
+fn float(extra: &Compound, key: &str, lo: f64, hi: f64) -> Option<f64> {
+    match extra.get(key) {
+        Some(Value::Float(v)) => {
+            let v = f64::from(*v);
+            (v.is_finite() && v >= lo && v <= hi).then_some(v)
+        }
+        _ => None,
+    }
+}
+
+fn long(extra: &Compound, key: &str) -> Option<i64> {
+    match extra.get(key) {
+        Some(Value::Long(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+/// A point saved as a world name and three int keys.
+fn point(extra: &Compound, world: &str, keys: [&str; 3]) -> Option<Point> {
+    let world = string(extra, world)?;
+    let [x, y, z] = keys.map(|k| int(extra, k));
+    Some(Point {
+        world: world.to_owned(),
+        pos: BlockPos::new(x?, y?, z?),
+    })
+}
+
+fn int(extra: &Compound, key: &str) -> Option<i32> {
+    match extra.get(key) {
+        Some(Value::Int(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+/// The saved ID of a game mode.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: `SAVED_MODES` lists every game mode"
+)]
+fn saved_mode(mode: GameMode) -> i32 {
+    SAVED_MODES
+        .iter()
+        .find(|&&(m, _)| m == mode)
+        .map(|&(_, id)| id)
+        .expect("every game mode has a saved ID")
+}
+
+fn short(extra: &Compound, key: &str) -> Option<i16> {
+    match extra.get(key) {
+        Some(Value::Short(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+fn string<'a>(extra: &'a Compound, key: &str) -> Option<&'a str> {
+    match extra.get(key) {
+        Some(Value::String(v)) => Some(v),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

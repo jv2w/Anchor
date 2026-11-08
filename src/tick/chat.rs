@@ -6,7 +6,6 @@
 
 use tracing::{debug, trace};
 
-use super::interact::sign::clean;
 use super::queue::SessionId;
 use super::{Context, Phase, Player, State, dispatch, inventory, player};
 use crate::command::{Line, Sender};
@@ -14,6 +13,7 @@ use crate::event::PlayerChat;
 use crate::player::{Id, MAX_TEXT_BYTES, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
+use crate::tick::interact::sign::clean;
 
 /// The translation key of a chat line, `<name> message`, for a
 /// speaker whose name does not fit a chat source ([`standard`]).
@@ -203,7 +203,7 @@ fn say(state: &mut State, session: SessionId, line: String) {
         let Some(name) = display_name(state, Id::new(session)) else {
             return;
         };
-        debug!(session = session.get(), %name, message = %line, "chat");
+        debug!(session = session.get(), player = %name, message = %line, "chat");
         match standard(&name, &line) {
             Ok(packets) => {
                 player::broadcast_packets(state, &packets);
@@ -265,7 +265,7 @@ fn say(state: &mut State, session: SessionId, line: String) {
             return;
         }
     };
-    debug!(session = session.get(), %name, message = %event.message, "chat");
+    debug!(session = session.get(), player = %name, message = %event.message, "chat");
     for &id in &event.recipients {
         if let Some(p) = state
             .players

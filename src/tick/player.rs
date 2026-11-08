@@ -19,7 +19,9 @@ use tracing::info;
 
 use super::queue::SessionId;
 use super::survival::Stay;
-use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
+use super::{
+    Context, Output, Phase, Player, State, checkpoint, dispatch, inside_border, inventory, survival,
+};
 use crate::event::{
     Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, QuitReason, TeleportCause,
 };
@@ -45,6 +47,231 @@ const MAX_ADDRESS: usize = 253;
 const NO_REASON: &str = "disconnectionScreen.noReason";
 /// The log message of a transfer unless one is given.
 const TRANSFERRED: &str = "Moved to another server";
+
+/// What the API marked on a player for the end of the tick, and the chat limit.
+#[derive(Debug, Default)]
+pub(super) struct Marks {
+    /// The name chat shows; `None` is the player's name. Not saved.
+    display_name: Option<String>,
+    /// Why the player leaves at the end of the tick.
+    leave: Option<Leave>,
+    /// Where the player moves at the end of the tick: the world and the eye position, checked.
+    teleport: Option<(WorldIndex, Vec3)>,
+    /// The tick of the player's last chat line and the lines it sent in that tick.
+    pub(super) chat: (u64, u8),
+    /// The lines the player's screen shows at once; `None` is 7. Not saved.
+    line_height: Option<u32>,
+    /// The screen elements the player's client hides, one [`HudElement::bit`] each. Not saved.
+    hidden_hud: u16,
+}
+
+impl Marks {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            display_name,
+            leave,
+            teleport,
+            chat,
+            line_height,
+            hidden_hud,
+        } = self;
+        match display_name {
+            Some(name) => h.bytes(name.as_bytes()),
+            None => h.u64(u64::MAX),
+        }
+        match leave {
+            Some(Leave::Kick {
+                reason,
+                screen_message,
+                quit_message,
+            }) => {
+                h.bytes(reason.as_bytes());
+                match screen_message {
+                    Some(m) => h.bytes(m.as_bytes()),
+                    None => h.u64(u64::MAX),
+                }
+                h.bytes(quit_message.as_bytes());
+            }
+            Some(Leave::Transfer {
+                address,
+                port,
+                message,
+            }) => {
+                h.bytes(address.as_bytes());
+                h.u64(u64::from(*port));
+                h.bytes(message.as_bytes());
+            }
+            None => h.u64(u64::MAX),
+        }
+        match teleport {
+            Some((world, eye)) => {
+                h.usize(*world);
+                for c in [eye.x, eye.y, eye.z] {
+                    h.u64(c.to_bits());
+                }
+            }
+            None => h.u64(u64::MAX),
+        }
+        h.u64(chat.0);
+        h.u64(u64::from(chat.1));
+        h.u64(line_height.map_or(0, u64::from));
+        h.u64(u64::from(*hidden_hud));
+    }
+}
+
+checkpoint::fields!(Marks {
+    display_name,
+    leave,
+    teleport,
+    chat,
+    line_height,
+    hidden_hud,
+});
+
+/// How a player leaves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Leave {
+    /// Disconnected with a reason (for the log and its screen).
+    Kick {
+        reason: String,
+        /// What its screen shows instead of the reason.
+        screen_message: Option<String>,
+        /// What the other players see in chat; empty for nothing.
+        quit_message: String,
+    },
+    /// Sent to another server.
+    Transfer {
+        address: String,
+        port: u16,
+        /// For the log and [`PlayerQuit`].
+        message: String,
+    },
+}
+
+impl Leave {
+    /// Why the player left, for the log and [`PlayerQuit`].
+    fn reason(&self) -> &str {
+        match self {
+            Self::Kick { reason, .. } => reason,
+            Self::Transfer { message, .. } => message,
+        }
+    }
+
+    /// The last packet the player gets, and the message the other players see.
+    fn into_parts(self) -> (Packet, String) {
+        match self {
+            Self::Kick {
+                reason,
+                screen_message,
+                quit_message,
+            } => {
+                let message = screen_message.unwrap_or(reason);
+                let packet = Packet::Disconnect(Disconnect {
+                    reason: DisconnectReason::Kicked.into(),
+                    hide_disconnection_screen: false,
+                    message: if message.is_empty() {
+                        NO_REASON.to_owned()
+                    } else {
+                        message
+                    },
+                    filtered_message: String::new(),
+                });
+                (packet, quit_message)
+            }
+            Self::Transfer { address, port, .. } => {
+                let packet = Packet::Transfer(Box::new(Transfer {
+                    address,
+                    port,
+                    reload_world: false,
+                    gathering_join_info: None,
+                }));
+                (packet, LEFT.to_owned())
+            }
+        }
+    }
+}
+
+checkpoint::variants!(Leave {
+    0 => Kick {
+        reason,
+        screen_message,
+        quit_message,
+    },
+    1 => Transfer {
+        address,
+        port,
+        message,
+    },
+});
+
+/// What the player's connection and saved data tell besides its login: its latest ping and its
+/// play history, in milliseconds since the Unix epoch.
+#[derive(Debug, Default)]
+pub(super) struct Presence {
+    /// The latest round trip time in milliseconds ([`Measure::Ping`](super::queue::Measure));
+    /// `None` until one arrived.
+    ping_ms: Option<u32>,
+    /// When the player first joined (`firstPlayed`).
+    first_played_ms: i64,
+    /// When the player's data was saved before this join (`lastPlayed`).
+    last_played_ms: i64,
+    /// The engine tick the saved data was placed at, which with the join time dates a save.
+    placed_tick: u64,
+}
+
+impl Presence {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            ping_ms,
+            first_played_ms,
+            last_played_ms,
+            placed_tick,
+        } = self;
+        h.u64(ping_ms.map_or(0, |p| u64::from(p) + 1));
+        h.u64(first_played_ms.cast_unsigned());
+        h.u64(last_played_ms.cast_unsigned());
+        h.u64(*placed_tick);
+    }
+
+    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
+    /// reads no wall clock; it dates it from the join time and the ticks since, one
+    /// [`TICK`](super::TICK) each).
+    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
+        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
+        let since =
+            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
+        (self.first_played_ms, join_ms.saturating_add(since))
+    }
+
+    /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
+    /// new player, which gets `join_ms`).
+    pub(super) fn place(
+        &mut self,
+        (first, last): (Option<i64>, Option<i64>),
+        join_ms: i64,
+        tick: u64,
+    ) {
+        self.first_played_ms = first.unwrap_or(join_ms);
+        self.last_played_ms = last.unwrap_or(join_ms);
+        self.placed_tick = tick;
+    }
+
+    /// Sets the latest round trip time to `millis` milliseconds.
+    pub(super) fn set_ping(&mut self, millis: u32) {
+        self.ping_ms = Some(millis);
+    }
+}
+
+checkpoint::fields!(Presence {
+    ping_ms,
+    first_played_ms,
+    last_played_ms,
+    placed_tick,
+});
 
 impl Player {
     /// The client's random number, as its login tells (`getExtraData()["ClientRandomId"]`); 0
@@ -87,7 +314,7 @@ impl Player {
     #[doc(alias = "Player::getFirstPlayed")]
     #[doc(alias = "IPlayer::getFirstPlayed")]
     pub fn first_played(&self) -> SystemTime {
-        unix_time(self.presence.first_played)
+        unix_time(self.presence.first_played_ms)
     }
 
     /// The client's version, such as `1.26.60`, as its login tells
@@ -109,8 +336,8 @@ impl Player {
     #[doc(alias = "IPlayer::hasPlayedBefore")]
     pub fn has_played_before(&self) -> bool {
         self.presence
-            .last_played
-            .saturating_sub(self.presence.first_played)
+            .last_played_ms
+            .saturating_sub(self.presence.first_played_ms)
             > 1
     }
 
@@ -153,7 +380,7 @@ impl Player {
     #[doc(alias = "Player::getLastPlayed")]
     #[doc(alias = "IPlayer::getLastPlayed")]
     pub fn last_played(&self) -> SystemTime {
-        unix_time(self.presence.last_played)
+        unix_time(self.presence.last_played_ms)
     }
 
     /// The language the client runs in, such as `en_US`, as its login tells.
@@ -264,8 +491,8 @@ impl Player {
         self.identity.xuid
     }
 
-    /// [`add_sound`](Self::add_sound) heard at full volume however far `pos` is, so a sound
-    /// played where the player stands keeps up with it while it moves.
+    /// Plays `sound` as [`add_sound`](Self::add_sound) does, heard at full volume however far
+    /// `pos` is, so a sound played where the player stands keeps up with it while it moves.
     ///
     /// # Errors
     ///
@@ -352,12 +579,12 @@ impl Player {
 
     /// Shows the player `message`. The packets follow this tick's
     /// other packets. More than 4,096 packets queued in one tick disconnect the player
-    /// ([`send_packet`](Self::send_packet)).
+    /// ([`send_packet`](Self::send_packet)). A message a client does not decode ([`Message`] gives
+    /// the bounds) sends nothing.
     ///
     /// # Errors
     ///
-    /// Sends nothing for a message a client does not decode ([`Message`] gives the bounds):
-    /// [`Error::TooLong`] for a text or chat source name over its bound, and
+    /// [`Error::TooLong`] for a text or chat source name over its bound.
     /// [`Error::TooManyParameters`] for more than 4 translation parameters.
     #[doc(alias = "Player::sendMessage")]
     #[doc(alias = "Player::sendTip")]
@@ -590,17 +817,17 @@ impl Context<'_> {
         }
     }
 
-    /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, it
-    /// wakes, its breaking stops, its fall ends, and its client and viewers see it there; another
-    /// world sends its chunks again and raises
+    /// Moves `player`'s feet to `feet` in `world`: by the end of the tick its window closes, its
+    /// breaking stops, its fall ends, and its client and viewers see it there; another world
+    /// sends its chunks again and raises
     /// [`PlayerWorldChange`](crate::event::PlayerWorldChange). [`Player::position`] is the new
     /// place at once; a second teleport in the tick wins, and a world that unloads before the
     /// player moves sends it to the default world's spawn as it sends the world's players. The
-    /// player keeps its rotation unless [`Player::set_rotation`] turns it.
+    /// player keeps its rotation unless [`Player::set_rotation`] turns it. A teleport that fails
+    /// changes nothing.
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
     /// [`Error::Offline`] if the player is not in the game.
     /// [`Error::WorldNotLoaded`] for a world that is not loaded (unloaded, or an ID of another
     /// server).
@@ -676,231 +903,6 @@ impl Context<'_> {
     }
 }
 
-/// What the API marked on a player for the end of the tick, and the chat limit.
-#[derive(Debug, Default)]
-pub(super) struct Marks {
-    /// The name chat shows; `None` is the player's name. Not saved.
-    display_name: Option<String>,
-    /// Why the player leaves at the end of the tick.
-    leave: Option<Leave>,
-    /// Where the player moves at the end of the tick: the world and the eye position, checked.
-    teleport: Option<(WorldIndex, Vec3)>,
-    /// The tick of the player's last chat line and the lines it sent in that tick.
-    pub(super) chat: (u64, u8),
-    /// The lines the player's screen shows at once; `None` is 7. Not saved.
-    line_height: Option<u32>,
-    /// The screen elements the player's client hides, one [`HudElement::bit`] each. Not saved.
-    hidden_hud: u16,
-}
-
-impl Marks {
-    /// Hashes every field (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            display_name,
-            leave,
-            teleport,
-            chat,
-            line_height,
-            hidden_hud,
-        } = self;
-        match display_name {
-            Some(name) => h.bytes(name.as_bytes()),
-            None => h.u64(u64::MAX),
-        }
-        match leave {
-            Some(Leave::Kick {
-                reason,
-                screen_message,
-                quit_message,
-            }) => {
-                h.bytes(reason.as_bytes());
-                match screen_message {
-                    Some(m) => h.bytes(m.as_bytes()),
-                    None => h.u64(u64::MAX),
-                }
-                h.bytes(quit_message.as_bytes());
-            }
-            Some(Leave::Transfer {
-                address,
-                port,
-                message,
-            }) => {
-                h.bytes(address.as_bytes());
-                h.u64(u64::from(*port));
-                h.bytes(message.as_bytes());
-            }
-            None => h.u64(u64::MAX),
-        }
-        match teleport {
-            Some((world, eye)) => {
-                h.usize(*world);
-                for c in [eye.x, eye.y, eye.z] {
-                    h.u64(c.to_bits());
-                }
-            }
-            None => h.u64(u64::MAX),
-        }
-        h.u64(chat.0);
-        h.u64(u64::from(chat.1));
-        h.u64(line_height.map_or(0, u64::from));
-        h.u64(u64::from(*hidden_hud));
-    }
-}
-
-super::checkpoint::fields!(Marks {
-    display_name,
-    leave,
-    teleport,
-    chat,
-    line_height,
-    hidden_hud,
-});
-
-/// How a player leaves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Leave {
-    /// Disconnected with a reason (for the log and its screen).
-    Kick {
-        reason: String,
-        /// What its screen shows instead of the reason.
-        screen_message: Option<String>,
-        /// What the other players see in chat; empty for nothing.
-        quit_message: String,
-    },
-    /// Sent to another server.
-    Transfer {
-        address: String,
-        port: u16,
-        /// For the log and [`PlayerQuit`].
-        message: String,
-    },
-}
-
-impl Leave {
-    /// Why the player left, for the log and [`PlayerQuit`].
-    fn reason(&self) -> &str {
-        match self {
-            Self::Kick { reason, .. } => reason,
-            Self::Transfer { message, .. } => message,
-        }
-    }
-
-    /// The last packet the player gets, and the message the other players see.
-    fn into_parts(self) -> (Packet, String) {
-        match self {
-            Self::Kick {
-                reason,
-                screen_message,
-                quit_message,
-            } => {
-                let message = screen_message.unwrap_or(reason);
-                let packet = Packet::Disconnect(Disconnect {
-                    reason: DisconnectReason::Kicked.into(),
-                    hide_disconnection_screen: false,
-                    message: if message.is_empty() {
-                        NO_REASON.to_owned()
-                    } else {
-                        message
-                    },
-                    filtered_message: String::new(),
-                });
-                (packet, quit_message)
-            }
-            Self::Transfer { address, port, .. } => {
-                let packet = Packet::Transfer(Box::new(Transfer {
-                    address,
-                    port,
-                    reload_world: false,
-                    gathering_join_info: None,
-                }));
-                (packet, LEFT.to_owned())
-            }
-        }
-    }
-}
-
-super::checkpoint::variants!(Leave {
-    0 => Kick {
-        reason,
-        screen_message,
-        quit_message,
-    },
-    1 => Transfer {
-        address,
-        port,
-        message,
-    },
-});
-
-/// What the player's connection and saved data tell besides its login: its latest ping and its
-/// play history, in milliseconds since the Unix epoch.
-#[derive(Debug, Default)]
-pub(super) struct Presence {
-    /// The latest round trip time in milliseconds ([`Measure::Ping`](super::queue::Measure));
-    /// `None` until one arrived.
-    ping_ms: Option<u32>,
-    /// When the player first joined (`firstPlayed`).
-    first_played: i64,
-    /// When the player's data was saved before this join (`lastPlayed`).
-    last_played: i64,
-    /// The engine tick the saved data was placed at, which with the join time dates a save.
-    placed_tick: u64,
-}
-
-impl Presence {
-    /// Hashes every field (state hash).
-    #[cfg(test)]
-    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self {
-            ping_ms,
-            first_played,
-            last_played,
-            placed_tick,
-        } = self;
-        h.u64(ping_ms.map_or(0, |p| u64::from(p) + 1));
-        h.u64(first_played.cast_unsigned());
-        h.u64(last_played.cast_unsigned());
-        h.u64(*placed_tick);
-    }
-
-    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (the tick
-    /// reads no wall clock; it dates it from the join time and the ticks since, one
-    /// [`TICK`](super::TICK) each).
-    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
-        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
-        let since =
-            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
-        (self.first_played, join_ms.saturating_add(since))
-    }
-
-    /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
-    /// new player, which gets `join_ms`).
-    pub(super) fn place(
-        &mut self,
-        (first, last): (Option<i64>, Option<i64>),
-        join_ms: i64,
-        tick: u64,
-    ) {
-        self.first_played = first.unwrap_or(join_ms);
-        self.last_played = last.unwrap_or(join_ms);
-        self.placed_tick = tick;
-    }
-
-    /// Sets the latest round trip time to `millis` milliseconds.
-    pub(super) fn set_ping(&mut self, millis: u32) {
-        self.ping_ms = Some(millis);
-    }
-}
-
-super::checkpoint::fields!(Presence {
-    ping_ms,
-    first_played,
-    last_played,
-    placed_tick,
-});
-
 /// Does what the player setters marked this tick, after the inputs, tasks and rules and before
 /// the views move and the output is built: kicked and transferred players get their last packet
 /// and leave, refused hotbar selections are answered, teleported players move, the survival
@@ -955,9 +957,9 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
     }
 }
 
-/// The world `from` unloads and sends its players to `eye` in the world `to`: a teleport into it
-/// that waits for the end of a tick (marked by a listener of the view phase) goes there too, so
-/// a teleport that succeeded is never dropped.
+/// Sends the players of the world `from`, which unloads, to `eye` in the world `to`: a teleport
+/// into `from` that waits for the end of a tick (marked by a listener of the view phase) goes
+/// there too, so a teleport that succeeded is never dropped.
 pub(super) fn redirect_teleports(state: &mut State, from: WorldIndex, to: WorldIndex, eye: Vec3) {
     for player in state.players.values_mut() {
         if let Some(mark) = &mut player.marks.teleport
@@ -968,19 +970,8 @@ pub(super) fn redirect_teleports(state: &mut State, from: WorldIndex, to: WorldI
     }
 }
 
-/// Moves the player of `session` if it was teleported.
-fn teleport_marked(state: &mut State, session: SessionId) {
-    if let Some((world, eye)) = state
-        .players
-        .get_mut(&session)
-        .and_then(|p| p.marks.teleport.take())
-    {
-        survival::teleport(state, session, world, eye);
-    }
-}
-
-/// The player of `session` is about to leave for `reason`:
-/// the [`PlayerQuit`] listeners may change `quit_message`, then what the API marked on the
+/// Raises [`PlayerQuit`] for the player of `session`, who is about to leave for `reason`:
+/// its listeners may change `quit_message`, then what the API marked on the
 /// player, the listeners' marks included, takes effect (the save follows the event, so a teleport
 /// is the saved place and a kill dies with its drops), then every other online player sees the
 /// message in chat: [`LEFT`] as the translated line with the player's display name, an empty
@@ -1030,6 +1021,17 @@ pub(super) fn quit(
     }
 }
 
+/// Moves the player of `session` if it was teleported.
+fn teleport_marked(state: &mut State, session: SessionId) {
+    if let Some((world, eye)) = state
+        .players
+        .get_mut(&session)
+        .and_then(|p| p.marks.teleport.take())
+    {
+        survival::teleport(state, session, world, eye);
+    }
+}
+
 /// Sends `message` to every online player; returns how many got it. Fails, sending nothing, for a
 /// message a client does not decode.
 pub(super) fn broadcast(state: &mut State, message: Message) -> Result<usize> {
@@ -1053,7 +1055,7 @@ pub(super) fn broadcast_packets(state: &mut State, packets: &Packets) -> usize {
 
 /// Whether `address` can be a transfer address: a host name or IP address, not empty and at most
 /// 253 bytes.
-pub(super) fn is_valid_address(address: &str) -> bool {
+fn is_valid_address(address: &str) -> bool {
     !address.is_empty() && address.len() <= MAX_ADDRESS
 }
 
@@ -1378,7 +1380,7 @@ pub(super) mod tests {
         p.kick("bye").unwrap();
         assert!(!p.is_online());
         assert_eq!(p.kick("again"), Err(Error::Leaving));
-        assert_eq!(p.transfer("example.com", 19132), Err(Error::Leaving));
+        assert_eq!(p.transfer("example.com", 19_132), Err(Error::Leaving));
         run(&mut state, Vec::new());
         let (_, close, _) = received(&mut rx1);
         assert!(matches!(
@@ -1735,7 +1737,7 @@ pub(super) mod tests {
         let hide = i32::from(HudVisibility::Hide);
         let reset = i32::from(HudVisibility::Reset);
         let health = i32::from(consts::HudElement::Health);
-        let hunger = i32::from(consts::HudElement::Hunger);
+        let food = i32::from(consts::HudElement::Hunger);
         let hot_bar = i32::from(consts::HudElement::HotBar);
         let both = [HudElement::Health, HudElement::Food];
 
@@ -1743,7 +1745,7 @@ pub(super) mod tests {
         run(&mut state, Vec::new());
         assert_eq!(
             hud_packets(received(&mut rx1).0),
-            [(vec![health, hunger], hide)]
+            [(vec![health, food], hide)]
         );
         assert!(hud_packets(received(&mut rx2).0).is_empty());
 
@@ -1766,7 +1768,7 @@ pub(super) mod tests {
         run(&mut state, Vec::new());
         assert_eq!(
             hud_packets(received(&mut rx1).0),
-            [(vec![hunger, hot_bar], reset)]
+            [(vec![food, hot_bar], reset)]
         );
         assert_eq!(player_mut(&mut state, 1).marks.hidden_hud, 0);
         assert!(hud_packets(received(&mut rx2).0).is_empty());
@@ -1988,7 +1990,7 @@ pub(super) mod tests {
         let p = player_mut(&mut state, 1);
         assert_eq!(p.transfer("", 1), Err(Error::InvalidAddress));
         assert_eq!(p.transfer("a".repeat(254), 1), Err(Error::InvalidAddress));
-        p.transfer("play.example.com", 19133).unwrap();
+        p.transfer("play.example.com", 19_133).unwrap();
         // The leaving player gets no broadcast.
         let mut cx = Context { state: &mut state };
         assert_eq!(cx.broadcast(Message::Tip("t".to_owned())), Ok(1));
@@ -1996,7 +1998,7 @@ pub(super) mod tests {
         let (_, close, _) = received(&mut rx1);
         assert!(matches!(
             close,
-            Some(Packet::Transfer(t)) if t.address == "play.example.com" && t.port == 19133
+            Some(Packet::Transfer(t)) if t.address == "play.example.com" && t.port == 19_133
         ));
         assert_eq!(state.players.len(), 1);
     }

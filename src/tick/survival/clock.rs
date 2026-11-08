@@ -12,7 +12,7 @@ use crate::protocol::consts::ClockPayloadType;
 use crate::protocol::packet::{Packet, SyncWorldClocks};
 use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData};
 use crate::save::WorldIndex;
-use crate::tick::{Phase, Settings, State};
+use crate::tick::{Phase, Settings, State, checkpoint};
 use crate::world::{DAY, World};
 
 /// The overworld clock's time markers: ID, name, time of day (P6, fixed in every run).
@@ -86,7 +86,7 @@ impl Clock {
     }
 }
 
-crate::tick::checkpoint::fields!(Clock { worlds });
+checkpoint::fields!(Clock { worlds });
 
 /// One world's clock timers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -95,7 +95,7 @@ struct WorldClock {
     sync_in: u32,
 }
 
-crate::tick::checkpoint::fields!(WorldClock { sync_in });
+checkpoint::fields!(WorldClock { sync_in });
 
 /// Counts one tick of every loaded world's clock: the world ages, time advances unless it is
 /// stopped, and clients are corrected now and then. With `daylight-cycle = false` no time passes
@@ -128,6 +128,33 @@ pub(super) fn tick(state: &mut State) {
     if any_corrected {
         correct_clients(state);
     }
+}
+
+/// Queues the clock correction for every spawned player whose world is corrected this tick: one
+/// pass over the players however many worlds are corrected, as worlds made together correct
+/// together.
+fn correct_clients(state: &mut State) {
+    // Taken out so the worlds can be read while the players are written; nothing in between
+    // reads the player map.
+    let mut players = std::mem::take(&mut state.players);
+    for p in players.values_mut() {
+        if p.phase == Phase::Spawned && is_corrected(state, p.world) {
+            p.send_to_viewer(clock_state(state, p.world));
+        }
+    }
+    state.players = players;
+}
+
+/// Whether `world`'s clients are corrected this tick: its clock ran and its correction timer
+/// just started over.
+fn is_corrected(state: &State, world: WorldIndex) -> bool {
+    state.catalog.is_loaded(world)
+        && state.is_awake(world)
+        && state
+            .clock
+            .worlds
+            .get(crate::save::place(world))
+            .is_some_and(|c| c.sync_in == SYNC_TICKS - 1)
 }
 
 /// `SyncWorldClocks` with the world's time (payload 0, as the official server sends before
@@ -182,33 +209,6 @@ pub(in crate::tick) fn day_cycle_lock_time(settings: &Settings, world: &World) -
     } else {
         packet_time(i64::from(world.time_of_day()))
     }
-}
-
-/// Queues the clock correction for every spawned player whose world is corrected this tick: one
-/// pass over the players however many worlds are corrected, as worlds made together correct
-/// together.
-fn correct_clients(state: &mut State) {
-    // Taken out so the worlds can be read while the players are written; nothing in between
-    // reads the player map.
-    let mut players = std::mem::take(&mut state.players);
-    for p in players.values_mut() {
-        if p.phase == Phase::Spawned && is_corrected(state, p.world) {
-            p.send_to_viewer(clock_state(state, p.world));
-        }
-    }
-    state.players = players;
-}
-
-/// Whether `world`'s clients are corrected this tick: its clock ran and its correction timer
-/// just started over.
-fn is_corrected(state: &State, world: WorldIndex) -> bool {
-    state.catalog.is_loaded(world)
-        && state.is_awake(world)
-        && state
-            .clock
-            .worlds
-            .get(crate::save::place(world))
-            .is_some_and(|c| c.sync_in == SYNC_TICKS - 1)
 }
 
 /// Whether `world`'s time is stopped through the API: clients then pause their clock too. With

@@ -576,6 +576,19 @@ fn without_orbs_a_death_offers_no_xp_to_drop() {
     assert_eq!(game.survival_mut(1).xp_level, 0);
 }
 
+/// `xp-orbs = false`: xp a listener asks to drop does not drop, and the monitors see none.
+#[test]
+fn without_orbs_the_monitors_see_no_xp_dropped() {
+    let (tx, mut seen) = record();
+    let mut listeners = on(|e: &mut PlayerDeath, _: &mut Context<'_>| e.set_xp_drop_amount(100));
+    listeners.push_monitor(move |e: &PlayerDeath, _: &Context<'_>| {
+        tx.try_send(e.xp_drop_amount()).unwrap();
+    });
+    let mut game = Game::with(1, listeners, |c| c.general.xp_orbs = false);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    assert_eq!(drain(&mut seen), [0]);
+}
+
 // api: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
 /// With `show-death-messages` every player sees the death's message, which the client translates
 /// with the dead player's name as on the death screen; a listener's own message replaces it and an
@@ -1318,7 +1331,10 @@ fn an_effect_a_listener_gives_in_place_of_a_removed_one_stays() {
         .effects
         .get(&effect::Type::Speed)
         .copied();
-    assert_eq!(kept.map(|a| (a.duration, a.amplifier)), Some((200, 1)));
+    assert_eq!(
+        kept.map(|a| (a.duration_ticks, a.amplifier)),
+        Some((200, 1))
+    );
 }
 
 // api: EntityCombustEvent, EntityCombustByEntityEvent, EntityExtinguishEvent
@@ -1995,6 +2011,23 @@ fn a_skin_a_listener_sets_through_the_api_is_not_overwritten_by_the_change() {
     game.run(vec![input]);
     assert_eq!(game.player(1).skin().full_id, "api");
     assert_eq!(skins(&game.take(2)), ["api"]);
+}
+
+/// The client sending back a skin the API set raises no change and is not broadcast again.
+#[test]
+fn a_skin_the_api_set_sent_back_is_no_change() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerChangeSkin, _: &mut Context<'_>| {
+        tx.try_send(e.new_skin().full_id.clone()).unwrap();
+    });
+    let mut game = Game::new(2, listeners);
+    game.player_mut(1).set_skin(skin("api")).unwrap();
+    game.idle(20);
+    assert_eq!(skins(&game.take(2)), ["api"]);
+    let input = skin_input(&mut game, 1, skin("api"));
+    game.run(vec![input]);
+    assert!(drain(&mut seen).is_empty());
+    assert!(skins(&game.take(2)).is_empty());
 }
 
 /// A valid skin of about 4 MB with full ID `id`: a 1000 × 1000 image (the budget counts bytes

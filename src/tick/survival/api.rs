@@ -21,10 +21,11 @@ use crate::config::GameMode;
 use crate::effect::{self, Instance};
 use crate::event::{DamageCause, DamageSource};
 use crate::item::{self, Stack};
-use crate::math::{Vec3, to_f32};
+use crate::math::{self, Vec3, to_f32};
 use crate::player::{Error, Id, Result, check_text};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
+use crate::tick::checkpoint;
 use crate::tick::queue::Skin;
 use crate::tick::{Context, Phase, Player, SessionId, State, entity, inventory};
 use crate::world::{BlockPos, Entry};
@@ -43,53 +44,54 @@ pub(super) struct Custom {
     pub(super) name_tag: Option<String>,
     /// The line under the name tag.
     pub(super) score_tag: String,
-    /// Hidden from the viewers.
+    /// Whether the player is hidden from the viewers.
     pub(super) invisible: bool,
-    /// Makes no sounds.
+    /// Whether the player makes no sounds.
     pub(super) silent: bool,
-    /// The client does not move the player (the `NoAi` flag).
+    /// Whether the client does not move the player (the `NoAi` flag).
     pub(super) no_client_predictions: bool,
-    /// May the player fly; `None` follows the game mode (creative and spectator).
+    /// Whether the player may fly; `None` follows the game mode (creative and spectator).
     pub(super) allow_flight: Option<bool>,
-    /// Do blocks stop the player; `None` follows the game mode (all but spectator).
+    /// Whether blocks stop the player; `None` follows the game mode (all but spectator).
     pub(super) block_collision: Option<bool>,
     /// The flight speed, finite and within what the client holds (`f32`).
     pub(super) flight_speed: f64,
     /// The health without effects, at least 1.
     pub(super) max_health: u32,
-    /// The player was killed by the API: its death drops wait for its next survival step.
+    /// Whether the player was killed by the API: its death drops wait for its next survival step.
     pub(super) killed: bool,
-    /// The player asked to respawn through the API.
+    /// Whether the player asked to respawn through the API.
     pub(super) respawn: bool,
-    /// The player is an operator: its abilities carry operator permissions, as the official
-    /// server gives them. Follows the operator list, which is saved.
+    /// Whether the player is an operator: its abilities carry operator permissions, as the
+    /// official server gives them. Follows the operator list, which is saved.
     pub(super) operator: bool,
-    /// May the player climb ladders and vines (the `Climb` flag).
+    /// Whether the player may climb ladders and vines (the `Climb` flag).
     pub(super) can_climb: bool,
-    /// May the player climb any wall (the `WallClimbing` flag).
+    /// Whether the player may climb any wall (the `WallClimbing` flag).
     pub(super) can_climb_walls: bool,
-    /// Does food run for the player, on top of the `food` setting and the game mode.
+    /// Whether food runs for the player, on top of the `food` setting and the game mode.
     pub(super) food: bool,
-    /// Do xp orbs fly to the player.
+    /// Whether xp orbs fly to the player.
     pub(super) attracts_orbs: bool,
     /// The movement speed before sprinting and effects, finite and not negative.
     pub(super) movement_speed: f64,
     /// The full air supply in ticks, at least 1.
     pub(super) max_air: i16,
-    /// Does the client jump up blocks by itself.
+    /// Whether the client jumps up blocks by itself.
     pub(super) auto_jump: bool,
     /// The motion the API gave the player, for it and its viewers at the end of the tick.
     pub(super) motion: Option<Vec3>,
     /// The emote the API plays, for the viewers at the end of the tick.
     pub(super) emote: Option<String>,
-    /// The API turned the player: it and its viewers see the rotation at the end of the tick,
-    /// in the tick's teleport if there is one.
+    /// Whether the API turned the player: it and its viewers see the rotation at the end of the
+    /// tick, in the tick's teleport if there is one.
     pub(super) turned: bool,
-    /// The skin changed (the API or the client): every player gets it at the end of the tick,
-    /// or of a later one while the server's skin budget is spent ([`appearance::SkinBudget`]).
+    /// Whether the skin changed (the API or the client): every player gets it at the end of the
+    /// tick, or of a later one while the server's skin budget is spent
+    /// ([`appearance::SkinBudget`]).
     pub(super) skin: bool,
-    /// An API call changed what the client or the viewers see since the last flush, so the end
-    /// of the tick flushes it (the rules' own changes keep their flush).
+    /// Whether an API call changed what the client or the viewers see since the last flush, so
+    /// the end of the tick flushes it (the rules' own changes keep their flush).
     pub(super) touched: bool,
 }
 
@@ -128,27 +130,28 @@ impl Custom {
             None => h.u64(u64::MAX),
         }
         h.bytes(score_tag.as_bytes());
+        for flag in [invisible, silent, no_client_predictions] {
+            h.u64(u64::from(*flag));
+        }
         for v in [allow_flight, block_collision] {
             h.u64(v.map_or(2, u64::from));
         }
-        h.u64(
-            u64::from(*invisible)
-                | u64::from(*silent) << 1
-                | u64::from(*no_client_predictions) << 2
-                | u64::from(*killed) << 3
-                | u64::from(*respawn) << 4
-                | u64::from(*touched) << 5
-                | u64::from(*operator) << 6
-                | u64::from(*can_climb) << 7
-                | u64::from(*can_climb_walls) << 8
-                | u64::from(*food) << 9
-                | u64::from(*attracts_orbs) << 10
-                | u64::from(*auto_jump) << 11
-                | u64::from(*skin) << 12
-                | u64::from(*turned) << 13,
-        );
+        h.u64(flight_speed.to_bits());
+        h.u64(u64::from(*max_health));
+        for flag in [
+            killed,
+            respawn,
+            operator,
+            can_climb,
+            can_climb_walls,
+            food,
+            attracts_orbs,
+        ] {
+            h.u64(u64::from(*flag));
+        }
         h.u64(movement_speed.to_bits());
         h.u64(u64::from(max_air.cast_unsigned()));
+        h.u64(u64::from(*auto_jump));
         match motion {
             Some(m) => {
                 for c in [m.x, m.y, m.z] {
@@ -161,8 +164,9 @@ impl Custom {
             Some(id) => h.bytes(id.as_bytes()),
             None => h.u64(u64::MAX),
         }
-        h.u64(flight_speed.to_bits());
-        h.u64(u64::from(*max_health));
+        for flag in [turned, skin, touched] {
+            h.u64(u64::from(*flag));
+        }
     }
 }
 
@@ -197,7 +201,7 @@ impl Default for Custom {
     }
 }
 
-crate::tick::checkpoint::fields!(Custom {
+checkpoint::fields!(Custom {
     name_tag,
     score_tag,
     invisible,
@@ -251,7 +255,7 @@ impl Survival {
     }
 
     /// Marks client state to send, by the end of the tick even after the rules' flush.
-    pub(super) fn touch(&mut self, bits: u16) {
+    fn touch(&mut self, bits: u16) {
         self.mark(bits);
         self.custom.touched = true;
     }
@@ -434,7 +438,7 @@ impl Player {
     /// The ticks since the player last stood on something.
     #[doc(alias = "Player::getInAirTicks")]
     pub fn in_air_ticks(&self) -> u32 {
-        self.survival.motion.in_air
+        self.survival.motion.in_air_ticks
     }
 
     /// Whether the player is in adventure mode.
@@ -989,14 +993,15 @@ impl Player {
     }
 
     /// Sets the blocks fallen; the landing hurts for what is beyond 3. It is saved. Fails for a
-    /// value that is negative or not finite.
+    /// value that is negative, above 4096 (the most a save keeps; such a fall kills anyway) or not
+    /// finite.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a value that is negative or not finite.
+    /// [`Error::OutOfRange`] for a value that is negative, above 4096 or not finite.
     #[doc(alias = "Entity::setFallDistance")]
     pub fn set_fall_distance(&mut self, distance: f64) -> Result<()> {
-        within(distance, 0.0..=f64::MAX)?;
+        within(distance, 0.0..=super::saved::MAX_FALL)?;
         self.survival.fall_distance = distance;
         self.data_dirty = true;
         Ok(())
@@ -1104,7 +1109,7 @@ impl Player {
     #[doc(alias = "Player::resetFallDistance")]
     pub fn reset_fall_distance(&mut self) {
         self.survival.fall_distance = 0.0;
-        self.survival.motion.in_air = 0;
+        self.survival.motion.in_air_ticks = 0;
         self.data_dirty = true;
     }
 
@@ -1136,8 +1141,7 @@ impl Player {
             return Ok(());
         }
         let s = &mut self.survival;
-        let max = s.max_health();
-        s.health = if health > max { max } else { health };
+        s.health = math::min(health, s.max_health());
         s.touch(HEALTH);
         self.data_dirty = true;
         Ok(())
@@ -1240,15 +1244,17 @@ impl Player {
 
     /// Pushes the player: its client moves it by `motion` blocks a tick, and its viewers see
     /// it, at the end of the tick. Players have no server-side motion, as with knockback, so no
-    /// call reads one. A second call in the tick wins. Fails for a motion that is not finite.
+    /// call reads one. A second call in the tick wins. Fails for a motion that is not finite or
+    /// beyond what `f32` holds.
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a motion that is not finite.
+    /// [`Error::OutOfRange`] for a motion that is not finite or beyond what `f32` holds.
     #[doc(alias = "Player::setMotion")]
     pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
-        if !motion.is_finite() {
-            return Err(Error::OutOfRange);
+        let f32_range = -f64::from(f32::MAX)..=f64::from(f32::MAX);
+        for axis in [motion.x, motion.y, motion.z] {
+            within(axis, f32_range.clone())?;
         }
         self.survival.custom.motion = Some(motion);
         Ok(())
@@ -1373,6 +1379,9 @@ impl Player {
         if !skin.is_acceptable() {
             return Err(Error::OutOfRange);
         }
+        self.survival
+            .appearance
+            .set_skin_id(skin.shared().full_id.clone());
         self.identity.skin = skin;
         self.survival.custom.skin = true;
         Ok(())
@@ -1684,7 +1693,7 @@ pub(in crate::tick) fn sync(state: &mut State, session: SessionId, stay: Stay) {
 /// The packet that tells `player` its new game `mode`, as the official server sends it:
 /// `UpdatePlayerGameType` with the player's own unique ID (P6). The client ignores it for another
 /// player's ID, so only the player gets it.
-pub(super) fn game_type_packet(player: &Player, mode: GameMode) -> Packet {
+fn game_type_packet(player: &Player, mode: GameMode) -> Packet {
     Packet::UpdatePlayerGameType(UpdatePlayerGameType {
         game_type: super::saved::game_mode_id(mode),
         player_unique_id: entity::unique_id(player.runtime_id),
@@ -2253,6 +2262,11 @@ mod tests {
         assert_eq!(p.air_supply_ticks(), p.max_air_supply_ticks());
         assert!(p.is_breathing());
         assert_eq!(p.set_fall_distance(f64::NAN), Err(Error::OutOfRange));
+        assert_eq!(
+            p.set_fall_distance(1e8),
+            Err(Error::OutOfRange),
+            "kept by no save"
+        );
         p.set_fall_distance(7.0).unwrap();
         assert_eq!(p.fall_distance(), 7.0);
         p.reset_fall_distance();
@@ -2497,6 +2511,13 @@ mod tests {
             assert!(flags.contains(f), "{f:?}");
         }
         assert_eq!(player_mut(&mut state, 1).movement_speed(), 0.2);
+        // The highest base, sprinting, still sends a speed `f32` holds.
+        player_mut(&mut state, 1)
+            .set_movement_speed(f64::from(f32::MAX))
+            .unwrap();
+        run(&mut state, Vec::new());
+        let (speed, _) = attribute(&received(&mut rx1).0, "minecraft:movement").expect("sent");
+        assert!(speed.is_finite(), "{speed}");
     }
 
     // api: ExperienceManager::setLifetimeTotalXp, ExperienceManager::getRemainderXp,
@@ -2591,6 +2612,11 @@ mod tests {
         assert_eq!(
             p.set_motion(Vec3::new(f64::NAN, 0.0, 0.0)),
             Err(Error::OutOfRange)
+        );
+        assert_eq!(
+            p.set_motion(Vec3::new(1e300, 0.0, 0.0)),
+            Err(Error::OutOfRange),
+            "beyond what f32 holds"
         );
         p.set_motion(Vec3::new(0.0, 5.0, 0.0)).unwrap();
         p.set_motion(Vec3::new(0.0, 1.0, 0.0)).unwrap();

@@ -127,17 +127,6 @@ getters!(PlayerChat {
     recipients: &[player::Id],
 });
 
-impl PlayerChat {
-    /// How the line looks: `None` for the standard line, sent as the official server sends it (a
-    /// chat text with the speaker's name as its source and the raw message, which the client shows
-    /// as `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
-    /// message and `{%%` a literal `{%`. Starts as `None`.
-    #[doc(alias = "PlayerChatEvent::getFormatter")]
-    pub fn format(&self) -> Option<&str> {
-        self.format.as_deref()
-    }
-}
-
 setters!(PlayerChat {
     /// Makes another player the speaker; if that player is not online when the listeners are
     /// done (joined and not leaving), the line goes to nobody and no monitor sees it.
@@ -158,6 +147,17 @@ setters!(PlayerChat {
     #[doc(alias = "PlayerChatEvent::setFormatter")]
     set_format => format: Option<String>,
 });
+
+impl PlayerChat {
+    /// How the line looks: `None` for the standard line, sent as the official server sends it (a
+    /// chat text with the speaker's name as its source and the raw message, which the client shows
+    /// as `<name> message`), or a text where `{%0}` is the speaker's display name, `{%1}` the
+    /// message and `{%%` a literal `{%`. Starts as `None`.
+    #[doc(alias = "PlayerChatEvent::getFormatter")]
+    pub fn format(&self) -> Option<&str> {
+        self.format.as_deref()
+    }
+}
 
 cancellable! {
     PlayerChat
@@ -321,11 +321,11 @@ cancellable! {
 #[doc(alias = "PlayerDuplicateLoginEvent")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerDuplicateLogin {
-    connecting: PlayerInfo,
-    existing: PlayerInfo,
-    reason: String,
-    screen_message: Option<String>,
-    cancelled: bool,
+    pub(crate) connecting: PlayerInfo,
+    pub(crate) existing: PlayerInfo,
+    pub(crate) reason: String,
+    pub(crate) screen_message: Option<String>,
+    pub(crate) cancelled: bool,
 }
 
 impl PlayerDuplicateLogin {
@@ -355,6 +355,8 @@ impl PlayerDuplicateLogin {
         &self.existing
     }
 
+    // Written by hand, not by `cancellable!`, which takes one alias per method; these carry the
+    // extra `CancellableTrait` and `Cancellable` ones.
     /// Whether a listener cancelled the event.
     #[doc(alias = "PlayerDuplicateLoginEvent::isCancelled")]
     #[doc(alias = "CancellableTrait::isCancelled")]
@@ -610,7 +612,8 @@ cancellable! {
         #[doc(alias = "PlayerEntityPickEvent::isCancelled")];
 }
 
-/// Raised when a player's exhaustion grows, which uses up its food. Cancelling keeps the player's exhaustion.
+/// Raised when exhaustion is about to be added to a player whose food is on, which uses up its
+/// food; walking raises it with an amount of 0. Cancelling keeps the player's exhaustion.
 #[doc(alias = "PlayerExhaustEvent")]
 #[derive(Debug)]
 pub struct PlayerExhaust {
@@ -680,63 +683,6 @@ pub enum ExhaustCause {
     SprintJumping,
 }
 
-/// Raised when a player picks up XP orbs, before the points are added to the level and
-/// progress. Cancelling keeps both. The reset on death ([`PlayerDeath::keep_xp`] decides it) and
-/// the points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
-#[doc(alias = "PlayerExperienceChangeEvent")]
-#[derive(Debug)]
-pub struct PlayerXpChange {
-    pub(crate) player: player::Id,
-    pub(crate) old_level: u32,
-    pub(crate) old_progress: f64,
-    pub(crate) new_level: Option<u32>,
-    pub(crate) new_progress: Option<f64>,
-    pub(crate) cancelled: bool,
-}
-
-getters!(PlayerXpChange {
-    /// The player.
-    player: player::Id,
-    /// The level before.
-    #[doc(alias = "PlayerExperienceChangeEvent::getOldLevel")]
-    old_level: u32,
-    /// The progress to the next level before, 0 to 1.
-    #[doc(alias = "PlayerExperienceChangeEvent::getOldProgress")]
-    old_progress: f64,
-    /// The level after; `None` keeps the level.
-    #[doc(alias = "PlayerExperienceChangeEvent::getNewLevel")]
-    new_level: Option<u32>,
-    /// The progress after; `None` keeps the progress.
-    #[doc(alias = "PlayerExperienceChangeEvent::getNewProgress")]
-    new_progress: Option<f64>,
-});
-
-impl PlayerXpChange {
-    /// Sets the level after, limited to the highest level (24,791); `None` keeps the level.
-    #[doc(alias = "PlayerExperienceChangeEvent::setNewLevel")]
-    pub fn set_new_level(&mut self, level: Option<u32>) {
-        self.new_level = level.map(|l| l.min(player::MAX_LEVEL));
-    }
-
-    /// Sets the progress after, limited to 0 to 1; `None` keeps the progress. A value that is not
-    /// finite is ignored.
-    #[doc(alias = "PlayerExperienceChangeEvent::setNewProgress")]
-    pub fn set_new_progress(&mut self, progress: Option<f64>) {
-        match progress {
-            Some(p) if !p.is_finite() => {}
-            Some(p) => self.new_progress = Some(math::clamp(p, 0.0, 1.0)),
-            None => self.new_progress = None,
-        }
-    }
-}
-
-cancellable! {
-    PlayerXpChange
-        #[doc(alias = "PlayerExperienceChangeEvent::cancel")]
-        #[doc(alias = "PlayerExperienceChangeEvent::uncancel")]
-        #[doc(alias = "PlayerExperienceChangeEvent::isCancelled")];
-}
-
 /// Raised when a player's game mode is about to change. Cancelling keeps it.
 #[doc(alias = "PlayerGameModeChangeEvent")]
 #[derive(Debug)]
@@ -770,8 +716,7 @@ cancellable! {
 /// and inside the height limits, and the click is not a repeat of the previous one (same block,
 /// face, point and player position) in the same or the next tick. Otherwise nothing is raised and
 /// the client gets the blocks around the click again as they are. A left click is raised when the
-/// player is not a spectator and the block is within 100 blocks; a left click on an inert block
-/// raises nothing.
+/// player is not a spectator and the block is within 100 blocks.
 #[doc(alias = "PlayerInteractEvent")]
 #[derive(Debug)]
 pub struct PlayerInteract {
@@ -796,8 +741,7 @@ getters!(PlayerInteract {
     world: world::Id,
     /// Where the block is.
     pos: BlockPos,
-    /// The block clicked, or `minecraft:info_update` for a right click on an inert block (a left
-    /// click on one raises no event).
+    /// The block clicked.
     #[doc(alias = "PlayerInteractEvent::getBlock")]
     block: State,
     /// The face clicked.
@@ -814,6 +758,15 @@ getters!(PlayerInteract {
     action: InteractAction,
 });
 
+setters!(PlayerInteract {
+    /// Turns the held item's use action on or off.
+    #[doc(alias = "PlayerInteractEvent::setUseItem")]
+    set_use_item => use_item: bool,
+    /// Turns the clicked block's response on or off.
+    #[doc(alias = "PlayerInteractEvent::setUseBlock")]
+    set_use_block => use_block: bool,
+});
+
 impl PlayerInteract {
     /// Whether this is the first event of the click. While the player holds the right button on
     /// blocks, the client repeats the click; a repeat identical to the previous click in the same
@@ -825,8 +778,8 @@ impl PlayerInteract {
     }
 
     /// Whether a right click runs the clicked block's own response (a door opens, a container
-    /// shows). Starts false for a sneaking player holding an item and for an inert block. It has
-    /// no effect on a left click.
+    /// shows). Starts false for a sneaking player holding an item. It has no effect on a left
+    /// click.
     #[doc(alias = "PlayerInteractEvent::useBlock")]
     pub fn uses_block(&self) -> bool {
         self.use_block
@@ -841,15 +794,6 @@ impl PlayerInteract {
         self.use_item
     }
 }
-
-setters!(PlayerInteract {
-    /// Turns the held item's use action on or off.
-    #[doc(alias = "PlayerInteractEvent::setUseItem")]
-    set_use_item => use_item: bool,
-    /// Turns the clicked block's response on or off.
-    #[doc(alias = "PlayerInteractEvent::setUseBlock")]
-    set_use_block => use_block: bool,
-});
 
 cancellable! {
     PlayerInteract
@@ -1029,15 +973,6 @@ getters!(PlayerKick {
     quit_message: &str,
 });
 
-impl PlayerKick {
-    /// The message the player sees: the screen message, or the reason when there is none.
-    #[doc(alias = "PlayerKickEvent::getDisconnectScreenMessage")]
-    #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectScreenMessage")]
-    pub fn kick_screen_message(&self) -> &str {
-        self.screen_message.as_deref().unwrap_or(&self.kick_reason)
-    }
-}
-
 setters!(PlayerKick {
     /// Replaces the reason. An empty one, with no screen message, shows the client's own
     /// "disconnected" text.
@@ -1052,6 +987,15 @@ setters!(PlayerKick {
     #[doc(alias = "PlayerKickEvent::setQuitMessage")]
     set_quit_message => quit_message: String,
 });
+
+impl PlayerKick {
+    /// The message the player sees: the screen message, or the reason when there is none.
+    #[doc(alias = "PlayerKickEvent::getDisconnectScreenMessage")]
+    #[doc(alias = "PlayerDisconnectEventTrait::getDisconnectScreenMessage")]
+    pub fn kick_screen_message(&self) -> &str {
+        self.screen_message.as_deref().unwrap_or(&self.kick_reason)
+    }
+}
 
 cancellable! {
     PlayerKick
@@ -1719,6 +1663,63 @@ getters!(PlayerWorldChange {
     new_world: world::Id,
 });
 
+/// Raised when a player picks up XP orbs, before the points are added to the level and
+/// progress. Cancelling keeps both. The reset on death ([`PlayerDeath::keep_xp`] decides it) and
+/// the points [`Player::add_xp`](crate::player::Player::add_xp) adds raise nothing.
+#[doc(alias = "PlayerExperienceChangeEvent")]
+#[derive(Debug)]
+pub struct PlayerXpChange {
+    pub(crate) player: player::Id,
+    pub(crate) old_level: u32,
+    pub(crate) old_progress: f64,
+    pub(crate) new_level: Option<u32>,
+    pub(crate) new_progress: Option<f64>,
+    pub(crate) cancelled: bool,
+}
+
+getters!(PlayerXpChange {
+    /// The player.
+    player: player::Id,
+    /// The level before.
+    #[doc(alias = "PlayerExperienceChangeEvent::getOldLevel")]
+    old_level: u32,
+    /// The progress to the next level before, 0 to 1.
+    #[doc(alias = "PlayerExperienceChangeEvent::getOldProgress")]
+    old_progress: f64,
+    /// The level after; `None` keeps the level.
+    #[doc(alias = "PlayerExperienceChangeEvent::getNewLevel")]
+    new_level: Option<u32>,
+    /// The progress after; `None` keeps the progress.
+    #[doc(alias = "PlayerExperienceChangeEvent::getNewProgress")]
+    new_progress: Option<f64>,
+});
+
+impl PlayerXpChange {
+    /// Sets the level after, limited to the highest level (24,791); `None` keeps the level.
+    #[doc(alias = "PlayerExperienceChangeEvent::setNewLevel")]
+    pub fn set_new_level(&mut self, level: Option<u32>) {
+        self.new_level = level.map(|l| l.min(player::MAX_LEVEL));
+    }
+
+    /// Sets the progress after, limited to 0 through just below a full bar (a full bar is the
+    /// next level); `None` keeps the progress. A value that is not finite is ignored.
+    #[doc(alias = "PlayerExperienceChangeEvent::setNewProgress")]
+    pub fn set_new_progress(&mut self, progress: Option<f64>) {
+        match progress {
+            Some(p) if !p.is_finite() => {}
+            Some(p) => self.new_progress = Some(math::clamp(p, 0.0, player::MAX_PROGRESS)),
+            None => self.new_progress = None,
+        }
+    }
+}
+
+cancellable! {
+    PlayerXpChange
+        #[doc(alias = "PlayerExperienceChangeEvent::cancel")]
+        #[doc(alias = "PlayerExperienceChangeEvent::uncancel")]
+        #[doc(alias = "PlayerExperienceChangeEvent::isCancelled")];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2028,48 +2029,7 @@ mod tests {
         }
     }
 
-    // api: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel,
-    // api: PlayerExperienceChangeEvent::getOldProgress,
-    // api: PlayerExperienceChangeEvent::getNewLevel,
-    // api: PlayerExperienceChangeEvent::getNewProgress,
-    // api: PlayerExperienceChangeEvent::setNewLevel,
-    // api: PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel,
-    // api: PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
-    #[test]
-    fn xp_change_keeps_progress_in_range() {
-        let mut e = PlayerXpChange {
-            player: player(1),
-            old_level: 3,
-            old_progress: 0.5,
-            new_level: Some(4),
-            new_progress: None,
-            cancelled: false,
-        };
-        assert_eq!(
-            (e.player(), e.old_level(), e.old_progress()),
-            (player(1), 3, 0.5)
-        );
-        assert_eq!((e.new_level(), e.new_progress()), (Some(4), None));
-        e.set_new_level(Some(u32::MAX));
-        assert_eq!(e.new_level(), Some(player::MAX_LEVEL));
-        e.set_new_level(None);
-        e.set_new_progress(Some(2.0));
-        assert_eq!((e.new_level(), e.new_progress()), (None, Some(1.0)));
-        e.set_new_progress(Some(f64::NAN));
-        assert_eq!(e.new_progress(), Some(1.0));
-        e.set_new_progress(Some(0.5));
-        e.set_new_progress(Some(f64::INFINITY));
-        e.set_new_progress(Some(f64::NEG_INFINITY));
-        assert_eq!(e.new_progress(), Some(0.5));
-        e.set_new_progress(None);
-        assert_eq!(e.new_progress(), None);
-        e.cancel();
-        assert!(e.is_cancelled());
-        e.uncancel();
-        assert!(!e.is_cancelled());
-    }
-
-    // api: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode,
+    // api: PlayerGameModeChangeEvent,PlayerGameModeChangeEvent::getNewGamemode,
     // api: PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel,
     // api: PlayerGameModeChangeEvent::isCancelled
     #[test]
@@ -2422,6 +2382,52 @@ mod tests {
             (e.player(), e.old_world(), e.new_world()),
             (player(1), WORLD, arena)
         );
+    }
+
+    // api: PlayerExperienceChangeEvent, PlayerExperienceChangeEvent::getOldLevel,
+    // api: PlayerExperienceChangeEvent::getOldProgress,
+    // api: PlayerExperienceChangeEvent::getNewLevel,
+    // api: PlayerExperienceChangeEvent::getNewProgress,
+    // api: PlayerExperienceChangeEvent::setNewLevel,
+    // api: PlayerExperienceChangeEvent::setNewProgress, PlayerExperienceChangeEvent::cancel,
+    // api: PlayerExperienceChangeEvent::uncancel, PlayerExperienceChangeEvent::isCancelled
+    #[test]
+    fn xp_change_keeps_progress_in_range() {
+        let mut e = PlayerXpChange {
+            player: player(1),
+            old_level: 3,
+            old_progress: 0.5,
+            new_level: Some(4),
+            new_progress: None,
+            cancelled: false,
+        };
+        assert_eq!(
+            (e.player(), e.old_level(), e.old_progress()),
+            (player(1), 3, 0.5)
+        );
+        assert_eq!((e.new_level(), e.new_progress()), (Some(4), None));
+        e.set_new_level(Some(u32::MAX));
+        assert_eq!(e.new_level(), Some(player::MAX_LEVEL));
+        e.set_new_level(None);
+        e.set_new_progress(Some(2.0));
+        assert_eq!(e.new_level(), None);
+        assert!(
+            e.new_progress().is_some_and(|p| p < 1.0),
+            "below a full bar"
+        );
+        let full = e.new_progress();
+        e.set_new_progress(Some(f64::NAN));
+        assert_eq!(e.new_progress(), full);
+        e.set_new_progress(Some(0.5));
+        e.set_new_progress(Some(f64::INFINITY));
+        e.set_new_progress(Some(f64::NEG_INFINITY));
+        assert_eq!(e.new_progress(), Some(0.5));
+        e.set_new_progress(None);
+        assert_eq!(e.new_progress(), None);
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
     }
 
     // api: PlayerRespawnEvent, PlayerRespawnEvent::getRespawnPosition,

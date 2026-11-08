@@ -13,6 +13,7 @@ use crate::protocol;
 use crate::protocol::consts::EmoteFlag;
 use crate::protocol::packet::{Emote, Packet, PlayerSkin};
 use crate::tick::Context;
+use crate::tick::checkpoint;
 use crate::tick::queue::{SharedPacket, Skin};
 
 /// Ticks that must pass between two emotes of a player: more than 5.
@@ -85,7 +86,7 @@ impl Default for SkinBudget {
     }
 }
 
-crate::tick::checkpoint::fields!(SkinBudget { bytes, at, turn });
+checkpoint::fields!(SkinBudget { bytes, at, turn });
 
 /// When a player last emoted and changed its skin, and the skin it last asked for.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -116,12 +117,18 @@ impl Appearance {
             None => h.u64(u64::MAX),
         }
     }
+
+    /// Sets the full ID of the skin last asked for: the API's skin too, which the client sends
+    /// back as well.
+    pub(super) fn set_skin_id(&mut self, full_id: String) {
+        self.skin_id = Some(full_id);
+    }
 }
 
-crate::tick::checkpoint::fields!(Appearance {
+checkpoint::fields!(Appearance {
     emote,
     skin,
-    skin_id
+    skin_id,
 });
 
 /// Plays the emote of an `Emote` packet; see [`super::on_emote`].

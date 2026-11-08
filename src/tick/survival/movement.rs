@@ -23,13 +23,19 @@ use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, Sound
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
 use crate::tick::entity::{INSIDE_INSET, Touch};
-use crate::tick::{Phase, Player, SessionId, State, entity, inside_border};
+use crate::tick::{Phase, Player, SessionId, State, checkpoint, entity, inside_border};
 use crate::world::{BlockPos, Entry, World};
 
+/// How far above and below the feet the box that tests for ground reaches.
+const GROUND_REACH: f64 = 0.2;
 /// Fall damage above which landing makes the long fall sound.
 const LONG_FALL_DAMAGE: f64 = 4.0;
 /// The furthest one move may go, squared: 15 blocks.
 const MAX_MOVE_SQUARED: f64 = 225.0;
+/// The shortest tick move that counts as a move, squared.
+const MIN_MOVE_SQUARED: f64 = 0.0001;
+/// The least a [`PlayerMove`] listener must shift the target for it to be another place, squared.
+const MIN_RETARGET_SQUARED: f64 = 0.01;
 /// The most moves in reserve: 100 ticks.
 const MOVE_BACKLOG: i32 = 100 * MOVES_PER_TICK;
 /// The reserve of a new player.
@@ -38,6 +44,8 @@ const MOVE_START: i32 = 10 * MOVES_PER_TICK;
 const MOVES_PER_TICK: i32 = 2;
 /// How far a move after a teleport may be from the teleport target, squared.
 const SYNC_TOLERANCE_SQUARED: f64 = 1.0;
+/// The length of the wither effect a wither rose gives, in ticks.
+const WITHER_ROSE_EFFECT_TICKS: u32 = 40;
 
 /// A player's movement and input state.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,7 +81,7 @@ pub(super) struct Motion {
     /// its first tick).
     pub(super) death_shown: bool,
     /// Ticks since the player last stood on something.
-    pub(super) in_air: u32,
+    pub(super) in_air_ticks: u32,
     /// The client tick of the latest input this tick that toggled a movement state: the player's
     /// own entity data at the end of the tick carries it, as the official server's does (P6
     /// `sneak`), so the client applies it at that input's frame and keeps what it predicted since
@@ -104,7 +112,7 @@ impl Motion {
             force_sync,
             intersected,
             death_shown,
-            in_air,
+            in_air_ticks,
             answer_tick,
         } = self;
         let bits = [
@@ -149,7 +157,7 @@ impl Motion {
             None => h.u64(u64::MAX),
         }
         h.u64(u64::from(budget.cast_unsigned()));
-        h.u64(u64::from(*in_air));
+        h.u64(u64::from(*in_air_ticks));
         h.u64(answer_tick.unwrap_or(u64::MAX));
     }
 }
@@ -175,13 +183,13 @@ impl Default for Motion {
             force_sync: false,
             intersected: false,
             death_shown: false,
-            in_air: 0,
+            in_air_ticks: 0,
             answer_tick: None,
         }
     }
 }
 
-crate::tick::checkpoint::fields!(Motion {
+checkpoint::fields!(Motion {
     sprinting,
     sneaking,
     sneak_pressed,
@@ -200,7 +208,7 @@ crate::tick::checkpoint::fields!(Motion {
     force_sync,
     intersected,
     death_shown,
-    in_air,
+    in_air_ticks,
     answer_tick,
 });
 
@@ -264,12 +272,6 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     handle_movement(state, session, raw);
 }
 
-/// Whether a start/stop flag pair turns something on, off, or neither.
-fn on_off(flags: FlagSet<InputFlag>, start: InputFlag, stop: InputFlag) -> Option<bool> {
-    let (on, off) = (flags.contains(start), flags.contains(stop));
-    (on != off).then_some(on)
-}
-
 /// Handles changed input flags: sneaking, sprinting, swimming, gliding, flying, a jump, a missed
 /// swing. Each toggle that changes something asks its event (`PlayerToggleSneak` and the
 /// others); a cancelled one leaves the state as it was and sends the player its entity data
@@ -328,6 +330,57 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
     }
     if flags.contains(InputFlag::MissedSwing) {
         miss_swing(state, session);
+    }
+}
+
+/// Whether a start/stop flag pair turns something on, off, or neither.
+fn on_off(flags: FlagSet<InputFlag>, start: InputFlag, stop: InputFlag) -> Option<bool> {
+    let (on, off) = (flags.contains(start), flags.contains(stop));
+    (on != off).then_some(on)
+}
+
+/// Takes a `PlayerAction`: respawn, and the older toggles a client may still send, which ask
+/// their events as the input flags do.
+pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
+    let Ok(action) = Action::try_from(packet.action_type) else {
+        return;
+    };
+    if action == Action::Respawn {
+        damage::respawn(state, session, Stay::Online);
+        return;
+    }
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.phase != Phase::Spawned || player.survival.is_dead() {
+        return;
+    }
+    let m = &player.survival.motion;
+    let change = match action {
+        Action::Jump => {
+            jump(state, session);
+            return;
+        }
+        Action::StartSprint | Action::StopSprint => {
+            let on = action == Action::StartSprint;
+            (m.sprinting != on).then_some(Toggle::Sprint(on))
+        }
+        Action::StartSneak | Action::StopSneak => {
+            let on = action == Action::StartSneak;
+            (m.sneaking != on).then_some(Toggle::Sneak(on, m.sneak_pressed))
+        }
+        Action::StartGlide | Action::StopGlide => {
+            let on = action == Action::StartGlide;
+            (m.gliding != on).then_some(Toggle::Glide(on))
+        }
+        Action::StartSwimming | Action::StopSwimming => {
+            let on = action == Action::StartSwimming;
+            (m.swimming != on).then_some(Toggle::Swim(on))
+        }
+        _ => None,
+    };
+    if let Some(change) = change {
+        toggle(state, session, change);
     }
 }
 
@@ -467,51 +520,6 @@ fn miss_swing(state: &mut State, session: SessionId) {
     super::watch(state, event.as_ref());
 }
 
-/// Takes a `PlayerAction`: respawn, and the older toggles a client may still send, which ask
-/// their events as the input flags do.
-pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
-    let Ok(action) = Action::try_from(packet.action_type) else {
-        return;
-    };
-    if action == Action::Respawn {
-        damage::respawn(state, session, Stay::Online);
-        return;
-    }
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    if player.phase != Phase::Spawned || player.survival.is_dead() {
-        return;
-    }
-    let m = &player.survival.motion;
-    let change = match action {
-        Action::Jump => {
-            jump(state, session);
-            return;
-        }
-        Action::StartSprint | Action::StopSprint => {
-            let on = action == Action::StartSprint;
-            (m.sprinting != on).then_some(Toggle::Sprint(on))
-        }
-        Action::StartSneak | Action::StopSneak => {
-            let on = action == Action::StartSneak;
-            (m.sneaking != on).then_some(Toggle::Sneak(on, m.sneak_pressed))
-        }
-        Action::StartGlide | Action::StopGlide => {
-            let on = action == Action::StartGlide;
-            (m.gliding != on).then_some(Toggle::Glide(on))
-        }
-        Action::StartSwimming | Action::StopSwimming => {
-            let on = action == Action::StartSwimming;
-            (m.swimming != on).then_some(Toggle::Swim(on))
-        }
-        _ => None,
-    };
-    if let Some(change) = change {
-        toggle(state, session, change);
-    }
-}
-
 /// Handles a movement of the eyes to `target`; the 15-block check only with `movement-check`.
 fn handle_movement(state: &mut State, session: SessionId, target: Vec3) {
     let Some(player) = state.players.get_mut(&session) else {
@@ -549,7 +557,7 @@ fn move_to(state: &mut State, session: SessionId, target: Vec3) {
     let Some(player) = state.players.get(&session) else {
         return;
     };
-    let on_ground = ground(state, player, delta);
+    let on_ground = is_on_ground(state, player, delta);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -562,7 +570,7 @@ fn move_to(state: &mut State, session: SessionId, target: Vec3) {
 /// 15-block limit, which only `movement-check = false` lets through, tests the box at its end
 /// alone: stretched back along a move of millions of blocks, the box would make one input test
 /// millions of blocks. A player without block collision never stands.
-fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
+fn is_on_ground(state: &State, player: &Player, delta: Vec3) -> bool {
     if !player.survival.has_block_collision() {
         return false;
     }
@@ -572,8 +580,8 @@ fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
     let f = feet(player);
     let half = f64::from(attributes::size(&player.survival)[0]) / 2.0;
     let bb = Aabb::new(
-        Vec3::new(f.x - half, f.y - 0.2, f.z - half),
-        Vec3::new(f.x + half, f.y + 0.2, f.z + half),
+        Vec3::new(f.x - half, f.y - GROUND_REACH, f.z - half),
+        Vec3::new(f.x + half, f.y + GROUND_REACH, f.z + half),
     );
     if delta.length_squared() > MAX_MOVE_SQUARED {
         return has_collision(world, bb);
@@ -791,7 +799,12 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             .get(&session)
             .is_none_or(|p| p.survival.effects.contains_key(&Effect::Wither));
         if !withered {
-            effects::add(state, session, Effect::Wither, Active::new(40, 0));
+            effects::add(
+                state,
+                session,
+                Effect::Wither,
+                Active::new(WITHER_ROSE_EFFECT_TICKS, 0),
+            );
         }
     }
 }
@@ -801,16 +814,6 @@ fn reset_fall(state: &mut State, session: SessionId) {
     if let Some(player) = state.players.get_mut(&session) {
         player.reset_fall_distance();
     }
-}
-
-/// The player's bounding box with its feet at `feet`.
-pub(super) fn bounding_box(s: &Survival, feet: Vec3) -> Aabb {
-    let [width, height] = attributes::size(s);
-    let half = f64::from(width) / 2.0;
-    Aabb::new(
-        Vec3::new(feet.x - half, feet.y, feet.z - half),
-        Vec3::new(feet.x + half, feet.y + f64::from(height), feet.z + half),
-    )
 }
 
 /// Processes the movement of a tick: the rate limit refills, the tick's move asks [`PlayerMove`]
@@ -828,7 +831,7 @@ pub(super) fn process(state: &mut State, session: SessionId) {
     m.budget = (m.budget.max(0) + MOVES_PER_TICK).min(MOVE_BACKLOG);
     let from = m.processed.unwrap_or(now);
     let (dx, dz) = (now.x - from.x, now.z - from.z);
-    if now.distance_squared(from) > 0.0001 {
+    if now.distance_squared(from) > MIN_MOVE_SQUARED {
         let world = player.world;
         let send_back = move |state: &mut State| {
             if let Some(player) = state.players.get_mut(&session) {
@@ -856,7 +859,7 @@ pub(super) fn process(state: &mut State, session: SessionId) {
             return;
         };
         if let Some(e) = &event
-            && e.target.distance_squared(now) > 0.01
+            && e.target.distance_squared(now) > MIN_RETARGET_SQUARED
         {
             let eye = e.target + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
             if super::check_destination(state, world, eye).is_err() {
@@ -899,6 +902,18 @@ pub(super) fn turn(m: &mut Motion, yaw: f32, pitch: f32) {
     m.pitch = f64::from(pitch) % 360.0;
 }
 
+/// Teleports the player's eyes to `eye`: the fall ends and the client is told.
+pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    player.position = eye;
+    player.data_dirty = true;
+    player.reset_fall_distance();
+    player.survival.motion.processed = Some(feet(player));
+    send_position(player, MoveMode::Teleport);
+}
+
 /// Sends the player its own position; moves far from it are ignored until one arrives near it.
 /// The last raw position is forgotten: the client's next input may report the position it had
 /// before, now a move back from where it was sent.
@@ -927,18 +942,6 @@ pub(super) fn position_packet(player: &Player, mode: MoveMode) -> Packet {
     })
 }
 
-/// Teleports the player's eyes to `eye`: the fall ends and the client is told.
-pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
-    player.position = eye;
-    player.data_dirty = true;
-    player.reset_fall_distance();
-    player.survival.motion.processed = Some(feet(player));
-    send_position(player, MoveMode::Teleport);
-}
-
 /// Whether the player's eyes are under water: in a water block, below its surface.
 pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
     let eye = player.position;
@@ -963,6 +966,16 @@ pub(super) fn is_inside_solid(state: &State, player: &Player) -> bool {
         let bounds = bounding_box(&player.survival, feet(player));
         entity::is_inside_solid(w, player.position, bounds)
     })
+}
+
+/// The player's bounding box with its feet at `feet`.
+pub(super) fn bounding_box(s: &Survival, feet: Vec3) -> Aabb {
+    let [width, height] = attributes::size(s);
+    let half = f64::from(width) / 2.0;
+    Aabb::new(
+        Vec3::new(feet.x - half, feet.y, feet.z - half),
+        Vec3::new(feet.x + half, feet.y + f64::from(height), feet.z + half),
+    )
 }
 
 #[cfg(test)]
@@ -1224,7 +1237,7 @@ mod tests {
         }
         assert_eq!(state.players[&session].in_air_ticks(), 0);
         let player = state.players.get_mut(&session).unwrap();
-        player.survival.motion.in_air = 5;
+        player.survival.motion.in_air_ticks = 5;
         teleport(&mut state, session, Vec3::new(0.5, -40.0, 0.5));
         assert_eq!(state.players[&session].in_air_ticks(), 0);
     }

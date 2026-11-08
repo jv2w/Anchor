@@ -9,7 +9,7 @@ use crate::event::{Actor, EntityEffectAdd, EntityEffectRemove, ExhaustCause, Reg
 use crate::player::Id;
 use crate::protocol::consts::MobEffectOperation;
 use crate::protocol::packet::{MobEffect, Packet};
-use crate::tick::{Phase, Player, SessionId, State};
+use crate::tick::{Phase, Player, SessionId, State, checkpoint};
 
 /// The health an instant damage effect takes at its lowest level: 6, doubled for each amplifier.
 const INSTANT_DAMAGE_AMOUNT: f64 = 6.0;
@@ -29,7 +29,7 @@ const WITHER_INTERVAL_TICKS: u32 = 40;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Active {
     /// Ticks left; an infinite effect wraps around instead of ending.
-    pub(super) duration: u32,
+    pub(super) duration_ticks: u32,
     /// The level minus one.
     pub(super) amplifier: u8,
     /// Whether it shows particles.
@@ -41,10 +41,10 @@ pub(super) struct Active {
 }
 
 impl Active {
-    /// A plain effect of `duration` ticks at `amplifier`, with particles.
-    pub(super) const fn new(duration: u32, amplifier: u8) -> Self {
+    /// A plain effect of `duration_ticks` ticks at `amplifier`, with particles.
+    pub(super) const fn new(duration_ticks: u32, amplifier: u8) -> Self {
         Self {
-            duration,
+            duration_ticks,
             amplifier,
             visible: true,
             ambient: false,
@@ -55,7 +55,7 @@ impl Active {
     /// The effect a potion, food or the API gives.
     pub(super) fn of(instance: Instance) -> Self {
         Self {
-            duration: instance.duration_ticks().min(MAX_DURATION_TICKS),
+            duration_ticks: instance.duration_ticks().min(MAX_DURATION_TICKS),
             amplifier: instance.amplifier(),
             visible: instance.is_visible(),
             ambient: instance.is_ambient(),
@@ -66,13 +66,13 @@ impl Active {
     #[cfg(test)]
     pub(super) fn hash_into(self, h: &mut crate::tick::Fnv) {
         let Self {
-            duration,
+            duration_ticks,
             amplifier,
             visible,
             ambient,
             infinite,
         } = self;
-        h.u64(u64::from(duration));
+        h.u64(u64::from(duration_ticks));
         h.u64(u64::from(amplifier));
         h.u64(u64::from(visible) | u64::from(ambient) << 1 | u64::from(infinite) << 2);
     }
@@ -81,7 +81,7 @@ impl Active {
     pub(super) fn instance(self, effect: Type) -> Instance {
         Instance::new(
             effect,
-            self.duration,
+            self.duration_ticks,
             self.amplifier,
             self.visible,
             self.ambient,
@@ -95,8 +95,8 @@ impl Active {
     }
 }
 
-crate::tick::checkpoint::fields!(Active {
-    duration,
+checkpoint::fields!(Active {
+    duration_ticks,
     amplifier,
     visible,
     ambient,
@@ -163,6 +163,57 @@ pub(super) fn add_to(player: &mut Player, effect: Type, new: Active) -> bool {
     true
 }
 
+/// Removes every effect (milk, respawn, a totem), in effect ID order as the official server
+/// removes them (P6 `syntax`).
+pub(super) fn clear(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    for effect in active_types_by_id(&player.survival).into_iter().flatten() {
+        remove(state, session, effect);
+    }
+}
+
+/// Counts one tick of the living player's effects: each effect acts if its interval divides its
+/// remaining duration, then counts down and ends at 0.
+pub(super) fn tick(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.survival.is_dead() {
+        return;
+    }
+    for effect in active_types(&player.survival).into_iter().flatten() {
+        let Some(active) = state
+            .players
+            .get(&session)
+            .and_then(|p| p.survival.effects.get(&effect).copied())
+        else {
+            continue;
+        };
+        let every = interval_ticks(effect, active.amplifier);
+        if every > 0 && active.duration_ticks % every == 0 {
+            apply(state, session, effect, active);
+        }
+        let Some(player) = state.players.get_mut(&session) else {
+            return;
+        };
+        let Some(current) = player.survival.effects.get_mut(&effect) else {
+            continue;
+        };
+        current.duration_ticks = match current.duration_ticks.checked_sub(1) {
+            Some(d) if d > 0 => d,
+            _ if current.infinite => MAX_DURATION_TICKS,
+            _ => 0,
+        };
+        let expired = current.duration_ticks == 0;
+        player.data_dirty = true;
+        if expired {
+            remove(state, session, effect);
+        }
+    }
+}
+
 /// Removes an effect, undoing what it changed, unless an [`EntityEffectRemove`] listener keeps it
 /// (one that ran out cannot stay) or changes the player's effect of the type (the new one stays).
 pub(super) fn remove(state: &mut State, session: SessionId, effect: Type) {
@@ -210,57 +261,6 @@ pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
     true
 }
 
-/// Removes every effect (milk, respawn, a totem), in effect ID order as the official server
-/// removes them (P6 `syntax`).
-pub(super) fn clear(state: &mut State, session: SessionId) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    for effect in active_types_by_id(&player.survival).into_iter().flatten() {
-        remove(state, session, effect);
-    }
-}
-
-/// Counts one tick of the living player's effects: each effect acts if its interval divides its
-/// remaining duration, then counts down and ends at 0.
-pub(super) fn tick(state: &mut State, session: SessionId) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    if player.survival.is_dead() {
-        return;
-    }
-    for effect in active_types(&player.survival).into_iter().flatten() {
-        let Some(active) = state
-            .players
-            .get(&session)
-            .and_then(|p| p.survival.effects.get(&effect).copied())
-        else {
-            continue;
-        };
-        let every = interval_ticks(effect, active.amplifier);
-        if every > 0 && active.duration % every == 0 {
-            apply(state, session, effect, active);
-        }
-        let Some(player) = state.players.get_mut(&session) else {
-            return;
-        };
-        let Some(current) = player.survival.effects.get_mut(&effect) else {
-            continue;
-        };
-        current.duration = match current.duration.checked_sub(1) {
-            Some(d) if d > 0 => d,
-            _ if current.infinite => MAX_DURATION_TICKS,
-            _ => 0,
-        };
-        let expired = current.duration == 0;
-        player.data_dirty = true;
-        if expired {
-            remove(state, session, effect);
-        }
-    }
-}
-
 /// The `MobEffect` packets for every active effect (a player that just spawned).
 pub(super) fn all_packets(player: &Player) -> impl Iterator<Item = Packet> + '_ {
     player
@@ -298,32 +298,21 @@ pub(super) fn of_instances(instances: &[effect::Instance]) -> impl Iterator<Item
 }
 
 /// The ticks between applications of an effect; 0 never applies.
-pub(super) fn interval_ticks(effect: Type, amplifier: u8) -> u32 {
+fn interval_ticks(effect: Type, amplifier: u8) -> u32 {
     let shifted = |base: u32| base.checked_shr(u32::from(amplifier)).unwrap_or(0).max(1);
     match effect {
-        Type::Poison | Type::FatalPoison => shifted(POISON_INTERVAL_TICKS),
-        Type::Wither => shifted(WITHER_INTERVAL_TICKS),
-        Type::Regeneration => shifted(REGENERATION_INTERVAL_TICKS),
+        Type::FatalPoison | Type::Poison => shifted(POISON_INTERVAL_TICKS),
         Type::Hunger | Type::InstantDamage | Type::InstantHealth | Type::Saturation => 1,
+        Type::Regeneration => shifted(REGENERATION_INTERVAL_TICKS),
+        Type::Wither => shifted(WITHER_INTERVAL_TICKS),
         _ => 0,
     }
 }
 
-/// What an instant effect at full potency heals or hurts, for players and entities, drunk or
-/// splashed; 0 for any other effect.
-pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
-    let base = match effect {
-        Type::InstantHealth => INSTANT_HEALTH_AMOUNT,
-        Type::InstantDamage => INSTANT_DAMAGE_AMOUNT,
-        _ => 0.0,
-    };
-    base * doubled(amplifier)
-}
-
-/// What an effect does when it acts.
+/// Runs what an effect does when it acts.
 fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
     match effect {
-        Type::Poison | Type::FatalPoison => {
+        Type::FatalPoison | Type::Poison => {
             let health = state
                 .players
                 .get(&session)
@@ -332,24 +321,21 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
                 damage::damage(state, session, 1.0, Damage::Magic);
             }
         }
-        Type::Wither => {
-            damage::damage(state, session, 1.0, Damage::Magic);
+        Type::Hunger => {
+            let amount = 0.1 * f64::from(active.level());
+            food::exhaust_as(state, session, amount, ExhaustCause::Potion);
         }
-        Type::Regeneration => damage::heal(state, session, 1.0, RegainReason::Regen),
+        Type::InstantDamage => {
+            let amount = instant_amount(effect, active.amplifier);
+            damage::damage(state, session, amount, Damage::Magic);
+        }
         Type::InstantHealth => damage::heal(
             state,
             session,
             instant_amount(effect, active.amplifier),
             RegainReason::Magic,
         ),
-        Type::InstantDamage => {
-            let amount = instant_amount(effect, active.amplifier);
-            damage::damage(state, session, amount, Damage::Magic);
-        }
-        Type::Hunger => {
-            let amount = 0.1 * f64::from(active.level());
-            food::exhaust_as(state, session, amount, ExhaustCause::Potion);
-        }
+        Type::Regeneration => damage::heal(state, session, 1.0, RegainReason::Regen),
         Type::Saturation => {
             if let Some(player) = state.players.get_mut(&session) {
                 let level = f64::from(active.level());
@@ -357,8 +343,22 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
                 player.data_dirty = true;
             }
         }
+        Type::Wither => {
+            damage::damage(state, session, 1.0, Damage::Magic);
+        }
         _ => {}
     }
+}
+
+/// What an instant effect at full potency heals or hurts, for players and entities, drunk or
+/// splashed; 0 for any other effect.
+pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
+    let base = match effect {
+        Type::InstantDamage => INSTANT_DAMAGE_AMOUNT,
+        Type::InstantHealth => INSTANT_HEALTH_AMOUNT,
+        _ => 0.0,
+    };
+    base * doubled(amplifier)
 }
 
 /// Whether `new` may replace `old`, both of type `effect` ([`Instance::can_replace`]).
@@ -382,7 +382,7 @@ fn active_types(s: &Survival) -> [Option<Type>; effect::TYPE_COUNT] {
     out
 }
 
-/// What an effect changes when it starts.
+/// Changes the player as an effect starts.
 fn on_add(s: &mut Survival, effect: Type, new: Active) {
     match effect {
         Type::Absorption => {
@@ -393,12 +393,12 @@ fn on_add(s: &mut Survival, effect: Type, new: Active) {
             s.mark(ABSORPTION);
         }
         Type::HealthBoost => s.mark(HEALTH),
-        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
+        Type::Slowness | Type::Speed => s.mark(MOVEMENT),
         _ => {}
     }
 }
 
-/// What an effect undoes when it ends.
+/// Undoes what an effect changed when it ends.
 fn on_remove(s: &mut Survival, effect: Type) {
     match effect {
         Type::Absorption => {
@@ -412,7 +412,7 @@ fn on_remove(s: &mut Survival, effect: Type) {
             }
             s.mark(HEALTH);
         }
-        Type::Speed | Type::Slowness => s.mark(MOVEMENT),
+        Type::Slowness | Type::Speed => s.mark(MOVEMENT),
         _ => {}
     }
 }
@@ -428,7 +428,7 @@ fn packet(player: &Player, effect: Type, active: Active, operation: MobEffectOpe
         duration: if active.infinite {
             -1
         } else {
-            i32::try_from(active.duration).unwrap_or(i32::MAX)
+            i32::try_from(active.duration_ticks).unwrap_or(i32::MAX)
         },
         tick: 0,
         ambient: active.ambient,

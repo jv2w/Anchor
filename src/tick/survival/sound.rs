@@ -4,7 +4,7 @@
 //! player, and `world::Sound` leaves out) go through `tick::emit` with their
 //! [`WorldSound`](crate::event::WorldSound).
 //!
-//! The official server was seen sending the xp pickup sound (`LevelEvent` 1051).
+//! The official server sends the xp pickup sound as `LevelEvent` 1051.
 
 use super::{broadcast_from, feet};
 use crate::math::Vec3;

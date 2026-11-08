@@ -165,38 +165,11 @@ pub(super) struct Survival {
     appearance: appearance::Appearance,
 }
 
-/// The survival systems the server settings turn on, fixed at start and kept with each player: the
-/// public API, which has only the player, refuses to change a system that is off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Switches {
-    /// `food`: food, saturation and exhaustion.
-    food: bool,
-    /// `xp`: points, levels and orbs.
-    xp: bool,
-    /// `drowning`: air, drowning and suffocation.
-    drowning: bool,
-}
-
-impl Switches {
-    /// Every system on, as the default settings have them.
-    const ALL: Self = Self {
-        food: true,
-        xp: true,
-        drowning: true,
-    };
-}
-
-/// A position in a world by name (worlds are saved by name).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Point {
-    world: String,
-    pos: BlockPos,
-}
-
 impl Survival {
     /// The survival state of a player who just joined, before its saved data.
     pub(super) fn new(settings: &Settings) -> Self {
         Self {
+            forced_mode: settings.force_game_mode,
             switches: Switches {
                 food: settings.food,
                 xp: settings.xp,
@@ -204,86 +177,11 @@ impl Survival {
             },
             // Without air the player always breathes.
             breathing: !settings.drowning,
-            forced_mode: settings.force_game_mode,
             ..Self::with_mode(settings.game_mode)
         }
     }
 
-    /// A new player's state on a server whose game mode is `default_mode`.
-    fn with_mode(default_mode: GameMode) -> Self {
-        Self {
-            game_mode: None,
-            default_mode,
-            forced_mode: false,
-            switches: Switches::ALL,
-            health: MAX_HEALTH,
-            absorption: 0.0,
-            food: MAX_FOOD,
-            saturation: DEFAULT_SATURATION,
-            exhaustion: 0.0,
-            food_timer: 0,
-            xp_level: 0,
-            xp_progress: 0.0,
-            xp_lifetime: 0,
-            xp_cooldown: 0,
-            effects: BTreeMap::new(),
-            fire_ticks: 0,
-            air: MAX_AIR_TICKS,
-            breathing: false,
-            fall_distance: 0.0,
-            spawn: None,
-            death: None,
-            motion: movement::Motion::default(),
-            no_damage_ticks: 0,
-            attack_time: 0,
-            last_damage: None,
-            last_cause: None,
-            using: None,
-            cooldowns: BTreeMap::new(),
-            held_back: Vec::new(),
-            draws: 0,
-            dirty: 0,
-            shown: attributes::Shown::default(),
-            custom: api::Custom::default(),
-            appearance: appearance::Appearance::default(),
-        }
-    }
-
-    /// The game mode: the player's own, or the server's. `force-gamemode` applies at the join:
-    /// the saved mode is not loaded, and a later change stays until the player leaves.
-    fn mode(&self) -> GameMode {
-        self.game_mode.unwrap_or(self.default_mode)
-    }
-
-    /// The largest health: 20 (or what the API set) and 4 for each level of health boost.
-    fn max_health(&self) -> f64 {
-        let boost = self
-            .effects
-            .get(&effect::Type::HealthBoost)
-            .map_or(0.0, |a| f64::from(a.level()));
-        f64::from(self.custom.max_health) + 4.0 * boost
-    }
-
-    /// Whether the player is dead and waits to respawn.
-    fn is_dead(&self) -> bool {
-        self.health <= 0.0
-    }
-
-    /// The level of an active effect (amplifier + 1), 0 when it is not active.
-    fn effect_level(&self, effect: effect::Type) -> u32 {
-        self.effects.get(&effect).map_or(0, |a| a.level())
-    }
-
-    /// Marks attributes or other client state to send at the end of the tick.
-    fn mark(&mut self, bits: u16) {
-        self.dirty |= bits;
-    }
-
     #[cfg(test)]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "consistency: one destructured field and one hash per field keep the hash complete"
-    )]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
             game_mode,
@@ -332,19 +230,12 @@ impl Survival {
             drowning,
         } = switches;
         h.u64(u64::from(*food_on) | u64::from(*xp_on) << 1 | u64::from(*drowning) << 2);
-        for v in [
-            health,
-            absorption,
-            food,
-            saturation,
-            exhaustion,
-            xp_progress,
-            fall_distance,
-        ] {
+        for v in [health, absorption, food, saturation, exhaustion] {
             h.u64(v.to_bits());
         }
         h.u64(u64::from(*food_timer));
         h.u64(u64::from(*xp_level));
+        h.u64(xp_progress.to_bits());
         h.u64(u64::from(*xp_lifetime));
         h.u64(u64::from(*xp_cooldown));
         h.usize(effects.len());
@@ -355,6 +246,7 @@ impl Survival {
         h.u64(u64::from(*fire_ticks));
         h.u64(u64::from(air.cast_unsigned()));
         h.u64(u64::from(*breathing));
+        h.u64(fall_distance.to_bits());
         for point in [spawn, death] {
             match point {
                 Some(p) => {
@@ -387,6 +279,76 @@ impl Survival {
         shown.hash_into(h);
         custom.hash_into(h);
         appearance.hash_into(h);
+    }
+
+    /// A new player's state on a server whose game mode is `default_mode`.
+    fn with_mode(default_mode: GameMode) -> Self {
+        Self {
+            game_mode: None,
+            default_mode,
+            forced_mode: false,
+            switches: Switches::ALL,
+            health: MAX_HEALTH,
+            absorption: 0.0,
+            food: MAX_FOOD,
+            saturation: DEFAULT_SATURATION,
+            exhaustion: 0.0,
+            food_timer: 0,
+            xp_level: 0,
+            xp_progress: 0.0,
+            xp_lifetime: 0,
+            xp_cooldown: 0,
+            effects: BTreeMap::new(),
+            fire_ticks: 0,
+            air: MAX_AIR_TICKS,
+            breathing: false,
+            fall_distance: 0.0,
+            spawn: None,
+            death: None,
+            motion: movement::Motion::default(),
+            no_damage_ticks: 0,
+            attack_time: 0,
+            last_damage: None,
+            last_cause: None,
+            using: None,
+            cooldowns: BTreeMap::new(),
+            held_back: Vec::new(),
+            draws: 0,
+            dirty: 0,
+            shown: attributes::Shown::default(),
+            custom: api::Custom::default(),
+            appearance: appearance::Appearance::default(),
+        }
+    }
+
+    /// The level of an active effect (amplifier + 1), 0 when it is not active.
+    fn effect_level(&self, effect: effect::Type) -> u32 {
+        self.effects.get(&effect).map_or(0, |a| a.level())
+    }
+
+    /// Whether the player is dead and waits to respawn.
+    fn is_dead(&self) -> bool {
+        self.health <= 0.0
+    }
+
+    /// The largest health: 20 (or what the API set) and 4 for each level of health boost.
+    fn max_health(&self) -> f64 {
+        let boost = self
+            .effects
+            .get(&effect::Type::HealthBoost)
+            .map_or(0.0, |a| f64::from(a.level()));
+        f64::from(self.custom.max_health) + 4.0 * boost
+    }
+
+    /// The game mode: the player's own, or the server's. `force-gamemode` applies at the join:
+    /// the saved mode is not loaded, and a later change stays until the player leaves.
+    fn mode(&self) -> GameMode {
+        self.game_mode.unwrap_or(self.default_mode)
+    }
+
+    /// Marks attributes or other client state to send at the end of the tick.
+    fn mark(&mut self, bits: u16) {
+        self.dirty |= bits;
     }
 }
 
@@ -433,8 +395,38 @@ checkpoint::fields!(Survival {
     custom,
     appearance,
 });
-checkpoint::fields!(Point { world, pos });
+
+/// The survival systems the server settings turn on, fixed at start and kept with each player: the
+/// public API, which has only the player, refuses to change a system that is off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Switches {
+    /// `food`: food, saturation and exhaustion.
+    food: bool,
+    /// `xp`: points, levels and orbs.
+    xp: bool,
+    /// `drowning`: air, drowning and suffocation.
+    drowning: bool,
+}
+
+impl Switches {
+    /// Every system on, as the default settings have them.
+    const ALL: Self = Self {
+        food: true,
+        xp: true,
+        drowning: true,
+    };
+}
+
 checkpoint::fields!(Switches { food, xp, drowning });
+
+/// A position in a world by name (worlds are saved by name).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Point {
+    world: String,
+    pos: BlockPos,
+}
+
+checkpoint::fields!(Point { world, pos });
 
 /// An action [`ask`] refused: a listener cancelled it, or the game the listeners left no longer
 /// allows it.
@@ -465,6 +457,37 @@ pub(super) enum Stay {
     Leaving,
 }
 
+impl Context<'_> {
+    /// Deals `amount` damage for `cause` from `source` to `player` through the game rules, with
+    /// its events ([`crate::action::Damage`]); false if no damage was taken.
+    pub(crate) fn hurt_player(
+        &mut self,
+        player: Id,
+        amount: f64,
+        cause: DamageCause,
+        source: DamageSource,
+    ) -> bool {
+        let damage = Damage::of(cause, source);
+        damage::damage_by(self.state, player.session(), amount, damage, source).is_some()
+    }
+
+    /// Changes `player`'s game mode to `mode` with its [`PlayerGameModeChange`] event
+    /// ([`crate::action::SetGameMode`]); false if it had the mode or a listener cancelled it.
+    pub(crate) fn change_game_mode(&mut self, player: Id, mode: GameMode) -> bool {
+        let session = player.session();
+        let Ok(event) = ask_game_mode(self.state, session, mode) else {
+            return false;
+        };
+        let changed = self.state.players.get_mut(&session).is_some_and(|p| {
+            let differs = p.game_mode() != mode;
+            p.set_game_mode(mode);
+            differs
+        });
+        watch(self.state, event.as_ref());
+        changed
+    }
+}
+
 /// Reads the player's survival keys from its saved extra (empty for a new player), its items
 /// with the server's `custom` items and blocks.
 pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::custom::Registry) {
@@ -476,14 +499,15 @@ pub(super) fn save(survival: &Survival, extra: &mut Compound) {
     saved::save(survival, extra);
 }
 
-/// `PlayerAuthInput`: rotation, input flags (sneaking, sprinting, swimming, gliding, flying,
+/// Applies a `PlayerAuthInput`: rotation, input flags (sneaking, sprinting, swimming, gliding, flying,
 /// jumping, missed swings) and the movement, checked. Positions that are not finite or outside
 /// the world border are ignored: tick state holds no NaN or infinity.
 pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &PlayerAuthInput) {
     movement::on_auth_input(state, session, packet);
 }
 
-/// Applies a `PlayerAction`: respawn, jumping, sprinting, sneaking, or gliding.
+/// Applies a `PlayerAction`: respawn, a jump, or a switch of sprinting, sneaking, gliding, or
+/// swimming on or off; any other action does nothing.
 pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
     movement::on_player_action(state, session, packet);
 }
@@ -495,21 +519,21 @@ pub(super) fn on_animate(state: &mut State, session: SessionId, packet: &Animate
     let _ = (state, session, packet);
 }
 
-/// `Respawn` from the client: the respawn button on the death screen
+/// Answers a `Respawn` from the client: the respawn button on the death screen
 /// (`RespawnStateClientReadyToSpawn`) is answered with the respawn position; the respawn itself
 /// follows `PlayerAction` respawn.
 pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn) {
     damage::on_respawn(state, session, packet);
 }
 
-/// `Emote`: a spawned player plays an emote, at most once every 6 ticks, and the players that see
+/// Applies an `Emote`: a spawned player plays an emote, at most once every 6 ticks, and the players that see
 /// it see it too; a [`PlayerEmote`](crate::event::PlayerEmote) listener may cancel it or play
 /// another.
 pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
     appearance::on_emote(state, session, packet);
 }
 
-/// `PlayerSkin`: a spawned player changes its skin in game: checked like a login skin (image
+/// Applies a `PlayerSkin`: a spawned player changes its skin in game: checked like a login skin (image
 /// sizes, at most 4 MiB), at most once a second; every player then gets it, or the player gets
 /// its old skin back if a [`PlayerChangeSkin`](crate::event::PlayerChangeSkin) listener cancels
 /// it.
@@ -619,39 +643,8 @@ fn ask_game_mode(
     )
 }
 
-impl Context<'_> {
-    /// Deals `amount` damage for `cause` from `source` to `player` through the game rules, with
-    /// its events ([`crate::action::Damage`]); false if no damage was taken.
-    pub(crate) fn hurt_player(
-        &mut self,
-        player: Id,
-        amount: f64,
-        cause: DamageCause,
-        source: DamageSource,
-    ) -> bool {
-        let damage = Damage::of(cause, source);
-        damage::damage_by(self.state, player.session(), amount, damage, source).is_some()
-    }
-
-    /// Changes `player`'s game mode to `mode` with its [`PlayerGameModeChange`] event
-    /// ([`crate::action::SetGameMode`]); false if it had the mode or a listener cancelled it.
-    pub(crate) fn change_game_mode(&mut self, player: Id, mode: GameMode) -> bool {
-        let session = player.session();
-        let Ok(event) = ask_game_mode(self.state, session, mode) else {
-            return false;
-        };
-        let changed = self.state.players.get_mut(&session).is_some_and(|p| {
-            let differs = p.game_mode() != mode;
-            p.set_game_mode(mode);
-            differs
-        });
-        watch(self.state, event.as_ref());
-        changed
-    }
-}
-
-/// One tick of the world clocks, then of every spawned player's survival state, then the client
-/// updates.
+/// Runs one tick of the world clocks, then of every spawned player's survival state, then the
+/// client updates.
 pub(super) fn tick(state: &mut State) {
     clock::tick(state);
     let mut next = first_session(state);
@@ -662,7 +655,7 @@ pub(super) fn tick(state: &mut State) {
     attributes::flush(state);
 }
 
-/// One tick of a spawned, living player.
+/// Runs one tick of a spawned, living player.
 fn player_tick(state: &mut State, session: SessionId) {
     let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
@@ -684,10 +677,10 @@ fn player_tick(state: &mut State, session: SessionId) {
     movement::process(state, session);
     if let Some(player) = state.players.get_mut(&session) {
         let m = &mut player.survival.motion;
-        m.in_air = if m.on_ground {
+        m.in_air_ticks = if m.on_ground {
             0
         } else {
-            m.in_air.saturating_add(1)
+            m.in_air_ticks.saturating_add(1)
         };
     }
     damage::retry_held_back(state, session);
@@ -709,10 +702,10 @@ fn player_tick(state: &mut State, session: SessionId) {
     }
 }
 
-/// A random stream for one draw purpose of a player in a world with `seed`; each call opens a
-/// new stream (the player's draw counter is part of the key), so a tick never opens the same
+/// Opens a random stream for one draw purpose of a player in a world with `seed`; each call opens
+/// a new stream (the player's draw counter is part of the key), so a tick never opens the same
 /// stream twice.
-fn player_random(seed: i64, tick: u64, player: &mut Player, purpose: u64) -> Random {
+pub(super) fn player_random(seed: i64, tick: u64, player: &mut Player, purpose: u64) -> Random {
     let s = &mut player.survival;
     s.draws = s.draws.wrapping_add(1);
     Random::new(
@@ -722,13 +715,13 @@ fn player_random(seed: i64, tick: u64, player: &mut Player, purpose: u64) -> Ran
     )
 }
 
-/// The seed of the world the player of `session` is in (0 if it is gone).
-fn world_seed(state: &State, session: SessionId) -> i64 {
+/// The seed of the world the player of `session` is in, if the player is there.
+fn world_seed(state: &State, session: SessionId) -> Option<i64> {
     state
         .players
         .get(&session)
         .and_then(|p| state.worlds.get(p.world))
-        .map_or(0, crate::world::World::seed)
+        .map(crate::world::World::seed)
 }
 
 /// The first session in order, if any.
@@ -791,15 +784,15 @@ pub(super) fn has_finite_resources(mode: GameMode) -> bool {
     mode != GameMode::Creative
 }
 
-/// [`damage_by`] with the source of `cause` (a melee hit's player, otherwise none); the rules
-/// call [`damage_by`].
+/// Deals damage as [`damage_by`] does, with the source of `cause` (a melee hit's player,
+/// otherwise none); the rules call [`damage_by`].
 #[cfg(test)]
 pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: Damage) -> bool {
     damage::damage(state, session, amount, cause)
 }
 
-/// [`damage_by`] without a source and without events, for the direct API: a death follows at the
-/// player's survival sync.
+/// Deals damage as [`damage_by`] does, without a source and without events, for the direct API: a
+/// death follows at the player's survival sync.
 pub(super) fn damage_quiet(
     state: &mut State,
     session: SessionId,
@@ -824,14 +817,6 @@ pub(super) fn damage_by(
     damage::damage_by(state, session, amount, cause, source)
 }
 
-/// Adds food exhaustion without an event; nothing while food is off for the player
-/// (`food = false`, creative, spectator). Rules raise
-/// [`PlayerExhaust`](crate::event::PlayerExhaust) with [`exhaust_by`] instead.
-#[cfg(test)]
-pub(super) fn exhaust(player: &mut Player, amount: f64) {
-    food::exhaust(&mut player.survival, amount);
-}
-
 /// Adds food exhaustion for `cause`, raising [`PlayerExhaust`](crate::event::PlayerExhaust).
 pub(super) fn exhaust_by(state: &mut State, session: SessionId, amount: f64, cause: ExhaustCause) {
     food::exhaust_as(state, session, amount, cause);
@@ -848,30 +833,30 @@ pub(super) fn xp_level(player: &Player) -> u32 {
     player.survival.xp_level
 }
 
-/// `attacker` hits the player `target` in melee with its held item.
+/// Hits the player `target` in melee with the item `attacker` holds.
 pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: SessionId) {
     damage::attack_player(state, attacker, target);
 }
 
-/// The player clicks in the air while it eats or drinks the item it holds. False, changing
-/// nothing, if it does not eat the held item.
+/// Finishes the eating or drinking of the player who clicks in the air while it eats or drinks the
+/// item it holds. False, changing nothing, if it does not eat the held item.
 pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
     food::finish_eating(state, session)
 }
 
-/// The player starts eating or drinking the item it holds. True when the item is a consumable it
+/// Starts the player eating or drinking the item it holds. True when the item is a consumable it
 /// handled.
 pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     food::start_eating(state, session)
 }
 
-/// The player stops using its held item: drawing a bow or trident, eating or drinking.
+/// Stops the player using its held item: drawing a bow or trident, eating or drinking.
 pub(super) fn stop_using_item(player: &mut Player) {
     player.breaking.stop_using();
     player.survival.using = None;
 }
 
-/// The player leaves: it stops eating.
+/// Handles the player leaving: it stops eating.
 pub(super) fn left(player: &mut Player) {
     player.survival.using = None;
 }
@@ -1023,13 +1008,13 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
         0
     };
     super::view::close(state, &mut player);
-    let difficulty = super::world_api::difficulty(state, world);
-    if super::world_api::difficulty(state, player.world) != difficulty {
+    let entered = difficulty(state, world);
+    if difficulty(state, player.world) != entered {
         // Entering a world syncs its difficulty; the player has had its `StartGame` (see the
         // weather below).
         player.send_packet(Packet::SetDifficulty(
             crate::protocol::packet::SetDifficulty {
-                difficulty: super::spawn::difficulty_id(difficulty).cast_unsigned(),
+                difficulty: super::spawn::difficulty_id(entered).cast_unsigned(),
             },
         ));
     }
@@ -1126,7 +1111,7 @@ pub(super) fn reset_item_cooldown(state: &mut State, session: SessionId, item: c
     }
 }
 
-/// The player picks up an xp orb worth `amount` points: false, and the orb stays, while the
+/// Picks up an xp orb worth `amount` points for the player: false, and the orb stays, while the
 /// pickup cooldown of 2 ticks runs. Mending on a damaged held, off-hand or worn item (one picked
 /// at random) repairs 2 durability per point first; the rest becomes xp, with the collect or
 /// level-up sound.
@@ -1171,9 +1156,9 @@ pub(super) fn melee(state: &State, session: SessionId) -> Option<Melee> {
     damage::melee(state, session)
 }
 
-/// The attacker's side of a melee hit the player of `session` landed with `held`: `enchant`
-/// applies the weapon's Knockback force and Fire Aspect seconds to the target, then a living
-/// attacker's weapon wears and it gets hungrier.
+/// Applies the attacker's side of a melee hit the player of `session` landed with `held`:
+/// `enchant` applies the weapon's Knockback force and Fire Aspect seconds to the target, then a
+/// living attacker's weapon wears and it gets hungrier.
 pub(super) fn after_melee(
     state: &mut State,
     session: SessionId,
@@ -1183,12 +1168,12 @@ pub(super) fn after_melee(
     damage::after_melee(state, session, held, enchant);
 }
 
-/// The player's arm swing, for the players that see it.
+/// Shows the player's arm swing to the players that see it.
 pub(super) fn swing(state: &mut State, session: SessionId) {
     damage::swing(state, session);
 }
 
-/// A melee hit's sound at `at` in the world of `session`.
+/// Plays a melee hit's sound at `at` in the world of `session`.
 pub(super) fn hit_sound(
     state: &mut State,
     session: SessionId,
@@ -1227,99 +1212,6 @@ mod tests {
     const FLAGS: i64 = 844_424_930_656_256;
     /// [`FLAGS`] with Breathing.
     const FLAGS_BREATHING: i64 = FLAGS | 1 << 35;
-
-    /// A server with players 1..=n spawned; session k has runtime ID k.
-    struct Server {
-        state: State,
-        output: Output,
-        receivers: Vec<mpsc::Receiver<Outbound>>,
-        seq: u64,
-    }
-
-    impl Server {
-        fn new(n: u64, edit: impl FnOnce(&mut Config)) -> Self {
-            let mut server = Self {
-                state: new_state(settings(edit), Listeners::default()),
-                output: Output::default(),
-                receivers: Vec::new(),
-                seq: 10,
-            };
-            let mut first = Vec::new();
-            for s in 1..=n {
-                let (j, rx) = join(s, 0);
-                server.receivers.push(rx);
-                first.extend([j, radius(s, 1, 8)]);
-            }
-            server.run(first);
-            server.run((1..=n).map(|s| initialised(s, 2, s)).collect());
-            for s in 1..=n {
-                server.take(s);
-            }
-            server
-        }
-
-        fn run(&mut self, mut inputs: Vec<Input>) {
-            tick(&mut self.state, &mut inputs, &mut self.output);
-        }
-
-        fn idle(&mut self, ticks: u32) {
-            for _ in 0..ticks {
-                self.run(Vec::new());
-            }
-        }
-
-        /// An input of session `s` carrying `packet`.
-        fn send(&mut self, s: u64, sent: Packet) -> Input {
-            self.seq += 1;
-            input(s, self.seq, packet(sent))
-        }
-
-        /// Everything session `s` received since the last call.
-        fn take(&mut self, s: u64) -> Vec<Packet> {
-            let index = usize::try_from(s - 1).unwrap();
-            received(&mut self.receivers[index]).0
-        }
-
-        fn player(&self, s: u64) -> &Player {
-            &self.state.players[&SessionId::new(s)]
-        }
-
-        fn player_mut(&mut self, s: u64) -> &mut Player {
-            self.state.players.get_mut(&SessionId::new(s)).unwrap()
-        }
-
-        fn survival_mut(&mut self, s: u64) -> &mut Survival {
-            &mut self.player_mut(s).survival
-        }
-
-        fn hurt(&mut self, s: u64, amount: f64, cause: Damage) -> bool {
-            damage(&mut self.state, SessionId::new(s), amount, cause)
-        }
-    }
-
-    fn sid(s: u64) -> SessionId {
-        SessionId::new(s)
-    }
-
-    fn stack(kind: ItemKind, count: u8) -> Stack {
-        Stack::new(kind.default_type(), count)
-    }
-
-    fn enchanted(kind: ItemKind, enchantments: &[(Enchantment, u16)]) -> Stack {
-        stack(kind, 1)
-            .with_extra(Some(Extra {
-                enchantments: enchantments.to_vec(),
-                ..Extra::default()
-            }))
-            .unwrap()
-    }
-
-    /// The encoded payload size of a packet (without the packet header).
-    fn size(packet: &Packet) -> usize {
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes).unwrap();
-        bytes.len()
-    }
 
     fn id(packet: &Packet) -> u32 {
         packet.id()
@@ -1481,6 +1373,13 @@ mod tests {
         assert!(rules.iter().all(|r| r.can_be_modified_by_player));
     }
 
+    /// The encoded payload size of a packet (without the packet header).
+    fn size(packet: &Packet) -> usize {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes).unwrap();
+        bytes.len()
+    }
+
     #[test]
     fn the_spawn_window_has_the_official_player_state() {
         let packets = window();
@@ -1566,6 +1465,75 @@ mod tests {
         let want =
             crate::protocol::EntityMetadata::from([(0, MetadataValue::Int64(FLAGS_BREATHING))]);
         assert_eq!(own_data(&after), [&want]);
+    }
+
+    /// A server with players 1..=n spawned; session k has runtime ID k.
+    struct Server {
+        state: State,
+        output: Output,
+        receivers: Vec<mpsc::Receiver<Outbound>>,
+        seq: u64,
+    }
+
+    impl Server {
+        fn new(n: u64, edit: impl FnOnce(&mut Config)) -> Self {
+            let mut server = Self {
+                state: new_state(settings(edit), Listeners::default()),
+                output: Output::default(),
+                receivers: Vec::new(),
+                seq: 10,
+            };
+            let mut first = Vec::new();
+            for s in 1..=n {
+                let (j, rx) = join(s, 0);
+                server.receivers.push(rx);
+                first.extend([j, radius(s, 1, 8)]);
+            }
+            server.run(first);
+            server.run((1..=n).map(|s| initialised(s, 2, s)).collect());
+            for s in 1..=n {
+                server.take(s);
+            }
+            server
+        }
+
+        fn run(&mut self, mut inputs: Vec<Input>) {
+            tick(&mut self.state, &mut inputs, &mut self.output);
+        }
+
+        fn idle(&mut self, ticks: u32) {
+            for _ in 0..ticks {
+                self.run(Vec::new());
+            }
+        }
+
+        /// An input of session `s` carrying `packet`.
+        fn send(&mut self, s: u64, sent: Packet) -> Input {
+            self.seq += 1;
+            input(s, self.seq, packet(sent))
+        }
+
+        /// Everything session `s` received since the last call.
+        fn take(&mut self, s: u64) -> Vec<Packet> {
+            let index = usize::try_from(s - 1).unwrap();
+            received(&mut self.receivers[index]).0
+        }
+
+        fn player(&self, s: u64) -> &Player {
+            &self.state.players[&SessionId::new(s)]
+        }
+
+        fn player_mut(&mut self, s: u64) -> &mut Player {
+            self.state.players.get_mut(&SessionId::new(s)).unwrap()
+        }
+
+        fn survival_mut(&mut self, s: u64) -> &mut Survival {
+            &mut self.player_mut(s).survival
+        }
+
+        fn hurt(&mut self, s: u64, amount: f64, cause: Damage) -> bool {
+            damage(&mut self.state, SessionId::new(s), amount, cause)
+        }
     }
 
     /// The hit cooldown counts down after drowning hurts: its last tick still weighs a drowning
@@ -1676,6 +1644,23 @@ mod tests {
         assert_eq!(lists(&server.take(2)), added);
         server.run(vec![leave(3, 5)]);
         assert_eq!(lists(&server.take(2)), [vec![(1, String::new())]]);
+    }
+
+    fn sid(s: u64) -> SessionId {
+        SessionId::new(s)
+    }
+
+    fn stack(kind: ItemKind, count: u8) -> Stack {
+        Stack::new(kind.default_type(), count)
+    }
+
+    fn enchanted(kind: ItemKind, enchantments: &[(Enchantment, u16)]) -> Stack {
+        stack(kind, 1)
+            .with_extra(Some(Extra {
+                enchantments: enchantments.to_vec(),
+                ..Extra::default()
+            }))
+            .unwrap()
     }
 
     #[test]
@@ -2165,7 +2150,7 @@ mod tests {
         let mut server = Server::new(1, |c| c.general.food = false);
         server.survival_mut(1).food = 10.0;
         server.idle(200);
-        exhaust(server.player_mut(1), 40.0);
+        food::exhaust(server.survival_mut(1), 40.0);
         let s = server.survival_mut(1);
         assert_eq!((s.food, s.exhaustion, s.saturation), (10.0, 0.0, 5.0));
     }

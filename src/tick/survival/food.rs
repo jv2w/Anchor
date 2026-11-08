@@ -1,4 +1,4 @@
-//! Food, xp and consumables.
+//! Food, xp, consumables and the cooldowns of items.
 
 use super::attributes::{EXHAUSTION, FOOD, LEVEL, MOVEMENT, SATURATION, XP};
 use super::damage::{self, Damage};
@@ -13,11 +13,11 @@ use crate::effect::Type as Effect;
 use crate::event::{ExhaustCause, PlayerExhaust, PlayerItemConsume, PlayerXpChange, RegainReason};
 use crate::item::{Class, Consumable, Enchantment, Food, Stack, Type};
 use crate::math::{self, Vec3};
-use crate::player::{Id, level_from_xp, xp_to_complete_level, xp_to_reach_level};
+use crate::player::{Id, MAX_PROGRESS, level_from_xp, xp_to_complete_level, xp_to_reach_level};
 use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
-use crate::tick::{Phase, Player, SessionId, State, block_entity, entity, inventory};
+use crate::tick::{Phase, Player, SessionId, State, block_entity, checkpoint, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
 /// The random stream key of a chorus fruit's teleport.
@@ -34,16 +34,22 @@ const EATING_ANIMATION_TICKS: u64 = 4;
 /// Exhaustion that costs one saturation or food point.
 const EXHAUSTION_PER_POINT: f64 = 4.0;
 /// Ticks of one food cycle.
-pub(super) const FOOD_CYCLE: u32 = 80;
+pub(super) const FOOD_CYCLE_TICKS: u32 = 80;
 /// The most xp points a player collects in all; the points its level and progress hold reach
 /// further, to the top level.
 pub(super) const MAX_LIFETIME_XP: u32 = i32::MAX.cast_unsigned();
-/// The largest xp progress: just below a full bar, which is the next level.
-const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
+/// The food level at or below which a player cannot sprint.
+const MAX_NO_SPRINT_FOOD: f64 = 6.0;
+/// The food level at or below which an empty bar starves.
+const MAX_STARVE_FOOD: f64 = 0.0;
 /// The random stream key of the mending item an orb repairs.
 const MENDING: u64 = random::tag("mending");
+/// The items an orb may repair: the held item, the off-hand item and the armor pieces.
+const MENDING_CANDIDATES: usize = 2 + crate::inventory::Kind::Armor.size();
 /// Durability one xp point repairs with mending.
 const MENDING_PER_POINT: u32 = 2;
+/// The food level from which a full bar heals.
+const MIN_HEAL_FOOD: f64 = 18.0;
 /// The random stream key of a poisonous potato's poison.
 const POISONOUS_POTATO: u64 = random::tag("poisonous-potato");
 /// The random stream key of a raw chicken's Hunger effect.
@@ -51,7 +57,7 @@ const RAW_CHICKEN: u64 = random::tag("raw-chicken");
 /// The random stream key of rotten flesh's Hunger effect.
 const ROTTEN_FLESH: u64 = random::tag("rotten-flesh");
 /// Ticks after an orb pickup before the next.
-const XP_PICKUP_COOLDOWN: u8 = 2;
+const XP_PICKUP_COOLDOWN_TICKS: u8 = 2;
 
 /// The item a player started eating or drinking.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,7 +78,7 @@ impl Using {
     }
 }
 
-crate::tick::checkpoint::fields!(Using { since, item });
+checkpoint::fields!(Using { since, item });
 
 /// What an item cooldown is kept under: its cooldown tag, or the item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -96,8 +102,8 @@ impl CooldownKey {
 
 /// A tag by its text, found again among the vanilla items' cooldown tags; a tag no vanilla item
 /// has (a custom item's) makes the checkpoint opaque.
-impl crate::tick::checkpoint::Codec for CooldownKey {
-    fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {
+impl checkpoint::Codec for CooldownKey {
+    fn encode(&self, w: &mut checkpoint::Writer) {
         match self {
             Self::Tag(tag) => {
                 w.u8(0);
@@ -113,9 +119,7 @@ impl crate::tick::checkpoint::Codec for CooldownKey {
         }
     }
 
-    fn decode(
-        r: &mut crate::tick::checkpoint::Reader<'_>,
-    ) -> crate::tick::checkpoint::Result<Self> {
+    fn decode(r: &mut checkpoint::Reader<'_>) -> checkpoint::Result<Self> {
         use crate::tick::checkpoint::{Codec, Error};
         match r.u8()? {
             0 => vanilla_tag(&String::decode(r)?)
@@ -310,7 +314,9 @@ fn consume(state: &mut State, session: SessionId, item: Type) {
 /// effects, then what the item itself does (milk, honey, chorus fruit, medicine).
 fn apply(state: &mut State, session: SessionId, item: Type) {
     let tick = state.tick;
-    let seed = world_seed(state, session);
+    let Some(seed) = world_seed(state, session) else {
+        return;
+    };
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -328,12 +334,12 @@ fn apply(state: &mut State, session: SessionId, item: Type) {
     if fixed.is_none() {
         if item.is(Class::PoisonousPotato) {
             let mut r = player_random(seed, tick, player, POISONOUS_POTATO);
-            if r.range(0, 100) > 40 {
+            if r.below(100) < 60 {
                 random_effect = Some((Effect::Poison, Active::new(100, 0)));
             }
         } else if item.is(Class::RawChicken) {
             let mut r = player_random(seed, tick, player, RAW_CHICKEN);
-            if r.range(0, 9) < 3 {
+            if r.below(10) < 3 {
                 random_effect = Some((Effect::Hunger, Active::new(600, 0)));
             }
         } else if item.is(Class::RottenFlesh) {
@@ -369,7 +375,9 @@ fn apply(state: &mut State, session: SessionId, item: Type) {
 /// tries; each goes down from a random block to a solid one with two free blocks above.
 fn chorus_teleport(state: &mut State, session: SessionId) {
     let tick = state.tick;
-    let seed = world_seed(state, session);
+    let Some(seed) = world_seed(state, session) else {
+        return;
+    };
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -414,9 +422,9 @@ fn chorus_teleport(state: &mut State, session: SessionId) {
     }
 }
 
-/// Counts one tick of food: peaceful refills food and heals; a full bar heals every 80 ticks for
-/// 6 exhaustion; an empty bar starves (easy down to 10 health, normal to 1, hard to death); food
-/// at 6 or below stops sprinting.
+/// Counts one tick of food: peaceful refills food and heals; food of 18 or more heals every 80
+/// ticks for 6 exhaustion; an empty bar starves (easy down to 10 health, normal to 1, hard to
+/// death); food at 6 or below stops sprinting.
 pub(super) fn tick(state: &mut State, session: SessionId) {
     let world = state.players.get(&session).map_or(0, |p| p.world);
     let peaceful = difficulty(state, world) == Difficulty::Peaceful;
@@ -430,7 +438,7 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         }
         player.data_dirty = true;
         s.food_timer += 1;
-        if s.food_timer >= FOOD_CYCLE {
+        if s.food_timer >= FOOD_CYCLE_TICKS {
             s.food_timer = 0;
         }
         let mut peaceful_heal = false;
@@ -442,13 +450,13 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
         }
         let (mut full, mut starve) = (false, false);
         if s.food_timer == 0 {
-            if s.food >= 18.0 {
+            if s.food >= MIN_HEAL_FOOD {
                 full = true;
-            } else if s.food <= 0.0 {
+            } else if s.food <= MAX_STARVE_FOOD {
                 starve = true;
             }
         }
-        if s.food <= 6.0 && s.motion.sprinting {
+        if s.food <= MAX_NO_SPRINT_FOOD && s.motion.sprinting {
             s.motion.sprinting = false;
             s.mark(MOVEMENT);
         }
@@ -473,10 +481,10 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
             .get(&session)
             .map_or(0.0, |p| p.survival.health);
         let hurts = match difficulty(state, world) {
+            Difficulty::Peaceful => false,
             Difficulty::Easy => health > 10.0,
             Difficulty::Normal => health > 1.0,
             Difficulty::Hard => true,
-            Difficulty::Peaceful => false,
         };
         if hurts {
             damage::damage(state, session, 1.0, Damage::Starvation);
@@ -488,13 +496,13 @@ pub(super) fn tick(state: &mut State, session: SessionId) {
 /// may cancel it or change the amount (a value that is not positive adds nothing). An amount of 0
 /// is still announced (walking).
 pub(super) fn exhaust_as(state: &mut State, session: SessionId, amount: f64, cause: ExhaustCause) {
-    let hungry = |state: &State| {
+    let has_food = |state: &State| {
         state
             .players
             .get(&session)
             .is_some_and(|p| p.survival.motion.food)
     };
-    if !amount.is_finite() || amount < 0.0 || !hungry(state) {
+    if !amount.is_finite() || amount < 0.0 || !has_food(state) {
         return;
     }
     let Ok(event) = super::ask(
@@ -506,7 +514,7 @@ pub(super) fn exhaust_as(state: &mut State, session: SessionId, amount: f64, cau
             cancelled: false,
         },
         PlayerExhaust::is_cancelled,
-        |state, _| hungry(state),
+        |state, _| has_food(state),
     ) else {
         return;
     };
@@ -552,15 +560,16 @@ pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
         return;
     }
     let f = s.food + food;
-    set_food(s, if f > MAX_FOOD { MAX_FOOD } else { f });
+    set_food(s, math::min(f, MAX_FOOD));
     s.saturation = math::clamp(s.saturation + saturation, 0.0, MAX_SATURATION);
     s.mark(SATURATION);
 }
 
 /// Sets the food level, restarting the food cycle when it crosses 17, 6 or 0.
 pub(super) fn set_food(s: &mut Survival, food: f64) {
-    let food = if food < 0.0 { 0.0 } else { food };
-    if [17.0, 6.0, 0.0].iter().any(|&b| (s.food > b) != (food > b)) {
+    let food = math::max(food, 0.0);
+    let limits = [MIN_HEAL_FOOD - 1.0, MAX_NO_SPRINT_FOOD, MAX_STARVE_FOOD];
+    if limits.iter().any(|&b| (s.food > b) != (food > b)) {
         s.food_timer = 0;
     }
     s.food = food;
@@ -572,7 +581,9 @@ pub(super) fn set_food(s: &mut Survival, food: f64) {
 /// player cannot pick anything up.
 pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> bool {
     let tick = state.tick;
-    let seed = world_seed(state, session);
+    let Some(seed) = world_seed(state, session) else {
+        return false;
+    };
     let Some(player) = state.players.get_mut(&session) else {
         return false;
     };
@@ -594,7 +605,7 @@ pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> b
                 .enumerate()
                 .map(|(i, s)| (Worn::Armor(i), s)),
         );
-    let mut candidates = [None; 6];
+    let mut candidates = [None; MENDING_CANDIDATES];
     let mut n = 0;
     for (slot, stack) in worn {
         let durable = stack.item().and_then(Type::max_durability).is_some();
@@ -624,7 +635,7 @@ pub(super) fn pickup_xp(state: &mut State, session: SessionId, amount: u32) -> b
     let Some(player) = state.players.get_mut(&session) else {
         return true;
     };
-    player.survival.xp_cooldown = XP_PICKUP_COOLDOWN;
+    player.survival.xp_cooldown = XP_PICKUP_COOLDOWN_TICKS;
     let s = &player.survival;
     let (level, total) = (s.xp_level, current_xp(s));
     if level / 5 > old_level / 5 {
@@ -780,19 +791,6 @@ pub(super) fn start_cooldown(tick: u64, player: &mut Player, item: Type, ticks: 
     ));
 }
 
-/// Whether the item's cooldown runs.
-pub(super) fn has_cooldown(tick: u64, s: &Survival, item: Type) -> bool {
-    cooldown_end(tick, s, item).is_some()
-}
-
-/// The engine tick the item's cooldown ends, while it runs.
-pub(super) fn cooldown_end(tick: u64, s: &Survival, item: Type) -> Option<u64> {
-    s.cooldowns
-        .get(&cooldown_key(item))
-        .copied()
-        .filter(|&end| end > tick)
-}
-
 /// Repairs the mending item at `slot` with up to `amount` points (2 durability each); returns
 /// the points left (the points used are the repair halved, rounded up).
 #[expect(
@@ -844,6 +842,19 @@ fn can_eat(state: &State, player: &Player, mode: GameMode) -> bool {
     s.food < MAX_FOOD
         || difficulty(state, player.world) == Difficulty::Peaceful
         || mode == GameMode::Creative
+}
+
+/// Whether the item's cooldown runs.
+pub(super) fn has_cooldown(tick: u64, s: &Survival, item: Type) -> bool {
+    cooldown_end(tick, s, item).is_some()
+}
+
+/// The engine tick the item's cooldown ends, while it runs.
+pub(super) fn cooldown_end(tick: u64, s: &Survival, item: Type) -> Option<u64> {
+    s.cooldowns
+        .get(&cooldown_key(item))
+        .copied()
+        .filter(|&end| end > tick)
 }
 
 /// Whether the item is eaten or drunk by holding use.

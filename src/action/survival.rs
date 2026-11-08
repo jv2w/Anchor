@@ -69,7 +69,7 @@ impl Damage {
         }
     }
 
-    /// The same damage dealt by `source`.
+    /// The same damage with `source` as the one who dealt it.
     #[must_use]
     pub fn with_source(self, source: DamageSource) -> Self {
         Self { source, ..self }

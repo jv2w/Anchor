@@ -9,7 +9,7 @@ use super::{
 };
 use crate::config::GameMode;
 use crate::effect;
-use crate::math::to_f32;
+use crate::math::{self, to_f32};
 use crate::player::MAX_LEVEL;
 use crate::protocol::consts::{
     ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability, AbilityLayerType,
@@ -24,7 +24,7 @@ use crate::protocol::{
     FlagSet, GameRule, GameRuleValue, MetadataValue,
 };
 use crate::tick::update::RANDOM_TICKS_PER_SUB_CHUNK;
-use crate::tick::{Phase, Player, SessionId, Settings, State, entity};
+use crate::tick::{Phase, Player, SessionId, Settings, State, checkpoint, entity};
 
 /// Abilities changed (game mode, flying).
 pub(super) const ABILITIES: u16 = 1 << 8;
@@ -106,7 +106,7 @@ pub(super) const FOOD: u16 = 1 << 1;
 /// Health changed.
 pub(super) const HEALTH: u16 = 1;
 /// The name of the health attribute.
-pub(crate) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
+pub(in crate::tick) const HEALTH_ATTRIBUTE: &str = "minecraft:health";
 /// Xp level changed.
 pub(super) const LEVEL: u16 = 1 << 4;
 /// The absorption maximum the official server sends; more absorption raises it.
@@ -181,10 +181,10 @@ impl Shown {
         }
         h.u64(u64::from(air.cast_unsigned()));
         h.u64(u64::from(max_air.cast_unsigned()));
+        h.u64(u64::from(*died));
         for c in death {
             h.u64(u64::from(c.cast_unsigned()));
         }
-        h.u64(u64::from(*died));
         for c in size {
             h.u64(u64::from(c.to_bits()));
         }
@@ -192,7 +192,7 @@ impl Shown {
     }
 }
 
-crate::tick::checkpoint::fields!(Shown {
+checkpoint::fields!(Shown {
     flags,
     air,
     max_air,
@@ -213,7 +213,7 @@ pub(super) fn flush(state: &mut State) {
     }
 }
 
-/// [`flush`] for one player, if it is spawned.
+/// Runs [`flush`] for one player, if it is spawned.
 pub(super) fn flush_one(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -331,10 +331,12 @@ pub(in crate::tick) fn adventure_settings() -> Packet {
 }
 
 /// The 39 game rules the official server sends, in its order (P6), with the values Anchor's rules
-/// have: what Anchor does not simulate (mob spawning, weather, insomnia, freezing, command
-/// blocks, respawn anchors exploding, projectiles breaking blocks) is off, `pvp`, the day cycle,
-/// drowning, fall damage, the coordinates, the waypoints, the immediate respawn and the death
-/// messages come from the settings, and players respawn on the spawn block (`spawnRadius` 0).
+/// have: the rules of what Anchor does not simulate that the client acts on (mob spawning,
+/// weather, insomnia, freezing, command blocks, respawn anchors exploding, projectiles breaking
+/// blocks) are off, and no further rule is turned off for that reason (`doFireTick` stays on, as
+/// on the official server); `pvp`, the day cycle, drowning, fall damage, the coordinates, the
+/// waypoints, the immediate respawn and the death messages come from the settings, and players
+/// respawn on the spawn block (`spawnRadius` 0).
 /// The values are the client's display only; no API changes them, and a send hook that rewrites
 /// `playerWaypoints` does not change the locator bar packets, which follow the `locator-bar`
 /// setting.
@@ -476,22 +478,8 @@ pub(in crate::tick) fn full_metadata(player: &Player) -> EntityMetadata {
 pub(super) fn shown(player: &Player) -> Shown {
     let s = &player.survival;
     let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
-    // The official server sends these for every player (P6).
-    flags.insert(EntityDataFlag::HiddenWhenInvisible);
-    flags.insert(EntityDataFlag::PushTowardsClosestSpace);
-    if s.mode() != GameMode::Spectator {
-        flags.insert(EntityDataFlag::HasCollision);
-    }
-    if !s.effects.contains_key(&effect::Type::Levitation) {
-        flags.insert(EntityDataFlag::HasGravity);
-    }
     for (on, flag) in [
-        (s.custom.can_climb, EntityDataFlag::Climb),
-        (s.custom.can_climb_walls, EntityDataFlag::WallClimbing),
         (s.fire_ticks > 0, EntityDataFlag::OnFire),
-        (s.breathing, EntityDataFlag::Breathing),
-        (s.custom.silent, EntityDataFlag::Silent),
-        (s.custom.no_client_predictions, EntityDataFlag::NoAi),
         (s.motion.sneaking, EntityDataFlag::Sneaking),
         (s.motion.sprinting, EntityDataFlag::Sprinting),
         // The client predicts the use animation and stops it unless the server agrees with this
@@ -505,8 +493,24 @@ pub(super) fn shown(player: &Player) -> Shown {
             s.custom.invisible || s.effects.contains_key(&effect::Type::Invisibility),
             EntityDataFlag::Invisible,
         ),
+        (s.custom.no_client_predictions, EntityDataFlag::NoAi),
+        (s.custom.silent, EntityDataFlag::Silent),
+        (s.custom.can_climb_walls, EntityDataFlag::WallClimbing),
+        (s.custom.can_climb, EntityDataFlag::Climb),
         (s.motion.gliding, EntityDataFlag::Gliding),
+        (s.breathing, EntityDataFlag::Breathing),
+        (
+            s.mode() != GameMode::Spectator,
+            EntityDataFlag::HasCollision,
+        ),
+        (
+            !s.effects.contains_key(&effect::Type::Levitation),
+            EntityDataFlag::HasGravity,
+        ),
         (s.motion.swimming, EntityDataFlag::Swimming),
+        // The official server sends these two for every player (P6).
+        (true, EntityDataFlag::HiddenWhenInvisible),
+        (true, EntityDataFlag::PushTowardsClosestSpace),
     ] {
         if on {
             flags.insert(flag);
@@ -556,7 +560,11 @@ pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
 
 /// `SetActorData` with `entity_metadata` of the entity with `runtime_id`, answering the input of
 /// `tick` (0 for none); it carries no entity properties, and no API sets any.
-pub(crate) fn actor_data(runtime_id: u64, entity_metadata: EntityMetadata, tick: u64) -> Packet {
+pub(in crate::tick) fn actor_data(
+    runtime_id: u64,
+    entity_metadata: EntityMetadata,
+    tick: u64,
+) -> Packet {
     Packet::SetActorData(SetActorData {
         entity_runtime_id: runtime_id,
         entity_metadata,
@@ -596,7 +604,10 @@ fn attribute(def: &Def, s: &Survival) -> Attribute {
         MOVEMENT => (to_f32(movement_speed(s)), def.max),
         ABSORPTION => {
             let value = to_f32(s.absorption);
-            (value, if value > def.max { value } else { def.max })
+            (
+                value,
+                to_f32(math::max(f64::from(value), f64::from(def.max))),
+            )
         }
         _ => (def.default, def.max),
     };
@@ -615,14 +626,20 @@ fn attribute(def: &Def, s: &Survival) -> Attribute {
 }
 
 /// The movement speed: the base (0.1 unless the API set another), times 1.3 sprinting, times
-/// 1 + 0.2 per speed level, times 1 - 0.15 per slowness level (at least 0). It is worked out from
-/// the base each time, so it does not drift as sprinting and effects change.
+/// 1 + 0.2 per speed level, times 1 - 0.15 per slowness level (at least 0), at most what `f32`
+/// holds. It is worked out from the base each time, so it does not drift as sprinting and effects
+/// change.
 pub(super) fn movement_speed(s: &Survival) -> f64 {
     let sprint = if s.motion.sprinting { 1.3 } else { 1.0 };
     let speed = 1.0 + 0.2 * f64::from(s.effect_level(effect::Type::Speed));
-    let slow = 1.0 - 0.15 * f64::from(s.effect_level(effect::Type::Slowness));
-    let slow = if slow > 0.0 { slow } else { 0.0 };
-    s.custom.movement_speed * sprint * speed * slow
+    let slow = math::max(
+        1.0 - 0.15 * f64::from(s.effect_level(effect::Type::Slowness)),
+        0.0,
+    );
+    math::min(
+        s.custom.movement_speed * sprint * speed * slow,
+        f64::from(f32::MAX),
+    )
 }
 
 /// The values of the changing keys whose value differs from `old`. When `old` is `None`: all of
@@ -708,11 +725,11 @@ fn layers(s: &Survival) -> Vec<AbilityLayer> {
     for (on, ability) in [
         (s.custom.operator, Ability::OperatorCommands),
         (s.custom.operator, Ability::Teleport),
-        (s.can_fly(), Ability::MayFly),
         (
             mode == GameMode::Spectator || s.motion.flying,
             Ability::Flying,
         ),
+        (s.can_fly(), Ability::MayFly),
         (!collides, Ability::NoClip),
     ] {
         if on {
@@ -750,20 +767,17 @@ pub(in crate::tick) fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<A
     ];
     match mode {
         GameMode::Survival => survival.into_iter().collect(),
-        GameMode::Adventure => survival[2..].iter().copied().collect(),
         GameMode::Creative => survival
             .into_iter()
-            .chain([
-                Ability::Invulnerable,
-                Ability::MayFly,
-                Ability::InstantBuild,
-            ])
+            .chain([Ability::Invulnerable])
             .chain(flying.then_some(Ability::Flying))
+            .chain([Ability::MayFly, Ability::InstantBuild])
             .collect(),
+        GameMode::Adventure => survival[2..].iter().copied().collect(),
         GameMode::Spectator => [
             Ability::Invulnerable,
-            Ability::MayFly,
             Ability::Flying,
+            Ability::MayFly,
             Ability::NoClip,
         ]
         .into_iter()
@@ -857,10 +871,10 @@ mod tests {
     fn the_flag_words_match_the_official_server() {
         let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
         flags.insert(EntityDataFlag::Climb);
-        flags.insert(EntityDataFlag::HiddenWhenInvisible);
-        flags.insert(EntityDataFlag::PushTowardsClosestSpace);
         flags.insert(EntityDataFlag::HasCollision);
         flags.insert(EntityDataFlag::HasGravity);
+        flags.insert(EntityDataFlag::HiddenWhenInvisible);
+        flags.insert(EntityDataFlag::PushTowardsClosestSpace);
         let [w0, w1, _] = flags.words();
         assert_eq!(w0, 844_424_930_656_256);
         assert_eq!(w1, 35_184_405_643_264);
