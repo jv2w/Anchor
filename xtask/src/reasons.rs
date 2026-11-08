@@ -214,16 +214,16 @@ let reason = "a variable";
         let root = std::env::temp_dir().join(format!("anchor-reasons-{}", std::process::id()));
         for dir in ["examples", "xtask/tests"] {
             let dir = root.join(dir);
-            create_dir(&dir).expect("dir");
+            create_dir(&dir).expect("the test folder can be created");
             write(
                 &dir.join("a.rs"),
                 br#"#[expect(clippy::a, reason = "no tag")]"#,
             )
-            .expect("source");
+            .expect("the source file can be written");
         }
         let errors = check(&root);
-        remove_dir(&root).expect("cleanup");
-        let errors = errors.expect("check");
+        remove_dir(&root).expect("the test folder can be removed");
+        let errors = errors.expect("the check can read the sources");
         assert_eq!(errors.len(), 2, "{errors:?}");
         assert!(errors[0].starts_with("examples/a.rs:1: "), "{errors:?}");
         assert!(errors[1].starts_with("xtask/tests/a.rs:1: "), "{errors:?}");
@@ -243,10 +243,12 @@ let reason = "a variable";
     #[test]
     fn the_tags_are_those_claude_md_sets() {
         let doc = include_str!("../../CLAUDE.md");
-        let (_, sentence) = doc.split_once("The tags are ").expect("the tag sentence");
+        let (_, sentence) = doc
+            .split_once("The tags are ")
+            .expect("CLAUDE.md has the tag sentence");
         let (list, _) = sentence
             .split_once('.')
-            .expect("the end of the tag sentence");
+            .expect("the tag sentence ends with a period");
         let names: Vec<&str> = list.split('`').skip(1).step_by(2).collect();
         assert_eq!(names, TAGS);
     }

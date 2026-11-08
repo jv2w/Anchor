@@ -41,7 +41,7 @@ use super::{
 };
 use crate::fs::{copy_dir, create_dir, read_text, remove_dir};
 use crate::r#gen::data::Data;
-use crate::say;
+use crate::{say, status};
 
 /// Blocks in a sub-chunk layer.
 const BLOCKS: usize = 4096;
@@ -57,7 +57,7 @@ const RULES: [(&str, &str); 4] = [
     ("domobspawning", "false"),
 ];
 /// The scenario's name in `intended.txt`.
-pub(crate) const SCENARIO: &str = "import";
+pub(super) const SCENARIO: &str = "import";
 /// The seed of the official server's world.
 const SEED: &str = "20261004";
 /// The bits in one word of a block storage.
@@ -131,7 +131,7 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         ["official", "official on the export"],
         out,
     )?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
     Ok(passed)
 }
 
@@ -159,13 +159,13 @@ fn official_run(
         out_dir,
         &session,
         prepare,
-        out,
         |addr, official, out| {
             for (rule, value) in RULES {
                 official.set_game_rule(rule, value)?;
             }
             spawn_bot(bot, addr, out_dir, "official", out)
         },
+        out,
     )
 }
 
@@ -201,7 +201,7 @@ fn anchor_session(
     let report = server
         .import_world(WORLD, world)
         .map_err(|e| format!("import: {e} ({:?})", std::error::Error::source(&e)))?;
-    say(out, &format!("import: {report:?}"))?;
+    say(&format!("import: {report:?}"), out)?;
     let passed = run_anchor(server, |ports| {
         let addr = format!("127.0.0.1:{}", ports.raknet);
         spawn_bot(bot, &addr, out_dir, "Anchor", out)
@@ -214,7 +214,7 @@ fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), 
     let report = server(&anchor_dir.join("data"))?
         .export_world(WORLD, folder)
         .map_err(|e| format!("export: {e} ({:?})", std::error::Error::source(&e)))?;
-    say(out, &format!("export: {report:?}"))
+    say(&format!("export: {report:?}"), out)
 }
 
 /// An Anchor server of the data folder `data_dir` whose default world is [`WORLD`], a Void
@@ -242,10 +242,13 @@ fn spawn_bot(
     let capture = dir.join("spawn.jsonl");
     let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
     let outcome = run_bot(bot, &args, &capture)?;
-    let status = if outcome.passed { "ok  " } else { "FAIL" };
     say(
+        &format!(
+            "{} {server} spawn{}",
+            status(outcome.passed),
+            outcome.failure()
+        ),
         out,
-        &format!("{status} {server} spawn{}", outcome.failure()),
     )?;
     Ok(outcome.passed)
 }
@@ -315,7 +318,7 @@ fn base64(text: &str) -> Result<Vec<u8>, String> {
         bits += 6;
         if bits >= 8 {
             bits -= 8;
-            out.push(u8::try_from((acc >> bits) & 0xff).unwrap_or_default());
+            out.push(u8::try_from((acc >> bits) & 0xff).map_err(|e| e.to_string())?);
         }
     }
     Ok(out)
@@ -454,12 +457,12 @@ fn compare(
                         .or_default() += 1;
                     continue;
                 }
-                let n = i64::try_from(i).unwrap_or_default();
+                let n = i64::try_from(i).map_err(|e| e.to_string())?;
                 let pos = [
                     at[0] * 16 + (n >> 8),
                     at[1] * 16 + (n & 15),
                     at[2] * 16 + ((n >> 4) & 15),
-                    i64::try_from(layer).unwrap_or_default(),
+                    i64::try_from(layer).map_err(|e| e.to_string())?,
                 ];
                 let entry = pairs.entry((x, y)).or_default();
                 entry.0 += 1;
@@ -471,17 +474,16 @@ fn compare(
     }
     for ((x, y), (count, examples)) in &pairs {
         say(
-            out,
             &format!(
                 "DIFFERENT {SCENARIO}: {count} blocks {first} {} {second} {}, at (x, y, z, layer) \
                  {examples:?}",
                 state_name(states, *x),
                 state_name(states, *y)
             ),
+            out,
         )?;
     }
     say(
-        out,
         &format!(
             "{SCENARIO}: {compared} sub-chunks {first} and {second} sent ({} only {first} sent, {} \
              only {second} sent); intended blocks (unknown blocks Anchor sends as info_update, \
@@ -489,11 +491,12 @@ fn compare(
             official.keys().filter(|k| !anchor.contains_key(*k)).count(),
             anchor.keys().filter(|k| !official.contains_key(*k)).count(),
         ),
+        out,
     )?;
     for name in intended.iter().filter(|n| !excused.contains_key(*n)) {
         say(
-            out,
             &format!("note {SCENARIO}: `block {name}` in {INTENDED} was not seen"),
+            out,
         )?;
     }
     Ok(compared > 0 && pairs.is_empty())
@@ -551,7 +554,10 @@ mod tests {
     }
 
     fn same(a: &str, b: &str) -> bool {
-        let (a, b) = (sub_chunks(a).expect("a"), sub_chunks(b).expect("b"));
+        let (a, b) = (
+            sub_chunks(a).expect("the first capture holds sub chunks"),
+            sub_chunks(b).expect("the second capture holds sub chunks"),
+        );
         compare(
             &a,
             &b,
@@ -561,12 +567,12 @@ mod tests {
             ["A", "B"],
             &mut Vec::new(),
         )
-        .expect("compare")
+        .expect("the sub chunks can be compared")
     }
 
     #[test]
     fn an_all_air_answer_holds_no_layers() {
-        let all_air = sub_chunks(&world_line(6, "null")).expect("all air");
+        let all_air = sub_chunks(&world_line(6, "null")).expect("an all air answer is read");
         assert_eq!(all_air.get(&[0, 0, 0]), Some(&Layers::new()));
     }
 
@@ -581,7 +587,7 @@ mod tests {
 
     #[test]
     fn an_error_answer_is_not_compared() {
-        let error = sub_chunks(&world_line(2, "null")).expect("error answer");
+        let error = sub_chunks(&world_line(2, "null")).expect("an error answer is read");
         assert!(error.is_empty());
     }
 }

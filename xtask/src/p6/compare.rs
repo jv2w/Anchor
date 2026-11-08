@@ -15,16 +15,18 @@ use serde_json::Value;
 /// The chunk packets: they interleave with the spawn window by timing (a server sends them as
 /// chunks load, the official server from before the radius answer), so the window leaves them out
 /// and [`compare_chunks`] compares them by their own rules.
-pub(crate) const CHUNK_PACKETS: [&str; 3] =
+pub(super) const CHUNK_PACKETS: [&str; 3] =
     ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 /// The deferral table, relative to the repository root.
-pub(crate) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
+pub(super) const DEFERRED_PATH: &str = "xtask/data/p6/deferred.txt";
 /// Entity packets that also carry other entities' data: the official server sends them for the
 /// flat world's mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`),
 /// Anchor never (it simulates no mobs). Only the player's own are compared.
 const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
 /// The fixed-field list, relative to the repository root.
-pub(crate) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
+pub(super) const FIELDS_PATH: &str = "xtask/data/p6/fields.txt";
+/// How many characters of a JSON value a difference message shows.
+const MESSAGE_WIDTH: usize = 300;
 /// The JSON null that [`field`] returns for a missing key.
 static NULL: Value = Value::Null;
 /// How many entries of one kind a difference list shows before it only counts.
@@ -34,30 +36,30 @@ const WINDOW_END: &str = "SetLocalPlayerAsInitialised";
 
 /// One received packet of a capture.
 #[derive(Debug, PartialEq)]
-pub(crate) struct Received {
-    pub(crate) name: String,
-    pub(crate) fields: Value,
+pub(super) struct Received {
+    pub(super) name: String,
+    pub(super) fields: Value,
 }
 
 /// Packets left out of the spawn window comparison, by name: packets Anchor never sends (status
 /// `-`, the only one the table takes).
 #[derive(Debug, Default)]
-pub(crate) struct Deferred(BTreeSet<String>);
+pub(super) struct Deferred(BTreeSet<String>);
 
 impl Deferred {
     /// Whether the table holds the packet.
-    pub(crate) fn contains(&self, name: &str) -> bool {
+    pub(super) fn contains(&self, name: &str) -> bool {
         self.0.contains(name)
     }
 }
 
 /// Fields that must be equal, as field paths by packet name.
 #[derive(Debug, Default)]
-pub(crate) struct Fields(BTreeMap<String, Vec<Vec<String>>>);
+pub(super) struct Fields(BTreeMap<String, Vec<Vec<String>>>);
 
 impl Fields {
     /// The fields of the named packets only.
-    pub(crate) fn only(&self, names: &[&str]) -> Self {
+    pub(super) fn only(&self, names: &[&str]) -> Self {
         Self(
             self.0
                 .iter()
@@ -71,7 +73,7 @@ impl Fields {
 /// The full item packets of a capture (the bot's `<capture>.items.jsonl`): the first
 /// `ItemRegistry` and `CreativeContent`, each as its fields.
 #[derive(Debug, Default)]
-pub(crate) struct Items {
+pub(super) struct Items {
     registry: Option<Value>,
     creative: Option<Value>,
 }
@@ -80,22 +82,22 @@ pub(crate) struct Items {
 /// are relative to the spawn chunk (the player position of `StartGame`) and publisher positions relative
 /// to the player's block column.
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct Chunks {
+pub(super) struct Chunks {
     /// Each `LevelChunk` in order: its relative position and its fields without the position.
-    pub(crate) level: Vec<([i64; 2], String)>,
+    level: Vec<([i64; 2], String)>,
     /// How many `LevelChunk`s came before `PlayStatus(PlayerSpawn)`.
-    pub(crate) before_spawn: usize,
+    before_spawn: usize,
     /// The `SubChunk` entries by relative request centre and offset: the entry's fields without the
     /// offset, the packet's `CacheEnabled` and `Dimension`, and the bot's strict payload check
     /// (`strict` and each layer's `content_sha256`). A key answered twice has two values.
-    pub(crate) sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
+    sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
     /// Payloads that broke Anchor's strict sub-chunk rules: key and reason.
-    pub(crate) not_strict: Vec<String>,
+    not_strict: Vec<String>,
     /// Each `NetworkChunkPublisherUpdate`: relative x and z, radius, saved chunk count, and whether
     /// it came after `ChunkRadiusUpdated`.
-    pub(crate) publisher: Vec<([i64; 2], u64, usize, bool)>,
+    publisher: Vec<([i64; 2], u64, usize, bool)>,
     /// The radius of the first `ChunkRadiusUpdated`.
-    pub(crate) radius: Option<u64>,
+    radius: Option<u64>,
 }
 
 /// Which `NetworkChunkPublisherUpdate`s of a capture a comparison looks at.
@@ -239,49 +241,49 @@ impl ChunkReader {
 /// elsewhere are the server's own (the official server turns grass under placed blocks into dirt
 /// on random ticks) and are only counted.
 #[derive(Debug)]
-pub(crate) struct Markers {
-    pub(crate) position: [i64; 3],
-    pub(crate) steps: [String; 2],
-    pub(crate) end: String,
-    pub(crate) near: BTreeSet<[i64; 3]>,
+pub(super) struct Markers {
+    pub(super) position: [i64; 3],
+    pub(super) steps: [String; 2],
+    pub(super) end: String,
+    pub(super) near: BTreeSet<[i64; 3]>,
 }
 
 /// One block change entry of a blocks capture.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Change {
+pub(super) struct Change {
     /// `UpdateBlock` or `UpdateSubChunkBlocks`.
-    pub(crate) kind: &'static str,
+    pub(super) kind: &'static str,
     /// The capture index of the packet that carried it.
-    pub(crate) packet: u64,
+    pub(super) packet: u64,
     /// Relative to the base position.
-    pub(crate) position: [i64; 3],
-    pub(crate) layer: u64,
-    pub(crate) flags: u64,
-    pub(crate) state: String,
+    pub(super) position: [i64; 3],
+    pub(super) layer: u64,
+    pub(super) flags: u64,
+    pub(super) state: String,
 }
 
 /// The block packets of one step of the blocks scenario.
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct Step {
-    pub(crate) changes: Vec<Change>,
+pub(super) struct Step {
+    pub(super) changes: Vec<Change>,
     /// The names of the other block packets (`BlockActorData`, `UpdateBlockSynced`), in order.
-    pub(crate) others: Vec<String>,
+    pub(super) others: Vec<String>,
     /// Changes away from the step positions (`Markers::near`), not compared.
-    pub(crate) ignored: Vec<Change>,
+    pub(super) ignored: Vec<Change>,
 }
 
 /// What one step changed: per (layer, position) the last state and flags, and the packet kinds that
 /// carried the changes.
 #[derive(Debug, PartialEq)]
-pub(crate) struct StepSummary {
-    pub(crate) last: BTreeMap<(u64, [i64; 3]), (String, u64)>,
-    pub(crate) kinds: BTreeSet<&'static str>,
-    pub(crate) packets: usize,
-    pub(crate) others: BTreeSet<String>,
+struct StepSummary {
+    last: BTreeMap<(u64, [i64; 3]), (String, u64)>,
+    kinds: BTreeSet<&'static str>,
+    packets: usize,
+    others: BTreeSet<String>,
 }
 
 impl StepSummary {
-    pub(crate) fn of(step: &Step) -> Self {
+    fn of(step: &Step) -> Self {
         let mut last = BTreeMap::new();
         for c in &step.changes {
             last.insert((c.layer, c.position), (c.state.clone(), c.flags));
@@ -309,7 +311,7 @@ impl StepSummary {
 }
 
 /// Reads the deferral table: one `<packet> <status> <reason>` per line, `#` starts a comment.
-pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
+pub(super) fn parse_deferred(text: &str) -> Result<Deferred, String> {
     let mut names = BTreeSet::new();
     for (number, line) in table_lines(text) {
         let mut words = line.split_whitespace();
@@ -336,7 +338,7 @@ pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
 
 /// Reads the fixed-field list: one `<packet> <field>[.<field>...]` per line. A packet listed here
 /// must not be deferred.
-pub(crate) fn parse_fields(text: &str, deferred: &Deferred) -> Result<Fields, String> {
+pub(super) fn parse_fields(text: &str, deferred: &Deferred) -> Result<Fields, String> {
     let mut map: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
     for (number, line) in table_lines(text) {
         let words: Vec<&str> = line.split_whitespace().collect();
@@ -370,16 +372,15 @@ fn table_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
 }
 
 /// Reads a capture (the bot's JSON lines) and returns its spawn window.
-pub(crate) fn window(capture: &str) -> Result<Vec<Received>, String> {
+pub(super) fn window(capture: &str) -> Result<Vec<Received>, String> {
     let mut received = Vec::new();
     for (i, line) in capture.lines().enumerate() {
         let value: Value =
             serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
-        match value.get("type").and_then(Value::as_str) {
+        match field(&value, "type").as_str() {
             Some("packet") => {
-                let name = value
-                    .get("name")
-                    .and_then(Value::as_str)
+                let name = field(&value, "name")
+                    .as_str()
                     .ok_or_else(|| format!("line {}: packet without a name", i + 1))?;
                 if value.get("error").is_some() {
                     return Err(format!("line {}: {name} failed to decode", i + 1));
@@ -389,7 +390,7 @@ pub(crate) fn window(capture: &str) -> Result<Vec<Received>, String> {
                     fields: value.get("fields").cloned().unwrap_or(Value::Null),
                 });
             }
-            Some("sent") if value.get("name").and_then(Value::as_str) == Some(WINDOW_END) => {
+            Some("sent") if field(&value, "name").as_str() == Some(WINDOW_END) => {
                 return Ok(received);
             }
             _ => {}
@@ -402,13 +403,13 @@ pub(crate) fn window(capture: &str) -> Result<Vec<Received>, String> {
 fn find_line(
     capture: &str,
     kind: &str,
-    field: Option<(&str, &str)>,
+    wanted: Option<(&str, &str)>,
 ) -> Result<Option<Value>, String> {
     for (i, line) in capture.lines().enumerate() {
         let value: Value =
             serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
-        let matches = value.get("type").and_then(Value::as_str) == Some(kind)
-            && field.is_none_or(|(k, v)| value.get(k).and_then(Value::as_str) == Some(v));
+        let matches = field(&value, "type").as_str() == Some(kind)
+            && wanted.is_none_or(|(k, v)| field(&value, k).as_str() == Some(v));
         if matches {
             return Ok(Some(value));
         }
@@ -417,23 +418,23 @@ fn find_line(
 }
 
 /// A field of a JSON object, or null.
-pub(crate) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+pub(super) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&NULL)
 }
 
 /// The bot's final `result` line.
-pub(crate) fn result(capture: &str) -> Result<Value, String> {
+pub(super) fn result(capture: &str) -> Result<Value, String> {
     find_line(capture, "result", None)?.ok_or_else(|| "the capture has no result line".to_owned())
 }
 
 /// The line keys (`a=identity`, `m=application`, ...) of the server's answer SDP, or `None` when
 /// the capture has no answer (a RakNet capture).
-pub(crate) fn answer_structure(capture: &str) -> Result<Option<Vec<String>>, String> {
+pub(super) fn answer_structure(capture: &str) -> Result<Option<Vec<String>>, String> {
     let Some(sdp) = find_line(capture, "sdp", Some(("role", "answer")))? else {
         return Ok(None);
     };
-    sdp.get("structure")
-        .and_then(Value::as_array)
+    field(&sdp, "structure")
+        .as_array()
         .and_then(|keys| keys.iter().map(|k| k.as_str().map(str::to_owned)).collect())
         .map(Some)
         .ok_or_else(|| "the answer SDP line has no structure list".to_owned())
@@ -441,7 +442,7 @@ pub(crate) fn answer_structure(capture: &str) -> Result<Option<Vec<String>>, Str
 
 /// Compares two answer SDP structures. Runs of the same key count once: a server lists one
 /// candidate per interface, and the machines' interfaces are not part of the format.
-pub(crate) fn compare_structure(a: &[String], b: &[String]) -> Vec<String> {
+pub(super) fn compare_structure(a: &[String], b: &[String]) -> Vec<String> {
     let collapse = |keys: &[String]| {
         let mut out: Vec<String> = keys.to_vec();
         out.dedup();
@@ -459,25 +460,23 @@ pub(crate) fn compare_structure(a: &[String], b: &[String]) -> Vec<String> {
 }
 
 /// The usernames of the players a capture's `PlayerList` packets added, in order.
-pub(crate) fn added_players(capture: &str) -> Result<Vec<String>, String> {
+pub(super) fn added_players(capture: &str) -> Result<Vec<String>, String> {
     let mut names = Vec::new();
     for (i, line) in capture.lines().enumerate() {
         let value: Value =
             serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
-        if value.get("name").and_then(Value::as_str) != Some("PlayerList") {
+        if field(&value, "name").as_str() != Some("PlayerList") {
             continue;
         }
-        let entries = value
-            .get("fields")
-            .and_then(|f| f.get("Entries"))
-            .and_then(Value::as_array)
+        let entries = field(field(&value, "fields"), "Entries")
+            .as_array()
             .map_or(&[][..], Vec::as_slice);
         // gophertunnel keeps the action (0 = add) on each entry.
         names.extend(
             entries
                 .iter()
-                .filter(|e| e.get("ActionType").and_then(Value::as_u64) == Some(0))
-                .filter_map(|e| e.get("Username").and_then(Value::as_str))
+                .filter(|e| field(e, "ActionType").as_u64() == Some(0))
+                .filter_map(|e| field(e, "Username").as_str())
                 .map(str::to_owned),
         );
     }
@@ -485,7 +484,7 @@ pub(crate) fn added_players(capture: &str) -> Result<Vec<String>, String> {
 }
 
 /// Compares two windows and returns the differences, or an empty list when they match.
-pub(crate) fn compare(
+pub(super) fn compare(
     a: &[Received],
     b: &[Received],
     deferred: &Deferred,
@@ -564,7 +563,7 @@ fn sort_by_key(values: &mut [Value], key: &str) {
 /// Compares the packets of two lists whose names the fixed-field list holds: the same number of
 /// each, and their fixed fields paired in order (`p6 api` compares each step this way). Returns
 /// the differences.
-pub(crate) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) -> Vec<String> {
+pub(super) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) -> Vec<String> {
     let mut differences = Vec::new();
     for (name, paths) in &fields.0 {
         let (pick_a, pick_b) = (fields_of(a, name), fields_of(b, name));
@@ -635,7 +634,7 @@ fn show(value: Option<&Value>) -> String {
 
 /// The packet names of a window in order, without deferred packets and with runs of the same
 /// name shown once with a count.
-pub(crate) fn sequence(window: &[Received], deferred: &Deferred) -> Vec<String> {
+pub(super) fn sequence(window: &[Received], deferred: &Deferred) -> Vec<String> {
     let mut out: Vec<(String, usize)> = Vec::new();
     for p in kept(window, deferred) {
         match out.last_mut() {
@@ -655,7 +654,7 @@ pub(crate) fn sequence(window: &[Received], deferred: &Deferred) -> Vec<String> 
 }
 
 /// Reads a full item packet file.
-pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
+pub(super) fn parse_items(text: &str) -> Result<Items, String> {
     let mut items = Items::default();
     for (i, line) in text.lines().enumerate() {
         let value: Value =
@@ -679,7 +678,7 @@ pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
 /// - `ItemRegistry`: the `Items` lists must hold the same entries (`compare_registry`).
 /// - `CreativeContent`: every item of B must be in A with the same `NetworkID`, `MetadataValue`,
 ///   `BlockRuntimeID` and `NBTData`; B's groups must be consistent (`group_problems`).
-pub(crate) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) {
+pub(super) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) {
     let mut differences = Vec::new();
     let mut notes = Vec::new();
     if let (Some(x), Some(y)) = (&a.registry, &b.registry) {
@@ -782,8 +781,8 @@ fn compare_registry(a: &Value, b: &Value) -> Vec<String> {
     if let Some((x, y)) = a.iter().zip(&b).find(|(x, y)| x != y) {
         differences.push(format!(
             "ItemRegistry first different entry by runtime ID: A {} != B {}",
-            short(x),
-            short(y)
+            cut(&x.to_string(), MESSAGE_WIDTH),
+            cut(&y.to_string(), MESSAGE_WIDTH)
         ));
     }
     differences
@@ -796,15 +795,12 @@ fn by_runtime_id(list: &[Value]) -> Vec<&Value> {
     list
 }
 
-/// A JSON value cut to 300 characters, for messages.
-fn short(value: &Value) -> String {
-    let text = value.to_string();
-    if text.chars().count() <= 300 {
-        return text;
+/// `text` cut to `width` characters, for messages.
+pub(super) fn cut(text: &str, width: usize) -> String {
+    match text.char_indices().nth(width) {
+        Some((end, _)) => format!("{}...", text.get(..end).unwrap_or_default()),
+        None => text.to_owned(),
     }
-    let mut cut: String = text.chars().take(300).collect();
-    cut.push_str("...");
-    cut
 }
 
 /// The identity of a creative item: `NetworkID`, `MetadataValue`, `BlockRuntimeID` and NBT.
@@ -875,7 +871,7 @@ fn group_problems(creative: &Value) -> Vec<String> {
 }
 
 /// Reads the chunk packets of a capture (the whole capture, not only the spawn window).
-pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
+pub(super) fn chunks(capture: &str) -> Result<Chunks, String> {
     let mut reader = ChunkReader::default();
     for (i, line) in capture.lines().enumerate() {
         let value: Value =
@@ -889,7 +885,7 @@ pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
 }
 
 /// The block column (x, z) of the player's position in the fields of a `StartGame` packet.
-pub(crate) fn block_column(start_game: &Value) -> Result<[i32; 2], String> {
+pub(super) fn block_column(start_game: &Value) -> Result<[i32; 2], String> {
     let position = field(start_game, "PlayerPosition");
     let block = |i: usize| {
         position
@@ -948,7 +944,7 @@ fn sub_chunk_entries(fields: &Value) -> Vec<(Value, Value)> {
 /// - the publisher updates after `ChunkRadiusUpdated`, runs of equal values counted once, differ.
 ///
 /// The counts and the publisher updates before `ChunkRadiusUpdated` are notes.
-pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String>) {
+pub(super) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String>) {
     let mut differences = Vec::new();
     let mut notes = Vec::new();
     let shapes =
@@ -1054,7 +1050,7 @@ pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
 /// the marker position to the step's marker state; the end marker ends the scenario. Changes before
 /// the first step's block (none are expected) belong to step 0. Returns the steps and whether the
 /// end marker came. Chunks and sub-chunks are not block changes.
-pub(crate) fn block_steps(
+pub(super) fn block_steps(
     capture: &str,
     base: [i64; 3],
     markers: &Markers,
@@ -1149,7 +1145,7 @@ pub(crate) fn block_steps(
 /// (`StepSummary::normalized_kinds`)
 /// and the other block packet names. `labels` name the steps in messages. Returns the differences
 /// and notes on the steps where A's own packet kinds differ from its normalized ones.
-pub(crate) fn compare_steps(
+pub(super) fn compare_steps(
     a: &[Step],
     b: &[Step],
     labels: &[String],
@@ -1225,15 +1221,15 @@ mod tests {
 "#;
 
     fn tables(deferred: &str, fields: &str) -> (Deferred, Fields) {
-        let deferred = parse_deferred(deferred).expect("deferral table");
-        let fields = parse_fields(fields, &deferred).expect("field list");
+        let deferred = parse_deferred(deferred).expect("the deferral table parses");
+        let fields = parse_fields(fields, &deferred).expect("the field list parses");
         (deferred, fields)
     }
 
     #[test]
     fn window_ends_where_the_bot_initialised() {
         let names: Vec<String> = window(CAPTURE)
-            .expect("window")
+            .expect("the capture holds a window")
             .into_iter()
             .map(|p| p.name)
             .collect();
@@ -1253,9 +1249,9 @@ mod tests {
             "LevelChunk - chunks\n",
             "StartGame GameVersion\nStartGame Movement.Rewind\n",
         );
-        let a = window(CAPTURE).expect("window");
+        let a = window(CAPTURE).expect("the capture holds a window");
         let other = CAPTURE.replace("\"Seed\":1", "\"Seed\":2");
-        let mut b = window(&other).expect("window");
+        let mut b = window(&other).expect("the capture holds a window");
         b.remove(1);
         assert_eq!(compare(&a, &b, &deferred, &fields), Vec::<String>::new());
     }
@@ -1263,12 +1259,12 @@ mod tests {
     #[test]
     fn sequence_and_field_differences_are_reported() {
         let (deferred, fields) = tables("", "StartGame Movement.Rewind\n");
-        let a = window(CAPTURE).expect("window");
+        let a = window(CAPTURE).expect("the capture holds a window");
         // Chunk packets are left out of the sequence (compare_chunks has them), another is not.
         let other = CAPTURE
             .replace("\"Rewind\":40", "\"Rewind\":20")
             .replace("\"name\":\"LevelChunk\"", "\"name\":\"PlayStatus\"");
-        let b = window(&other).expect("window");
+        let b = window(&other).expect("the capture holds a window");
         let differences = compare(&a, &b, &deferred, &fields);
         assert_eq!(differences.len(), 2, "{differences:?}");
         assert!(differences[0].starts_with("packet sequences differ at position 1"));
@@ -1278,9 +1274,9 @@ mod tests {
     #[test]
     fn missing_fields_differ_from_present_ones() {
         let (deferred, fields) = tables("", "StartGame Absent\nStartGame GameVersion\n");
-        let a = window(CAPTURE).expect("window");
+        let a = window(CAPTURE).expect("the capture holds a window");
         let other = CAPTURE.replace("\"GameVersion\"", "\"Version\"");
-        let b = window(&other).expect("window");
+        let b = window(&other).expect("the capture holds a window");
         assert_eq!(
             compare(&a, &b, &deferred, &fields),
             ["StartGame#0.GameVersion: A \"1.26.52\" != B (missing)"]
@@ -1340,8 +1336,8 @@ mod tests {
         assert!(parse_deferred("LevelChunk -\n").is_err());
         assert!(parse_deferred("LevelChunk 6 chunks\n").is_err());
         assert!(parse_deferred("A - x\nA - y\n").is_err());
-        let deferred =
-            parse_deferred("# comment\nLevelChunk - chunks # trailing\n").expect("deferral table");
+        let deferred = parse_deferred("# comment\nLevelChunk - chunks # trailing\n")
+            .expect("a well-formed deferral table parses");
         assert!(parse_fields("LevelChunk Position\n", &deferred).is_err());
         assert!(parse_fields("StartGame\n", &deferred).is_err());
         assert!(parse_fields("StartGame a..b\n", &deferred).is_err());
@@ -1367,7 +1363,9 @@ mod tests {
 {"type":"sdp","role":"answer","structure":["v","a=identity","m=application","a=candidate","a=candidate","a=setup"]}
 {"type":"result","transport":"nethernet","pass":true}
 "#;
-        let a = answer_structure(capture).expect("capture").expect("answer");
+        let a = answer_structure(capture)
+            .expect("the capture is read")
+            .expect("the capture holds an answer");
         assert_eq!(a.len(), 6);
         let one: Vec<String> = ["v", "a=identity", "m=application", "a=candidate", "a=setup"]
             .map(str::to_owned)
@@ -1377,8 +1375,14 @@ mod tests {
             .map(str::to_owned)
             .into();
         assert_eq!(compare_structure(&a, &moved).len(), 1);
-        assert_eq!(answer_structure(CAPTURE).expect("capture"), None);
-        assert_eq!(result(capture).expect("result")["transport"], "nethernet");
+        assert_eq!(
+            answer_structure(CAPTURE).expect("the capture is read"),
+            None
+        );
+        assert_eq!(
+            result(capture).expect("the capture holds a result")["transport"],
+            "nethernet"
+        );
         assert!(result(CAPTURE).is_err());
     }
 
@@ -1388,7 +1392,10 @@ mod tests {
 {"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":1,"Username":""}]}}
 {"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":0,"Username":"Dup(2)"}]}}
 "#;
-        assert_eq!(added_players(capture).expect("capture"), ["Dup", "Dup(2)"]);
+        assert_eq!(
+            added_players(capture).expect("the capture is read"),
+            ["Dup", "Dup(2)"]
+        );
     }
 
     #[test]
@@ -1405,7 +1412,7 @@ mod tests {
             packet("UpdateAttributes", 7),
             packet("Respawn", 0),
         ];
-        let deferred = parse_deferred("").expect("empty table");
+        let deferred = parse_deferred("").expect("an empty deferral table parses");
         assert_eq!(
             sequence(&window, &deferred),
             ["StartGame", "SetActorData", "UpdateAttributes", "Respawn"]
@@ -1415,12 +1422,13 @@ mod tests {
     #[test]
     fn sequence_counts_runs_without_deferred_packets() {
         let (deferred, _) = tables("LevelChunk - chunks\n", "");
-        let w = window(&CAPTURE.replace("StartGame", "NetworkSettings")).expect("window");
+        let w = window(&CAPTURE.replace("StartGame", "NetworkSettings"))
+            .expect("the capture holds a window");
         assert_eq!(sequence(&w, &deferred), ["NetworkSettings x2"]);
     }
 
     fn items(text: &str) -> Items {
-        parse_items(text).expect("item packets")
+        parse_items(text).expect("the item packets parse")
     }
 
     #[test]
@@ -1492,7 +1500,7 @@ mod tests {
     fn creative_groups_must_be_consistent() {
         let creative = |items: &str| -> Value {
             serde_json::from_str(&format!(r#"{{"Groups":[{{}},{{}}],"Items":{items}}}"#))
-                .expect("json")
+                .expect("the creative content is valid json")
         };
         let item = |id: u32, group: u32| {
             format!(r#"{{"CreativeItemNetworkID":{id},"GroupIndex":{group}}}"#)
@@ -1591,7 +1599,8 @@ mod tests {
     }
 
     fn steps(capture: &str) -> (Vec<Step>, bool) {
-        block_steps(capture, [2, -60, 2], &markers(), &block_names()).expect("blocks capture")
+        block_steps(capture, [2, -60, 2], &markers(), &block_names())
+            .expect("the blocks capture splits into steps")
     }
 
     #[test]
@@ -1681,7 +1690,7 @@ mod tests {
 
     #[test]
     fn chunk_packets_are_read_relative_to_the_spawn() {
-        let c = chunks(&chunk_capture(1, 4)).expect("capture");
+        let c = chunks(&chunk_capture(1, 4)).expect("the chunk capture is read");
         assert_eq!(c.level.len(), 2);
         assert_eq!((c.level[0].0, c.level[1].0), ([0, 0], [1, 0]));
         assert_eq!(c.before_spawn, 2);
@@ -1707,8 +1716,8 @@ mod tests {
 
     #[test]
     fn chunk_differences_are_reported() {
-        let a = chunks(&chunk_capture(1, 4)).expect("capture");
-        let b = chunks(&chunk_capture(2, 5)).expect("capture");
+        let a = chunks(&chunk_capture(1, 4)).expect("the first chunk capture is read");
+        let b = chunks(&chunk_capture(2, 5)).expect("the second chunk capture is read");
         let (differences, notes) = compare_chunks(&a, &b);
         assert_eq!(differences.len(), 2, "{differences:?}");
         assert!(differences[0].starts_with("LevelChunk fields differ"));
@@ -1719,7 +1728,7 @@ mod tests {
             .replace(r#""Position":[1,-1],"Sub"#, r#""Position":[9,-1],"Sub"#)
             .replace(r#""Position":[2,-1],"Sub"#, r#""Position":[1,-1],"Sub"#)
             .replace(r#""strict":"ok""#, r#""strict":"width 7""#);
-        let c = chunks(&far_first).expect("capture");
+        let c = chunks(&far_first).expect("the reordered chunk capture is read");
         let (differences, _) = compare_chunks(&a, &c);
         assert!(
             differences.iter().any(|d| d.contains("not nearest first")),

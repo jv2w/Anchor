@@ -12,7 +12,7 @@
 //! `p6 game compare target/p6/official-game target/p6/anchor-game` for the scenarios it ran, also
 //! written to `anchor-game/compare.txt`.
 
-pub(crate) mod console;
+pub(super) mod console;
 mod trace;
 
 use std::collections::BTreeMap;
@@ -22,222 +22,24 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use crate::fs::{read_text, read_text_if_exists, remove_file, write};
-use crate::say;
+use crate::{say, status};
 
 /// How long the harness waits for a bot past its own time limit before killing it.
 const BOT_GRACE: Duration = Duration::from_secs(30);
 /// The bot's time limit for one game scenario.
 const BOT_TIMEOUT: Duration = Duration::from_secs(150);
 /// The game scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 1] = ["trade"];
+pub(super) const SCENARIOS: [&str; 1] = ["trade"];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
 /// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block
 /// traffic lands between the steps; then every mob is removed.
-pub(crate) const SESSION_SETUP: &[&str] = &[
+pub(super) const SESSION_SETUP: &[&str] = &[
     "gamerule domobspawning false",
     "gamerule randomtickspeed 0",
     "gamerule dodaylightcycle false",
     "gamerule doweathercycle false",
     "kill @e[type=!player]",
 ];
-
-/// The player name of a scenario's bot: one new player each, so no inventory carries over.
-pub(crate) fn player(scenario: &str) -> String {
-    let mut name = "P6".to_owned();
-    let mut chars = scenario.chars();
-    if let Some(first) = chars.next() {
-        name.extend(first.to_uppercase());
-        name.push_str(chars.as_str());
-    }
-    name
-}
-
-/// `p6 game official [scenario]...`: the game session of `session` alone.
-pub(crate) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
-    let exe = super::official_exe(root)?;
-    let bot = super::build_bot(root)?;
-    let passed = session(root, &exe, &bot, &scenarios, out)?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
-    Ok(passed)
-}
-
-/// `p6 game anchor [scenario]...`: [`anchor_session`] alone.
-pub(crate) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
-    let bot = super::build_bot(root)?;
-    let passed = anchor_session(root, &bot, &scenarios, out)?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
-    Ok(passed)
-}
-
-/// The game session against Anchor into `target/p6/anchor-game/`, then its comparison with the
-/// official server session's captures (`p6 game official` makes them). It passes when every bot and every console
-/// command passed and the traces are the same.
-pub(crate) fn anchor_session(
-    root: &Path,
-    bot: &Path,
-    scenarios: &[&str],
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    let blocks = super::block_states(root)?;
-    let dir = root.join(super::OUT_DIR).join("anchor-game");
-    let (mut console, task) = console::console();
-    let with_console = |b: anchor::ServerBuilder| b.every(console::EVERY_TICK, task);
-    let played = super::anchor_session(
-        &dir,
-        "zlib",
-        |_| {},
-        with_console,
-        out,
-        |addr, _, out| {
-            let mut passed = run_spawn(bot, addr, &dir, out)?;
-            for line in SESSION_SETUP {
-                console.send(line)?;
-            }
-            passed &= console.settle(out)?;
-            for scenario in scenarios {
-                passed &= run_scenario(bot, addr, &dir, scenario, |line| console.send(line), out)?;
-                passed &= console.settle(out)?;
-                let written = write_report(&dir, scenario, &blocks);
-                passed &= super::report_written(scenario, written, out)?;
-            }
-            Ok(passed)
-        },
-    )?;
-    let official = root.join(super::OUT_DIR).join("official-game");
-    let same =
-        super::report_comparison(&dir, "compare official-game anchor-game:", out, |report| {
-            compare_scenarios(root, &official, &dir, scenarios, report)
-        })?;
-    Ok(played && same)
-}
-
-/// One official server session (RakNet, zlib, a fresh world) that records the spawn window, runs
-/// `SESSION_SETUP` and the game scenarios into `target/p6/official-game/`, each with its report.
-pub(crate) fn session(
-    root: &Path,
-    exe: &Path,
-    bot: &Path,
-    scenarios: &[&str],
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    let blocks = super::block_states(root)?;
-    let dir = root.join(super::OUT_DIR).join("official-game");
-    super::official_session(exe, &dir, "raknet", "zlib", out, |addr, server, out| {
-        let mut passed = run_spawn(bot, addr, &dir, out)?;
-        for line in SESSION_SETUP {
-            server.command(line)?;
-        }
-        for scenario in scenarios {
-            passed &= run_scenario(bot, addr, &dir, scenario, |line| server.command(line), out)?;
-            let written = write_report(&dir, scenario, &blocks);
-            passed &= super::report_written(scenario, written, out)?;
-        }
-        Ok(passed)
-    })
-}
-
-/// Writes `<dir>/<scenario>.txt`, the trace of the scenario's capture.
-fn write_report(dir: &Path, scenario: &str, blocks: &BTreeMap<u32, String>) -> Result<(), String> {
-    let steps = read_trace(dir, scenario, blocks)?;
-    write(
-        &dir.join(format!("{scenario}.txt")),
-        trace::report(&steps).as_bytes(),
-    )
-}
-
-/// The trace of `<dir>/<scenario>.jsonl`, with the item names of its items file.
-fn read_trace(
-    dir: &Path,
-    scenario: &str,
-    blocks: &BTreeMap<u32, String>,
-) -> Result<Vec<trace::Step>, String> {
-    let capture = dir.join(format!("{scenario}.jsonl"));
-    let items = trace::item_names(&read_text(&super::items_path(&capture))?)
-        .map_err(|e| format!("{}: {e}", capture.display()))?;
-    trace::trace(&read_text(&capture)?, &items, blocks)
-        .map_err(|e| format!("{}: {e}", capture.display()))
-}
-
-/// `p6 game compare A B`: compares the traces of every game scenario's captures in the two folders
-/// and prints the differences; true when there are none and no capture is missing.
-pub(crate) fn compare(
-    root: &Path,
-    a: &Path,
-    b: &Path,
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    compare_scenarios(root, a, b, &SCENARIOS, out)
-}
-
-/// [`compare`] for the captures of `scenarios` only. A scenario without a capture in either
-/// folder is a difference.
-fn compare_scenarios(
-    root: &Path,
-    a: &Path,
-    b: &Path,
-    scenarios: &[&str],
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    let blocks = super::block_states(root)?;
-    let mut same = true;
-    for scenario in scenarios {
-        if super::say_missing_capture(a, b, scenario, out)? {
-            same = false;
-            continue;
-        }
-        let differences = trace::compare(
-            &read_trace(a, scenario, &blocks)?,
-            &read_trace(b, scenario, &blocks)?,
-        );
-        for d in &differences {
-            say(out, &format!("{scenario}: {d}"))?;
-        }
-        say(
-            out,
-            &format!(
-                "{} game {scenario}",
-                if differences.is_empty() {
-                    "same"
-                } else {
-                    "DIFFERENT"
-                }
-            ),
-        )?;
-        same &= differences.is_empty();
-    }
-    say(out, if same { "SAME" } else { "DIFFERENT" })?;
-    Ok(same)
-}
-
-/// Records the spawn window of the session's world into `<dir>/spawn.jsonl`.
-fn run_spawn(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
-    let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
-    let outcome = super::run_bot(bot, &args, &dir.join("spawn.jsonl"))?;
-    say(
-        out,
-        &format!(
-            "{} raknet spawn{}",
-            if outcome.passed { "ok  " } else { "FAIL" },
-            outcome.failure()
-        ),
-    )?;
-    Ok(outcome.passed)
-}
-
-/// Runs one game scenario's bot into `<dir>/<scenario>.jsonl`, passing each command record to
-/// `console` as it appears, and returns whether the bot passed.
-fn run_scenario(
-    bot: &Path,
-    addr: &str,
-    dir: &Path,
-    scenario: &str,
-    console: impl FnMut(&str) -> Result<(), String>,
-    out: &mut impl Write,
-) -> Result<bool, String> {
-    run_scenarios(bot, addr, dir, scenario, None, None, console, out)
-}
 
 /// One bot of [`run_scenarios`]: its scenario, capture, process and the commands relayed.
 struct Running {
@@ -319,23 +121,227 @@ impl Running {
             .child
             .wait_with_output()
             .map_err(|e| format!("wait for the bot: {e}"))?;
-        let passed = output.status.success();
-        let failure = if passed {
-            String::new()
-        } else {
-            format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
-        };
+        let outcome = super::Outcome::from_output(&output);
         say(
-            out,
             &format!(
-                "{} game {} ({} commands){failure}",
-                if passed { "ok  " } else { "FAIL" },
+                "{} game {} ({} commands){}",
+                status(outcome.passed),
                 self.scenario,
-                self.relayed
+                self.relayed,
+                outcome.failure()
             ),
+            out,
         )?;
-        Ok(passed)
+        Ok(outcome.passed)
     }
+}
+
+/// `p6 game official [scenario]...`: the game session of `session` alone.
+pub(super) fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
+    let exe = super::official_exe(root)?;
+    let bot = super::build_bot(root)?;
+    let passed = session(root, &exe, &bot, &scenarios, out)?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
+    Ok(passed)
+}
+
+/// `p6 game anchor [scenario]...`: [`anchor_session`] alone.
+pub(super) fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+    let scenarios = super::pick_scenarios(args, &SCENARIOS, "game")?;
+    let bot = super::build_bot(root)?;
+    let passed = anchor_session(root, &bot, &scenarios, out)?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
+    Ok(passed)
+}
+
+/// The game session against Anchor into `target/p6/anchor-game/`, then its comparison with the
+/// official server session's captures (`p6 game official` makes them). It passes when every bot and every console
+/// command passed and the traces are the same.
+pub(super) fn anchor_session(
+    root: &Path,
+    bot: &Path,
+    scenarios: &[&str],
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let blocks = super::block_states(root)?;
+    let dir = root.join(super::OUT_DIR).join("anchor-game");
+    let (mut console, task) = console::console();
+    let with_console = |b: anchor::ServerBuilder| b.every(console::EVERY_TICK, task);
+    let played = super::anchor_session(
+        &dir,
+        "zlib",
+        |_| {},
+        with_console,
+        |addr, _, out| {
+            let mut passed = run_spawn(bot, addr, &dir, out)?;
+            for line in SESSION_SETUP {
+                console.send(line)?;
+            }
+            passed &= console.settle(out)?;
+            for scenario in scenarios {
+                passed &= run_scenario(bot, addr, &dir, scenario, |line| console.send(line), out)?;
+                passed &= console.settle(out)?;
+                let written = write_report(&dir, scenario, &blocks);
+                passed &= super::report_written(scenario, written, out)?;
+            }
+            Ok(passed)
+        },
+        out,
+    )?;
+    let official = root.join(super::OUT_DIR).join("official-game");
+    let same = super::report_comparison(
+        &dir,
+        "compare official-game anchor-game:",
+        |report| compare_scenarios(root, &official, &dir, scenarios, report),
+        out,
+    )?;
+    Ok(played && same)
+}
+
+/// One official server session (RakNet, zlib, a fresh world) that records the spawn window, runs
+/// `SESSION_SETUP` and the game scenarios into `target/p6/official-game/`, each with its report.
+pub(super) fn session(
+    root: &Path,
+    exe: &Path,
+    bot: &Path,
+    scenarios: &[&str],
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let blocks = super::block_states(root)?;
+    let dir = root.join(super::OUT_DIR).join("official-game");
+    super::official_session(
+        exe,
+        &dir,
+        "raknet",
+        "zlib",
+        |addr, server, out| {
+            let mut passed = run_spawn(bot, addr, &dir, out)?;
+            for line in SESSION_SETUP {
+                server.command(line)?;
+            }
+            for scenario in scenarios {
+                passed &=
+                    run_scenario(bot, addr, &dir, scenario, |line| server.command(line), out)?;
+                let written = write_report(&dir, scenario, &blocks);
+                passed &= super::report_written(scenario, written, out)?;
+            }
+            Ok(passed)
+        },
+        out,
+    )
+}
+
+/// The player name of a scenario's bot: one new player each, so no inventory carries over.
+fn player(scenario: &str) -> String {
+    let mut name = "P6".to_owned();
+    let mut chars = scenario.chars();
+    if let Some(first) = chars.next() {
+        name.extend(first.to_uppercase());
+        name.push_str(chars.as_str());
+    }
+    name
+}
+
+/// Writes `<dir>/<scenario>.txt`, the trace of the scenario's capture.
+fn write_report(dir: &Path, scenario: &str, blocks: &BTreeMap<u32, String>) -> Result<(), String> {
+    let steps = read_trace(dir, scenario, blocks)?;
+    write(
+        &dir.join(format!("{scenario}.txt")),
+        trace::report(&steps).as_bytes(),
+    )
+}
+
+/// The trace of `<dir>/<scenario>.jsonl`, with the item names of its items file.
+fn read_trace(
+    dir: &Path,
+    scenario: &str,
+    blocks: &BTreeMap<u32, String>,
+) -> Result<Vec<trace::Step>, String> {
+    let capture = dir.join(format!("{scenario}.jsonl"));
+    let items = trace::item_names(&read_text(&super::items_path(&capture))?)
+        .map_err(|e| format!("{}: {e}", capture.display()))?;
+    trace::trace(&read_text(&capture)?, &items, blocks)
+        .map_err(|e| format!("{}: {e}", capture.display()))
+}
+
+/// `p6 game compare A B`: compares the traces of every game scenario's captures in the two folders
+/// and prints the differences; true when there are none and no capture is missing.
+pub(super) fn compare(
+    root: &Path,
+    a: &Path,
+    b: &Path,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    compare_scenarios(root, a, b, &SCENARIOS, out)
+}
+
+/// [`compare`] for the captures of `scenarios` only. A scenario without a capture in either
+/// folder is a difference.
+fn compare_scenarios(
+    root: &Path,
+    a: &Path,
+    b: &Path,
+    scenarios: &[&str],
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let blocks = super::block_states(root)?;
+    let mut same = true;
+    for scenario in scenarios {
+        if super::say_missing_capture(a, b, scenario, out)? {
+            same = false;
+            continue;
+        }
+        let differences = trace::compare(
+            &read_trace(a, scenario, &blocks)?,
+            &read_trace(b, scenario, &blocks)?,
+        );
+        for d in &differences {
+            say(&format!("{scenario}: {d}"), out)?;
+        }
+        say(
+            &format!(
+                "{} game {scenario}",
+                if differences.is_empty() {
+                    "same"
+                } else {
+                    "DIFFERENT"
+                }
+            ),
+            out,
+        )?;
+        same &= differences.is_empty();
+    }
+    say(if same { "SAME" } else { "DIFFERENT" }, out)?;
+    Ok(same)
+}
+
+/// Records the spawn window of the session's world into `<dir>/spawn.jsonl`.
+fn run_spawn(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
+    let outcome = super::run_bot(bot, &args, &dir.join("spawn.jsonl"))?;
+    say(
+        &format!(
+            "{} raknet spawn{}",
+            status(outcome.passed),
+            outcome.failure()
+        ),
+        out,
+    )?;
+    Ok(outcome.passed)
+}
+
+/// Runs one game scenario's bot into `<dir>/<scenario>.jsonl`, passing each command record to
+/// `console` as it appears, and returns whether the bot passed.
+fn run_scenario(
+    bot: &Path,
+    addr: &str,
+    dir: &Path,
+    scenario: &str,
+    console: impl FnMut(&str) -> Result<(), String>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    run_scenarios(bot, addr, dir, scenario, None, None, console, out)
 }
 
 /// [`run_scenario`], with the bot of `companion` started into `<dir>/<companion>.jsonl` once the
@@ -345,7 +351,7 @@ impl Running {
     clippy::too_many_arguments,
     reason = "consistency: run_scenario's arguments and the companion"
 )]
-pub(crate) fn run_scenarios(
+pub(super) fn run_scenarios(
     bot: &Path,
     addr: &str,
     dir: &Path,
@@ -448,7 +454,7 @@ mod tests {
             r#"{"type":"command","line":"unfinished"#,
         );
         assert_eq!(
-            commands(capture).expect("commands"),
+            commands(capture).expect("the complete command records are read"),
             ["give P6Trade emerald 4", "tp P6Trade 1 2 3"]
         );
     }
@@ -467,8 +473,14 @@ mod tests {
     #[test]
     fn unknown_scenarios_are_refused() {
         let pick = |args: &[&'static str]| p6::pick_scenarios(args, &SCENARIOS, "game");
-        assert_eq!(pick(&[]).expect("all"), SCENARIOS.to_vec());
-        assert_eq!(pick(&["trade"]).expect("one"), ["trade"]);
+        assert_eq!(
+            pick(&[]).expect("no names pick every scenario"),
+            SCENARIOS.to_vec()
+        );
+        assert_eq!(
+            pick(&["trade"]).expect("a known name picks its scenario"),
+            ["trade"]
+        );
         assert!(pick(&["fishing"]).is_err());
     }
 
@@ -478,13 +490,15 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         let items = br#"{"type":"packet","name":"ItemRegistry","fields":{"Items":[]}}"#;
         for (d, scenario) in [(&a, "trade"), (&b, "trade"), (&a, "second")] {
-            create_dir(d).expect("dir");
-            write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
-            write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
+            create_dir(d).expect("the test folder can be created");
+            write(&d.join(format!("{scenario}.jsonl")), b"")
+                .expect("the capture file can be written");
+            write(&d.join(format!("{scenario}.items.jsonl")), items)
+                .expect("the items file can be written");
         }
         let mut out = Vec::new();
         let same = compare_scenarios(&crate::root(), &a, &b, &["trade", "second"], &mut out);
-        remove_dir(&dir).expect("cleanup");
+        remove_dir(&dir).expect("the test folder can be removed");
         assert_eq!(same, Ok(false));
         let report = String::from_utf8_lossy(&out);
         assert!(

@@ -39,7 +39,7 @@ use crate::{p6, say};
 /// The seconds an `effect` command without a duration lasts (the official server's default).
 const DEFAULT_EFFECT_SECONDS: u32 = 30;
 /// The task's period: every tick.
-pub(crate) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
+pub(in crate::p6) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
 const FARMER: u8 = 1;
 /// The uses of each offer of the farmer villager.
@@ -59,7 +59,7 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A parsed console command.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Command {
+enum Command {
     /// `tp <player> <x> <y> <z>`: the feet position.
     Teleport { player: String, feet: Vec3 },
     /// `give <player> <item> [count]`, split into stacks of the item's stack size.
@@ -109,7 +109,7 @@ pub(crate) enum Command {
 
 /// A kind of form the forms scenario asks for (`scriptevent p6:<kind>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FormKind {
+enum FormKind {
     Modal,
     Menu,
     Custom,
@@ -141,11 +141,11 @@ impl FormKind {
 
 /// What became of one command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Report {
+struct Report {
     /// The command line.
-    pub(crate) line: String,
+    line: String,
     /// Done with an optional note, or failed with the reason.
-    pub(crate) result: Result<Option<String>, String>,
+    result: Result<Option<String>, String>,
 }
 
 /// What running a command once did.
@@ -159,7 +159,7 @@ enum Outcome {
 
 /// The harness side of the console.
 #[derive(Debug)]
-pub(crate) struct Console {
+pub(in crate::p6) struct Console {
     commands: SyncSender<(String, Command)>,
     reports: Receiver<Report>,
     /// Commands sent and not reported yet.
@@ -175,7 +175,7 @@ pub(crate) struct Console {
 
 impl Console {
     /// Hands `line` to Anchor's task, or keeps the reason it does not parse for [`Self::settle`].
-    pub(crate) fn send(&mut self, line: &str) -> Result<(), String> {
+    pub(in crate::p6) fn send(&mut self, line: &str) -> Result<(), String> {
         match parse(line) {
             Ok(command) => {
                 self.commands
@@ -193,7 +193,7 @@ impl Console {
 
     /// Waits for the reports of every command sent, prints the notes and failures, and returns
     /// whether every command ran.
-    pub(crate) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
+    pub(in crate::p6) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
         let mut reports = std::mem::take(&mut self.refused);
         let mut late = Vec::new();
         let deadline = p6::now() + SETTLE_TIMEOUT;
@@ -219,14 +219,14 @@ impl Console {
             }
         }
         while let Ok(answer) = self.answers.try_recv() {
-            say(out, &format!("note anchor form: {answer}"))?;
+            say(&format!("note anchor form: {answer}"), out)?;
         }
         for Report { line, result } in &late {
             let text = format!(
                 "note anchor console `{line}` answered after an earlier scenario gave up on it: \
                  {result:?}"
             );
-            say(out, &text)?;
+            say(&text, out)?;
         }
         let mut ran = true;
         for Report { line, result } in &reports {
@@ -238,17 +238,17 @@ impl Console {
                     format!("FAIL anchor console `{line}`: {why}")
                 }
             };
-            say(out, &text)?;
+            say(&text, out)?;
         }
         Ok(ran)
     }
 }
 
 /// The console and the task for `ServerBuilder::every(EVERY_TICK, ..)`.
-pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
-    let (commands, received) = channel(MAX_PENDING);
-    let (reported, reports) = channel(MAX_PENDING);
-    let (answered, answers) = channel(MAX_PENDING);
+pub(in crate::p6) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
+    let (commands, received) = p6::channel(MAX_PENDING);
+    let (reported, reports) = p6::channel(MAX_PENDING);
+    let (answered, answers) = p6::channel(MAX_PENDING);
     let mut pending: VecDeque<(String, Command, u32)> = VecDeque::with_capacity(MAX_PENDING);
     let mut villagers: Vec<Id> = Vec::new();
     let task = move |cx: &mut Context<'_>| {
@@ -291,18 +291,9 @@ pub(crate) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'stat
     (console, task)
 }
 
-/// A bounded channel between the harness and Anchor's task.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the harness hands the task its commands through a channel"
-)]
-fn channel<T>(bound: usize) -> (SyncSender<T>, Receiver<T>) {
-    std::sync::mpsc::sync_channel(bound)
-}
-
 /// Parses a console command line in the form the bot writes (the official server's syntax,
 /// absolute coordinates).
-pub(crate) fn parse(line: &str) -> Result<Command, String> {
+fn parse(line: &str) -> Result<Command, String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words.as_slice() {
         ["tp", player, x, y, z] => Ok(Command::Teleport {
@@ -918,9 +909,9 @@ mod tests {
 
     #[test]
     fn a_report_that_came_late_is_not_the_next_scenarios() {
-        let (commands, _received) = channel(1);
-        let (reported, reports) = channel(2);
-        let (_answered, answers) = channel(1);
+        let (commands, _received) = p6::channel(1);
+        let (reported, reports) = p6::channel(2);
+        let (_answered, answers) = p6::channel(1);
         let mut console = Console {
             commands,
             reports,

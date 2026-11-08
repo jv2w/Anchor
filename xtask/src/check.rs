@@ -1,10 +1,11 @@
 //! `cargo xtask check`: what every change passes before a task ends: the format, clippy, and the
 //! tests of what changed. Those are the library tests of the changed modules (a file's own module
 //! when it has submodules, else the module that owns its directory, so `foo/bar.rs` and
-//! `foo/tests.rs` run `foo::`), every library test when `src/lib.rs` or a build file changed, and
-//! each changed integration test file. A changed Rust source under `src/` or `xtask/src/` also
-//! runs the two documentation builds of `verify`, and `xtask/data/dump/status.txt` or a changed
-//! Rust file with an `// api:` or `// api-class:` comment runs `cargo xtask table --check`.
+//! `foo/tests.rs` run `foo::`), every library test when `src/lib.rs` or a build file outside
+//! `xtask/` changed (xtask's unit tests for one under it), and each changed integration test file.
+//! A changed Rust source under `src/` or `xtask/src/` also runs the two documentation builds of
+//! `verify`, and `xtask/data/dump/status.txt` or a changed Rust file with an `// api:` or
+//! `// api-class:` comment runs `cargo xtask table --check`.
 //!
 //! A changed file that a Rust source of the repository ([`SOURCE_DIRS`]) pulls in counts as a
 //! change of that source too, so it also runs that source's tests (in the source's own crate). A
@@ -14,7 +15,6 @@
 //! files under it, else the repository root). A deleted integration test file has no test to run.
 //! Any other changed file that is neither a Rust source nor a build file nor the status file runs
 //! nothing.
-//! `cargo xtask verify` runs everything, when the user asks for it (`/verify`).
 //!
 //! The builds go to `target/check`, so a check neither waits on a running `verify` nor rebuilds
 //! the running xtask.exe. A pass is remembered as a stamp of HEAD and the changed files the build
@@ -36,12 +36,20 @@ use crate::{
 const API_COMMENTS: [&str; 2] = ["// api:", "// api-class:"];
 /// Files other than Rust sources whose change can break the build or the lints.
 const BUILD_FILES: &[&str] = &[
-    "Cargo.toml",
-    "Cargo.lock",
     ".clippy.toml",
     ".rustfmt.toml",
+    "Cargo.lock",
+    "Cargo.toml",
     "rust-toolchain.toml",
 ];
+/// The stamp bytes that mark a changed file as missing.
+const FILE_ABSENT: &[u8] = &[0];
+/// The stamp bytes that mark a changed file as there, before its contents.
+const FILE_PRESENT: &[u8] = &[1];
+/// The FNV-1a 64-bit offset basis, the start of every stamp.
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+/// The FNV-1a 64-bit prime.
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 /// The tokens of an include path from the crate folder, before its `"/…"` literal.
 const FROM_CRATE: [&str; 5] = ["concat!(", "env!(", "\"CARGO_MANIFEST_DIR\"", ")", ","];
 /// The macros that include a file, each followed by its path.
@@ -165,8 +173,8 @@ impl Plan {
 /// Runs the check, writing its lines and then `PASS` or `FAIL` to `out` (`FAIL` after an error
 /// line when it cannot run), and returns whether it passed.
 pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
-    let passed = run(root, out).or_else(|e| report_error(out, &e))?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
+    let passed = run(root, out).or_else(|e| report_error(&e, out))?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
     Ok(passed)
 }
 
@@ -175,7 +183,7 @@ pub(crate) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
 fn run(root: &Path, out: &mut impl Write) -> Result<bool, String> {
     let before = Snapshot::take(root)?;
     if read_stamp(root)?.as_deref() == Some(before.stamp.as_str()) {
-        say(out, "unchanged since the last pass")?;
+        say("unchanged since the last pass", out)?;
         return Ok(true);
     }
     let passed = check(root, &before.files, &before.includes, out)?;
@@ -196,13 +204,15 @@ fn check(
 ) -> Result<bool, String> {
     let plan = Plan::new(root, files, includes)?;
     if !plan.code && !plan.table {
-        say(out, "no code changed")?;
+        say("no code changed", out)?;
         return Ok(true);
     }
     if plan.table
-        && !step(out, "cargo xtask table --check", |out| {
-            table_command(out, Mode::Check)
-        })?
+        && !step(
+            "cargo xtask table --check",
+            |out| table_command(Mode::Check, out),
+            out,
+        )?
     {
         return Ok(false);
     }
@@ -217,7 +227,7 @@ fn check(
     }
     for (cargo, target) in &steps {
         let cargo: Vec<&str> = cargo.iter().map(String::as_str).collect();
-        if !cargo_step(out, &cargo, target)? {
+        if !cargo_step(&cargo, target, out)? {
             return Ok(false);
         }
     }
@@ -240,12 +250,6 @@ fn targets(package: &str, tests: &BTreeSet<String>) -> Option<Vec<String>> {
         step.push(name.to_owned());
     }
     Some(step)
-}
-
-/// Whether the check reads `file`: a Rust source, a build file, a file a source pulls in or the
-/// status file.
-fn is_read(file: &str, includes: &Includes) -> bool {
-    is_code(file) || includes.contains_key(file) || file == STATUS_PATH
 }
 
 /// Whether one of the changed Rust `files` that still exists holds an API comment.
@@ -398,7 +402,8 @@ fn test_target(root: &Path, file: &str, rel: &str) -> Option<String> {
 fn changed(root: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     for list in [
-        git(root, &["diff", "--name-only", "-z", "HEAD"])?,
+        // Without renames, a staged rename lists its old path as deleted too.
+        git(root, &["diff", "--name-only", "--no-renames", "-z", "HEAD"])?,
         git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?,
     ] {
         files.extend(
@@ -415,10 +420,10 @@ fn changed(root: &Path) -> Result<Vec<String>, String> {
 /// A stamp of HEAD and the changed files the build reads with their contents (FNV-1a): equal
 /// stamps mean the same code.
 fn stamp(root: &Path, files: &[String], includes: &Includes) -> Result<String, String> {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut hash = FNV_OFFSET_BASIS;
     let mut add = |bytes: &[u8]| {
         for b in bytes {
-            hash = (hash ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3);
+            hash = (hash ^ u64::from(*b)).wrapping_mul(FNV_PRIME);
         }
     };
     add(&git(root, &["rev-parse", "HEAD"])?);
@@ -426,13 +431,19 @@ fn stamp(root: &Path, files: &[String], includes: &Includes) -> Result<String, S
         add(file.as_bytes());
         match read_if_exists(&root.join(file))? {
             Some(bytes) => {
-                add(&[1]);
+                add(FILE_PRESENT);
                 add(&bytes);
             }
-            None => add(&[0]),
+            None => add(FILE_ABSENT),
         }
     }
     Ok(format!("{hash:016x}"))
+}
+
+/// Whether the check reads `file`: a Rust source, a build file, a file a source pulls in or the
+/// status file.
+fn is_read(file: &str, includes: &Includes) -> bool {
+    is_code(file) || includes.contains_key(file) || file == STATUS_PATH
 }
 
 /// The stamp of the last pass, if there is one.
@@ -461,10 +472,10 @@ mod tests {
     #[test]
     fn a_check_that_cannot_run_ends_with_fail() {
         let dir = std::env::temp_dir().join(format!("anchor-check-{}", std::process::id()));
-        create_dir(&dir).expect("dir");
+        create_dir(&dir).expect("the test folder can be created");
         let mut out = Vec::new();
         let passed = command(&dir, &mut out);
-        remove_dir(&dir).expect("cleanup");
+        remove_dir(&dir).expect("the test folder can be removed");
         assert_eq!(passed, Ok(false));
         let text = String::from_utf8_lossy(&out);
         assert!(
@@ -616,5 +627,33 @@ mod tests {
         let p = plan(&["tests/gone_for_good.rs", "xtask/tests/gone_too.rs"]);
         assert!(p.code);
         assert!(p.tests().is_empty());
+    }
+
+    /// A staged rename changes both paths: the old one is gone and the new one is there.
+    #[test]
+    fn a_staged_rename_changes_the_old_and_the_new_path() {
+        let dir = std::env::temp_dir().join(format!("anchor-rename-{}", std::process::id()));
+        create_dir(&dir).expect("the test folder can be created");
+        write(&dir.join("old.txt"), b"data\n").expect("the file can be written");
+        for args in [
+            &["init", "--quiet"][..],
+            &["add", "old.txt"],
+            &[
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "start",
+            ],
+            &["mv", "old.txt", "new.txt"],
+        ] {
+            git(&dir, args).expect("git runs in the test folder");
+        }
+        let files = changed(&dir);
+        remove_dir(&dir).expect("the test folder can be removed");
+        assert_eq!(files, Ok(vec!["new.txt".to_owned(), "old.txt".to_owned()]));
     }
 }

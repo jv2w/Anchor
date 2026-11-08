@@ -108,7 +108,7 @@ const PRIVATE_DOCS: &str = "--document-private-items";
 /// The build directory of the second documentation check under `target/`.
 const PRIVATE_DOCS_TARGET: &str = "verify-private-docs";
 /// The folders of the repository's Rust sources (the vendor copies aside).
-const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
+const SOURCE_DIRS: &[&str] = &["examples", "src", "tests", "xtask/src", "xtask/tests"];
 /// The str0m copy's manifest.
 const STR0M: &str = "vendor/str0m/Cargo.toml";
 /// The patch that points the str0m copy's registry dev-dependency dimpl at the copy, as in Anchor.
@@ -119,9 +119,9 @@ const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto
 /// The build directory of `verify` under `target/`; `vendor-test` builds there too.
 const VERIFY_TARGET: &str = "verify";
 
-/// Whether a command writes its files or only compares them with the committed ones.
+/// What a command does with its files: writes them, or only compares them with the committed ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mode {
+enum Mode {
     Write,
     Check,
 }
@@ -134,7 +134,7 @@ fn main() -> ExitCode {
     let passed = run().unwrap_or_else(|e| {
         // Only a failed write to standard output gets here, so the error goes to standard error;
         // the exit code reports the failure even when that write fails too.
-        let _unreported = say_error(&mut io::stderr(), &e);
+        let _unreported = say_error(&e, &mut io::stderr());
         false
     });
     exit(passed)
@@ -156,26 +156,26 @@ fn run() -> Result<bool, String> {
         .as_slice()
     {
         ["check"] => check::command(&root(), &mut out),
-        ["gen"] => gen_command(&mut out, Mode::Write),
-        ["gen", "--check"] => gen_command(&mut out, Mode::Check),
+        ["gen"] => gen_command(Mode::Write, &mut out),
+        ["gen", "--check"] => gen_command(Mode::Check, &mut out),
         ["verify"] => verify(&mut out),
-        ["dump"] => dump_command(&mut out, Mode::Write),
-        ["dump", "--check"] => dump_command(&mut out, Mode::Check),
-        ["table"] => table_command(&mut out, Mode::Write),
-        ["table", "--check"] => table_command(&mut out, Mode::Check),
-        ["vendor-test", "str0m"] => vendor::str0m(&root()).or_else(|e| report_error(&mut out, &e)),
+        ["dump"] => dump_command(Mode::Write, &mut out),
+        ["dump", "--check"] => dump_command(Mode::Check, &mut out),
+        ["table"] => table_command(Mode::Write, &mut out),
+        ["table", "--check"] => table_command(Mode::Check, &mut out),
+        ["vendor-test", "str0m"] => vendor::str0m(&root()).or_else(|e| report_error(&e, &mut out)),
         ["p6", rest @ ..] => {
-            p6::command(&root(), rest, &mut out).or_else(|e| report_error(&mut out, &e))
+            p6::command(&root(), rest, &mut out).or_else(|e| report_error(&e, &mut out))
         }
         _ => {
             say(
-                &mut out,
                 &format!(
                     "usage: cargo xtask gen [--check] | cargo xtask check | cargo xtask \
                      verify | cargo xtask dump [--check] | cargo xtask table [--check] | cargo \
                      xtask vendor-test str0m | {}",
                     p6::USAGE
                 ),
+                &mut out,
             )?;
             Ok(false)
         }
@@ -183,7 +183,7 @@ fn run() -> Result<bool, String> {
 }
 
 /// Writes `text` and a newline to `out`.
-pub(crate) fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
+fn say(text: &str, out: &mut impl Write) -> Result<(), String> {
     writeln!(out, "{text}").map_err(|e| e.to_string())
 }
 
@@ -191,48 +191,54 @@ pub(crate) fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
 /// and `PASS` or `FAIL` for all.
 fn verify(out: &mut impl Write) -> Result<bool, String> {
     let mut passed = true;
-    passed &= step(out, "cargo xtask gen --check", |out| {
-        gen_command(out, Mode::Check)
-    })?;
-    passed &= step(out, "cargo xtask table --check", |out| {
-        table_command(out, Mode::Check)
-    })?;
-    passed &= step(out, "lint reason tags", reasons_command)?;
+    passed &= step(
+        "cargo xtask gen --check",
+        |out| gen_command(Mode::Check, out),
+        out,
+    )?;
+    passed &= step(
+        "cargo xtask table --check",
+        |out| table_command(Mode::Check, out),
+        out,
+    )?;
+    passed &= step("lint reason tags", reasons_command, out)?;
     for args in CHECKS {
         let target = if args.contains(&PRIVATE_DOCS) {
             PRIVATE_DOCS_TARGET
         } else {
             VERIFY_TARGET
         };
-        passed &= cargo_step(out, args, target)?;
+        passed &= cargo_step(args, target, out)?;
     }
-    say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
     Ok(passed)
 }
 
 /// Runs `check`, which writes its findings to `out`, and then writes its `ok` or `FAIL` line.
 fn step<W: Write>(
-    out: &mut W,
     name: &str,
     check: impl FnOnce(&mut W) -> Result<bool, String>,
+    out: &mut W,
 ) -> Result<bool, String> {
     let ok = check(out)?;
-    say(out, &format!("{} {name}", status(ok)))?;
+    say(&format!("{} {name}", status(ok)), out)?;
     Ok(ok)
 }
 
 /// Runs `cargo <args>` ([`run_cargo`]) and writes `ok` or `FAIL` with the command, after the
 /// output of a failure or the error of a cargo that cannot start.
-fn cargo_step(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, String> {
-    step(out, &format!("cargo {}", args.join(" ")), |out| {
-        run_cargo(out, args, target).or_else(|e| report_error(out, &e))
-    })
+fn cargo_step(args: &[&str], target: &str, out: &mut impl Write) -> Result<bool, String> {
+    step(
+        &format!("cargo {}", args.join(" ")),
+        |out| run_cargo(args, target, out).or_else(|e| report_error(&e, out)),
+        out,
+    )
 }
 
 /// Runs `cargo <args>` at the repository root with its builds in `target/<target>`, writes its
 /// output to `out` when it fails, and returns whether it passed: a successful exit that printed no
 /// warning.
-fn run_cargo(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, String> {
+fn run_cargo(args: &[&str], target: &str, out: &mut impl Write) -> Result<bool, String> {
     let mut command = Command::new(cargo());
     if cfg!(windows) && args.contains(&DIMPL) {
         command.env("OPENSSL_SRC_PERL", root().join(PERL));
@@ -263,31 +269,31 @@ fn run_cargo(out: &mut impl Write, args: &[&str], target: &str) -> Result<bool, 
     Ok(ok)
 }
 
-fn gen_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
-    report_files(out, r#gen::run(&root(), mode), "out of date", "gen")
+fn gen_command(mode: Mode, out: &mut impl Write) -> Result<bool, String> {
+    report_files(r#gen::run(&root(), mode), "out of date", "gen", out)
 }
 
-fn dump_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
-    report_files(out, dump::run(&root(), mode), "differs", "dump")
+fn dump_command(mode: Mode, out: &mut impl Write) -> Result<bool, String> {
+    report_files(dump::run(&root(), mode), "differs", "dump", out)
 }
 
 /// Writes (or in check mode compares) the API table and prints its counts. Passes without errors;
 /// a check also needs the committed table current and no blank row.
-fn table_command(out: &mut impl Write, mode: Mode) -> Result<bool, String> {
+fn table_command(mode: Mode, out: &mut impl Write) -> Result<bool, String> {
     let report = match table::run(&root(), mode) {
         Ok(report) => report,
-        Err(e) => return report_error(out, &e),
+        Err(e) => return report_error(&e, out),
     };
     for error in &report.errors {
-        say_error(out, error)?;
+        say_error(error, out)?;
     }
     if report.stale {
         say(
-            out,
             "out of date: xtask/data/dump/table.md (run `cargo xtask table`)",
+            out,
         )?;
     }
-    say(out, &format!("api table:{}", report.counts))?;
+    say(&format!("api table:{}", report.counts), out)?;
     let failed_check = mode == Mode::Check && (report.stale || report.counts.blank > 0);
     Ok(report.errors.is_empty() && !failed_check)
 }
@@ -296,45 +302,45 @@ fn reasons_command(out: &mut impl Write) -> Result<bool, String> {
     match reasons::check(&root()) {
         Ok(errors) => {
             for error in &errors {
-                say_error(out, error)?;
+                say_error(error, out)?;
             }
             Ok(errors.is_empty())
         }
-        Err(e) => report_error(out, &e),
+        Err(e) => report_error(&e, out),
     }
 }
 
 /// Writes one `verb: file (run `cargo xtask command`)` line for each file that `result`
 /// lists as differing, or its error. Passes when the list is empty.
 fn report_files(
-    out: &mut impl Write,
     result: Result<Vec<String>, String>,
     verb: &str,
     command: &str,
+    out: &mut impl Write,
 ) -> Result<bool, String> {
     match result {
         Ok(differ) => {
             for path in &differ {
                 say(
-                    out,
                     &format!("{verb}: {path} (run `cargo xtask {command}`)"),
+                    out,
                 )?;
             }
             Ok(differ.is_empty())
         }
-        Err(e) => report_error(out, &e),
+        Err(e) => report_error(&e, out),
     }
 }
 
 /// Writes `error` as an error line and reports a failed command.
-pub(crate) fn report_error(out: &mut impl Write, error: &str) -> Result<bool, String> {
-    say_error(out, error)?;
+fn report_error(error: &str, out: &mut impl Write) -> Result<bool, String> {
+    say_error(error, out)?;
     Ok(false)
 }
 
 /// Writes one `error: ...` line.
-fn say_error(out: &mut impl Write, error: &str) -> Result<(), String> {
-    say(out, &format!("error: {error}"))
+fn say_error(error: &str, out: &mut impl Write) -> Result<(), String> {
+    say(&format!("error: {error}"), out)
 }
 
 fn exit(passed: bool) -> ExitCode {
@@ -357,7 +363,7 @@ fn cargo() -> OsString {
 
 /// The standard output of `git <args>` in `dir`; a failed run is an error with git's standard
 /// error.
-pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     process::stdout(Command::new("git").args(args).current_dir(dir))
 }
 

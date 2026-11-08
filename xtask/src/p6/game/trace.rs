@@ -52,7 +52,7 @@ use crate::p6::compare::field;
 /// How far, on `x` and `z`, a scenario's own blocks are from its area: the areas are 8 blocks
 /// apart (`gameAreas` in `xtask/go/bot/game.go`), so each scenario owns the half way to the next.
 const AREA_REACH: i32 = 4;
-/// Packets whose number per step is shown and nothing else.
+/// Packets whose number per step is shown; a `LevelSoundEvent` also shows its content.
 const COUNTED: [&str; 18] = [
     "LevelChunk",
     "SubChunk",
@@ -101,17 +101,17 @@ const START_LEVEL: &str = "0";
 
 /// One step of a trace.
 #[derive(Debug, PartialEq, Default)]
-pub(crate) struct Step {
+pub(super) struct Step {
     /// The bot's name for the step.
-    pub(crate) name: String,
+    name: String,
     /// Lines compared between servers.
-    pub(crate) fixed: Vec<String>,
+    fixed: Vec<String>,
     /// Lines for the report only.
-    pub(crate) shown: Vec<String>,
+    shown: Vec<String>,
     /// The bot marked the step as world setup.
-    pub(crate) setup: bool,
+    setup: bool,
     /// The bot marked the step as random.
-    pub(crate) random: bool,
+    random: bool,
 }
 
 /// The state of a trace in the making.
@@ -640,7 +640,7 @@ impl Tracer<'_> {
 
 /// Turns a capture into its trace. `items` maps item network IDs to names, `blocks` block
 /// network IDs to states.
-pub(crate) fn trace(
+pub(super) fn trace(
     capture: &str,
     items: &BTreeMap<i64, String>,
     blocks: &BTreeMap<u32, String>,
@@ -763,7 +763,7 @@ fn shape(line: &str) -> String {
 }
 
 /// The item names of a full item capture's `ItemRegistry`.
-pub(crate) fn item_names(items_capture: &str) -> Result<BTreeMap<i64, String>, String> {
+pub(super) fn item_names(items_capture: &str) -> Result<BTreeMap<i64, String>, String> {
     for (i, line) in items_capture.lines().enumerate() {
         let value: Value =
             serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
@@ -840,7 +840,7 @@ fn tag(typed: &Value) -> String {
 }
 
 /// Compares two traces' fixed lines step by step and returns the differences.
-pub(crate) fn compare(a: &[Step], b: &[Step]) -> Vec<String> {
+pub(super) fn compare(a: &[Step], b: &[Step]) -> Vec<String> {
     let mut differences = Vec::new();
     let names = |s: &[Step]| s.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
     if names(a) != names(b) {
@@ -878,7 +878,7 @@ pub(crate) fn compare(a: &[Step], b: &[Step]) -> Vec<String> {
 }
 
 /// The report text of a trace.
-pub(crate) fn report(steps: &[Step]) -> String {
+pub(super) fn report(steps: &[Step]) -> String {
     let mut lines = Vec::new();
     for step in steps {
         lines.push(format!("step {}", step.name));
@@ -937,8 +937,8 @@ mod tests {
 
     #[test]
     fn traces_keep_the_item_state_and_the_last_block_states_of_each_step() {
-        let steps = trace(CAPTURE, &items(), &blocks()).expect("trace");
-        let give = steps.first().expect("give");
+        let steps = trace(CAPTURE, &items(), &blocks()).expect("the capture traces into steps");
+        let give = steps.first().expect("the trace has a give step");
         assert_eq!(give.name, "give");
         assert_eq!(
             give.fixed,
@@ -954,7 +954,7 @@ mod tests {
                 "1 x Text"
             ]
         );
-        let open = steps.get(1).expect("open");
+        let open = steps.get(1).expect("the trace has an open step");
         assert_eq!(
             open.fixed,
             [
@@ -968,7 +968,7 @@ mod tests {
             open.shown
                 .contains(&"ContainerSetData window w#1 key 1: 2 packets, last 4".to_owned())
         );
-        let data = steps.last().expect("keys");
+        let data = steps.last().expect("the trace has a last step");
         assert_eq!(data.fixed, ["ContainerSetData window w#1 keys {1}"]);
     }
 
@@ -1001,7 +1001,7 @@ mod tests {
             level(30),
         ]
         .join("\n");
-        let steps = trace(&capture, &items(), &blocks()).expect("trace");
+        let steps = trace(&capture, &items(), &blocks()).expect("the capture traces into steps");
         let fixed: Vec<&[String]> = steps.iter().map(|s| s.fixed.as_slice()).collect();
         assert_eq!(
             fixed,
@@ -1032,9 +1032,9 @@ mod tests {
             r#"{"type":"packet","name":"Text","fields":{}}"#,
             r#"{"type":"packet","name":"Event","event":"EntityInteract","fields":{}}"#,
         );
-        let with = trace(&capture, &items(), &blocks()).expect("trace");
-        let without = trace(CAPTURE, &items(), &blocks()).expect("trace");
-        let give = with.first().expect("give");
+        let with = trace(&capture, &items(), &blocks()).expect("the capture traces into steps");
+        let without = trace(CAPTURE, &items(), &blocks()).expect("the capture traces into steps");
+        let give = with.first().expect("the trace has a give step");
         assert!(give.shown.contains(&"Event EntityInteract".to_owned()));
         let fixed = |steps: &[Step]| steps.iter().map(|s| s.fixed.clone()).collect::<Vec<_>>();
         assert_eq!(fixed(&with), fixed(&without));
@@ -1064,14 +1064,16 @@ mod tests {
         ]
         .join("\n");
         let fixed = |steps: &[Step]| steps.iter().map(|s| s.fixed.clone()).collect::<Vec<_>>();
-        let own = trace(&capture(""), &items(), &blocks()).expect("own");
-        let with = trace(&capture(&leftovers), &items(), &blocks()).expect("with leftovers");
+        let own = trace(&capture(""), &items(), &blocks())
+            .expect("the capture without leftovers traces into steps");
+        let with = trace(&capture(&leftovers), &items(), &blocks())
+            .expect("the capture with leftovers traces into steps");
         assert_eq!(fixed(&with), fixed(&own));
         assert_eq!(
             fixed(&own)[1],
             ["LevelEvent 2001", "block [8,-60,8] minecraft:stone[]"]
         );
-        let place = with.get(1).expect("place");
+        let place = with.get(1).expect("the trace has a place step");
         assert!(
             place.shown.contains(
                 &"UpdateBlock [-10,-60,-4] minecraft:stone[] flags 3 layer 0 (elsewhere)"
@@ -1096,11 +1098,12 @@ mod tests {
         let other = CAPTURE
             .replace("57", "91")
             .replace(r#""WindowID":9"#, r#""WindowID":3"#);
-        let a = trace(CAPTURE, &items(), &blocks()).expect("a");
-        let b = trace(&other, &items(), &blocks()).expect("b");
+        let a = trace(CAPTURE, &items(), &blocks()).expect("the capture traces into steps");
+        let b = trace(&other, &items(), &blocks()).expect("the other capture traces into steps");
         assert!(compare(&a, &b).is_empty());
         let changed = CAPTURE.replace(r#""Count":3"#, r#""Count":2"#);
-        let c = trace(&changed, &items(), &blocks()).expect("c");
+        let c =
+            trace(&changed, &items(), &blocks()).expect("the changed capture traces into steps");
         let differences = compare(&a, &c);
         assert_eq!(differences.len(), 1, "{differences:?}");
         assert!(differences.first().is_some_and(|d| d.contains("x2")));
@@ -1109,8 +1112,8 @@ mod tests {
     #[test]
     fn setup_steps_compare_their_commands_only() {
         let capture = CAPTURE.replace(r#""name":"give"}"#, r#""name":"give","setup":true}"#);
-        let steps = trace(&capture, &items(), &blocks()).expect("trace");
-        let give = steps.first().expect("give");
+        let steps = trace(&capture, &items(), &blocks()).expect("the capture traces into steps");
+        let give = steps.first().expect("the trace has a give step");
         assert_eq!(give.fixed, ["command give P6Trade oak_log 4"]);
         assert!(
             give.shown
@@ -1134,11 +1137,11 @@ mod tests {
         };
         let short: String = (0..2).map(step).collect();
         let long: String = (0..5).map(step).collect();
-        let a = trace(&short, &items(), &blocks()).expect("a");
-        let b = trace(&long, &items(), &blocks()).expect("b");
+        let a = trace(&short, &items(), &blocks()).expect("the short capture traces into steps");
+        let b = trace(&long, &items(), &blocks()).expect("the long capture traces into steps");
         assert_eq!(a.len(), 1);
         assert_eq!(
-            a.first().expect("step").fixed,
+            a.first().expect("the short trace has a step").fixed,
             [r#"ItemStackResponse request -1 status 0 [12:? x? #? durability 0 name ""]"#]
         );
         assert!(compare(&a, &b).is_empty());
@@ -1163,7 +1166,7 @@ mod tests {
         let offers: Value = serde_json::from_str(
             r#"{"compound":{"Recipes":{"list":[{"compound":{"buyA":{"compound":{"Count":{"byte":20}}},"netId":{"int":4772},"buyB":{"compound":{}}}},{"compound":{"buyA":{"compound":{"Count":{"byte":1}}},"netId":{"int":4773}}}]},"TierExpRequirements":{"list":[]}}}"#,
         )
-        .expect("json");
+        .expect("the offers are valid json");
         assert_eq!(
             offer_shape(&offers),
             r#"top ["Recipes", "TierExpRequirements"] keys of every offer {"buyA.Count:byte", "buyA:compound", "netId:int"}"#

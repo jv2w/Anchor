@@ -39,9 +39,8 @@
 //! - `p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]`:
 //!   runs the scenarios against a running server; the token flags add the online scenario.
 //! - `p6 compare A B`: compares the spawn windows of two captures, their answer SDP structures
-//!   when they have them, their full item packets (`<capture>.items.jsonl`) when both have them,
-//!   their chunk packets, and the `blocks.jsonl` captures next to them when both exist (see
-//!   `compare`).
+//!   when they have them, their full item packets (`<capture>.items.jsonl`), their chunk packets,
+//!   and the `blocks.jsonl` captures next to them when both exist (see `compare`).
 
 mod api;
 mod compare;
@@ -59,9 +58,11 @@ use serde_json::Value;
 
 use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE};
 use crate::fs::{create_dir, create_file, is_file, read_text, remove_dir, remove_file, write};
-use crate::{process, say};
+use crate::{process, say, status};
 use compare::field;
 
+/// How many base positions can wait in the channel to Anchor's steps task: the harness sends one.
+const BASE_CHANNEL_BOUND: usize = 1;
 /// The official server log line of a `setblock` that ran.
 const BLOCK_PLACED: &str = "Block placed";
 /// The steps of the blocks scenario: one block placed at (`dx`, `dy`, `dz`) from the base position
@@ -144,6 +145,8 @@ const BLOCK_STEPS: &[(i32, i32, i32, &str)] = &[
 const BLOCKS_OFFSET: i32 = 2;
 /// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
+/// How long the blocks bot may run in all, the time it stays included.
+const BLOCKS_TIMEOUT: &str = "120s";
 /// The `y` of the blocks scenario: the first air layer of the official server's default flat world (bedrock at
 /// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
 /// and fails the run.
@@ -158,6 +161,8 @@ const FALLBACK_COMPRESSION: &str = "zlib";
 /// How long a NetherNet bot waits after the data channels open before its first packet, so the
 /// capture shows whether the server sends anything unprompted.
 const FIRST_SEND_DELAY: &str = "1s";
+/// How many [`POLL`] pauses the server gets to finish the join before the first block change.
+const JOIN_PAUSES: u32 = 5;
 /// The name of the world both servers run, fixed for the comparison.
 const LEVEL_NAME: &str = "p6";
 /// The seed of the world both servers run, fixed for the comparison.
@@ -203,6 +208,13 @@ const PONG_TEXT_OFFSET: usize = 35;
 const RAKNET_MAGIC: [u8; 16] = [
     0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
 ];
+/// The ID of RakNet's unconnected ping.
+const RAKNET_PING_ID: u8 = 0x01;
+/// The ID of RakNet's unconnected pong.
+const RAKNET_PONG_ID: u8 = 0x1c;
+/// How long a connection scenario's bot run may take before the bot gives up (the game and API
+/// sessions have `game::BOT_TIMEOUT`).
+const RUN_TIMEOUT: &str = "60s";
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
@@ -227,7 +239,7 @@ const TWIN_STAY: &str = "20s";
 /// peer-reflexive candidate. An IPv6 address needs `enable-ipv6`.
 const UNREACHABLE: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
 /// The command forms, for the usage text.
-pub(crate) const USAGE: &str = "cargo xtask p6 official [zlib|snappy]... | cargo xtask p6 anchor \
+pub(super) const USAGE: &str = "cargo xtask p6 official [zlib|snappy]... | cargo xtask p6 anchor \
                                 [zlib|snappy]... | cargo xtask p6 run \
                                 --addr HOST:PORT --out DIR [--transport raknet|nethernet|auto] \
                                 [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B \
@@ -349,6 +361,14 @@ struct Outcome {
 }
 
 impl Outcome {
+    /// The outcome of a finished bot: it passed when its exit code is 0.
+    fn from_output(output: &std::process::Output) -> Self {
+        Self {
+            passed: output.status.success(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    }
+
     /// The bot's failure message, or nothing when it passed.
     fn failure(&self) -> String {
         if self.passed {
@@ -496,7 +516,7 @@ impl Official {
 }
 
 /// Runs `cargo xtask p6 <args>`.
-pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+pub(super) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     match args {
         ["official", rest @ ..] => official(root, rest, out),
         ["import"] => import::command(root, out),
@@ -545,24 +565,24 @@ fn say_missing_capture(
         return Ok(false);
     };
     say(
-        out,
         &format!("DIFFERENT {scenario}: no capture in {}", dir.display()),
+        out,
     )?;
     Ok(true)
 }
 
 /// Writes the report `compare` makes under `title` to `<dir>/compare.txt` and `out`, and returns
 /// whether the captures are the same. An error of the comparison is a difference in the report.
-fn report_comparison<W: Write>(
+fn report_comparison(
     dir: &Path,
     title: &str,
-    out: &mut W,
     compare: impl FnOnce(&mut Vec<u8>) -> Result<bool, String>,
+    out: &mut impl Write,
 ) -> Result<bool, String> {
     let mut report = Vec::new();
-    say(&mut report, title)?;
+    say(title, &mut report)?;
     let same = compare(&mut report).or_else(|e| {
-        say(&mut report, &format!("DIFFERENT: {e}"))?;
+        say(&format!("DIFFERENT: {e}"), &mut report)?;
         Ok::<_, String>(false)
     })?;
     write(&dir.join("compare.txt"), &report)?;
@@ -578,9 +598,68 @@ fn report_written(
     out: &mut impl Write,
 ) -> Result<bool, String> {
     written.map(|()| true).or_else(|e| {
-        say(out, &format!("FAIL {scenario} report: {e}"))?;
+        say(&format!("FAIL {scenario} report: {e}"), out)?;
         Ok(false)
     })
+}
+
+/// `p6 official`: runs the scenarios against the official server once per compression and transport.
+fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
+    let compressions = compressions(args)?;
+    let exe = official_exe(root)?;
+    let bot = build_bot(root)?;
+    let deferred = load_deferred(root)?;
+    let states = block_states(root)?;
+    let dir = |name: &str| root.join(OUT_DIR).join(name);
+    let mut passed = true;
+    for (i, compression) in compressions.iter().enumerate() {
+        let once = i == 0;
+        let raknet = dir(&format!("official-{compression}"));
+        passed &= official_session(
+            &exe,
+            &raknet,
+            "raknet",
+            compression,
+            |addr, server, out| {
+                let mut ok = run_scenarios(&bot, addr, addr, &raknet, "raknet", None, out)?;
+                report_window(&raknet.join("spawn.jsonl"), &deferred, out)?;
+                ok &= worlddata(root, &bot, &raknet, out)?;
+                // The fallback capture is compared with Anchor's, so it runs before the blocks
+                // scenario changes the world.
+                if *compression == FALLBACK_COMPRESSION {
+                    wait_until_empty(addr)?;
+                    ok &= fallback(&bot, addr, addr, &dir("official-fallback"), out)?;
+                }
+                ok &= blocks(&bot, addr, Placer::Official(server), &raknet, &states, out)?;
+                Ok(ok)
+            },
+            out,
+        )?;
+        let nethernet = dir(&format!("official-nethernet-{compression}"));
+        passed &= official_session(
+            &exe,
+            &nethernet,
+            "nethernet",
+            compression,
+            |addr, _, out| {
+                let mut ok = run_scenarios(&bot, addr, addr, &nethernet, "nethernet", None, out)?;
+                report_window(&nethernet.join("spawn.jsonl"), &deferred, out)?;
+                ok &= worlddata(root, &bot, &nethernet, out)?;
+                report_nethernet(&nethernet.join("spawn.jsonl"), out)?;
+                record_segment_size(&bot, addr, &nethernet, SMALL_SEGMENT, out)?;
+                if once {
+                    record_bind_mismatch(&bot, addr, &dir("official-bind-mismatch"), out)?;
+                    ok &= duplicate_login(&bot, addr, &dir("official-duplicate"), out)?;
+                }
+                Ok(ok)
+            },
+            out,
+        )?;
+    }
+    passed &= game::session(root, &exe, &bot, &game::SCENARIOS, out)?;
+    passed &= api::session(root, &exe, &bot, &api::SCENARIOS, out)?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
+    Ok(passed)
 }
 
 /// The official server executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
@@ -597,6 +676,108 @@ fn official_exe(root: &Path) -> Result<PathBuf, String> {
         "{} is missing: copy the official server {version} for this OS into {OFFICIAL_DIR} (never run the original)",
         exe.display()
     ))
+}
+
+/// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
+/// reference list source B's data with the bot (`bot worlddata`) and prints the result. Any
+/// difference, or either packet missing, fails, on the official server's captures and on Anchor's
+/// alike.
+fn worlddata(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let output = Command::new(bot)
+        .arg("worlddata")
+        .arg("-world")
+        .arg(dir.join("spawn.world.jsonl"))
+        .arg("-data")
+        .arg(root.join(REFERENCE_SOURCE.0))
+        .output()
+        .map_err(|e| format!("cannot run the bot: {e}"))?;
+    let same = match output.status.code() {
+        Some(0) => true,
+        Some(1) => false,
+        _ => {
+            return Err(format!(
+                "bot worlddata failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+    };
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        say(&format!("source B check: {line}"), out)?;
+    }
+    Ok(same)
+}
+
+/// Starts the official server with the test settings, the transport and the compression, calls `run` with its
+/// address and the process (for console commands) and stops it. The official server log goes to
+/// `<out_dir>/official.log`.
+fn official_session<W: Write>(
+    exe: &Path,
+    out_dir: &Path,
+    transport: &str,
+    compression: &str,
+    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
+    out: &mut W,
+) -> Result<bool, String> {
+    let session = OfficialSession {
+        transport,
+        compression,
+        settings: &[],
+    };
+    official_session_with(exe, out_dir, &session, |_| Ok(()), run, out)
+}
+
+/// [`official_session`] with more settings, and `prepare` called with the copy's folder once its
+/// `worlds` folder is gone, before the official server starts (to install a pack into the new world).
+fn official_session_with<W: Write>(
+    exe: &Path,
+    out_dir: &Path,
+    session: &OfficialSession<'_>,
+    prepare: impl FnOnce(&Path) -> Result<(), String>,
+    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
+    out: &mut W,
+) -> Result<bool, String> {
+    let OfficialSession {
+        transport,
+        compression,
+        settings: extra,
+    } = *session;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| format!("{} has no parent", exe.display()))?;
+    create_dir(out_dir)?;
+    let (port, port_v6) = free_ports()?;
+    let (port_text, port_v6_text) = (port.to_string(), port_v6.to_string());
+    let seed_text = LEVEL_SEED.to_string();
+    let defaults = default_settings();
+    let mut settings = OFFICIAL_SETTINGS.to_vec();
+    settings.extend(defaults.iter().map(|(key, value)| (*key, value.as_str())));
+    settings.extend([
+        ("level-seed", seed_text.as_str()),
+        ("transport", transport),
+        ("server-port", port_text.as_str()),
+        ("server-portv6", port_v6_text.as_str()),
+        ("compression-algorithm", compression),
+    ]);
+    settings.extend_from_slice(extra);
+    set_properties(&dir.join("server.properties"), &settings)?;
+    remove_dir(&dir.join("worlds"))?;
+    prepare(dir)?;
+    say(
+        &format!(
+            "{}: starting the official server ({transport}, {compression}) on port {port}",
+            name(out_dir)
+        ),
+        out,
+    )?;
+    let mut server = Official::start(exe, dir, &out_dir.join("official.log"))?;
+    let result = server
+        .wait_started()
+        .and_then(|()| run(&format!("127.0.0.1:{port}"), &mut server, out));
+    let stopped = server.stop();
+    let passed = result?;
+    stopped?;
+    Ok(passed)
 }
 
 /// The `server.properties` lines whose values are Anchor's defaults, taken from them.
@@ -626,167 +807,6 @@ fn default_settings() -> [(&'static str, String); 5] {
     ]
 }
 
-/// `p6 official`: runs the scenarios against the official server once per compression and transport.
-fn official(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
-    let compressions = compressions(args)?;
-    let exe = official_exe(root)?;
-    let bot = build_bot(root)?;
-    let deferred = load_deferred(root)?;
-    let states = block_states(root)?;
-    let dir = |name: &str| root.join(OUT_DIR).join(name);
-    let mut passed = true;
-    for (i, compression) in compressions.iter().enumerate() {
-        let once = i == 0;
-        let raknet = dir(&format!("official-{compression}"));
-        passed &= official_session(
-            &exe,
-            &raknet,
-            "raknet",
-            compression,
-            out,
-            |addr, server, out| {
-                let mut ok = run_scenarios(&bot, addr, addr, &raknet, "raknet", None, out)?;
-                report_window(&raknet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= worlddata(root, &bot, &raknet, out)?;
-                // The fallback capture is compared with Anchor's, so it runs before the blocks
-                // scenario changes the world.
-                if *compression == FALLBACK_COMPRESSION {
-                    wait_until_empty(addr)?;
-                    ok &= fallback(&bot, addr, addr, &dir("official-fallback"), out)?;
-                }
-                ok &= blocks(&bot, addr, Placer::Official(server), &raknet, &states, out)?;
-                Ok(ok)
-            },
-        )?;
-        let nethernet = dir(&format!("official-nethernet-{compression}"));
-        passed &= official_session(
-            &exe,
-            &nethernet,
-            "nethernet",
-            compression,
-            out,
-            |addr, _, out| {
-                let mut ok = run_scenarios(&bot, addr, addr, &nethernet, "nethernet", None, out)?;
-                report_window(&nethernet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= worlddata(root, &bot, &nethernet, out)?;
-                report_nethernet(&nethernet.join("spawn.jsonl"), out)?;
-                record_segment_size(&bot, addr, &nethernet, SMALL_SEGMENT, out)?;
-                if once {
-                    record_bind_mismatch(&bot, addr, &dir("official-bind-mismatch"), out)?;
-                    ok &= duplicate_login(&bot, addr, &dir("official-duplicate"), out)?;
-                }
-                Ok(ok)
-            },
-        )?;
-    }
-    passed &= game::session(root, &exe, &bot, &game::SCENARIOS, out)?;
-    passed &= api::session(root, &exe, &bot, &api::SCENARIOS, out)?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
-    Ok(passed)
-}
-
-/// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
-/// reference list source B's data with the bot (`bot worlddata`) and prints the result. Any
-/// difference, or either packet missing, fails, on the official server's captures and on Anchor's
-/// alike.
-fn worlddata(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
-    let output = Command::new(bot)
-        .arg("worlddata")
-        .arg("-world")
-        .arg(dir.join("spawn.world.jsonl"))
-        .arg("-data")
-        .arg(root.join(REFERENCE_SOURCE.0))
-        .output()
-        .map_err(|e| format!("cannot run the bot: {e}"))?;
-    let same = match output.status.code() {
-        Some(0) => true,
-        Some(1) => false,
-        _ => {
-            return Err(format!(
-                "bot worlddata failed ({}): {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-    };
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        say(out, &format!("source B check: {line}"))?;
-    }
-    Ok(same)
-}
-
-/// Starts the official server with the test settings, the transport and the compression, calls `run` with its
-/// address and the process (for console commands) and stops it. The official server log goes to
-/// `<out_dir>/official.log`.
-fn official_session<W: Write>(
-    exe: &Path,
-    out_dir: &Path,
-    transport: &str,
-    compression: &str,
-    out: &mut W,
-    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
-) -> Result<bool, String> {
-    let session = OfficialSession {
-        transport,
-        compression,
-        settings: &[],
-    };
-    official_session_with(exe, out_dir, &session, |_| Ok(()), out, run)
-}
-
-/// [`official_session`] with more settings, and `prepare` called with the copy's folder once its
-/// `worlds` folder is gone, before the official server starts (to install a pack into the new world).
-fn official_session_with<W: Write>(
-    exe: &Path,
-    out_dir: &Path,
-    session: &OfficialSession<'_>,
-    prepare: impl FnOnce(&Path) -> Result<(), String>,
-    out: &mut W,
-    run: impl FnOnce(&str, &mut Official, &mut W) -> Result<bool, String>,
-) -> Result<bool, String> {
-    let OfficialSession {
-        transport,
-        compression,
-        settings: extra,
-    } = *session;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| format!("{} has no parent", exe.display()))?;
-    create_dir(out_dir)?;
-    let (port, port_v6) = free_ports()?;
-    let (port_text, port_v6_text) = (port.to_string(), port_v6.to_string());
-    let seed_text = LEVEL_SEED.to_string();
-    let defaults = default_settings();
-    let mut settings = OFFICIAL_SETTINGS.to_vec();
-    settings.extend(defaults.iter().map(|(key, value)| (*key, value.as_str())));
-    settings.extend([
-        ("level-seed", seed_text.as_str()),
-        ("transport", transport),
-        ("server-port", port_text.as_str()),
-        ("server-portv6", port_v6_text.as_str()),
-        ("compression-algorithm", compression),
-    ]);
-    settings.extend_from_slice(extra);
-    set_properties(&dir.join("server.properties"), &settings)?;
-    remove_dir(&dir.join("worlds"))?;
-    prepare(dir)?;
-    say(
-        out,
-        &format!(
-            "{}: starting the official server ({transport}, {compression}) on port {port}",
-            name(out_dir)
-        ),
-    )?;
-    let mut server = Official::start(exe, dir, &out_dir.join("official.log"))?;
-    let result = server
-        .wait_started()
-        .and_then(|()| run(&format!("127.0.0.1:{port}"), &mut server, out));
-    let stopped = server.stop();
-    let passed = result?;
-    stopped?;
-    Ok(passed)
-}
-
 /// `p6 anchor`: runs the scenarios against Anchor, started in this process with the settings
 /// `p6 official` gives the official server, and compares each capture with the official server capture of the same run.
 fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
@@ -802,7 +822,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             ("nethernet", format!("nethernet-{compression}")),
         ] {
             let out_dir = dir(&format!("anchor-{name}"));
-            let (bases, base) = channel();
+            let (bases, base) = channel(BASE_CHANNEL_BOUND);
             let steps = anchor_steps(base)?;
             let with_steps = |b: anchor::ServerBuilder| b.every(STEP_TICKS, steps);
             passed &= anchor_session(
@@ -810,7 +830,6 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
                 compression,
                 |_| {},
                 with_steps,
-                out,
                 |addr, signaling, out| {
                     let mut ok =
                         run_scenarios(&bot, addr, signaling, &out_dir, transport, None, out)?;
@@ -824,6 +843,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
                         compare_with_official(root, &format!("official-{name}"), &out_dir, out)?;
                     Ok(ok && same)
                 },
+                out,
             )?;
         }
     }
@@ -836,16 +856,16 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             c.general.public_ip = Some(UNREACHABLE);
         },
         |b| b,
-        out,
         |addr, signaling, out| {
             let ok = fallback(&bot, addr, signaling, &out_dir, out)?;
             let same = compare_with_official(root, "official-fallback", &out_dir, out)?;
             Ok(ok && same)
         },
+        out,
     )?;
     passed &= game::anchor_session(root, &bot, &game::SCENARIOS, out)?;
     passed &= api::anchor_session(root, &bot, &api::SCENARIOS, out)?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
     Ok(passed)
 }
 
@@ -857,8 +877,8 @@ fn anchor_session<W: Write>(
     compression: &str,
     settings: impl FnOnce(&mut anchor::Config),
     setup: impl FnOnce(anchor::ServerBuilder) -> anchor::ServerBuilder,
-    out: &mut W,
     run: impl FnOnce(&str, &str, &mut W) -> Result<bool, String>,
+    out: &mut W,
 ) -> Result<bool, String> {
     let data_dir = out_dir.join("data");
     remove_dir(&data_dir)?;
@@ -872,8 +892,8 @@ fn anchor_session<W: Write>(
     };
     settings(&mut config);
     say(
-        out,
         &format!("{}: starting Anchor ({compression})", name(out_dir)),
+        out,
     )?;
     let server = setup(anchor::Server::builder().config(config).data_dir(&data_dir))
         .without_console_log()
@@ -881,13 +901,13 @@ fn anchor_session<W: Write>(
         .map_err(|e| format!("build Anchor: {e}"))?;
     run_anchor(server, |ports| {
         say(
-            out,
             &format!(
                 "{}: Anchor on port {}, NetherNet signaling TCP {}",
                 name(out_dir),
                 ports.raknet,
                 ports.signaling
             ),
+            out,
         )?;
         let (addr, signaling) = (
             format!("127.0.0.1:{}", ports.raknet),
@@ -980,57 +1000,14 @@ fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The channel that hands Anchor's steps task the base position.
+/// A bounded channel between the harness and a task of the Anchor server it runs: the steps task
+/// gets its base position, the console task its commands and returns its reports and answers.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the harness hands the task the base position through a channel"
+    reason = "off-tick: the harness hands the tasks of its server their input and takes their reports through channels"
 )]
-fn channel() -> (
-    std::sync::mpsc::SyncSender<[i32; 3]>,
-    std::sync::mpsc::Receiver<[i32; 3]>,
-) {
-    std::sync::mpsc::sync_channel(1)
-}
-
-/// The block state a step names: `name` or `name ["key"=value,...]` (the official server `setblock` syntax), with
-/// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
-/// default state (connection properties are worked out by `set_block` anyway).
-fn step_state(block: &str) -> Result<anchor::block::State, String> {
-    use anchor::block::PropertyValue;
-    let (name, properties) = match block.split_once(' ') {
-        Some((name, rest)) => (name, rest.trim()),
-        None => (block, ""),
-    };
-    let name = format!("minecraft:{name}");
-    let mut wanted = Vec::new();
-    let inner = properties.trim_start_matches('[').trim_end_matches(']');
-    for pair in inner.split(',').filter(|p| !p.trim().is_empty()) {
-        let (key, value) = pair
-            .split_once('=')
-            .ok_or_else(|| format!("bad property {pair:?} in {block:?}"))?;
-        let key = key.trim().trim_matches('"').to_owned();
-        let value = value.trim();
-        wanted.push((
-            key,
-            value.trim_matches('"').to_owned(),
-            value.starts_with('"'),
-        ));
-    }
-    anchor::block::State::all()
-        .find(|s| {
-            s.name() == name
-                && wanted.iter().all(|(key, value, text)| {
-                    s.properties().any(|p| {
-                        p.name() == key
-                            && match p.value() {
-                                PropertyValue::String(v) => *text && v == value,
-                                PropertyValue::Int(v) => !*text && v.to_string() == *value,
-                                PropertyValue::Byte(v) => !*text && v.to_string() == *value,
-                            }
-                    })
-                })
-        })
-        .ok_or_else(|| format!("no state of Anchor's table matches {block:?}"))
+fn channel<T>(bound: usize) -> (std::sync::mpsc::SyncSender<T>, std::sync::mpsc::Receiver<T>) {
+    std::sync::mpsc::sync_channel(bound)
 }
 
 /// Anchor's side of the blocks scenario: a task for `ServerBuilder::every(STEP_TICKS, ..)` that
@@ -1090,6 +1067,47 @@ fn anchor_steps(
     Ok(task)
 }
 
+/// The block state a step names: `name` or `name ["key"=value,...]` (the official server `setblock` syntax), with
+/// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
+/// default state (connection properties are worked out by `set_block` anyway).
+fn step_state(block: &str) -> Result<anchor::block::State, String> {
+    use anchor::block::PropertyValue;
+    let (name, properties) = match block.split_once(' ') {
+        Some((name, rest)) => (name, rest.trim()),
+        None => (block, ""),
+    };
+    let name = format!("minecraft:{name}");
+    let mut wanted = Vec::new();
+    let inner = properties.trim_start_matches('[').trim_end_matches(']');
+    for pair in inner.split(',').filter(|p| !p.trim().is_empty()) {
+        let (key, value) = pair
+            .split_once('=')
+            .ok_or_else(|| format!("bad property {pair:?} in {block:?}"))?;
+        let key = key.trim().trim_matches('"').to_owned();
+        let value = value.trim();
+        wanted.push((
+            key,
+            value.trim_matches('"').to_owned(),
+            value.starts_with('"'),
+        ));
+    }
+    anchor::block::State::all()
+        .find(|s| {
+            s.name() == name
+                && wanted.iter().all(|(key, value, text)| {
+                    s.properties().any(|p| {
+                        p.name() == key
+                            && match p.value() {
+                                PropertyValue::String(v) => *text && v == value,
+                                PropertyValue::Int(v) => !*text && v.to_string() == *value,
+                                PropertyValue::Byte(v) => !*text && v.to_string() == *value,
+                            }
+                    })
+                })
+        })
+        .ok_or_else(|| format!("no state of Anchor's table matches {block:?}"))
+}
+
 /// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, changes each block of
 /// `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places
 /// the end marker: on the official server with console commands, each sent once the official
@@ -1111,7 +1129,7 @@ fn blocks(
     remove_file(&capture)?;
     let mut child = Command::new(bot)
         .args(["-addr", addr, "-transport", "raknet", "-scenario", "blocks"])
-        .args(["-stay", BLOCKS_STAY, "-timeout", "120s", "-out"])
+        .args(["-stay", BLOCKS_STAY, "-timeout", BLOCKS_TIMEOUT, "-out"])
         .arg(&capture)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -1120,7 +1138,7 @@ fn blocks(
     let placed = wait_for_spawn(&mut child, &capture).and_then(|()| {
         let base = blocks_base(&read_text(&capture)?)?;
         // Give the server a moment to finish the join before the first change.
-        for _ in 0..5 {
+        for _ in 0..JOIN_PAUSES {
             pause();
         }
         let server = match changer {
@@ -1160,64 +1178,16 @@ fn blocks(
         .wait_with_output()
         .map_err(|e| format!("wait for the bot: {e}"))?;
     placed?;
-    let passed = output.status.success();
-    let failure = if passed {
-        String::new()
-    } else {
-        format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
-    };
+    let outcome = Outcome::from_output(&output);
     let (report, complete) = blocks_report(&read_text(&capture)?, states)?;
     let text = format!(
-        "{} raknet blocks{failure}\n{report}",
-        if passed { "ok  " } else { "FAIL" }
+        "{} raknet blocks{}\n{report}",
+        status(outcome.passed),
+        outcome.failure()
     );
     write(&dir.join("blocks.txt"), format!("{text}\n").as_bytes())?;
-    say(out, &text)?;
-    Ok(passed && complete)
-}
-
-/// The base position of the blocks scenario in a capture: `BLOCKS_OFFSET` from the spawn column
-/// at `BLOCKS_Y`.
-fn blocks_base(capture: &str) -> Result<[i32; 3], String> {
-    let [x, z] = spawn_column(capture)?;
-    Ok([x + BLOCKS_OFFSET, BLOCKS_Y, z + BLOCKS_OFFSET])
-}
-
-/// The marker of the blocks scenario with the reference list's state names.
-fn markers() -> compare::Markers {
-    let state = |name: &str| state_text(&format!("minecraft:{name}"), "");
-    let mut near = std::collections::BTreeSet::new();
-    for (dx, dy, dz, _) in BLOCK_STEPS {
-        for (x, z) in [-1, 0, 1]
-            .into_iter()
-            .flat_map(|x| [-1, 0, 1].map(|z| (x, z)))
-        {
-            near.insert([dx + x, *dy, dz + z].map(i64::from));
-        }
-    }
-    compare::Markers {
-        position: [i64::from(MARKER.0), 0, i64::from(MARKER.1)],
-        steps: STEP_MARKERS.map(state),
-        end: state(END_MARKER),
-        near,
-    }
-}
-
-/// The label of each step: `setblock (dx,dy,dz) <block>`.
-fn step_labels() -> Vec<String> {
-    BLOCK_STEPS
-        .iter()
-        .map(|(dx, dy, dz, block)| format!("setblock ({dx},{dy},{dz}) {block}"))
-        .collect()
-}
-
-/// The steps of a blocks capture, relative to its base position.
-fn capture_steps(
-    capture: &str,
-    states: &BTreeMap<u32, String>,
-) -> Result<(Vec<compare::Step>, bool), String> {
-    let base = blocks_base(capture)?.map(i64::from);
-    compare::block_steps(capture, base, &markers(), states)
+    say(&text, out)?;
+    Ok(outcome.passed && complete)
 }
 
 /// The block changes of each step of a blocks capture as text, and whether the capture is complete:
@@ -1281,30 +1251,74 @@ fn compare_blocks(
         }
     }
     for note in &notes {
-        say(out, &format!("note: {note}"))?;
+        say(&format!("note: {note}"), out)?;
     }
     for (name, steps) in [("A", &steps_a), ("B", &steps_b)] {
         let ignored: usize = steps.iter().map(|s| s.ignored.len()).sum();
         if ignored > 0 {
             say(
-                out,
                 &format!("note: blocks: {name} changed {ignored} blocks away from the steps"),
+                out,
             )?;
         }
     }
     for difference in &differences {
-        say(out, difference)?;
+        say(difference, out)?;
     }
     let same = differences.is_empty();
     say(
-        out,
         if same {
             "blocks SAME"
         } else {
             "blocks DIFFERENT"
         },
+        out,
     )?;
     Ok(same)
+}
+
+/// The steps of a blocks capture, relative to its base position.
+fn capture_steps(
+    capture: &str,
+    states: &BTreeMap<u32, String>,
+) -> Result<(Vec<compare::Step>, bool), String> {
+    let base = blocks_base(capture)?.map(i64::from);
+    compare::block_steps(capture, base, &markers(), states)
+}
+
+/// The marker of the blocks scenario with the reference list's state names.
+fn markers() -> compare::Markers {
+    let state = |name: &str| state_text(&format!("minecraft:{name}"), "");
+    let mut near = std::collections::BTreeSet::new();
+    for (dx, dy, dz, _) in BLOCK_STEPS {
+        for (x, z) in [-1, 0, 1]
+            .into_iter()
+            .flat_map(|x| [-1, 0, 1].map(|z| (x, z)))
+        {
+            near.insert([dx + x, *dy, dz + z].map(i64::from));
+        }
+    }
+    compare::Markers {
+        position: [i64::from(MARKER.0), 0, i64::from(MARKER.1)],
+        steps: STEP_MARKERS.map(state),
+        end: state(END_MARKER),
+        near,
+    }
+}
+
+/// The label of each step: `setblock (dx,dy,dz) <block>`.
+fn step_labels() -> Vec<String> {
+    BLOCK_STEPS
+        .iter()
+        .map(|(dx, dy, dz, block)| format!("setblock ({dx},{dy},{dz}) {block}"))
+        .collect()
+}
+
+/// The base position of the blocks scenario in a capture: `BLOCKS_OFFSET` from the spawn column
+/// at `BLOCKS_Y`.
+fn blocks_base(capture: &str) -> Result<[i32; 3], String> {
+    let [x, z] = spawn_column(capture)?;
+    Ok([x + BLOCKS_OFFSET, BLOCKS_Y, z + BLOCKS_OFFSET])
 }
 
 /// The block column (`x`, `z`) of the player's position in the capture's `StartGame`.
@@ -1364,18 +1378,18 @@ fn compare_with_official(
     let official = root.join(OUT_DIR).join(official_name).join("spawn.jsonl");
     if !is_file(&official) {
         say(
-            out,
             &format!(
                 "no official server capture at {}; run `p6 official` first",
                 official.display()
             ),
+            out,
         )?;
         return Ok(false);
     }
-    say(out, &format!("compare {official_name} {}:", name(out_dir)))?;
+    say(&format!("compare {official_name} {}:", name(out_dir)), out)?;
     // A capture without a spawn window fails the comparison; the other runs still go on.
     compare_files(root, &official, &out_dir.join("spawn.jsonl"), out).or_else(|e| {
-        say(out, &format!("DIFFERENT: {e}"))?;
+        say(&format!("DIFFERENT: {e}"), out)?;
         Ok(false)
     })
 }
@@ -1425,13 +1439,13 @@ fn fallback(
     let transport = field(&result, "transport").as_str().unwrap_or_default();
     let ok = outcome.passed && transport == "raknet";
     say(
-        out,
         &format!(
             "{} auto fallback: transport {transport:?}, NetherNet error {}{}",
-            if ok { "ok  " } else { "FAIL" },
+            status(ok),
             field(&result, "nethernet_error"),
             outcome.failure()
         ),
+        out,
     )?;
     Ok(ok)
 }
@@ -1457,7 +1471,6 @@ fn record_bind_mismatch(
     let outcome = run_bot(bot, &args, &capture)?;
     let result = compare::result(&read_text(&capture)?)?;
     say(
-        out,
         &format!(
             "note bind-mismatch (recorded): {}: {}",
             if outcome.passed {
@@ -1467,6 +1480,7 @@ fn record_bind_mismatch(
             },
             field(&result, "reason")
         ),
+        out,
     )
 }
 
@@ -1492,7 +1506,15 @@ fn duplicate_login(
             "-scenario",
             "kicked",
         ])
-        .args(["-name", TWIN, "-stay", TWIN_STAY, "-timeout", "60s", "-out"])
+        .args([
+            "-name",
+            TWIN,
+            "-stay",
+            TWIN_STAY,
+            "-timeout",
+            RUN_TIMEOUT,
+            "-out",
+        ])
         .arg(&first_capture)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1525,19 +1547,18 @@ fn duplicate_login(
     let players = compare::added_players(&first_text)?;
     if first_status.success() {
         say(
-            out,
             &format!(
                 "{} duplicate login: the first player was kicked ({}, {}){}",
-                if second.passed { "ok  " } else { "FAIL" },
+                status(second.passed),
                 field(&first_result, "disconnect_reason"),
                 field(&first_result, "disconnect_message"),
                 second.failure()
             ),
+            out,
         )?;
         return Ok(second.passed);
     }
     say(
-        out,
         &format!(
             "note duplicate login (recorded, not a kick): first player: {}; second \
              spawned: {}; players the first saw added: {}",
@@ -1545,6 +1566,7 @@ fn duplicate_login(
             second.passed,
             players.join(", ")
         ),
+        out,
     )?;
     Ok(true)
 }
@@ -1574,23 +1596,23 @@ fn report_nethernet(capture: &Path, out: &mut impl Write) -> Result<(), String> 
     };
     let result = compare::result(&text)?;
     say(
-        out,
         &format!(
             "/v1/join ({}): {}",
             field(&result, "join_scheme"),
             field(&result, "join")
         ),
+        out,
     )?;
     if let Some(structure) = compare::answer_structure(&text)? {
-        say(out, &format!("answer SDP lines: {}", structure.join(" ")))?;
+        say(&format!("answer SDP lines: {}", structure.join(" ")), out)?;
     }
     say(
-        out,
         &format!(
             "ServerToClientHandshake: {}, encrypted: {}",
             field(&result, "handshake"),
             field(&result, "encrypted")
         ),
+        out,
     )
 }
 
@@ -1625,7 +1647,7 @@ fn wait_for_pong_where(port: u16, accept: impl Fn(&str) -> bool, what: &str) -> 
     socket
         .set_read_timeout(Some(POLL))
         .map_err(|e| e.to_string())?;
-    let mut ping = vec![0x01];
+    let mut ping = vec![RAKNET_PING_ID];
     ping.extend_from_slice(&0_i64.to_be_bytes());
     ping.extend_from_slice(&RAKNET_MAGIC);
     ping.extend_from_slice(&1_i64.to_be_bytes());
@@ -1636,7 +1658,7 @@ fn wait_for_pong_where(port: u16, accept: impl Fn(&str) -> bool, what: &str) -> 
             .send_to(&ping, ("127.0.0.1", port))
             .map_err(|e| e.to_string())?;
         if let Ok((n, _)) = socket.recv_from(&mut buf)
-            && buf.get(..n).and_then(|b| b.first()) == Some(&0x1c)
+            && buf.get(..n).and_then(|b| b.first()) == Some(&RAKNET_PONG_ID)
             && accept(&String::from_utf8_lossy(
                 buf.get(PONG_TEXT_OFFSET..n).unwrap_or_default(),
             ))
@@ -1694,14 +1716,14 @@ fn run(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
     let bot = build_bot(root)?;
     let passed = run_scenarios(&bot, addr, addr, &out_dir, transport, online, out)?;
     report_window(&out_dir.join("spawn.jsonl"), &load_deferred(root)?, out)?;
-    say(out, if passed { "PASS" } else { "FAIL" })?;
+    say(if passed { "PASS" } else { "FAIL" }, out)?;
     Ok(passed)
 }
 
 /// `p6 compare`: compares the spawn windows of two captures, their answer SDP structures when
-/// either has one, their full item packets when both have them, their chunk packets (only shown
-/// while the deferral table holds one of `compare::CHUNK_PACKETS`) and the blocks captures next
-/// to them when both exist; prints the notes.
+/// either has one, their full item packets, their chunk packets (only shown while the deferral
+/// table holds one of `compare::CHUNK_PACKETS`) and the blocks captures next to them when both
+/// exist; prints the notes.
 fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Result<bool, String> {
     let deferred = load_deferred(root)?;
     let fields = compare::parse_fields(&read_text(&root.join(compare::FIELDS_PATH))?, &deferred)?;
@@ -1723,18 +1745,15 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
         (None, None) => {}
         _ => differences.push("only one capture has an answer SDP".to_owned()),
     }
-    // The full item packets; a capture without them (an older bot) skips these checks.
-    let (items_a, items_b) = (items_path(a), items_path(b));
-    if is_file(&items_a) && is_file(&items_b) {
-        let items = |path: &Path| {
-            compare::parse_items(&read_text(path)?).map_err(|e| format!("{}: {e}", path.display()))
-        };
-        let (item_differences, notes) =
-            compare::compare_items(&items(&items_a)?, &items(&items_b)?);
-        differences.extend(item_differences);
-        for note in &notes {
-            say(out, &format!("note: {note}"))?;
-        }
+    // The full item packets.
+    let items = |capture: &Path| {
+        let path = items_path(capture);
+        compare::parse_items(&read_text(&path)?).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let (item_differences, notes) = compare::compare_items(&items(a)?, &items(b)?);
+    differences.extend(item_differences);
+    for note in &notes {
+        say(&format!("note: {note}"), out)?;
     }
     // The chunk packets of the whole captures; while the deferral table holds them, their
     // differences are only shown.
@@ -1744,20 +1763,20 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
     let (chunk_differences, chunk_notes) =
         compare::compare_chunks(&chunks(a, &text_a)?, &chunks(b, &text_b)?);
     for note in &chunk_notes {
-        say(out, &format!("note: {note}"))?;
+        say(&format!("note: {note}"), out)?;
     }
     if compare::CHUNK_PACKETS.iter().any(|p| deferred.contains(p)) {
         for difference in &chunk_differences {
-            say(out, &format!("deferred chunk difference: {difference}"))?;
+            say(&format!("deferred chunk difference: {difference}"), out)?;
         }
     } else {
         differences.extend(chunk_differences);
     }
     for difference in &differences {
-        say(out, difference)?;
+        say(difference, out)?;
     }
     let mut same = differences.is_empty();
-    say(out, if same { "SAME" } else { "DIFFERENT" })?;
+    say(if same { "SAME" } else { "DIFFERENT" }, out)?;
     // The blocks captures next to both spawn captures (`p6 official` writes them for RakNet runs).
     let (blocks_a, blocks_b) = (
         a.with_file_name("blocks.jsonl"),
@@ -1783,7 +1802,7 @@ fn load_deferred(root: &Path) -> Result<compare::Deferred, String> {
 /// that failed early leaves no capture, and its failure is reported by the run.
 fn readable_capture(capture: &Path, out: &mut impl Write) -> Result<Option<String>, String> {
     read_text(capture).map(Some).or_else(|e| {
-        say(out, &format!("no capture to report: {e}"))?;
+        say(&format!("no capture to report: {e}"), out)?;
         Ok(None)
     })
 }
@@ -1801,17 +1820,17 @@ fn report_window(
         Ok(window) => window,
         Err(e) => {
             return say(
-                out,
                 &format!("no spawn window in {}: {e}", capture.display()),
+                out,
             );
         }
     };
     say(
-        out,
         &format!(
             "spawn window without deferred packets: {}",
             compare::sequence(&window, deferred).join(", ")
         ),
+        out,
     )
 }
 
@@ -1826,17 +1845,17 @@ fn build_bot(root: &Path) -> Result<PathBuf, String> {
 fn run_bot(bot: &Path, args: &[&str], capture: &Path) -> Result<Outcome, String> {
     let output = Command::new(bot)
         .args(args)
-        .args(["-timeout", "60s", "-out"])
+        .args(["-timeout", RUN_TIMEOUT, "-out"])
         .arg(capture)
         .output()
         .map_err(|e| format!("cannot run the bot: {e}"))?;
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let outcome = Outcome::from_output(&output);
     match output.status.code() {
-        Some(0 | 1) => Ok(Outcome {
-            passed: output.status.success(),
-            stderr,
-        }),
-        _ => Err(format!("the bot failed ({}): {stderr}", output.status)),
+        Some(0 | 1) => Ok(outcome),
+        _ => Err(format!(
+            "the bot failed ({}): {}",
+            output.status, outcome.stderr
+        )),
     }
 }
 
@@ -1873,10 +1892,13 @@ fn run_scenarios(
         }
         let outcome = run_bot(bot, &args, &capture)?;
         passed &= outcome.passed;
-        let status = if outcome.passed { "ok  " } else { "FAIL" };
         say(
+            &format!(
+                "{} {transport} {scenario}{}",
+                status(outcome.passed),
+                outcome.failure()
+            ),
             out,
-            &format!("{status} {transport} {scenario}{}", outcome.failure()),
         )?;
         if transport == "nethernet" {
             report_segments(&capture, out)?;
@@ -1910,7 +1932,6 @@ fn record_segment_size(
     ];
     let outcome = run_bot(bot, &args, &capture)?;
     say(
-        out,
         &format!(
             "note big-skin with sent segments of {size} (recorded): {}{}",
             if outcome.passed {
@@ -1920,6 +1941,7 @@ fn record_segment_size(
             },
             outcome.failure()
         ),
+        out,
     )?;
     report_segments(&capture, out)
 }
@@ -1934,7 +1956,6 @@ fn report_segments(capture: &Path, out: &mut impl Write) -> Result<(), String> {
     let result = compare::result(&text)?;
     let f = |key| field(&result, key);
     say(
-        out,
         &format!(
             "  segments received: answer max-message-size {}, max payload {}, segmented messages \
              {} (non-final payloads {}), unreliable messages {}, before the first client packet \
@@ -1949,6 +1970,7 @@ fn report_segments(capture: &Path, out: &mut impl Write) -> Result<(), String> {
             f("max_sent_segment_payload"),
             f("sent_segmented_messages"),
         ),
+        out,
     )
 }
 
@@ -2022,11 +2044,11 @@ mod tests {
             "zlib",
             |_| {},
             |b| b,
-            &mut out,
             |addr, _, _| {
                 wait_until_empty(addr)?;
                 Ok(true)
             },
+            &mut out,
         )
         .expect("the session runs");
         assert!(passed);
