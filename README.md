@@ -23,7 +23,7 @@ fn main() -> anchor::Result<()> {
 - The binary must keep `panic = "unwind"`, the default.
 - The server creates only `anchor.toml` and `data/` in its working directory.
 - The binary also accepts `update-config`, `import <world folder> [name]` and `export <new folder> [name]`, which run without starting the server.
-- Windows and Linux (x86_64, aarch64) are supported. Open port 19132 (`server-port`) for both UDP and TCP; it is the only port the server uses; on hosts without IPv6, set `enable-ipv6 = false` under `[general]`. Behind a router, forwarding that port is enough; `public-ip` is not needed.
+- Windows (x86_64) and Linux (x86_64, aarch64) are supported. Open port 19132 (`server-port`) for both UDP and TCP; it is the only port the server uses; on hosts without IPv6, set `enable-ipv6 = false` under `[general]`. Behind a router, forwarding that port is enough; `public-ip` is not needed.
 - If a player on the same network as a Windows host times out joining by the host's LAN address (`InitialConnection-149`), they join through the public address or domain instead (the router must loop it back, as most do): the client may also try TCP 443 on the typed address, and Windows Firewall leaves that try unanswered (`.claude/docs/network.md`).
 
 ## Documentation
