@@ -1,7 +1,7 @@
 // Package fix corrects defects of the pinned gophertunnel source for every Go tool of xtask: it writes a
 // corrected copy of the module and a go.mod that replaces gophertunnel with it, so the extractor, the
 // oracle and the bot all build with -modfile from the same corrected source. Each defect, with its
-// evidence, is listed under "gophertunnel defects" in .claude/docs/protocol.md.
+// evidence, is listed in .claude/docs/protocol.md.
 //
 // A correction replaces text that must occur exactly once in its file, so a gophertunnel update that
 // moves or fixes the text fails here instead of passing silently.
@@ -128,7 +128,7 @@ func Module(dir, out string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mod = fmt.Appendf(mod, "\nreplace %s => %s\n", modulePath, filepath.ToSlash(copyDir))
+	mod = fmt.Appendf(mod, "\nreplace %s => %q\n", modulePath, filepath.ToSlash(copyDir))
 	modfile := filepath.Join(out, "go.mod")
 	if err := os.WriteFile(modfile, mod, 0o644); err != nil {
 		return "", err
