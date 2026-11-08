@@ -3,12 +3,12 @@
 //!
 //! The tick moves each input into the log before it applies it, and applies the logged value, so
 //! recording copies nothing large and the log of a tick that panics holds the input that did. A
-//! join is the one exception: the tick logs a copy of its identity, whose skin is shared, and
-//! applies the identity itself, which the new player keeps. Packets are encoded only when the log
-//! is written, on the main thread after the tick thread ended. The log is a list of segments: one
-//! from the start of the process and one per save snapshot, each starting at the tick its state
-//! was taken with a checkpoint of that state ([`super::checkpoint`]), which a replay starts from
-//! with the server file of the same tick.
+//! login and a join are the exceptions: the tick logs a copy of their identity, whose skin is
+//! shared, and applies the identity itself, which the new player keeps. Packets are encoded only
+//! when the log is written, on the main thread after the tick thread ended. The log is a list of
+//! segments: one from the start of the process and one per save snapshot, each starting at the
+//! tick its state was taken with a checkpoint of that state ([`super::checkpoint`]), which a
+//! replay starts from with the server file of the same tick.
 //!
 //! The bound ([`MAX_BYTES`]) counts each input by its size on the wire or, for a packet, what
 //! decoding it allocated if that is larger, and every list the log holds by the room it takes:
@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
-use super::checkpoint::{Checkpoint, capacity, read_skin, skin_bytes};
+use super::checkpoint::{Checkpoint, read_skin, skin_bytes};
 use super::queue::{Client, Identity, JobOutcome, LeaveReason, Measure, SessionId};
 use crate::clock;
 use crate::nbt::Encoding;
@@ -97,9 +97,21 @@ const COMMIT_BYTES: usize = MAX_BYTES / 4;
 const CRASH_DIR: &str = "crash";
 /// The bytes of the CRC-32C at the end of a written log.
 const CRC_BYTES: usize = 4;
-/// The written format's version: the layout of the log and of the checkpoints it holds, which
-/// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
+/// The written format's version, the only one [`InputLog::decode`] reads. Integers are
+/// little-endian, and counts and byte lengths are u32. A log is its header (the magic, this
+/// version, the protocol version as i32, and the 32-byte fingerprints of the settings and of the
+/// registrations), the segment count, the segments and the CRC-32C of everything before it. A
+/// segment is its start tick (u64), the committed and truncated flags, the identity flag and the
+/// identity (u64) if set, the checkpoint flag and the checkpoint (length-prefixed) if set, the tick
+/// count and the ticks. A tick is its number (u64), the input count and the inputs, the count of
+/// forgotten sessions and their ids (u64), and the answer count and the answers. An input is its
+/// session (u64), its sequence number (u64), a kind tag and the fields of its kind; an answer is a
+/// tag and its fields. The body of a checkpoint is what every rule module's checkpoint codec
+/// decides.
 const FORMAT: u32 = 5;
+/// The bytes a written log's buffer reserves beyond the input bytes: the header and the
+/// checksum, rounded up.
+const HEADER_CAPACITY_BYTES: usize = 128;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`JobError::code`](crate::task::JobError::code)s.
 const JOB_DONE: u8 = 0;
@@ -141,6 +153,17 @@ const MEASURE_PING: u8 = 1;
 const MEASURE_CONNECTIONS: u8 = 2;
 /// The tag of a process measure.
 const MEASURE_PROCESS: u8 = 3;
+/// The bytes an answer takes in a written log, at least (a load failure: its tag).
+const MIN_ANSWER_BYTES: usize = 1;
+/// The bytes a forgotten session takes in a written log.
+const MIN_DROPPED_BYTES: usize = 8;
+/// The bytes an input takes in a written log, at least (a leave: session, sequence number, kind
+/// tag and reason).
+const MIN_ENTRY_BYTES: usize = 18;
+/// The bytes a segment takes in a written log, at least (no checkpoint and no ticks).
+const MIN_SEGMENT_BYTES: usize = 16;
+/// The bytes a tick takes in a written log, at least (an empty one).
+const MIN_TICK_BYTES: usize = 20;
 /// The tag of a chunk read from the data files.
 const ORIGIN_DISK: u8 = 0;
 /// The tag of a chunk made by the generator.
@@ -157,8 +180,8 @@ const PLAYER_DAMAGED: u8 = 2;
 /// The input log.
 #[derive(Debug)]
 pub(crate) struct InputLog {
-    /// Oldest first; never empty. The first committed one or one after it is the newest
-    /// committed segment.
+    /// Oldest first; never empty. The newest committed segment is the last one marked committed
+    /// ([`Self::committed`]), or the first if none is.
     segments: VecDeque<Segment>,
     /// Segments dropped for room, not yet freed: freeing one releases every tick, packet and
     /// chunk copy it holds, which the tick must not do ([`Self::take_discarded`]).
@@ -181,9 +204,10 @@ pub(crate) struct InputLog {
 }
 
 impl InputLog {
-    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose packets together
-    /// decode within [`MAX_BYTES`]. Its versions are checked first, then its checksum, then every
-    /// count against the bytes left before anything is allocated for it.
+    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose lists and packets
+    /// together take at most [`MAX_BYTES`] and whose segments at most [`MAX_BYTES`] more. Its
+    /// versions are checked first, then its checksum, then every count against the bytes left
+    /// and the room its items take before anything is allocated for it.
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_FILE_BYTES {
             return Err(Error::Format("larger than a log can be"));
@@ -212,16 +236,25 @@ impl InputLog {
             settings: r.array()?,
             registrations: r.array()?,
         };
-        // A segment takes at least 15 bytes.
-        let count = r.count(15)?;
+        let count = r.count(MIN_SEGMENT_BYTES)?;
         if count == 0 {
             return Err(Error::Format("no segment"));
         }
-        let mut segments = VecDeque::with_capacity(capacity::<Segment>(count, r.0.len()));
-        // The log counted each packet as at least what decoding it allocated, within the bound
-        // for all of them (`InputLog::record`): an item's NBT takes a reader far more than its
-        // bytes.
-        let mut packet_budget = MAX_BYTES;
+        // The log counts no room for its segments, but keeps one before the newest committed only
+        // while the inputs and the checkpoints of every kept segment fit the bound (`make_room`),
+        // and a checkpoint takes far more than a segment (its body alone holds an 8-byte count for
+        // each of dozens of lists); from the newest committed on there are at most three (it, the
+        // snapshot in flight, a shutdown's last). So the segments of a written log fit a bound of
+        // their own.
+        if room_bytes::<Segment>(count) > MAX_BYTES {
+            return Err(Error::Format("segments over the bound"));
+        }
+        let mut segments = VecDeque::with_capacity(count);
+        // The log counted every list by the room it took and each packet as at least what
+        // decoding it allocated, all within the bound (`InputLog::record`, `growth`): an item
+        // in a list takes more than its written form, and an item's NBT a reader far more than
+        // its bytes.
+        let mut budget = MAX_BYTES;
         for _ in 0..count {
             let start = r.u64()?;
             let committed = r.flag("committed flag")?;
@@ -236,16 +269,17 @@ impl InputLog {
             } else {
                 None
             };
-            let ticks = r.count(16)?;
+            let ticks = r.count(MIN_TICK_BYTES)?;
+            take_room::<Tick>(&mut budget, ticks)?;
             let mut segment = Segment {
-                checkpoint,
-                ticks: Vec::with_capacity(capacity::<Tick>(ticks, r.0.len())),
-                truncated,
                 committed,
+                truncated,
+                checkpoint,
+                ticks: Vec::with_capacity(ticks),
                 ..Segment::new(start, identity)
             };
             for _ in 0..ticks {
-                segment.ticks.push(r.tick(&mut packet_budget)?);
+                segment.ticks.push(r.tick(&mut budget)?);
             }
             segments.push_back(segment);
         }
@@ -392,9 +426,9 @@ impl InputLog {
         }
     }
 
-    /// The snapshot taken before tick `start` is committed: its segment is the newest committed
-    /// one. The segments before it stay while there is room. Does nothing if no segment starts
-    /// at `start`.
+    /// Marks the segment of the snapshot taken before tick `start` as committed, which makes it
+    /// the newest committed one. The segments before it stay while there is room. Does nothing if
+    /// no segment starts at `start`.
     pub(crate) fn committed(&mut self, start: u64) {
         if let Some(segment) = self.segments.iter_mut().find(|s| s.start == start) {
             segment.committed = true;
@@ -416,7 +450,7 @@ impl InputLog {
     }
 
     /// Records an input of `size` bytes (a packet's
-    /// [`InputKind::Packet`](super::queue::InputKind::Packet) size, a join's
+    /// [`InputKind::Packet`](super::queue::InputKind::Packet) size, a login's or a join's
     /// [`Identity::size`](super::queue::Identity::size), 0 for a leave) before the tick
     /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
     /// when the log no longer records.
@@ -453,8 +487,8 @@ impl InputLog {
                 Response::Committed { .. } => ANSWER_COMMITTED,
                 Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
                 Response::LoadFailed => ANSWER_LOAD_FAILED,
-                Response::Checked(_) => ANSWER_CHECKED,
                 Response::WorldOpenFailed { .. } => ANSWER_WORLD_OPEN_FAILED,
+                Response::Checked(_) => ANSWER_CHECKED,
             },
         ]);
         if self.last_segment().truncated {
@@ -509,8 +543,8 @@ impl InputLog {
         self.segments.push_back(Segment::new(start, identity));
     }
 
-    /// The segments dropped for room since the last call, for the tick to hand to another thread
-    /// to free.
+    /// Takes the segments dropped for room since the last call, for the tick to hand to another
+    /// thread to free.
     pub(crate) fn take_discarded(&mut self) -> Vec<Segment> {
         std::mem::take(&mut self.discarded)
     }
@@ -557,13 +591,13 @@ impl InputLog {
     /// encoded here, on the main thread. [`Error::TooLarge`] as soon as it would take more than
     /// `limit` bytes.
     fn encode_from(&self, from: usize, limit: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
+        let mut out = Vec::with_capacity(self.bytes.saturating_add(HEADER_CAPACITY_BYTES));
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(&FORMAT.to_le_bytes());
         out.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
         out.extend_from_slice(&self.fingerprints.settings);
         out.extend_from_slice(&self.fingerprints.registrations);
-        put_len(&mut out, self.segments.len().saturating_sub(from))?;
+        put_len(self.segments.len().saturating_sub(from), &mut out)?;
         let mut body = Vec::new();
         for segment in self.segments.iter().skip(from) {
             out.extend_from_slice(&segment.start.to_le_bytes());
@@ -579,17 +613,17 @@ impl InputLog {
             match &segment.checkpoint {
                 Some(Point::Taken(c)) => {
                     out.push(1);
-                    put_bytes(&mut out, &c.to_bytes())?;
+                    put_bytes(&c.to_bytes(), &mut out)?;
                 }
                 Some(Point::Written(bytes)) => {
                     out.push(1);
-                    put_bytes(&mut out, bytes)?;
+                    put_bytes(bytes, &mut out)?;
                 }
                 None => out.push(0),
             }
-            put_len(&mut out, segment.ticks.len())?;
+            put_len(segment.ticks.len(), &mut out)?;
             for tick in &segment.ticks {
-                put_tick(&mut out, tick, &mut body)?;
+                put_tick(tick, &mut body, &mut out)?;
             }
             if out.len().saturating_add(CRC_BYTES) > limit {
                 return Err(Error::TooLarge);
@@ -771,20 +805,20 @@ impl Fingerprints {
 pub(crate) struct Segment {
     /// The tick of the state: the first tick this segment can hold.
     start: u64,
+    /// The server file holds the state at `start`: the start of the process, or a commit the tick
+    /// learnt of.
+    committed: bool,
+    /// Recording stopped, at the bound or at an answer that cannot be logged; later ticks of
+    /// this segment are missing.
+    truncated: bool,
+    /// The commit identity of the state at `start`; `None` if unknown (a server file that has
+    /// none).
+    identity: Option<u64>,
     /// The state at `start`, once taken.
     checkpoint: Option<Point>,
     ticks: Vec<Tick>,
     /// The input bytes charged for this segment.
     bytes: usize,
-    /// Recording stopped, at the bound or at an answer that cannot be logged; later ticks of
-    /// this segment are missing.
-    truncated: bool,
-    /// The server file holds the state at `start`: the start of the process, or a commit the tick
-    /// learnt of.
-    committed: bool,
-    /// The commit identity of the state at `start`; `None` if unknown (a server file that has
-    /// none).
-    identity: Option<u64>,
 }
 
 impl Segment {
@@ -828,12 +862,12 @@ impl Segment {
     fn new(start: u64, identity: Option<u64>) -> Self {
         Self {
             start,
+            committed: false,
+            truncated: false,
+            identity,
             checkpoint: None,
             ticks: Vec::new(),
             bytes: 0,
-            truncated: false,
-            committed: false,
-            identity,
         }
     }
 }
@@ -949,6 +983,7 @@ impl Answer {
             Response::Committed { start } => (Self::Committed(*start), 0),
             Response::CommitFailed { start } => (Self::CommitFailed(*start), 0),
             Response::LoadFailed => (Self::LoadFailed, 0),
+            Response::WorldOpenFailed { world } => (Self::WorldOpenFailed(*world), 0),
             Response::Checked(found) => {
                 let size = match found {
                     Checked::Passed { .. } => 0,
@@ -957,7 +992,6 @@ impl Answer {
                 };
                 (Self::Checked(found.clone()), size)
             }
-            Response::WorldOpenFailed { world } => (Self::WorldOpenFailed(*world), 0),
         })
     }
 }
@@ -1088,41 +1122,13 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 struct Read<'a>(&'a [u8]);
 
 impl<'a> Read<'a> {
-    /// A byte that is 0 or 1.
-    fn flag(&mut self, what: &'static str) -> Result<bool> {
-        match self.u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(Error::Format(what)),
-        }
-    }
-
-    fn u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(self.array()?))
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| Error::Format("fixed width"))
-    }
-
-    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if n > self.0.len() {
-            return Err(Error::Format("ends early"));
-        }
-        let (head, rest) = self.0.split_at(n);
-        self.0 = rest;
-        Ok(head)
-    }
-
-    /// A tick of a written log, whose packets take what decoding them allocates from
-    /// `packet_budget`.
-    fn tick(&mut self, packet_budget: &mut usize) -> Result<Tick> {
+    /// A tick of a written log, whose lists take their room and whose packets what decoding them
+    /// allocates from `budget`.
+    fn tick(&mut self, budget: &mut usize) -> Result<Tick> {
         let number = self.u64()?;
-        // An entry takes at least 18 bytes, a dropped session 8.
-        let entries = self.count(18)?;
-        let mut inputs = Vec::with_capacity(capacity::<Entry>(entries, self.0.len()));
+        let entries = self.count(MIN_ENTRY_BYTES)?;
+        take_room::<Entry>(budget, entries)?;
+        let mut inputs = Vec::with_capacity(entries);
         for _ in 0..entries {
             let session = SessionId::new(self.u64()?);
             let seq = self.u64()?;
@@ -1132,8 +1138,7 @@ impl<'a> Read<'a> {
                 KIND_PACKET => {
                     let id = self.u32()?;
                     let payload = self.bytes()?;
-                    let packet =
-                        Packet::decode(id, payload, packet_budget).map_err(Error::Packet)?;
+                    let packet = Packet::decode(id, payload, budget).map_err(Error::Packet)?;
                     EntryKind::Packet(packet)
                 }
                 KIND_LEAVE => EntryKind::Leave(self.leave_reason()?),
@@ -1144,14 +1149,15 @@ impl<'a> Read<'a> {
             };
             inputs.push(Entry { session, seq, kind });
         }
-        let dropped_count = self.count(8)?;
-        let mut dropped = Vec::with_capacity(capacity::<SessionId>(dropped_count, self.0.len()));
+        let dropped_count = self.count(MIN_DROPPED_BYTES)?;
+        take_room::<SessionId>(budget, dropped_count)?;
+        let mut dropped = Vec::with_capacity(dropped_count);
         for _ in 0..dropped_count {
             dropped.push(SessionId::new(self.u64()?));
         }
-        // An answer takes at least 1 byte (a load failure).
-        let answer_count = self.count(1)?;
-        let mut responses = Vec::with_capacity(capacity::<Answer>(answer_count, self.0.len()));
+        let answer_count = self.count(MIN_ANSWER_BYTES)?;
+        take_room::<Answer>(budget, answer_count)?;
+        let mut responses = Vec::with_capacity(answer_count);
         for _ in 0..answer_count {
             responses.push(self.answer()?);
         }
@@ -1161,130 +1167,6 @@ impl<'a> Read<'a> {
             dropped,
             responses,
         })
-    }
-
-    fn u32(&mut self) -> Result<u32> {
-        Ok(u32::from_le_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64> {
-        Ok(u64::from_le_bytes(self.array()?))
-    }
-
-    /// A count of items of at least `min` bytes each, which the bytes left must be able to hold.
-    fn count(&mut self, min: usize) -> Result<usize> {
-        let n = usize::try_from(self.u32()?).map_err(|_| Error::Format("count"))?;
-        if n.saturating_mul(min) > self.0.len() {
-            return Err(Error::Format("count larger than the bytes left"));
-        }
-        Ok(n)
-    }
-
-    fn bytes(&mut self) -> Result<&'a [u8]> {
-        let n = self.count(1)?;
-        self.take(n)
-    }
-
-    fn i32(&mut self) -> Result<i32> {
-        Ok(self.u32()?.cast_signed())
-    }
-
-    fn text(&mut self) -> Result<String> {
-        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
-    }
-
-    fn job(&mut self) -> Result<JobOutcome> {
-        match self.u8()? {
-            JOB_DONE => {
-                let json = self.bytes()?;
-                if json.len() > crate::task::MAX_RESULT_BYTES {
-                    return Err(Error::Format("job result over its limit"));
-                }
-                Ok(Ok(json.to_vec()))
-            }
-            code => crate::task::JobError::from_code(code)
-                .map(Err)
-                .ok_or(Error::Format("job outcome")),
-        }
-    }
-
-    /// The player of a login or a join.
-    fn identity(&mut self) -> Result<Identity> {
-        let name = String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("name"))?;
-        let has_xuid = self.flag("xuid flag")?;
-        let xuid = self.u64()?;
-        let uuid: [u8; 16] = self.array()?;
-        let device_os = self.i32()?;
-        let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
-        let address = self.address()?;
-        let client = self.client()?;
-        Ok(Identity {
-            skin,
-            device_os,
-            address,
-            client,
-            name,
-            xuid: has_xuid.then_some(xuid),
-            uuid: protocol::Uuid::from_bytes(uuid),
-        })
-    }
-
-    /// What a join tells of the client.
-    fn client(&mut self) -> Result<Client> {
-        let locale = self.text()?;
-        let input_mode = crate::protocol::consts::InputMode::try_from(self.u32()?)
-            .map_err(|_| Error::Format("input mode"))?;
-        Ok(Client {
-            locale,
-            input_mode,
-            device_model: self.text()?,
-            device_id: self.text()?,
-            self_signed_id: self.text()?,
-            playfab_id: self.text()?,
-            game_version: self.text()?,
-            server_address: self.text()?,
-            random_id: i64::from_le_bytes(self.array()?),
-            port: u16::from_le_bytes(self.array()?),
-            join_time_ms: i64::from_le_bytes(self.array()?),
-        })
-    }
-
-    fn leave_reason(&mut self) -> Result<LeaveReason> {
-        Ok(match self.u8()? {
-            LEAVE_LEFT => LeaveReason::Left,
-            LEAVE_CONNECTION_CLOSED => LeaveReason::ConnectionClosed,
-            LEAVE_TIMED_OUT => LeaveReason::TimedOut,
-            _ => return Err(Error::Format("leave reason")),
-        })
-    }
-
-    fn measure(&mut self) -> Result<Measure> {
-        Ok(match self.u8()? {
-            MEASURE_TICK_TIME => Measure::TickTime(self.u32()?),
-            MEASURE_PING => Measure::Ping(self.u32()?),
-            MEASURE_CONNECTIONS => Measure::Connections {
-                all: self.u32()?,
-                logged_in: self.u32()?,
-            },
-            MEASURE_PROCESS => Measure::Process {
-                memory: self.u64()?,
-                uptime_ms: self.u64()?,
-            },
-            _ => return Err(Error::Format("measure kind")),
-        })
-    }
-
-    fn address(&mut self) -> Result<Option<IpAddr>> {
-        Ok(match self.u8()? {
-            ADDRESS_NONE => None,
-            ADDRESS_V4 => Some(IpAddr::from(self.array::<4>()?)),
-            ADDRESS_V6 => Some(IpAddr::from(self.array::<16>()?)),
-            _ => return Err(Error::Format("address kind")),
-        })
-    }
-
-    fn world_index(&mut self) -> Result<WorldIndex> {
-        usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))
     }
 
     /// An answer.
@@ -1349,6 +1231,158 @@ impl<'a> Read<'a> {
             _ => return Err(Error::Format("answer kind")),
         })
     }
+
+    /// The player of a login or a join.
+    fn identity(&mut self) -> Result<Identity> {
+        let name = String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("name"))?;
+        let has_xuid = self.flag("xuid flag")?;
+        let xuid = self.u64()?;
+        let uuid: [u8; 16] = self.array()?;
+        let device_os = self.i32()?;
+        let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
+        let address = self.address()?;
+        let client = self.client()?;
+        Ok(Identity {
+            skin,
+            device_os,
+            address,
+            client,
+            name,
+            xuid: has_xuid.then_some(xuid),
+            uuid: protocol::Uuid::from_bytes(uuid),
+        })
+    }
+
+    fn address(&mut self) -> Result<Option<IpAddr>> {
+        Ok(match self.u8()? {
+            ADDRESS_NONE => None,
+            ADDRESS_V4 => Some(IpAddr::from(self.array::<4>()?)),
+            ADDRESS_V6 => Some(IpAddr::from(self.array::<16>()?)),
+            _ => return Err(Error::Format("address kind")),
+        })
+    }
+
+    /// What a join tells of the client.
+    fn client(&mut self) -> Result<Client> {
+        let locale = self.text()?;
+        let input_mode = crate::protocol::consts::InputMode::try_from(self.u32()?)
+            .map_err(|_| Error::Format("input mode"))?;
+        Ok(Client {
+            locale,
+            input_mode,
+            device_model: self.text()?,
+            device_id: self.text()?,
+            self_signed_id: self.text()?,
+            playfab_id: self.text()?,
+            game_version: self.text()?,
+            server_address: self.text()?,
+            random_id: i64::from_le_bytes(self.array()?),
+            port: u16::from_le_bytes(self.array()?),
+            join_time_ms: i64::from_le_bytes(self.array()?),
+        })
+    }
+
+    /// A byte that is 0 or 1.
+    fn flag(&mut self, what: &'static str) -> Result<bool> {
+        match self.u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(Error::Format(what)),
+        }
+    }
+
+    fn i32(&mut self) -> Result<i32> {
+        Ok(self.u32()?.cast_signed())
+    }
+
+    fn job(&mut self) -> Result<JobOutcome> {
+        match self.u8()? {
+            JOB_DONE => {
+                let json = self.bytes()?;
+                if json.len() > crate::task::MAX_RESULT_BYTES {
+                    return Err(Error::Format("job result over its limit"));
+                }
+                Ok(Ok(json.to_vec()))
+            }
+            code => crate::task::JobError::from_code(code)
+                .map(Err)
+                .ok_or(Error::Format("job outcome")),
+        }
+    }
+
+    fn leave_reason(&mut self) -> Result<LeaveReason> {
+        Ok(match self.u8()? {
+            LEAVE_LEFT => LeaveReason::Left,
+            LEAVE_CONNECTION_CLOSED => LeaveReason::ConnectionClosed,
+            LEAVE_TIMED_OUT => LeaveReason::TimedOut,
+            _ => return Err(Error::Format("leave reason")),
+        })
+    }
+
+    fn measure(&mut self) -> Result<Measure> {
+        Ok(match self.u8()? {
+            MEASURE_TICK_TIME => Measure::TickTime(self.u32()?),
+            MEASURE_PING => Measure::Ping(self.u32()?),
+            MEASURE_CONNECTIONS => Measure::Connections {
+                all: self.u32()?,
+                logged_in: self.u32()?,
+            },
+            MEASURE_PROCESS => Measure::Process {
+                memory: self.u64()?,
+                uptime_ms: self.u64()?,
+            },
+            _ => return Err(Error::Format("measure kind")),
+        })
+    }
+
+    fn text(&mut self) -> Result<String> {
+        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
+    }
+
+    fn bytes(&mut self) -> Result<&'a [u8]> {
+        let n = self.count(1)?;
+        self.take(n)
+    }
+
+    /// A count of items of at least `min` bytes each, which the bytes left must be able to hold.
+    fn count(&mut self, min: usize) -> Result<usize> {
+        let n = usize::try_from(self.u32()?).map_err(|_| Error::Format("count"))?;
+        if n.saturating_mul(min) > self.0.len() {
+            return Err(Error::Format("count larger than the bytes left"));
+        }
+        Ok(n)
+    }
+
+    fn world_index(&mut self) -> Result<WorldIndex> {
+        usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))
+    }
+
+    fn u32(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.array()?))
+    }
+
+    fn u64(&mut self) -> Result<u64> {
+        Ok(u64::from_le_bytes(self.array()?))
+    }
+
+    fn u8(&mut self) -> Result<u8> {
+        Ok(u8::from_le_bytes(self.array()?))
+    }
+
+    fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| Error::Format("fixed width"))
+    }
+
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
+        if n > self.0.len() {
+            return Err(Error::Format("ends early"));
+        }
+        let (head, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Ok(head)
+    }
 }
 
 /// Writes `log` to `<data_dir>/crash/input-<unix seconds>-<last tick>.log` and returns the path:
@@ -1357,7 +1391,6 @@ impl<'a> Read<'a> {
 /// has ended.
 #[expect(
     clippy::disallowed_types,
-    clippy::disallowed_methods,
     reason = "off-tick: the main thread writes the crash log after the tick thread ended"
 )]
 pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Result<PathBuf> {
@@ -1366,7 +1399,7 @@ pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Resul
         .encode_within(MAX_FILE_BYTES)
         .map_err(std::io::Error::other)?;
     let dir = data_dir.join(CRASH_DIR);
-    std::fs::create_dir_all(&dir)?;
+    crate::fs::create_dir_all_durable(&dir)?;
     let tick = log
         .segments
         .iter()
@@ -1383,44 +1416,45 @@ pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Resul
         .open(&path)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
+    crate::fs::sync_parent(&path)?;
     Ok(path)
 }
 
 /// Appends a tick: its number, its inputs, the sessions it forgot and the answers it applied.
 /// `body` is scratch space for packet bodies.
-fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
+fn put_tick(tick: &Tick, body: &mut Vec<u8>, out: &mut Vec<u8>) -> Result<()> {
     out.extend_from_slice(&tick.number.to_le_bytes());
-    put_len(out, tick.inputs.len())?;
+    put_len(tick.inputs.len(), out)?;
     for entry in &tick.inputs {
         out.extend_from_slice(&entry.session.get().to_le_bytes());
         out.extend_from_slice(&entry.seq.to_le_bytes());
         match &entry.kind {
             EntryKind::Login(identity) => {
                 out.push(KIND_LOGIN);
-                put_identity(out, identity)?;
+                put_identity(identity, out)?;
             }
             EntryKind::Join(identity) => {
                 out.push(KIND_JOIN);
-                put_identity(out, identity)?;
+                put_identity(identity, out)?;
             }
             EntryKind::Packet(packet) => {
                 out.push(KIND_PACKET);
                 out.extend_from_slice(&packet.id().to_le_bytes());
                 body.clear();
                 packet.encode(body).map_err(Error::Packet)?;
-                put_bytes(out, body)?;
+                put_bytes(body, out)?;
             }
             EntryKind::Leave(reason) => out.extend_from_slice(&[KIND_LEAVE, leave_tag(*reason)]),
             EntryKind::Console(line) => {
                 out.push(KIND_CONSOLE);
-                put_bytes(out, line.as_bytes())?;
+                put_bytes(line.as_bytes(), out)?;
             }
             EntryKind::Job(outcome) => {
                 out.push(KIND_JOB);
                 match outcome {
                     Ok(json) => {
                         out.push(JOB_DONE);
-                        put_bytes(out, json)?;
+                        put_bytes(json, out)?;
                     }
                     Err(e) => out.push(e.code()),
                 }
@@ -1450,25 +1484,25 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
             }
         }
     }
-    put_len(out, tick.dropped.len())?;
+    put_len(tick.dropped.len(), out)?;
     for session in &tick.dropped {
         out.extend_from_slice(&session.get().to_le_bytes());
     }
-    put_len(out, tick.responses.len())?;
+    put_len(tick.responses.len(), out)?;
     for answer in &tick.responses {
-        put_answer(out, answer)?;
+        put_answer(answer, out)?;
     }
     Ok(())
 }
 
 /// Appends the player of a login or a join.
-fn put_identity(out: &mut Vec<u8>, identity: &Identity) -> Result<()> {
-    put_bytes(out, identity.name.as_bytes())?;
+fn put_identity(identity: &Identity, out: &mut Vec<u8>) -> Result<()> {
+    put_bytes(identity.name.as_bytes(), out)?;
     out.push(u8::from(identity.xuid.is_some()));
     out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
     out.extend_from_slice(identity.uuid.as_bytes());
     out.extend_from_slice(&identity.device_os.to_le_bytes());
-    put_bytes(out, &skin_bytes(&identity.skin).map_err(Error::Packet)?)?;
+    put_bytes(&skin_bytes(&identity.skin).map_err(Error::Packet)?, out)?;
     match identity.address {
         Some(IpAddr::V4(a)) => {
             out.push(ADDRESS_V4);
@@ -1480,11 +1514,11 @@ fn put_identity(out: &mut Vec<u8>, identity: &Identity) -> Result<()> {
         }
         None => out.push(ADDRESS_NONE),
     }
-    put_client(out, &identity.client)
+    put_client(&identity.client, out)
 }
 
 /// Appends what a join tells of the client.
-fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
+fn put_client(client: &Client, out: &mut Vec<u8>) -> Result<()> {
     let Client {
         locale,
         input_mode,
@@ -1498,7 +1532,7 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
         port,
         join_time_ms,
     } = client;
-    put_bytes(out, locale.as_bytes())?;
+    put_bytes(locale.as_bytes(), out)?;
     out.extend_from_slice(&u32::from(*input_mode).to_le_bytes());
     for text in [
         device_model,
@@ -1508,7 +1542,7 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
         game_version,
         server_address,
     ] {
-        put_bytes(out, text.as_bytes())?;
+        put_bytes(text.as_bytes(), out)?;
     }
     out.extend_from_slice(&random_id.to_le_bytes());
     out.extend_from_slice(&port.to_le_bytes());
@@ -1517,7 +1551,7 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
 }
 
 /// Appends an answer: its kind, then its fields.
-fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
+fn put_answer(answer: &Answer, out: &mut Vec<u8>) -> Result<()> {
     match answer {
         Answer::Chunk {
             world,
@@ -1526,7 +1560,7 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
             checksum,
         } => {
             out.push(ANSWER_CHUNK);
-            put_world_index(out, *world)?;
+            put_world_index(*world, out)?;
             out.extend_from_slice(&pos.x.to_le_bytes());
             out.extend_from_slice(&pos.z.to_le_bytes());
             out.push(match origin {
@@ -1538,7 +1572,7 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
         }
         Answer::Player { key, data } => {
             out.push(ANSWER_PLAYER);
-            put_bytes(out, key.as_bytes())?;
+            put_bytes(key.as_bytes(), out)?;
             match data {
                 LoggedPlayer::Found {
                     world,
@@ -1546,11 +1580,11 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
                     extra,
                 } => {
                     out.push(PLAYER_FOUND);
-                    put_bytes(out, world.as_bytes())?;
+                    put_bytes(world.as_bytes(), out)?;
                     for c in position {
                         out.extend_from_slice(&c.to_bits().to_le_bytes());
                     }
-                    put_bytes(out, extra)?;
+                    put_bytes(extra, out)?;
                 }
                 LoggedPlayer::Absent => out.push(PLAYER_ABSENT),
                 LoggedPlayer::Damaged => out.push(PLAYER_DAMAGED),
@@ -1580,39 +1614,39 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
                     out.push(CHECK_DAMAGED);
                     out.extend_from_slice(&values.to_le_bytes());
                     out.extend_from_slice(&damaged.to_le_bytes());
-                    put_bytes(out, first.as_bytes())?;
+                    put_bytes(first.as_bytes(), out)?;
                 }
                 Checked::Failed(why) => {
                     out.push(CHECK_FAILED);
-                    put_bytes(out, why.as_bytes())?;
+                    put_bytes(why.as_bytes(), out)?;
                 }
             }
         }
         Answer::WorldOpenFailed(world) => {
             out.push(ANSWER_WORLD_OPEN_FAILED);
-            put_world_index(out, *world)?;
+            put_world_index(*world, out)?;
         }
     }
     Ok(())
 }
 
 /// Appends a world index as a u32.
-fn put_world_index(out: &mut Vec<u8>, world: WorldIndex) -> Result<()> {
+fn put_world_index(world: WorldIndex, out: &mut Vec<u8>) -> Result<()> {
     let world = u32::try_from(world).map_err(|_| Error::Format("world index over u32"))?;
     out.extend_from_slice(&world.to_le_bytes());
     Ok(())
 }
 
 /// Appends a count as a u32.
-fn put_len(out: &mut Vec<u8>, len: usize) -> Result<()> {
+fn put_len(len: usize, out: &mut Vec<u8>) -> Result<()> {
     let len = u32::try_from(len).map_err(|_| Error::Format("count over u32"))?;
     out.extend_from_slice(&len.to_le_bytes());
     Ok(())
 }
 
 /// Appends bytes after their u32 length.
-fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
-    put_len(out, bytes.len())?;
+fn put_bytes(bytes: &[u8], out: &mut Vec<u8>) -> Result<()> {
+    put_len(bytes.len(), out)?;
     out.extend_from_slice(bytes);
     Ok(())
 }
@@ -1651,6 +1685,15 @@ fn growth<T>(list: &Vec<T>) -> usize {
     }
 }
 
+/// Takes the room `n` items of a list of `T` take from `budget`, before they are allocated: a
+/// written log is refused when its lists would hold more than the live log could.
+fn take_room<T>(budget: &mut usize, n: usize) -> Result<()> {
+    *budget = budget
+        .checked_sub(room_bytes::<T>(n))
+        .ok_or(Error::Format("lists over the bound"))?;
+    Ok(())
+}
+
 /// The bytes `items` of room of a list of `T` take.
 fn room_bytes<T>(items: usize) -> usize {
     items.saturating_mul(size_of::<T>())
@@ -1661,6 +1704,9 @@ mod tests {
     use super::*;
 
     use crate::tick::queue::Skin;
+
+    /// The seconds a test's write of a crash log surely starts within.
+    const WRITE_SECONDS: u64 = 60;
 
     #[test]
     fn an_empty_tick_counts_against_the_bound() {
@@ -2243,6 +2289,30 @@ mod tests {
         );
     }
 
+    /// A written log whose lists together take more room than the live log holds is refused,
+    /// though its bytes are few: a load failure takes one byte written and an answer's room read.
+    #[test]
+    fn a_log_whose_lists_take_more_room_than_the_bound_is_refused() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.response(&Response::LoadFailed);
+        let one = log.encode().unwrap();
+        // The tick ends with its answer count and its one answer; the checksum follows.
+        let count_at = one.len() - CRC_BYTES - 1 - 4;
+        assert_eq!(one[count_at + 4], ANSWER_LOAD_FAILED);
+        let answers = MAX_BYTES / size_of::<Answer>() + 1;
+        let mut crafted = one[..count_at].to_vec();
+        crafted.extend_from_slice(&u32::try_from(answers).unwrap().to_le_bytes());
+        crafted.resize(crafted.len() + answers, ANSWER_LOAD_FAILED);
+        crafted.extend_from_slice(&[0; CRC_BYTES]);
+        reseal(&mut crafted);
+        let read = InputLog::decode(&crafted).map(drop);
+        assert!(
+            matches!(read, Err(Error::Format("lists over the bound"))),
+            "{read:?}"
+        );
+    }
+
     #[test]
     fn job_results_survive_the_written_log() {
         let mut log = InputLog::default();
@@ -2302,6 +2372,34 @@ mod tests {
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!(read.ticks(), log.ticks());
         assert_eq!(read.ticks()[0].responses, [Answer::WorldOpenFailed(3)]);
+    }
+
+    /// A crash log never replaces a file: with every name it can take already there, the write
+    /// fails and the files keep their bytes.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test writes and reads files of its own folder"
+    )]
+    fn a_crash_log_never_replaces_a_file() {
+        let dir = std::env::temp_dir().join(format!("anchor-crash-names-{}", std::process::id()));
+        let crash = dir.join(CRASH_DIR);
+        std::fs::create_dir_all(&crash).unwrap();
+        let log = InputLog::starting_at(7);
+        let now = clock::unix_now().unwrap();
+        let taken: Vec<PathBuf> = (now..=now + WRITE_SECONDS)
+            .map(|secs| crash.join(format!("input-{secs}-7.log")))
+            .collect();
+        for path in &taken {
+            std::fs::write(path, b"kept").unwrap();
+        }
+        let written = write_crash_log(&dir, &log).map_err(|e| e.kind());
+        let kept = taken
+            .iter()
+            .all(|path| std::fs::read(path).unwrap() == b"kept");
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(written, Err(std::io::ErrorKind::AlreadyExists));
+        assert!(kept, "a file was replaced");
     }
 
     /// A segment dropped for room is handed over once, not freed by the log.

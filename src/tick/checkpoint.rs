@@ -91,18 +91,18 @@ impl Writer {
         self.out.extend_from_slice(bytes);
     }
 
-    /// Text as a [`String`] writes it, without a copy.
+    /// Writes text as a [`String`] writes it, without a copy.
     pub(crate) fn text(&mut self, text: &str) {
         self.slice(text.as_bytes());
     }
 
-    /// A slice as a [`Vec`] writes it: its length, then its items ([`Codec::encode_all`]).
+    /// Writes a slice as a [`Vec`] writes it: its length, then its items ([`Codec::encode_all`]).
     pub(crate) fn slice<T: Codec>(&mut self, items: &[T]) {
         self.len(items.len());
         T::encode_all(items, self);
     }
 
-    /// A collection's length.
+    /// Writes a collection's length.
     pub(crate) fn len(&mut self, n: usize) {
         n.encode(self);
     }
@@ -202,8 +202,8 @@ pub(crate) trait Codec: Sized {
 }
 
 /// Implements [`Codec`] for a struct field by field, naming every field: a field added later
-/// does not compile until it is named here. Fields after `;` are not kept: they are empty
-/// between ticks, and read back as their default.
+/// does not compile until it is named here. Fields after `;` are not written and are read back as
+/// their default; a comment at each says why.
 macro_rules! fields {
     ($ty:ty { $($field:ident),* $(,)? $(; $($skip:ident),* $(,)?)? }) => {
         impl $crate::tick::checkpoint::Codec for $ty {
@@ -272,6 +272,145 @@ macro_rules! variants {
 }
 pub(crate) use variants;
 
+/// The state at a tick boundary, as a replay starts from it ([`State::checkpoint`]).
+#[derive(Debug, Clone)]
+pub(crate) struct Checkpoint {
+    /// The engine tick of the state: the first tick a replay from it applies.
+    tick: u64,
+    /// The worlds the server had, loaded or not, by place: a replay makes the same ones.
+    worlds: Vec<super::world_api::WorldSlot>,
+    /// Each world's plain fields, by place.
+    saved: Vec<world::Saved>,
+    /// The rest of the state, encoded.
+    body: Vec<u8>,
+    /// Each world's light work and loaded chunks, by place, and the unloaded chunks
+    /// waiting for a commit: shared with the state until they change, encoded when a crash log
+    /// is written.
+    kept: Vec<world::Kept>,
+    unsaved: Vec<(Key, Chunk)>,
+    /// The operator list, the bans and the whitelist: shared with the state until they change,
+    /// encoded when a crash log is written.
+    access: Arc<Lists>,
+    /// What has no checkpoint form, if anything: a replay refuses the checkpoint then.
+    opaque: Option<String>,
+}
+
+impl Checkpoint {
+    /// Reads a written checkpoint with the server's custom content: its items, blocks and
+    /// entity types.
+    pub(crate) fn read(bytes: &[u8], custom: &Registry, entities: &Customs) -> Result<Self> {
+        let mut r = Reader::new(bytes, custom, entities);
+        let checkpoint = Self::decode(&mut r)?;
+        if r.is_empty() {
+            Ok(checkpoint)
+        } else {
+            Err(Error::Format("bytes after the checkpoint"))
+        }
+    }
+
+    /// The loaded chunks, whose terrain and extras a replay reads from the data files.
+    pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
+        self.worlds
+            .iter()
+            .zip(&self.saved)
+            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w.index, p)))
+    }
+
+    /// What has no checkpoint form, if anything.
+    pub(crate) fn opaque(&self) -> Option<&str> {
+        self.opaque.as_deref()
+    }
+
+    /// The seed of each world, by place.
+    pub(crate) fn seeds(&self) -> impl Iterator<Item = i64> + '_ {
+        self.saved.iter().map(|s| s.seed)
+    }
+
+    /// The bytes it holds or will encode to, about: what the input log charges for it. The body
+    /// counts by the room it holds, which its growth leaves up to twice its bytes.
+    pub(crate) fn size(&self) -> usize {
+        let kept: usize = self.kept.iter().map(world::Kept::size).sum();
+        let positions: usize = self.saved.iter().map(|s| s.loaded.len()).sum();
+        let unsaved = self
+            .unsaved
+            .iter()
+            .map(|(_, c)| terrain_size(c))
+            .fold(0, usize::saturating_add);
+        self.body
+            .capacity()
+            .saturating_add(kept)
+            .saturating_add(self.access.len().saturating_mul(ACCESS_ENTRY_BYTES))
+            .saturating_add(unsaved)
+            .saturating_add(positions.saturating_mul(POSITION_BYTES))
+    }
+
+    /// The engine tick of the state.
+    pub(crate) fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the data files.
+    pub(crate) fn unsaved(&self) -> impl Iterator<Item = Key> + '_ {
+        self.unsaved.iter().map(|(k, _)| *k)
+    }
+
+    /// The worlds the server had, loaded or not, by place.
+    pub(crate) fn worlds(&self) -> &[super::world_api::WorldSlot] {
+        &self.worlds
+    }
+
+    /// The checkpoint's written form.
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        let mut w = Writer::default();
+        self.encode(&mut w);
+        w.out
+    }
+}
+
+fields!(Checkpoint {
+    tick,
+    worlds,
+    saved,
+    body,
+    kept,
+    unsaved,
+    access,
+    opaque,
+});
+
+/// What a restore reads the chunks with: the terrain the checkpoint kept of the unloaded chunks
+/// waiting for a commit, and the raw extras of every chunk it names, which the data files or the
+/// generator gives ([`Checkpoint::loaded`], [`Checkpoint::unsaved`]).
+#[derive(Debug, Default)]
+pub(crate) struct Ground {
+    pub(crate) chunks: BTreeMap<Key, Chunk>,
+    pub(crate) extras: BTreeMap<Key, ChunkExtras>,
+}
+
+/// A float or a list of floats as NBT keeps it: by its bits, whatever they are (a NaN in an
+/// item's unknown tag too), where the state's own floats are finite ([`Codec`] for `f64`).
+trait Bits: Sized {
+    fn bits(r: &mut Reader<'_>) -> Result<Self>;
+}
+
+impl Bits for f32 {
+    fn bits(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self::from_bits(u32::decode(r)?))
+    }
+}
+
+impl Bits for f64 {
+    fn bits(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self::from_bits(u64::decode(r)?))
+    }
+}
+
+impl<T: Bits> Bits for Vec<T> {
+    fn bits(r: &mut Reader<'_>) -> Result<Self> {
+        list(r, T::bits)
+    }
+}
+
 macro_rules! integers {
     ($($ty:ty),*) => {
         $(
@@ -305,8 +444,12 @@ impl Codec for u8 {
 }
 
 impl Codec for usize {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: usize is at most 64 bits on every supported platform"
+    )]
     fn encode(&self, w: &mut Writer) {
-        u64::try_from(*self).unwrap_or(u64::MAX).encode(w);
+        u64::try_from(*self).expect("usize fits in u64").encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -328,23 +471,29 @@ impl Codec for bool {
     }
 }
 
+/// A float of the state, which is finite (`CLAUDE.md`); NBT keeps any float ([`Bits`]).
 impl Codec for f32 {
     fn encode(&self, w: &mut Writer) {
         self.to_bits().encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Ok(Self::from_bits(u32::decode(r)?))
+        Some(Self::bits(r)?)
+            .filter(|v| v.is_finite())
+            .ok_or(Error::Format("float not finite"))
     }
 }
 
+/// A float of the state, which is finite (`CLAUDE.md`); NBT keeps any float ([`Bits`]).
 impl Codec for f64 {
     fn encode(&self, w: &mut Writer) {
         self.to_bits().encode(w);
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        Ok(Self::from_bits(u64::decode(r)?))
+        Some(Self::bits(r)?)
+            .filter(|v| v.is_finite())
+            .ok_or(Error::Format("float not finite"))
     }
 }
 
@@ -374,12 +523,7 @@ impl<T: Codec> Codec for Vec<T> {
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let n = r.len()?;
-        let mut out = Self::with_capacity(capacity::<T>(n, r.bytes.len()));
-        for _ in 0..n {
-            out.push(T::decode(r)?);
-        }
-        Ok(out)
+        list(r, T::decode)
     }
 }
 
@@ -493,13 +637,11 @@ impl<T: Codec, const N: usize> Codec for [T; N] {
 }
 
 macro_rules! tuples {
-    ($(($($name:ident),+)),*) => {
+    ($(($($name:ident $index:tt),+)),*) => {
         $(
             impl<$($name: Codec),+> Codec for ($($name,)+) {
-                #[expect(non_snake_case, reason = "consistency: the type parameters name the parts")]
                 fn encode(&self, w: &mut Writer) {
-                    let ($($name,)+) = self;
-                    $( $name.encode(w); )+
+                    $( self.$index.encode(w); )+
                 }
 
                 fn decode(r: &mut Reader<'_>) -> Result<Self> {
@@ -510,7 +652,7 @@ macro_rules! tuples {
     };
 }
 
-tuples!((A, B), (A, B, C), (A, B, C, D));
+tuples!((A 0, B 1), (A 0, B 1, C 2), (A 0, B 1, C 2, D 3));
 
 fields!(Vec3 { x, y, z });
 fields!(BlockPos { x, y, z });
@@ -932,19 +1074,23 @@ impl Codec for crate::item::Type {
 }
 
 /// Implements [`Codec`] for an NBT enum: a tag byte per variant; the variants that hold
-/// compounds or lists read one nesting level deeper.
+/// compounds or lists read one nesting level deeper, those that hold floats read their bits
+/// ([`Bits`]).
 macro_rules! nbt_codec {
     ($ty:ty, $what:literal {
-        $($tag:literal => $variant:ident $( ( $flat:ident ) )? $( [ $deep:ident ] )?),* $(,)?
+        $($tag:literal => $variant:ident
+            $( ( $flat:ident ) )? $( [ $deep:ident ] )? $( < $bits:ident > )?
+        ),* $(,)?
     }) => {
         impl Codec for $ty {
             fn encode(&self, w: &mut Writer) {
                 match self {
                     $(
-                        Self::$variant $( ( $flat ) )? $( ( $deep ) )? => {
+                        Self::$variant $( ( $flat ) )? $( ( $deep ) )? $( ( $bits ) )? => {
                             w.u8($tag);
                             $( $flat.encode(w); )?
                             $( $deep.encode(w); )?
+                            $( $bits.encode(w); )?
                         }
                     )*
                 }
@@ -955,7 +1101,8 @@ macro_rules! nbt_codec {
                     $(
                         $tag => Self::$variant
                             $( ( nbt_codec!(@flat r $flat) ) )?
-                            $( ( nbt_codec!(@deep r $deep) ) )?,
+                            $( ( nbt_codec!(@deep r $deep) ) )?
+                            $( ( nbt_codec!(@bits r $bits) ) )?,
                     )*
                     _ => return Err(Error::Format($what)),
                 })
@@ -968,6 +1115,9 @@ macro_rules! nbt_codec {
     (@deep $r:ident $v:ident) => {
         $r.nested(Codec::decode)?
     };
+    (@bits $r:ident $v:ident) => {
+        Bits::bits($r)?
+    };
 }
 
 nbt_codec!(nbt::Value, "nbt value" {
@@ -975,8 +1125,8 @@ nbt_codec!(nbt::Value, "nbt value" {
     1 => Short(v),
     2 => Int(v),
     3 => Long(v),
-    4 => Float(v),
-    5 => Double(v),
+    4 => Float<v>,
+    5 => Double<v>,
     6 => ByteArray(v),
     7 => String(v),
     8 => List[v],
@@ -991,8 +1141,8 @@ nbt_codec!(nbt::List, "nbt list" {
     2 => Short(v),
     3 => Int(v),
     4 => Long(v),
-    5 => Float(v),
-    6 => Double(v),
+    5 => Float<v>,
+    6 => Double<v>,
     7 => ByteArray(v),
     8 => String(v),
     9 => List[v],
@@ -1007,121 +1157,6 @@ variants!(super::Phase {
     2 => Spawning,
     3 => Spawned,
 });
-
-/// The state at a tick boundary, as a replay starts from it ([`State::checkpoint`]).
-#[derive(Debug, Clone)]
-pub(crate) struct Checkpoint {
-    /// The engine tick of the state: the first tick a replay from it applies.
-    tick: u64,
-    /// The worlds the server had, loaded or not, by place: a replay makes the same ones.
-    worlds: Vec<super::world_api::WorldSlot>,
-    /// Each world's plain fields, by place.
-    saved: Vec<world::Saved>,
-    /// The rest of the state, encoded.
-    body: Vec<u8>,
-    /// Each world's light work and loaded chunks, by place, and the unloaded chunks
-    /// waiting for a commit: shared with the state until they change, encoded when a crash log
-    /// is written.
-    kept: Vec<world::Kept>,
-    unsaved: Vec<(Key, Chunk)>,
-    /// The operator list, the bans and the whitelist: shared with the state until they change,
-    /// encoded when a crash log is written.
-    access: Arc<Lists>,
-    /// What has no checkpoint form, if anything: a replay refuses the checkpoint then.
-    opaque: Option<String>,
-}
-
-impl Checkpoint {
-    /// Reads a written checkpoint with the server's custom content: its items, blocks and
-    /// entity types.
-    pub(crate) fn read(bytes: &[u8], custom: &Registry, entities: &Customs) -> Result<Self> {
-        let mut r = Reader::new(bytes, custom, entities);
-        let checkpoint = Self::decode(&mut r)?;
-        if r.is_empty() {
-            Ok(checkpoint)
-        } else {
-            Err(Error::Format("bytes after the checkpoint"))
-        }
-    }
-
-    /// The loaded chunks, whose terrain and extras a replay reads from the data files.
-    pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
-        self.worlds
-            .iter()
-            .zip(&self.saved)
-            .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w.index, p)))
-    }
-
-    /// What has no checkpoint form, if anything.
-    pub(crate) fn opaque(&self) -> Option<&str> {
-        self.opaque.as_deref()
-    }
-
-    /// The seed of each world, by place.
-    pub(crate) fn seeds(&self) -> impl Iterator<Item = i64> + '_ {
-        self.saved.iter().map(|s| s.seed)
-    }
-
-    /// The bytes it holds or will encode to, about: what the input log charges for it. The body
-    /// counts by the room it holds, which its growth leaves up to twice its bytes.
-    pub(crate) fn size(&self) -> usize {
-        let kept: usize = self.kept.iter().map(world::Kept::size).sum();
-        let positions: usize = self.saved.iter().map(|s| s.loaded.len()).sum();
-        let unsaved = self
-            .unsaved
-            .iter()
-            .map(|(_, c)| terrain_size(c))
-            .fold(0, usize::saturating_add);
-        self.body
-            .capacity()
-            .saturating_add(kept)
-            .saturating_add(self.access.len().saturating_mul(ACCESS_ENTRY_BYTES))
-            .saturating_add(unsaved)
-            .saturating_add(positions.saturating_mul(POSITION_BYTES))
-    }
-
-    /// The engine tick of the state.
-    pub(crate) fn tick(&self) -> u64 {
-        self.tick
-    }
-
-    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the data files.
-    pub(crate) fn unsaved(&self) -> impl Iterator<Item = Key> + '_ {
-        self.unsaved.iter().map(|(k, _)| *k)
-    }
-
-    /// The worlds the server had, loaded or not, by place.
-    pub(crate) fn worlds(&self) -> &[super::world_api::WorldSlot] {
-        &self.worlds
-    }
-
-    /// The checkpoint's written form.
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        let mut w = Writer::default();
-        self.encode(&mut w);
-        w.out
-    }
-}
-
-fields!(Checkpoint {
-    tick,
-    worlds,
-    saved,
-    body,
-    kept,
-    unsaved,
-    access,
-    opaque,
-});
-
-/// What a restore reads the chunks with: the terrain the checkpoint kept of the unloaded chunks
-/// waiting for a commit, and the raw extras of every chunk it names, which the data files or the
-/// generator gives ([`Checkpoint::loaded`], [`Checkpoint::unsaved`]).
-#[derive(Debug, Default)]
-pub(crate) struct Ground {
-    pub(crate) chunks: BTreeMap<Key, Chunk>,
-    pub(crate) extras: BTreeMap<Key, ChunkExtras>,
-}
 
 impl State {
     /// The state as a replay starts from it. Every field is named, as in `State::hash`: the indexes
@@ -1231,10 +1266,11 @@ impl State {
         mut outbound: impl FnMut(SessionId) -> mpsc::Sender<Outbound>,
     ) -> Result<()> {
         let Checkpoint {
-            tick,
+            // `restore_body` reads the tick and the body.
+            tick: _,
             worlds,
             saved,
-            body,
+            body: _,
             kept,
             unsaved,
             access,
@@ -1268,15 +1304,7 @@ impl State {
         };
         let custom = Arc::clone(&self.custom);
         let entities = self.rules.entities.take_customs();
-        let result = self.restore_body(
-            *tick,
-            body,
-            worlds,
-            &mut ground,
-            &mut outbound,
-            &custom,
-            &entities,
-        );
+        let result = self.restore_body(checkpoint, &mut ground, &mut outbound, &custom, &entities);
         self.rules.entities.set_customs(entities);
         result?;
         self.commands.restore_access_lists(Arc::clone(access));
@@ -1288,22 +1316,16 @@ impl State {
         Ok(())
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "consistency: the parts of a checkpoint the body reads with, each named"
-    )]
     fn restore_body(
         &mut self,
-        tick: u64,
-        body: &[u8],
-        worlds: &[super::world_api::WorldSlot],
+        checkpoint: &Checkpoint,
         ground: &mut Ground,
         outbound: &mut impl FnMut(SessionId) -> mpsc::Sender<Outbound>,
         custom: &Registry,
         entities: &Customs,
     ) -> Result<()> {
-        let mut r = Reader::new(body, custom, entities);
-        self.tick = tick;
+        let mut r = Reader::new(&checkpoint.body, custom, entities);
+        self.tick = checkpoint.tick;
         self.settings.game_mode = Codec::decode(&mut r)?;
         self.settings.difficulty = Codec::decode(&mut r)?;
         self.settings.max_players = Codec::decode(&mut r)?;
@@ -1320,6 +1342,11 @@ impl State {
             let player = decode_player(&mut pr, session, &self.data, outbound(session))?;
             if !pr.is_empty() {
                 return Err(Error::Format("bytes after a player"));
+            }
+            // Every player is in a world the server has (`save::data_of`); the worlds have the
+            // checkpoint's indexes by now.
+            if self.worlds.get(player.world).is_none() {
+                return Err(Error::Format("a player's world"));
             }
             players.push((session, player));
         }
@@ -1342,7 +1369,7 @@ impl State {
         self.clock = Codec::decode(&mut r)?;
         self.trades = Codec::decode(&mut r)?;
         self.skin_budget = Codec::decode(&mut r)?;
-        self.catalog.restore(&mut r, worlds)?;
+        self.catalog.restore(&mut r, &checkpoint.worlds)?;
         self.network.restore(Codec::decode(&mut r)?);
         if r.is_empty() {
             Ok(())
@@ -1352,7 +1379,20 @@ impl State {
     }
 }
 
-/// A player as the body keeps it: every field but the session (the map's key), the key (its
+/// A list as [`Writer::slice`] writes it, each item read with `item`.
+fn list<T>(
+    r: &mut Reader<'_>,
+    mut item: impl FnMut(&mut Reader<'_>) -> Result<T>,
+) -> Result<Vec<T>> {
+    let n = r.len()?;
+    let mut out = Vec::with_capacity(capacity::<T>(n, r.bytes.len()));
+    for _ in 0..n {
+        out.push(item(r)?);
+    }
+    Ok(out)
+}
+
+/// Writes a player as the body keeps it: every field but the session (the map's key), the key (its
 /// identity's again), the outbound queue (a replay gives a new one) and what is empty between
 /// ticks (the output, the outboxes and the overflow mark, whose player is gone by then).
 fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
@@ -1433,10 +1473,10 @@ fn decode_player(
     })
 }
 
-/// The room to reserve for `n` items of `T` read from `bytes_left` bytes (here and in the input
-/// log): counts are checked against the bytes left, but an item in memory can be larger than its
-/// smallest written form, so the reservation is bounded by the bytes left as well.
-pub(crate) fn capacity<T>(n: usize, bytes_left: usize) -> usize {
+/// The room to reserve for `n` items of `T` read from `bytes_left` bytes: counts are checked
+/// against the bytes left, but an item in memory can be larger than its smallest written form,
+/// so the reservation is bounded by the bytes left as well.
+fn capacity<T>(n: usize, bytes_left: usize) -> usize {
     n.min(bytes_left / size_of::<T>().max(1))
 }
 
@@ -1470,6 +1510,21 @@ pub(crate) fn read_skin(bytes: &[u8]) -> crate::protocol::Result<Skin> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
+    use crate::event::Listeners;
+    use crate::storage::MAX_WORLDS;
+    use crate::tick::Output;
+    use crate::tick::tests::{join, new_state, settings, tick};
+
+    thread_local! {
+        /// The process's committed memory while the last [`Big`] was decoded.
+        static COMMITTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// The changed copies of a checkpoint a test reads.
+    const FUZZ_CASES: usize = 500;
+    /// The most lengths a test cuts a checkpoint at.
+    const MAX_CUTS: usize = 512;
 
     /// The raw extras the data files hold for `state`'s chunks right after a snapshot.
     pub(in crate::tick) fn extras_of(state: &State) -> BTreeMap<Key, ChunkExtras> {
@@ -1536,11 +1591,6 @@ pub(super) mod tests {
         true
     }
 
-    thread_local! {
-        /// The process's committed memory while the last [`Big`] was decoded.
-        static COMMITTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    }
-
     /// The memory the process has committed (Windows) or mapped.
     #[expect(
         clippy::disallowed_methods,
@@ -1586,5 +1636,87 @@ pub(super) mod tests {
         assert_eq!(read_skin(&bytes).unwrap(), Skin::default());
         bytes.push(0);
         assert!(read_skin(&bytes).is_err());
+    }
+
+    /// The state's floats are finite, so a checkpoint float that is not is refused.
+    #[test]
+    fn a_float_that_is_not_finite_is_refused() {
+        let custom = Registry::default();
+        let entities = Customs::default();
+        for float in [f64::NAN, f64::INFINITY] {
+            let mut w = Writer::default();
+            float.encode(&mut w);
+            let read = f64::decode(&mut Reader::new(&w.out, &custom, &entities));
+            assert!(read.is_err(), "{float} reads back as {read:?}");
+        }
+        let mut w = Writer::default();
+        f32::NAN.encode(&mut w);
+        let read = f32::decode(&mut Reader::new(&w.out, &custom, &entities));
+        assert!(read.is_err(), "a NaN reads back as {read:?}");
+    }
+
+    /// NBT holds any float, an item's unknown tag a NaN too, so a checkpoint keeps an NBT float's
+    /// bits.
+    #[test]
+    fn nbt_floats_keep_their_bits() {
+        let custom = Registry::default();
+        let entities = Customs::default();
+        for value in [
+            nbt::Value::Float(f32::NAN),
+            nbt::Value::List(nbt::List::Double(vec![f64::NAN, f64::INFINITY])),
+        ] {
+            let mut w = Writer::default();
+            value.encode(&mut w);
+            let read = nbt::Value::decode(&mut Reader::new(&w.out, &custom, &entities))
+                .expect("an nbt float reads back");
+            let mut again = Writer::default();
+            read.encode(&mut again);
+            assert_eq!(again.out, w.out);
+        }
+    }
+
+    /// A checkpoint whose player is in a world the server does not have is refused, not left for
+    /// the player's next save to find.
+    #[test]
+    fn a_checkpoint_of_a_player_in_a_world_the_server_lacks_is_refused() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let (joining, _rx) = join(1, 0);
+        tick(&mut state, &mut vec![joining], &mut Output::default());
+        let player = state
+            .players
+            .get_mut(&SessionId::new(1))
+            .expect("the player joined");
+        // An index of the default world's place that no world of the server has.
+        player.world = MAX_WORLDS;
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let checkpoint = state.checkpoint(&pool);
+        assert!(pool.shutdown());
+        let mut fresh = new_state(settings(|_| {}), Listeners::default());
+        let restored = fresh.restore(&checkpoint, extras_of(&state), |_| outbound_queue_sender());
+        assert_eq!(restored, Err(Error::Format("a player's world")));
+    }
+
+    /// Checkpoint bytes cut short are refused, and changed ones are refused or read, never a
+    /// panic.
+    #[test]
+    fn broken_checkpoint_bytes_never_panic() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let (joining, _rx) = join(1, 0);
+        tick(&mut state, &mut vec![joining], &mut Output::default());
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let bytes = state.checkpoint(&pool).to_bytes();
+        assert!(pool.shutdown());
+        let custom = Registry::default();
+        let entities = Customs::default();
+        assert!(Checkpoint::read(&bytes, &custom, &entities).is_ok());
+        for len in (0..bytes.len()).step_by(bytes.len().div_ceil(MAX_CUTS)) {
+            let read = Checkpoint::read(&bytes[..len], &custom, &entities);
+            assert!(read.is_err(), "cut at {len}");
+        }
+        crate::protocol::fuzz(&bytes, FUZZ_CASES, |b| {
+            Checkpoint::read(b, &custom, &entities)
+                .map(drop)
+                .map_err(|_| crate::protocol::Error::Size)
+        });
     }
 }

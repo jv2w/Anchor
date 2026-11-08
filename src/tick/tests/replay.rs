@@ -10,10 +10,11 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use super::packet;
+use super::*;
 use crate::config::Config;
 use crate::event::{Command, Listeners, Priority};
 use crate::math::Vec3;
+use crate::nbt::{Compound, List, Value};
 use crate::protocol::Uuid;
 use crate::protocol::packet::{Packet, RequestChunkRadius, SetLocalPlayerAsInitialised};
 use crate::replay::{End, Error};
@@ -536,6 +537,20 @@ fn held_commit(dir: &Path, plan: Plan, ticks: u64, held: u64) -> (PathBuf, Hashe
     (path, drain(&mut sent))
 }
 
+/// Writes the bytes of a crash log changed in place to `path`, with the log's checksum (the
+/// CRC-32C of its last 4 bytes) made right again.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test writes a file of its data folder"
+)]
+fn write_resealed(path: &Path, mut bytes: Vec<u8>) {
+    let at = bytes.len() - 4;
+    let mut crc = crate::storage::seal::Crc32c::new();
+    crc.update(&bytes[..at]);
+    bytes[at..].copy_from_slice(&crc.finish().to_le_bytes());
+    std::fs::write(path, bytes).unwrap();
+}
+
 #[test]
 fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
     let dir = fresh("held");
@@ -554,6 +569,30 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
         .collect();
     assert_eq!(starts, [0, 11, 26]);
     assert_eq!(crate::save::committed_tick(&dir).unwrap(), 26);
+    // The same log with its last segment marked truncated (its start, its committed and
+    // truncated marks, its identity flag) replays the same ticks and ends there as truncated.
+    let mut bytes = read(&log);
+    let mut header = 26_u64.to_le_bytes().to_vec();
+    header.extend_from_slice(&[0, 0, 1]);
+    let at = bytes
+        .windows(header.len())
+        .position(|w| w == header)
+        .expect("the log holds the segment of tick 26");
+    bytes[at + 9] = 1;
+    let truncated = dir.join("truncated.log");
+    write_resealed(&truncated, bytes);
+    let marks: Vec<bool> = InputLog::decode(&read(&truncated))
+        .unwrap()
+        .segments()
+        .map(crate::tick::Segment::is_truncated)
+        .collect();
+    assert_eq!(marks, [false, false, true]);
+    let (result, replayed) = replay(&dir, &truncated, plan, 0, &Config::default());
+    let ended = result.unwrap();
+    assert_eq!(ended.base_tick(), 26);
+    assert_eq!(ended.end(), &End::Truncated);
+    assert_eq!((ended.last_tick(), ended.ticks()), (Some(39), 14));
+    assert_eq!(replayed, from(&live, 26));
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
     assert_eq!(
@@ -581,7 +620,6 @@ fn first_chest(pos: ChunkPos) -> BlockPos {
 /// The commit that puts the tour's chunks in the file: the 3 by 3 chunks around each stop, each
 /// with chests full of sticks, a dropped stick, a pig and an orb.
 fn tour_fixture(world: &crate::world::World) -> crate::save::Snapshot {
-    use crate::nbt::{Compound, List, Value};
     let chest = crate::block::Kind::Chest.default_state();
     let sticks =
         |count: u8| crate::item::Stack::new(crate::item::Kind::Stick.default_type(), count);
@@ -853,5 +891,32 @@ fn a_chunk_loading_tour_replays_to_the_same_states_on_one_and_four_threads() {
         }
         assert_eq!(replayed, seen, "{cpu} threads");
     }
+    // The same log with the checksum of a chunk the last stop read from the file changed: the
+    // chunk the replay reads is not the logged one. A chunk answer is its tag (0), its world
+    // index, its position, its origin (0, the file) and its checksum.
+    let mut bytes = read(&log);
+    let last = stop(STOPS - 1);
+    let mut answer = vec![0; 5];
+    answer.extend_from_slice(&last.x.to_le_bytes());
+    answer.extend_from_slice(&last.z.to_le_bytes());
+    answer.push(0);
+    let at = bytes
+        .windows(answer.len())
+        .rposition(|w| w == answer)
+        .expect("the log holds the answer of the last stop's chunk");
+    bytes[at + answer.len()] ^= 1;
+    let changed = dir.join("changed.log");
+    write_resealed(&changed, bytes);
+    let (hashes, _sent) = mpsc::channel(4096);
+    let (seen_tx, _seen_rx) = mpsc::channel(4096);
+    let result = crate::replay::run(
+        &Config::default(),
+        &dir,
+        ThreadCounts { network: 1, cpu: 1 },
+        tour_setup(hashes, seen_tx),
+        &specs(),
+        &changed,
+    );
+    assert!(matches!(result, Err(Error::Diverged { .. })), "{result:?}");
     remove(&dir);
 }
