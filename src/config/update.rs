@@ -114,10 +114,11 @@ fn edit(text: &str) -> Result<(String, Update)> {
             edits.push(edit);
         }
     };
-    // Unknown tables stay for the build to reject.
+    // Unknown tables, under a header or inline, stay for the build to reject.
     for (key, value) in root {
         let name: &str = key.get_ref();
-        if name != "worlds" && !sections.iter().any(|s| s.name == name) {
+        let is_table = value.get_ref().as_table().is_some();
+        if name != "worlds" && !is_table && !sections.iter().any(|s| s.name == name) {
             remove(&mut edits, "", key, value);
         }
     }

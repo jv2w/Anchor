@@ -1262,6 +1262,13 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
         "]\r\n# true: players must accept the resource packs to join.\r\n\
          force-resources = false\r\nlog-level = \"warn\"\r\n"
     ));
+
+    // An unknown table written inline stays as one under its header does, for the build to
+    // reject.
+    let text = format!("plugin = {{ answer = 42 }}\n{}", default_file());
+    let (update, updated) = write_and_update(&file, &text);
+    assert!(update.removed().is_empty(), "{:?}", update.removed());
+    assert_eq!(updated, text);
 }
 
 #[test]
