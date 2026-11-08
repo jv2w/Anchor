@@ -73,6 +73,22 @@ impl Auth {
         Self::start_from(source, clock).await
     }
 
+    /// Verifies with the newest keys, and again with refreshed keys after an unknown `kid`.
+    /// `is_unknown_key_id` says whether a failure is one. `None` when the refresh task is gone.
+    /// The wait for the refresh has the bound of [`Auth::refresh_keys`].
+    pub(crate) async fn verify_with_refresh<T, E>(
+        &self,
+        verify: impl Fn(&Keys) -> Result<T, E>,
+        is_unknown_key_id: impl Fn(&E) -> bool,
+    ) -> Option<Result<T, E>> {
+        match verify(&self.keys()) {
+            Err(e) if is_unknown_key_id(&e) => {}
+            verified => return Some(verified),
+        }
+        let keys = self.refresh_keys().await?;
+        Some(verify(&keys))
+    }
+
     /// The newest keys.
     pub(crate) fn keys(&self) -> Arc<Keys> {
         Arc::clone(&self.keys.borrow())
@@ -91,22 +107,6 @@ impl Auth {
         // A full queue means a request is pending, and its answer wakes this waiter too.
         keys.changed().await.ok()?;
         Some(Arc::clone(&keys.borrow_and_update()))
-    }
-
-    /// Verifies with the newest keys, and again with refreshed keys after an unknown `kid`.
-    /// `is_unknown_key_id` says whether a failure is one. `None` when the refresh task is gone.
-    /// The wait for the refresh has the bound of [`Auth::refresh_keys`].
-    pub(crate) async fn verify_with_refresh<T, E>(
-        &self,
-        verify: impl Fn(&Keys) -> Result<T, E>,
-        is_unknown_key_id: impl Fn(&E) -> bool,
-    ) -> Option<Result<T, E>> {
-        match verify(&self.keys()) {
-            Err(e) if is_unknown_key_id(&e) => {}
-            verified => return Some(verified),
-        }
-        let keys = self.refresh_keys().await?;
-        Some(verify(&keys))
     }
 
     async fn start_from(source: Source, clock: fn() -> i64) -> Result<Self> {

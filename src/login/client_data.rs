@@ -12,7 +12,7 @@ use crate::crypto::{
 };
 use crate::entity::{MAX_SKIN_BYTES, NO_CUSTOM_GEOMETRY};
 use crate::math::to_f32;
-use crate::protocol::consts::{ArmSize, PieceType};
+use crate::protocol::consts::{ArmSize, DeviceOs, PieceType};
 use crate::protocol::{self, Rgba};
 use crate::tick::queue::Skin;
 
@@ -84,86 +84,73 @@ const TINT_PROTOCOL_NAMES: [(&str, &str); 7] = [
 #[serde(default, rename_all = "PascalCase")]
 pub(crate) struct ClientData {
     #[serde(deserialize_with = "bounded_vec::<_, _, MAX_ANIMATIONS>")]
-    pub(crate) animated_image_data: Vec<SkinAnimation>,
-    pub(crate) cape_data: String,
-    pub(crate) cape_id: String,
-    pub(crate) cape_image_height: i64,
-    pub(crate) cape_image_width: i64,
-    pub(crate) cape_on_classic_skin: bool,
+    animated_image_data: Vec<SkinAnimation>,
+    cape_data: String,
+    cape_id: String,
+    cape_image_height: i64,
+    cape_image_width: i64,
+    cape_on_classic_skin: bool,
     pub(crate) client_random_id: i64,
     pub(crate) current_input_mode: i64,
-    pub(crate) default_input_mode: i64,
+    default_input_mode: i64,
     pub(crate) device_model: String,
     #[serde(rename = "DeviceOS")]
     pub(crate) device_os: i32,
     pub(crate) device_id: String,
     pub(crate) game_version: String,
-    pub(crate) gui_scale: i64,
-    pub(crate) filter_profanity: bool,
-    pub(crate) client_editor_connection_intent: i64,
-    pub(crate) client_is_editor_capable: bool,
+    gui_scale: i64,
+    filter_profanity: bool,
+    client_editor_connection_intent: i64,
+    client_is_editor_capable: bool,
     pub(crate) language_code: String,
-    pub(crate) persona_skin: bool,
-    pub(crate) platform_offline_id: String,
-    pub(crate) platform_online_id: String,
-    pub(crate) platform_user_id: String,
-    pub(crate) premium_skin: bool,
+    persona_skin: bool,
+    platform_offline_id: String,
+    platform_online_id: String,
+    platform_user_id: String,
+    premium_skin: bool,
     pub(crate) self_signed_id: String,
     pub(crate) server_address: String,
-    pub(crate) skin_animation_data: String,
-    pub(crate) skin_data: String,
+    skin_animation_data: String,
+    skin_data: String,
     #[serde(rename = "SkinGeometryData")]
-    pub(crate) skin_geometry: String,
+    skin_geometry: String,
     #[serde(rename = "SkinGeometryDataEngineVersion")]
-    pub(crate) skin_geometry_version: String,
-    pub(crate) skin_id: String,
+    skin_geometry_version: String,
+    pub(super) skin_id: String,
     #[serde(rename = "PlayFabId")]
-    pub(crate) playfab_id: String,
-    pub(crate) skin_image_height: i64,
-    pub(crate) skin_image_width: i64,
-    pub(crate) skin_resource_patch: String,
+    playfab_id: String,
+    skin_image_height: i64,
+    skin_image_width: i64,
+    skin_resource_patch: String,
     #[serde(rename = "SkinColor")]
-    pub(crate) skin_colour: String,
-    pub(crate) arm_size: String,
+    skin_colour: String,
+    arm_size: String,
     #[serde(deserialize_with = "bounded_vec::<_, _, MAX_PIECES>")]
-    pub(crate) persona_pieces: Vec<PersonaPiece>,
+    persona_pieces: Vec<PersonaPiece>,
     #[serde(
         rename = "PieceTintColors",
         deserialize_with = "bounded_vec::<_, _, MAX_PIECES>"
     )]
-    pub(crate) piece_tint_colours: Vec<PersonaPieceTintColour>,
-    pub(crate) third_party_name: String,
-    pub(crate) third_party_name_only: Option<bool>,
+    piece_tint_colours: Vec<PersonaPieceTintColour>,
+    third_party_name: String,
+    third_party_name_only: Option<bool>,
     #[serde(rename = "UIProfile")]
-    pub(crate) ui_profile: i64,
-    pub(crate) trusted_skin: bool,
-    pub(crate) override_skin: bool,
-    pub(crate) compatible_with_client_side_chunk_gen: bool,
-    pub(crate) max_view_distance: i64,
-    pub(crate) memory_tier: i64,
-    pub(crate) platform_type: i64,
-    pub(crate) graphics_mode: i64,
-    pub(crate) party_id: String,
+    ui_profile: i64,
+    trusted_skin: bool,
+    override_skin: bool,
+    compatible_with_client_side_chunk_gen: bool,
+    max_view_distance: i64,
+    memory_tier: i64,
+    platform_type: i64,
+    graphics_mode: i64,
+    party_id: String,
     #[serde(rename = "IsPartyLeader")]
-    pub(crate) party_leader: bool,
-    pub(crate) profile_hash: String,
-    pub(crate) nonce: String,
+    party_leader: bool,
+    profile_hash: String,
+    nonce: String,
 }
 
 impl ClientData {
-    /// Verifies the client data JWT with the client's key and validates the claims.
-    pub(crate) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
-        let jws = parse_jws(token, token.len()).map_err(|source| Error::Crypto {
-            part: "client data",
-            source,
-        })?;
-        if jws.header.alg != Algorithm::Es384 {
-            return Err(Error::Algorithm("client data"));
-        }
-        verify_jws(&jws, Verifier::Es384(key)).map_err(|_| Error::Signature("client data"))?;
-        Self::from_json(&jws.payload)
-    }
-
     /// Parses and validates the claims JSON.
     pub(super) fn from_json(payload: &[u8]) -> Result<Self> {
         let mut data: Self = serde_json::from_slice(payload).map_err(|source| Error::Json {
@@ -182,7 +169,7 @@ impl ClientData {
     /// geometry or the resource patch is not a JSON object or null (gophertunnel
     /// `ClientData.Validate`), an image dimension or animation number is out of range, or the skin
     /// is not acceptable ([`Skin::is_acceptable`]).
-    pub(crate) fn skin(&self) -> Result<Skin> {
+    pub(super) fn skin(&self) -> Result<Skin> {
         // Decoding allocates at most the bound; the texts are counted with the skin after.
         let mut budget = MAX_SKIN_BYTES;
         let mut decode = |text: &str| {
@@ -267,13 +254,26 @@ impl ClientData {
         Ok(skin)
     }
 
+    /// Verifies the client data JWT with the client's key and validates the claims.
+    pub(super) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
+        let jws = parse_jws(token, token.len()).map_err(|source| Error::Crypto {
+            part: "client data",
+            source,
+        })?;
+        if jws.header.alg != Algorithm::Es384 {
+            return Err(Error::Algorithm("client data"));
+        }
+        verify_jws(&jws, Verifier::Es384(key)).map_err(|_| Error::Signature("client data"))?;
+        Self::from_json(&jws.payload)
+    }
+
     /// Checks the claims as gophertunnel `ClientData.Validate` does, with its defects fixed: the
     /// version pattern applies to every character, the language code is checked for BCP 47 form
     /// without a registry, and the server address is checked for form instead of being resolved
     /// through DNS. The geometry and the resource patch are checked where [`skin`](Self::skin)
     /// decodes them.
     fn validate(&self) -> Result<()> {
-        if !(1..=15).contains(&self.device_os) {
+        if !DeviceOs::try_from(self.device_os).is_ok_and(|os| os != DeviceOs::Unknown) {
             return Err(Error::ClientData("DeviceOS"));
         }
         if self.device_id.len() > MAX_DEVICE_TEXT_BYTES {
@@ -367,33 +367,33 @@ impl ClientData {
 /// A piece of a persona skin.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
-pub(crate) struct PersonaPiece {
-    pub(crate) is_default: bool,
-    pub(crate) pack_id: String,
-    pub(crate) piece_id: String,
-    pub(crate) piece_type: String,
-    pub(crate) product_id: String,
+struct PersonaPiece {
+    is_default: bool,
+    pack_id: String,
+    piece_id: String,
+    piece_type: String,
+    product_id: String,
 }
 
 /// Tint colours of a persona piece (ARGB hex).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
-pub(crate) struct PersonaPieceTintColour {
+struct PersonaPieceTintColour {
     #[serde(rename = "Colors")]
-    pub(crate) colours: [String; 4],
-    pub(crate) piece_type: String,
+    colours: [String; 4],
+    piece_type: String,
 }
 
 /// A skin animation.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
-pub(crate) struct SkinAnimation {
-    pub(crate) frames: f64,
-    pub(crate) image: String,
-    pub(crate) image_height: i64,
-    pub(crate) image_width: i64,
-    pub(crate) r#type: i64,
-    pub(crate) animation_expression: i64,
+struct SkinAnimation {
+    frames: f64,
+    image: String,
+    image_height: i64,
+    image_width: i64,
+    r#type: i64,
+    animation_expression: i64,
 }
 
 /// The protocol's number of a login persona piece type (the login data says

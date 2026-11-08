@@ -2,7 +2,7 @@
 //!
 //! Rules (gophertunnel `minecraft/protocol/login`):
 //! - Online: only the `Token` (RS256 by the authorization service, JWKS key by `kid`) proves the
-//!   identity; the legacy chain is ignored.
+//!   identity; the legacy chain's links are parsed within their limits but never trusted.
 //! - Offline: the `Token` claims are read without verification when present, else the legacy
 //!   chain (first token self-signed through `x5u`). The XUID is always empty.
 //! - Both: the client data JWT is verified (ES384) with the `cpk` key and validated, but its
@@ -1284,7 +1284,7 @@ mod tests {
     }
 
     /// The goldens in `testdata/requests.json`.
-    /// They come from a throwaway Go module that requires the pinned gophertunnel:
+    /// They come from a Go module that requires the pinned gophertunnel:
     /// `login.EncodeOffline` (token and legacy forms) and `login.Encode` with a multiplayer token
     /// that a Go RSA test issuer signed (`kid`, `n`, `e`, `issuer` recorded), each parsed back
     /// with gophertunnel `login.Parse` for the expected identity. ECDSA signatures are randomized,

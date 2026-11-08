@@ -30,6 +30,11 @@ pub(crate) struct Issuer {
 }
 
 impl Issuer {
+    /// The shared issuer.
+    pub(crate) fn get() -> &'static Self {
+        SHARED_ISSUER.get_or_init(Self::generate)
+    }
+
     /// A new issuer with its own key (for "signed by another issuer" cases).
     pub(crate) fn generate() -> Self {
         #[expect(
@@ -40,11 +45,6 @@ impl Issuer {
         let (n, e) = rsa_public_numbers(key.public_key().as_ref());
         let (n, e) = (RAW_URL.encode(n), RAW_URL.encode(e));
         Self { key, n, e }
-    }
-
-    /// The shared issuer.
-    pub(crate) fn get() -> &'static Self {
-        SHARED_ISSUER.get_or_init(Self::generate)
     }
 
     /// The verification keys, as the authorization task would publish them.
