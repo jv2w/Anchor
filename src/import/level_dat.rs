@@ -1,6 +1,6 @@
 //! `level.dat`: the world's spawn and time.
 //!
-//! Layout: little-endian `i32` storage version, `i32` length of the rest, then one little-endian
+//! Layout: little-endian `i32` storage version, `u32` length of the rest, then one little-endian
 //! NBT root compound filling exactly that length. The version that counts is the
 //! `StorageVersion` tag (the official server writes 10 in both places), a world newer than
 //! [`STORAGE_VERSION`] is refused, and `NetworkVersion` must be at most the protocol Anchor
@@ -10,13 +10,14 @@ use super::{Error, Result};
 use crate::nbt::{Compound, Encoding, Value};
 use crate::protocol::Reader;
 use crate::protocol::packet::PROTOCOL_VERSION;
+use crate::world::{BlockPos, is_valid_spawn};
 // Decoding `level.dat` allocates within the data files' own budget.
 use crate::storage::seal::DECODE_BUDGET;
 
 /// The bytes of the header before the root compound: the storage version and the length.
-pub(crate) const HEADER_BYTES: usize = 8;
+pub(super) const HEADER_BYTES: usize = 8;
 /// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
-pub(crate) const SPAWN_Y_UNSET: i32 = 32_767;
+pub(super) const SPAWN_Y_UNSET: i32 = 32_767;
 /// The newest `StorageVersion` read.
 pub(crate) const STORAGE_VERSION: i32 = 10;
 
@@ -31,7 +32,7 @@ pub(crate) struct WorldData {
 }
 
 /// Reads `level.dat`.
-pub(crate) fn parse(bytes: &[u8]) -> Result<WorldData> {
+pub(super) fn parse(bytes: &[u8]) -> Result<WorldData> {
     let (header, body) = bytes
         .split_first_chunk::<HEADER_BYTES>()
         .ok_or(Error::Malformed("level.dat shorter than its header"))?;
@@ -69,12 +70,19 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<WorldData> {
             supported: PROTOCOL_VERSION.into(),
         });
     }
+    let spawn @ [x, y, z] = [
+        int(&root, "SpawnX", "level.dat has no int SpawnX")?,
+        int(&root, "SpawnY", "level.dat has no int SpawnY")?,
+        int(&root, "SpawnZ", "level.dat has no int SpawnZ")?,
+    ];
+    // Every start refuses a world record whose spawn is outside the world border.
+    if !is_valid_spawn(BlockPos::new(x, y, z)) {
+        return Err(Error::Malformed(
+            "level.dat spawn is outside the world border",
+        ));
+    }
     Ok(WorldData {
-        spawn: [
-            int(&root, "SpawnX", "level.dat has no int SpawnX")?,
-            int(&root, "SpawnY", "level.dat has no int SpawnY")?,
-            int(&root, "SpawnZ", "level.dat has no int SpawnZ")?,
-        ],
+        spawn,
         time: long(&root, "Time", "level.dat has no long Time")?,
     })
 }
@@ -94,13 +102,13 @@ fn long(root: &Compound, name: &str, missing: &'static str) -> Result<i64> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub(super) mod tests {
     use super::*;
 
     use crate::protocol::Writer;
 
     /// A `level.dat` holding `root`.
-    pub(crate) fn encode(root: &Compound) -> Vec<u8> {
+    pub(in crate::import) fn encode(root: &Compound) -> Vec<u8> {
         let mut w = Writer::new(Vec::new(), 0);
         w.nbt(root, Encoding::LittleEndian).unwrap();
         let body = w.into_inner();
@@ -110,7 +118,8 @@ pub(crate) mod tests {
         out
     }
 
-    pub(crate) fn root() -> Compound {
+    /// A `level.dat` root compound with every field the import reads.
+    pub(in crate::import) fn root() -> Compound {
         Compound::from([
             ("StorageVersion".to_owned(), Value::Int(10)),
             ("NetworkVersion".to_owned(), Value::Int(PROTOCOL_VERSION)),
@@ -179,6 +188,24 @@ pub(crate) mod tests {
             wrong.insert(field.to_owned(), Value::Short(1));
             assert!(
                 matches!(parse(&encode(&wrong)), Err(Error::Malformed(_))),
+                "{field}"
+            );
+        }
+    }
+
+    /// Every start refuses a world whose spawn is outside the world border, so the import refuses
+    /// it first.
+    #[test]
+    fn a_spawn_outside_the_world_border_is_refused() {
+        for (field, value) in [
+            ("SpawnX", crate::world::BORDER),
+            ("SpawnY", -crate::world::BORDER - 1),
+            ("SpawnZ", i32::MIN),
+        ] {
+            let mut far = root();
+            far.insert(field.to_owned(), Value::Int(value));
+            assert!(
+                matches!(parse(&encode(&far)), Err(Error::Malformed(_))),
                 "{field}"
             );
         }
