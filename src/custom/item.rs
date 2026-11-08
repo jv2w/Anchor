@@ -85,7 +85,7 @@ impl Item {
     }
 
     /// Why the definition cannot be registered, if it cannot.
-    pub(crate) fn check(&self) -> Option<&'static str> {
+    pub(super) fn check(&self) -> Option<&'static str> {
         if self.display_name.is_empty() || self.display_name.len() > Self::MAX_DISPLAY_NAME_BYTES {
             return Some("the display name is empty or longer than 256 bytes");
         }
@@ -134,13 +134,23 @@ impl Item {
     }
 
     /// Where it shows in the creative inventory.
-    pub(crate) fn creative_place(&self) -> Option<Creative> {
+    pub(super) fn creative_place(&self) -> Option<Creative> {
         self.creative
     }
 
     /// The name the client shows for it, such as `Ruby`.
     pub const fn display_name(&self) -> &'static str {
         self.display_name
+    }
+
+    /// The identifier, such as `example:ruby`.
+    pub const fn identifier(&self) -> &'static str {
+        self.identifier
+    }
+
+    /// The data row the rules read.
+    pub(crate) fn info(&'static self) -> &'static item::Info {
+        &self.info
     }
 
     /// The same item with the enchantment glint.
@@ -155,16 +165,6 @@ impl Item {
     pub const fn hand_equipped(mut self) -> Self {
         self.hand_equipped = true;
         self
-    }
-
-    /// The identifier, such as `example:ruby`.
-    pub const fn identifier(&self) -> &'static str {
-        self.identifier
-    }
-
-    /// The data row the rules read.
-    pub(crate) fn info(&'static self) -> &'static item::Info {
-        &self.info
     }
 
     /// The same item, allowed in the off-hand slot.
@@ -274,7 +274,7 @@ impl Item {
 
     /// The `ItemRegistry` data of the item: the item properties (icon, creative place, stack
     /// size and the flags), the display name, and the durability, wearable and food components.
-    pub(crate) fn to_components(&self) -> Compound {
+    pub(super) fn to_components(&self) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category, c.group.unwrap_or_default()),
             None => (Category::Items, ""),

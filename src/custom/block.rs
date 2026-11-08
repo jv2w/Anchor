@@ -137,7 +137,7 @@ impl Block {
     }
 
     /// Why the definition cannot be registered, if it cannot.
-    pub(crate) fn check(&self) -> Option<&'static str> {
+    pub(super) fn check(&self) -> Option<&'static str> {
         if self.properties.len() > Self::MAX_PROPERTIES {
             return Some("more than 16 properties");
         }
@@ -221,7 +221,7 @@ impl Block {
     }
 
     /// Where its item shows in the creative inventory.
-    pub(crate) fn creative_place(&self) -> Option<Creative> {
+    pub(super) fn creative_place(&self) -> Option<Creative> {
         self.creative
     }
 
@@ -237,7 +237,7 @@ impl Block {
 
     /// The block's `StartGame` entry properties: components, the creative menu, the block ID and
     /// the property list. `block_id` is the block's ID among the custom blocks' IDs.
-    pub(crate) fn entry_nbt(&'static self, block_id: i32) -> Compound {
+    pub(super) fn entry_nbt(&'static self, block_id: i32) -> Compound {
         let (category, group) = match self.creative {
             Some(c) => (c.category.name(), c.group.unwrap_or_default()),
             None => ("none", ""),
@@ -292,7 +292,7 @@ impl Block {
     /// The state whose properties are exactly `states`, a disk palette entry's `states` (in name
     /// order, as the properties are); `None` for a missing, extra or repeated property, an
     /// unknown value or a value of another type.
-    pub(crate) fn index_of(&self, states: &Compound) -> Option<u16> {
+    pub(super) fn index_of(&self, states: &Compound) -> Option<u16> {
         if states.len() != self.properties.len() {
             return None;
         }
@@ -319,13 +319,6 @@ impl Block {
         &self.info
     }
 
-    /// The same block that entities can stand inside, such as a plant.
-    #[must_use]
-    pub const fn non_solid(mut self) -> Self {
-        self.info = self.info.with_flag(block::flag::SOLID, false);
-        self
-    }
-
     /// How many properties the block has.
     pub(crate) fn property_count(&self) -> usize {
         self.properties.len()
@@ -347,6 +340,42 @@ impl Block {
         p.value(rest % p.count().max(1))
     }
 
+    /// How many states the block has: the product of its properties' value counts.
+    pub(crate) fn state_count(&self) -> u32 {
+        self.properties
+            .iter()
+            .try_fold(1_u32, |n, p| n.checked_mul(p.count()))
+            .unwrap_or(u32::MAX)
+    }
+
+    /// The state `index` with property `name` set to `value`.
+    pub(crate) fn with_value(
+        &self,
+        index: u16,
+        name: &str,
+        value: PropertyValue<'_>,
+    ) -> Option<u16> {
+        let mut scale = 1_u32;
+        for p in self.properties {
+            let count = p.count().max(1);
+            if p.name == name {
+                let current = u32::from(index) / scale % count;
+                let new = p.position(value)?;
+                let base = u32::from(index).checked_sub(current.checked_mul(scale)?)?;
+                return u16::try_from(base.checked_add(new.checked_mul(scale)?)?).ok();
+            }
+            scale = scale.checked_mul(count)?;
+        }
+        None
+    }
+
+    /// The same block that entities can stand inside, such as a plant.
+    #[must_use]
+    pub const fn non_solid(mut self) -> Self {
+        self.info = self.info.with_flag(block::flag::SOLID, false);
+        self
+    }
+
     /// The same block taking random ticks, which call its behaviour's
     /// [`on_random_tick`](Behaviour::on_random_tick). Blocks that do not need them cost nothing
     /// on random ticks without this.
@@ -354,14 +383,6 @@ impl Block {
     pub const fn random_ticks(mut self) -> Self {
         self.random_ticks = true;
         self
-    }
-
-    /// How many states the block has: the product of its properties' value counts.
-    pub(crate) fn state_count(&self) -> u32 {
-        self.properties
-            .iter()
-            .try_fold(1_u32, |n, p| n.checked_mul(p.count()))
-            .unwrap_or(u32::MAX)
     }
 
     /// The same block letting light through and not hiding the faces next to it.
@@ -525,27 +546,6 @@ impl Block {
             harvest_level,
         ));
         self
-    }
-
-    /// The state `index` with property `name` set to `value`.
-    pub(crate) fn with_value(
-        &self,
-        index: u16,
-        name: &str,
-        value: PropertyValue<'_>,
-    ) -> Option<u16> {
-        let mut scale = 1_u32;
-        for p in self.properties {
-            let count = p.count().max(1);
-            if p.name == name {
-                let current = u32::from(index) / scale % count;
-                let new = p.position(value)?;
-                let base = u32::from(index).checked_sub(current.checked_mul(scale)?)?;
-                return u16::try_from(base.checked_add(new.checked_mul(scale)?)?).ok();
-            }
-            scale = scale.checked_mul(count)?;
-        }
-        None
     }
 
     /// The materials it is drawn with.
@@ -1074,6 +1074,13 @@ mod tests {
         Property::bool("d"),
     ];
 
+    /// An every-face material and two for the top.
+    static TWICE: [Material; 3] = [
+        Material::new("a"),
+        Material::face(block::Face::Up, "b"),
+        Material::face(block::Face::Up, "c"),
+    ];
+
     #[test]
     fn the_refusals_name_the_limits_they_enforce() {
         let max_values = i32::try_from(Property::MAX_VALUES).unwrap();
@@ -1154,13 +1161,6 @@ mod tests {
         assert_eq!(with(Block::MIN_FRICTION), None);
         assert_eq!(with(1.0), None);
     }
-
-    /// An every-face material and two for the top.
-    static TWICE: [Material; 3] = [
-        Material::new("a"),
-        Material::face(block::Face::Up, "b"),
-        Material::face(block::Face::Up, "c"),
-    ];
 
     #[test]
     fn a_face_with_two_materials_is_refused() {

@@ -6,7 +6,7 @@
 
 use crate::item::Stack;
 
-/// The price multiplier the official server gives most offers (`xtask/data/p6/facts.md`).
+/// The price multiplier the official server gives most offers.
 pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 
 /// The most offers one villager holds ([`check_offers`](super::check_offers)): well above the

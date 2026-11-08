@@ -64,6 +64,9 @@ pub(crate) static LAMP: Block = Block::new("test:lamp", "test_lamp")
     ]);
 /// An item in the `minecraft` namespace.
 static MINECRAFT: Item = Item::new("minecraft:ruby", "Ruby", "ruby");
+/// A block that drops the block [`RUBY_NAMESAKE`], which nothing registers.
+static NAMESAKE_DROP: Block = Block::new("test:namesake", "x")
+    .with_drops(Drops::Items(&[(ItemRef::CustomBlock(&RUBY_NAMESAKE), 1)]));
 /// An item whose identifier has no namespace.
 static NO_NAMESPACE: Item = Item::new("ruby", "Ruby", "ruby");
 /// A block that drops two rubies.
@@ -83,6 +86,8 @@ static OUTSIDE: Block = Block::new("test:outside", "x").with_collision_box(Some(
 /// An item with a creative group.
 pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
     .with_creative(Creative::new(Category::Items).with_group("itemGroup.name.test"));
+/// A block under the identifier of the item [`RUBY`].
+static RUBY_NAMESAKE: Block = Block::new("test:ruby", "x");
 /// A tool item with durability and attack damage, held like a tool.
 pub(crate) static SWORD: Item = Item::new("test:sword", "Ruby Sword", "test_sword")
     .with_durability(100)
@@ -804,7 +809,7 @@ fn cleared_creative_inventories_are_empty_and_bad_ones_are_refused() {
     }
     assert!(matches!(refused(many), Error::TooMany { .. }));
     let mut big = CreativeInventory::empty();
-    for _ in 0..=creative::MAX_ENTRIES {
+    for _ in 0..=CreativeInventory::MAX_ENTRIES {
         big = big.add(apple, Category::Items, None);
     }
     assert!(matches!(
@@ -923,6 +928,16 @@ fn invalid_definitions_refuse_the_build() {
             r.add_block(&ORPHAN_DROP);
         }),
         Ok(())
+    );
+    // A registered item of the same identifier is not the unregistered block the drop names.
+    assert_eq!(
+        finish(|r| {
+            r.add_item(&RUBY);
+            r.add_block(&NAMESAKE_DROP);
+        }),
+        Err(Error::Unregistered {
+            identifier: "test:namesake"
+        })
     );
     // Two swords do not fit one stack: refused at build, not cut to one when dropped.
     assert_eq!(

@@ -19,14 +19,8 @@ use crate::protocol::{BlockEntry, ItemEntry, packet};
 /// The first block ID of custom blocks, plus the block's index.
 const FIRST_BLOCK_ID: i32 = 10_000;
 
-/// The most states of all custom blocks together.
-const MAX_ALL_STATES: usize = 65_536;
-
-/// The most custom items and blocks together.
-pub(crate) const MAX_ENTRIES: usize = 4096;
-
 /// The longest identifier, in bytes.
-const MAX_IDENTIFIER: usize = 128;
+const MAX_IDENTIFIER_BYTES: usize = 128;
 
 /// The custom content of a server.
 #[derive(Debug, Default)]
@@ -51,6 +45,12 @@ pub(crate) struct Registry {
 }
 
 impl Registry {
+    /// The most states of all custom blocks together.
+    const MAX_ALL_STATES: usize = 65_536;
+
+    /// The most custom items and blocks together.
+    const MAX_ENTRIES: usize = 4096;
+
     /// The default state of the registered custom block `block`.
     pub(crate) fn block_state(&self, block: &Block) -> Option<block::State> {
         self.by_identifier(block.identifier())
@@ -135,8 +135,10 @@ impl Registry {
                 block::ItemForm::Item(t) => Some(t),
                 block::ItemForm::None | block::ItemForm::BlockEntity => None,
             },
-            ItemRef::Custom(i) => self.by_identifier(i.identifier()),
-            ItemRef::CustomBlock(b) => self.by_identifier(b.identifier()),
+            ItemRef::Custom(i) => self.item_type(i),
+            ItemRef::CustomBlock(b) => self
+                .by_identifier(b.identifier())
+                .filter(|t| t.custom_block().is_some()),
         }
     }
 
@@ -158,7 +160,7 @@ impl Registry {
     }
 
     /// Registers an alternative creative inventory.
-    pub(crate) fn add_creative_inventory(
+    pub(super) fn add_creative_inventory(
         &mut self,
         name: &'static str,
         inventory: CreativeInventory,
@@ -174,10 +176,10 @@ impl Registry {
     /// Checks every registration and numbers the content (when the server is built). On failure
     /// the registry is left as it was and the error names the first registration at fault.
     pub(crate) fn finish(&mut self) -> Result<()> {
-        if self.entries.len() > MAX_ENTRIES {
+        if self.entries.len() > Self::MAX_ENTRIES {
             return Err(Error::TooMany {
                 what: "custom items and blocks",
-                limit: MAX_ENTRIES,
+                limit: Self::MAX_ENTRIES,
             });
         }
         let mut by_name = BTreeMap::new();
@@ -258,7 +260,7 @@ impl Registry {
     }
 
     /// Sets the default creative inventory.
-    pub(crate) fn set_creative_inventory(&mut self, inventory: CreativeInventory) {
+    pub(super) fn set_creative_inventory(&mut self, inventory: CreativeInventory) {
         self.creative_inventory = inventory;
     }
 
@@ -278,8 +280,8 @@ impl Registry {
         out
     }
 
-    /// Checks that every custom state's network ID is its own: no other custom state's and no
-    /// vanilla state's.
+    /// The error of the first custom state whose network ID is not its own (another custom
+    /// state's or a vanilla state's), or of too many states; `Ok` if there is none.
     #[expect(
         clippy::expect_used,
         reason = "invariant: a checked block has from 1 to `MAX_STATES` states, each of which \
@@ -292,10 +294,10 @@ impl Registry {
                 continue;
             };
             let count = u16::try_from(b.state_count()).expect("a state count fits a u16");
-            if states.len() + usize::from(count) > MAX_ALL_STATES {
+            if states.len() + usize::from(count) > Self::MAX_ALL_STATES {
                 return Err(Error::TooMany {
                     what: "custom block states",
-                    limit: MAX_ALL_STATES,
+                    limit: Self::MAX_ALL_STATES,
                 });
             }
             for index in 0..count {
@@ -432,7 +434,7 @@ fn first_runtime_id() -> i16 {
 
 /// Whether `s` is a custom identifier of an item, a block or an entity type: `namespace:name`,
 /// each part 1 or more of `a-z`, `0-9`, `_`, `-`, `.` (and `/` in the name), at most
-/// [`MAX_IDENTIFIER`] bytes, the namespace not `minecraft`.
+/// [`MAX_IDENTIFIER_BYTES`] bytes, the namespace not `minecraft`.
 pub(crate) fn is_identifier(s: &str) -> bool {
     let Some((namespace, name)) = s.split_once(':') else {
         return false;
@@ -446,7 +448,7 @@ pub(crate) fn is_identifier(s: &str) -> bool {
                     || extra.contains(&b)
             })
     };
-    s.len() <= MAX_IDENTIFIER
+    s.len() <= MAX_IDENTIFIER_BYTES
         && namespace != "minecraft"
         && part(namespace, b"")
         && part(name, b"/")
@@ -458,14 +460,6 @@ mod tests {
 
     use crate::custom::Property;
 
-    /// A registry of `build`'s registrations, finished.
-    fn finished(build: impl FnOnce(&mut Registry)) -> Registry {
-        let mut r = Registry::default();
-        build(&mut r);
-        r.finish().expect("the content registers");
-        r
-    }
-
     /// A block with a `lit` property.
     static LIT: Block =
         Block::new("test:changed", "test_changed").with_properties(&[Property::bool("lit")]);
@@ -473,6 +467,14 @@ mod tests {
     static PLAIN: Block = Block::new("test:changed", "test_changed");
     /// A block that takes random ticks.
     static TICKING: Block = Block::new("test:ticking", "test_ticking").random_ticks();
+
+    /// A registry of `build`'s registrations, finished.
+    fn finished(build: impl FnOnce(&mut Registry)) -> Registry {
+        let mut r = Registry::default();
+        build(&mut r);
+        r.finish().expect("the content registers");
+        r
+    }
 
     /// A custom block's item saved under one definition of its block reads back under another
     /// with other properties: the item is known by its name.

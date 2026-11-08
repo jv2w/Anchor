@@ -206,6 +206,7 @@ impl ServerBuilder {
     /// is added. [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or
     /// repeated name, or more than 64 alternatives.
     #[must_use]
+    // Not `impl Into<String>`: the registry keeps the name as a `&'static str` key.
     pub fn alternative_creative_inventory(
         mut self,
         name: &'static str,

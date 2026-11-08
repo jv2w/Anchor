@@ -21,13 +21,7 @@ use crate::nbt::Value;
 use crate::protocol::{self, packet};
 
 /// The most alternative creative inventories.
-pub(crate) const MAX_ALTERNATIVES: usize = 64;
-
-/// The most changes of one creative inventory.
-const MAX_CHANGES: usize = 65_536;
-
-/// The most entries of one creative inventory (the vanilla list and every custom item fit).
-pub(crate) const MAX_ENTRIES: usize = 8192;
+pub(super) const MAX_ALTERNATIVES: usize = 64;
 
 /// The longest creative group or inventory name, in bytes.
 const MAX_NAME_BYTES: usize = 128;
@@ -60,31 +54,11 @@ pub struct CreativeInventory {
 }
 
 impl CreativeInventory {
-    /// Adds `item` at the end, in `category` and in `group` (none: the category's anonymous
-    /// group).
-    #[doc(alias = "CreativeInventory::add")]
-    #[must_use]
-    pub fn add(
-        mut self,
-        item: impl Into<CreativeItem>,
-        category: Category,
-        group: Option<CreativeGroup>,
-    ) -> Self {
-        self.changes.push(Change::Add {
-            item: item.into(),
-            category,
-            group,
-        });
-        self
-    }
+    /// The most changes of one creative inventory.
+    const MAX_CHANGES: usize = 65_536;
 
-    /// Removes every entry.
-    #[doc(alias = "CreativeInventory::clear")]
-    #[must_use]
-    pub fn clear(mut self) -> Self {
-        self.changes.push(Change::Clear);
-        self
-    }
+    /// The most entries of one creative inventory (the vanilla list and every custom item fit).
+    pub(super) const MAX_ENTRIES: usize = 8192;
 
     /// An inventory without entries.
     pub fn empty() -> Self {
@@ -92,16 +66,6 @@ impl CreativeInventory {
             vanilla: false,
             changes: Vec::new(),
         }
-    }
-
-    /// Removes the first entry of `item`'s type and damage (the NBT is not compared); nothing if
-    /// there is none.
-    #[doc(alias = "CreativeInventory::remove")]
-    #[doc(alias = "CreativeInventoryEntry::matchesItem")]
-    #[must_use]
-    pub fn remove(mut self, item: impl Into<CreativeItem>) -> Self {
-        self.changes.push(Change::Remove(item.into()));
-        self
     }
 
     /// The inventory with its changes applied, then the `places` custom items and blocks ask for
@@ -112,10 +76,10 @@ impl CreativeInventory {
         custom: &Registry,
         places: &[(Type, Creative)],
     ) -> Result<Resolved> {
-        if self.changes.len() > MAX_CHANGES {
+        if self.changes.len() > Self::MAX_CHANGES {
             return Err(Error::TooMany {
                 what: "changes of a creative inventory",
-                limit: MAX_CHANGES,
+                limit: Self::MAX_CHANGES,
             });
         }
         let mut entries = if self.vanilla {
@@ -152,7 +116,7 @@ impl CreativeInventory {
                 }
                 Change::Clear => entries.clear(),
             }
-            if entries.len() > MAX_ENTRIES {
+            if entries.len() > Self::MAX_ENTRIES {
                 return Err(too_many_entries());
             }
         }
@@ -181,7 +145,7 @@ impl CreativeInventory {
                 group,
             });
         }
-        if entries.len() > MAX_ENTRIES {
+        if entries.len() > Self::MAX_ENTRIES {
             return Err(too_many_entries());
         }
         Ok(Resolved::new(entries))
@@ -193,6 +157,42 @@ impl CreativeInventory {
             vanilla: true,
             changes: Vec::new(),
         }
+    }
+
+    /// Adds `item` at the end, in `category` and in `group` (none: the category's anonymous
+    /// group).
+    #[doc(alias = "CreativeInventory::add")]
+    #[must_use]
+    pub fn add(
+        mut self,
+        item: impl Into<CreativeItem>,
+        category: Category,
+        group: Option<CreativeGroup>,
+    ) -> Self {
+        self.changes.push(Change::Add {
+            item: item.into(),
+            category,
+            group,
+        });
+        self
+    }
+
+    /// Removes every entry.
+    #[doc(alias = "CreativeInventory::clear")]
+    #[must_use]
+    pub fn clear(mut self) -> Self {
+        self.changes.push(Change::Clear);
+        self
+    }
+
+    /// Removes the first entry of `item`'s type and damage (the NBT is not compared); nothing if
+    /// there is none.
+    #[doc(alias = "CreativeInventory::remove")]
+    #[doc(alias = "CreativeInventoryEntry::matchesItem")]
+    #[must_use]
+    pub fn remove(mut self, item: impl Into<CreativeItem>) -> Self {
+        self.changes.push(Change::Remove(item.into()));
+        self
     }
 }
 
@@ -227,6 +227,7 @@ pub struct CreativeGroup {
 impl CreativeGroup {
     /// The group `name` shown with `icon`.
     #[doc(alias = "CreativeGroup::__construct")]
+    // Not `impl Into<String>`: `item::CreativeEntry` holds the group name as a `&'static str`.
     pub fn new(name: &'static str, icon: impl Into<CreativeItem>) -> Self {
         Self {
             name,
@@ -309,12 +310,12 @@ impl Resolved {
     }
 
     /// The same inventory registered as the alternative `name`.
-    pub(crate) fn with_name(mut self, name: &'static str) -> Self {
+    pub(super) fn with_name(mut self, name: &'static str) -> Self {
         self.name = Some(name);
         self
     }
 
-    /// Numbers `entries` from 1 and groups them by the rule in the module docs.
+    /// The entries numbered from 1 and grouped by the rule in the module docs.
     #[doc(alias = "CreativeInventoryCache::buildPacket")]
     #[expect(
         clippy::expect_used,
@@ -385,7 +386,7 @@ impl Resolved {
 }
 
 /// `name` if it can name a creative group or inventory ([`is_name`]).
-pub(crate) fn checked_name(name: &'static str) -> Result<&'static str> {
+pub(super) fn checked_name(name: &'static str) -> Result<&'static str> {
     if !is_name(name) {
         return Err(Error::Creative {
             reason: "a creative group or inventory name that is empty or too long",
@@ -396,7 +397,7 @@ pub(crate) fn checked_name(name: &'static str) -> Result<&'static str> {
 
 /// Whether `name` can name a creative group or inventory: not empty, at most [`MAX_NAME_BYTES`]
 /// bytes.
-pub(crate) fn is_name(name: &str) -> bool {
+pub(super) fn is_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_NAME_BYTES
 }
 
@@ -413,11 +414,11 @@ fn resolve_item(custom: &Registry, item: &CreativeItem) -> Result<(Stack, protoc
     Ok((stack, net))
 }
 
-/// The error of an inventory with more than [`MAX_ENTRIES`] entries.
+/// The error of an inventory with more than [`CreativeInventory::MAX_ENTRIES`] entries.
 fn too_many_entries() -> Error {
     Error::TooMany {
         what: "entries of a creative inventory",
-        limit: MAX_ENTRIES,
+        limit: CreativeInventory::MAX_ENTRIES,
     }
 }
 
