@@ -133,14 +133,17 @@ pub(in crate::tick) struct Catalog {
     default: WorldIndex,
     /// Worlds made or loaded the save thread has not heard of, in order.
     pending: Vec<WorldIndex>,
-    /// Worlds made (`true`) or loaded since the view phase last raised their events, in order.
-    announced: Vec<(WorldIndex, bool)>,
+    /// Worlds made or loaded since the view phase last raised their events, in order.
+    announced: Vec<(WorldIndex, Origin)>,
     /// Unloads asked for, for the next view phase.
     unloads: BTreeMap<WorldIndex, Unload>,
     /// Worlds whose file did not open on the save thread, until they load again.
     unopened: BTreeSet<WorldIndex>,
     /// Worlds deleted the save thread has not heard of, in order.
     deleted: Vec<DeletedWorld>,
+    /// The world [`unload`] is unloading, while the listeners it calls run: it may not become
+    /// the default world. Set only inside one call, so neither saved nor hashed.
+    unloading: Option<WorldIndex>,
     /// The generators, fixed at build.
     generators: Generators,
 }
@@ -176,6 +179,7 @@ impl Catalog {
             unloads,
             unopened,
             deleted,
+            unloading: _,
             generators: _,
         } = self;
         stored.encode(w);
@@ -209,6 +213,7 @@ impl Catalog {
             unloads,
             unopened,
             deleted,
+            unloading: _,
             generators: _,
         } = self;
         h.usize(loaded.iter().flatten().count());
@@ -228,9 +233,9 @@ impl Catalog {
             h.usize(i);
         }
         h.usize(announced.len());
-        for &(i, made) in announced {
+        for &(i, origin) in announced {
             h.usize(i);
-            h.u64(u64::from(made));
+            h.u64(u64::from(origin == Origin::Made));
         }
         h.usize(unloads.len());
         for (&i, &how) in unloads {
@@ -309,15 +314,6 @@ impl Catalog {
         Ok(())
     }
 
-    /// Notes that the world at `index`, named `name`, is gone: its name names no world, and a new
-    /// world may take its place if the place has an index left.
-    fn note_gone(&mut self, index: WorldIndex, name: &str) {
-        self.names.remove(&world_name_key(name));
-        if next_index(index).is_some() {
-            self.free.insert(crate::save::place(index));
-        }
-    }
-
     /// Notes that the world at `index` is loaded: at its place, or at the next place for a new
     /// one.
     fn mark_loaded(&mut self, index: WorldIndex) {
@@ -334,6 +330,15 @@ impl Catalog {
             *slot = None;
         }
     }
+
+    /// Notes that the world at `index`, named `name`, is gone: its name names no world, and a new
+    /// world may take its place if the place has an index left.
+    fn note_gone(&mut self, index: WorldIndex, name: &str) {
+        self.names.remove(&world_name_key(name));
+        if next_index(index).is_some() {
+            self.free.insert(crate::save::place(index));
+        }
+    }
 }
 
 /// How an unload was asked for.
@@ -348,6 +353,20 @@ enum Unload {
 checkpoint::variants!(Unload {
     0 => Asked,
     1 => Forced,
+});
+
+/// How a world came to be announced by the view phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// The world was loaded again or from its file.
+    Loaded,
+    /// The world was made, so [`WorldInit`] is raised for it too.
+    Made,
+}
+
+checkpoint::variants!(Origin {
+    0 => Loaded,
+    1 => Made,
 });
 
 /// A world of the list as a checkpoint keeps it, before the state that holds it is made: a
@@ -389,7 +408,10 @@ impl Context<'_> {
     #[doc(alias = "WorldManager::isWorldLoaded")]
     #[doc(alias = "World::isLoaded")]
     pub fn is_world_loaded(&self, name: &str) -> bool {
-        named(self.state, name).is_some_and(|i| self.state.catalog.is_loaded(i))
+        self.state
+            .catalog
+            .named(name)
+            .is_some_and(|i| self.state.catalog.is_loaded(i))
     }
 
     /// Makes a world named `name` with `options` and loads it: its spawn chunks load from the next
@@ -410,23 +432,25 @@ impl Context<'_> {
     /// The world keeps the difficulty of [`Options::difficulty`](world::Options::difficulty) as
     /// its own, but a `hardcore` server plays every world on hard.
     ///
+    /// Nothing is made when it fails.
+    ///
     /// # Errors
     ///
-    /// Nothing is made, and the error is [`world::Error::InvalidName`] for a name that cannot be
-    /// a file name (the rule is there), [`WorldExists`](world::Error::WorldExists) if the server
-    /// runs a world of that name or `data/worlds/` held one it could read at start
-    /// ([`is_world_generated`](Self::is_world_generated)), also in another letter case,
-    /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
-    /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value or the spawn of
-    /// [`Options::settings`](world::Options::settings) out of its range,
-    /// [`OutOfRange`](world::Error::OutOfRange) for a generator's spawn where a player would
-    /// stand outside the world border, and [`Full`](world::Error::Full) when the server has 1,024
-    /// worlds, none of them gone (a temporary world unloaded or a persistent world deleted), or,
-    /// for a persistent world, past as many world files: those of
-    /// the run's persistent worlds and those `data/worlds/` held at start, damaged ones too. A
-    /// file put there while the server runs (an import) is not counted: past the most, the save
-    /// thread makes no file for the world, which then runs with its chunks held as damaged and is
-    /// not saved.
+    /// [`world::Error::InvalidName`] for a name that cannot be a file name (the rule is there).
+    /// [`world::Error::WorldExists`] if the server runs a world of that name or `data/worlds/`
+    /// held one it could read at start ([`is_world_generated`](Self::is_world_generated)), also
+    /// in another letter case.
+    /// [`world::Error::UnknownGenerator`] for a generator not registered.
+    /// [`world::Error::InvalidSettings`] for a view value or the spawn of
+    /// [`Options::settings`](world::Options::settings) out of its range.
+    /// [`world::Error::OutOfRange`] for a generator's spawn where a player would stand outside
+    /// the world border.
+    /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone (a temporary
+    /// world unloaded or a persistent world deleted), or, for a persistent world, past as many
+    /// world files: those of the run's persistent worlds and those `data/worlds/` held at start,
+    /// damaged ones too. A file put there while the server runs (an import) is not counted: past
+    /// the most, the save thread makes no file for the world, which then runs with its chunks
+    /// held as damaged and is not saved.
     #[doc(alias = "WorldManager::generateWorld")]
     pub fn create_world(
         &mut self,
@@ -458,7 +482,7 @@ impl Context<'_> {
         });
         world.set_number(number);
         info!(world = name, seed = world.seed(), "world made");
-        Ok(install(state, index, world, options, true))
+        Ok(install(state, index, world, options, Origin::Made))
     }
 
     /// Deletes the persistent world `name` and its file `data/worlds/<name>.redb`, and nothing
@@ -472,11 +496,12 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::WorldLoaded`] for a loaded world (one whose unload is asked for but has not
-    /// happened too), and [`NotGenerated`](world::Error::NotGenerated) if no persistent world of
-    /// that name exists ([`is_world_generated`](Self::is_world_generated)).
+    /// happened too).
+    /// [`world::Error::NotGenerated`] if no persistent world of that name exists
+    /// ([`is_world_generated`](Self::is_world_generated)).
     pub fn delete_world(&mut self, name: &str) -> world::Result<()> {
         let state = &mut *self.state;
-        let index = match named(state, name) {
+        let index = match state.catalog.named(name) {
             Some(i) if state.catalog.is_loaded(i) => return Err(world::Error::WorldLoaded),
             Some(i) if super::world_at(state, i).kind() == Kind::Persistent => Some(i),
             _ if state.catalog.stored.remove(&world_name_key(name)).is_some() => None,
@@ -507,7 +532,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// The errors of [`unload_world`](Self::unload_world).
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::DefaultWorld`] for the default world: Anchor always has one.
     #[doc(alias = "WorldManager::unloadWorld")]
     pub fn force_unload_world(&mut self, world: world::Id) -> world::Result<()> {
         self.ask_unload(world, Unload::Forced)
@@ -522,27 +548,37 @@ impl Context<'_> {
     /// `name`. Its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A
     /// world the server already has this run keeps the settings it has and the options are not
     /// used: a loaded one is its `Id` as it is, and an unload asked for it before the next view
-    /// phase is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a
+    /// phase is dropped (the later call wins; no [`WorldUnload`] is raised for it), but not the
+    /// unload of a world whose file did not open ([`create_world`](Self::create_world)). Inside a
     /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
     ///
     /// The file opens on the save thread after this returns, so a file that cannot be opened is
     /// not an error here: see [`create_world`](Self::create_world).
     ///
+    /// Only a stored world can fail with an error other than `NotGenerated`, and it stays stored
+    /// then.
+    ///
     /// # Errors
     ///
     /// [`world::Error::NotGenerated`] if the server runs no world of that name and `data/worlds/`
-    /// held none it could read at start (a temporary world unloaded is gone), and, for a stored
-    /// world, [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not
-    /// registered, [`InvalidSettings`](world::Error::InvalidSettings) for a view value out of its
-    /// range, [`OutOfRange`](world::Error::OutOfRange) for a stored spawn where a player would
-    /// stand outside the world border, and [`Full`](world::Error::Full) when the server has 1,024
-    /// worlds, none of them gone. The stored world stays stored then.
+    /// held none it could read at start (a temporary world unloaded is gone).
+    /// [`world::Error::UnknownGenerator`] for a generator not registered.
+    /// [`world::Error::InvalidSettings`] for a view value or the spawn of
+    /// [`Options::settings`](world::Options::settings) out of its range (checked though the spawn
+    /// is not used).
+    /// [`world::Error::OutOfRange`] for a stored spawn where a player would stand outside the
+    /// world border.
+    /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone.
     #[doc(alias = "WorldManager::loadWorld")]
     pub fn load_world(&mut self, name: &str, options: &world::Options) -> world::Result<world::Id> {
         let state = &mut *self.state;
-        if let Some(i) = named(state, name) {
+        if let Some(i) = state.catalog.named(name) {
             if state.catalog.is_loaded(i) {
-                state.catalog.unloads.remove(&i);
+                // A world whose file did not open unloads whatever is asked: the load after it
+                // tries the file again.
+                if !state.catalog.unopened.contains(&i) {
+                    state.catalog.unloads.remove(&i);
+                }
                 return Ok(world::Id::of(i));
             }
             if super::world_at(state, i).kind() == Kind::Persistent {
@@ -562,7 +598,7 @@ impl Context<'_> {
         let mut world = make_world(file_name, Kind::Persistent, generator.as_ref(), options);
         crate::save::resume(&mut world, *record)?;
         state.catalog.stored.remove(&key);
-        Ok(install(state, index, world, options, false))
+        Ok(install(state, index, world, options, Origin::Loaded))
     }
 
     /// Makes `world` the default world, where players without a saved place join and dead
@@ -571,10 +607,14 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded, or that is unloading (a
+    /// listener the unload calls, such as [`ChunkUnload`](crate::event::ChunkUnload), asks).
     #[doc(alias = "WorldManager::setDefaultWorld")]
     pub fn set_default_world(&mut self, world: world::Id) -> world::Result<()> {
         let index = super::loaded_index(self.state, world)?;
+        if self.state.catalog.unloading == Some(index) {
+            return Err(world::Error::WorldNotLoaded);
+        }
         self.state.catalog.default = index;
         Ok(())
     }
@@ -582,12 +622,12 @@ impl Context<'_> {
     /// Gives `world` its own difficulty, or `None` to follow the server's
     /// ([`difficulty`](Self::difficulty)), and tells its players. Its rules use it until the
     /// server stops: it is not saved, and a restart takes the difficulty of the settings again.
+    /// Nothing is changed when it fails.
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`Hardcore`](world::Error::Hardcore) for a difficulty other than hard on a `hardcore`
-    /// server. Nothing is changed then.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::Hardcore`] for a difficulty other than hard on a `hardcore` server.
     #[doc(alias = "World::setDifficulty")]
     pub fn set_world_difficulty(
         &mut self,
@@ -640,8 +680,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`DefaultWorld`](world::Error::DefaultWorld) for the default world: Anchor always has one.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::DefaultWorld`] for the default world: Anchor always has one.
     #[doc(alias = "WorldManager::unloadWorld")]
     pub fn unload_world(&mut self, world: world::Id) -> world::Result<()> {
         self.ask_unload(world, Unload::Asked)
@@ -734,20 +774,20 @@ pub(in crate::tick) fn difficulty_of(settings: &Settings, world: &World) -> Diff
     }
 }
 
-/// The start of the view phase: the events of the worlds made and loaded since the last one
-/// ([`WorldInit`], then [`WorldLoad`]), then the unloads asked for, each after [`WorldUnload`]
-/// listeners; its monitors see only an unload that happened, after the
+/// Starts the view phase: raises the events of the worlds made and loaded since the last one
+/// ([`WorldInit`], then [`WorldLoad`]), then does the unloads asked for, each after
+/// [`WorldUnload`] listeners; their monitors see only an unload that happened, after the
 /// [`PlayerWorldChange`](crate::event::PlayerWorldChange) of each player it sent away. The save
 /// thread hears of new worlds later in the phase, with the worlds these listeners make.
 pub(in crate::tick) fn step(state: &mut State) {
-    for (index, made) in std::mem::take(&mut state.catalog.announced) {
+    for (index, origin) in std::mem::take(&mut state.catalog.announced) {
         if !state.catalog.is_loaded(index) {
             continue;
         }
         let w = super::world_at(state, index);
         info!(world = w.name(), kind = ?w.kind(), "world loaded");
         let world = world::Id::of(index);
-        if made && dispatch::heard::<WorldInit>(state) {
+        if origin == Origin::Made && dispatch::heard::<WorldInit>(state) {
             let mut e = WorldInit { world };
             dispatch::call(state, &mut e);
             dispatch::watch(state, &e);
@@ -800,11 +840,15 @@ fn unload(state: &mut State, index: WorldIndex) -> Vec<SessionId> {
         .filter(|(_, p)| super::is_in_world(p, index))
         .map(|(&s, _)| s)
         .collect();
+    state.catalog.unloading = Some(index);
     for &session in &players {
         survival::teleport(state, session, default, eye);
     }
-    player::redirect_teleports(state, index, default, eye);
     view::unload_world(state, index);
+    // After every listener the unload calls (InventoryClose of the teleports, ChunkUnload), so
+    // none of them teleports a player into the world gone.
+    player::redirect_teleports(state, index, default, eye);
+    state.catalog.unloading = None;
     state.catalog.mark_unloaded(index);
     let world = super::world_at_mut(state, index);
     world.clear();
@@ -819,7 +863,7 @@ fn unload(state: &mut State, index: WorldIndex) -> Vec<SessionId> {
     players
 }
 
-/// What the save thread must hear of worlds it does not know, taken: for the next request or the
+/// Takes what the save thread must hear of worlds it does not know: for the next request or the
 /// next snapshot, whichever comes first. A world whose place another world took since is not
 /// named: no request names it.
 pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
@@ -848,7 +892,7 @@ pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
         .collect()
 }
 
-/// The worlds deleted that the save thread must hear of, taken: for the next request or the next
+/// Takes the worlds deleted that the save thread must hear of: for the next request or the next
 /// snapshot, whichever comes first, and before the new worlds taken with them (one may take a
 /// deleted world's name).
 pub(in crate::tick) fn take_deleted_worlds(state: &mut State) -> Vec<DeletedWorld> {
@@ -875,14 +919,9 @@ fn check_view(options: &world::Options) -> world::Result<()> {
 /// Whether a world of the run (persistent, or loaded) or a stored one has a name that differs
 /// from `name` at most in letter case: its file would be the same.
 fn name_taken(state: &State, name: &str) -> bool {
-    named(state, name).is_some_and(|i| {
+    state.catalog.named(name).is_some_and(|i| {
         state.catalog.is_loaded(i) || super::world_at(state, i).kind() == Kind::Persistent
     }) || state.catalog.stored.contains_key(&world_name_key(name))
-}
-
-/// The index of the world named `name` the server has had this run, loaded or not.
-fn named(state: &State, name: &str) -> Option<WorldIndex> {
-    state.catalog.named(name)
 }
 
 /// The index a new world takes: the next of the world gone at the lowest free place
@@ -949,7 +988,7 @@ fn install(
     index: WorldIndex,
     mut world: World,
     options: &world::Options,
-    made: bool,
+    origin: Origin,
 ) -> world::Id {
     let id = world::Id::of(index);
     world.set_id(id);
@@ -961,7 +1000,7 @@ fn install(
     catalog.mark_loaded(index);
     state.worlds.put(world);
     state.catalog.pending.push(index);
-    state.catalog.announced.push((index, made));
+    state.catalog.announced.push((index, origin));
     view::hold_world(state, index);
     id
 }
@@ -992,7 +1031,7 @@ fn reload(state: &mut State, index: WorldIndex) -> world::Id {
         state.catalog.pending.push(index);
     }
     state.catalog.mark_loaded(index);
-    state.catalog.announced.push((index, false));
+    state.catalog.announced.push((index, Origin::Loaded));
     view::hold_world(state, index);
     world::Id::of(index)
 }

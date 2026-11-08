@@ -9,7 +9,7 @@
 //!   into the module's typed form ([`ChunkRules`]); put it in the store. The read needs nothing
 //!   of the tick's state (block entities check their blocks, which the chunk holds), so it runs
 //!   on the save thread's CPU pool as the chunk loads, one list per pool item; a chunk that
-//!   comes back from memory is read on the CPU pool in the view phase ([`read_kept`]).
+//!   comes back from memory is read on the CPU pool in the view phase ([`ChunkRules::read`]).
 //! - `take_changed()`: before a save snapshot, every chunk whose typed state changed since the
 //!   last call, as the full NBT list to store; the module clears its own marks.
 //! - `unload(key)`: the chunk leaves; drop the typed state and return the list if it changed
@@ -88,78 +88,6 @@ pub(super) struct Rules {
 }
 
 impl Rules {
-    /// Takes in the typed state of a chunk loaded from the file or from memory, `read` from
-    /// `extras`.
-    pub(super) fn load(&mut self, key: Key, read: ChunkRules, extras: &ChunkExtras) {
-        let Self {
-            block_entities,
-            entities,
-            updates: _,
-            custom: _,
-        } = self;
-        let ChunkRules {
-            block_entities: read_block_entities,
-            entities: read_entities,
-        } = read;
-        block_entities.load(key, read_block_entities);
-        entities.load(key, read_entities, extras.get(ChunkKind::Entities));
-    }
-
-    /// Drops the typed state of a chunk that unloads: changed state goes back to the holder
-    /// before it lets the extras go.
-    pub(super) fn unload(&mut self, key: Key, holder: &mut Extras) {
-        let Self {
-            block_entities,
-            entities,
-            updates: _,
-            custom: _,
-        } = self;
-        let lists = [
-            (ChunkKind::BlockEntities, block_entities.unload(key)),
-            (ChunkKind::Entities, entities.unload(key)),
-        ];
-        for (kind, list) in lists {
-            if let Some(list) = list
-                && let Some(held) = holder.get_mut(key, kind)
-            {
-                *held = list;
-            }
-        }
-    }
-
-    /// Moves every changed chunk's typed state to the holder, marked dirty, before a snapshot.
-    pub(super) fn flush(&mut self, holder: &mut Extras) {
-        let Self {
-            block_entities,
-            entities,
-            updates: _,
-            custom: _,
-        } = self;
-        let changed = [
-            (ChunkKind::BlockEntities, block_entities.take_changed()),
-            (ChunkKind::Entities, entities.take_changed()),
-        ];
-        for (kind, lists) in changed {
-            for (key, list) in lists {
-                if let Some(held) = holder.get_mut(key, kind) {
-                    *held = list;
-                }
-            }
-        }
-    }
-
-    /// Reads what [`Self::checkpoint`] wrote; the custom entity types stay.
-    pub(super) fn restore(
-        &mut self,
-        r: &mut super::checkpoint::Reader<'_>,
-    ) -> super::checkpoint::Result<()> {
-        use super::checkpoint::Codec;
-        self.block_entities = Codec::decode(r)?;
-        self.entities.restore(r)?;
-        self.updates = Codec::decode(r)?;
-        Ok(())
-    }
-
     /// Writes every module's typed state.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
@@ -187,6 +115,78 @@ impl Rules {
         block_entities.hash_into(h);
         entities.hash_into(h);
         updates.hash_into(h);
+    }
+
+    /// Moves every changed chunk's typed state to the holder, marked dirty, before a snapshot.
+    pub(super) fn flush(&mut self, holder: &mut Extras) {
+        let Self {
+            block_entities,
+            entities,
+            updates: _,
+            custom: _,
+        } = self;
+        let changed = [
+            (ChunkKind::BlockEntities, block_entities.take_changed()),
+            (ChunkKind::Entities, entities.take_changed()),
+        ];
+        for (kind, lists) in changed {
+            for (key, list) in lists {
+                if let Some(held) = holder.get_mut(key, kind) {
+                    *held = list;
+                }
+            }
+        }
+    }
+
+    /// Takes in the typed state of a chunk loaded from the file or from memory, `read` from
+    /// `extras`.
+    pub(super) fn load(&mut self, key: Key, read: ChunkRules, extras: &ChunkExtras) {
+        let Self {
+            block_entities,
+            entities,
+            updates: _,
+            custom: _,
+        } = self;
+        let ChunkRules {
+            block_entities: read_block_entities,
+            entities: read_entities,
+        } = read;
+        block_entities.load(key, read_block_entities);
+        entities.load(key, read_entities, extras.get(ChunkKind::Entities));
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote; the custom entity types stay.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut super::checkpoint::Reader<'_>,
+    ) -> super::checkpoint::Result<()> {
+        use super::checkpoint::Codec;
+        self.block_entities = Codec::decode(r)?;
+        self.entities.restore(r)?;
+        self.updates = Codec::decode(r)?;
+        Ok(())
+    }
+
+    /// Drops the typed state of a chunk that unloads: changed state goes back to the holder
+    /// before it lets the extras go.
+    pub(super) fn unload(&mut self, key: Key, holder: &mut Extras) {
+        let Self {
+            block_entities,
+            entities,
+            updates: _,
+            custom: _,
+        } = self;
+        let lists = [
+            (ChunkKind::BlockEntities, block_entities.unload(key)),
+            (ChunkKind::Entities, entities.unload(key)),
+        ];
+        for (kind, list) in lists {
+            if let Some(list) = list
+                && let Some(held) = holder.get_mut(key, kind)
+            {
+                *held = list;
+            }
+        }
     }
 }
 
@@ -259,13 +259,9 @@ enum Part {
     Entities(Vec<entity::Saved>),
 }
 
-/// The extras of a chunk kept in memory read as the save thread reads a loaded chunk's, with
-/// the server's custom content and entity types: for a chunk that comes back from memory, on
-/// the CPU pool (and the tests' stand-ins of the save thread).
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
-)]
+/// The extras of a chunk read as the save thread reads a loaded chunk's, with the server's
+/// custom content and entity types, for the tests' stand-ins of the save thread.
+#[cfg(test)]
 pub(super) fn read_kept(
     key: Key,
     extras: &ChunkExtras,
@@ -273,7 +269,7 @@ pub(super) fn read_kept(
     custom: &Registry,
     types: &EntityTypes,
 ) -> ChunkRules {
-    ChunkRules::read(key, extras, blocks, custom, types).expect("a list in memory is not damaged")
+    ChunkRules::read(key, extras, blocks, custom, types).expect("the test's lists are whole")
 }
 
 #[cfg(test)]

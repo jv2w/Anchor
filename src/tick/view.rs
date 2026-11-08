@@ -23,7 +23,7 @@ use tracing::{debug, warn};
 
 use super::extra::Extras;
 use super::queue::{Message, SessionId};
-use super::rules::Rules;
+use super::rules::{ChunkRules, Rules};
 use super::save::{Saving, Unsaved, is_kept_unloaded, unsaved_snapshot};
 use super::world_api::Worlds;
 use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
@@ -442,11 +442,6 @@ impl super::checkpoint::Codec for View {
         })
     }
 }
-super::checkpoint::fields!(SubChunkRequest {
-    dimension,
-    position,
-    offsets
-});
 
 /// A fake block's place: its chunk and sub-chunk y first, so one sub-chunk's are a range.
 type FakeKey = (ChunkPos, i32, BlockPos);
@@ -594,6 +589,9 @@ pub(super) struct Chunks {
     /// Chunks a [`ChunkUnload`] listener kept loaded, by the tick they are asked about again;
     /// each holds one interest. At most [`MAX_KEPT_CHUNKS`].
     kept: BTreeSet<(u64, Key)>,
+    /// The tick each chunk of `kept` is asked about again, by chunk: derived from `kept`, so
+    /// neither saved nor hashed.
+    kept_at: BTreeMap<Key, u64>,
     /// The chunks picked to send this tick, for [`PlayerPostChunkSend`] in the view phase. Empty
     /// unless it is heard, and between ticks.
     sent: Vec<(SessionId, ChunkPos)>,
@@ -639,6 +637,7 @@ impl Chunks {
             loads: _,
             unloading,
             kept,
+            kept_at: _,
             sent: _,
             tickets,
             next_ticket,
@@ -689,6 +688,7 @@ impl Chunks {
             loads: _,
             unloading,
             kept,
+            kept_at: _,
             sent: _,
             tickets,
             next_ticket,
@@ -766,6 +766,7 @@ impl Chunks {
             && self.loads.is_empty()
             && self.unloading.is_empty()
             && self.kept.is_empty()
+            && self.kept_at.is_empty()
             && self.sent.is_empty()
             && self.tickets.is_empty()
             && self.by_chunk.is_empty()
@@ -850,6 +851,7 @@ impl Chunks {
             loads: BTreeMap::new(),
             unloading: Codec::decode(r)?,
             kept: Codec::decode(r)?,
+            kept_at: BTreeMap::new(),
             sent: Vec::new(),
             tickets: Codec::decode(r)?,
             next_ticket: Codec::decode(r)?,
@@ -867,6 +869,11 @@ impl Chunks {
         for (&n, ticket) in &self.tickets {
             self.by_chunk
                 .extend(ticket.area().map(|pos| ((ticket.world, pos), n)));
+        }
+        for &(due, key) in &self.kept {
+            if self.kept_at.insert(key, due).is_some() {
+                return Err(Error::Format("chunk kept twice"));
+            }
         }
         Ok(())
     }
@@ -914,7 +921,7 @@ impl Ticket {
         })
     }
 
-    /// Counts the chunks the area of a ticket of `radius` holds.
+    /// How many chunks the area of a ticket of `radius` holds.
     fn size(radius: u8) -> usize {
         let side = 2 * usize::from(radius) + 1;
         side * side
@@ -934,6 +941,49 @@ struct Heard {
     unload: bool,
     sent: bool,
 }
+
+/// A sub-chunk of one of the server's worlds: its chunk and its index (0 is the lowest).
+type SubChunkKey = (WorldIndex, ChunkPos, usize);
+
+/// The sub-chunks this tick's answers need, each worked out once for every player who asked.
+#[derive(Debug, Default)]
+pub(super) struct Encoded {
+    /// The sub-chunks, sorted.
+    keys: Vec<SubChunkKey>,
+    /// Each key's sub-chunk, in the same order: `None` when its chunk is not loaded, which an
+    /// answer reads as an empty chunk, as it does a sub-chunk that is not here.
+    sub_chunks: Vec<Option<EncodedSubChunk>>,
+}
+
+impl Encoded {
+    /// The sub-chunks the answers of this tick read, each worked out once on the CPU pool.
+    pub(super) fn new(state: &State, pool: &Pool) -> Self {
+        let keys = wanted_sub_chunks(state);
+        let (worlds, blocks) = (&state.worlds, &state.rules.block_entities);
+        let sub_chunks = pool.map(&keys, |&key| encode(worlds, blocks, key));
+        Self { keys, sub_chunks }
+    }
+
+    /// The sub-chunk of `key`, if it was worked out and its chunk is loaded.
+    fn get(&self, key: SubChunkKey) -> Option<&EncodedSubChunk> {
+        let i = self.keys.binary_search(&key).ok()?;
+        self.sub_chunks.get(i)?.as_ref()
+    }
+}
+
+/// One wanted sub-chunk as every answer carries it.
+#[derive(Debug)]
+struct EncodedSubChunk {
+    /// The blocks, then the client form of the block entities; `None` for a sub-chunk of air.
+    payload: Option<Vec<u8>>,
+    /// The height map type and data ([`height_map`]).
+    height_map: (HeightMapData, Option<HeightMap>),
+}
+
+/// The block changes of a tick by world, each world's grouped by sub-chunk: (chunk, sub-chunk y)
+/// to the changed blocks with their network IDs, in position order. Only worlds with changes are
+/// in it, so each player reads its own world's alone.
+pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>>>;
 
 impl Context<'_> {
     /// The tickets that hold chunk `chunk` of `world`, in the order they were given. Players' views and the 3 × 3 spawn chunks hold chunks too
@@ -1001,11 +1051,11 @@ impl Context<'_> {
     /// ticket is released, and the tickets of every caller share one bound. The chunks that are
     /// not loaded load from the next view phase on, as players' chunks do: [`ChunkLoad`] says when
     /// each has, but for a damaged chunk, which is quarantined instead
-    /// ([`World::is_quarantined`]). A world that unloads drops its tickets.
+    /// ([`World::is_quarantined`]). A world that unloads drops its tickets. On an error nothing
+    /// is held.
     ///
     /// # Errors
     ///
-    /// Nothing is held:
     /// [`world::Error::WorldNotLoaded`](crate::world::Error::WorldNotLoaded) for a world that is
     /// not loaded.
     /// [`world::Error::OutOfRange`](crate::world::Error::OutOfRange) for a center outside the
@@ -1075,15 +1125,16 @@ impl Context<'_> {
     /// collides with, breaks and uses the real one, and a refused interaction there may show the
     /// real block again.
     ///
+    /// On an error nothing is changed.
+    ///
     /// # Errors
     ///
-    /// Nothing is changed:
-    /// [`menu::Error::Offline`](crate::menu::Error::Offline) if the player is not in the game.
-    /// [`menu::Error::OutsideWorld`](crate::menu::Error::OutsideWorld) if `pos` is outside the
+    /// [`menu::Error::Offline`](crate::menu::Error::Offline) for a player that is not in the game.
+    /// [`menu::Error::OutsideWorld`](crate::menu::Error::OutsideWorld) for a `pos` outside the
     /// world height.
-    /// [`menu::Error::Full`](crate::menu::Error::Full) if the player has 4,096 fake blocks.
-    /// [`menu::Error::Busy`](crate::menu::Error::Busy) if 4,096 fake block changes wait to be sent
-    /// to it this tick.
+    /// [`menu::Error::Full`](crate::menu::Error::Full) for a player with 4,096 fake blocks.
+    /// [`menu::Error::Busy`](crate::menu::Error::Busy) for 4,096 fake block changes waiting to be
+    /// sent to it this tick.
     #[doc(alias = "World::createBlockUpdatePackets")]
     pub fn send_fake_block(
         &mut self,
@@ -1112,100 +1163,11 @@ impl Context<'_> {
     }
 }
 
-/// A sub-chunk of one of the server's worlds: its chunk and its index (0 is the lowest).
-type SubChunkKey = (WorldIndex, ChunkPos, usize);
-
-/// The sub-chunks this tick's answers need, each worked out once for every player who asked.
-#[derive(Debug, Default)]
-pub(super) struct Encoded {
-    /// The sub-chunks, sorted.
-    keys: Vec<SubChunkKey>,
-    /// Each key's sub-chunk, in the same order: `None` when its chunk is not loaded, which an
-    /// answer reads as an empty chunk, as it does a sub-chunk that is not here.
-    sub_chunks: Vec<Option<EncodedSubChunk>>,
-}
-
-impl Encoded {
-    /// Works out the sub-chunks the answers of this tick read, each once, on the CPU pool.
-    pub(super) fn new(state: &State, pool: &Pool) -> Self {
-        let keys = wanted_sub_chunks(state);
-        let (worlds, blocks) = (&state.worlds, &state.rules.block_entities);
-        let sub_chunks = pool.map(&keys, |&key| encode(worlds, blocks, key));
-        Self { keys, sub_chunks }
-    }
-
-    /// The sub-chunk of `key`, if it was worked out and its chunk is loaded.
-    fn get(&self, key: SubChunkKey) -> Option<&EncodedSubChunk> {
-        let i = self.keys.binary_search(&key).ok()?;
-        self.sub_chunks.get(i)?.as_ref()
-    }
-}
-
-/// One wanted sub-chunk as every answer carries it.
-#[derive(Debug)]
-struct EncodedSubChunk {
-    /// The blocks, then the client form of the block entities; `None` for a sub-chunk of air.
-    payload: Option<Vec<u8>>,
-    /// The height map type and data ([`height_map`]).
-    height_map: (HeightMapData, Option<HeightMap>),
-}
-
-/// The block changes of a tick by world, each world's grouped by sub-chunk: (chunk, sub-chunk y)
-/// to the changed blocks with their network IDs, in position order. Only worlds with changes are
-/// in it, so each player reads its own world's alone.
-pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>>>;
-
-/// Adds one holder of `key`. A chunk not loaded is loaded once the view phase wants it
-/// ([`want`]), from memory if it waits there for a commit.
-fn hold(chunks: &mut Chunks, key: Key) {
-    let count = chunks.interest.entry(key).or_insert(0);
-    *count = count.saturating_add(1);
-    if *count == 1 {
-        // Let go and held again before the view phase asked about it: it never left.
-        chunks.unloading.remove(&key);
-    }
-}
-
-/// Removes one holder of `key`; after the last one the chunk stays loaded until the view phase
-/// unloads it ([`announce`]).
-fn release(chunks: &mut Chunks, key: Key) {
-    let Some(count) = chunks.interest.get_mut(&key) else {
-        return;
-    };
-    *count = count.saturating_sub(1);
-    if *count > 0 {
-        return;
-    }
-    chunks.interest.remove(&key);
-    chunks.unloading.insert(key);
-}
-
-/// Unloads a chunk nobody holds, with its extras. A chunk of a persistent world whose changes no
-/// commit holds yet stays in memory until one does; any other is freed off the tick.
-fn unload(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
-    rules.unload(key, &mut chunks.extras);
-    let extras = chunks.extras.chunk_unloaded(key).unwrap_or_default();
-    let Some(world) = worlds.get_mut(key.0) else {
-        return;
-    };
-    let persistent = world.kind() == Kind::Persistent;
-    let Some(chunk) = world.remove_chunk(key.1) else {
-        return;
-    };
-    if persistent && is_kept_unloaded(saving, &key, &chunk, &extras) {
-        let snapshot = unsaved_snapshot(saving, &key, &chunk, &extras);
-        chunks.unsaved.insert(
-            key,
-            Unsaved {
-                chunk,
-                extras,
-                snapshot,
-            },
-        );
-    } else {
-        chunks.discarded.push(chunk);
-    }
-}
+super::checkpoint::fields!(SubChunkRequest {
+    dimension,
+    position,
+    offsets
+});
 
 /// Holds the spawn chunks of every world (3 × 3 around the spawn), so they stay loaded without
 /// players.
@@ -1222,101 +1184,6 @@ pub(super) fn hold_spawns(state: &mut State) {
     for world in 0..state.worlds.len() {
         hold_world(state, world);
     }
-}
-
-/// Lists the chunks within `SPAWN_CHUNK_RADIUS` of `center` inside the world border: a spawn past
-/// it (any value [`World::set_spawn`] takes, or a stored one) holds nothing there.
-fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
-    (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
-        .flat_map(move |x| {
-            (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
-                .map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
-        })
-        .filter(|&pos| crate::world::is_inside_border(pos))
-}
-
-/// Moves the held spawn chunks of each world whose spawn moved to another chunk
-/// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
-/// then the old ones are released.
-fn move_spawns(worlds: &Worlds, chunks: &mut Chunks) {
-    for at in 0..chunks.spawns.len() {
-        let Some(world) = worlds.index_at(at) else {
-            continue;
-        };
-        let (Some(&held), Some(now)) = (chunks.spawns.get(at), worlds.get(world).map(World::spawn))
-        else {
-            continue;
-        };
-        if held == now {
-            continue;
-        }
-        if held.chunk() != now.chunk() {
-            for pos in spawn_area(now.chunk()) {
-                hold(chunks, (world, pos));
-            }
-            for pos in spawn_area(held.chunk()) {
-                release(chunks, (world, pos));
-            }
-        }
-        if let Some(spawn) = chunks.spawns.get_mut(at) {
-            *spawn = now;
-        }
-    }
-}
-
-/// Opens or moves a player's view: the chunks it gains are held, those it loses released and
-/// forgotten as sent.
-fn set_view(chunks: &mut Chunks, player: &mut Player, center: ChunkPos, radius: u8) {
-    let (world, session, view) = (player.world, player.session, &mut player.view);
-    let old = view.is_open().then_some((view.center, view.radius));
-    let size = chunks.disc.size(radius);
-    let from = view.first_word;
-    std::mem::swap(&mut view.unsent, &mut view.spare);
-    view.unsent.clear();
-    view.unsent.resize(size.div_ceil(WORD_BITS), 0);
-    // The rank of the nearest chunk marked unsent, so picking starts at its word.
-    let mut nearest = size;
-    if let Some((old_center, _)) = old {
-        // The unsent chunks the view keeps, at their rank around the new center.
-        let shift = ChunkPos::new(
-            old_center.x.saturating_sub(center.x),
-            old_center.z.saturating_sub(center.z),
-        );
-        for rank in set_bits(&view.spare, from) {
-            #[cfg(test)]
-            tests::count_position();
-            if let Some(kept) = chunks.disc.rank(at(shift, chunks.disc.offset(rank)))
-                && kept < size
-            {
-                set_bit(&mut view.unsent, kept);
-                nearest = nearest.min(kept);
-            }
-        }
-    }
-    for_each_outside(center, radius, old, |offset| {
-        hold(chunks, (world, at(center, offset)));
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: an offset within the radius, at most MAX_RADIUS, has a rank"
-        )]
-        let rank = chunks.disc.rank(offset).expect("an offset of the view");
-        set_bit(&mut view.unsent, rank);
-        nearest = nearest.min(rank);
-    });
-    view.first_word = nearest / WORD_BITS;
-    if let Some((old_center, old_radius)) = old {
-        for_each_outside(old_center, old_radius, Some((center, radius)), |offset| {
-            let pos = at(old_center, offset);
-            release(chunks, (world, pos));
-            if view.sent.remove(&pos) {
-                view.watered.remove(&pos);
-                chunks.unsee(session, (world, pos));
-            }
-        });
-    }
-    view.center = center;
-    view.radius = radius;
-    view.out.publish = true;
 }
 
 /// Closes a player's view, as it leaves or changes world: releases every chunk it held and drops
@@ -1532,6 +1399,90 @@ fn update_player(settings: &Settings, worlds: &Worlds, chunks: &mut Chunks, play
     view.out.answers.extend(view.requests.drain(..take));
 }
 
+/// Opens or moves a player's view: the chunks it gains are held, those it loses released and
+/// forgotten as sent.
+fn set_view(chunks: &mut Chunks, player: &mut Player, center: ChunkPos, radius: u8) {
+    let (world, session, view) = (player.world, player.session, &mut player.view);
+    let old = view.is_open().then_some((view.center, view.radius));
+    let size = chunks.disc.size(radius);
+    let from = view.first_word;
+    std::mem::swap(&mut view.unsent, &mut view.spare);
+    view.unsent.clear();
+    view.unsent.resize(size.div_ceil(WORD_BITS), 0);
+    // The rank of the nearest chunk marked unsent, so picking starts at its word.
+    let mut nearest = size;
+    if let Some((old_center, _)) = old {
+        // The unsent chunks the view keeps, at their rank around the new center.
+        let shift = ChunkPos::new(
+            old_center.x.saturating_sub(center.x),
+            old_center.z.saturating_sub(center.z),
+        );
+        for rank in set_bits(&view.spare, from) {
+            #[cfg(test)]
+            tests::count_position();
+            if let Some(kept) = chunks.disc.rank(at(shift, chunks.disc.offset(rank)))
+                && kept < size
+            {
+                set_bit(&mut view.unsent, kept);
+                nearest = nearest.min(kept);
+            }
+        }
+    }
+    for_each_outside(center, radius, old, |offset| {
+        hold(chunks, (world, at(center, offset)));
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: an offset within the radius, at most MAX_RADIUS, has a rank"
+        )]
+        let rank = chunks.disc.rank(offset).expect("an offset of the view");
+        set_bit(&mut view.unsent, rank);
+        nearest = nearest.min(rank);
+    });
+    view.first_word = nearest / WORD_BITS;
+    if let Some((old_center, old_radius)) = old {
+        for_each_outside(old_center, old_radius, Some((center, radius)), |offset| {
+            let pos = at(old_center, offset);
+            release(chunks, (world, pos));
+            if view.sent.remove(&pos) {
+                view.watered.remove(&pos);
+                chunks.unsee(session, (world, pos));
+            }
+        });
+    }
+    view.center = center;
+    view.radius = radius;
+    view.out.publish = true;
+}
+
+/// Moves the held spawn chunks of each world whose spawn moved to another chunk
+/// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
+/// then the old ones are released.
+fn move_spawns(worlds: &Worlds, chunks: &mut Chunks) {
+    for at in 0..chunks.spawns.len() {
+        let Some(world) = worlds.index_at(at) else {
+            continue;
+        };
+        let (Some(&held), Some(now)) = (chunks.spawns.get(at), worlds.get(world).map(World::spawn))
+        else {
+            continue;
+        };
+        if held == now {
+            continue;
+        }
+        if held.chunk() != now.chunk() {
+            for pos in spawn_area(now.chunk()) {
+                hold(chunks, (world, pos));
+            }
+            for pos in spawn_area(held.chunk()) {
+                release(chunks, (world, pos));
+            }
+        }
+        if let Some(spawn) = chunks.spawns.get_mut(at) {
+            *spawn = now;
+        }
+    }
+}
+
 /// Raises the chunk events of the tick at the end of the view phase, each built only when someone
 /// listens. In order: [`ChunkLoad`] for the chunks loaded or brought back from memory that are
 /// still loaded; [`PlayerPostChunkSend`] for the chunks picked to send (the output phase sends
@@ -1596,6 +1547,7 @@ fn unload_released(state: &mut State) {
         && due <= tick
     {
         state.chunks.kept.pop_first();
+        state.chunks.kept_at.remove(&key);
         release(&mut state.chunks, key);
     }
     for key in std::mem::take(&mut state.chunks.unloading) {
@@ -1626,10 +1578,9 @@ fn unload_released(state: &mut State) {
             e.cancelled = true;
         } else if e.cancelled && state.chunks.kept.len() < MAX_KEPT_CHUNKS {
             state.chunks.interest.insert(key, 1);
-            state
-                .chunks
-                .kept
-                .insert((tick.saturating_add(KEEP_TICKS), key));
+            let due = tick.saturating_add(KEEP_TICKS);
+            state.chunks.kept.insert((due, key));
+            state.chunks.kept_at.insert(key, due);
         } else {
             if e.cancelled {
                 warn!(
@@ -1645,18 +1596,6 @@ fn unload_released(state: &mut State) {
         }
         dispatch::watch(state, &e);
     }
-}
-
-/// Runs [`unload`] on the whole state.
-fn unload_now(state: &mut State, key: Key) {
-    let State {
-        worlds,
-        chunks,
-        rules,
-        saving,
-        ..
-    } = state;
-    unload(worlds, chunks, rules, saving, key);
 }
 
 /// Picks up to `per_tick` loaded chunks of the view to send, nearest first, and asks for loads
@@ -1716,26 +1655,6 @@ fn pick(worlds: &Worlds, chunks: &mut Chunks, player: &mut Player, per_tick: usi
     }
 }
 
-/// Asks for a load of `key` this tick unless it is in flight or the bounds are reached. A chunk
-/// whose changes wait in memory for a commit comes back from there instead, so a load never
-/// reads a file older than the tick's data.
-fn want(chunks: &mut Chunks, key: Key) {
-    if chunks.unsaved.contains_key(&key) {
-        if chunks.returning.len() < MAX_RETURNS_PER_TICK {
-            chunks.returning.insert(key);
-        }
-        return;
-    }
-    if chunks.requested.contains(&key)
-        || chunks.batch.len() >= MAX_LOADS_PER_TICK
-        || chunks.in_flight() >= MAX_LOADS_IN_FLIGHT
-    {
-        return;
-    }
-    chunks.requested.insert(key);
-    chunks.batch.push(key);
-}
-
 /// Asks for the held spawn chunks that are not loaded.
 fn request_spawn_loads(worlds: &Worlds, chunks: &mut Chunks) {
     for w in worlds.iter() {
@@ -1772,6 +1691,26 @@ fn request_ticket_loads(worlds: &Worlds, chunks: &mut Chunks) {
     chunks.waiting = waiting;
 }
 
+/// Asks for a load of `key` this tick unless it is in flight or the bounds are reached. A chunk
+/// whose changes wait in memory for a commit comes back from there instead, so a load never
+/// reads a file older than the tick's data.
+fn want(chunks: &mut Chunks, key: Key) {
+    if chunks.unsaved.contains_key(&key) {
+        if chunks.returning.len() < MAX_RETURNS_PER_TICK {
+            chunks.returning.insert(key);
+        }
+        return;
+    }
+    if chunks.requested.contains(&key)
+        || chunks.batch.len() >= MAX_LOADS_PER_TICK
+        || chunks.in_flight() >= MAX_LOADS_IN_FLIGHT
+    {
+        return;
+    }
+    chunks.requested.insert(key);
+    chunks.batch.push(key);
+}
+
 /// Brings back from memory the chunks wanted this tick whose changes wait for a commit
 /// ([`want`]), their terrain and extras with their dirty marks. As the save thread does for a
 /// load, their light (when `lit`) and the typed form of their extras are worked out on the CPU
@@ -1789,12 +1728,23 @@ fn bring_back(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, pool:
         if lit {
             unsaved.chunk.populate_light();
         }
-        let read =
-            super::rules::read_kept(key, unsaved.extras.extras(), &unsaved.chunk, custom, types);
+        let read = ChunkRules::read(key, unsaved.extras.extras(), &unsaved.chunk, custom, types);
         (key, unsaved, read)
     });
     for (key, Unsaved { chunk, extras, .. }, read) in read {
         let Some(world) = worlds.get_mut(key.0) else {
+            continue;
+        };
+        // A list no chunk may hold, which only a replay's checkpoint can give: quarantined as
+        // such a load is.
+        let Some(read) = read else {
+            warn!(
+                world = world.name(),
+                x = key.1.x,
+                z = key.1.z,
+                "a chunk kept in memory has damaged extras; it is quarantined"
+            );
+            world.quarantine(key.1);
             continue;
         };
         world.insert_chunk(key.1, chunk);
@@ -1830,11 +1780,12 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
         announce_unload(state, world);
     }
     let chunks = &mut state.chunks;
-    let tickets: Vec<u64> = chunks
-        .tickets
-        .iter()
-        .filter(|(_, t)| t.world == world)
-        .map(|(&n, _)| n)
+    let all =
+        (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
+    let tickets: BTreeSet<u64> = chunks
+        .by_chunk
+        .range((*all.start(), 0)..=(*all.end(), u64::MAX))
+        .map(|&(_, n)| n)
         .collect();
     for n in tickets {
         release_ticket(chunks, n);
@@ -1853,8 +1804,6 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     ) {
         *held = now;
     }
-    let all =
-        (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
     let held: Vec<Key> = chunks
         .interest
         .range(all.clone())
@@ -1863,9 +1812,23 @@ pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
     for key in held {
         chunks.interest.remove(&key);
     }
-    chunks.kept.retain(|(_, k)| k.0 != world);
-    chunks.unloading.retain(|k| k.0 != world);
-    chunks.waiting.retain(|k| k.0 != world);
+    let kept: Vec<(Key, u64)> = chunks
+        .kept_at
+        .range(all.clone())
+        .map(|(&k, &due)| (k, due))
+        .collect();
+    for (key, due) in kept {
+        chunks.kept_at.remove(&key);
+        chunks.kept.remove(&(due, key));
+    }
+    let unloading: Vec<Key> = chunks.unloading.range(all.clone()).copied().collect();
+    for key in unloading {
+        chunks.unloading.remove(&key);
+    }
+    let waiting: Vec<Key> = chunks.waiting.range(all.clone()).copied().collect();
+    for key in waiting {
+        chunks.waiting.remove(&key);
+    }
     let asked: Vec<Key> = chunks.requested.range(all).copied().collect();
     for key in asked {
         chunks.requested.remove(&key);
@@ -1913,7 +1876,82 @@ fn release_ticket(chunks: &mut Chunks, n: u64) -> bool {
     true
 }
 
-/// Collects the sub-chunks the answers of this tick read, each once, sorted.
+/// Runs [`unload`] on the whole state.
+fn unload_now(state: &mut State, key: Key) {
+    let State {
+        worlds,
+        chunks,
+        rules,
+        saving,
+        ..
+    } = state;
+    unload(worlds, chunks, rules, saving, key);
+}
+
+/// Unloads a chunk nobody holds, with its extras. A chunk of a persistent world whose changes no
+/// commit holds yet stays in memory until one does; any other is freed off the tick.
+fn unload(worlds: &mut Worlds, chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
+    rules.unload(key, &mut chunks.extras);
+    let extras = chunks.extras.chunk_unloaded(key).unwrap_or_default();
+    let Some(world) = worlds.get_mut(key.0) else {
+        return;
+    };
+    let persistent = world.kind() == Kind::Persistent;
+    let Some(chunk) = world.remove_chunk(key.1) else {
+        return;
+    };
+    if persistent && is_kept_unloaded(saving, &key, &chunk, &extras) {
+        let snapshot = unsaved_snapshot(saving, &key, &chunk, &extras);
+        chunks.unsaved.insert(
+            key,
+            Unsaved {
+                chunk,
+                extras,
+                snapshot,
+            },
+        );
+    } else {
+        chunks.discarded.push(chunk);
+    }
+}
+
+/// The chunks within `SPAWN_CHUNK_RADIUS` of `center` inside the world border: a spawn past it
+/// (any value [`World::set_spawn`] takes, or a stored one) holds nothing there.
+fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
+    (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
+        .flat_map(move |x| {
+            (-SPAWN_CHUNK_RADIUS..=SPAWN_CHUNK_RADIUS)
+                .map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
+        })
+        .filter(|&pos| crate::world::is_inside_border(pos))
+}
+
+/// Adds one holder of `key`. A chunk not loaded is loaded once the view phase wants it
+/// ([`want`]), from memory if it waits there for a commit.
+fn hold(chunks: &mut Chunks, key: Key) {
+    let count = chunks.interest.entry(key).or_insert(0);
+    *count = count.saturating_add(1);
+    if *count == 1 {
+        // Let go and held again before the view phase asked about it: it never left.
+        chunks.unloading.remove(&key);
+    }
+}
+
+/// Removes one holder of `key`; after the last one the chunk stays loaded until the view phase
+/// unloads it ([`announce`]).
+fn release(chunks: &mut Chunks, key: Key) {
+    let Some(count) = chunks.interest.get_mut(&key) else {
+        return;
+    };
+    *count = count.saturating_sub(1);
+    if *count > 0 {
+        return;
+    }
+    chunks.interest.remove(&key);
+    chunks.unloading.insert(key);
+}
+
+/// The sub-chunks the answers of this tick read, each once, sorted.
 fn wanted_sub_chunks(state: &State) -> Vec<SubChunkKey> {
     let mut keys = BTreeSet::new();
     for player in state.players.values() {
@@ -1935,7 +1973,7 @@ fn wanted_sub_chunks(state: &State) -> Vec<SubChunkKey> {
     keys.into_iter().collect()
 }
 
-/// Works out one wanted sub-chunk: its height map, and as its payload its blocks, then the client
+/// One wanted sub-chunk worked out: its height map, and as its payload its blocks, then the client
 /// form of its block entities as network NBT, so a sign shows its text and a chest its pair as soon as the
 /// sub-chunk arrives. An all-air sub-chunk has no payload: it holds no block entity. `None` when
 /// the chunk is not loaded.
@@ -1956,24 +1994,9 @@ fn encode(
     })
 }
 
-/// Finds the chunk and the sub-chunk index (0 is the lowest) a request offset names, or `None` if
-/// the index is outside the world height.
-fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize)> {
-    let [x, y, z] = request.position;
-    let pos = ChunkPos::new(
-        x.saturating_add(i32::from(offset[0])),
-        z.saturating_add(i32::from(offset[2])),
-    );
-    let index = y
-        .saturating_add(i32::from(offset[1]))
-        .saturating_sub(MIN_SUB_CHUNK_Y);
-    let index = usize::try_from(index).ok().filter(|&i| i < SUB_CHUNKS)?;
-    Some((pos, index))
-}
-
 /// Puts in `out` the chunk packets of one player this tick, in the official server's order (P6): the publisher
-/// update, the chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the
-/// client forgets them with the sub-chunk it replaces); then the positions whose fake block was
+/// update, the chunks, then the sub-chunk answers, followed by the fake blocks of each sub-chunk
+/// they hold, once (the client forgets them with the sub-chunk it replaces); then the positions whose fake block was
 /// set or cleared this tick or that a refused change sends again, with what they show now.
 pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &mut Vec<Message>) {
     let view = &player.view;
@@ -2007,6 +2030,10 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
             ..LevelChunk::default()
         })));
     }
+    // The fake blocks of each sub-chunk answered go once, after every answer: an answer naming a
+    // sub-chunk again would undo those sent before it, and a request may name one sub-chunk in
+    // each of its offsets.
+    let mut faked = BTreeSet::new();
     for request in &view.out.answers {
         out.push(Message::Packet(Packet::SubChunk(answer(
             player.world,
@@ -2023,12 +2050,13 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
             {
                 let sub_y = i32::try_from(index).unwrap_or(0) + MIN_SUB_CHUNK_Y;
                 if view.shows_in(pos, sub_y) {
-                    out.extend(
-                        update_packet(pos, sub_y, &view.shown_in(pos, sub_y)).map(Message::Packet),
-                    );
+                    faked.insert((pos, sub_y));
                 }
             }
         }
+    }
+    for (pos, sub_y) in faked {
+        out.extend(update_packet(pos, sub_y, &view.shown_in(pos, sub_y)).map(Message::Packet));
     }
     let mut changed: BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>> = BTreeMap::new();
     for &pos in view.out.shown.union(&view.out.resynced) {
@@ -2048,178 +2076,6 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
     }
     for ((chunk, sub_y), blocks) in &changed {
         out.extend(update_packet(*chunk, *sub_y, blocks).map(Message::Packet));
-    }
-}
-
-/// Builds the packet that sets `blocks` (with their network IDs) of sub-chunk `sub_y` of `chunk`
-/// on a client: an `UpdateBlock` for one block, an `UpdateSubChunkBlocks` for several (P6);
-/// none for none.
-fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
-    match blocks {
-        [] => None,
-        [(at, id)] => Some(Packet::UpdateBlock(UpdateBlock {
-            position: [at.x, at.y, at.z],
-            new_block_runtime_id: *id,
-            flags: UPDATE_FLAGS,
-            layer: 0,
-        })),
-        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
-            position: sub_chunk_position(chunk, sub_y),
-            blocks: blocks
-                .iter()
-                .map(|(at, id)| block_change(*at, *id))
-                .collect(),
-            extra: Vec::new(),
-        })),
-    }
-}
-
-/// Builds the packet that sets layer 1, the water, of the slots of `blocks` (only their positions
-/// matter) in sub-chunk `sub_y` of `chunk` to air on a client: an `UpdateBlock` for one slot, the
-/// extras of an `UpdateSubChunkBlocks` for several; none for none.
-fn water_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
-    let air = Entry::AIR.network_id();
-    match blocks {
-        [] => None,
-        [(at, _)] => Some(Packet::UpdateBlock(UpdateBlock {
-            position: [at.x, at.y, at.z],
-            new_block_runtime_id: air,
-            flags: UPDATE_FLAGS,
-            layer: 1,
-        })),
-        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
-            position: sub_chunk_position(chunk, sub_y),
-            blocks: Vec::new(),
-            extra: blocks
-                .iter()
-                .map(|(at, _)| block_change(*at, air))
-                .collect(),
-        })),
-    }
-}
-
-/// Builds the entry that sets the block at `at` to the block with network ID `id`.
-fn block_change(at: BlockPos, id: u32) -> BlockChangeEntry {
-    BlockChangeEntry {
-        block_pos: [at.x, at.y, at.z],
-        block_runtime_id: id,
-        flags: UPDATE_FLAGS,
-        synced_update_entity_unique_id: u64::MAX,
-        synced_update_type: 0,
-    }
-}
-
-/// Finds the position of the lowest block of sub-chunk `sub_y` of `chunk`.
-fn sub_chunk_position(chunk: ChunkPos, sub_y: i32) -> [i32; 3] {
-    [
-        chunk.x.saturating_mul(16),
-        sub_y.saturating_mul(16),
-        chunk.z.saturating_mul(16),
-    ]
-}
-
-/// Builds the answer to one sub-chunk request: one entry per offset, in order (values from
-/// P6).
-fn answer(
-    world_index: WorldIndex,
-    view: &View,
-    request: &SubChunkRequest,
-    encoded: &Encoded,
-) -> SubChunk {
-    let mut entries = Vec::with_capacity(request.offsets.len());
-    // A request for another dimension gets no entries: the overworld is the only one.
-    if request.dimension == 0 {
-        for &offset in &request.offsets {
-            entries.push(entry(world_index, view, request, offset, encoded));
-        }
-    }
-    SubChunk {
-        cache_enabled: false,
-        dimension: request.dimension,
-        position: request.position,
-        sub_chunk_entries: entries,
-    }
-}
-
-/// Builds the answer entry of one request offset.
-fn entry(
-    world_index: WorldIndex,
-    view: &View,
-    request: &SubChunkRequest,
-    offset: [i8; 3],
-    encoded: &Encoded,
-) -> SubChunkEntry {
-    // The height map types not set stay 0, `HeightMapData::None`, the entries' default.
-    let failed = |result: SubChunkResult| SubChunkEntry {
-        offset,
-        result: u8::from(result),
-        ..SubChunkEntry::default()
-    };
-    let Some((pos, index)) = target(request, offset) else {
-        return failed(SubChunkResult::IndexOutOfBounds);
-    };
-    if !view.sent.contains(&pos) {
-        return failed(SubChunkResult::ChunkNotFound);
-    }
-    let sub_chunk = encoded.get((world_index, pos, index));
-    let ((height_map_type, height_map_data), payload) = match sub_chunk {
-        Some(sub_chunk) => (sub_chunk.height_map, sub_chunk.payload.as_ref()),
-        None => (NOT_LOADED_HEIGHT_MAP, None),
-    };
-    let render_height_map_type = if height_map_type == HeightMapData::HasData {
-        HeightMapData::AllCopied
-    } else {
-        height_map_type
-    };
-    SubChunkEntry {
-        offset,
-        result: u8::from(if payload.is_some() {
-            SubChunkResult::Success
-        } else {
-            SubChunkResult::SuccessAllAir
-        }),
-        // A copy of bytes made once ([`Encoded`]): the generated entry owns its bytes.
-        raw_payload: payload.cloned(),
-        height_map_type: u8::from(height_map_type),
-        height_map_data,
-        render_height_map_type: u8::from(render_height_map_type),
-        render_height_map_data: None,
-        blob_hash: None,
-    }
-}
-
-/// Computes the height map of the sub-chunk at `index` (P6): per column the highest block's y
-/// relative to the sub-chunk's bottom, plus 1; 16 if it is in a higher sub-chunk, -1 if lower or
-/// the column is air. If every column is higher or every one lower, the type says so without
-/// data.
-fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>) {
-    #[cfg(test)]
-    tests::count_height_map();
-    let bottom = (i32::try_from(index).unwrap_or(0) + MIN_SUB_CHUNK_Y) * 16;
-    let mut map: HeightMap = [[0; 16]; 16];
-    let (mut all_higher, mut all_lower) = (true, true);
-    for (i, &height) in chunk.heights().iter().enumerate() {
-        let value = if height == NO_HEIGHT || i32::from(height) < bottom {
-            all_higher = false;
-            -1
-        } else if i32::from(height) >= bottom + 16 {
-            all_lower = false;
-            16
-        } else {
-            (all_higher, all_lower) = (false, false);
-            // 1 to 16: the height is in this sub-chunk.
-            i8::try_from(i32::from(height) - bottom + 1).unwrap_or(16)
-        };
-        if let Some(cell) = map.get_mut(i >> 4).and_then(|row| row.get_mut(i & 15)) {
-            *cell = value;
-        }
-    }
-    if all_higher {
-        (HeightMapData::TooHigh, None)
-    } else if all_lower {
-        (HeightMapData::TooLow, None)
-    } else {
-        (HeightMapData::HasData, Some(map))
     }
 }
 
@@ -2281,7 +2137,193 @@ pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Me
     }
 }
 
-/// Finds the place of the fake block at `pos`.
+/// The packet that sets `blocks` (with their network IDs) of sub-chunk `sub_y` of `chunk`
+/// on a client: an `UpdateBlock` for one block, an `UpdateSubChunkBlocks` for several (P6);
+/// none for none.
+fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
+    match blocks {
+        [] => None,
+        [(at, id)] => Some(Packet::UpdateBlock(UpdateBlock {
+            position: [at.x, at.y, at.z],
+            new_block_runtime_id: *id,
+            flags: UPDATE_FLAGS,
+            layer: 0,
+        })),
+        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
+            position: sub_chunk_position(chunk, sub_y),
+            blocks: blocks
+                .iter()
+                .map(|(at, id)| block_change(*at, *id))
+                .collect(),
+            extra: Vec::new(),
+        })),
+    }
+}
+
+/// The packet that sets layer 1, the water, of the slots of `blocks` (only their positions
+/// matter) in sub-chunk `sub_y` of `chunk` to air on a client: an `UpdateBlock` for one slot, the
+/// extras of an `UpdateSubChunkBlocks` for several; none for none.
+fn water_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
+    let air = Entry::AIR.network_id();
+    match blocks {
+        [] => None,
+        [(at, _)] => Some(Packet::UpdateBlock(UpdateBlock {
+            position: [at.x, at.y, at.z],
+            new_block_runtime_id: air,
+            flags: UPDATE_FLAGS,
+            layer: 1,
+        })),
+        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
+            position: sub_chunk_position(chunk, sub_y),
+            blocks: Vec::new(),
+            extra: blocks
+                .iter()
+                .map(|(at, _)| block_change(*at, air))
+                .collect(),
+        })),
+    }
+}
+
+/// The entry that sets the block at `at` to the block with network ID `id`.
+fn block_change(at: BlockPos, id: u32) -> BlockChangeEntry {
+    BlockChangeEntry {
+        block_pos: [at.x, at.y, at.z],
+        block_runtime_id: id,
+        flags: UPDATE_FLAGS,
+        synced_update_entity_unique_id: u64::MAX,
+        synced_update_type: 0,
+    }
+}
+
+/// The position of the lowest block of sub-chunk `sub_y` of `chunk`.
+fn sub_chunk_position(chunk: ChunkPos, sub_y: i32) -> [i32; 3] {
+    [
+        chunk.x.saturating_mul(16),
+        sub_y.saturating_mul(16),
+        chunk.z.saturating_mul(16),
+    ]
+}
+
+/// The answer to one sub-chunk request: one entry per offset, in order (values from P6).
+fn answer(
+    world_index: WorldIndex,
+    view: &View,
+    request: &SubChunkRequest,
+    encoded: &Encoded,
+) -> SubChunk {
+    let mut entries = Vec::with_capacity(request.offsets.len());
+    // A request for another dimension gets no entries: the overworld is the only one.
+    if request.dimension == 0 {
+        for &offset in &request.offsets {
+            entries.push(entry(world_index, view, request, offset, encoded));
+        }
+    }
+    SubChunk {
+        cache_enabled: false,
+        dimension: request.dimension,
+        position: request.position,
+        sub_chunk_entries: entries,
+    }
+}
+
+/// The answer entry of one request offset.
+fn entry(
+    world_index: WorldIndex,
+    view: &View,
+    request: &SubChunkRequest,
+    offset: [i8; 3],
+    encoded: &Encoded,
+) -> SubChunkEntry {
+    // The height map types not set stay 0, `HeightMapData::None`, the entries' default.
+    let failed = |result: SubChunkResult| SubChunkEntry {
+        offset,
+        result: u8::from(result),
+        ..SubChunkEntry::default()
+    };
+    let Some((pos, index)) = target(request, offset) else {
+        return failed(SubChunkResult::IndexOutOfBounds);
+    };
+    if !view.sent.contains(&pos) {
+        return failed(SubChunkResult::ChunkNotFound);
+    }
+    let sub_chunk = encoded.get((world_index, pos, index));
+    let ((height_map_type, height_map_data), payload) = match sub_chunk {
+        Some(sub_chunk) => (sub_chunk.height_map, sub_chunk.payload.as_ref()),
+        None => (NOT_LOADED_HEIGHT_MAP, None),
+    };
+    let render_height_map_type = if height_map_type == HeightMapData::HasData {
+        HeightMapData::AllCopied
+    } else {
+        height_map_type
+    };
+    SubChunkEntry {
+        offset,
+        result: u8::from(if payload.is_some() {
+            SubChunkResult::Success
+        } else {
+            SubChunkResult::SuccessAllAir
+        }),
+        // A copy of bytes made once ([`Encoded`]): the generated entry owns its bytes.
+        raw_payload: payload.cloned(),
+        height_map_type: u8::from(height_map_type),
+        height_map_data,
+        render_height_map_type: u8::from(render_height_map_type),
+        render_height_map_data: None,
+        blob_hash: None,
+    }
+}
+
+/// The chunk and the sub-chunk index (0 is the lowest) a request offset names, or `None` if the
+/// index is outside the world height.
+fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize)> {
+    let [x, y, z] = request.position;
+    let pos = ChunkPos::new(
+        x.saturating_add(i32::from(offset[0])),
+        z.saturating_add(i32::from(offset[2])),
+    );
+    let index = y
+        .saturating_add(i32::from(offset[1]))
+        .saturating_sub(MIN_SUB_CHUNK_Y);
+    let index = usize::try_from(index).ok().filter(|&i| i < SUB_CHUNKS)?;
+    Some((pos, index))
+}
+
+/// The height map of the sub-chunk at `index` (P6): per column the highest block's y
+/// relative to the sub-chunk's bottom, plus 1; 16 if it is in a higher sub-chunk, -1 if lower or
+/// the column is air. If every column is higher or every one lower, the type says so without
+/// data.
+fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>) {
+    #[cfg(test)]
+    tests::count_height_map();
+    let bottom = (i32::try_from(index).unwrap_or(0) + MIN_SUB_CHUNK_Y) * 16;
+    let mut map: HeightMap = [[0; 16]; 16];
+    let (mut all_higher, mut all_lower) = (true, true);
+    for (i, &height) in chunk.heights().iter().enumerate() {
+        let value = if height == NO_HEIGHT || i32::from(height) < bottom {
+            all_higher = false;
+            -1
+        } else if i32::from(height) >= bottom + 16 {
+            all_lower = false;
+            16
+        } else {
+            (all_higher, all_lower) = (false, false);
+            // 1 to 16: the height is in this sub-chunk.
+            i8::try_from(i32::from(height) - bottom + 1).unwrap_or(16)
+        };
+        if let Some(cell) = map.get_mut(i >> 4).and_then(|row| row.get_mut(i & 15)) {
+            *cell = value;
+        }
+    }
+    if all_higher {
+        (HeightMapData::TooHigh, None)
+    } else if all_lower {
+        (HeightMapData::TooLow, None)
+    } else {
+        (HeightMapData::HasData, Some(map))
+    }
+}
+
+/// The place of the fake block at `pos`.
 fn fake_key(pos: BlockPos) -> FakeKey {
     (pos.chunk(), pos.y >> 4, pos)
 }
@@ -2296,12 +2338,7 @@ fn has_water(chunk: &Chunk) -> bool {
     })
 }
 
-/// Finds the chunk an eye position is in. Positions are finite (checked when they arrive).
-pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
-    BlockPos::containing(position).chunk()
-}
-
-/// Collects the chunks the players whose view is open stand in, by world: the centers of the
+/// The chunks the players whose view is open stand in, by world: the centers of the
 /// areas within `tick-radius` ([`in_disc`]) where blocks and entities tick. A player whose view
 /// is not open yet has been sent nothing that would tick.
 pub(super) fn tick_centers(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
@@ -2315,23 +2352,18 @@ pub(super) fn tick_centers(state: &State) -> BTreeMap<WorldIndex, BTreeSet<Chunk
     centers
 }
 
-/// Computes the squared horizontal distance between two chunks.
+/// The chunk an eye position is in. Positions are finite (checked when they arrive).
+pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
+    BlockPos::containing(position).chunk()
+}
+
+/// The squared horizontal distance between two chunks.
 fn distance(a: ChunkPos, b: ChunkPos) -> i32 {
     let (dx, dz) = (a.x.saturating_sub(b.x), a.z.saturating_sub(b.z));
     dx.saturating_mul(dx).saturating_add(dz.saturating_mul(dz))
 }
 
-/// Whether `pos` is within `radius` of `center`: x² + z² ≤ r² of their offset.
-pub(super) fn in_disc(center: ChunkPos, pos: ChunkPos, radius: u8) -> bool {
-    let (dx, dz) = (
-        i64::from(pos.x) - i64::from(center.x),
-        i64::from(pos.z) - i64::from(center.z),
-    );
-    let r = i64::from(radius);
-    dx * dx + dz * dz <= r * r
-}
-
-/// Lists the chunks within `radius` of `center` ([`in_disc`]), nearest first, then by x and z.
+/// The chunks within `radius` of `center` ([`in_disc`]), nearest first, then by x and z.
 pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
     let r = i32::from(radius);
     let origin = ChunkPos::new(0, 0);
@@ -2344,6 +2376,16 @@ pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
         .into_iter()
         .map(|(x, z)| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
         .collect()
+}
+
+/// Whether `pos` is within `radius` of `center`: x² + z² ≤ r² of their offset.
+pub(super) fn in_disc(center: ChunkPos, pos: ChunkPos, radius: u8) -> bool {
+    let (dx, dz) = (
+        i64::from(pos.x) - i64::from(center.x),
+        i64::from(pos.z) - i64::from(center.z),
+    );
+    let r = i64::from(radius);
+    dx * dx + dz * dz <= r * r
 }
 
 /// Calls `f` with the offset from `center` of each chunk within `radius` of it that is not within
@@ -2377,15 +2419,14 @@ fn for_each_outside(
     }
 }
 
-/// Measures how far on z the disc of `radius` reaches in its column `x`, if it reaches that
-/// column.
+/// How far on z the disc of `radius` reaches in its column `x`, if it reaches that column.
 fn half_width(radius: u8, x: i32) -> Option<i32> {
     let r = i32::from(radius);
     let rest = r * r - x * x;
     (rest >= 0).then(|| rest.isqrt())
 }
 
-/// Finds the index of `offset` in [`Disc::ranks`], if it is within [`MAX_RADIUS`] on both axes.
+/// The index of `offset` in [`Disc::ranks`], if it is within [`MAX_RADIUS`] on both axes.
 fn cell(offset: ChunkPos) -> Option<usize> {
     let max = i32::from(MAX_RADIUS);
     let side = 2 * usize::from(MAX_RADIUS) + 1;
@@ -2394,7 +2435,7 @@ fn cell(offset: ChunkPos) -> Option<usize> {
     (x < side && z < side).then(|| x * side + z)
 }
 
-/// Finds the chunk at `offset` from `center`.
+/// The chunk at `offset` from `center`.
 fn at(center: ChunkPos, offset: ChunkPos) -> ChunkPos {
     ChunkPos::new(
         center.x.saturating_add(offset.x),
@@ -2412,7 +2453,7 @@ fn set_bit(bits: &mut [u64], rank: usize) {
     *word |= 1 << (rank % WORD_BITS);
 }
 
-/// Lists the ranks of the set bits of `bits` from word `from` on, in order.
+/// The ranks of the set bits of `bits` from word `from` on, in order.
 fn set_bits(bits: &[u64], from: usize) -> impl Iterator<Item = usize> + '_ {
     bits.iter().enumerate().skip(from).flat_map(|(i, &word)| {
         #[cfg(test)]
@@ -2608,6 +2649,27 @@ mod tests {
             assert!(is_loaded(&state, key) && state.worlds[0].is_chunk_lit(key.1));
             assert!(state.worlds[0].chunk(key.1).unwrap().is_dirty());
         }
+        assert!(state.chunks.unsaved.is_empty() && state.chunks.returning.is_empty());
+    }
+
+    /// A chunk in memory whose block entity list keeps more raw entries than a chunk may (a
+    /// replay's checkpoint gives the lists) comes back quarantined, as such a load does.
+    #[test]
+    fn a_chunk_back_from_memory_with_a_damaged_list_is_quarantined() {
+        let mut state = state(Listeners::default());
+        hold_loaded(&mut state, FAR);
+        let raw = crate::nbt::Compound::from([(
+            "id".to_owned(),
+            crate::nbt::Value::String("Chest".to_owned()),
+        )]);
+        *state
+            .chunks
+            .extras
+            .get_mut(FAR, crate::storage::ChunkKind::BlockEntities)
+            .unwrap() = vec![raw; crate::storage::codec::MAX_RAW_BLOCK_ENTITIES + 1];
+        unload_changed(&mut state, &[FAR]);
+        hold_back(&mut state, &[FAR]);
+        assert!(!is_loaded(&state, FAR) && state.worlds[0].is_quarantined(FAR.1));
         assert!(state.chunks.unsaved.is_empty() && state.chunks.returning.is_empty());
     }
 
@@ -3765,6 +3827,50 @@ mod tests {
                 .queued_offsets,
             0
         );
+    }
+
+    /// The fake blocks of a sub-chunk that two requests name in every offset go once, after the
+    /// last answer that holds the sub-chunk.
+    #[test]
+    fn fake_blocks_of_a_sub_chunk_named_many_times_are_sent_once_after_the_answers() {
+        let (mut state, _output, _receivers) = sent_views(&[1]);
+        let request = SubChunkRequest {
+            dimension: 0,
+            position: [0, 0, 0],
+            offsets: vec![[0, -4, 0]; 64],
+        };
+        let player = state
+            .players
+            .get_mut(&crate::tick::SessionId::new(1))
+            .unwrap();
+        for x in 0..2 {
+            let pos = BlockPos::new(x, -64, 0);
+            player.view.fakes.insert(fake_key(pos), block::DIRT);
+        }
+        player.view.out.answers.push(request.clone());
+        player.view.out.answers.push(request);
+        let wanted = wanted_sub_chunks(&state);
+        let blocks = &state.rules.block_entities;
+        let sub_chunks = wanted
+            .iter()
+            .map(|&key| encode(&state.worlds, blocks, key))
+            .collect();
+        let encoded = Encoded {
+            keys: wanted,
+            sub_chunks,
+        };
+        let player = &state.players[&crate::tick::SessionId::new(1)];
+        let mut out = Vec::new();
+        packets(&state.worlds[player.world], player, &encoded, &mut out);
+        let kinds: Vec<&str> = out
+            .iter()
+            .filter_map(|m| match m {
+                super::Message::Packet(Packet::SubChunk(_)) => Some("answer"),
+                super::Message::Packet(Packet::UpdateSubChunkBlocks(_)) => Some("fakes"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(kinds, ["answer", "answer", "fakes"]);
     }
 
     #[test]

@@ -6,13 +6,13 @@
 //!
 //! - **Arrival.** A chunk's extras arrive with its terrain, in the same load answer, and the tick
 //!   calls [`Extras::chunk_loaded`] right after it puts the terrain into its world; the rule
-//!   modules take them over as [`super::rules()`] says. A player's extra arrives with its saved
-//!   data and the tick calls [`player_loaded`] when it places the player. A module that owns a
-//!   key of it reads its typed state from [`Player::raw`] there and from then on owns that
-//!   state.
+//!   modules take them over as [`rules`](mod@super::rules) says. A player's extra arrives with
+//!   its saved data and the tick calls [`player_loaded`] when it places the player. A module
+//!   that owns a key of it reads its typed state from [`Player::raw`] there and from then on
+//!   owns that state.
 //! - **Snapshot.** At a save snapshot the tick asks for every chunk kind marked dirty
 //!   ([`Extras::take_dirty`]); the modules wrote their changed typed state back as NBT before
-//!   ([`super::rules()`]), and the snapshot clears the chunk marks. For every player whose
+//!   ([`rules`](mod@super::rules)), and the snapshot clears the chunk marks. For every player whose
 //!   `data_dirty` is set it copies the compound as saved ([`player_saved`]) and every module that
 //!   owns a key writes its typed state over it.
 //! - **Unload.** When the last holder of a chunk releases it, [`Extras::chunk_unloaded`] gives
@@ -47,28 +47,6 @@ pub(super) struct Extras {
 }
 
 impl Extras {
-    /// Reads what [`Self::checkpoint`] wrote, the lists of unmarked chunks from `stored`.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        stored: &mut BTreeMap<Key, ChunkExtras>,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
-        let n = r.len()?;
-        let mut chunks = BTreeMap::new();
-        let mut dirty = BTreeSet::new();
-        for _ in 0..n {
-            let key = Key::decode(r)?;
-            let held = Held::restore(r, stored.remove(&key))?;
-            if held.is_dirty() {
-                dirty.insert(key);
-            }
-            if chunks.insert(key, held).is_some() {
-                return Err(Error::Format("repeated chunk extras"));
-            }
-        }
-        Ok(Self { chunks, dirty })
-    }
-
     /// Writes each loaded chunk's [`Held::checkpoint`].
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
@@ -105,6 +83,28 @@ impl Extras {
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.chunks.len()
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote, the lists of unmarked chunks from `stored`.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        stored: &mut BTreeMap<Key, ChunkExtras>,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::{Codec, Error};
+        let n = r.len()?;
+        let mut chunks = BTreeMap::new();
+        let mut dirty = BTreeSet::new();
+        for _ in 0..n {
+            let key = Key::decode(r)?;
+            let held = Held::restore(r, stored.remove(&key))?;
+            if held.is_dirty() {
+                dirty.insert(key);
+            }
+            if chunks.insert(key, held).is_some() {
+                return Err(Error::Format("repeated chunk extras"));
+            }
+        }
+        Ok(Self { chunks, dirty })
     }
 
     /// Takes the extras that arrived with a chunk's terrain, which is now loaded: the raw lists
@@ -181,26 +181,6 @@ pub(super) struct Held {
 }
 
 impl Held {
-    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the server file or the
-    /// generator has for the chunk, used when no kind is marked.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        stored: Option<ChunkExtras>,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
-        let dirty = u8::decode(r)?;
-        let extras = if dirty == 0 {
-            stored.ok_or(Error::Format("chunk extras the server file does not give"))?
-        } else {
-            let mut extras = ChunkExtras::default();
-            for kind in ChunkKind::EXTRAS {
-                *extras.get_mut(kind) = Codec::decode(r)?;
-            }
-            extras
-        };
-        Ok(Self { extras, dirty })
-    }
-
     /// Writes the marks, and the lists when a kind is marked: an unmarked list is the world
     /// file's or the generator's (`Self::hash_into`), which a replay reads again.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
@@ -243,6 +223,26 @@ impl Held {
         self.dirty != 0
     }
 
+    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the server file or the
+    /// generator has for the chunk, used when no kind is marked.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        stored: Option<ChunkExtras>,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::{Codec, Error};
+        let dirty = u8::decode(r)?;
+        let extras = if dirty == 0 {
+            stored.ok_or(Error::Format("chunk extras the server file does not give"))?
+        } else {
+            let mut extras = ChunkExtras::default();
+            for kind in ChunkKind::EXTRAS {
+                *extras.get_mut(kind) = Codec::decode(r)?;
+            }
+            extras
+        };
+        Ok(Self { extras, dirty })
+    }
+
     /// Takes the changed lists, cloned for a snapshot, and clears their marks.
     pub(super) fn take_dirty(&mut self) -> Vec<(ChunkKind, Vec<Compound>)> {
         let mut out = Vec::new();
@@ -270,18 +270,6 @@ pub(super) struct Player {
 }
 
 impl Player {
-    /// Reads what [`Self::checkpoint`] wrote.
-    pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
-        data: &super::task::UserData,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
-        Ok(Self {
-            raw: Codec::decode(r)?,
-            user: data.restore_player(r)?,
-        })
-    }
-
     /// Writes the compound as saved and the user's values ([`UserData::checkpoint_player`]).
     ///
     /// [`UserData::checkpoint_player`]: super::task::UserData::checkpoint_player
@@ -307,6 +295,18 @@ impl Player {
     /// The compound as saved, for the modules that own keys in it to read on load.
     pub(super) fn raw(&self) -> &Compound {
         &self.raw
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        data: &super::task::UserData,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::Codec;
+        Ok(Self {
+            raw: Codec::decode(r)?,
+            user: data.restore_player(r)?,
+        })
     }
 
     /// Keeps the value of `key` in `saved`, which a save wrote, as the one kept as saved, so a

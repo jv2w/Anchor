@@ -80,7 +80,8 @@ impl Context<'_> {
         Some(world_at(self.state, index(self.state, id)?))
     }
 
-    /// Every loaded world, in `Id` order (the settings' world first).
+    /// Every loaded world, in place order (the settings' world first): a world that took the place
+    /// of one gone comes at that place, before worlds with a lower `Id` at later places.
     #[doc(alias = "WorldManager::getWorlds")]
     pub fn worlds(&self) -> impl Iterator<Item = &World> + '_ {
         let catalog = &self.state.catalog;
@@ -95,9 +96,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`OutOfRange`](world::Error::OutOfRange) for a `pos` that is not finite or outside the
-    /// world border.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addParticle")]
     pub fn add_particle(
         &mut self,
@@ -113,9 +113,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`OutOfRange`](world::Error::OutOfRange) for a `pos` that is not finite or outside the
-    /// world border.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::addSound")]
     pub fn add_sound(&mut self, world: world::Id, pos: Vec3, sound: Sound) -> world::Result<()> {
         self.broadcast_packet(world, pos, &sound.packet(pos))
@@ -129,9 +128,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`OutOfRange`](world::Error::OutOfRange) for a `pos` that is not finite or outside the
-    /// world border.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
     #[doc(alias = "World::broadcastPacketToViewers")]
     pub fn broadcast_packet(
         &mut self,
@@ -150,13 +148,14 @@ impl Context<'_> {
     /// explodes as 8. Its rays stop at chunks that are not loaded and at blocks neither Anchor
     /// nor clients know; blocks only clients know weaken them and stay. Like every direct call it
     /// raises no events (the entity hits and pushes included);
-    /// [`action::Explode`](crate::action::Explode) explodes with them.
+    /// [`action::Explode`](crate::action::Explode) explodes with them. Nothing is done when it
+    /// fails.
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded and
-    /// [`OutOfRange`](world::Error::OutOfRange) for a `center` that is not finite or outside the
-    /// world border, or a size that is not finite or not above 0. Nothing is done then.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `center` that is not finite or outside the world
+    /// border, or a size that is not finite or not above 0.
     #[doc(alias = "Explosion::__construct")]
     #[doc(alias = "Explosion::explodeA")]
     #[doc(alias = "Explosion::explodeB")]
@@ -166,11 +165,13 @@ impl Context<'_> {
 
     /// Explodes as [`Self::explode`] does, and sets a third of the broken blocks on fire where the
     /// block under them can hold fire. The fire is a block like any other: it never spreads or
-    /// burns out.
+    /// burns out. Nothing is done when it fails.
     ///
     /// # Errors
     ///
-    /// The errors of [`Self::explode`].
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `center` that is not finite or outside the world
+    /// border, or a size that is not finite or not above 0.
     #[doc(alias = "Explosion::setFireChance")]
     pub fn explode_with_fire(
         &mut self,
@@ -219,14 +220,13 @@ impl Context<'_> {
     /// Strikes a lightning bolt at `pos` in `world`: the players who see its chunk see the bolt
     /// and hear its thunder, and it goes after a second. `lightning` says whether it also hurts
     /// ([`Lightning`]); it sets no block on fire. Like every direct call it raises no events. It
-    /// strikes where it is told, even under a roof.
+    /// strikes where it is told, even under a roof. Nothing is done when it fails.
     ///
     /// # Errors
     ///
-    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded,
-    /// [`OutOfRange`](world::Error::OutOfRange) for a `pos` that is not finite or outside the
-    /// world border, and [`Full`](world::Error::Full) with 1,024 bolts still showing. Nothing is
-    /// done then.
+    /// [`world::Error::WorldNotLoaded`] for a world that is not loaded.
+    /// [`world::Error::OutOfRange`] for a `pos` that is not finite or outside the world border.
+    /// [`world::Error::Full`] for 1,024 bolts still showing.
     pub fn strike_lightning(
         &mut self,
         world: world::Id,

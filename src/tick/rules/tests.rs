@@ -22,9 +22,7 @@ const CHESTS: i32 = 8;
 /// The chunk the file holds terrain and extras for: it loads from the disk.
 const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// The outcome of the fixture in each of the [`RUNS`] (state hash, rules hash, client bytes,
-/// changed lists). The state and rules hashes also hash the command soft enums, the skin budget,
-/// whether the run has started, an NPC's held item, the offline player holds, the worlds' ages
-/// and the logins waiting to join.
+/// changed lists).
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
         0x7cfa_45d3_fff2_dacc,

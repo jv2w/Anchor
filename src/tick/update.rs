@@ -381,7 +381,7 @@ mod tests {
             advance(&mut state);
         }
         assert_eq!(read(&state), before);
-        assert_eq!(state.worlds[0].changed_len(), 0);
+        assert_eq!(state.worlds[0].changed().len(), 0);
     }
 
     #[test]
@@ -432,7 +432,7 @@ mod tests {
         }
         assert_eq!(get(&state, p(2, -60, 2)), ore);
         assert_eq!(get(&state, p(3, -60, 2)), Kind::Stone.default_state());
-        assert_eq!(state.worlds[0].changed_len(), 0);
+        assert_eq!(state.worlds[0].changed().len(), 0);
     }
 
     /// Vanilla blocks around a player whose view is open get any number of random ticks (a

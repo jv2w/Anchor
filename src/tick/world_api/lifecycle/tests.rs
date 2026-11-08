@@ -27,10 +27,10 @@ use crate::world::{BlockPos, Flat, Lightning, Options, Ticket, Weather};
 const FAR: ChunkPos = ChunkPos::new(30, -30);
 
 thread_local! {
-    /// What the listeners of a test saw, in order.
-    static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
     /// Whether the unload listener cancels.
     static CANCEL: Cell<bool> = const { Cell::new(false) };
+    /// What the listeners of a test saw, in order.
+    static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
 }
 
 fn log(line: String) {
@@ -328,6 +328,61 @@ fn a_teleport_into_an_unloaded_world_fails_and_a_waiting_one_follows_the_unload(
     assert_eq!(p.world(), world::Id::DEFAULT);
     assert_eq!(BlockPos::containing(p.position()), home);
     tick(&mut state, &mut Vec::new(), &mut output);
+    let p = &state.players[&SessionId::new(1)];
+    assert_eq!((p.world, BlockPos::containing(p.position())), (0, home));
+}
+
+/// A load of a loaded world whose file did not open keeps the unload that follows it, so a
+/// load after the unload tries the file again.
+#[test]
+fn a_load_of_a_world_whose_file_did_not_open_keeps_its_unload() {
+    let (mut state, mut output, _rx) = server(Listeners::default());
+    let id = context(&mut state)
+        .create_world("saved", &Options::new())
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    open_failed(&mut state, id.index());
+    assert_eq!(
+        context(&mut state).load_world("saved", &Options::new()),
+        Ok(id)
+    );
+    tick(&mut state, &mut Vec::new(), &mut output);
+    assert!(!state.catalog.is_loaded(id.index()));
+}
+
+/// While a world unloads, a [`ChunkUnload`] listener can neither make it the default world nor
+/// teleport a player into it: the player goes where the world's players go.
+#[test]
+fn a_chunk_unload_listener_cannot_keep_an_unloading_world_or_send_a_player_into_it() {
+    let player = crate::player::Id::new(SessionId::new(1));
+    let (mut state, mut output, _rx) = server(on(move |e: &mut ChunkUnload, cx| {
+        if e.world() != world::Id::DEFAULT {
+            log(format!("{:?}", cx.set_default_world(e.world())));
+            cx.teleport(player, e.world(), Vec3::new(0.5, -60.0, 0.5))
+                .unwrap();
+        }
+    }));
+    let id = context(&mut state)
+        .create_world("arena", &arena(3))
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    let aside = on_spawn(&state, 0) + Vec3::new(3.0, 0.0, 3.0);
+    context(&mut state)
+        .teleport(player, world::Id::DEFAULT, aside)
+        .unwrap();
+    ticks(&mut state, &mut output, 2);
+    assert_eq!(context(&mut state).unload_world(id), Ok(()));
+    tick(&mut state, &mut Vec::new(), &mut output);
+    let lines = logged();
+    assert!(!lines.is_empty());
+    assert!(
+        lines.iter().all(|l| l == "Err(WorldNotLoaded)"),
+        "{lines:?}"
+    );
+    assert_eq!(state.catalog.default, 0);
+    assert!(!state.catalog.is_loaded(id.index()));
+    tick(&mut state, &mut Vec::new(), &mut output);
+    let home = state.worlds[0].safe_spawn(state.worlds[0].spawn());
     let p = &state.players[&SessionId::new(1)];
     assert_eq!((p.world, BlockPos::containing(p.position())), (0, home));
 }

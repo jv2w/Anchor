@@ -269,7 +269,9 @@ impl fmt::Display for Error {
             Self::UnknownGenerator => f.write_str("no generator of that name is registered"),
             Self::InvalidName => f.write_str("world name cannot be a file name"),
             Self::InvalidSettings => f.write_str("world view value is out of range"),
-            Self::Full => f.write_str("world, chunk ticket or chunk unknown state limit reached"),
+            Self::Full => f.write_str(
+                "world, chunk ticket, chunk unknown state or lightning bolt limit reached",
+            ),
             Self::Hardcore => f.write_str("a hardcore server plays every world on hard"),
         }
     }
@@ -664,10 +666,10 @@ impl World {
         self.feed.iter().copied()
     }
 
-    /// The number of changed blocks waiting for [`Self::next_changed`].
+    /// The entries of the changed-block tables (`changes`, `feed`, `fed`), for leak tests.
     #[cfg(test)]
     pub(crate) fn changed_len(&self) -> usize {
-        self.feed.len()
+        self.changes.len() + self.feed.len() + self.fed.len()
     }
 
     /// What a checkpoint keeps of the world, naming every field; `fed` is `feed` again, and the
@@ -929,7 +931,7 @@ impl World {
         self.weather
     }
 
-    /// One more tick of [`Self::age_ticks`]: the clock's tick.
+    /// Counts one more tick of [`Self::age_ticks`]: the clock's tick.
     pub(crate) fn add_age_tick(&mut self) {
         self.age_ticks = self.age_ticks.saturating_add(1);
     }
@@ -1067,7 +1069,9 @@ impl World {
     ///
     /// # Errors
     ///
-    /// The errors of [`Self::set_block`].
+    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::NotLoaded`] for a chunk that is not loaded.
+    /// [`Error::Quarantined`] for a quarantined chunk.
     #[doc(alias = "World::setBiomeId")]
     pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
         let (x, z) = pos.local();
@@ -1102,8 +1106,9 @@ impl World {
     ///
     /// # Errors
     ///
-    /// [`Error::OutOfRange`] for a position outside the world height, [`Error::NotLoaded`] for a
-    /// chunk that is not loaded and [`Error::Quarantined`] for a quarantined one.
+    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::NotLoaded`] for a chunk that is not loaded.
+    /// [`Error::Quarantined`] for a quarantined chunk.
     #[doc(alias = "World::setBlockAt")]
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
@@ -1162,8 +1167,10 @@ impl World {
     ///
     /// # Errors
     ///
-    /// The errors of [`Self::set_block`], and [`Error::Full`] when the chunk holds the most
-    /// unknown states it can.
+    /// [`Error::OutOfRange`] for a position outside the world height.
+    /// [`Error::NotLoaded`] for a chunk that is not loaded.
+    /// [`Error::Quarantined`] for a quarantined chunk.
+    /// [`Error::Full`] when the chunk holds the most unknown states it can.
     pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
         let entry = match block {
             StoredBlock::Known(state) => Entry::Known(*state),
@@ -1357,7 +1364,7 @@ crate::tick::checkpoint::fields!(Saved {
 });
 
 /// The tick of the day cycle at world clock `time`, 0 to 23,999.
-pub(crate) fn tick_of_day(time: i64) -> u32 {
+fn tick_of_day(time: i64) -> u32 {
     #[expect(
         clippy::expect_used,
         reason = "invariant: the remainder of a day is below DAY, which fits u32"
@@ -1662,7 +1669,7 @@ mod tests {
     fn the_full_error_names_every_limit_it_stands_for() {
         assert_eq!(
             Error::Full.to_string(),
-            "world, chunk ticket or chunk unknown state limit reached"
+            "world, chunk ticket, chunk unknown state or lightning bolt limit reached"
         );
     }
 
