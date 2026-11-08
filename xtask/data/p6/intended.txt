@@ -1,4 +1,4 @@
-# Intended differences of `cargo xtask p6 api` (`xtask/data/p6/facts.md`): differences from
+# Intended differences of `cargo xtask p6 api` and `cargo xtask p6 import` (`xtask/data/p6/facts.md`): differences from
 # the official server that Anchor keeps on purpose, each with its reason. `p6 api compare` reports a difference
 # whose text is exactly a line's (in that line's scenario) as `intended` and does not fail for it;
 # any other difference still fails. A line the comparison no longer finds is printed as a note:
