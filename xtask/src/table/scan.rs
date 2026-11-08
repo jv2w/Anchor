@@ -385,6 +385,11 @@ fn doc_entries(cursor: &mut Cursor<'_>) -> Result<Vec<String>, String> {
 fn item_name(text: &str) -> String {
     let mut cursor = Cursor { text, pos: 0 };
     skip_to_item(&mut cursor, |_| {});
+    // An attribute ending a macro entry (`cancellable!`) is on an item the macro writes, with no
+    // name in the text.
+    if cursor.rest().starts_with(';') {
+        return String::new();
+    }
     let mut words = cursor
         .rest()
         .split(|c: char| !is_ident(c) && c != '!')
@@ -469,6 +474,9 @@ pub struct Thing;
 impl X {}
 #[doc(alias = "Imp")]
 impl Foo for Bar {}
+#[doc(alias = "Ev::cancel")];
+/// Raised when.
+pub struct Next;
 "##;
         let found = alias_list(text);
         let expected = [
@@ -479,6 +487,7 @@ impl Foo for Bar {}
             (r"block\Chest", 13, "Variant"),
             ("E", 15, "field"),
             ("Imp", 17, "impl Foo"),
+            ("Ev::cancel", 19, ""),
         ];
         let expected: Vec<_> = expected
             .iter()
