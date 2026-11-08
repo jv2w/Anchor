@@ -262,9 +262,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Minecraft is a trademark of Mojang Synergies AB. Game data in `xtask/data/` (block, item, biome and entity
 data, the protocol field limits in `xtask/data/reference/protocol_limits.json`, and the camera presets in
-`xtask/data/reference/camera.json` captured from the official server, and the world fixtures in
-`xtask/data/import/`) describes Minecraft and belongs
-to Mojang. NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+`xtask/data/reference/camera.json` captured from the official server, and the world in
+`xtask/data/import/flat/` the official server made) describes Minecraft and belongs to Mojang.
+`xtask/data/import/continental.kv` holds two chunks of a world the Anchor author built and saved with the
+game. NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 
 ## GNU Lesser General Public License version 3
 
