@@ -6,12 +6,21 @@ use std::str::FromStr;
 
 use super::io::{Codec, Error, Reader, Result, Writer};
 
+/// The error for a bitset with more bits than its size.
+const BITSET_TOO_MANY_BITS: Error = Error::InvalidValue {
+    field: "bitset",
+    reason: "more bits than its size",
+};
 /// One `ByteFloat` step in degrees.
 const BYTE_FLOAT_STEP: f32 = 360.0 / 256.0;
 /// The exclusive bound of the floats that convert to an int32 in Go: 2^31.
 const FLOAT_TO_INT32_LIMIT: f32 = 2_147_483_648.0;
 /// The exclusive bound of the magnitudes that convert to an int64 in Go: 2^63.
 const FLOAT_TO_INT64_LIMIT: f32 = 9_223_372_036_854_775_808.0;
+/// The largest value of an 8-bit color channel, as a float.
+const RGB_CHANNEL_MAX: f32 = 255.0;
+/// The `SoundPos` units in one block.
+const SOUND_POS_UNITS_PER_BLOCK: f32 = 8.0;
 
 /// A block position: x, y, z as varint32s on the wire (gophertunnel `BlockPos`).
 pub type BlockPos = [i32; 3];
@@ -156,9 +165,11 @@ impl Bitset {
         }
     }
 
-    /// The number of bits.
-    pub fn len(&self) -> usize {
-        self.len
+    /// Whether bit `index` is set; `false` past the end.
+    pub fn get(&self, index: usize) -> bool {
+        self.words
+            .get(index / 64)
+            .is_some_and(|w| (w >> (index % 64)) & 1 == 1)
     }
 
     /// Whether the bitset has no bits.
@@ -166,11 +177,9 @@ impl Bitset {
         self.len == 0
     }
 
-    /// Whether bit `index` is set; `false` past the end.
-    pub fn get(&self, index: usize) -> bool {
-        self.words
-            .get(index / 64)
-            .is_some_and(|w| (w >> (index % 64)) & 1 == 1)
+    /// The number of bits.
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     /// Sets bit `index`.
@@ -216,72 +225,6 @@ impl Bitset {
 }
 
 impl Reader<'_> {
-    /// Reads a `Vec3`.
-    pub(crate) fn vec3(&mut self) -> Result<[f32; 3]> {
-        Ok([self.float32()?, self.float32()?, self.float32()?])
-    }
-
-    /// Reads a `Vec2`.
-    pub(crate) fn vec2(&mut self) -> Result<[f32; 2]> {
-        Ok([self.float32()?, self.float32()?])
-    }
-
-    /// Reads a `BlockPos`.
-    pub(crate) fn block_pos(&mut self) -> Result<BlockPos> {
-        Ok([self.varint32()?, self.varint32()?, self.varint32()?])
-    }
-
-    /// Reads a `ChunkPos`.
-    pub(crate) fn chunk_pos(&mut self) -> Result<ChunkPos> {
-        Ok([self.varint32()?, self.varint32()?])
-    }
-
-    /// Reads a `SubChunkPos`.
-    pub(crate) fn sub_chunk_pos(&mut self) -> Result<SubChunkPos> {
-        Ok([self.int32()?, self.int32()?, self.int32()?])
-    }
-
-    /// Reads a `SoundPos`: a block position in eighths of a block.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "consistency: gophertunnel converts int32 to float32 the same way"
-    )]
-    pub(crate) fn sound_pos(&mut self) -> Result<[f32; 3]> {
-        let [x, y, z] = self.block_pos()?;
-        Ok([x as f32 / 8.0, y as f32 / 8.0, z as f32 / 8.0])
-    }
-
-    /// Reads a `ByteFloat`: a rotation in 1/256 turns.
-    pub(crate) fn byte_float(&mut self) -> Result<f32> {
-        Ok(f32::from(self.uint8()?) * BYTE_FLOAT_STEP)
-    }
-
-    /// Reads a `UUID`.
-    pub(crate) fn uuid(&mut self) -> Result<Uuid> {
-        let mut b: [u8; 16] = self.array()?;
-        let (high, low) = b.split_at_mut(8);
-        high.reverse();
-        low.reverse();
-        Ok(Uuid(b))
-    }
-
-    /// Reads an `RGB`: three float32s in 0..=1; alpha is 0, like gophertunnel.
-    pub(crate) fn rgb(&mut self) -> Result<Rgba> {
-        let [r, g, b] = self.vec3()?;
-        Ok(Rgba {
-            r: go_float_to_u8(r * 255.0),
-            g: go_float_to_u8(g * 255.0),
-            b: go_float_to_u8(b * 255.0),
-            a: 0,
-        })
-    }
-
-    /// Reads an `RGBA`: a little-endian uint32 with red in the low byte.
-    pub(crate) fn rgba(&mut self) -> Result<Rgba> {
-        let [r, g, b, a] = self.array()?;
-        Ok(Rgba { r, g, b, a })
-    }
-
     /// Reads a `BEARGB`: a big-endian int32 with alpha in the low byte.
     pub(crate) fn be_argb(&mut self) -> Result<Rgba> {
         let [b, g, r, a] = self.array()?;
@@ -296,10 +239,7 @@ impl Reader<'_> {
         for start in (0..size).step_by(7) {
             let b = self.uint8()?;
             if start.saturating_add(8 - b.leading_zeros() as usize) > size {
-                return Err(Error::InvalidValue {
-                    field: "bitset",
-                    reason: "more bits than its size",
-                });
+                return Err(BITSET_TOO_MANY_BITS);
             }
             for i in 0..7 {
                 if (b >> i) & 1 == 1 {
@@ -310,78 +250,81 @@ impl Reader<'_> {
                 return Ok(x);
             }
         }
-        Err(Error::InvalidValue {
-            field: "bitset",
-            reason: "more bits than its size",
+        Err(BITSET_TOO_MANY_BITS)
+    }
+
+    /// Reads a `ByteFloat`: a rotation in 1/256 turns.
+    pub(crate) fn byte_float(&mut self) -> Result<f32> {
+        Ok(f32::from(self.uint8()?) * BYTE_FLOAT_STEP)
+    }
+
+    /// Reads a `ChunkPos`.
+    pub(crate) fn chunk_pos(&mut self) -> Result<ChunkPos> {
+        Ok([self.varint32()?, self.varint32()?])
+    }
+
+    /// Reads an `RGB`: three float32s in 0..=1; alpha is 0, like gophertunnel.
+    pub(crate) fn rgb(&mut self) -> Result<Rgba> {
+        let [r, g, b] = self.vec3()?;
+        Ok(Rgba {
+            r: go_float_to_u8(r * RGB_CHANNEL_MAX),
+            g: go_float_to_u8(g * RGB_CHANNEL_MAX),
+            b: go_float_to_u8(b * RGB_CHANNEL_MAX),
+            a: 0,
         })
+    }
+
+    /// Reads an `RGBA`: a little-endian uint32 with red in the low byte.
+    pub(crate) fn rgba(&mut self) -> Result<Rgba> {
+        let [r, g, b, a] = self.array()?;
+        Ok(Rgba { r, g, b, a })
+    }
+
+    /// Reads a `SoundPos`: a block position in eighths of a block.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "consistency: gophertunnel converts int32 to float32 the same way"
+    )]
+    pub(crate) fn sound_pos(&mut self) -> Result<[f32; 3]> {
+        let [x, y, z] = self.block_pos()?;
+        Ok([
+            x as f32 / SOUND_POS_UNITS_PER_BLOCK,
+            y as f32 / SOUND_POS_UNITS_PER_BLOCK,
+            z as f32 / SOUND_POS_UNITS_PER_BLOCK,
+        ])
+    }
+
+    /// Reads a `BlockPos`.
+    pub(crate) fn block_pos(&mut self) -> Result<BlockPos> {
+        Ok([self.varint32()?, self.varint32()?, self.varint32()?])
+    }
+
+    /// Reads a `SubChunkPos`.
+    pub(crate) fn sub_chunk_pos(&mut self) -> Result<SubChunkPos> {
+        Ok([self.int32()?, self.int32()?, self.int32()?])
+    }
+
+    /// Reads a `UUID`.
+    pub(crate) fn uuid(&mut self) -> Result<Uuid> {
+        let mut b: [u8; 16] = self.array()?;
+        let (high, low) = b.split_at_mut(8);
+        high.reverse();
+        low.reverse();
+        Ok(Uuid(b))
+    }
+
+    /// Reads a `Vec2`.
+    pub(crate) fn vec2(&mut self) -> Result<[f32; 2]> {
+        Ok([self.float32()?, self.float32()?])
+    }
+
+    /// Reads a `Vec3`.
+    pub(crate) fn vec3(&mut self) -> Result<[f32; 3]> {
+        Ok([self.float32()?, self.float32()?, self.float32()?])
     }
 }
 
 impl Writer {
-    /// Writes a `Vec3`.
-    pub(crate) fn vec3(&mut self, x: [f32; 3]) {
-        for v in x {
-            self.float32(v);
-        }
-    }
-
-    /// Writes a `Vec2`.
-    pub(crate) fn vec2(&mut self, x: [f32; 2]) {
-        for v in x {
-            self.float32(v);
-        }
-    }
-
-    /// Writes a `BlockPos`.
-    pub(crate) fn block_pos(&mut self, x: BlockPos) {
-        for v in x {
-            self.varint32(v);
-        }
-    }
-
-    /// Writes a `ChunkPos`.
-    pub(crate) fn chunk_pos(&mut self, x: ChunkPos) {
-        for v in x {
-            self.varint32(v);
-        }
-    }
-
-    /// Writes a `SubChunkPos`.
-    pub(crate) fn sub_chunk_pos(&mut self, x: SubChunkPos) {
-        for v in x {
-            self.int32(v);
-        }
-    }
-
-    /// Writes a `SoundPos`.
-    pub(crate) fn sound_pos(&mut self, x: [f32; 3]) {
-        self.block_pos(x.map(|v| go_float_to_i32(v * 8.0)));
-    }
-
-    /// Writes a `ByteFloat`.
-    pub(crate) fn byte_float(&mut self, x: f32) {
-        self.uint8(go_float_to_u8(x / BYTE_FLOAT_STEP));
-    }
-
-    /// Writes a `UUID`.
-    pub(crate) fn uuid(&mut self, x: Uuid) {
-        let mut b = x.0;
-        let (high, low) = b.split_at_mut(8);
-        high.reverse();
-        low.reverse();
-        self.bytes(&b);
-    }
-
-    /// Writes an `RGB`.
-    pub(crate) fn rgb(&mut self, x: Rgba) {
-        self.vec3([x.r, x.g, x.b].map(|c| f32::from(c) / 255.0));
-    }
-
-    /// Writes an `RGBA`.
-    pub(crate) fn rgba(&mut self, x: Rgba) {
-        self.bytes(&[x.r, x.g, x.b, x.a]);
-    }
-
     /// Writes a `BEARGB`.
     pub(crate) fn be_argb(&mut self, x: Rgba) {
         self.bytes(&[x.b, x.g, x.r, x.a]);
@@ -401,6 +344,70 @@ impl Writer {
             self.uint8(x.seven_bits(i * 7) | more);
         }
         Ok(())
+    }
+
+    /// Writes a `ByteFloat`.
+    pub(crate) fn byte_float(&mut self, x: f32) {
+        self.uint8(go_float_to_u8(x / BYTE_FLOAT_STEP));
+    }
+
+    /// Writes a `ChunkPos`.
+    pub(crate) fn chunk_pos(&mut self, x: ChunkPos) {
+        for v in x {
+            self.varint32(v);
+        }
+    }
+
+    /// Writes an `RGB`.
+    pub(crate) fn rgb(&mut self, x: Rgba) {
+        self.vec3([x.r, x.g, x.b].map(|c| f32::from(c) / RGB_CHANNEL_MAX));
+    }
+
+    /// Writes an `RGBA`.
+    pub(crate) fn rgba(&mut self, x: Rgba) {
+        self.bytes(&[x.r, x.g, x.b, x.a]);
+    }
+
+    /// Writes a `SoundPos`.
+    pub(crate) fn sound_pos(&mut self, x: [f32; 3]) {
+        self.block_pos(x.map(|v| go_float_to_i32(v * SOUND_POS_UNITS_PER_BLOCK)));
+    }
+
+    /// Writes a `BlockPos`.
+    pub(crate) fn block_pos(&mut self, x: BlockPos) {
+        for v in x {
+            self.varint32(v);
+        }
+    }
+
+    /// Writes a `SubChunkPos`.
+    pub(crate) fn sub_chunk_pos(&mut self, x: SubChunkPos) {
+        for v in x {
+            self.int32(v);
+        }
+    }
+
+    /// Writes a `UUID`.
+    pub(crate) fn uuid(&mut self, x: Uuid) {
+        let mut b = x.0;
+        let (high, low) = b.split_at_mut(8);
+        high.reverse();
+        low.reverse();
+        self.bytes(&b);
+    }
+
+    /// Writes a `Vec2`.
+    pub(crate) fn vec2(&mut self, x: [f32; 2]) {
+        for v in x {
+            self.float32(v);
+        }
+    }
+
+    /// Writes a `Vec3`.
+    pub(crate) fn vec3(&mut self, x: [f32; 3]) {
+        for v in x {
+            self.float32(v);
+        }
     }
 }
 

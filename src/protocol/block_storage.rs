@@ -19,6 +19,55 @@ const VERSION_9: u8 = 9;
 /// Bits per block index the official server writes.
 pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
+/// A network sub-chunk: block layers, with the sub-chunk's y index in version 9.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SubChunk {
+    /// The sub-chunk's y index (version 9), or `None` for version 8.
+    pub y_index: Option<i8>,
+    /// The block layers; layer 0 holds blocks and layer 1 usually water logging.
+    pub layers: Vec<PalettedStorage>,
+}
+
+impl Codec for SubChunk {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        let version = r.uint8()?;
+        if version != VERSION_8 && version != VERSION_9 {
+            return Err(Error::UnknownEnum {
+                name: "sub-chunk version",
+                value: version.into(),
+            });
+        }
+        let count = r.uint8()?;
+        let y_index = if version == VERSION_9 {
+            Some(r.int8()?)
+        } else {
+            None
+        };
+        let count = r.limit(count.into(), usize::MAX, size_of::<PalettedStorage>())?;
+        let mut layers = Vec::with_capacity(count);
+        for _ in 0..count {
+            layers.push(PalettedStorage::decode(r)?);
+        }
+        Ok(Self { y_index, layers })
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.uint8(if self.y_index.is_some() {
+            VERSION_9
+        } else {
+            VERSION_8
+        });
+        w.uint8(length(self.layers.len())?);
+        if let Some(y) = self.y_index {
+            w.int8(y);
+        }
+        for layer in &self.layers {
+            layer.encode(w)?;
+        }
+        Ok(())
+    }
+}
+
 /// One layer of 16×16×16 block indices into a palette of block runtime IDs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PalettedStorage {
@@ -50,11 +99,6 @@ impl PalettedStorage {
         self.bits
     }
 
-    /// The block runtime IDs the indices point to.
-    pub fn palette(&self) -> &[u32] {
-        &self.palette
-    }
-
     /// The palette index of block (x, y, z); each coordinate is taken modulo 16.
     pub fn index(&self, x: u8, y: u8, z: u8) -> u16 {
         let (word, shift) = self.position(x, y, z);
@@ -62,6 +106,11 @@ impl PalettedStorage {
         let w = self.words.get(word).copied().unwrap_or(0);
         let [low, high, ..] = ((w >> shift) & self.mask()).to_le_bytes();
         u16::from_le_bytes([low, high])
+    }
+
+    /// The block runtime IDs the indices point to.
+    pub fn palette(&self) -> &[u32] {
+        &self.palette
     }
 
     /// The palette, to change entries in place.
@@ -90,12 +139,10 @@ impl PalettedStorage {
         Ok(())
     }
 
-    /// The word and bit shift of block (x, y, z); each coordinate is taken modulo 16.
-    fn position(&self, x: u8, y: u8, z: u8) -> (usize, u32) {
-        let offset = (u16::from(x & 15) << 8) | (u16::from(z & 15) << 4) | u16::from(y & 15);
-        let per_word = u16::from(32 / self.bits.max(1));
-        let shift = u32::from(offset % per_word) * u32::from(self.bits);
-        (usize::from(offset / per_word), shift)
+    /// Whether every block index points into the palette.
+    fn indices_in_palette(&self) -> bool {
+        let in_palette = |index: u16| usize::from(index) < self.palette.len();
+        (0..16_u8).all(|x| (0..16_u8).all(|y| (0..16_u8).all(|z| in_palette(self.index(x, y, z)))))
     }
 
     /// The mask of one block index.
@@ -103,10 +150,12 @@ impl PalettedStorage {
         (1_u32 << self.bits) - 1
     }
 
-    /// Whether every block index points into the palette.
-    fn indices_in_palette(&self) -> bool {
-        let in_palette = |index: u16| usize::from(index) < self.palette.len();
-        (0..16_u8).all(|x| (0..16_u8).all(|y| (0..16_u8).all(|z| in_palette(self.index(x, y, z)))))
+    /// The word and bit shift of block (x, y, z); each coordinate is taken modulo 16.
+    fn position(&self, x: u8, y: u8, z: u8) -> (usize, u32) {
+        let offset = (u16::from(x & 15) << 8) | (u16::from(z & 15) << 4) | u16::from(y & 15);
+        let per_word = u16::from(32 / self.bits.max(1));
+        let shift = u32::from(offset % per_word) * u32::from(self.bits);
+        (usize::from(offset / per_word), shift)
     }
 }
 
@@ -171,55 +220,6 @@ impl Codec for PalettedStorage {
         }
         for &id in &self.palette {
             w.varint32(id.cast_signed());
-        }
-        Ok(())
-    }
-}
-
-/// A network sub-chunk: block layers, with the sub-chunk's y index in version 9.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SubChunk {
-    /// The sub-chunk's y index (version 9), or `None` for version 8.
-    pub y_index: Option<i8>,
-    /// The block layers; layer 0 holds blocks and layer 1 usually water logging.
-    pub layers: Vec<PalettedStorage>,
-}
-
-impl Codec for SubChunk {
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
-        let version = r.uint8()?;
-        if version != VERSION_8 && version != VERSION_9 {
-            return Err(Error::UnknownEnum {
-                name: "sub-chunk version",
-                value: version.into(),
-            });
-        }
-        let count = r.uint8()?;
-        let y_index = if version == VERSION_9 {
-            Some(r.int8()?)
-        } else {
-            None
-        };
-        let count = r.limit(count.into(), usize::MAX, size_of::<PalettedStorage>())?;
-        let mut layers = Vec::with_capacity(count);
-        for _ in 0..count {
-            layers.push(PalettedStorage::decode(r)?);
-        }
-        Ok(Self { y_index, layers })
-    }
-
-    fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.uint8(if self.y_index.is_some() {
-            VERSION_9
-        } else {
-            VERSION_8
-        });
-        w.uint8(length(self.layers.len())?);
-        if let Some(y) = self.y_index {
-            w.int8(y);
-        }
-        for layer in &self.layers {
-            layer.encode(w)?;
         }
         Ok(())
     }

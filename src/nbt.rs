@@ -43,7 +43,7 @@ pub(crate) const MAX_DEPTH: usize = 512;
 pub(crate) const MAX_ROOT_BYTES: usize = 4 << 20;
 /// The longest string in bytes (gophertunnel `maxStringSize`).
 const MAX_STRING_BYTES: u16 = 0x7fff;
-/// Returned where a child does not fit its frame or the stack would not end in its root, which
+/// The error where a child does not fit its frame or the stack would not end in its root, which
 /// the stack discipline rules out.
 const STACK_ORDER: Error = Error::InvalidValue {
     field: "nbt",
@@ -409,13 +409,15 @@ impl Decoder<'_, '_> {
             TAG_DOUBLE => List::Double(self.items(len, |d| d.r.float64())?),
             TAG_BYTE_ARRAY => List::ByteArray(self.items(len, Self::byte_array)?),
             TAG_STRING => List::String(self.items(len, Self::string)?),
-            TAG_INT_ARRAY => List::IntArray(self.items(len, Self::int_array)?),
-            TAG_LONG_ARRAY => List::LongArray(self.items(len, Self::long_array)?),
             TAG_LIST => {
                 let left = self.r.limit(len, usize::MAX, size_of::<List>())?;
                 let items = Vec::with_capacity(left);
                 return Ok(Opened::Frame(ReadFrame::Lists { left, items }));
             }
+            TAG_INT_ARRAY => List::IntArray(self.items(len, Self::int_array)?),
+            TAG_LONG_ARRAY => List::LongArray(self.items(len, Self::long_array)?),
+            // TAG_COMPOUND: a wildcard stands last, and `tag_type` allows no tag past
+            // TAG_LONG_ARRAY.
             _ => {
                 let left = self.r.limit(len, usize::MAX, size_of::<Compound>())?;
                 let items = Vec::with_capacity(left);
@@ -455,6 +457,50 @@ impl Decoder<'_, '_> {
         })
     }
 
+    fn byte_array(&mut self) -> Result<Vec<u8>> {
+        let len = self.length()?;
+        self.r.byte_vec(len)
+    }
+
+    fn int_array(&mut self) -> Result<Vec<i32>> {
+        let len = self.length()?;
+        self.items(len, Self::int32)
+    }
+
+    fn long_array(&mut self) -> Result<Vec<i64>> {
+        let len = self.length()?;
+        self.items(len, Self::int64)
+    }
+
+    fn int64(&mut self) -> Result<i64> {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.r.varint64(),
+            Encoding::LittleEndian => self.r.int64(),
+        }
+    }
+
+    /// Reads `len` elements with `f` after the limit check.
+    fn items<T>(&mut self, len: u64, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
+        let len = self.r.limit(len, usize::MAX, size_of::<T>())?;
+        let mut items = Vec::with_capacity(len);
+        for _ in 0..len {
+            items.push(f(self)?);
+        }
+        Ok(items)
+    }
+
+    /// Reads an array or list length: an int32 that may not be negative.
+    fn length(&mut self) -> Result<u64> {
+        u64::try_from(self.int32()?).map_err(|_| Error::Size)
+    }
+
+    fn int32(&mut self) -> Result<i32> {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.r.varint32(),
+            Encoding::LittleEndian => self.r.int32(),
+        }
+    }
+
     fn string(&mut self) -> Result<String> {
         let len = match self.encoding {
             Encoding::NetworkLittleEndian => u64::from(self.r.varuint32()?),
@@ -476,50 +522,6 @@ impl Decoder<'_, '_> {
         }
         Ok(tag)
     }
-
-    fn byte_array(&mut self) -> Result<Vec<u8>> {
-        let len = self.length()?;
-        self.r.byte_vec(len)
-    }
-
-    fn int32(&mut self) -> Result<i32> {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.r.varint32(),
-            Encoding::LittleEndian => self.r.int32(),
-        }
-    }
-
-    fn int64(&mut self) -> Result<i64> {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.r.varint64(),
-            Encoding::LittleEndian => self.r.int64(),
-        }
-    }
-
-    fn int_array(&mut self) -> Result<Vec<i32>> {
-        let len = self.length()?;
-        self.items(len, Self::int32)
-    }
-
-    /// Reads `len` elements with `f` after the limit check.
-    fn items<T>(&mut self, len: u64, mut f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {
-        let len = self.r.limit(len, usize::MAX, size_of::<T>())?;
-        let mut items = Vec::with_capacity(len);
-        for _ in 0..len {
-            items.push(f(self)?);
-        }
-        Ok(items)
-    }
-
-    /// Reads an array or list length: an int32 that may not be negative.
-    fn length(&mut self) -> Result<u64> {
-        u64::try_from(self.int32()?).map_err(|_| Error::Size)
-    }
-
-    fn long_array(&mut self) -> Result<Vec<i64>> {
-        let len = self.length()?;
-        self.items(len, Self::int64)
-    }
 }
 
 /// A container being read. Nesting uses this explicit stack instead of recursion, so the
@@ -539,14 +541,6 @@ impl ReadFrame {
         }
     }
 
-    fn finish(self) -> Value {
-        match self {
-            Self::Compound { map, .. } => Value::Compound(map),
-            Self::Lists { items, .. } => Value::List(List::List(items)),
-            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
-        }
-    }
-
     /// Adds a finished child: any value to a compound, a list or compound to a list of them.
     fn add(&mut self, value: Value) -> Result<()> {
         match (self, value) {
@@ -558,6 +552,14 @@ impl ReadFrame {
             _ => return Err(STACK_ORDER),
         }
         Ok(())
+    }
+
+    fn finish(self) -> Value {
+        match self {
+            Self::Compound { map, .. } => Value::Compound(map),
+            Self::Lists { items, .. } => Value::List(List::List(items)),
+            Self::Compounds { items, .. } => Value::List(List::Compound(items)),
+        }
     }
 }
 
@@ -622,9 +624,6 @@ impl Encoder<'_> {
             };
             match next {
                 Next::Scalar(value) => self.scalar(value)?,
-                Next::End => {
-                    stack.pop();
-                }
                 Next::List(_) | Next::Compound(_) if stack.len() >= MAX_DEPTH => {
                     return Err(Error::Size);
                 }
@@ -637,9 +636,21 @@ impl Encoder<'_> {
                     self.charge_entries(map);
                     stack.push(WriteFrame::Compound(map.iter()));
                 }
+                Next::End => {
+                    stack.pop();
+                }
             }
         }
         Ok(())
+    }
+
+    /// Counts the entries of `map`, as the decoder takes them key by key ([`ENTRY_CHARGES`]).
+    fn charge_entries(&mut self, map: &Compound) {
+        let (first, other) = ENTRY_CHARGES;
+        if !map.is_empty() {
+            self.charge(1, first);
+            self.charge(map.len() - 1, other);
+        }
     }
 
     /// Writes a list header, then the whole list unless its elements are containers; for those
@@ -743,57 +754,12 @@ impl Encoder<'_> {
         Ok(())
     }
 
-    fn int32(&mut self, x: i32) {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.varint32(x),
-            Encoding::LittleEndian => self.w.int32(x),
-        }
-    }
-
-    fn int64(&mut self, x: i64) {
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.varint64(x),
-            Encoding::LittleEndian => self.w.int64(x),
-        }
-    }
-
-    fn length(&mut self, len: usize) -> Result<()> {
-        self.int32(crate::protocol::length(len)?);
-        Ok(())
-    }
-
-    fn string(&mut self, x: &str) -> Result<()> {
-        if x.len() > usize::from(MAX_STRING_BYTES) {
-            return Err(Error::Size);
-        }
-        self.room(x.len())?;
-        self.charge(x.len(), 1);
-        match self.encoding {
-            Encoding::NetworkLittleEndian => self.w.string(x),
-            Encoding::LittleEndian => self.w.string_utf(x),
-        }
-    }
-
     fn byte_array(&mut self, x: &[u8]) -> Result<()> {
         self.length(x.len())?;
         self.room(x.len())?;
         self.charge(x.len(), 1);
         self.w.bytes(x);
         Ok(())
-    }
-
-    /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
-    fn charge(&mut self, count: usize, size: usize) {
-        self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
-    }
-
-    /// Counts the entries of `map`, as the decoder takes them key by key ([`ENTRY_CHARGES`]).
-    fn charge_entries(&mut self, map: &Compound) {
-        let (first, other) = ENTRY_CHARGES;
-        if !map.is_empty() {
-            self.charge(1, first);
-            self.charge(map.len() - 1, other);
-        }
     }
 
     fn int_array(&mut self, x: &[i32]) -> Result<()> {
@@ -814,6 +780,42 @@ impl Encoder<'_> {
             self.check()?;
         }
         Ok(())
+    }
+
+    fn int64(&mut self, x: i64) {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.varint64(x),
+            Encoding::LittleEndian => self.w.int64(x),
+        }
+    }
+
+    fn length(&mut self, len: usize) -> Result<()> {
+        self.int32(crate::protocol::length(len)?);
+        Ok(())
+    }
+
+    fn int32(&mut self, x: i32) {
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.varint32(x),
+            Encoding::LittleEndian => self.w.int32(x),
+        }
+    }
+
+    fn string(&mut self, x: &str) -> Result<()> {
+        if x.len() > usize::from(MAX_STRING_BYTES) {
+            return Err(Error::Size);
+        }
+        self.room(x.len())?;
+        self.charge(x.len(), 1);
+        match self.encoding {
+            Encoding::NetworkLittleEndian => self.w.string(x),
+            Encoding::LittleEndian => self.w.string_utf(x),
+        }
+    }
+
+    /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
+    fn charge(&mut self, count: usize, size: usize) {
+        self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
     }
 }
 
@@ -852,16 +854,6 @@ pub(crate) enum Static {
     Compound(StaticCompound),
 }
 
-/// A [`List`] in a generated static table, of the element types the generated data uses.
-#[derive(Debug)]
-pub(crate) enum StaticList {
-    End,
-    Int(&'static [i32]),
-    Float(&'static [f32]),
-    String(&'static [&'static str]),
-    Compound(&'static [StaticCompound]),
-}
-
 impl Static {
     /// Builds the [`Value`].
     pub(crate) fn to_value(&self) -> Value {
@@ -891,6 +883,16 @@ impl Static {
             _ => false,
         }
     }
+}
+
+/// A [`List`] in a generated static table, of the element types the generated data uses.
+#[derive(Debug)]
+pub(crate) enum StaticList {
+    End,
+    Int(&'static [i32]),
+    Float(&'static [f32]),
+    String(&'static [&'static str]),
+    Compound(&'static [StaticCompound]),
 }
 
 impl StaticList {
@@ -1008,16 +1010,16 @@ pub(crate) fn child_compound<'a>(parent: &'a Compound, key: &str) -> &'a Compoun
     }
 }
 
-/// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).
-pub(crate) fn contains(whole: &Compound, part: StaticCompound) -> bool {
-    part.iter()
-        .all(|(k, v)| whole.get(*k).is_some_and(|w| v.equals(w)))
-}
-
 /// Whether `whole` has exactly the entries of `part`, with equal values (floats compare by bits):
 /// `whole == compound(part)` without building the compound.
 pub(crate) fn equals(whole: &Compound, part: StaticCompound) -> bool {
     whole.len() == part.len() && contains(whole, part)
+}
+
+/// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).
+pub(crate) fn contains(whole: &Compound, part: StaticCompound) -> bool {
+    part.iter()
+        .all(|(k, v)| whole.get(*k).is_some_and(|w| v.equals(w)))
 }
 
 /// Takes one from a frame's count of elements left; `false` once none are left.

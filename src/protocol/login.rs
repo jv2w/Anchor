@@ -5,9 +5,13 @@
 
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 
+/// The error for a connection request with an empty chain.
+const EMPTY_CHAIN: Error = Error::InvalidValue {
+    field: "connection request chain",
+    reason: "empty",
+};
+
 /// The envelope of the [`Login`](super::packet::Login) packet's `connection_request` bytes.
-///
-/// The JWTs inside are not verified here; the session verifies them before trusting any claim.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ConnectionRequest {
     /// JSON text with the certificate chain, the authentication type and the token.
@@ -45,10 +49,7 @@ impl Codec for ConnectionRequest {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let chain_len = r.int32()?;
         if chain_len == 0 {
-            return Err(Error::InvalidValue {
-                field: "connection request chain",
-                reason: "empty",
-            });
+            return Err(EMPTY_CHAIN);
         }
         let chain = r.utf8(u64::try_from(chain_len).map_err(|_| Error::Size)?)?;
         let token_len = u64::try_from(r.int32()?).map_err(|_| Error::Size)?;
@@ -58,10 +59,7 @@ impl Codec for ConnectionRequest {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         if self.chain.is_empty() {
-            return Err(Error::InvalidValue {
-                field: "connection request chain",
-                reason: "empty",
-            });
+            return Err(EMPTY_CHAIN);
         }
         for part in [&self.chain, &self.raw_token] {
             w.int32(length(part.len())?);

@@ -135,19 +135,99 @@ impl<'a> Reader<'a> {
         self.shield_id
     }
 
-    /// Checks a count and takes its allocation from the budget, returning the count.
-    ///
-    /// This is the one length and count check. It fails with [`Error::Size`] unless `count` is at
-    /// most `max` and at most the remaining input bytes (every element takes at least one byte),
-    /// and `count × elem_size` bytes fit the allocation budget, which it then takes.
-    pub(crate) fn limit(&mut self, count: u64, max: usize, elem_size: usize) -> Result<usize> {
-        let count = usize::try_from(count).map_err(|_| Error::Size)?;
-        if count > max || count > self.input.len() {
-            return Err(Error::Size);
+    /// Reads an `ActorRuntimeID`: a varuint64.
+    pub(crate) fn actor_runtime_id(&mut self) -> Result<u64> {
+        self.varuint64()
+    }
+
+    /// Reads an `ActorRuntimeIDVarint64`.
+    pub(crate) fn actor_runtime_id_varint64(&mut self) -> Result<i64> {
+        self.varint64()
+    }
+
+    /// Reads an `ActorRuntimeIDVaruint32`.
+    pub(crate) fn actor_runtime_id_varuint32(&mut self) -> Result<u32> {
+        self.varuint32()
+    }
+
+    /// Reads an `ActorUniqueID`: a varint64.
+    pub(crate) fn actor_unique_id(&mut self) -> Result<i64> {
+        self.varint64()
+    }
+
+    /// Reads an `ActorUniqueIDInt64`.
+    pub(crate) fn actor_unique_id_int64(&mut self) -> Result<i64> {
+        self.int64()
+    }
+
+    /// Reads an `ActorUniqueIDUint64`.
+    pub(crate) fn actor_unique_id_uint64(&mut self) -> Result<u64> {
+        self.uint64()
+    }
+
+    /// Reads an `ActorUniqueIDVaruint64`.
+    pub(crate) fn actor_unique_id_varuint64(&mut self) -> Result<u64> {
+        self.varuint64()
+    }
+
+    /// Reads a `BEInt32`.
+    pub(crate) fn be_int32(&mut self) -> Result<i32> {
+        Ok(i32::from_be_bytes(self.array()?))
+    }
+
+    /// Reads a `Bool`, accepting only 0 and 1.
+    pub(crate) fn bool(&mut self) -> Result<bool> {
+        match self.uint8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            b => Err(Error::InvalidBool(b)),
         }
-        let bytes = count.checked_mul(elem_size).ok_or(Error::Size)?;
-        self.budget = self.budget.checked_sub(bytes).ok_or(Error::Size)?;
-        Ok(count)
+    }
+
+    /// Reads a `ByteSlice`: a varuint32 byte length and the bytes.
+    pub(crate) fn byte_slice(&mut self) -> Result<Vec<u8>> {
+        self.byte_slice_max(usize::MAX)
+    }
+
+    /// Reads a `ByteSlice` of a field that holds at most `max` bytes.
+    pub(crate) fn byte_slice_max(&mut self, max: usize) -> Result<Vec<u8>> {
+        let len = self.varuint32()?;
+        self.byte_vec_max(len.into(), max)
+    }
+
+    /// Reads the `Bytes` that are the rest of the input.
+    pub(crate) fn bytes(&mut self) -> Result<Vec<u8>> {
+        self.byte_vec(length(self.input.len())?)
+    }
+
+    /// Takes `len` bytes after the limit check as an owned buffer.
+    pub(crate) fn byte_vec(&mut self, len: u64) -> Result<Vec<u8>> {
+        self.byte_vec_max(len, usize::MAX)
+    }
+
+    /// Reads a `Float32`.
+    pub(crate) fn float32(&mut self) -> Result<f32> {
+        Ok(f32::from_le_bytes(self.array()?))
+    }
+
+    /// Reads a `Float64`.
+    pub(crate) fn float64(&mut self) -> Result<f64> {
+        Ok(f64::from_le_bytes(self.array()?))
+    }
+
+    /// Reads an `Int32`.
+    pub(crate) fn int32(&mut self) -> Result<i32> {
+        Ok(i32::from_le_bytes(self.array()?))
+    }
+
+    /// Reads an `Int64`.
+    pub(crate) fn int64(&mut self) -> Result<i64> {
+        Ok(i64::from_le_bytes(self.array()?))
+    }
+
+    /// Reads an `Int8`.
+    pub(crate) fn int8(&mut self) -> Result<i8> {
+        Ok(self.uint8()?.cast_signed())
     }
 
     /// Reads a list of `count` elements with `f`, under the [`MAX_LIST_LEN`] limit.
@@ -203,174 +283,25 @@ impl<'a> Reader<'a> {
         value
     }
 
-    /// Takes the next `N` bytes.
-    pub(crate) fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        let (head, rest) = self
-            .input
-            .split_first_chunk::<N>()
-            .ok_or(Error::UnexpectedEnd)?;
-        self.input = rest;
-        Ok(*head)
-    }
-
     /// Takes `len` bytes after the limit check, as a slice of the input.
     pub(crate) fn raw(&mut self, len: u64) -> Result<&'a [u8]> {
         let len = self.limit(len, usize::MAX, 0)?;
         self.take(len)
     }
 
-    /// Takes `len` bytes after the limit check as an owned buffer.
-    pub(crate) fn byte_vec(&mut self, len: u64) -> Result<Vec<u8>> {
-        self.byte_vec_max(len, usize::MAX)
-    }
-
-    /// Takes `len` bytes after the limit check as an owned string.
-    pub(crate) fn utf8(&mut self, len: u64) -> Result<String> {
-        self.utf8_max(len, usize::MAX)
-    }
-
-    /// Reads a `Uint8`.
-    pub(crate) fn uint8(&mut self) -> Result<u8> {
-        let [b] = self.array()?;
-        Ok(b)
-    }
-
-    /// Reads an `Int8`.
-    pub(crate) fn int8(&mut self) -> Result<i8> {
-        Ok(self.uint8()?.cast_signed())
-    }
-
-    /// Reads a `Bool`, accepting only 0 and 1.
-    pub(crate) fn bool(&mut self) -> Result<bool> {
-        match self.uint8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            b => Err(Error::InvalidBool(b)),
-        }
-    }
-
-    /// Reads a `Uint16`.
-    pub(crate) fn uint16(&mut self) -> Result<u16> {
-        Ok(u16::from_le_bytes(self.array()?))
-    }
-
-    /// Reads an `Int16`.
-    pub(crate) fn int16(&mut self) -> Result<i16> {
-        Ok(i16::from_le_bytes(self.array()?))
-    }
-
-    /// Reads a `Uint32`.
-    pub(crate) fn uint32(&mut self) -> Result<u32> {
-        Ok(u32::from_le_bytes(self.array()?))
-    }
-
-    /// Reads an `Int32`.
-    pub(crate) fn int32(&mut self) -> Result<i32> {
-        Ok(i32::from_le_bytes(self.array()?))
-    }
-
-    /// Reads a `BEInt32`.
-    pub(crate) fn be_int32(&mut self) -> Result<i32> {
-        Ok(i32::from_be_bytes(self.array()?))
-    }
-
-    /// Reads a `Uint64`.
-    pub(crate) fn uint64(&mut self) -> Result<u64> {
-        Ok(u64::from_le_bytes(self.array()?))
-    }
-
-    /// Reads an `Int64`.
-    pub(crate) fn int64(&mut self) -> Result<i64> {
-        Ok(i64::from_le_bytes(self.array()?))
-    }
-
-    /// Reads a `Float32`.
-    pub(crate) fn float32(&mut self) -> Result<f32> {
-        Ok(f32::from_le_bytes(self.array()?))
-    }
-
-    /// Reads a `Float64`.
-    pub(crate) fn float64(&mut self) -> Result<f64> {
-        Ok(f64::from_le_bytes(self.array()?))
-    }
-
-    /// Reads a `Varuint32` of at most 5 bytes.
+    /// Checks a count and takes its allocation from the budget, returning the count.
     ///
-    /// Bits past 32 in the fifth byte are dropped, like gophertunnel.
-    pub(crate) fn varuint32(&mut self) -> Result<u32> {
-        let mut value = 0_u32;
-        for shift in (0..35).step_by(7) {
-            let b = self.uint8()?;
-            value |= u32::from(b & 0x7f) << shift;
-            if b & 0x80 == 0 {
-                return Ok(value);
-            }
+    /// This is the one length and count check. It fails with [`Error::Size`] unless `count` is at
+    /// most `max` and at most the remaining input bytes (every element takes at least one byte),
+    /// and `count × elem_size` bytes fit the allocation budget, which it then takes.
+    pub(crate) fn limit(&mut self, count: u64, max: usize, elem_size: usize) -> Result<usize> {
+        let count = usize::try_from(count).map_err(|_| Error::Size)?;
+        if count > max || count > self.input.len() {
+            return Err(Error::Size);
         }
-        Err(Error::VarintOverflow)
-    }
-
-    /// Reads a `Varint32`: zigzag over [`Self::varuint32`].
-    pub(crate) fn varint32(&mut self) -> Result<i32> {
-        let u = self.varuint32()?;
-        let x = (u >> 1).cast_signed();
-        Ok(if u & 1 == 0 { x } else { !x })
-    }
-
-    /// Reads a `Varuint64` of at most 10 bytes.
-    ///
-    /// Bits past 64 in the tenth byte are dropped, like gophertunnel.
-    pub(crate) fn varuint64(&mut self) -> Result<u64> {
-        let mut value = 0_u64;
-        for shift in (0..70).step_by(7) {
-            let b = self.uint8()?;
-            value |= u64::from(b & 0x7f) << shift;
-            if b & 0x80 == 0 {
-                return Ok(value);
-            }
-        }
-        Err(Error::VarintOverflow)
-    }
-
-    /// Reads a `Varint64`: zigzag over [`Self::varuint64`].
-    pub(crate) fn varint64(&mut self) -> Result<i64> {
-        let u = self.varuint64()?;
-        let x = (u >> 1).cast_signed();
-        Ok(if u & 1 == 0 { x } else { !x })
-    }
-
-    /// Reads an `ActorRuntimeID`: a varuint64.
-    pub(crate) fn actor_runtime_id(&mut self) -> Result<u64> {
-        self.varuint64()
-    }
-
-    /// Reads an `ActorRuntimeIDVarint64`.
-    pub(crate) fn actor_runtime_id_varint64(&mut self) -> Result<i64> {
-        self.varint64()
-    }
-
-    /// Reads an `ActorRuntimeIDVaruint32`.
-    pub(crate) fn actor_runtime_id_varuint32(&mut self) -> Result<u32> {
-        self.varuint32()
-    }
-
-    /// Reads an `ActorUniqueID`: a varint64.
-    pub(crate) fn actor_unique_id(&mut self) -> Result<i64> {
-        self.varint64()
-    }
-
-    /// Reads an `ActorUniqueIDInt64`.
-    pub(crate) fn actor_unique_id_int64(&mut self) -> Result<i64> {
-        self.int64()
-    }
-
-    /// Reads an `ActorUniqueIDUint64`.
-    pub(crate) fn actor_unique_id_uint64(&mut self) -> Result<u64> {
-        self.uint64()
-    }
-
-    /// Reads an `ActorUniqueIDVaruint64`.
-    pub(crate) fn actor_unique_id_varuint64(&mut self) -> Result<u64> {
-        self.varuint64()
+        let bytes = count.checked_mul(elem_size).ok_or(Error::Size)?;
+        self.budget = self.budget.checked_sub(bytes).ok_or(Error::Size)?;
+        Ok(count)
     }
 
     /// Reads a `String`: a varuint32 byte length and UTF-8 bytes.
@@ -392,30 +323,89 @@ impl<'a> Reader<'a> {
         self.utf8(len)
     }
 
-    /// Reads a `ByteSlice`: a varuint32 byte length and the bytes.
-    pub(crate) fn byte_slice(&mut self) -> Result<Vec<u8>> {
-        self.byte_slice_max(usize::MAX)
+    /// Reads an `Int16`.
+    pub(crate) fn int16(&mut self) -> Result<i16> {
+        Ok(i16::from_le_bytes(self.array()?))
     }
 
-    /// Reads a `ByteSlice` of a field that holds at most `max` bytes.
-    pub(crate) fn byte_slice_max(&mut self, max: usize) -> Result<Vec<u8>> {
-        let len = self.varuint32()?;
-        self.byte_vec_max(len.into(), max)
+    /// Reads a `Uint16`.
+    pub(crate) fn uint16(&mut self) -> Result<u16> {
+        Ok(u16::from_le_bytes(self.array()?))
     }
 
-    /// Reads the `Bytes` that are the rest of the input.
-    pub(crate) fn bytes(&mut self) -> Result<Vec<u8>> {
-        self.byte_vec(length(self.input.len())?)
+    /// Reads a `Uint32`.
+    pub(crate) fn uint32(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.array()?))
     }
 
-    /// Takes the next `len` bytes without a limit check; callers check `len` first.
-    fn take(&mut self, len: usize) -> Result<&'a [u8]> {
+    /// Reads a `Uint64`.
+    pub(crate) fn uint64(&mut self) -> Result<u64> {
+        Ok(u64::from_le_bytes(self.array()?))
+    }
+
+    /// Takes `len` bytes after the limit check as an owned string.
+    pub(crate) fn utf8(&mut self, len: u64) -> Result<String> {
+        self.utf8_max(len, usize::MAX)
+    }
+
+    /// Reads a `Varint32`: zigzag over [`Self::varuint32`].
+    pub(crate) fn varint32(&mut self) -> Result<i32> {
+        let u = self.varuint32()?;
+        let x = (u >> 1).cast_signed();
+        Ok(if u & 1 == 0 { x } else { !x })
+    }
+
+    /// Reads a `Varint64`: zigzag over [`Self::varuint64`].
+    pub(crate) fn varint64(&mut self) -> Result<i64> {
+        let u = self.varuint64()?;
+        let x = (u >> 1).cast_signed();
+        Ok(if u & 1 == 0 { x } else { !x })
+    }
+
+    /// Reads a `Varuint32` of at most 5 bytes.
+    ///
+    /// Bits past 32 in the fifth byte are dropped, like gophertunnel.
+    pub(crate) fn varuint32(&mut self) -> Result<u32> {
+        let mut value = 0_u32;
+        for shift in (0..35).step_by(7) {
+            let b = self.uint8()?;
+            value |= u32::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err(Error::VarintOverflow)
+    }
+
+    /// Reads a `Varuint64` of at most 10 bytes.
+    ///
+    /// Bits past 64 in the tenth byte are dropped, like gophertunnel.
+    pub(crate) fn varuint64(&mut self) -> Result<u64> {
+        let mut value = 0_u64;
+        for shift in (0..70).step_by(7) {
+            let b = self.uint8()?;
+            value |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Ok(value);
+            }
+        }
+        Err(Error::VarintOverflow)
+    }
+
+    /// Reads a `Uint8`.
+    pub(crate) fn uint8(&mut self) -> Result<u8> {
+        let [b] = self.array()?;
+        Ok(b)
+    }
+
+    /// Takes the next `N` bytes.
+    pub(crate) fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
         let (head, rest) = self
             .input
-            .split_at_checked(len)
+            .split_first_chunk::<N>()
             .ok_or(Error::UnexpectedEnd)?;
         self.input = rest;
-        Ok(head)
+        Ok(*head)
     }
 
     /// Takes `len` bytes like [`Reader::byte_vec`], failing past `max` bytes.
@@ -431,6 +421,16 @@ impl<'a> Reader<'a> {
         str::from_utf8(bytes)
             .map(str::to_owned)
             .map_err(|_| Error::InvalidUtf8)
+    }
+
+    /// Takes the next `len` bytes without a limit check; callers check `len` first.
+    fn take(&mut self, len: usize) -> Result<&'a [u8]> {
+        let (head, rest) = self
+            .input
+            .split_at_checked(len)
+            .ok_or(Error::UnexpectedEnd)?;
+        self.input = rest;
+        Ok(head)
     }
 }
 
@@ -452,124 +452,6 @@ impl Writer {
     /// The shield's item network ID.
     pub(crate) fn shield_id(&self) -> i32 {
         self.shield_id
-    }
-
-    /// The buffer, to append what an encoder that takes a `Vec` writes.
-    pub(crate) fn buffer_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.buf
-    }
-
-    /// Writes what `f` appends, prefixed with its byte length as a varuint32 (a `ByteSlice`).
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: `f` only appends, so `start` is a length the buffer had before"
-    )]
-    pub(crate) fn length_prefixed(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Result<()>,
-    ) -> Result<()> {
-        let start = self.buf.len();
-        f(self)?;
-        let body = self
-            .buf
-            .len()
-            .checked_sub(start)
-            .expect("the body only grows the buffer");
-        let end = self.buf.len();
-        self.varuint32(length(body)?);
-        let prefix = self.buf.len() - end;
-        // Move the prefix written after the body in front of it, without a second buffer.
-        self.buf
-            .get_mut(start..)
-            .expect("start is inside the buffer")
-            .rotate_right(prefix);
-        Ok(())
-    }
-
-    /// Writes a `Uint8`.
-    pub(crate) fn uint8(&mut self, x: u8) {
-        self.buf.push(x);
-    }
-
-    /// Writes an `Int8`.
-    pub(crate) fn int8(&mut self, x: i8) {
-        self.buf.push(x.cast_unsigned());
-    }
-
-    /// Writes a `Bool`.
-    pub(crate) fn bool(&mut self, x: bool) {
-        self.buf.push(u8::from(x));
-    }
-
-    /// Writes a `Uint16`.
-    pub(crate) fn uint16(&mut self, x: u16) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes an `Int16`.
-    pub(crate) fn int16(&mut self, x: i16) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes a `Uint32`.
-    pub(crate) fn uint32(&mut self, x: u32) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes an `Int32`.
-    pub(crate) fn int32(&mut self, x: i32) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes a `BEInt32`.
-    pub(crate) fn be_int32(&mut self, x: i32) {
-        self.buf.extend_from_slice(&x.to_be_bytes());
-    }
-
-    /// Writes a `Uint64`.
-    pub(crate) fn uint64(&mut self, x: u64) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes an `Int64`.
-    pub(crate) fn int64(&mut self, x: i64) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes a `Float32`.
-    pub(crate) fn float32(&mut self, x: f32) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes a `Float64`.
-    pub(crate) fn float64(&mut self, x: f64) {
-        self.buf.extend_from_slice(&x.to_le_bytes());
-    }
-
-    /// Writes a `Varuint32`.
-    pub(crate) fn varuint32(&mut self, x: u32) {
-        self.varuint64(x.into());
-    }
-
-    /// Writes a `Varint32`.
-    pub(crate) fn varint32(&mut self, x: i32) {
-        let u = x.cast_unsigned() << 1;
-        self.varuint32(if x < 0 { !u } else { u });
-    }
-
-    /// Writes a `Varuint64`.
-    pub(crate) fn varuint64(&mut self, mut x: u64) {
-        while x >= 0x80 {
-            self.buf.push(x.to_le_bytes()[0] | 0x80);
-            x >>= 7;
-        }
-        self.buf.push(x.to_le_bytes()[0]);
-    }
-
-    /// Writes a `Varint64`.
-    pub(crate) fn varint64(&mut self, x: i64) {
-        let u = x.cast_unsigned() << 1;
-        self.varuint64(if x < 0 { !u } else { u });
     }
 
     /// Writes an `ActorRuntimeID`.
@@ -607,9 +489,81 @@ impl Writer {
         self.varuint64(x);
     }
 
+    /// Writes a `BEInt32`.
+    pub(crate) fn be_int32(&mut self, x: i32) {
+        self.buf.extend_from_slice(&x.to_be_bytes());
+    }
+
+    /// Writes a `Bool`.
+    pub(crate) fn bool(&mut self, x: bool) {
+        self.buf.push(u8::from(x));
+    }
+
+    /// The buffer, to append what an encoder that takes a `Vec` writes.
+    pub(crate) fn buffer_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.buf
+    }
+
+    /// Writes a `Float32`.
+    pub(crate) fn float32(&mut self, x: f32) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes a `Float64`.
+    pub(crate) fn float64(&mut self, x: f64) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes an `Int32`.
+    pub(crate) fn int32(&mut self, x: i32) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes an `Int64`.
+    pub(crate) fn int64(&mut self, x: i64) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes an `Int8`.
+    pub(crate) fn int8(&mut self, x: i8) {
+        self.buf.push(x.cast_unsigned());
+    }
+
+    /// Writes what `f` appends, prefixed with its byte length as a varuint32 (a `ByteSlice`).
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `f` only appends, so `start` is a length the buffer had before"
+    )]
+    pub(crate) fn length_prefixed(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        let start = self.buf.len();
+        f(self)?;
+        let body = self
+            .buf
+            .len()
+            .checked_sub(start)
+            .expect("the body only grows the buffer");
+        let end = self.buf.len();
+        self.varuint32(length(body)?);
+        let prefix = self.buf.len() - end;
+        // Move the prefix written after the body in front of it, without a second buffer.
+        self.buf
+            .get_mut(start..)
+            .expect("start is inside the buffer")
+            .rotate_right(prefix);
+        Ok(())
+    }
+
     /// Writes a `String`.
     pub(crate) fn string(&mut self, x: &str) -> Result<()> {
         self.byte_slice(x.as_bytes())
+    }
+
+    /// Writes a `ByteSlice`, failing with [`Error::Size`] past `u32::MAX` bytes.
+    pub(crate) fn byte_slice(&mut self, x: &[u8]) -> Result<()> {
+        self.byte_slice_max(x, usize::MAX)
     }
 
     /// Writes a `String` of a field that holds at most `max` bytes.
@@ -617,18 +571,6 @@ impl Writer {
     /// More is [`Error::Size`], as the reader would answer.
     pub(crate) fn string_max(&mut self, x: &str, max: usize) -> Result<()> {
         self.byte_slice_max(x.as_bytes(), max)
-    }
-
-    /// Writes a `StringUTF`, failing with [`Error::Size`] past `i16::MAX` bytes.
-    pub(crate) fn string_utf(&mut self, x: &str) -> Result<()> {
-        self.int16(length(x.len())?);
-        self.bytes(x.as_bytes());
-        Ok(())
-    }
-
-    /// Writes a `ByteSlice`, failing with [`Error::Size`] past `u32::MAX` bytes.
-    pub(crate) fn byte_slice(&mut self, x: &[u8]) -> Result<()> {
-        self.byte_slice_max(x, usize::MAX)
     }
 
     /// Writes a `ByteSlice` of a field that holds at most `max` bytes.
@@ -640,9 +582,67 @@ impl Writer {
         Ok(())
     }
 
+    /// Writes a `StringUTF`, failing with [`Error::Size`] past `i16::MAX` bytes.
+    pub(crate) fn string_utf(&mut self, x: &str) -> Result<()> {
+        self.int16(length(x.len())?);
+        self.bytes(x.as_bytes());
+        Ok(())
+    }
+
     /// Writes `Bytes`.
     pub(crate) fn bytes(&mut self, x: &[u8]) {
         self.buf.extend_from_slice(x);
+    }
+
+    /// Writes an `Int16`.
+    pub(crate) fn int16(&mut self, x: i16) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes a `Uint16`.
+    pub(crate) fn uint16(&mut self, x: u16) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes a `Uint32`.
+    pub(crate) fn uint32(&mut self, x: u32) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes a `Uint64`.
+    pub(crate) fn uint64(&mut self, x: u64) {
+        self.buf.extend_from_slice(&x.to_le_bytes());
+    }
+
+    /// Writes a `Uint8`.
+    pub(crate) fn uint8(&mut self, x: u8) {
+        self.buf.push(x);
+    }
+
+    /// Writes a `Varint32`.
+    pub(crate) fn varint32(&mut self, x: i32) {
+        let u = x.cast_unsigned() << 1;
+        self.varuint32(if x < 0 { !u } else { u });
+    }
+
+    /// Writes a `Varint64`.
+    pub(crate) fn varint64(&mut self, x: i64) {
+        let u = x.cast_unsigned() << 1;
+        self.varuint64(if x < 0 { !u } else { u });
+    }
+
+    /// Writes a `Varuint32`.
+    pub(crate) fn varuint32(&mut self, x: u32) {
+        self.varuint64(x.into());
+    }
+
+    /// Writes a `Varuint64`.
+    pub(crate) fn varuint64(&mut self, mut x: u64) {
+        while x >= 0x80 {
+            self.buf.push(x.to_le_bytes()[0] | 0x80);
+            x >>= 7;
+        }
+        self.buf.push(x.to_le_bytes()[0]);
     }
 
     /// The written bytes.

@@ -5,6 +5,10 @@
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 use crate::nbt::{Compound, Encoding};
 
+/// The shift of the network ID in a `MaterialReducer` input.
+const MATERIAL_REDUCER_ID_SHIFT: u32 = 16;
+/// The mask of the metadata value in a `MaterialReducer` input.
+const MATERIAL_REDUCER_METADATA_MASK: i32 = 0xffff;
 /// The identifier of the item whose user data carries a blocking tick in `StackRequestItem`.
 const SHIELD_IDENTIFIER: &str = "minecraft:shield";
 
@@ -211,6 +215,19 @@ impl Reader<'_> {
         })
     }
 
+    /// Reads a `MaterialReducer`.
+    pub(crate) fn material_reducer(&mut self) -> Result<MaterialReducer> {
+        let mix = self.varint32()?;
+        let count = self.varuint32()?;
+        Ok(MaterialReducer {
+            input_item: ItemType {
+                network_id: mix >> MATERIAL_REDUCER_ID_SHIFT,
+                metadata_value: (mix & MATERIAL_REDUCER_METADATA_MASK).cast_unsigned(),
+            },
+            outputs: self.list(count.into(), MaterialReducerOutput::decode)?,
+        })
+    }
+
     /// Reads a `StackRequestItem`.
     pub(crate) fn stack_request_item(&mut self) -> Result<StackRequestItem> {
         let variant = self.varuint32()?;
@@ -238,19 +255,6 @@ impl Reader<'_> {
             can_be_placed_on: data.can_be_placed_on,
             can_break: data.can_break,
             blocking_tick: data.blocking_tick,
-        })
-    }
-
-    /// Reads a `MaterialReducer`.
-    pub(crate) fn material_reducer(&mut self) -> Result<MaterialReducer> {
-        let mix = self.varint32()?;
-        let count = self.varuint32()?;
-        Ok(MaterialReducer {
-            input_item: ItemType {
-                network_id: mix >> 16,
-                metadata_value: (mix & 0xffff).cast_unsigned(),
-            },
-            outputs: self.list(count.into(), MaterialReducerOutput::decode)?,
         })
     }
 
@@ -321,6 +325,26 @@ impl Writer {
         self.stack_user_data(stack)
     }
 
+    /// Writes a `MaterialReducer`.
+    ///
+    /// Fails if the input's network ID does not fit an int16 or its metadata a uint16.
+    pub(crate) fn material_reducer(&mut self, x: &MaterialReducer) -> Result<()> {
+        let id = i16::try_from(x.input_item.network_id);
+        let meta = u16::try_from(x.input_item.metadata_value);
+        let (Ok(id), Ok(meta)) = (id, meta) else {
+            return Err(Error::InvalidValue {
+                field: "material reducer input",
+                reason: "network id outside int16 or metadata outside uint16",
+            });
+        };
+        self.varint32((i32::from(id) << MATERIAL_REDUCER_ID_SHIFT) | i32::from(meta));
+        self.varuint32(length(x.outputs.len())?);
+        for output in &x.outputs {
+            output.encode(self)?;
+        }
+        Ok(())
+    }
+
     /// Writes a `StackRequestItem`.
     pub(crate) fn stack_request_item(&mut self, x: &StackRequestItem) -> Result<()> {
         let has_item = !x.identifier.is_empty();
@@ -343,26 +367,6 @@ impl Writer {
             &x.can_break,
             shield.then_some(x.blocking_tick),
         )
-    }
-
-    /// Writes a `MaterialReducer`.
-    ///
-    /// Fails if the input's network ID does not fit an int16 or its metadata a uint16.
-    pub(crate) fn material_reducer(&mut self, x: &MaterialReducer) -> Result<()> {
-        let id = i16::try_from(x.input_item.network_id);
-        let meta = u16::try_from(x.input_item.metadata_value);
-        let (Ok(id), Ok(meta)) = (id, meta) else {
-            return Err(Error::InvalidValue {
-                field: "material reducer input",
-                reason: "network id outside int16 or metadata outside uint16",
-            });
-        };
-        self.varint32((i32::from(id) << 16) | i32::from(meta));
-        self.varuint32(length(x.outputs.len())?);
-        for output in &x.outputs {
-            output.encode(self)?;
-        }
-        Ok(())
     }
 
     /// Writes the user data of a stack, or an empty blob for air.

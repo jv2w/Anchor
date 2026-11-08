@@ -26,41 +26,6 @@ const DESCRIPTOR_MOLANG: u8 = 2;
 const DESCRIPTOR_ITEM_TAG: u8 = 3;
 
 impl Reader<'_> {
-    /// Reads a `StackRequestAction`: the variant index, the legacy ID and the action.
-    ///
-    /// The legacy ID is not checked, like in gophertunnel.
-    pub(crate) fn stack_request_action(&mut self) -> Result<StackRequestAction> {
-        let variant = self.varuint32()?;
-        self.uint8()?;
-        let unknown = |value: u32, name| Error::UnknownEnum {
-            name,
-            value: value.into(),
-        };
-        let skip = if variant >= ACTION_PLACE_IN_CONTAINER {
-            2
-        } else {
-            0
-        };
-        let id = u8::try_from(variant.saturating_add(skip))
-            .ok()
-            .filter(|&id| id <= ACTION_LAST)
-            .ok_or_else(|| unknown(variant, "StackRequestAction variant"))?;
-        StackRequestAction::from_id(id)
-            .ok_or_else(|| unknown(id.into(), "StackRequestAction ID"))?
-            .decode_variant(self)
-    }
-
-    /// Reads an `EventType`: the event with default fields.
-    ///
-    /// [`Self::event_ordinal`] and the event body follow later in the packet.
-    pub(crate) fn event_type(&mut self) -> Result<Event> {
-        let t = self.varint32()?;
-        Event::from_id(t).ok_or(Error::UnknownEnum {
-            name: "Event type",
-            value: t.into(),
-        })
-    }
-
     /// Reads an `EventOrdinal`, failing for an event without an ordinal.
     ///
     /// The ordinal read is not checked, like in gophertunnel.
@@ -75,26 +40,15 @@ impl Reader<'_> {
         Ok(())
     }
 
-    /// Reads a `TransactionDataType`: the transaction data with default fields.
+    /// Reads an `EventType`: the event with default fields.
     ///
-    /// Its body follows later in the packet.
-    pub(crate) fn transaction_data_type(&mut self) -> Result<InventoryTransactionData> {
-        let t = self.varuint32()?;
-        InventoryTransactionData::from_id(t).ok_or(Error::UnknownEnum {
-            name: "InventoryTransactionData type",
+    /// [`Self::event_ordinal`] and the event body follow later in the packet.
+    pub(crate) fn event_type(&mut self) -> Result<Event> {
+        let t = self.varint32()?;
+        Event::from_id(t).ok_or(Error::UnknownEnum {
+            name: "Event type",
             value: t.into(),
         })
-    }
-
-    /// Reads a `ShapeData`: the shape type and the shape.
-    pub(crate) fn shape_data(&mut self) -> Result<ShapeData> {
-        let t = self.varuint32()?;
-        ShapeData::from_id(t)
-            .ok_or(Error::UnknownEnum {
-                name: "ShapeData type",
-                value: t.into(),
-            })?
-            .decode_variant(self)
     }
 
     /// Reads an `ItemDescriptorCount`: a descriptor in the named form and its count.
@@ -134,6 +88,73 @@ impl Reader<'_> {
         })
     }
 
+    /// Reads a `PlayerInventoryAction`: the legacy fields and actions of a use-item transaction.
+    ///
+    /// The transaction data follows them.
+    pub(crate) fn player_inventory_action(&mut self) -> Result<UseItemTransactionData> {
+        let legacy_request_id = self.varint32()?;
+        let legacy_set_item_slots = if self.bool()? {
+            let count = self.varuint32()?;
+            Some(self.list(count.into(), LegacySetItemSlot::decode)?)
+        } else {
+            None
+        };
+        let count = self.varuint32()?;
+        let actions = self.list(count.into(), InventoryAction::decode)?;
+        Ok(UseItemTransactionData {
+            legacy_request_id,
+            legacy_set_item_slots,
+            actions,
+            action_type: self.varint32()?.cast_unsigned(),
+            trigger_type: self.uint8()?.into(),
+            block_position: self.block_pos()?,
+            block_face: self.uint8()?.into(),
+            hot_bar_slot: self.varint32()?,
+            hand: self.uint8()?,
+            held_item: self.item_instance()?,
+            position: self.vec3()?,
+            clicked_position: self.vec3()?,
+            block_runtime_id: self.varuint32()?,
+            client_prediction: self.uint8()?,
+            client_cooldown_state: self.uint8()?,
+        })
+    }
+
+    /// Reads a `ShapeData`: the shape type and the shape.
+    pub(crate) fn shape_data(&mut self) -> Result<ShapeData> {
+        let t = self.varuint32()?;
+        ShapeData::from_id(t)
+            .ok_or(Error::UnknownEnum {
+                name: "ShapeData type",
+                value: t.into(),
+            })?
+            .decode_variant(self)
+    }
+
+    /// Reads a `StackRequestAction`: the variant index, the legacy ID and the action.
+    ///
+    /// The legacy ID is not checked, like in gophertunnel.
+    pub(crate) fn stack_request_action(&mut self) -> Result<StackRequestAction> {
+        let variant = self.varuint32()?;
+        self.uint8()?;
+        let unknown = |value: u32, name| Error::UnknownEnum {
+            name,
+            value: value.into(),
+        };
+        let skip = if variant >= ACTION_PLACE_IN_CONTAINER {
+            2
+        } else {
+            0
+        };
+        let id = u8::try_from(variant.saturating_add(skip))
+            .ok()
+            .filter(|&id| id <= ACTION_LAST)
+            .ok_or_else(|| unknown(variant, "StackRequestAction variant"))?;
+        StackRequestAction::from_id(id)
+            .ok_or_else(|| unknown(id.into(), "StackRequestAction ID"))?
+            .decode_variant(self)
+    }
+
     /// Reads a `StackRequestItemDescriptorCount`: a descriptor in the stack request form.
     ///
     /// The form is the variant, the legacy ID (not checked, like in gophertunnel) and the body.
@@ -155,50 +176,19 @@ impl Reader<'_> {
         })
     }
 
-    /// Reads a `PlayerInventoryAction`: the legacy fields and actions of a use-item transaction.
+    /// Reads a `TransactionDataType`: the transaction data with default fields.
     ///
-    /// The transaction data follows them.
-    pub(crate) fn player_inventory_action(&mut self) -> Result<UseItemTransactionData> {
-        let legacy_request_id = self.varint32()?;
-        let legacy_set_item_slots = if self.bool()? {
-            Some(self.list_varuint32(LegacySetItemSlot::decode)?)
-        } else {
-            None
-        };
-        Ok(UseItemTransactionData {
-            legacy_request_id,
-            legacy_set_item_slots,
-            actions: self.list_varuint32(InventoryAction::decode)?,
-            action_type: self.varint32()?.cast_unsigned(),
-            trigger_type: self.uint8()?.into(),
-            block_position: self.block_pos()?,
-            block_face: self.uint8()?.into(),
-            hot_bar_slot: self.varint32()?,
-            hand: self.uint8()?,
-            held_item: self.item_instance()?,
-            position: self.vec3()?,
-            clicked_position: self.vec3()?,
-            block_runtime_id: self.varuint32()?,
-            client_prediction: self.uint8()?,
-            client_cooldown_state: self.uint8()?,
+    /// Its body follows later in the packet.
+    pub(crate) fn transaction_data_type(&mut self) -> Result<InventoryTransactionData> {
+        let t = self.varuint32()?;
+        InventoryTransactionData::from_id(t).ok_or(Error::UnknownEnum {
+            name: "InventoryTransactionData type",
+            value: t.into(),
         })
     }
 }
 
 impl Writer {
-    /// Writes a `StackRequestAction`.
-    pub(crate) fn stack_request_action(&mut self, x: &StackRequestAction) -> Result<()> {
-        let id = x.id();
-        self.varuint32(stack_request_action_variant(id));
-        self.uint8(id);
-        x.encode_variant(self)
-    }
-
-    /// Writes an `EventType`.
-    pub(crate) fn event_type(&mut self, x: &Event) {
-        self.varint32(x.id());
-    }
-
     /// Writes an `EventOrdinal`, failing for an event without an ordinal.
     pub(crate) fn event_ordinal(&mut self, x: &Event) -> Result<()> {
         let ordinal = x.ordinal().ok_or(Error::UnknownEnum {
@@ -209,15 +199,9 @@ impl Writer {
         Ok(())
     }
 
-    /// Writes a `TransactionDataType`.
-    pub(crate) fn transaction_data_type(&mut self, x: &InventoryTransactionData) {
-        self.varuint32(x.id());
-    }
-
-    /// Writes a `ShapeData`.
-    pub(crate) fn shape_data(&mut self, x: &ShapeData) -> Result<()> {
-        self.varuint32(x.id());
-        x.encode_variant(self)
+    /// Writes an `EventType`.
+    pub(crate) fn event_type(&mut self, x: &Event) {
+        self.varint32(x.id());
     }
 
     /// Writes an `ItemDescriptorCount`.
@@ -234,22 +218,6 @@ impl Writer {
             }
         }
         self.varint32(x.count);
-        Ok(())
-    }
-
-    /// Writes a `StackRequestItemDescriptorCount`.
-    ///
-    /// Fails if the count does not fit a uint16, which gophertunnel truncates.
-    pub(crate) fn stack_request_item_descriptor_count(
-        &mut self,
-        x: &ItemDescriptorCount,
-    ) -> Result<()> {
-        let id = x.descriptor.id();
-        self.varuint32(id.into());
-        self.uint8(id);
-        x.descriptor.encode_variant(self)?;
-        let count = u16::try_from(x.count).map_err(|_| out_of_range("item descriptor count"))?;
-        self.uint16(count);
         Ok(())
     }
 
@@ -282,6 +250,41 @@ impl Writer {
         self.uint8(x.client_prediction);
         self.uint8(x.client_cooldown_state);
         Ok(())
+    }
+
+    /// Writes a `ShapeData`.
+    pub(crate) fn shape_data(&mut self, x: &ShapeData) -> Result<()> {
+        self.varuint32(x.id());
+        x.encode_variant(self)
+    }
+
+    /// Writes a `StackRequestAction`.
+    pub(crate) fn stack_request_action(&mut self, x: &StackRequestAction) -> Result<()> {
+        let id = x.id();
+        self.varuint32(stack_request_action_variant(id));
+        self.uint8(id);
+        x.encode_variant(self)
+    }
+
+    /// Writes a `StackRequestItemDescriptorCount`.
+    ///
+    /// Fails if the count does not fit a uint16, which gophertunnel truncates.
+    pub(crate) fn stack_request_item_descriptor_count(
+        &mut self,
+        x: &ItemDescriptorCount,
+    ) -> Result<()> {
+        let id = x.descriptor.id();
+        self.varuint32(id.into());
+        self.uint8(id);
+        x.descriptor.encode_variant(self)?;
+        let count = u16::try_from(x.count).map_err(|_| out_of_range("item descriptor count"))?;
+        self.uint16(count);
+        Ok(())
+    }
+
+    /// Writes a `TransactionDataType`.
+    pub(crate) fn transaction_data_type(&mut self, x: &InventoryTransactionData) {
+        self.varuint32(x.id());
     }
 }
 

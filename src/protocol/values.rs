@@ -104,6 +104,21 @@ impl Default for PackSettingValue {
 }
 
 impl Reader<'_> {
+    /// Reads an `AbilityValue`.
+    pub(crate) fn ability_value(&mut self) -> Result<AbilityValue> {
+        let value_type = self.uint8()?;
+        let bool_value = self.bool()?;
+        let float_value = self.float32()?;
+        match value_type {
+            1 => Ok(AbilityValue::Bool(bool_value)),
+            2 => Ok(AbilityValue::Float32(float_value)),
+            t => Err(Error::UnknownEnum {
+                name: "AbilityValue type",
+                value: t.into(),
+            }),
+        }
+    }
+
     /// Reads a `GameRule`.
     pub(crate) fn game_rule(&mut self) -> Result<GameRule> {
         let name = self.string()?;
@@ -127,21 +142,6 @@ impl Reader<'_> {
         })
     }
 
-    /// Reads an `AbilityValue`.
-    pub(crate) fn ability_value(&mut self) -> Result<AbilityValue> {
-        let value_type = self.uint8()?;
-        let bool_value = self.bool()?;
-        let float_value = self.float32()?;
-        match value_type {
-            1 => Ok(AbilityValue::Bool(bool_value)),
-            2 => Ok(AbilityValue::Float32(float_value)),
-            t => Err(Error::UnknownEnum {
-                name: "AbilityValue type",
-                value: t.into(),
-            }),
-        }
-    }
-
     /// Reads a `PackSetting`.
     pub(crate) fn pack_setting(&mut self) -> Result<PackSetting> {
         let name = self.string_max(PACK_SETTING_NAME_MAX_LEN)?;
@@ -159,6 +159,17 @@ impl Reader<'_> {
 }
 
 impl Writer {
+    /// Writes an `AbilityValue`.
+    pub(crate) fn ability_value(&mut self, x: AbilityValue) {
+        let (value_type, bool_value, float_value) = match x {
+            AbilityValue::Bool(v) => (1, v, 0.0),
+            AbilityValue::Float32(v) => (2, false, v),
+        };
+        self.uint8(value_type);
+        self.bool(bool_value);
+        self.float32(float_value);
+    }
+
     /// Writes a `GameRule`.
     pub(crate) fn game_rule(&mut self, x: &GameRule) -> Result<()> {
         self.string(&x.name)?;
@@ -179,17 +190,6 @@ impl Writer {
             }
         }
         Ok(())
-    }
-
-    /// Writes an `AbilityValue`.
-    pub(crate) fn ability_value(&mut self, x: AbilityValue) {
-        let (value_type, bool_value, float_value) = match x {
-            AbilityValue::Bool(v) => (1, v, 0.0),
-            AbilityValue::Float32(v) => (2, false, v),
-        };
-        self.uint8(value_type);
-        self.bool(bool_value);
-        self.float32(float_value);
     }
 
     /// Writes a `PackSetting`.

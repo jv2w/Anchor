@@ -14,6 +14,11 @@ use super::types::InputFlags;
 
 /// The name of the input flags in errors.
 const INPUT_FLAGS_NAME: &str = "player auth input data";
+/// The error for more input flags than bit positions.
+const TOO_MANY_INPUT_FLAGS: Error = Error::InvalidValue {
+    field: INPUT_FLAGS_NAME,
+    reason: "too many flags",
+};
 
 /// The 64-bit words of a [`FlagSet`]: room for 192 bit positions.
 ///
@@ -96,12 +101,6 @@ impl<F: Flag> FlagSet<F> {
         }
     }
 
-    /// Whether the set holds `flag`.
-    pub fn contains(&self, flag: F) -> bool {
-        let (word, mask) = Self::place(flag);
-        self.words.get(word).is_some_and(|w| w & mask != 0)
-    }
-
     /// Whether the set is empty.
     pub fn is_empty(&self) -> bool {
         self.words.iter().all(|&w| w == 0)
@@ -112,6 +111,12 @@ impl<F: Flag> FlagSet<F> {
         (0..F::COUNT)
             .filter_map(F::from_bit)
             .filter(|&f| self.contains(f))
+    }
+
+    /// Whether the set holds `flag`.
+    pub fn contains(&self, flag: F) -> bool {
+        let (word, mask) = Self::place(flag);
+        self.words.get(word).is_some_and(|w| w & mask != 0)
     }
 
     /// The set as words, the form [`Self::from_words`] reads.
@@ -227,7 +232,7 @@ impl Reader<'_> {
     pub(crate) fn input_flag_list(&mut self, size: i64) -> Result<InputFlags> {
         let count = self.varuint32()?;
         if i64::from(count) > size {
-            return Err(too_many_input_flags());
+            return Err(TOO_MANY_INPUT_FLAGS);
         }
         let ids = self.list(u64::from(count), Reader::varint32)?;
         check_input_flags(&ids, size)?;
@@ -245,7 +250,7 @@ impl Writer {
     pub(crate) fn input_flag_list(&mut self, x: &InputFlags, size: i64) -> Result<()> {
         let count = length::<u32>(x.ids.len())?;
         if i64::from(count) > size {
-            return Err(too_many_input_flags());
+            return Err(TOO_MANY_INPUT_FLAGS);
         }
         check_input_flags(&x.ids, size)?;
         self.varuint32(count);
@@ -253,13 +258,6 @@ impl Writer {
             self.varint32(id);
         }
         Ok(())
-    }
-}
-
-fn too_many_input_flags() -> Error {
-    Error::InvalidValue {
-        field: INPUT_FLAGS_NAME,
-        reason: "too many flags",
     }
 }
 
