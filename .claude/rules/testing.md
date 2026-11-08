@@ -12,8 +12,8 @@ paths:
 # Testing rules
 
 ## Checks
-- `cargo xtask check` runs the format check, clippy, and the tests of what changed: the library tests of the changed modules, the changed integration test files, and xtask's unit tests when xtask's sources change; it also runs the API table check and the documentation builds when what they read changed. `cargo xtask verify` adds the generated-code, API-table, and lint-reason checks, every workspace test (the bot tests included), the vendor copies' tests, and the documentation build. The exact steps are in `.claude/docs/testing.md`.
-- Support and verify both Windows and Linux. Check everyday work with `cargo xtask check` on Windows. For a change that touches the OS (files, signals, sockets, console, xtask tools), also run the check on WSL Ubuntu in an ext4 copy. Run `verify` and full P6 runs on both.
+- `cargo xtask check` is the light check of what changed, `cargo xtask verify` the full check; their steps are in `.claude/docs/testing.md`.
+- Support and verify both Windows and Linux. Check everyday work with `cargo xtask check` on Windows. For a change that touches the OS (files, signals, sockets, console, xtask tools), also run the check on WSL Ubuntu in an ext4 copy, never from `/mnt/c`; edit only the Windows repository, the copy is only for testing. When `verify` and full P6 runs are ordered, run them on both.
 
 ## Writing tests
 - Public API tests in `tests/` use only the public API, as a user's binary does.
@@ -43,7 +43,6 @@ paths:
 6. Compare Anchor with `cargo xtask p6 game anchor <name>` or `cargo xtask p6 api anchor <name>`. Make each difference follow the official server, or, for an API scenario, list it in `intended.txt`.
 
 ## Running tests
-- When a test that uses NetherNet signaling, or a NetherNet run of `p6 anchor`, fails on a connection timeout, run it once more; this PC's loopback TCP is the known cause (`.claude/docs/testing.md`). A second failure is a real failure.
 - Run heavy tests at low priority and one at a time. Never run two builds that share a `target` folder at the same time (lock contention).
 - Bound every heavy test run: the number of runs, the build and test parallelism, the tests selected by name, and for P6 the scenario names.
 - Run measurement tests in release, alone, never alongside another build.
