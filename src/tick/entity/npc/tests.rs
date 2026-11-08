@@ -17,12 +17,18 @@ use crate::tick::entity::physics::tests::named;
 use crate::tick::entity::saved::tests::{bytes, stack};
 use crate::tick::entity::tests::{Harness, TEST_HOOKS, adds, at, calls, standing};
 use crate::tick::trade::Offers;
-use crate::world::{BlockPos, ChunkPos};
+use crate::world::{self, BlockPos, ChunkPos};
+
+/// The chunk the tests' entities stand in.
+const KEY: (usize, ChunkPos) = (0, ChunkPos::new(0, 0));
 
 thread_local! {
     /// Trade windows the stand-in opener opened.
     static OPENED: Cell<u32> = const { Cell::new(0) };
 }
+
+/// The world the tests' entities live in.
+const WORLD: world::Id = world::Id::DEFAULT;
 
 fn offers() -> Offers {
     let offer = |n: i32| {
@@ -74,21 +80,20 @@ fn npcs_save_and_load_with_their_offers_byte_identically() {
     let v = villager(&mut h, at(1.5, -60.0, 1.5));
     human(&mut h, at(3.5, -60.0, 1.5), "Guide");
     assert!(crate::tick::entity::villager(&h.state, v).is_some());
-    let key = (0, ChunkPos::new(0, 0));
     let ours = |list: &[Compound]| -> Vec<Compound> {
         list.iter()
             .filter(|c| c.contains_key("identifier"))
             .cloned()
             .collect()
     };
-    let all = h.state.rules.entities.unload(key).expect("changed");
+    let all = h.state.rules.entities.unload(KEY).expect("changed");
     let first = ours(&all);
     assert_eq!(first.len(), 2);
     h.state
         .rules
         .entities
-        .load_list(key, &all, &crate::custom::Registry::default());
-    h.state.rules.entities.changed.insert(key);
+        .load_list(KEY, &all, &crate::custom::Registry::default());
+    h.state.rules.entities.changed.insert(KEY);
     let again = h.state.rules.entities.take_changed();
     let second = ours(&again[0].1);
     assert_eq!(second.len(), 2);
@@ -110,9 +115,7 @@ fn npcs_save_and_load_with_their_offers_byte_identically() {
 }
 
 fn zombie(h: &mut Harness, pos: Vec3) -> Id {
-    h.context()
-        .spawn_zombie(crate::world::Id::DEFAULT, pos)
-        .unwrap()
+    h.context().spawn_zombie(WORLD, pos).unwrap()
 }
 
 #[test]
@@ -133,12 +136,11 @@ fn villager_human_and_zombie_npcs_keep_their_custom_data_through_a_save() {
             .unwrap();
         assert_eq!(cx.entity(id).unwrap().custom_data(), Some(&mark));
     }
-    let key = (0, ChunkPos::new(0, 0));
-    let all = h.state.rules.entities.unload(key).expect("changed");
+    let all = h.state.rules.entities.unload(KEY).expect("changed");
     h.state
         .rules
         .entities
-        .load_list(key, &all, &crate::custom::Registry::default());
+        .load_list(KEY, &all, &crate::custom::Registry::default());
     let entities = &h.state.rules.entities;
     let loaded: Vec<_> = entities
         .ids()
@@ -202,6 +204,10 @@ fn e_runtime(h: &Harness, id: Id) -> u64 {
     h.state.rules.entities.get(id).unwrap().runtime_id
 }
 
+fn hold(h: &mut Harness, stack: Stack) {
+    crate::tick::inventory::set_held(h.state.players.get_mut(&SessionId::new(1)).unwrap(), stack);
+}
+
 // api: Player::attackEntity
 #[test]
 fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
@@ -215,7 +221,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     vulnerable(&mut h, guide);
     let sword = stack("minecraft:diamond_sword", 1);
     let points = f64::from(sword.item().unwrap().attack_points());
-    crate::tick::inventory::set_held(h.state.players.get_mut(&s).unwrap(), sword);
+    hold(&mut h, sword);
     h.take(1);
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
     assert_eq!(health(&h, guide), 20.0 - points);
@@ -238,7 +244,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     let hurt = h.take(1).iter().any(|p| {
         matches!(p,
         Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
-            && a.event_type == ActorEvent::Hurt as u8 && a.event_data == 2)
+            && a.event_type == u8::from(ActorEvent::Hurt) && a.event_data == 2)
     });
     assert!(hurt, "the hit shows");
     // Hits after the cooldown until it dies; it shows its death and goes 25 ticks later.
@@ -256,7 +262,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     let died = h.state.players[&s].outbox.iter().any(|p| {
         matches!(p,
         Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
-            && a.event_type == ActorEvent::Death as u8)
+            && a.event_type == u8::from(ActorEvent::Death))
     });
     assert!(died);
     for _ in 0..24 {
@@ -345,7 +351,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
         .with_extra(Some(extra))
         .unwrap();
     let points = f64::from(sword.item().unwrap().attack_points());
-    crate::tick::inventory::set_held(h.state.players.get_mut(&s).unwrap(), sword);
+    hold(&mut h, sword);
     h.state
         .players
         .get_mut(&SessionId::new(2))
@@ -813,12 +819,11 @@ fn an_npcs_held_item_shows_to_its_viewers_and_is_saved() {
     assert_eq!(held(&h.take(1), vr), [Stack::EMPTY], "emptied");
     h.entities();
     assert_eq!(held(&h.take(1), vr), [], "once");
-    let key = (0, ChunkPos::new(0, 0));
-    let all = h.state.rules.entities.unload(key).expect("changed");
+    let all = h.state.rules.entities.unload(KEY).expect("changed");
     h.state
         .rules
         .entities
-        .load_list(key, &all, &crate::custom::Registry::default());
+        .load_list(KEY, &all, &crate::custom::Registry::default());
     let entities = &h.state.rules.entities;
     let loaded: Vec<_> = entities
         .ids()
@@ -877,7 +882,8 @@ fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
         h.entities();
         causes.extend(h.take(1).iter().filter_map(|p| match p {
             Packet::ActorEvent(a)
-                if a.entity_runtime_id == runtime_id && a.event_type == ActorEvent::Hurt as u8 =>
+                if a.entity_runtime_id == runtime_id
+                    && a.event_type == u8::from(ActorEvent::Hurt) =>
             {
                 Some(a.event_data)
             }
@@ -913,7 +919,8 @@ fn an_npc_hurt_by_lightning_shows_the_lightning_cause() {
         .iter()
         .filter_map(|p| match p {
             Packet::ActorEvent(a)
-                if a.entity_runtime_id == runtime_id && a.event_type == ActorEvent::Hurt as u8 =>
+                if a.entity_runtime_id == runtime_id
+                    && a.event_type == u8::from(ActorEvent::Hurt) =>
             {
                 Some(a.event_data)
             }

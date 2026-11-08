@@ -594,7 +594,7 @@ fn spawning_and_removing_custom_entities_leaves_every_table_at_its_start() {
     assert_eq!(adds(&packets).len(), removes(&packets).len());
 }
 
-/// Moves, hurts, spawns and despawns custom entities from their own ticks.
+/// A behaviour that moves, hurts, spawns and despawns custom entities from their own ticks.
 struct Restless;
 
 impl Behaviour for Restless {

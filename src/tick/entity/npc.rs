@@ -65,10 +65,11 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
             (form, name)
         }
     };
+    // A zombie is a mob, not a lobby figure: it takes damage.
+    let invulnerable = !matches!(form, Form::Zombie { .. });
     let kind = Kind::Npc(Character {
-        // A zombie is a mob, not a lobby figure: it takes damage.
-        invulnerable: !matches!(form, Form::Zombie { .. }),
         form,
+        invulnerable,
         attack_time: 0,
         last_damage: 0.0,
         dead_ticks: None,

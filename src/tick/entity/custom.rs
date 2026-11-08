@@ -47,7 +47,7 @@ const MAX_HEALTH: f64 = 1_000_000.0;
 /// The largest box side of a type, in blocks, and of any entity's scaled box.
 pub(super) const MAX_SIZE: f64 = 16.0;
 /// The most custom entity types a server registers.
-pub(crate) const MAX_TYPES: usize = 1024;
+const MAX_TYPES: usize = 1024;
 
 /// The custom entity types of a server, fixed when it is built.
 #[derive(Default)]
@@ -364,8 +364,10 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for another kind and [`Error::OutOfRange`] for data whose saved form
-    /// takes more than 4,096 bytes; nothing changes.
+    /// [`Error::WrongKind`] for another kind.
+    /// [`Error::OutOfRange`] for data whose saved form takes more than 4,096 bytes.
+    ///
+    /// Nothing changes on an error.
     pub fn set_custom_data(&mut self, data: Compound) -> Result<()> {
         if !fits(&data) {
             return Err(Error::OutOfRange);

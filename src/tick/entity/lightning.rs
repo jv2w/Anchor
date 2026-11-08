@@ -13,16 +13,15 @@
 use std::collections::BTreeSet;
 
 use super::kind::Cause;
-use super::{HOOKS, chunk_of, each_player_in, hurt_in, is_valid_position};
+use super::{HOOKS, chunk_of, each_player_in, hurt_in};
 use crate::entity::Id;
 use crate::math::{Aabb, Vec3};
 use crate::protocol::consts::{EntityDataKey, SoundEvent};
 use crate::protocol::packet::{AddActor, LevelSoundEvent, Packet};
 use crate::protocol::{EntityMetadata, MetadataValue};
 use crate::save::WorldIndex;
-use crate::tick::checkpoint::fields;
 use crate::tick::queue::SessionId;
-use crate::tick::{State, survival};
+use crate::tick::{State, checkpoint, survival};
 use crate::world::Lightning;
 
 /// The entity type of a bolt.
@@ -68,7 +67,7 @@ impl Bolt {
     }
 }
 
-fields!(Bolt {
+checkpoint::fields!(Bolt {
     until,
     runtime_id,
     viewers,
@@ -83,10 +82,9 @@ impl super::Entities {
 }
 
 /// Strikes a bolt at `at` in the loaded `world` with what `lightning` asks for.
-/// False, with nothing done, for an `at` that is not finite or outside the world border,
-/// [`MAX_BOLTS`] bolts waiting, or runtime IDs run out.
+/// False, with nothing done, for [`MAX_BOLTS`] bolts waiting or when runtime IDs run out.
 pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: Lightning) -> bool {
-    if !is_valid_position(at) || state.rules.entities.bolts.len() >= MAX_BOLTS {
+    if state.rules.entities.bolts.len() >= MAX_BOLTS {
         return false;
     }
     let runtime_id = state.next_runtime_id;

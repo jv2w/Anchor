@@ -22,6 +22,7 @@ use crate::tick::entity::{
 };
 use crate::tick::tests::{input, packet};
 use crate::tick::{Context, inventory};
+use crate::world;
 
 thread_local! {
     /// Whether the launch listener cancels (listeners run on the test's thread).
@@ -35,15 +36,7 @@ thread_local! {
 }
 
 /// The world the tests' entities live in.
-const WORLD: crate::world::Id = crate::world::Id::DEFAULT;
-
-fn hold(h: &mut Harness, stack: Stack) {
-    inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), stack);
-}
-
-fn held(h: &Harness) -> Stack {
-    h.state.players[&session(1)].inventory.held().clone()
-}
+const WORLD: world::Id = world::Id::DEFAULT;
 
 fn set(h: &mut Harness, pos: BlockPos, block: block::State) {
     h.state.worlds[0].set_block(pos, block).unwrap();
@@ -66,49 +59,6 @@ fn transaction(h: &mut Harness, data: InventoryTransactionData) {
         ..InventoryTransaction::default()
     }));
     h.step(vec![input(1, 1_000_000, packet(p))]);
-}
-
-/// The held item as a client sends it with a use.
-fn use_data(h: &Harness, action: UseItemAction) -> UseItemTransactionData {
-    let held = held(h);
-    let mut data = UseItemTransactionData {
-        action_type: action.into(),
-        hot_bar_slot: i32::from(h.state.players[&session(1)].inventory.held_slot()),
-        ..UseItemTransactionData::default()
-    };
-    data.held_item.stack.item_type.network_id =
-        held.item().map_or(0, |t| i32::from(t.runtime_id()));
-    data.held_item.stack.count = u16::from(held.count());
-    data
-}
-
-/// Makes player 1 click `face` of the block `pos` at `click` with the held item.
-fn use_on(h: &mut Harness, pos: BlockPos, face: Face, click: [f32; 3]) {
-    let mut data = use_data(h, UseItemAction::ClickBlock);
-    data.block_position = [pos.x, pos.y, pos.z];
-    data.block_face = match face {
-        Face::Down => 0,
-        Face::Up => 1,
-        Face::North => 2,
-        Face::South => 3,
-        Face::West => 4,
-        Face::East => 5,
-    };
-    data.clicked_position = click;
-    transaction(h, InventoryTransactionData::UseItem(Box::new(data)));
-}
-
-/// The live, unflagged entities of type `t`.
-fn of_type(h: &Harness, t: crate::entity::Type) -> Vec<Id> {
-    let entities = &h.state.rules.entities;
-    entities
-        .ids()
-        .filter(|&id| {
-            entities
-                .get(id)
-                .is_some_and(|e| !e.flagged && e.kind.entity_type() == t)
-        })
-        .collect()
 }
 
 fn entity(h: &Harness, id: Id) -> &Entity {
@@ -204,7 +154,7 @@ fn paintings_from_the_api_fit_break_by_hits_and_save_their_wall() {
     assert_eq!(on_ground(&h, item::Kind::Painting), 1, "nothing more");
 }
 
-fn block_at_pos(h: &Harness, pos: BlockPos) -> block::State {
+fn block(h: &Harness, pos: BlockPos) -> block::State {
     h.state.worlds[0].block(pos).unwrap()
 }
 
@@ -293,8 +243,8 @@ fn an_end_crystal_stands_on_obsidian_and_explodes_when_hit() {
         h.state.rules.entities.get(id).is_none(),
         "gone at once: it ticks after the hit"
     );
-    assert_eq!(block_at_pos(&h, base), obsidian);
-    assert_eq!(block_at_pos(&h, dirt), block::AIR);
+    assert_eq!(block(&h, base), obsidian);
+    assert_eq!(block(&h, dirt), block::AIR);
     assert!(h.take(1).iter().any(|p| matches!(p, Packet::LevelEvent(e)
         if e.event_type == i32::from(LevelEvent::ParticlesExplosion))));
 }
@@ -476,6 +426,57 @@ fn an_api_launch_flies_as_a_rocket_item_without_data() {
         entity(&h, ids[1]).body.motion,
         "each its own drift"
     );
+}
+
+fn hold(h: &mut Harness, stack: Stack) {
+    inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), stack);
+}
+
+fn held(h: &Harness) -> Stack {
+    h.state.players[&session(1)].inventory.held().clone()
+}
+
+/// The held item as a client sends it with a use.
+fn use_data(h: &Harness, action: UseItemAction) -> UseItemTransactionData {
+    let held = held(h);
+    let mut data = UseItemTransactionData {
+        action_type: action.into(),
+        hot_bar_slot: i32::from(h.state.players[&session(1)].inventory.held_slot()),
+        ..UseItemTransactionData::default()
+    };
+    data.held_item.stack.item_type.network_id =
+        held.item().map_or(0, |t| i32::from(t.runtime_id()));
+    data.held_item.stack.count = u16::from(held.count());
+    data
+}
+
+/// Makes player 1 click `face` of the block `pos` at `click` with the held item.
+fn use_on(h: &mut Harness, pos: BlockPos, face: Face, click: [f32; 3]) {
+    let mut data = use_data(h, UseItemAction::ClickBlock);
+    data.block_position = [pos.x, pos.y, pos.z];
+    data.block_face = match face {
+        Face::Down => 0,
+        Face::Up => 1,
+        Face::North => 2,
+        Face::South => 3,
+        Face::West => 4,
+        Face::East => 5,
+    };
+    data.clicked_position = click;
+    transaction(h, InventoryTransactionData::UseItem(Box::new(data)));
+}
+
+/// The live, unflagged entities of type `t`.
+fn of_type(h: &Harness, t: crate::entity::Type) -> Vec<Id> {
+    let entities = &h.state.rules.entities;
+    entities
+        .ids()
+        .filter(|&id| {
+            entities
+                .get(id)
+                .is_some_and(|e| !e.flagged && e.kind.entity_type() == t)
+        })
+        .collect()
 }
 
 #[test]
@@ -696,7 +697,7 @@ fn a_trident_hurts_by_eight_bounces_back_and_a_creative_one_gives_nothing() {
         h.step(Vec::new());
     }
     let landed = entity(&h, id).body.position;
-    inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), Stack::EMPTY);
+    hold(&mut h, Stack::EMPTY);
     h.teleport(1, (landed + Vec3::new(0.0, 1.62, 0.0)).to_f32());
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(id).is_none_or(|e| e.flagged));
@@ -788,7 +789,7 @@ fn an_ice_bomb_breaks_where_it_lands_leaves_the_water_as_it_is_and_hurts_no_one(
         "it broke on the water"
     );
     for pos in pool {
-        assert_eq!(block_at_pos(&h, pos), water, "{pos:?}");
+        assert_eq!(block(&h, pos), water, "{pos:?}");
     }
     // From the hand: one used up, an ice bomb flies; on an NPC it breaks without damage.
     let npc = h.vulnerable_human(at(0.5, -60.0, 3.5));

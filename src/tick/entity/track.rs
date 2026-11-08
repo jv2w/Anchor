@@ -1,8 +1,5 @@
-//! What players are sent of entities and of each other: the spawn packets (`AddItemActor`,
-//! `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also goes through the
-//! player list), movement (`MoveActorDelta` as the official server sends it; `MoveActorAbsolute`
-//! for players and human NPCs), `SetActorData` when the flags or a cloud's radius change,
-//! equipment, and `RemoveActor`.
+//! What players are sent to show entities and each other: how they appear, move, change, and
+//! go away.
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;

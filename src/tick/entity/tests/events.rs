@@ -18,15 +18,18 @@ use crate::tick::Context;
 use crate::tick::dispatch::run_deferred;
 
 thread_local! {
+    /// The state of [`roll`].
+    static DICE: Cell<u64> = const { Cell::new(0) };
     /// The modes tests switch their listeners between, by [`Mode`].
     static MODES: Cell<[u8; 4]> = const { Cell::new([0; 4]) };
     /// The modes handed out on this thread.
     static NEXT_MODE: Cell<usize> = const { Cell::new(0) };
-    /// The state of [`roll`].
-    static DICE: Cell<u64> = const { Cell::new(0) };
     /// An entity a listener acts on.
     static TARGET: Cell<Option<Id>> = const { Cell::new(None) };
 }
+
+/// The world the tests' entities live in.
+const WORLD: world::Id = world::Id::DEFAULT;
 
 /// What listeners saw: they run on the test's thread (the tick's serial step), and send it
 /// through a bounded channel.
@@ -50,6 +53,14 @@ impl<T> Sink<T> {
     fn push(&self, v: T) {
         assert!(self.0.try_send(v).is_ok(), "room in the log");
     }
+}
+
+fn set(m: Mode, v: u8) {
+    MODES.with(|c| {
+        let mut all = c.get();
+        all[m.0] = v;
+        c.set(all);
+    });
 }
 
 /// A mode a test switches its listener between (0 at first).
@@ -175,6 +186,10 @@ fn spawns_and_despawns_are_announced_once_by_the_entity_tick() {
     assert_eq!(got(&seen), [("despawn", orb, false)]);
 }
 
+fn mode(m: Mode) -> u8 {
+    MODES.with(Cell::get)[m.0]
+}
+
 /// An entity a spawn listener makes is announced too, once, by a later entity tick.
 #[test]
 fn an_entity_made_by_a_spawn_listener_is_announced_too() {
@@ -189,7 +204,7 @@ fn an_entity_made_by_a_spawn_listener_is_announced_too() {
             if mode(sw) == 1 {
                 set(sw, 2);
                 cx.drop_item(
-                    world::Id::DEFAULT,
+                    WORLD,
                     at(12.5, -59.0, 12.5),
                     stack("minecraft:stick", 1),
                     None,
@@ -215,18 +230,6 @@ fn an_entity_made_by_a_spawn_listener_is_announced_too() {
     let second = newest(&h);
     assert_ne!(first, second);
     assert_eq!(got(&seen), [first, second]);
-}
-
-fn mode(m: Mode) -> u8 {
-    MODES.with(Cell::get)[m.0]
-}
-
-fn set(m: Mode, v: u8) {
-    MODES.with(|c| {
-        let mut all = c.get();
-        all[m.0] = v;
-        c.set(all);
-    });
 }
 
 // api: ItemDespawnEvent
@@ -429,11 +432,7 @@ fn a_pickup_offers_what_fits_and_listeners_decide_what_moves() {
                 1 => e.set_item(stack("minecraft:diamond", 2)),
                 2 => {
                     let far = Vec3::new(20.5, -59.0, 20.5);
-                    assert!(
-                        cx.entity_mut(e.origin())
-                            .unwrap()
-                            .teleport(world::Id::DEFAULT, far)
-                    );
+                    assert!(cx.entity_mut(e.origin()).unwrap().teleport(WORLD, far));
                 }
                 _ => {}
             }
@@ -513,9 +512,7 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
                 0 => e.cancel(),
                 1 => {
                     let pos = cx.entity(e.origin()).unwrap().position() + Vec3::new(0.7, 0.0, 0.0);
-                    cx.entity_mut(e.origin())
-                        .unwrap()
-                        .teleport(world::Id::DEFAULT, pos);
+                    cx.entity_mut(e.origin()).unwrap().teleport(WORLD, pos);
                 }
                 2 => room(0),
                 3 => room(1),
@@ -730,7 +727,7 @@ fn a_cancelled_motion_keeps_the_npc_still() {
 
 /// A listener's motion is the one an NPC takes and the monitors see.
 #[test]
-fn a_motion_listener_replaces_an_npc_s_push() {
+fn a_motion_listener_replaces_an_npcs_push() {
     let push = Vec3::new(0.0, 0.25, 0.0);
     let seen: Log<Vec3> = log();
     let mut listeners = Listeners::default();
@@ -872,7 +869,7 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     let explode = |h: &mut Harness| {
         h.state.worlds[0].set_block(center, block::AIR).unwrap();
         h.context()
-            .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 1)
+            .spawn_tnt(WORLD, at(0.5, -50.0, 0.5), 1)
             .unwrap();
         for _ in 0..3 {
             h.entities();
@@ -936,7 +933,7 @@ fn an_explosion_breaks_tnt_blocks_into_their_item_and_primes_none() {
             .unwrap();
     }
     h.context()
-        .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 1)
+        .spawn_tnt(WORLD, at(0.5, -50.0, 0.5), 1)
         .unwrap();
     for _ in 0..3 {
         h.entities();
@@ -974,7 +971,7 @@ fn scaled_tnt_explodes_at_half_its_scaled_height() {
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(20.0, 20.0));
     h.context()
-        .spawn_tnt(world::Id::DEFAULT, at(0.5, -50.0, 0.5), 3)
+        .spawn_tnt(WORLD, at(0.5, -50.0, 0.5), 3)
         .unwrap();
     let tnt = newest(&h);
     let start = with(&mut h.state, tnt, |e| {
@@ -1013,8 +1010,8 @@ fn a_scaled_falling_block_lands_where_its_scaled_box_says() {
     assert_eq!(block(&h, BlockPos::new(0, -60, 0)), block::AIR);
 }
 
-fn held(h: &mut Harness, n: u64, stack: Stack) {
-    inventory::set_held(h.state.players.get_mut(&session(n)).unwrap(), stack);
+fn hold(h: &mut Harness, stack: Stack) {
+    inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), stack);
 }
 
 fn projectile_count(h: &Harness) -> usize {
@@ -1067,7 +1064,7 @@ fn launches_and_bow_shots_ask_their_listeners() {
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
     let snowball = stack("minecraft:snowball", 1);
-    held(&mut h, 1, snowball.clone());
+    hold(&mut h, snowball.clone());
     let throw =
         |h: &mut Harness| projectile::throw_with(&mut h.state, session(1), &snowball, TEST_HOOKS);
     assert!(!throw(&mut h), "cancelled");
@@ -1075,7 +1072,7 @@ fn launches_and_bow_shots_ask_their_listeners() {
     set(switch, 1);
     assert!(!throw(&mut h), "the hand changed");
     assert_eq!(projectile_count(&h), 0);
-    held(&mut h, 1, snowball.clone());
+    hold(&mut h, snowball.clone());
     set(switch, 2);
     assert!(throw(&mut h));
     assert_eq!(projectile_count(&h), 1);
@@ -1083,7 +1080,7 @@ fn launches_and_bow_shots_ask_their_listeners() {
         h.entities();
     }
     calls(|c| c.arrows = 1);
-    held(&mut h, 1, stack("minecraft:bow", 1));
+    hold(&mut h, stack("minecraft:bow", 1));
     set(switch, 3);
     assert!(!projectile::release_bow_with(
         &mut h.state,
@@ -1122,15 +1119,15 @@ fn projectile_hits_name_what_they_hit() {
     listeners.push(
         Priority::Normal,
         move |e: &mut ProjectileHitBlock, _: &mut Context<'_>| {
-            assert_eq!(e.world(), world::Id::DEFAULT);
+            assert_eq!(e.world(), WORLD);
             sink.push((e.entity(), e.pos(), e.block(), e.hit_position()));
         },
     );
-    let sink2 = entities.sink();
+    let sink = entities.sink();
     listeners.push(
         Priority::Normal,
         move |e: &mut ProjectileHitEntity, cx: &mut Context<'_>| {
-            sink2.push((e.entity(), e.entity_hit()));
+            sink.push((e.entity(), e.entity_hit()));
             // Taking the projectile away stops the hit.
             cx.entity_mut(e.entity()).unwrap().flag_for_despawn();
         },
@@ -1159,7 +1156,7 @@ fn projectile_hits_name_what_they_hit() {
     // An NPC in the way of an arrow: the hit names it, and the listener's removal spares it.
     let npc = h.vulnerable_human(at(0.5, -60.0, 3.5));
     calls(|c| c.arrows = 1);
-    held(&mut h, 1, stack("minecraft:bow", 1));
+    hold(&mut h, stack("minecraft:bow", 1));
     assert!(projectile::release_bow_with(
         &mut h.state,
         session(1),
@@ -1186,20 +1183,14 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
     listeners.push(
         Priority::Normal,
         move |e: &mut EntityTeleport, _: &mut Context<'_>| {
-            assert_eq!(
-                (e.origin_world(), e.target_world()),
-                (world::Id::DEFAULT, world::Id::DEFAULT)
-            );
+            assert_eq!((e.origin_world(), e.target_world()), (WORLD, WORLD));
             assert_eq!(e.cause(), TeleportCause::EnderPearl);
             sink.push((e.entity(), e.origin(), e.target()));
             match mode(sw) {
                 0 => e.cancel(),
-                1 => e.set_target(world::Id::DEFAULT, Vec3::new(5.5, -60.0, 5.5)),
+                1 => e.set_target(WORLD, Vec3::new(5.5, -60.0, 5.5)),
                 // The feet inside the world border, the eyes past it.
-                _ => e.set_target(
-                    world::Id::DEFAULT,
-                    Vec3::new(5.5, f64::from(world::BORDER), 5.5),
-                ),
+                _ => e.set_target(WORLD, Vec3::new(5.5, f64::from(world::BORDER), 5.5)),
             }
         },
     );
@@ -1272,10 +1263,7 @@ fn a_cancelled_cloud_application_gives_no_effects() {
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
     calls(|c| c.look = (0.0, 90.0));
-    let p = *crate::effect::Potion::all()
-        .iter()
-        .find(|p| format!("{p:?}") == "Regeneration")
-        .unwrap();
+    let p = crate::effect::Potion::Regeneration;
     let t = crate::item::Type::from_name(
         "minecraft:lingering_potion",
         u16::from(p.id()),
@@ -1444,7 +1432,7 @@ fn an_entity_a_listener_moves_during_the_tick_moves_on_from_there() {
             e.cancel();
             let id = TARGET.with(Cell::get).unwrap();
             let far = Vec3::new(5.5, -55.0, 5.5);
-            assert!(cx.entity_mut(id).unwrap().teleport(world::Id::DEFAULT, far));
+            assert!(cx.entity_mut(id).unwrap().teleport(WORLD, far));
         },
     );
     let mut h = Harness::with_listeners(1, listeners);
@@ -1554,7 +1542,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     let far = h.vulnerable_human(at(30.5, -60.0, 30.5));
     let center = Vec3::new(30.5, -59.0, 31.5);
     let mut cx = h.context();
-    cx.explode(world::Id::DEFAULT, center, 2.0).unwrap();
+    cx.explode(WORLD, center, 2.0).unwrap();
     assert!(health(&h, far) < 20.0);
     assert!(got(&causes).is_empty(), "direct calls raise nothing");
     let before = health(&h, far);
@@ -1562,7 +1550,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     for _ in 0..12 {
         h.entities();
     }
-    let blast = Explode::new(world::Id::DEFAULT, center, 3.0).fire();
+    let blast = Explode::new(WORLD, center, 3.0).fire();
     assert!(blast.fire);
     let mut cx = h.context();
     cx.perform(blast).unwrap();
@@ -1583,7 +1571,7 @@ fn an_explosion_pushes_a_player_back_with_the_knockback_the_listeners_left() {
         let player = h.runtime_id(1);
         h.take(1);
         h.context()
-            .spawn_tnt(world::Id::DEFAULT, at(3.5, -60.0, 0.5), 1)
+            .spawn_tnt(WORLD, at(3.5, -60.0, 0.5), 1)
             .unwrap();
         for _ in 0..3 {
             h.step(Vec::new());
@@ -1619,9 +1607,7 @@ fn a_death_in_a_chunk_no_player_ticks_still_completes() {
     h.spawn(1, standing(0.0, 0.0));
     let npc = h.vulnerable_human(at(40.5, -60.0, 40.5));
     let mut cx = h.context();
-    let crystal = cx
-        .spawn_end_crystal(world::Id::DEFAULT, at(41.5, -60.0, 40.5))
-        .unwrap();
+    let crystal = cx.spawn_end_crystal(WORLD, at(41.5, -60.0, 40.5)).unwrap();
     h.entities();
     let mut cx = h.context();
     cx.entity_mut(npc).unwrap().kill();
