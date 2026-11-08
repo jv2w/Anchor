@@ -11,16 +11,7 @@ paths:
 # Architecture rules
 
 ## Repository and modules
-- Place every module in its area (the table in `.claude/docs/architecture.md` lists the submodules):
-  - transport: `udp`, `raknet`, `nethernet`;
-  - session: `session`, `login`, `auth`, `crypto`;
-  - protocol: `protocol`;
-  - tick rules: under `tick/`;
-  - world: `world`;
-  - storage: `save`, `storage`, `import`, `export`, `replay`;
-  - block and item data: `block`, `item`, `effect`, `nbt`;
-  - public API: `server` (re-exported at the crate root), `player`, `entity`, `event`, `command`, `form`, and the other modules reachable from the crate root;
-  - foundation: `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error`, `args`.
+- Place every module in its area of the module table in `.claude/docs/architecture.md`, and add a new module to that table.
 - Keep tick code and off-tick code in separate modules.
 - Put development tools in `xtask/` and patched dependency copies in `vendor/`. Put development-tool dependencies in `xtask`, never in the `anchor` library.
 - Name every tool configuration file with a leading dot where the tool accepts one.
@@ -55,7 +46,7 @@ paths:
 - The state hash and the checkpoint (`tick/checkpoint.rs`) destructure every struct without `..`. Give every field left out a comment with the reason.
 
 ## Input log and replay
-- Never encode packets on the tick: the log encodes them when it is written, on the main thread.
+- Never encode the input log's packets on the tick: the log encodes them when it is written, on the main thread.
 - A replay creates no runtime and no network. It opens data files as `.claude/rules/storage.md` says for replays.
 - A replay never runs blocking jobs again; it hands their logged results to their callbacks.
 - Never replay from a checkpoint that holds state without a checkpoint form (a closure such as a scheduled task, a waiting form or job, an open menu, or a deferred callback; a player extension; a held offline player): refuse it with `replay::Error::Opaque`. Never guess.
@@ -67,7 +58,7 @@ paths:
 - Keep the fields of tick-state structs such as `Player` and `Entity` private.
 - Lend an entity, whose position change must also update an index, through the guard `entity::Mut`.
 - Make positions, block states, and IDs `Copy` values, and `item::Stack` an immutable value.
-- A direct API call (a setter, `teleport`, `kick`) changes the value at once. Mark what other players must see and send it at the tick's fixed point.
+- A direct API call (a setter, `teleport`, `kick`) changes the value at once. Mark what other players must see and send it in the sync phase (`player::sync`).
 
 ## Events
 - Raise every event with the flow of `tick/dispatch.rs`: check → build the event → listeners → check again → apply → monitors.
@@ -76,7 +67,7 @@ paths:
 - Build events as stack values.
 - Run user code that is no event of an action (sound and particle listeners, custom block hooks) only after the action is applied, the held item and drops included.
 - No listener and an empty listener give the same state hash, output, and log bytes.
-- Handle what a direct API call causes (`kick` → the player quits) at the tick's fixed point, and raise its events there.
+- Handle what a direct API call causes (`kick` → the player quits) in the sync phase (`player::sync`), and raise its events there.
 - Raise EntitySpawn and ItemSpawn in the entity tick.
 - Keep event fields `pub(crate)`; make public only getters, setters, and `cancel`, `uncancel`, `is_cancelled`.
 - Merge an API-table event's subclass hierarchy into one struct with a cause enum (`EntityDamageByEntity` → a `DamageSource` of `EntityDamage`).
@@ -90,7 +81,7 @@ paths:
 - Add a user storage provider trait only when a need arises that it can meet while keeping the atomic commit.
 
 ## Using admitted crates
-- Never use rayon's global entry points (`spawn` and the others the deny list names); the pool comes from `runtime` and its parallel APIs from `pool`. The one exception is the `Scope::spawn` that `Pool::map_in_turns` calls inside the pool's own `in_place_scope`.
+- Never use rayon's global entry points (`spawn` and the others the deny list names); the pool comes from `runtime` and its parallel APIs from `pool`.
 - Use aws-lc-rs randomness only in the `crypto` module.
 - Always give rustls the aws-lc-rs provider explicitly (`builder_with_provider`).
 - Use tokio-rustls only inside the signaling's 10-second request deadline.

@@ -38,7 +38,7 @@ vendor/                     patched dependency copies (dependencies.md)
 ```
 
 - The workspace has two members, `anchor` and `xtask`. `vendor/` is excluded from it.
-- Every server program answers three commands from its process arguments without code of its own (`args`): `update-config` (`config.md`), `import <world folder> [<world name>]`, and `export <new folder> [<world name>]` (`storage.md`). `Config::load` does `update-config` and `Server::run` does the other two; neither then starts the server. Any other argument is the program's own and starts the server as usual.
+- Every server program answers three commands from its process arguments without code of its own (`args`): `update-config` (`config.md`), `import <world folder> [<world name>]`, and `export <new folder> [<world name>]` (`storage.md`). `Config::load` does `update-config` and `Server::run` does the other two. Any other argument is the program's own and starts the server as usual.
 - `rust-toolchain.toml` and `Cargo.lock` cannot take a dot name.
 - `.cache/` is ignored by git.
 
@@ -51,7 +51,7 @@ vendor/                     patched dependency copies (dependencies.md)
 | Protocol | `protocol` (generated `packet`, `types`, `consts`; hand-written `io`, `batch`, `compression`, `common`, `inventory`, `entity_data`, `flags`, `login`, `union_frame`, `values`, `block_storage`) | Packet codecs, batches, compression |
 | Tick rules | under `tick`: `block_entity`, `chat`, `checkpoint`, `command`, `dispatch`, `emit`, `entity`, `extra`, `form`, `hook`, `interact`, `inventory`, `log`, `network`, `player`, `queue`, `rules`, `save`, `spawn`, `survival`, `task`, `trade`, `update`, `view`, `weather`, `world_api` | The game state `State` and the only code that changes it |
 | World | `world` (`chunk`, `sub_chunk`, `paletted`, `light`, `generator`, `connect`, `tree`, `biome`, `index`, `particle`, `sound`) | Chunks, palettes, light, generators, neighbour connection properties |
-| Storage | `save` (the save thread), `storage` (one redb file), `import` (importing a LevelDB world), `export` (exporting to a LevelDB world), `replay` | Snapshot commits, loads, backups, replays |
+| Storage | `save` (the save thread), `storage` (one redb data file: main, players, or a persistent world's), `import` (importing a LevelDB world), `export` (exporting to a LevelDB world), `replay` | Snapshot commits, loads, backups, replays |
 | Block and item data | `block`, `item`, `effect`, `nbt` | Tables generated from the dump and their value types |
 | Public API | `server`, `player`, `entity`, `world`, `event`, `action`, `command`, `permission`, `form`, `display`, `menu`, `inventory`, `block_entity`, `custom`, `task`, `data`, `pack`, `config`, `math`, `protocol`, `replay`, `import`, `export` | The types users see. The crate root re-exports `Config`, `Context`, `Error`, `Result`, `SentPacket`, `Server`, `ServerBuilder`, `ShutdownHandle` |
 | Foundation | `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error`, `args` | Thread creation, the CPU pool, the clocks and tick pacing, randomness, token buckets (ping and input budgets), the console and its log, bounded whole-file reads and atomic small-file writes, the crate error, process-argument commands |
@@ -68,7 +68,7 @@ vendor/                     patched dependency copies (dependencies.md)
 | CPU pool (rayon, `anchor-cpu-<n>`) | `cpu-threads` | The tick's parallel read-only phases; for the save thread, chunk decoding, generation and first lighting, chunk extras reading, chunk sealing, and the file checks at start |
 | Blocking pool (tokio) | at most 10 | 4 for the engine (the authorization fetch and key loading), 2 for NetherNet's lookups of the host names clients give (`network.md`), 4 for user `spawn_blocking` jobs |
 | Run (`anchor-run`) | 1 | Creates, drives and stops the tokio runtime for `Server::run`, so the caller may be inside a tokio runtime; it waits, so it is not in the budget |
-| Console (`anchor-console`) | 1 | Puts standard input lines into a bounded queue (`console-input`) |
+| Console (`anchor-console`) | 1 (when `console-input` is true) | Puts standard input lines into a bounded queue |
 | Console log (`anchor-log`) | 1 | Anchor's default console writer, writing standard error (when `log-level` is not `off` and `without_console_log` was not called) |
 
 - How `"auto"` resolves the thread counts, and how settings over the compute-thread budget are refused, is in `config.md` (`network-threads`, `cpu-threads`).
@@ -87,21 +87,20 @@ vendor/                     patched dependency copies (dependencies.md)
 | Scheduled tasks / blocking jobs / job result | 65,536 / 1,024 / 1 MiB | `Err` |
 | Controls to the networking (server name, IP blocks) | 256 a tick | The call changes nothing |
 
-- rayon's drop does not wait for its threads, so a clean shutdown counts the CPU pool threads ending through the exit handler (`Pool::shutdown`).
-- The save thread hands the CPU pool its work in turns of as many items as there are threads, and runs each turn's first item itself (`Pool::map_in_turns`). So at most threads − 1 pool threads hold save work, and one is left for the tick's parallel phases. rayon's workers take work from outside the pool only when there is nothing to steal, so if every worker held save work, a tick's parallel phase would wait behind the whole turn. When a turn starts during a tick's parallel phase, the pool thread that runs a tick's map, waiting in a join, can still pick up an unclaimed save item, so the tick may wait for one item. Turns cost save throughput when items differ in cost. This shortens only the tick's wait, not its work, and changes nothing when `cpu-threads` is 1.
+- The save thread hands the CPU pool its work in turns of as many items as there are threads, and runs each turn's first item itself (`Pool::map_in_turns`). So at most threads − 1 pool threads hold save work, and one is left for the tick's parallel phases. rayon's workers take work from outside the pool only when there is nothing to steal, so if every worker held save work, a tick's parallel phase would wait behind the whole turn. When a turn starts during a tick's parallel phase, the pool thread that runs a tick's map, waiting in a join, can still pick up an unclaimed save item, so the tick may wait for one item. Turns cost save throughput when items differ in cost. This shortens only the tick's wait, not its work. With `cpu-threads` 1 the save thread runs every item itself, and the tick's maps run on the calling thread.
 
 ## Tick
 
 - The tick rate is fixed (`Context::TICKS_PER_SECOND`; a tick lasts `tick::TICK`) on the engine clock. A tick that ends late starts the next one at once, which catches up; when the schedule falls a whole period or more behind, the missed ticks are dropped with a warning (`clock::Pacer`).
-- On Windows, Rust's `sleep` uses a high-resolution waitable timer (Windows 10 1803 and later), which measured a real tick interval p99 of about 50.5 ms. Waiting in steps of the default 15.625 ms timer jitters between 46.9 and 62.5 ms, and the movement of other players stutters. tokio's `sleep_until` is coarser, and spin waiting burns a CPU.
+- On Windows, Rust's `sleep` uses a high-resolution waitable timer (Windows 10 1803 and later), which wakes at the deadline instead of on the default timer's steps. Waiting in steps of the default 15.625 ms timer gives intervals of 46.9 or 62.5 ms, and the movement of other players stutters. tokio's `sleep_until` is coarser, and spin waiting burns a CPU.
 - The tick function is `step(state, inputs, responses, pool, output, log)`, followed by the delivery and `boundary`.
 
 Phases:
 1. **Input (serial)**: the save thread's answers (loaded chunks and player data, commit results) in arrival order; in a run's first tick, `ServerStart`; then the session inputs sorted by (session, sequence number), each followed by the callbacks it deferred. Receive hooks run here. Then the scheduled tasks.
-2. **Rules**: survival and the world clocks → breaking in progress → random ticks of custom blocks → entities (physics computed read-only on the CPU pool, then applied in entity order) → trades with vanished villagers → light (a budget per world).
-3. **Sync (serial)**: the deferred callbacks, command sync, `player::sync` (the changes the direct API marked), the players whose outbox overflowed this tick, the views (each follows its player, picks the chunks to send, asks for loads and unloads them, and loads and unloads worlds), then the block entities changed this tick, each sent once with its last value.
+2. **Rules**: survival and the world clocks → breaking in progress → block updates (the follow-up of changed blocks, random ticks of custom blocks) → entities (physics computed read-only on the CPU pool, then applied in entity order) → trades with vanished villagers → block entities (items spilled from broken containers drop) → light (a budget per world).
+3. **Sync (serial)**: the deferred callbacks, command sync, `player::sync` (the changes the direct API marked), the players whose outbox overflowed this tick, the views (each follows its player, picks the chunks to send, asks for loads and unloads them, and loads and unloads worlds), then the block entities changed this tick, each sent once with its last value, then the players whose outbox the view listeners and their deferred callbacks overflowed.
 4. **Output (parallel, read-only)**: the sub-chunks the answers need, each encoded once, then the packets of every marked player, built on the CPU pool in session order. Send hooks and StartGame hooks run here. The result does not depend on the thread count.
-5. **Boundary**: after the delivery, the callbacks the quits of the sessions dropped there deferred, a save snapshot for the save thread if one is due, the offline player loads the tick asked for, then the tick's controls (server name, IP blocks) to the networking.
+5. **Boundary**: after the delivery, the callbacks the quits of the sessions dropped there deferred, a save snapshot for the save thread if one is due, the offline player loads the tick asked for, what the tick let go of (log segments, chunks) for the save thread to free, then the tick's controls (server name, IP blocks) to the networking.
 
 - Wherever the tick sends a player off (a kick, a transfer, a duplicate login, damaged saved data, a shutdown), the player's outbox goes through the send hooks and out before the last packet (`Disconnect`, `Transfer`). So what was sent right before a kick, or by a PlayerQuit listener, arrives. Only an overflowed outbox is not sent, as its end was cut.
 - `PlayerAuthInput` applies in this order: movement → block actions and item interaction → its item stack request. Every other packet goes to the rule module that owns it.
@@ -109,7 +108,6 @@ Phases:
 - Who sees a chunk is an index the views keep as they send and drop chunks (`view::Chunks`), so a broadcast, the tracking of entities and players, and the packets about a player ask it instead of every player. The players a projectile, potion, cloud, explosion, falling block, firework or lightning bolt reaches are looked up, during the entity tick, in an index by chunk it builds once (one sort of the players); outside it, or after a player was teleported during it (an ender pearl), every player is passed over. Both give the same players, in the same order, as a pass over every player, which tests check.
 - Chunk radius requests in one tick share one answer and one resize, with the last radius. An open view follows the granted radius in the view phase: nothing bounds how many requests a client sends, and rebuilding the whole view disc per request would let one client hold the tick.
 - The chunk load bounds (1,024 in flight, 256 asked a tick) are shared by every view, and the first view to ask takes the slots freed. So the view phase starts each tick one player further on (player tick % player count, in session order, wrapping around). Starting from the same session every tick would let the first sessions take every freed slot, and when the save thread is slow the later sessions would not get their spawn chunks before the spawn deadline (`network.md`).
-- With `slow-empty-worlds`, a world without players runs its world rules on one tick in 100, world `w` on the ticks `t` where (t + w) % 100 = 0, so empty worlds do not all run on one tick.
 
 ## Determinism
 
@@ -123,7 +121,7 @@ Phases:
 
 ## Input log and replay
 
-- The log holds every input the tick applies: login and join identities, decoded packets (their sizes count against the bound only and are not kept), leaves with the reason the networking gave (the client left, the connection closed, or it timed out), console lines, job results, measured values, save thread answers, and the sessions dropped because their outbound queue was full. An input enters the log before it applies, so the log of a tick that panicked holds the input that did.
+- The log holds every input the tick applies: login and join identities, decoded packets (their sizes count against the bound only and are not kept), leaves with the reason the networking gave (the client left, the connection closed, or it timed out), console lines, job results, measured values, save thread answers, and the sessions dropped because their outbound queue was full or closed. An input enters the log before it applies, so the log of a tick that panicked holds the input that did.
 - The log is a list of segments. One starts with the process and one with each save snapshot, each headed by its start tick, its commit identity, and a checkpoint of that state. The log head holds the SHA-256 fingerprints of the tick settings and worlds and of the registrations (commands, custom items, blocks and entities, listeners per event, task periods, data types, hooks).
 - The bound is 64 MiB of counted bytes: each input counts its wire size, or for a packet the larger of that and what decoding it allocated (item NBT allocates far more than its bytes), and every list the log holds counts the room it reserves (ticks, inputs, answers and forgotten sessions at their own size, the room doubling as a list grows), checkpoints the room of their body, so the bound counts the memory the log holds, idle ticks included; reading a log back, all packets share one 64 MiB decode budget. Recording stops when the inputs alone would pass the bound; committed segments are dropped oldest first when the inputs and the checkpoints of every kept segment would, never the newest committed one (the tick hands them to the save thread, which frees them). Checkpoints have no bound of their own. A quarter of the bound recorded since the last commit asks for a snapshot even with automatic saving off, so the other three quarters cover the commit's time. A segment whose recording stops, at the bound or at a save thread answer that cannot be logged, is marked truncated, and a replay ends there.
 - Commit identity: the log chains every input the tick applies (its place, its kind, and the measured values, not packet bodies) into an identity that each commit writes into the files with its tick. So a replay never takes a file another run committed at the same tick.
@@ -139,14 +137,14 @@ Phases:
 | Connection task (session, codec) | Only that connection closes. A panic in str0m closes only its NetherNet peer (`network.md`) |
 | Tick thread | It ends without `catch_unwind`. A drop guard sees `thread::panicking()` and hands the input log to the main thread; `run` writes the crash log and returns `Error::TickPanicked`. Nothing more is committed: the save thread commits no snapshot left without `Finish` |
 | Save thread | The tick sees the answer queue closed and stops without saving; `run` writes the crash log and returns `Error::Storage` |
-| User `spawn_blocking` body | Its done handler gets `task::Error::Panicked` |
+| User `spawn_blocking` body | Its done handler gets `task::JobError::Panicked` |
 | CPU pool job | The panic reaches the caller |
 
 - The retries and the stop when a commit keeps failing are in `storage.md`.
 
 ## Public API structure
 
-- Accessors of one shape: `entity`/`entity_mut`, `world`/`world_mut`, `player`/`player_mut`, `worlds()`, `players()` (in `Id` order).
+- Accessors of one shape: `entity`/`entity_mut`, `world`/`world_mut`, `player`/`player_mut`, `worlds()` (in place order), `players()` (in `Id` order).
 - `Player` and `Entity` are the tick-state structs themselves.
 - The message kinds (chat, tip, popup, title, action bar, toast, and the others of `player::Message`) are one call, `Player::send(Message)`. A raw packet is `Player::send_packet`.
 - Forms, scoreboards, boss bars, fake blocks, and menus are `Context` methods: their handlers take `&mut Context`, and their tables are in `State`.
@@ -156,7 +154,7 @@ Phases:
 - Registration: `ServerBuilder::on::<E>(Priority, |e: &mut E, cx: &mut Context| ..)` and `ServerBuilder::monitor::<E>(|e: &E, cx: &Context| ..)`. There are five priorities, `Lowest` to `Highest`. A listener that only watches registers with `monitor`, read-only by its types, and sees the state after the outcome is applied.
 - Why the second check: applying without looking again at the state a listener changed would duplicate or lose items.
 - Every listener also sees cancelled events and filters them with `is_cancelled`.
-- **No re-entry**: while listeners run, the event's listener list is lent out of the state (what is registered stays readable), and nothing calls it then. An entity a listener makes is announced by the next announcement, a spawn listener's included.
+- **No re-entry**: while listeners run, the event's listener list is lent out of the state (what is registered stays readable), and nothing calls it then. An entity a listener makes is announced by the entity tick's next spawn announcement (before the physics, and again before the removals), a spawn listener's included.
   - `cx.defer(f)`: runs after the running callback returns, in the same tick, in queue order.
   - `cx.perform(action)`: defers an action that goes through the game rules, events included. Actions are the sealed `action::Action` implementations (`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode`, and others).
 - Why the entity tick raises EntitySpawn and ItemSpawn: listeners never run in the middle of another rule or of a direct API call.
@@ -188,30 +186,29 @@ Phases:
 
 ## API table
 
-- The rows are the public, non-`@internal` API of the dump source commit pinned in the source table of `data.md`, without what is out of scope. `xtask/php/api.php` reflects it into `xtask/data/dump/api.json` (the class-likes and the public methods each declares).
-- `xtask/data/dump/status.txt` gives the rows Anchor does not implement a status; its header defines the line format, the patterns, and the statuses.
+- The rows are the public, non-`@internal` API of the dump source commit pinned in the source table of `data.md`; rows out of scope stay as `skipped` with their reason. `xtask/php/api.php` reflects it into `xtask/data/dump/api.json` (the class-likes and the public methods each declares).
+- `xtask/data/dump/status.txt` gives a status to the rows whose status an alias in code does not decide; its header defines the line format, the patterns, and the statuses.
 - `cargo xtask table [--check]` writes `xtask/data/dump/table.md` (each row's FQN, status, location `file:line`, tests, reason). `verify` checks that it is current and has no blank row. The row counts per status are at the head of `table.md`.
-- The broadcast channels are merged into `broadcast` and `send`.
 - Defects of the API table's source fixed instead of carried over (main ones): global singletons, a mutable shared `Vector3`, getters that copy and NBT serialized again, string keys, an object allocated per event, AsyncTask serialization, raw packet events, hidden O(n) lookups, re-entrant dispatch, a MONITOR priority enforced only by comments, no second check of the state listeners changed, the wall clock and global randomness in game logic, non-atomic saves, IDs that change with load order, light updates (no bound, no spreading across chunk borders), an unload that leaves no default world.
 
 ## Game scope
 
-Anchor removes what vanilla does on its own and vanilla's reactions to player actions; the developer functions beneath them stay (a removed command keeps the API it called). Settings that switch a feature on and off stay.
+The scope is in `CLAUDE.md`. A removed command keeps the API it called, and settings that switch a feature on and off stay.
 
 Kept:
 - Survival: health, food, air and drowning, xp, status effects, enchantment effects, damage (fall, void, environment), melee combat, critical hits, knockback, armor, durability, death drops, death and respawn, game modes, dropped items, movement checks, server-authoritative break times (`break-time-check`), `difficulty`, `hardcore`.
 - Right-click items: bow, crossbow and arrows, snowball, egg, ender pearl, shield, armor equipping, splash and lingering potions, drinkable potions, trident, firework rocket, totem of undying, food, bottle o' enchanting, book and quill.
-- Blocks change only by a player's placing and breaking, the kept block clicks, the developer API and custom block hooks (`on_break`, `on_place`, `on_random_tick`, `on_use`), and code explosions. A broken block drops its own item (the pick-block mapping; a block without an item form drops nothing), changeable by the event.
-- Building is complete: placement state rules (facing, half, axis, stacking slabs, candles, and snow layers), two-block blocks placed and broken together, and connecting shapes (`world::connect`) on place and break. The placing position is not checked.
+- The custom block hooks are `on_break`, `on_place`, `on_random_tick`, and `on_use`. A broken block drops its own item (the pick-block mapping; a block without an item form drops nothing), changeable by the event.
+- Building: the placement state rules cover facing, half, axis, stacking slabs, candles, and snow layers; two-block blocks are placed and broken together; connecting shapes (`world::connect`) update on place and break. The placing position is not checked.
 - Kept block clicks: chests, barrels, and shulker boxes (open, store, chest pairing), ender chests, doors, trapdoors, and fence gates (iron doors and iron trapdoors never open by hand; only code opens them), sign editing. Every other click still fires the click event, and the client is sent the clicked block again.
 - Block entity data: sign text, banner patterns, skulls, flower pot plants, bed colors, and the items of the kept containers. A generator that places a block needing a block entity gets an empty one.
 - Server light (never sent to clients; `lighting = "fixed"` calculates none) and the light query API. Random ticks only for custom blocks.
-- Entities: dropped items, xp orbs, projectiles, area effect clouds, fireworks, tridents, lightning (visual and damage, no fire), code explosions, NPCs without AI (villager-like, human-like, zombie), custom entities, villager trading by code.
+- Entities: dropped items, xp orbs, projectiles, area effect clouds, fireworks, tridents, primed TNT, falling blocks, paintings and end crystals (these four made only by code), lightning (visual and damage, no fire), code explosions, NPCs without AI (villager-like, human-like, zombie), custom entities, villager trading by code.
 - Weather: each world has a state (clear, rain or snow, thunder) and lightning, changed only through the API (`Context::set_weather`, `strike_lightning`). A cycle is built with a repeating task and `server_data`. Time and `daylight-cycle`.
 - The creative inventory and its developer changes, sounds and particles by code, map import and export.
 - Built-in commands: `clear`, `give`, `gamemode`, `kill`, `tp`, `stop`, `ban`, `ban-ip`, `unban`, `unban-ip`, `kick`, `whitelist`, `op`, `deop`, `save`, `list`, `banlist`, `status`, `about`, `check`, `backup`. `status` shows the uptime, TPS and tick time, memory, threads, players, and each world's chunk, entity, and block entity counts, in Anchor's own wording.
 
-Removed: random ticks of vanilla blocks, scheduled and neighbour updates (except connections), liquid flow, fire, growth, falling blocks, blocks breaking without support, block entity ticks (furnaces, brewing stands, campfires, beacons), every other block click (beds and sleep, crafting tables and every workstation, buttons, levers, cakes, flower pot filling, note blocks, bells), block-changing item uses (flint and steel, bone meal, hoes, shovels, axes, buckets), painting and end crystal placing, crafting (recipes, the 2×2 grid, furnace recipes, recipe registration; the client gets an empty recipe list), and the vanilla villager economy (the default trade templates).
+Removed: random ticks of vanilla blocks, scheduled and neighbour updates (except connections), liquid flow, fire, growth, blocks falling by themselves, blocks breaking without support, block entity ticks (furnaces, brewing stands, campfires, beacons), every other block click (beds and sleep, crafting tables and every workstation, buttons, levers, cakes, flower pot filling, note blocks, bells), block-changing item uses (flint and steel, bone meal, hoes, shovels, axes, buckets), painting and end crystal placing by items, crafting (recipes, the 2×2 grid, furnace recipes, recipe registration; the client gets an empty recipe list), and the vanilla villager economy (the default trade templates).
 
 ## Villager trading
 
@@ -239,7 +236,7 @@ There is one dimension, the overworld (y −64 to 319, 24 sub-chunks).
 ## Design limits
 
 - What user code wrote to outside systems is not undone by a crash, and a replay does it again.
-- A segment whose checkpoint holds closures or Extensions cannot be replayed. Scheduled tasks are gone after a restart.
+- A segment whose checkpoint holds state without a checkpoint form (`replay::Error::Opaque`, `.claude/rules/architecture.md`) cannot be replayed. Scheduled tasks are gone after a restart.
 - A teleport to another world in the same dimension sends no ChangeDimension. Whether the official client keeps old chunks can be checked only with a real connection (`testing.md`).
 - Turning the block state into 4 bytes plus a server table would need a global registry or an API change for custom states.
 - The stand-in block physics of new 1.26.60 states and the unconnected 1.26.60 connection properties are in `data.md`.
