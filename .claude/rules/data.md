@@ -100,7 +100,7 @@ paths:
   1. The six git checkouts, each: `git init .cache/<folder>`, `git -C .cache/<folder> remote add origin <origin>`, `git -C .cache/<folder> fetch --depth 1 origin <commit>`, `git -C .cache/<folder> checkout --detach FETCH_HEAD`.
   2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/dump-php/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
   3. The dump source's dependencies: in `.cache/dump`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/dump/vendor`.
-  4. The official server: download the zip for the OS, check its SHA-256 where the `.cache/` table records one, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
+  4. The official server: download the zip for the OS, check its SHA-256, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
   5. Perl: on Windows, download the Strawberry Perl portable zip, check its SHA-256, and unpack it into the folder of the `.cache/` table. On Linux, install the system packages `.claude/docs/testing.md` lists.
   6. The str0m captures: `cargo xtask vendor-test str0m` downloads them.
   7. Confirm that `cargo xtask dump --check` passes.
