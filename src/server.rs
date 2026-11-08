@@ -232,7 +232,8 @@ impl Server {
     /// stopped on a panic or a failed save) with this server's settings, worlds and
     /// registrations, and reports how it ended ([`crate::replay`]): it starts from the saved
     /// state of the log's oldest segment whose save `data/main.redb` or one of its backups still
-    /// holds, with each other data file's newest copy (the file or a backup) of that save or an
+    /// holds, looking first at the segments after the log's last truncated segment and then at
+    /// the rest, with each other data file's newest copy (the file or a backup) of that save or an
     /// earlier one, and applies the logged ticks. A tick that panics again ends it with
     /// [`End::Panicked`](crate::replay::End::Panicked).
     ///
@@ -323,6 +324,8 @@ impl Server {
     /// [`Error::Usage`] for arguments an argument command does not take, and [`Error::Output`] for
     /// an answer that cannot be written to standard output.
     /// [`Error::Config`] for a setting that cannot be used.
+    /// [`Error::GeneratorSpawn`] for a new world whose generator gives a spawn outside the world
+    /// border.
     /// [`Error::Start`] for a runtime, thread or startup state that cannot start.
     /// [`Error::Network`] for a socket that cannot be opened.
     /// [`Error::IdentityKey`], [`Error::TlsCertificate`] and [`Error::Auth`] for the key and

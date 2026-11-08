@@ -1,8 +1,8 @@
 //! Anchor: a Minecraft: Bedrock Edition server library.
 //!
 //! A server is a binary of its own that depends on Anchor by path or git, with nothing else to
-//! set up: the fixed copies of dependencies in Anchor's `vendor/` come with it as path
-//! dependencies, so a new Anchor commit fetches nothing but Anchor.
+//! set up: the fixed copies of dependencies in Anchor's `vendor/` are path dependencies, so they
+//! come with Anchor and the server's project needs no `[patch]` section.
 //!
 //! ```toml
 //! [dependencies]
@@ -69,10 +69,7 @@
 //! integrity-check = "after-unclean-shutdown"
 //! ```
 //!
-//! Measured with an imported world of 59,740 chunks (381 MB of data files), a release build and
-//! `backups = false`: a start after a normal stop took under 0.1 s with
-//! `integrity-check = "after-unclean-shutdown"` and 5.6 to 16.4 s with `"always"`, the default,
-//! almost all of it spent reading the files from disk; a stop took 0.2 to 0.5 s.
+//! The measured start costs are in the repository's `.claude/docs/storage.md`.
 
 // Per-connection panic isolation needs unwinding, and the binary's profile decides the strategy.
 #[cfg(not(panic = "unwind"))]
