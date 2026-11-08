@@ -20,7 +20,7 @@ use super::{model, names};
 use Kind::{BitsOf, Enum, Excluded, Index, Mask, SameAs, UnionTag, Values};
 
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/protocol/consts.rs";
+pub(super) const PATH: &str = "src/protocol/consts.rs";
 
 /// Every constant group, in the order of the generated file. `repr` follows the packet field
 /// that carries the group (the one of the current packet when several do).
@@ -289,13 +289,6 @@ mod tests {
         Str(&'static str),
     }
 
-    /// The Rust value of every generated constant, by Go name.
-    fn values() -> Vec<(&'static str, Value)> {
-        let mut v = Vec::new();
-        @VALUES@
-        v
-    }
-
     fn ints(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[i128], bits: u32) {
         assert_eq!(names.len(), values.len());
         out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Int(x, bits))));
@@ -304,6 +297,13 @@ mod tests {
     fn strs(out: &mut Vec<(&'static str, Value)>, names: &[&'static str], values: &[&'static str]) {
         assert_eq!(names.len(), values.len());
         out.extend(names.iter().zip(values).map(|(&n, &x)| (n, Value::Str(x))));
+    }
+
+    /// The Rust value of every generated constant, by Go name.
+    fn values() -> Vec<(&'static str, Value)> {
+        let mut v = Vec::new();
+        @VALUES@
+        v
     }
 
     #[test]
@@ -584,7 +584,7 @@ enum Role {
 
 /// Every group key (`packet.TextType`) with the Rust name of its enum, or `None` for a group
 /// that is no enum or flag enum, for the field docs of the generated types.
-pub(crate) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, String> {
+pub(super) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, String> {
     SPECS
         .iter()
         .map(|s| {
@@ -597,7 +597,7 @@ pub(crate) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, Str
 }
 
 /// Generates the file text (unformatted).
-pub(crate) fn generate(ir: &Ir) -> Result<String, String> {
+pub(super) fn generate(ir: &Ir) -> Result<String, String> {
     let groups = assign(ir)?;
     let tags = union_tags(ir);
     let mut out = Output::default();
@@ -719,49 +719,6 @@ fn union_tags(ir: &Ir) -> BTreeMap<&str, &str> {
     out
 }
 
-/// The value kind of a group, failing on a mix.
-fn basic(g: &Group<'_>) -> Result<Basic, String> {
-    let mut kinds = g.members.iter().map(|m| match m.c.basic.as_str() {
-        "untyped string" | "string" => Ok(Basic::Str),
-        "untyped float" | "float32" | "float64" => Ok(Basic::Float),
-        "untyped int" | "int" | "uint" | "uint8" | "int8" | "uint16" | "int16" | "uint32"
-        | "int32" | "uint64" | "int64" => Ok(Basic::Int),
-        other => Err(format!("{}: unsupported basic type {other}", m.c.name)),
-    });
-    let first = kinds.next().ok_or("empty group")??;
-    for k in kinds {
-        if k? != first {
-            return Err("constants of different kinds".to_owned());
-        }
-    }
-    Ok(first)
-}
-
-/// The integer type of a group: the Go type of typed constants, else the table's or the kind's
-/// default. Go `int` and `uint` have no fixed size and count as untyped.
-fn int_type(g: &Group<'_>) -> Result<IntType, String> {
-    let untyped = g
-        .members
-        .iter()
-        .filter(|m| m.c.ty.starts_with("untyped") || matches!(m.c.basic.as_str(), "int" | "uint"))
-        .count();
-    let basics: BTreeSet<&str> = g.members.iter().map(|m| m.c.basic.as_str()).collect();
-    if untyped == g.members.len() {
-        IntType::new(match (g.spec.repr, g.spec.kind) {
-            ("", Mask | Index) => "u32",
-            ("", _) => "i32",
-            (repr, _) => repr,
-        })
-    } else if untyped == 0 && basics.len() == 1 {
-        if !g.spec.repr.is_empty() {
-            return Err("repr given for typed constants".to_owned());
-        }
-        IntType::of_go(basics.first().copied().unwrap_or_default())
-    } else {
-        Err(format!("mixed constant types {basics:?}"))
-    }
-}
-
 /// Emits one group.
 fn group_items(
     g: &Group<'_>,
@@ -771,6 +728,12 @@ fn group_items(
     out: &mut Output,
 ) -> Result<(), String> {
     match g.spec.kind {
+        Enum | Mask | Index | Values => match basic(g)? {
+            Basic::Int if matches!(g.spec.kind, Values) => values(g, Some(int_type(g)?), out),
+            Basic::Int => int_enum(g, name, out),
+            Basic::Float => values(g, None, out),
+            Basic::Str => str_enum(g, name, out),
+        },
         UnionTag => {
             let union = g
                 .members
@@ -778,10 +741,6 @@ fn group_items(
                 .find_map(|m| tags.get(m.c.name.as_str()))
                 .ok_or("no constant of the group is a union tag")?;
             exclude(g, &format!("tags of the generated union {union}"), out);
-            Ok(())
-        }
-        Excluded(reason) => {
-            exclude(g, reason, out);
             Ok(())
         }
         SameAs(other) => {
@@ -825,12 +784,10 @@ fn group_items(
             exclude(g, &format!("the bit positions of {other} (Flag::bit)"), out);
             Ok(())
         }
-        Enum | Mask | Index | Values => match basic(g)? {
-            Basic::Str => str_enum(g, name, out),
-            Basic::Float => values(g, None, out),
-            Basic::Int if matches!(g.spec.kind, Values) => values(g, Some(int_type(g)?), out),
-            Basic::Int => int_enum(g, name, out),
-        },
+        Excluded(reason) => {
+            exclude(g, reason, out);
+            Ok(())
+        }
     }
 }
 
@@ -856,6 +813,327 @@ fn exclude(g: &Group<'_>, reason: &str, out: &mut Output) {
 ",
             str_lit(&m.c.name)
         );
+    }
+}
+
+/// An integer enum (and its `Flag` implementation for flag groups).
+fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
+    let ty = int_type(g)?;
+    let resolved = resolve(g, ty)?;
+    let label = str_lit(&label(name));
+    let r = ty.name;
+    let flags = matches!(g.spec.kind, Mask | Index);
+    let (mut variants, mut arms, mut bits, mut from_bits) =
+        (String::new(), String::new(), String::new(), String::new());
+    let mut all = Vec::new();
+    let mut go_names = Vec::new();
+    let mut members: BTreeSet<i128> = BTreeSet::new();
+    let mut count = 0;
+    for x in &resolved {
+        let Role::Variant(v) = &x.role else {
+            continue;
+        };
+        members.insert(x.value);
+        let go: i128 =
+            x.m.c
+                .value
+                .parse()
+                .map_err(|e| format!("{}: {e}", x.m.c.name))?;
+        let extra = if go == x.value {
+            String::new()
+        } else {
+            format!(" ({go}, sent as {})", x.value)
+        };
+        variants.push_str(&member_doc(x.m, &extra, "    "));
+        put!(variants, "    {v} = {},\n", lit(x.value));
+        put!(arms, "            {} => Ok(Self::{v}),\n", lit(x.value));
+        if flags {
+            let bit = flag_bit(g.spec.kind, x.value).map_err(|e| format!("{}: {e}", x.m.c.name))?;
+            count = count.max(bit + 1);
+            put!(bits, "            Self::{v} => {bit},\n");
+            put!(from_bits, "            {bit} => Some(Self::{v}),\n");
+        }
+        all.push(format!("Self::{v}"));
+        go_names.push(str_lit(&x.m.c.name));
+    }
+    put!(
+        out.values,
+        "ints(&mut v, &[{}], &{name}::all().iter().map(|&x| i128::from({r}::from(x))).collect::<Vec<_>>(), {});\n",
+        go_names.join(", "),
+        ty.unsigned_bits()
+    );
+    let assoc = associated(g, name, ty, &resolved, &members, count, out)?;
+    let assoc_gap = if assoc.is_empty() { "" } else { "\n" };
+    out.items.push_str(&group_doc(g)?);
+    put!(
+        out.items,
+        "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n#[repr({r})]\npub enum {name} {{\n{variants}}}\n\n",
+        variant_names_expectation(&all)
+    );
+    put!(
+        out.items,
+        "impl {name} {{\n{assoc}{assoc_gap}    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n}}\n\n",
+        all.join(", ")
+    );
+    let unknown = if ty.bits == 64 && !ty.signed {
+        "i64::try_from(value).unwrap_or(i64::MAX)"
+    } else {
+        "value.into()"
+    };
+    put!(
+        out.items,
+        "impl TryFrom<{r}> for {name} {{\n    type Error = Error;\n\n    fn try_from(value: {r}) -> Result<Self> {{\n        match value {{\n{arms}            _ => Err(Error::UnknownEnum {{\n                name: {label},\n                value: {unknown},\n            }}),\n        }}\n    }}\n}}\n\n\
+         impl From<{name}> for {r} {{\n    fn from(value: {name}) -> Self {{\n        value as Self\n    }}\n}}\n\n"
+    );
+    if flags {
+        if count == 0 {
+            return Err("no flags".to_owned());
+        }
+        put!(
+            out.items,
+            "impl Flag for {name} {{\n    const COUNT: u32 = {count};\n    const NAME: &'static str = {label};\n\n    fn bit(self) -> u32 {{\n        match self {{\n{bits}        }}\n    }}\n\n    fn from_bit(bit: u32) -> Option<Self> {{\n        match bit {{\n{from_bits}            _ => None,\n        }}\n    }}\n}}\n\n"
+        );
+        out.checks.push(format!("flag({name}::all());"));
+    }
+    let unknown = unknown_value(ty, &members).map_or_else(
+        || format!("None::<{r}>"),
+        |v| format!("Some({}_{r})", lit(v)),
+    );
+    out.checks
+        .push(format!("int_enum({name}::all(), {unknown});"));
+    Ok(())
+}
+
+/// The associated constants of an integer enum: aliases and count markers (checked; the count of
+/// a flag group is its `Flag::COUNT`).
+fn associated(
+    g: &Group<'_>,
+    name: &str,
+    ty: IntType,
+    resolved: &[Resolved<'_>],
+    members: &BTreeSet<i128>,
+    count: u32,
+    out: &mut Output,
+) -> Result<String, String> {
+    let r = ty.name;
+    let wire_bits = ty.unsigned_bits();
+    let mut assoc: Vec<(String, String)> = Vec::new();
+    for x in resolved {
+        let go = str_lit(&x.m.c.name);
+        match &x.role {
+            Role::Variant(_) => {}
+            Role::Alias { name: alias, of } => {
+                let mut text = member_doc(x.m, "", "    ");
+                put!(text, "    pub const {alias}: Self = Self::{of};\n");
+                assoc.push((alias.clone(), text));
+                put!(
+                    out.values,
+                    "v.push(({go}, Value::Int(i128::from({r}::from({name}::{alias})), {wire_bits})));\n"
+                );
+            }
+            Role::Sentinel(sentinel) => {
+                let next = match g.spec.kind {
+                    Mask => 1_i128 << count,
+                    _ => members.last().map_or(0, |m| m + 1),
+                };
+                if x.value != next {
+                    return Err(format!("{go}: count marker {} is not {next}", x.value));
+                }
+                match g.spec.kind {
+                    Mask => put!(
+                        out.values,
+                        "v.push(({go}, Value::Int(1_i128 << <{name} as Flag>::COUNT, 0)));\n"
+                    ),
+                    Index => put!(
+                        out.values,
+                        "v.push(({go}, Value::Int(i128::from(<{name} as Flag>::COUNT), 0)));\n"
+                    ),
+                    _ => {
+                        let value = ty.wire(x.value)?;
+                        let mut text = member_doc(x.m, ": one past the last value", "    ");
+                        put!(text, "    pub const {sentinel}: {r} = {};\n", lit(value));
+                        assoc.push((sentinel.clone(), text));
+                        put!(
+                            out.values,
+                            "v.push(({go}, Value::Int(i128::from({name}::{sentinel}), {wire_bits})));\n"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assoc.sort_by(|(a, _), (b, _)| names::by_words(a, b));
+    Ok(assoc.into_iter().map(|(_, text)| text).collect())
+}
+
+/// A value of `ty` outside `members` for the unknown-value test: past either end, else the
+/// first gap (at most one step per member); `None` when the set fills the type.
+fn unknown_value(ty: IntType, members: &BTreeSet<i128>) -> Option<i128> {
+    let (lo, hi) = ty.range();
+    let gaps = (0..=members.len()).filter_map(|i| i128::try_from(i).ok().map(|i| lo + i));
+    [
+        members.last().map(|m| m + 1),
+        members.first().map(|m| m - 1),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(gaps)
+    .find(|v| (lo..=hi).contains(v) && !members.contains(v))
+}
+
+/// A string enum.
+fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
+    if !g.spec.sentinels.is_empty() || !matches!(g.spec.kind, Enum) {
+        return Err("string groups are plain enums".to_owned());
+    }
+    let label = label(name);
+    let mut variants = String::new();
+    let mut all = Vec::new();
+    let mut arms = String::new();
+    let mut sorted: BTreeMap<&str, String> = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    let mut go_names = Vec::new();
+    for m in &g.members {
+        if m.c.alias.is_some() {
+            return Err(format!("{}: string alias", m.c.name));
+        }
+        let v = names::camel(&m.rest, &m.c.name)?;
+        if !seen.insert(v.clone()) {
+            return Err(format!("{}: name `{v}` is taken", m.c.name));
+        }
+        if sorted.insert(m.c.value.as_str(), v.clone()).is_some() {
+            return Err(format!("{}: string {:?} repeats", m.c.name, m.c.value));
+        }
+        variants.push_str(&member_doc(
+            m,
+            &format!(", {}", str_lit(&m.c.value)),
+            "    ",
+        ));
+        put!(variants, "    {v},\n");
+        all.push(format!("Self::{v}"));
+        put!(arms, "            Self::{v} => {},\n", str_lit(&m.c.value));
+        go_names.push(str_lit(&m.c.name));
+    }
+    put!(
+        out.values,
+        "strs(&mut v, &[{}], &{name}::all().iter().map(|&x| x.as_str()).collect::<Vec<_>>());\n",
+        go_names.join(", ")
+    );
+    let by_name: Vec<String> = sorted
+        .iter()
+        .map(|(s, v)| format!("({}, Self::{v})", str_lit(s)))
+        .collect();
+    let n = all.len();
+    out.items.push_str(&group_doc(g)?);
+    put!(
+        out.items,
+        "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{\n{variants}}}\n\n",
+        variant_names_expectation(&all)
+    );
+    put!(
+        out.items,
+        "impl {name} {{\n    /// The values by string, in byte order for binary search.\n    const BY_STR: [(&'static str, Self); {n}] = [{}];\n\n    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n\n    /// The string on the wire.\n    pub const fn as_str(self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n\n",
+        by_name.join(", "),
+        all.join(", ")
+    );
+    put!(
+        out.items,
+        "impl TryFrom<&str> for {name} {{\n    type Error = Error;\n\n    fn try_from(value: &str) -> Result<Self> {{\n        Self::BY_STR\n            .binary_search_by(|&(s, _)| s.cmp(value))\n            .ok()\n            .and_then(|i| Self::BY_STR.get(i))\n            .map(|&(_, v)| v)\n            .ok_or(Error::InvalidValue {{\n                field: {},\n                reason: \"unknown name\",\n            }})\n    }}\n}}\n\n",
+        str_lit(&label)
+    );
+    out.checks
+        .push(format!("str_enum({name}::all(), {name}::as_str);"));
+    Ok(())
+}
+
+/// Plain constants: integers of `ty`, or `f32` floats when `ty` is `None`.
+fn values(g: &Group<'_>, ty: Option<IntType>, out: &mut Output) -> Result<(), String> {
+    if !g.spec.sentinels.is_empty() || !matches!(g.spec.kind, Values) {
+        return Err("float constants and open sets are Values groups".to_owned());
+    }
+    put!(
+        out.items,
+        "// The gophertunnel `{}` constants.\n\n",
+        g.spec.key
+    );
+    for m in &g.members {
+        if m.c.alias.is_some() {
+            return Err(format!("{}: alias in a Values group", m.c.name));
+        }
+        let name = names::screaming(m.go, &m.c.name)?;
+        let go = str_lit(&m.c.name);
+        out.items.push_str(&member_doc(m, "", ""));
+        if let Some(ty) = ty {
+            let value: i128 = m.c.value.parse().map_err(|e| format!("{go}: {e}"))?;
+            let value = ty.wire(value)?;
+            put!(
+                out.items,
+                "pub const {name}: {} = {};\n",
+                ty.name,
+                lit(value)
+            );
+            put!(
+                out.values,
+                "v.push(({go}, Value::Int(i128::from({name}), {})));\n",
+                ty.unsigned_bits()
+            );
+        } else {
+            let value: f32 = m.c.value.parse().map_err(|e| format!("{go}: {e}"))?;
+            if !value.is_finite() {
+                return Err(format!("{go}: not a finite f32"));
+            }
+            let mut lit = m.c.value.clone();
+            if !lit.contains(['.', 'e', 'E']) {
+                lit.push_str(".0");
+            }
+            put!(out.items, "pub const {name}: f32 = {lit};\n");
+            put!(out.values, "v.push(({go}, Value::Float({name})));\n");
+        }
+    }
+    out.items.push('\n');
+    Ok(())
+}
+
+/// The value kind of a group, failing on a mix.
+fn basic(g: &Group<'_>) -> Result<Basic, String> {
+    let mut kinds = g.members.iter().map(|m| match m.c.basic.as_str() {
+        "untyped int" | "int" | "uint" | "uint8" | "int8" | "uint16" | "int16" | "uint32"
+        | "int32" | "uint64" | "int64" => Ok(Basic::Int),
+        "untyped float" | "float32" | "float64" => Ok(Basic::Float),
+        "untyped string" | "string" => Ok(Basic::Str),
+        other => Err(format!("{}: unsupported basic type {other}", m.c.name)),
+    });
+    let first = kinds.next().ok_or("empty group")??;
+    for k in kinds {
+        if k? != first {
+            return Err("constants of different kinds".to_owned());
+        }
+    }
+    Ok(first)
+}
+
+/// The integer type of a group: the Go type of typed constants, else the table's or the kind's
+/// default. Go `int` and `uint` have no fixed size and count as untyped.
+fn int_type(g: &Group<'_>) -> Result<IntType, String> {
+    let untyped = g
+        .members
+        .iter()
+        .filter(|m| m.c.ty.starts_with("untyped") || matches!(m.c.basic.as_str(), "int" | "uint"))
+        .count();
+    let basics: BTreeSet<&str> = g.members.iter().map(|m| m.c.basic.as_str()).collect();
+    if untyped == g.members.len() {
+        IntType::new(match (g.spec.repr, g.spec.kind) {
+            ("", Mask | Index) => "u32",
+            ("", _) => "i32",
+            (repr, _) => repr,
+        })
+    } else if untyped == 0 && basics.len() == 1 {
+        if !g.spec.repr.is_empty() {
+            return Err("repr given for typed constants".to_owned());
+        }
+        IntType::of_go(basics.first().copied().unwrap_or_default())
+    } else {
+        Err(format!("mixed constant types {basics:?}"))
     }
 }
 
@@ -981,280 +1259,6 @@ fn flag_bit(kind: Kind, value: i128) -> Result<u32, String> {
         Index => u32::try_from(value).map_err(|e| format!("{value} is not a bit position: {e}")),
         _ => Err(format!("{value} is not a flag of a {kind:?} group")),
     }
-}
-
-/// An integer enum (and its `Flag` implementation for flag groups).
-fn int_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
-    let ty = int_type(g)?;
-    let resolved = resolve(g, ty)?;
-    let label = str_lit(&label(name));
-    let r = ty.name;
-    let flags = matches!(g.spec.kind, Mask | Index);
-    let (mut variants, mut arms, mut bits, mut from_bits) =
-        (String::new(), String::new(), String::new(), String::new());
-    let mut all = Vec::new();
-    let mut go_names = Vec::new();
-    let mut members: BTreeSet<i128> = BTreeSet::new();
-    let mut count = 0;
-    for x in &resolved {
-        let Role::Variant(v) = &x.role else {
-            continue;
-        };
-        members.insert(x.value);
-        let go: i128 =
-            x.m.c
-                .value
-                .parse()
-                .map_err(|e| format!("{}: {e}", x.m.c.name))?;
-        let extra = if go == x.value {
-            String::new()
-        } else {
-            format!(" ({go}, sent as {})", x.value)
-        };
-        variants.push_str(&member_doc(x.m, &extra, "    "));
-        put!(variants, "    {v} = {},\n", lit(x.value));
-        put!(arms, "            {} => Ok(Self::{v}),\n", lit(x.value));
-        if flags {
-            let bit = flag_bit(g.spec.kind, x.value).map_err(|e| format!("{}: {e}", x.m.c.name))?;
-            count = count.max(bit + 1);
-            put!(bits, "            Self::{v} => {bit},\n");
-            put!(from_bits, "            {bit} => Some(Self::{v}),\n");
-        }
-        all.push(format!("Self::{v}"));
-        go_names.push(str_lit(&x.m.c.name));
-    }
-    put!(
-        out.values,
-        "ints(&mut v, &[{}], &{name}::all().iter().map(|&x| i128::from({r}::from(x))).collect::<Vec<_>>(), {});\n",
-        go_names.join(", "),
-        ty.unsigned_bits()
-    );
-    let assoc = associated(g, name, ty, &resolved, &members, count, out)?;
-    out.items.push_str(&group_doc(g)?);
-    put!(
-        out.items,
-        "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\n#[repr({r})]\npub enum {name} {{\n{variants}}}\n\n",
-        variant_names_expectation(&all)
-    );
-    put!(
-        out.items,
-        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n{assoc}}}\n\n",
-        all.join(", ")
-    );
-    let unknown = if ty.bits == 64 && !ty.signed {
-        "i64::try_from(value).unwrap_or(i64::MAX)"
-    } else {
-        "value.into()"
-    };
-    put!(
-        out.items,
-        "impl TryFrom<{r}> for {name} {{\n    type Error = Error;\n\n    fn try_from(value: {r}) -> Result<Self> {{\n        match value {{\n{arms}            _ => Err(Error::UnknownEnum {{\n                name: {label},\n                value: {unknown},\n            }}),\n        }}\n    }}\n}}\n\n\
-         impl From<{name}> for {r} {{\n    fn from(value: {name}) -> Self {{\n        value as Self\n    }}\n}}\n\n"
-    );
-    if flags {
-        if count == 0 {
-            return Err("no flags".to_owned());
-        }
-        put!(
-            out.items,
-            "impl Flag for {name} {{\n    const COUNT: u32 = {count};\n    const NAME: &'static str = {label};\n\n    fn bit(self) -> u32 {{\n        match self {{\n{bits}        }}\n    }}\n\n    fn from_bit(bit: u32) -> Option<Self> {{\n        match bit {{\n{from_bits}            _ => None,\n        }}\n    }}\n}}\n\n"
-        );
-        out.checks.push(format!("flag({name}::all());"));
-    }
-    let unknown = unknown_value(ty, &members).map_or_else(
-        || format!("None::<{r}>"),
-        |v| format!("Some({}_{r})", lit(v)),
-    );
-    out.checks
-        .push(format!("int_enum({name}::all(), {unknown});"));
-    Ok(())
-}
-
-/// The associated constants of an integer enum: aliases and count markers (checked; the count of
-/// a flag group is its `Flag::COUNT`).
-fn associated(
-    g: &Group<'_>,
-    name: &str,
-    ty: IntType,
-    resolved: &[Resolved<'_>],
-    members: &BTreeSet<i128>,
-    count: u32,
-    out: &mut Output,
-) -> Result<String, String> {
-    let r = ty.name;
-    let wire_bits = ty.unsigned_bits();
-    let mut assoc = String::new();
-    for x in resolved {
-        let go = str_lit(&x.m.c.name);
-        match &x.role {
-            Role::Variant(_) => {}
-            Role::Alias { name: alias, of } => {
-                assoc.push_str(&member_doc(x.m, "", "    "));
-                put!(assoc, "    pub const {alias}: Self = Self::{of};\n");
-                put!(
-                    out.values,
-                    "v.push(({go}, Value::Int(i128::from({r}::from({name}::{alias})), {wire_bits})));\n"
-                );
-            }
-            Role::Sentinel(sentinel) => {
-                let next = match g.spec.kind {
-                    Mask => 1_i128 << count,
-                    _ => members.last().map_or(0, |m| m + 1),
-                };
-                if x.value != next {
-                    return Err(format!("{go}: count marker {} is not {next}", x.value));
-                }
-                match g.spec.kind {
-                    Mask => put!(
-                        out.values,
-                        "v.push(({go}, Value::Int(1_i128 << <{name} as Flag>::COUNT, 0)));\n"
-                    ),
-                    Index => put!(
-                        out.values,
-                        "v.push(({go}, Value::Int(i128::from(<{name} as Flag>::COUNT), 0)));\n"
-                    ),
-                    _ => {
-                        let value = ty.wire(x.value)?;
-                        assoc.push_str(&member_doc(x.m, ": one past the last value", "    "));
-                        put!(assoc, "    pub const {sentinel}: {r} = {};\n", lit(value));
-                        put!(
-                            out.values,
-                            "v.push(({go}, Value::Int(i128::from({name}::{sentinel}), {wire_bits})));\n"
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(assoc)
-}
-
-/// A value of `ty` outside `members` for the unknown-value test: past either end, else the
-/// first gap (at most one step per member); `None` when the set fills the type.
-fn unknown_value(ty: IntType, members: &BTreeSet<i128>) -> Option<i128> {
-    let (lo, hi) = ty.range();
-    let gaps = (0..=members.len()).filter_map(|i| i128::try_from(i).ok().map(|i| lo + i));
-    [
-        members.last().map(|m| m + 1),
-        members.first().map(|m| m - 1),
-    ]
-    .into_iter()
-    .flatten()
-    .chain(gaps)
-    .find(|v| (lo..=hi).contains(v) && !members.contains(v))
-}
-
-/// A string enum.
-fn str_enum(g: &Group<'_>, name: &str, out: &mut Output) -> Result<(), String> {
-    if !g.spec.sentinels.is_empty() || !matches!(g.spec.kind, Enum) {
-        return Err("string groups are plain enums".to_owned());
-    }
-    let label = label(name);
-    let mut variants = String::new();
-    let mut all = Vec::new();
-    let mut arms = String::new();
-    let mut sorted: BTreeMap<&str, String> = BTreeMap::new();
-    let mut seen = BTreeSet::new();
-    let mut go_names = Vec::new();
-    for m in &g.members {
-        if m.c.alias.is_some() {
-            return Err(format!("{}: string alias", m.c.name));
-        }
-        let v = names::camel(&m.rest, &m.c.name)?;
-        if !seen.insert(v.clone()) {
-            return Err(format!("{}: name `{v}` is taken", m.c.name));
-        }
-        if sorted.insert(m.c.value.as_str(), v.clone()).is_some() {
-            return Err(format!("{}: string {:?} repeats", m.c.name, m.c.value));
-        }
-        variants.push_str(&member_doc(
-            m,
-            &format!(", {}", str_lit(&m.c.value)),
-            "    ",
-        ));
-        put!(variants, "    {v},\n");
-        all.push(format!("Self::{v}"));
-        put!(arms, "            Self::{v} => {},\n", str_lit(&m.c.value));
-        go_names.push(str_lit(&m.c.name));
-    }
-    put!(
-        out.values,
-        "strs(&mut v, &[{}], &{name}::all().iter().map(|&x| x.as_str()).collect::<Vec<_>>());\n",
-        go_names.join(", ")
-    );
-    let by_name: Vec<String> = sorted
-        .iter()
-        .map(|(s, v)| format!("({}, Self::{v})", str_lit(s)))
-        .collect();
-    let n = all.len();
-    out.items.push_str(&group_doc(g)?);
-    put!(
-        out.items,
-        "{}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{\n{variants}}}\n\n",
-        variant_names_expectation(&all)
-    );
-    put!(
-        out.items,
-        "impl {name} {{\n    /// Every value, in gophertunnel's order.\n    pub const fn all() -> &'static [Self] {{\n        &[{}]\n    }}\n\n    /// The values by string, in byte order for binary search.\n    const BY_STR: [(&'static str, Self); {n}] = [{}];\n\n    /// The string on the wire.\n    pub const fn as_str(self) -> &'static str {{\n        match self {{\n{arms}        }}\n    }}\n}}\n\n",
-        all.join(", "),
-        by_name.join(", ")
-    );
-    put!(
-        out.items,
-        "impl TryFrom<&str> for {name} {{\n    type Error = Error;\n\n    fn try_from(value: &str) -> Result<Self> {{\n        Self::BY_STR\n            .binary_search_by(|&(s, _)| s.cmp(value))\n            .ok()\n            .and_then(|i| Self::BY_STR.get(i))\n            .map(|&(_, v)| v)\n            .ok_or(Error::InvalidValue {{\n                field: {},\n                reason: \"unknown name\",\n            }})\n    }}\n}}\n\n",
-        str_lit(&label)
-    );
-    out.checks
-        .push(format!("str_enum({name}::all(), {name}::as_str);"));
-    Ok(())
-}
-
-/// Plain constants: integers of `ty`, or `f32` floats when `ty` is `None`.
-fn values(g: &Group<'_>, ty: Option<IntType>, out: &mut Output) -> Result<(), String> {
-    if !g.spec.sentinels.is_empty() || !matches!(g.spec.kind, Values) {
-        return Err("float constants and open sets are Values groups".to_owned());
-    }
-    put!(
-        out.items,
-        "// The gophertunnel `{}` constants.\n\n",
-        g.spec.key
-    );
-    for m in &g.members {
-        if m.c.alias.is_some() {
-            return Err(format!("{}: alias in a Values group", m.c.name));
-        }
-        let name = names::screaming(m.go, &m.c.name)?;
-        let go = str_lit(&m.c.name);
-        out.items.push_str(&member_doc(m, "", ""));
-        if let Some(ty) = ty {
-            let value: i128 = m.c.value.parse().map_err(|e| format!("{go}: {e}"))?;
-            let value = ty.wire(value)?;
-            put!(
-                out.items,
-                "pub const {name}: {} = {};\n",
-                ty.name,
-                lit(value)
-            );
-            put!(
-                out.values,
-                "v.push(({go}, Value::Int(i128::from({name}), {})));\n",
-                ty.unsigned_bits()
-            );
-        } else {
-            let value: f32 = m.c.value.parse().map_err(|e| format!("{go}: {e}"))?;
-            if !value.is_finite() {
-                return Err(format!("{go}: not a finite f32"));
-            }
-            let mut lit = m.c.value.clone();
-            if !lit.contains(['.', 'e', 'E']) {
-                lit.push_str(".0");
-            }
-            put!(out.items, "pub const {name}: f32 = {lit};\n");
-            put!(out.values, "v.push(({go}, Value::Float({name})));\n");
-        }
-    }
-    out.items.push('\n');
-    Ok(())
 }
 
 /// Appends the test module.

@@ -16,11 +16,11 @@ use super::model::{self, Model, Module, Pass, Read};
 use super::names;
 
 /// The prefix of the helper entry that marks a decode limit (`Model::limits`) as applied.
-pub(crate) const LIMIT_USED: &str = "limit ";
+pub(super) const LIMIT_USED: &str = "limit ";
 
 /// The direction a body is lowered for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Dir {
+pub(super) enum Dir {
     Decode,
     Encode,
 }
@@ -143,12 +143,12 @@ enum Cond {
 
 #[derive(Debug, Clone)]
 enum S {
-    /// `let pat [= init];` `default_of` is the type and field count of a `T::default()`
-    /// initializer that later field stores may fold into.
+    /// `let pat [= init];` `default_of` is the type and field count (`None` when unknown) of a
+    /// `T::default()` initializer that later field stores may fold into.
     Let {
         vars: Vec<Option<usize>>,
         init: Option<E>,
-        default_of: Option<(String, usize)>,
+        default_of: Option<(String, Option<usize>)>,
     },
     Set {
         var: usize,
@@ -209,33 +209,33 @@ enum Ending {
 
 /// What a function looks like to its callers in one direction.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Summary {
+pub(super) struct Summary {
     /// Whether it returns `Result`.
-    pub(crate) fallible: bool,
+    pub(super) fallible: bool,
     /// Whether each parameter (receiver first) is kept; unused ones are dropped.
-    pub(crate) used: Vec<bool>,
+    pub(super) used: Vec<bool>,
     /// Encode: `Copy` reference parameters it assigns, returned after the call.
-    pub(crate) in_out: Vec<usize>,
+    pub(super) in_out: Vec<usize>,
     /// Encode: other reference parameters it assigns (the assignment is dropped).
-    pub(crate) written: Vec<usize>,
+    pub(super) written: Vec<usize>,
     /// The Rust result type, without `Result`.
-    pub(crate) result: String,
+    pub(super) result: String,
 }
 
 /// Function summaries by Go name and whether the direction is decoding.
-pub(crate) type Summaries = BTreeMap<(String, bool), Summary>;
+pub(super) type Summaries = BTreeMap<(String, bool), Summary>;
 
 /// The result of lowering a body.
 #[derive(Debug)]
-pub(crate) struct Lowered {
+pub(super) struct Lowered {
     /// The parameter list (functions only).
-    pub(crate) params: String,
+    pub(super) params: String,
     /// The body statements.
-    pub(crate) body: String,
+    pub(super) body: String,
     /// Whether the body may fail.
-    pub(crate) fallible: bool,
+    pub(super) fallible: bool,
     /// Helper functions it uses.
-    pub(crate) helpers: BTreeSet<String>,
+    pub(super) helpers: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -307,6 +307,53 @@ impl<'m, 'a> Lower<'m, 'a> {
         })
     }
 
+    /// The value of a call result.
+    fn call_val(&self, x: E, ty: Type, string_form: Form) -> Val {
+        if is_string(&ty) {
+            Val {
+                e: x,
+                ty,
+                form: string_form,
+                prim: None,
+            }
+        } else if ty.kind == "error" || ty.kind == "tuple" {
+            Val {
+                e: x,
+                ty,
+                form: Form::Owned,
+                prim: None,
+            }
+        } else {
+            self.val(x, ty, Form::Owned)
+        }
+    }
+
+    fn constant(e: &Expr, ty: Type) -> Result<Val, String> {
+        let value = e.value.clone().ok_or("constant without value")?;
+        if is_string(&ty) {
+            return Ok(Val {
+                e: E::new(str_lit(&value)),
+                ty: basic_ty("string"),
+                form: Form::Ref,
+                prim: None,
+            });
+        }
+        let prim = prim_of(&ty);
+        let code = match prim {
+            Some("bool") => value,
+            Some("f32" | "f64") => float_lit(&value)?,
+            Some(_) => int_lit(&value),
+            None => return Err(format!("unsupported constant type {ty:?}")),
+        };
+        let untyped = ty.name.starts_with("untyped");
+        Ok(Val {
+            e: E::new(code),
+            ty,
+            form: Form::Copy,
+            prim: if untyped { None } else { prim },
+        })
+    }
+
     /// How a local holds its values in this direction: encoders borrow, decoders own.
     fn direction_holding(&self) -> Holding {
         match self.dir {
@@ -315,143 +362,30 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn lookup(&self, go: &str) -> Result<Binding, String> {
-        self.scopes
+    /// Whether a store to this place is dropped: an encoder's write to what it writes.
+    fn drops_store(&self, place: &Expr) -> Result<bool, String> {
+        if self.dir != Dir::Encode
+            || place_path(place).is_some_and(|p| self.shadows.contains_key(&p))
+        {
+            return Ok(false);
+        }
+        let root =
+            root_name(place).ok_or_else(|| format!("unsupported assignment target {place:?}"))?;
+        let b = self.lookup(&root)?;
+        Ok(b.external && !(place.kind == "var" && b.var.is_some()))
+    }
+
+    fn field_of(&self, t: &Type, go_field: &str) -> Result<(String, Type), String> {
+        let def = self
+            .m
+            .struct_def(&t.name)
+            .ok_or_else(|| format!("field {go_field} of non-struct {}", t.name))?;
+        let f = def
+            .fields
             .iter()
-            .rev()
-            .find_map(|s| s.get(go))
-            .cloned()
-            .ok_or_else(|| format!("unknown variable {go}"))
-    }
-
-    fn name(&self, id: usize) -> String {
-        self.vars
-            .get(id)
-            .map(|v| v.name.clone())
-            .unwrap_or_default()
-    }
-
-    fn r(&self) -> &'static str {
-        match self.dir {
-            Dir::Decode => "r",
-            Dir::Encode => "w",
-        }
-    }
-
-    /// A function result type: `sum` decides strings (`&str`, `&'static str` or `String`).
-    fn result_type(&self, t: &Type, sum: &str) -> Result<String, String> {
-        if is_string(t) {
-            return Ok(if sum.contains("String") {
-                "String".to_owned()
-            } else {
-                "&str".to_owned()
-            });
-        }
-        if t.kind == "error" {
-            return Ok("Option<&'static str>".to_owned());
-        }
-        self.rust_type(t)
-    }
-
-    fn rust_type(&self, t: &Type) -> Result<String, String> {
-        self.m.rust_type(t, self.module)
-    }
-
-    /// Encode: declares shadow locals for external places the body assigns and reads after.
-    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
-        let mut locals = BTreeSet::new();
-        collect_locals(stmts, &mut locals);
-        let mut written = Vec::new();
-        let mut needs = BTreeSet::new();
-        self.flow(stmts, &locals, &mut written, &mut needs);
-        for path in needs {
-            let parts: Vec<&str> = path.split('.').collect();
-            let root = self.lookup(parts.first().copied().unwrap_or_default())?;
-            if root.var.is_some() {
-                continue;
-            }
-            let [_, field] = parts.as_slice() else {
-                return Err(format!("the writer assigns {path} and reads it afterwards"));
-            };
-            let (name, t) = self.field_of(&root.ty, field)?;
-            if !self.m.is_copy(&t) {
-                return Err(format!(
-                    "the writer assigns {path} and reads it afterwards; it is not Copy"
-                ));
-            }
-            let id = self.new_var(field, Some(self.rust_type(&t)?))?;
-            self.shadows.insert(path.clone(), id);
-            out.push(S::Let {
-                vars: vec![Some(id)],
-                init: Some(E::new(format!("{}.{name}", root.code))),
-                default_of: None,
-            });
-        }
-        Ok(())
-    }
-
-    /// Declares a tracked local bound to a Go name, with its type written out unless it is a
-    /// tuple; `Borrowed` locals hold references.
-    fn declare(&mut self, go: &str, t: &Type, holding: Holding) -> Result<usize, String> {
-        let ty = match (t.kind.as_str(), holding) {
-            ("tuple", _) => None,
-            (_, Holding::Borrowed) => Some(self.borrowed_type(t)?),
-            (_, Holding::Owned) => Some(self.rust_type(t)?),
-        };
-        self.declare_typed(go, t, ty, holding)
-    }
-
-    /// [`Self::declare`] with the type left to inference.
-    fn declare_unannotated(
-        &mut self,
-        go: &str,
-        t: &Type,
-        holding: Holding,
-    ) -> Result<usize, String> {
-        self.declare_typed(go, t, None, holding)
-    }
-
-    /// Declares a tracked local whose written type is `ty`.
-    fn declare_typed(
-        &mut self,
-        go: &str,
-        t: &Type,
-        ty: Option<String>,
-        holding: Holding,
-    ) -> Result<usize, String> {
-        let borrowed = holding == Holding::Borrowed;
-        let reference = borrowed && self.borrowed_type(t)?.starts_with('&');
-        let id = self.new_var(go, ty)?;
-        let kind = if reference { BKind::Ref } else { BKind::Owned };
-        self.bind(
-            go,
-            Binding {
-                code: self.name(id),
-                ty: t.clone(),
-                kind,
-                var: Some(id),
-                external: false,
-                borrowed,
-            },
-        );
-        Ok(id)
-    }
-
-    fn bind(&mut self, go: &str, b: Binding) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(go.to_owned(), b);
-        }
-    }
-
-    fn new_var(&mut self, go: &str, ty: Option<String>) -> Result<usize, String> {
-        let name = param_name(go)?;
-        self.vars.push(Var { name, ty });
-        Ok(self.vars.len() - 1)
-    }
-
-    fn q(&mut self) -> &'static str {
-        self.fallible = true;
-        "?"
+            .find(|f| f.name == go_field)
+            .ok_or_else(|| format!("{} has no field {go_field}", t.name))?;
+        Ok((field_rust_name(&t.name, &f.name)?, f.ty.clone()))
     }
 
     /// Follows encode-direction writes of external places through the control flow and
@@ -628,12 +562,553 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn scoped(&mut self, stmts: &[Stmt]) -> Result<Vec<S>, String> {
-        self.scopes.push(BTreeMap::new());
-        let mut out = Vec::new();
-        let result = self.stmts(stmts, &mut out);
-        self.scopes.pop();
-        result.map(|()| out)
+    /// The Rust path of a generated function, with `prefix` (`decode_`, `encode_`).
+    fn fn_path(&self, go: &str, prefix: &str) -> Result<String, String> {
+        let name = fn_name(go, prefix)?;
+        Ok(
+            if model::module_of(go) == Module::Types && self.module == Module::Packet {
+                format!("super::types::{name}")
+            } else {
+                name
+            },
+        )
+    }
+
+    fn helper_path(&self, name: &str) -> String {
+        if self.module == Module::Packet {
+            format!("super::types::{name}")
+        } else {
+            name.to_owned()
+        }
+    }
+
+    fn io_args(s: &Stmt) -> Result<Vec<String>, String> {
+        let mut args = Vec::new();
+        for a in &s.args {
+            args.push(match a.kind.as_str() {
+                "external" => match a.name.as_str() {
+                    "nbt.NetworkLittleEndian" => "nbt::Encoding::NetworkLittleEndian".to_owned(),
+                    "nbt.LittleEndian" => "nbt::Encoding::LittleEndian".to_owned(),
+                    other => return Err(format!("unsupported IO argument {other}")),
+                },
+                "lit" | "const" => a.value.clone().ok_or("constant without value")?,
+                _ => return Err(format!("unsupported IO argument {a:?}")),
+            });
+        }
+        Ok(args)
+    }
+
+    /// The decode limit key of a place: `<Go type>.<field>` for a field, or the key a list or
+    /// optional body gave the local it reads into.
+    fn limit_key(&self, place: &Expr) -> Option<String> {
+        match place.kind.as_str() {
+            "field" => {
+                let ty = place.x.as_deref()?.ty.as_ref()?;
+                (ty.kind == "named").then(|| format!("{}.{}", ty.name, place.name))
+            }
+            "var" => self
+                .limit_vars
+                .iter()
+                .rev()
+                .find(|(name, _)| *name == place.name)
+                .and_then(|(_, key)| key.clone()),
+            _ => None,
+        }
+    }
+
+    fn lookup(&self, go: &str) -> Result<Binding, String> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|s| s.get(go))
+            .cloned()
+            .ok_or_else(|| format!("unknown variable {go}"))
+    }
+
+    /// A mutable reference argument (decode).
+    fn mut_arg(v: &Val) -> E {
+        let mut e = v.e.clone();
+        e.muts.extend(&v.e.reads);
+        e.code = match e.code.strip_prefix('*') {
+            Some(inner) => inner.to_owned(),
+            None => format!("&mut {}", e.code),
+        };
+        e
+    }
+
+    /// An owned value (decode): locals move, places clone.
+    fn owned_value(v: Val) -> E {
+        match v.form {
+            Form::Copy | Form::Owned | Form::Local => v.e,
+            Form::Ref if is_string(&v.ty) => {
+                v.e.clone()
+                    .with_code(format!("{}.to_owned()", method_recv(&v.e.code)))
+            }
+            Form::Ref | Form::Place => {
+                v.e.clone()
+                    .with_code(format!("{}.clone()", method_recv(&v.e.code)))
+            }
+        }
+    }
+
+    /// Prints a cleaned statement list; `init` holds the locals initialized before it (by-value
+    /// parameters). Returns the code and the locals that need `mut`.
+    fn print_block(&self, stmts: &[S], mode: PrintMode, init: &mut Vars) -> (String, Vars) {
+        let folded = fold(stmts);
+        let stmts = folded.as_slice();
+        let mut muts = Vars::new();
+        let mut state = Some(init.clone());
+        assigned(stmts, &mut state, &mut muts);
+        collect_muts(stmts, &mut muts);
+        let mut out = String::new();
+        self.print(stmts, &muts, mode, Ending::EndsBody, &mut out);
+        (out, muts)
+    }
+
+    /// Prints statements; `ending` tells whether they end the body.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: one match arm per statement kind"
+    )]
+    fn print(&self, stmts: &[S], muts: &Vars, mode: PrintMode, ending: Ending, out: &mut String) {
+        // Late-initialized locals merged into their first assignment
+        // (clippy::needless_late_init): statement index to the `let` replacing it.
+        let mut merged: BTreeMap<usize, String> = BTreeMap::new();
+        let mut i = 0;
+        while let Some(s) = stmts.get(i) {
+            let is_last = ending == Ending::EndsBody && i + 1 == stmts.len();
+            let statement_ending = if is_last {
+                Ending::EndsBody
+            } else {
+                Ending::Inside
+            };
+            if let Some(text) = merged.remove(&i) {
+                out.push_str(&text);
+                i += 1;
+                continue;
+            }
+            match s {
+                S::Let {
+                    vars,
+                    init,
+                    default_of,
+                } => {
+                    let mut_of = |id: &usize| if muts.contains(id) { "mut " } else { "" };
+                    let ty = match vars.as_slice() {
+                        [Some(id)] => self.vars.get(*id).and_then(|v| v.ty.clone()),
+                        _ => None,
+                    };
+                    let annot = ty.map(|t| format!(": {t}")).unwrap_or_default();
+                    if let ([Some(id)], Some(init)) = (vars.as_slice(), init) {
+                        // A literal returned right away is the tail.
+                        let rest = stmts.get(i + 1..).unwrap_or_default();
+                        if default_of.is_some()
+                            && ending == Ending::EndsBody
+                            && matches!(rest, [S::Return(Some(e))] if e.code == self.name(*id))
+                        {
+                            put!(out, "{}", self.tail(&init.code, mode));
+                            return;
+                        }
+                    }
+                    let names: Vec<String> = vars
+                        .iter()
+                        .map(|v| {
+                            v.map_or_else(
+                                || "_".to_owned(),
+                                |id| format!("{}{}", mut_of(&id), self.name(id)),
+                            )
+                        })
+                        .collect();
+                    let pat = if names.len() == 1 {
+                        names.concat()
+                    } else {
+                        format!("({})", names.join(", "))
+                    };
+                    if let Some(init) = init {
+                        put!(out, "let {pat}{annot} = {};\n", init.code);
+                    } else {
+                        if let [Some(id)] = vars.as_slice() {
+                            let next = stmts
+                                .iter()
+                                .enumerate()
+                                .skip(i + 1)
+                                .find(|(_, s)| mentions(s, *id));
+                            if let Some((j, next)) = next
+                                && let Some(value) = self.late_init(*id, next)
+                            {
+                                let text = format!(
+                                    "let {}{}{annot} = {value};\n",
+                                    mut_of(id),
+                                    self.name(*id)
+                                );
+                                merged.insert(j, text);
+                                i += 1;
+                                continue;
+                            }
+                        }
+                        put!(out, "let {pat}{annot};\n");
+                    }
+                }
+                S::Set { var, rhs } => {
+                    put!(out, "{} = {};\n", self.name(*var), rhs.code);
+                }
+                S::Store { place, rhs, .. } => {
+                    put!(out, "{place} = {};\n", rhs.code);
+                }
+                S::Expr(e) => {
+                    let code = e.code.trim_end();
+                    if code.ends_with('}') && (code.starts_with("for ") || code.starts_with("if "))
+                    {
+                        put!(out, "{code}\n");
+                    } else {
+                        put!(out, "{};\n", code.trim_start_matches('*'));
+                    }
+                }
+                S::If { cond, then, els } => {
+                    self.print_if(cond, then, els, muts, mode, statement_ending, out);
+                    out.push('\n');
+                }
+                S::Match { scrut, arms } => {
+                    self.print_match(scrut, arms, muts, mode, statement_ending, out);
+                    out.push('\n');
+                }
+                S::Return(e) => {
+                    let value = e.as_ref().map_or("()", |e| e.code.as_str());
+                    if is_last && mode != PrintMode::Loop {
+                        put!(out, "{}", self.tail(value, mode));
+                    } else {
+                        put!(out, "return {};\n", self.fn_value(value));
+                    }
+                }
+                S::Fail(e) => {
+                    put!(out, "return Err({});\n", e.code);
+                }
+            }
+            i += 1;
+        }
+    }
+
+    /// The value of a late-initialized local when `next` assigns it on every path.
+    fn late_init(&self, id: usize, next: &S) -> Option<String> {
+        match next {
+            S::Set { var, rhs } if *var == id && !rhs.reads.contains(&id) => Some(rhs.code.clone()),
+            S::If {
+                cond: Cond::Plain { e, .. },
+                then,
+                els,
+            } if !els.is_empty() => {
+                let a = self.branch_value(id, then)?;
+                let b = self.branch_value(id, els)?;
+                Some(format!("if {} {{ {a} }} else {{ {b} }}", e.code))
+            }
+            S::Match { scrut, arms } if arms.iter().any(|(p, _)| p.is_empty()) => {
+                let mut parts = Vec::new();
+                for (pats, body) in arms {
+                    let value = self.branch_value(id, body)?;
+                    let pat = if pats.is_empty() {
+                        "_".to_owned()
+                    } else {
+                        compress(pats)
+                    };
+                    parts.push(format!("{pat} => {value},"));
+                }
+                Some(format!("match {} {{ {} }}", scrut.code, parts.join(" ")))
+            }
+            _ => None,
+        }
+    }
+
+    /// The statements of a branch followed by the value it assigns to `id` last.
+    fn branch_value(&self, id: usize, body: &[S]) -> Option<String> {
+        let (last, init) = body.split_last()?;
+        let S::Set { var, rhs } = last else {
+            return None;
+        };
+        if *var != id || init.iter().any(|s| mentions(s, id)) {
+            return None;
+        }
+        if init.is_empty() {
+            return Some(rhs.code.clone());
+        }
+        let mut out = String::new();
+        self.print(
+            init,
+            &Vars::new(),
+            PrintMode::Loop,
+            Ending::Inside,
+            &mut out,
+        );
+        Some(format!("{{ {out} {} }}", rhs.code))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "consistency: printing passes one context to every statement kind"
+    )]
+    fn print_if(
+        &self,
+        cond: &Cond,
+        then: &[S],
+        els: &[S],
+        muts: &Vars,
+        mode: PrintMode,
+        ending: Ending,
+        out: &mut String,
+    ) {
+        let (cond_code, then, els) = match cond {
+            Cond::Plain { e, neg } => {
+                let negated = e.code.starts_with('!') || e.code.contains(" != ");
+                if then.is_empty() && !els.is_empty() {
+                    (
+                        neg.clone().unwrap_or_else(|| format!("!({})", e.code)),
+                        els,
+                        then,
+                    )
+                } else if let Some(neg) = neg
+                    && !els.is_empty()
+                    && negated
+                {
+                    (neg.clone(), els, then)
+                } else {
+                    (e.code.clone(), then, els)
+                }
+            }
+            Cond::Let { var, expr, extra } => {
+                let used = then.iter().any(|s| mentions(s, *var))
+                    || extra.as_ref().is_some_and(|x| x.reads.contains(var));
+                let name = if used {
+                    let m = if muts.contains(var) { "mut " } else { "" };
+                    format!("{m}{}", self.name(*var))
+                } else {
+                    "_".to_owned()
+                };
+                let mut c = format!("let Some({name}) = {}", expr.code);
+                if let Some(x) = extra {
+                    put!(c, " && {}", x.code);
+                }
+                (c, then, els)
+            }
+        };
+        // `if a { if b { .. } }` is `if a && b { .. }` (clippy::collapsible_if).
+        if els.is_empty()
+            && let [
+                S::If {
+                    cond: Cond::Plain { e, .. },
+                    then: inner,
+                    els: inner_els,
+                },
+            ] = then
+            && inner_els.is_empty()
+            && !inner.is_empty()
+        {
+            put!(
+                out,
+                "if {} && {} {{ ",
+                paren_or(&cond_code),
+                paren_or(&e.code)
+            );
+            self.print(inner, muts, mode, ending, out);
+            out.push('}');
+            return;
+        }
+        put!(out, "if {cond_code} {{ ");
+        self.print(then, muts, mode, ending, out);
+        out.push('}');
+        if els.is_empty() {
+            return;
+        }
+        out.push_str(" else ");
+        if let [S::If { cond, then, els }] = els {
+            self.print_if(cond, then, els, muts, mode, ending, out);
+            return;
+        }
+        out.push_str("{ ");
+        self.print(els, muts, mode, ending, out);
+        out.push('}');
+    }
+
+    fn print_match(
+        &self,
+        scrut: &E,
+        arms: &[(Vec<String>, Vec<S>)],
+        muts: &Vars,
+        mode: PrintMode,
+        ending: Ending,
+        out: &mut String,
+    ) {
+        // Arms with the same body merge (clippy::match_same_arms); without a default, empty
+        // arms are the implicit `_ => {}`.
+        let mut printed: Vec<(Vec<String>, String)> = Vec::new();
+        let mut default: Option<String> = None;
+        for (pats, body) in arms {
+            let mut b = String::new();
+            self.print(body, muts, mode, ending, &mut b);
+            if pats.is_empty() {
+                default = Some(b);
+                continue;
+            }
+            if let Some(entry) = printed.iter_mut().find(|(_, x)| *x == b) {
+                entry.0.extend(pats.iter().cloned());
+                continue;
+            }
+            printed.push((pats.clone(), b));
+        }
+        let default = default.unwrap_or_default();
+        printed.retain(|(_, b)| *b != default);
+        match printed.as_slice() {
+            [] => {
+                if !default.trim().is_empty() {
+                    put!(out, "{{ {default} }}");
+                }
+            }
+            [(pats, body)] => {
+                let cond = pats
+                    .iter()
+                    .map(|p| format!("{} == {p}", scrut.code))
+                    .collect::<Vec<_>>()
+                    .join(" || ");
+                put!(out, "if {cond} {{ {body} }}");
+                if !default.trim().is_empty() {
+                    put!(out, " else {{ {default} }}");
+                }
+            }
+            _ => {
+                put!(out, "match {} {{ ", scrut.code);
+                for (pats, body) in &printed {
+                    put!(out, "{} => {{ {body} }} ", compress(pats));
+                }
+                put!(out, "_ => {{ {default} }} }}");
+            }
+        }
+    }
+
+    fn r(&self) -> &'static str {
+        match self.dir {
+            Dir::Decode => "r",
+            Dir::Encode => "w",
+        }
+    }
+
+    /// A reference to pass as a function argument (coerced at the call).
+    fn ref_arg(v: &Val) -> E {
+        match v.form {
+            Form::Ref => v.e.clone(),
+            _ => v.e.clone().with_code(format!("&{}", v.e.code)),
+        }
+    }
+
+    /// Something to iterate by reference.
+    fn ref_iter(v: &Val) -> E {
+        match v.form {
+            Form::Ref => v.e.clone(),
+            _ => match v.e.code.strip_prefix('*') {
+                Some(inner) => v.e.clone().with_code(inner.to_owned()),
+                None => v.e.clone().with_code(format!("&{}", v.e.code)),
+            },
+        }
+    }
+
+    /// A function result type: `sum` decides strings (`&str`, `&'static str` or `String`).
+    fn result_type(&self, t: &Type, sum: &str) -> Result<String, String> {
+        if is_string(t) {
+            return Ok(if sum.contains("String") {
+                "String".to_owned()
+            } else {
+                "&str".to_owned()
+            });
+        }
+        if t.kind == "error" {
+            return Ok("Option<&'static str>".to_owned());
+        }
+        self.rust_type(t)
+    }
+
+    fn rust_type(&self, t: &Type) -> Result<String, String> {
+        self.m.rust_type(t, self.module)
+    }
+
+    fn shadow(&self, e: &Expr) -> Option<E> {
+        let id = *self.shadows.get(&place_path(e)?)?;
+        let mut x = E::new(self.name(id));
+        x.reads.insert(id);
+        Some(x)
+    }
+
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: every local id comes from `new_var`"
+    )]
+    fn name(&self, id: usize) -> String {
+        self.vars
+            .get(id)
+            .expect("a local id names a declared local")
+            .name
+            .clone()
+    }
+
+    /// The tail expression giving `value`.
+    fn tail(&self, value: &str, mode: PrintMode) -> String {
+        match mode {
+            PrintMode::Fn | PrintMode::Loop => {
+                let v = self.fn_value(value);
+                if v == "()" { String::new() } else { v }
+            }
+            PrintMode::Closure => format!("Ok({value})"),
+            PrintMode::Block => value.to_owned(),
+        }
+    }
+
+    /// `value` as returned from the function.
+    fn fn_value(&self, value: &str) -> String {
+        if self.fallible {
+            format!("Ok({value})")
+        } else {
+            value.to_owned()
+        }
+    }
+
+    fn val(&self, e: E, ty: Type, form: Form) -> Val {
+        let prim = prim_of(&ty);
+        let form = if self.m.is_copy(&ty) && form != Form::Ref {
+            Form::Copy
+        } else {
+            form
+        };
+        Val { e, ty, form, prim }
+    }
+
+    /// Declares shadow locals for external places the body assigns and reads after, when
+    /// encoding.
+    fn add_shadows(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
+        let mut locals = BTreeSet::new();
+        collect_locals(stmts, &mut locals);
+        let mut written = Vec::new();
+        let mut needs = BTreeSet::new();
+        self.flow(stmts, &locals, &mut written, &mut needs);
+        for path in needs {
+            let parts: Vec<&str> = path.split('.').collect();
+            let root = self.lookup(parts.first().copied().unwrap_or_default())?;
+            if root.var.is_some() {
+                continue;
+            }
+            let [_, field] = parts.as_slice() else {
+                return Err(format!("the writer assigns {path} and reads it afterwards"));
+            };
+            let (name, t) = self.field_of(&root.ty, field)?;
+            if !self.m.is_copy(&t) {
+                return Err(format!(
+                    "the writer assigns {path} and reads it afterwards; it is not Copy"
+                ));
+            }
+            let id = self.new_var(field, Some(self.rust_type(&t)?))?;
+            self.shadows.insert(path.clone(), id);
+            out.push(S::Let {
+                vars: vec![Some(id)],
+                init: Some(E::new(format!("{}.{name}", root.code))),
+                default_of: None,
+            });
+        }
+        Ok(())
     }
 
     fn stmts(&mut self, stmts: &[Stmt], out: &mut Vec<S>) -> Result<(), String> {
@@ -698,547 +1173,45 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    fn return_stmt(&mut self, values: &[Expr]) -> Result<S, String> {
-        match self.ret.clone() {
-            Ret::Receiver(id) => {
-                let mut e = E::new(self.name(id));
-                e.reads.insert(id);
-                Ok(S::Return(Some(e)))
-            }
-            Ret::Unit => Ok(S::Return(None)),
-            Ret::Values { results, in_out } => {
-                let mut parts = Vec::new();
-                let mut e = E::default();
-                for (v, t) in values.iter().zip(&results) {
-                    let v = self.expr(v)?;
-                    let v = if t == "String" {
-                        Self::owned_value(v)
-                    } else {
-                        self.return_value(v)?
-                    };
-                    e = e.with(&v);
-                    parts.push(v.code);
-                }
-                for id in in_out {
-                    parts.push(self.name(id));
-                    e.reads.insert(id);
-                }
-                e.code = match parts.len() {
-                    0 => return Ok(S::Return(None)),
-                    1 => parts.concat(),
-                    _ => format!("({})", parts.join(", ")),
-                };
-                Ok(S::Return(Some(e)))
-            }
-        }
-    }
-
-    fn error(&mut self, s: &Stmt) -> Result<S, String> {
-        self.fallible = true;
-        let mut reads = Vars::new();
-        let code = match s.error.as_str() {
-            "invalid_value" => {
-                let field = self.static_str(s.field.as_ref().ok_or("error without field")?)?;
-                let reason = self.static_str(s.reason.as_ref().ok_or("error without reason")?)?;
-                reads.extend(&field.reads);
-                reads.extend(&reason.reads);
-                format!(
-                    "Error::InvalidValue {{ field: {}, reason: {} }}",
-                    field.code, reason.code
-                )
-            }
-            "unknown_enum_option" => {
-                let name = self.static_str(s.enum_name.as_ref().ok_or("error without enum")?)?;
-                let value = self.expr(s.value.as_ref().ok_or("error without value")?)?;
-                let value = self.i64_value(value)?;
-                reads.extend(&value.reads);
-                format!(
-                    "Error::UnknownEnum {{ name: {}, value: {} }}",
-                    name.code, value.code
-                )
-            }
-            other => return Err(format!("unsupported error {other}")),
+    fn for_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        // for i := 0; i < N; i++ { ... X[i] ... } over an array X of length N.
+        let ([init], [post]) = (s.init.as_slice(), s.post.as_slice()) else {
+            return Err("unsupported for loop".to_owned());
         };
-        let mut e = E::new(code);
-        e.reads = reads;
-        Ok(S::Fail(e))
+        let var = init.lhs.first().map(|l| l.name.clone()).unwrap_or_default();
+        let from_zero = init.op == ":="
+            && init
+                .rhs
+                .first()
+                .is_some_and(|r| r.value.as_deref() == Some("0"));
+        let by_one = post.op == "+="
+            && post
+                .rhs
+                .first()
+                .is_some_and(|r| r.value.as_deref() == Some("1"));
+        let cond = s.cond.as_ref().ok_or("for without condition")?;
+        let bound = cond.y.as_deref().and_then(|y| y.value.clone());
+        if !from_zero || !by_one || cond.op != "<" || bound.is_none() {
+            return Err("unsupported for loop".to_owned());
+        }
+        let base = index_base(&s.body, &var).ok_or("for loop index used other than as an index")?;
+        let len = base.ty.as_ref().and_then(|t| t.len).map(|l| l.to_string());
+        if len != bound {
+            return Err("for loop bound differs from the array length".to_owned());
+        }
+        self.element_loop(&var, &base, &s.body, out)
     }
 
-    /// A `&'static str` expression: a string constant, or the message of a non-nil error.
-    fn static_str(&mut self, e: &Expr) -> Result<E, String> {
-        match e.kind.as_str() {
-            "lit" | "const" => Ok(E::new(str_lit(e.value.as_deref().unwrap_or_default()))),
-            "call" if e.func == "error.Error" => {
-                let recv = self.expr(e.recv.as_deref().ok_or("Error without receiver")?)?;
-                Ok(recv.e)
-            }
-            _ => Err(format!("unsupported error text {e:?}")),
-        }
-    }
-
-    fn io_args(s: &Stmt) -> Result<Vec<String>, String> {
-        let mut args = Vec::new();
-        for a in &s.args {
-            args.push(match a.kind.as_str() {
-                "external" => match a.name.as_str() {
-                    "nbt.NetworkLittleEndian" => "nbt::Encoding::NetworkLittleEndian".to_owned(),
-                    "nbt.LittleEndian" => "nbt::Encoding::LittleEndian".to_owned(),
-                    other => return Err(format!("unsupported IO argument {other}")),
-                },
-                "lit" | "const" => a.value.clone().ok_or("constant without value")?,
-                _ => return Err(format!("unsupported IO argument {a:?}")),
-            });
-        }
-        Ok(args)
-    }
-
-    /// Decode: `r.method(args)` of an IO statement, returning `Result`.
-    fn io_read_call(&mut self, s: &Stmt) -> Result<String, String> {
-        let spec =
-            model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
-        if spec.read != Read::Returns {
-            return Err(format!("{} does not return a value", s.method));
-        }
-        self.fallible = true;
-        let args = Self::io_args(s)?;
-        if let Some(max) = self.limit(s.place.as_ref()) {
-            if !matches!(spec.rust, "string" | "byte_slice") || !args.is_empty() {
-                return Err(format!(
-                    "{} has no reader that takes a field limit",
-                    s.method
-                ));
-            }
-            return Ok(format!(
-                "r.{}_max({})",
-                spec.rust,
-                int_lit(&max.to_string())
-            ));
-        }
-        Ok(format!("r.{}({})", spec.rust, args.join(", ")))
-    }
-
-    /// The decode limit key of a place: `<Go type>.<field>` for a field, or the key a list or
-    /// optional body gave the local it reads into.
-    fn limit_key(&self, place: &Expr) -> Option<String> {
-        match place.kind.as_str() {
-            "field" => {
-                let ty = place.x.as_deref()?.ty.as_ref()?;
-                (ty.kind == "named").then(|| format!("{}.{}", ty.name, place.name))
-            }
-            "var" => self
-                .limit_vars
-                .iter()
-                .rev()
-                .find(|(name, _)| *name == place.name)
-                .and_then(|(_, key)| key.clone()),
-            _ => None,
-        }
-    }
-
-    /// The limit of the string or list read into or written from a place: the decoder refuses
-    /// what is over it, and the encoder does not write it, so a packet the client would refuse
-    /// is never sent, whoever built it. Decode marks it as applied.
-    fn limit(&mut self, place: Option<&Expr>) -> Option<usize> {
-        let key = self.limit_key(place?)?;
-        let max = *self.m.limits.get(&key)?;
-        if self.dir == Dir::Decode {
-            self.helpers.insert(format!("{LIMIT_USED}{key}"));
-        }
-        Some(max)
-    }
-
-    fn io(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        let spec =
-            model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
-        let place = s.place.as_ref().ok_or("io without place")?;
-        match self.dir {
-            Dir::Decode if spec.read == Read::Checks => {
-                let v = self.expr(place)?;
-                let arg = Self::ref_arg(&v);
-                let q = self.q();
-                out.push(S::Expr(
-                    arg.clone()
-                        .with_code(format!("r.{}({}){q}", spec.rust, arg.code))
-                        .effect(),
-                ));
-                Ok(())
-            }
-            Dir::Decode => {
-                let call = self.io_read_call(s)?;
-                self.store(place, E::new(format!("{call}?")).effect(), out)
-            }
-            Dir::Encode => {
-                let v = self.expr(place)?;
-                let arg = match spec.pass {
-                    Pass::Value => self.copy_value(v)?,
-                    Pass::Ref => Self::ref_arg(&v),
-                };
-                let mut args = vec![arg.code.clone()];
-                args.extend(Self::io_args(s)?);
-                let (method, q) = match self.limit(Some(place)) {
-                    Some(max) => {
-                        if !matches!(spec.rust, "string" | "byte_slice") || args.len() != 1 {
-                            return Err(format!(
-                                "{} has no writer that takes a field limit",
-                                s.method
-                            ));
-                        }
-                        args.push(int_lit(&max.to_string()));
-                        (format!("{}_max", spec.rust), self.q())
-                    }
-                    None => (
-                        spec.rust.to_owned(),
-                        if spec.write_fails { self.q() } else { "" },
-                    ),
-                };
-                out.push(S::Expr(
-                    arg.with_code(format!("w.{method}({}){q}", args.join(", ")))
-                        .effect(),
-                ));
-                Ok(())
-            }
-        }
-    }
-
-    fn marshal_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        let place = s.place.as_ref().ok_or("marshal without place")?;
-        if s.dynamic {
-            let v = self.expr(place)?;
-            let q = self.q();
-            let recv = method_recv(&v.e.code);
-            return match self.dir {
-                Dir::Decode => {
-                    let e =
-                        v.e.clone()
-                            .with_code(format!(
-                                "std::mem::take(&mut {}).decode_variant(r){q}",
-                                v.e.code
-                            ))
-                            .effect();
-                    self.store(place, e, out)
-                }
-                Dir::Encode => {
-                    out.push(S::Expr(
-                        v.e.clone()
-                            .with_code(format!("{recv}.encode_variant(w){q}"))
-                            .effect(),
-                    ));
-                    Ok(())
-                }
-            };
-        }
-        if !self.m.has_codec(&s.ty) {
-            return Err(format!("marshal of {}, which has no Codec", s.ty));
-        }
-        match self.dir {
-            Dir::Decode => {
-                let call = self.marshal_call(&s.ty, Some(place))?;
-                self.store(place, E::new(format!("{call}?")).effect(), out)
-            }
-            Dir::Encode => {
-                let v = self.expr(place)?;
-                let q = self.q();
-                let recv = method_recv(&v.e.code);
-                out.push(S::Expr(
-                    v.e.clone()
-                        .with_code(format!("{recv}.encode(w){q}"))
-                        .effect(),
-                ));
-                Ok(())
-            }
-        }
-    }
-
-    /// Decode: `T::decode(r)`, or `<Arc<T>>::decode(r)` into a shared field.
-    fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> Result<String, String> {
-        self.fallible = true;
-        let name = self.m.named(go, self.module)?;
-        let shared = place.is_some_and(|p| {
-            p.kind == "field"
-                && p.x
-                    .as_deref()
-                    .and_then(|x| x.ty.as_ref())
-                    .is_some_and(|t| t.kind == "named" && model::is_shared(&t.name, &p.name))
-        });
-        let name = if shared { format!("Arc<{name}>") } else { name };
-        Ok(format!("{}::decode(r)", type_path(&name)))
-    }
-
-    /// Decode: `r.list_*(F)` of a slice statement, returning `Result`; `r.list_*_max(N, F)`
-    /// when the field holds at most `N` elements.
-    fn list_call(&mut self, s: &Stmt) -> Result<E, String> {
-        let elem = s.elem.as_ref().ok_or("slice without element")?;
-        let max = self.limit(s.place.as_ref());
-        if is_byte_list(s, elem) {
-            self.fallible = true;
-            return Ok(E::new(match max {
-                Some(max) => format!("r.byte_slice_max({})", int_lit(&max.to_string())),
-                None => "r.byte_slice()".to_owned(),
-            }));
-        }
-        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
-        self.limit_vars
-            .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
-        let f = self.elem_fn(&s.body, elem);
-        self.limit_vars.pop();
-        let f = f?;
-        let (suffix, max) = match max {
-            Some(max) => ("_max", format!("{}, ", int_lit(&max.to_string()))),
-            None => ("", String::new()),
+    fn if_stmt(&mut self, s: &Stmt) -> Result<S, String> {
+        let cond_expr = s.cond.as_ref().ok_or("if without condition")?;
+        let cond = match s.init.as_slice() {
+            [] => self.cond(cond_expr)?,
+            [init] => self.if_let(init, cond_expr)?,
+            _ => return Err("if with several init statements".to_owned()),
         };
-        Ok(match s.prefix.as_str() {
-            "varuint32" | "uint8" | "uint32" => f
-                .clone()
-                .with_code(format!("r.list_{}{suffix}({max}{})", s.prefix, f.code)),
-            "" => {
-                let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
-                let len = self.u64_value(len)?;
-                f.clone()
-                    .with(&len)
-                    .with_code(format!("r.list{suffix}({}, {max}{})", len.code, f.code))
-            }
-            other => return Err(format!("unsupported slice prefix {other}")),
-        })
-    }
-
-    /// Decode: the element reader passed to a list read.
-    fn elem_fn(&mut self, body: &[Stmt], elem: &Param) -> Result<E, String> {
-        self.fallible = true;
-        if let Some((value, call)) = self.elem_value(body, elem)? {
-            if !call {
-                return Ok(value.clone().with_code(format!("|r| Ok({})", value.code)));
-            }
-            let code = &value.code;
-            if let Some(path) = code.strip_suffix("::decode(r)") {
-                return Ok(value.clone().with_code(format!("{path}::decode")));
-            }
-            if let Some(method) = code.strip_prefix("r.").and_then(|m| m.strip_suffix("()"))
-                && !method.contains('(')
-            {
-                return Ok(value.clone().with_code(format!("Reader::{method}")));
-            }
-            return Ok(value.clone().with_code(format!("|r| {code}")));
-        }
-        let (stmts, first) = self.elem_stmts(body, elem)?;
-        let (code, reads) = self.print_nested(stmts, first, PrintMode::Closure)?;
-        let mut e = E::new(format!("|r| {{ {code} }}"));
-        e.reads = reads;
-        Ok(e)
-    }
-
-    /// Decode: statements building one element in a fresh default local, ending in a return of
-    /// it; and the first local id of the nested body.
-    fn elem_stmts(&mut self, body: &[Stmt], elem: &Param) -> Result<(Vec<S>, usize), String> {
-        if contains_return(body) {
-            return Err("return inside an element body".to_owned());
-        }
-        self.scopes.push(BTreeMap::new());
-        let rust = self.rust_type(&elem.ty)?;
-        let first = self.vars.len();
-        let id = self.new_var(&elem.name, None)?;
-        self.bind(
-            &elem.name,
-            Binding {
-                code: self.name(id),
-                ty: elem.ty.clone(),
-                kind: BKind::Owned,
-                var: Some(id),
-                external: false,
-                borrowed: false,
-            },
-        );
-        let fields = if elem.ty.kind == "named" {
-            self.m
-                .struct_def(&elem.ty.name)
-                .map_or(usize::MAX, |d| d.fields.len())
-        } else {
-            usize::MAX
-        };
-        let path = type_path(&rust);
-        let mut out = vec![S::Let {
-            vars: vec![Some(id)],
-            init: Some(E::new(format!("{path}::default()"))),
-            default_of: Some((path, fields)),
-        }];
-        let result = self.stmts(body, &mut out);
-        self.scopes.pop();
-        result?;
-        let mut tail = E::new(self.name(id));
-        tail.reads.insert(id);
-        out.push(S::Return(Some(tail)));
-        Ok((out, first))
-    }
-
-    /// Cleans and prints a nested body; returns its code and the outer locals it reads. A body
-    /// that assigns a local outside it is an error.
-    fn print_nested(
-        &mut self,
-        mut stmts: Vec<S>,
-        first: usize,
-        mode: PrintMode,
-    ) -> Result<(String, Vars), String> {
-        if sets_before(&stmts, first) {
-            return Err("a nested body assigns a local outside it".to_owned());
-        }
-        live(&mut stmts, &Vars::new());
-        let reads = outer(&stmts, first);
-        let (code, _) = self.print_block(&stmts, mode, &mut Vars::new());
-        Ok((code, reads))
-    }
-
-    /// Decode: `if r.bool()? { Some(..) } else { None }` of an optional statement. The value
-    /// takes the place's limit.
-    fn option_value(&mut self, s: &Stmt) -> Result<E, String> {
-        let elem = s.elem.as_ref().ok_or("optional without element")?;
-        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
-        self.limit_vars.push((elem.name.clone(), key));
-        let value = self.option_inner(s, elem);
-        self.limit_vars.pop();
-        value
-    }
-
-    fn option_inner(&mut self, s: &Stmt, elem: &Param) -> Result<E, String> {
-        self.fallible = true;
-        let inner = if let Some((value, call)) = self.elem_value(&s.body, elem)? {
-            if call {
-                value.clone().with_code(format!("{}?", value.code))
-            } else {
-                value
-            }
-        } else {
-            let (stmts, first) = self.elem_stmts(&s.body, elem)?;
-            let (code, reads) = self.print_nested(stmts, first, PrintMode::Block)?;
-            let mut e = E::new(format!("{{ {code} }}"));
-            e.reads = reads;
-            e
-        };
-        Ok(inner.clone().with_code(format!(
-            "if r.bool()? {{ Some({}) }} else {{ None }}",
-            inner.code
-        )))
-    }
-
-    /// Decode: the value a single-statement element body gives its element: `(call, true)` for
-    /// an expression returning `Result`, `(value, false)` for a plain value.
-    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> Result<Option<(E, bool)>, String> {
-        let [s] = body else { return Ok(None) };
-        let on_elem = s
-            .place
-            .as_ref()
-            .is_some_and(|p| p.kind == "var" && p.name == elem.name);
-        if !on_elem {
-            return Ok(None);
-        }
-        Ok(match s.kind.as_str() {
-            "io" if model::io_spec(&s.method).is_some_and(|sp| sp.read == Read::Returns) => {
-                Some((E::new(self.io_read_call(s)?), true))
-            }
-            "marshal" if !s.dynamic && self.m.has_codec(&s.ty) => {
-                Some((E::new(self.marshal_call(&s.ty, None)?), true))
-            }
-            "slice" => Some((self.list_call(s)?, true)),
-            "optional" => Some((self.option_value(s)?, false)),
-            _ => None,
-        })
-    }
-
-    fn slice(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        let place = s.place.as_ref().ok_or("slice without place")?;
-        let elem = s.elem.as_ref().ok_or("slice without element")?;
-        match self.dir {
-            Dir::Decode => {
-                let call = self.list_call(s)?;
-                let e = call.clone().with_code(format!("{}?", call.code)).effect();
-                self.store(place, e, out)
-            }
-            Dir::Encode => {
-                let v = self.expr(place)?;
-                let list = Self::ref_iter(&v);
-                let recv = method_recv(&v.e.code);
-                let max = self.limit(Some(place)).map(|max| int_lit(&max.to_string()));
-                if is_byte_list(s, elem) {
-                    let q = self.q();
-                    let code = match &max {
-                        Some(max) => format!("w.byte_slice_max({}, {max}){q}", list.code),
-                        None => format!("w.byte_slice({}){q}", list.code),
-                    };
-                    out.push(S::Expr(list.with_code(code).effect()));
-                    return Ok(());
-                }
-                match s.prefix.as_str() {
-                    "varuint32" | "uint8" | "uint32" => {
-                        let q = self.q();
-                        let len = match &max {
-                            Some(max) => format!("length_max({recv}.len(), {max})"),
-                            None => format!("length({recv}.len())"),
-                        };
-                        let code = format!("w.{}({len}{q})", s.prefix);
-                        out.push(S::Expr(v.e.clone().with_code(code).effect()));
-                    }
-                    "" => {
-                        let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
-                        let len = self.usize_value(len)?;
-                        self.fallible = true;
-                        let over =
-                            max.map_or_else(String::new, |max| format!(" || {recv}.len() > {max}"));
-                        let cond = len
-                            .clone()
-                            .with(&v.e)
-                            .with_code(format!("{recv}.len() != {}{over}", len.code));
-                        out.push(S::If {
-                            cond: Cond::Plain { e: cond, neg: None },
-                            then: vec![S::Fail(E::new("Error::Size".to_owned()))],
-                            els: Vec::new(),
-                        });
-                    }
-                    other => return Err(format!("unsupported slice prefix {other}")),
-                }
-                let key = self.limit_key(place);
-                self.limit_vars
-                    .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
-                let body = self.encode_elem_body(&s.body, elem);
-                self.limit_vars.pop();
-                let (pat, body) = body?;
-                let code = format!("for {pat} in {} {{ {} }}", list.code, body.code);
-                out.push(S::Expr(list.with(&body).with_code(code).effect()));
-                Ok(())
-            }
-        }
-    }
-
-    /// Encode: the pattern and printed body run on each element (or the optional's value).
-    fn encode_elem_body(&mut self, body: &[Stmt], elem: &Param) -> Result<(String, E), String> {
-        self.scopes.push(BTreeMap::new());
-        let name = param_name(&elem.name)?;
-        let copy = self.m.is_copy(&elem.ty);
-        let kind = if copy { BKind::Owned } else { BKind::Ref };
-        self.bind(
-            &elem.name,
-            Binding {
-                code: name.clone(),
-                ty: elem.ty.clone(),
-                kind,
-                var: None,
-                external: true,
-                borrowed: false,
-            },
-        );
-        let first = self.vars.len();
-        let mut out = Vec::new();
-        let result = self.stmts(body, &mut out);
-        self.scopes.pop();
-        result?;
-        let (code, reads) = self.print_nested(out, first, PrintMode::Loop)?;
-        let mut e = E::new(code);
-        e.reads = reads;
-        let pat = if copy && mentions_name(&e.code, &name) {
-            format!("&{name}")
-        } else if mentions_name(&e.code, &name) {
-            name
-        } else {
-            "_".to_owned()
-        };
-        Ok((pat, e.effect()))
+        let then = self.scoped(&s.then)?;
+        let els = self.scoped(&s.els)?;
+        Ok(S::If { cond, then, els })
     }
 
     fn optional(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
@@ -1277,590 +1250,6 @@ impl<'m, 'a> Lower<'m, 'a> {
                 Ok(())
             }
         }
-    }
-
-    fn integer_func(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        let place = s.place.as_ref().ok_or("integer_func without place")?;
-        let elem = s.elem.as_ref().ok_or("integer_func without element")?;
-        let [inner] = s.body.as_slice() else {
-            return Err("integer_func body is not one IO call".to_owned());
-        };
-        if inner.kind != "io" || inner.place.as_ref().is_none_or(|p| p.name != elem.name) {
-            return Err("integer_func body is not one IO call on its element".to_owned());
-        }
-        let wire = model::basic(&elem.ty.name)?;
-        let spec = model::io_spec(&inner.method).ok_or("unknown IO method")?;
-        let target = self.expr(place)?;
-        let prim = target.prim.ok_or("integer_func on a non-integer")?;
-        match self.dir {
-            Dir::Decode => {
-                let call = self.io_read_call(inner)?;
-                let code = self.convert_code(&format!("{call}?"), wire, prim)?;
-                self.store(place, E::new(code).effect(), out)
-            }
-            Dir::Encode => {
-                let v = self.copy_value(target)?;
-                // A value that does not fit a narrower wire type is an error, where
-                // gophertunnel truncates it (encoding never truncates).
-                let code = if bits(wire) < bits(prim) {
-                    let owner = place.x.as_deref().and_then(|x| x.ty.as_ref());
-                    let field =
-                        field_rust_name(owner.map_or("", |t| t.name.as_str()), &place.name)?;
-                    let field = str_lit(field.trim_start_matches("r#"));
-                    let q = self.q();
-                    format!(
-                        "{wire}::try_from({}).map_err(|_| Error::InvalidValue {{ field: {field}, reason: \"out of range for its wire type\" }}){q}",
-                        v.code
-                    )
-                } else {
-                    self.convert_code(&v.code, prim, wire)?
-                };
-                let q = if spec.write_fails { self.q() } else { "" };
-                out.push(S::Expr(
-                    v.with_code(format!("w.{}({code}){q}", spec.rust)).effect(),
-                ));
-                Ok(())
-            }
-        }
-    }
-
-    #[expect(
-        clippy::too_many_lines,
-        reason = "consistency: one match arm per call target"
-    )]
-    fn call_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        match s.target.as_str() {
-            "function" => {
-                if let Some(method) = Model::hand_function(&s.func) {
-                    let Some((place, rest)) = s.args.split_first() else {
-                        return Err(format!("{} takes the place it reads or writes", s.func));
-                    };
-                    let q = self.q();
-                    let mut call = E::default();
-                    let mut codes = Vec::new();
-                    for arg_expr in rest {
-                        let val = self.expr(arg_expr)?;
-                        let arg = self.copy_value(val)?;
-                        call = call.with(&arg);
-                        codes.push(arg.code);
-                    }
-                    return match self.dir {
-                        Dir::Decode => self.store(
-                            place,
-                            call.with_code(format!("r.{method}({}){q}", codes.join(", ")))
-                                .effect(),
-                            out,
-                        ),
-                        Dir::Encode => {
-                            let val = self.expr(place)?;
-                            let place_expr = Self::ref_arg(&val);
-                            codes.insert(0, place_expr.code.clone());
-                            out.push(S::Expr(
-                                call.with(&place_expr)
-                                    .with_code(format!("w.{method}({}){q}", codes.join(", ")))
-                                    .effect(),
-                            ));
-                            Ok(())
-                        }
-                    };
-                }
-                let func = *self
-                    .m
-                    .functions
-                    .get(s.func.as_str())
-                    .ok_or_else(|| format!("unknown function {}", s.func))?;
-                let sum = self
-                    .sums
-                    .get(&(s.func.clone(), self.dir == Dir::Decode))
-                    .cloned()
-                    .ok_or_else(|| format!("no summary for {}", s.func))?;
-                let all: Vec<&Param> = func.receiver.iter().chain(&func.params).collect();
-                let args: Vec<&Expr> = s.recv.iter().chain(&s.args).collect();
-                let mut codes = vec![self.r().to_owned()];
-                let mut call = E::default();
-                for (i, (param, arg_expr)) in all.iter().zip(&args).enumerate() {
-                    if !sum.used.get(i).copied().unwrap_or(true) {
-                        continue;
-                    }
-                    let val = self.expr(arg_expr)?;
-                    let arg = if param.by_ref {
-                        match self.dir {
-                            Dir::Decode => Self::mut_arg(&val),
-                            Dir::Encode if self.m.is_copy(&param.ty) => self.copy_value(val)?,
-                            Dir::Encode => Self::ref_arg(&val),
-                        }
-                    } else if is_string(&param.ty) {
-                        Self::ref_arg(&val)
-                    } else {
-                        self.copy_value(val)?
-                    };
-                    call = call.with(&arg);
-                    codes.push(arg.code);
-                }
-                if !func.io {
-                    return Err(format!("{}: a pure function as a statement", s.func));
-                }
-                let prefix = match self.dir {
-                    Dir::Decode => "decode_",
-                    Dir::Encode => "encode_",
-                };
-                let q = if sum.fallible { self.q() } else { "" };
-                let name = self.fn_path(&s.func, prefix)?;
-                let call = call
-                    .with_code(format!("{name}({}){q}", codes.join(", ")))
-                    .effect();
-                if self.dir == Dir::Encode && !sum.in_out.is_empty() {
-                    let [i] = sum.in_out.as_slice() else {
-                        return Err(format!("{} has more than one in-out parameter", s.func));
-                    };
-                    let arg_expr = args.get(*i).ok_or("in-out argument missing")?;
-                    return self.store(arg_expr, call, out);
-                }
-                out.push(S::Expr(call));
-                Ok(())
-            }
-            "enum" => {
-                let en = *self
-                    .m
-                    .enums
-                    .get(s.func.as_str())
-                    .ok_or_else(|| format!("unknown enum {}", s.func))?;
-                let out_index = en
-                    .params
-                    .iter()
-                    .position(|param| param.name == en.output)
-                    .ok_or_else(|| {
-                        format!(
-                            "{}: a call statement of an enum that returns its value",
-                            s.func
-                        )
-                    })?;
-                let mut codes = Vec::new();
-                let mut call = E::default();
-                for (i, arg_expr) in s.args.iter().enumerate() {
-                    if i == out_index {
-                        continue;
-                    }
-                    let val = self.expr(arg_expr)?;
-                    let arg = if is_string(&val.ty) {
-                        Self::ref_arg(&val)
-                    } else {
-                        self.copy_value(val)?
-                    };
-                    call = call.with(&arg);
-                    codes.push(arg.code);
-                }
-                let name = self.fn_path(&s.func, "")?;
-                let q = self.q();
-                let call = call
-                    .with_code(format!("{name}({}){q}", codes.join(", ")))
-                    .effect();
-                let target = s
-                    .args
-                    .get(out_index)
-                    .ok_or("enum output argument missing")?;
-                self.store(target, call, out)
-            }
-            other => Err(format!("unsupported call statement target {other}")),
-        }
-    }
-
-    /// The Rust path of a generated function, with `prefix` (`decode_`, `encode_`).
-    fn fn_path(&self, go: &str, prefix: &str) -> Result<String, String> {
-        let name = fn_name(go, prefix)?;
-        Ok(
-            if model::module_of(go) == Module::Types && self.module == Module::Packet {
-                format!("super::types::{name}")
-            } else {
-                name
-            },
-        )
-    }
-
-    /// Assigns a value to a Go place.
-    fn store(&mut self, place: &Expr, rhs: E, out: &mut Vec<S>) -> Result<(), String> {
-        if place.kind == "blank" {
-            if rhs.effects {
-                out.push(S::Expr(rhs));
-            }
-            return Ok(());
-        }
-        if let Some(path) = place_path(place)
-            && let Some(&id) = self.shadows.get(&path)
-        {
-            out.push(S::Set { var: id, rhs });
-            return Ok(());
-        }
-        let root =
-            root_name(place).ok_or_else(|| format!("unsupported assignment target {place:?}"))?;
-        let b = self.lookup(&root)?;
-        if place.kind == "var"
-            && let Some(id) = b.var
-        {
-            out.push(S::Set { var: id, rhs });
-            return Ok(());
-        }
-        if self.dir == Dir::Encode && b.external {
-            // A writer's assignment to what it writes, which nothing reads afterwards.
-            if rhs.effects {
-                out.push(S::Expr(rhs));
-            }
-            return Ok(());
-        }
-        let target = self.expr(place)?;
-        let field = match (place.kind.as_str(), place.x.as_deref()) {
-            ("field", Some(x)) if x.kind == "var" => {
-                let t = x.ty.clone().ok_or("field of untyped base")?;
-                Some(self.field_of(&t, &place.name)?.0)
-            }
-            _ => None,
-        };
-        let mut reads = target.e.reads.clone();
-        reads.extend(b.var);
-        let code = if place.kind == "var" {
-            b.code.clone()
-        } else {
-            target.e.code
-        };
-        out.push(S::Store {
-            place: code,
-            root: b.var,
-            field,
-            reads,
-            rhs,
-        });
-        Ok(())
-    }
-
-    /// Whether a store to this place is dropped: an encoder's write to what it writes.
-    fn drops_store(&self, place: &Expr) -> Result<bool, String> {
-        if self.dir != Dir::Encode
-            || place_path(place).is_some_and(|p| self.shadows.contains_key(&p))
-        {
-            return Ok(false);
-        }
-        let root =
-            root_name(place).ok_or_else(|| format!("unsupported assignment target {place:?}"))?;
-        let b = self.lookup(&root)?;
-        Ok(b.external && !(place.kind == "var" && b.var.is_some()))
-    }
-
-    fn assign(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        match (s.lhs.as_slice(), s.rhs.as_slice()) {
-            ([lhs_expr], [rhs_expr]) if s.op == ":=" => {
-                let val = self.expr(rhs_expr)?;
-                let ty = rhs_expr.ty.clone().ok_or("untyped assignment")?;
-                // Encoders borrow; decoders own, except arrays of string constants.
-                let borrows = match self.dir {
-                    Dir::Encode => !(val.form == Form::Owned && is_string(&ty)),
-                    Dir::Decode => rhs_expr.kind == "composite" && ty.kind == "array",
-                };
-                let holding = if borrows {
-                    Holding::Borrowed
-                } else {
-                    Holding::Owned
-                };
-                let mut init = self.local_value(val, holding)?;
-                if borrows && is_string(&ty) {
-                    // `let x: &str = *y` derefs automatically (clippy::explicit_auto_deref).
-                    if init.code.starts_with('*') {
-                        init.code.remove(0);
-                    }
-                }
-                let id = self.declare(&lhs_expr.name, &ty, holding)?;
-                out.push(S::Let {
-                    vars: vec![Some(id)],
-                    init: Some(init),
-                    default_of: None,
-                });
-                Ok(())
-            }
-            ([lhs_expr], [rhs_expr]) if s.op == "=" => {
-                if self.drops_store(lhs_expr)? && !may_fail(rhs_expr) {
-                    return Ok(());
-                }
-                let val = self.expr(rhs_expr)?;
-                let local = lhs_expr.kind == "var"
-                    && self.lookup(&lhs_expr.name).is_ok_and(|b| b.var.is_some());
-                let rhs = if local {
-                    let holding = if self
-                        .lookup(&lhs_expr.name)
-                        .is_ok_and(|b| b.kind == BKind::Ref)
-                    {
-                        Holding::Borrowed
-                    } else {
-                        Holding::Owned
-                    };
-                    self.local_value(val, holding)?
-                } else {
-                    match self.dir {
-                        Dir::Decode => Self::owned_value(val),
-                        Dir::Encode => val.e,
-                    }
-                };
-                self.store(lhs_expr, rhs, out)
-            }
-            ([lhs_expr, rest @ ..], [rhs_expr])
-                if rest.iter().all(|x| x.kind == "blank") && rhs_expr.kind == "optional_value" =>
-            {
-                // `place, _ = opt.Value()`
-                let opt = self.expr(rhs_expr.x.as_deref().ok_or("Value without receiver")?)?;
-                let value = match self.dir {
-                    Dir::Decode => {
-                        let owned = Self::owned_value(opt);
-                        owned
-                            .clone()
-                            .with_code(format!("{}.unwrap_or_default()", owned.code))
-                    }
-                    Dir::Encode => opt
-                        .e
-                        .clone()
-                        .with_code(format!("{}.unwrap_or_default()", opt.e.code)),
-                };
-                self.store(lhs_expr, value, out)
-            }
-            (lhs, [rhs_expr]) if s.op == ":=" && lhs.len() > 1 => {
-                let val = self.expr(rhs_expr)?;
-                let types = match &rhs_expr.ty {
-                    Some(ty) if ty.kind == "tuple" => ty.elems.clone(),
-                    _ => return Err("tuple assignment from a non-tuple".to_owned()),
-                };
-                let mut ids = Vec::new();
-                for (lhs_expr, ty) in lhs.iter().zip(&types) {
-                    if lhs_expr.kind == "blank" {
-                        ids.push(None);
-                    } else {
-                        let holding = self.direction_holding();
-                        ids.push(Some(self.declare_unannotated(
-                            &lhs_expr.name,
-                            ty,
-                            holding,
-                        )?));
-                    }
-                }
-                out.push(S::Let {
-                    vars: ids,
-                    init: Some(val.e),
-                    default_of: None,
-                });
-                Ok(())
-            }
-            _ => Err(format!("unsupported assignment {:?}", s.op)),
-        }
-    }
-
-    fn if_stmt(&mut self, s: &Stmt) -> Result<S, String> {
-        let cond_expr = s.cond.as_ref().ok_or("if without condition")?;
-        let cond = match s.init.as_slice() {
-            [] => self.cond(cond_expr)?,
-            [init] => self.if_let(init, cond_expr)?,
-            _ => return Err("if with several init statements".to_owned()),
-        };
-        let then = self.scoped(&s.then)?;
-        let els = self.scoped(&s.els)?;
-        Ok(S::If { cond, then, els })
-    }
-
-    /// `if v, ok := opt.Value(); ok [&& c]` and `if err := f(); err != nil`.
-    fn if_let(&mut self, init: &Stmt, cond: &Expr) -> Result<Cond, String> {
-        let ([l, rest @ ..], [r]) = (init.lhs.as_slice(), init.rhs.as_slice()) else {
-            return Err("unsupported if init".to_owned());
-        };
-        if init.kind != "assign" || init.op != ":=" {
-            return Err("unsupported if init".to_owned());
-        }
-        if r.kind == "optional_value" {
-            let [ok] = rest else {
-                return Err("unsupported Value() init".to_owned());
-            };
-            let opt_expr = r.x.as_deref().ok_or("Value without receiver")?;
-            let opt = self.expr(opt_expr)?;
-            let elem_t = opt
-                .ty
-                .elem
-                .as_deref()
-                .cloned()
-                .ok_or("Value of a non-optional")?;
-            let copy = self.m.is_copy(&elem_t);
-            let scrut = if opt.form == Form::Place && !copy {
-                format!("&{}", opt.e.code)
-            } else {
-                opt.e.code.clone()
-            };
-            let borrowed_local =
-                opt_expr.kind == "var" && self.lookup(&opt_expr.name).is_ok_and(|b| b.borrowed);
-            let by_ref =
-                !copy && (opt.form == Form::Place || opt.form == Form::Ref || borrowed_local);
-            let id = self.new_var(&l.name, None)?;
-            let kind = if by_ref { BKind::Ref } else { BKind::Owned };
-            self.bind(
-                &l.name,
-                Binding {
-                    code: self.name(id),
-                    ty: elem_t,
-                    kind,
-                    var: Some(id),
-                    external: false,
-                    borrowed: false,
-                },
-            );
-            let extra = match (cond.kind.as_str(), cond.op.as_str()) {
-                ("var", _) if cond.name == ok.name => None,
-                ("binary", "&&")
-                    if cond
-                        .x
-                        .as_deref()
-                        .is_some_and(|x| x.kind == "var" && x.name == ok.name) =>
-                {
-                    Some(
-                        self.expr(cond.y.as_deref().ok_or("&& without right side")?)?
-                            .e,
-                    )
-                }
-                _ => return Err("unsupported Value() condition".to_owned()),
-            };
-            return Ok(Cond::Let {
-                var: id,
-                expr: opt.e.clone().with_code(scrut),
-                extra,
-            });
-        }
-        let is_err = r.ty.as_ref().is_some_and(|t| t.kind == "error");
-        let checks_nil = cond.kind == "binary"
-            && cond.op == "!="
-            && cond
-                .x
-                .as_deref()
-                .is_some_and(|x| x.kind == "var" && x.name == l.name)
-            && cond.y.as_deref().is_some_and(|y| y.kind == "nil");
-        if is_err && rest.is_empty() && checks_nil {
-            let v = self.expr(r)?;
-            let id = self.new_var(&l.name, None)?;
-            let ty = Type {
-                kind: "error".to_owned(),
-                ..basic_ty("")
-            };
-            self.bind(
-                &l.name,
-                Binding {
-                    code: self.name(id),
-                    ty,
-                    kind: BKind::Message,
-                    var: Some(id),
-                    external: false,
-                    borrowed: false,
-                },
-            );
-            return Ok(Cond::Let {
-                var: id,
-                expr: v.e,
-                extra: None,
-            });
-        }
-        Err("unsupported if init".to_owned())
-    }
-
-    fn cond(&mut self, e: &Expr) -> Result<Cond, String> {
-        let v = self.expr(e)?;
-        let neg = self.negate(e)?;
-        Ok(Cond::Plain { e: v.e, neg })
-    }
-
-    /// The negation of a condition when it is simpler than `!(..)`.
-    fn negate(&mut self, e: &Expr) -> Result<Option<String>, String> {
-        if e.kind == "unary" && e.op == "!" {
-            let x = self.expr(e.x.as_deref().ok_or("! without operand")?)?;
-            return Ok(Some(x.e.code));
-        }
-        if e.kind == "binary" {
-            let flipped = match e.op.as_str() {
-                "==" => "!=",
-                "!=" => "==",
-                "<" => ">=",
-                ">=" => "<",
-                ">" => "<=",
-                "<=" => ">",
-                _ => return Ok(None),
-            };
-            let x = e.x.as_deref().and_then(|x| x.ty.as_ref()).and_then(prim_of);
-            if x.is_some_and(|p| p.starts_with('f')) {
-                return Ok(None);
-            }
-            let mut flipped_expr = e.clone();
-            flipped.clone_into(&mut flipped_expr.op);
-            return Ok(Some(self.expr(&flipped_expr)?.e.code));
-        }
-        Ok(None)
-    }
-
-    fn switch(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        if !s.init.is_empty() {
-            return Err("switch with init".to_owned());
-        }
-        let Some(tag) = &s.tag else {
-            return Err("switch without a tag".to_owned());
-        };
-        let v = self.expr(tag)?;
-        let scrut = if is_string(&v.ty) {
-            match v.form {
-                Form::Ref => v.e.clone(),
-                _ => v.e.clone().with_code(format!("{}.as_str()", v.e.code)),
-            }
-        } else {
-            self.copy_value(v)?
-        };
-        let mut arms = Vec::new();
-        for c in &s.cases {
-            let pats = if c.default {
-                Vec::new()
-            } else {
-                c.values
-                    .iter()
-                    .map(|x| self.pattern(x))
-                    .collect::<Result<Vec<_>, String>>()?
-            };
-            let body = self.scoped(&c.body)?;
-            arms.push((pats, body));
-        }
-        out.push(S::Match { scrut, arms });
-        Ok(())
-    }
-
-    /// A case value as a pattern.
-    fn pattern(&mut self, e: &Expr) -> Result<String, String> {
-        match e.kind.as_str() {
-            "lit" | "const" => Ok(self.expr(e)?.e.code),
-            _ => Err(format!("unsupported case value {e:?}")),
-        }
-    }
-
-    fn for_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
-        // for i := 0; i < N; i++ { ... X[i] ... } over an array X of length N.
-        let ([init], [post]) = (s.init.as_slice(), s.post.as_slice()) else {
-            return Err("unsupported for loop".to_owned());
-        };
-        let var = init.lhs.first().map(|l| l.name.clone()).unwrap_or_default();
-        let from_zero = init.op == ":="
-            && init
-                .rhs
-                .first()
-                .is_some_and(|r| r.value.as_deref() == Some("0"));
-        let by_one = post.op == "+="
-            && post
-                .rhs
-                .first()
-                .is_some_and(|r| r.value.as_deref() == Some("1"));
-        let cond = s.cond.as_ref().ok_or("for without condition")?;
-        let bound = cond.y.as_deref().and_then(|y| y.value.clone());
-        if !from_zero || !by_one || cond.op != "<" || bound.is_none() {
-            return Err("unsupported for loop".to_owned());
-        }
-        let base = index_base(&s.body, &var).ok_or("for loop index used other than as an index")?;
-        let len = base.ty.as_ref().and_then(|t| t.len).map(|l| l.to_string());
-        if len != bound {
-            return Err("for loop bound differs from the array length".to_owned());
-        }
-        self.element_loop(&var, &base, &s.body, out)
     }
 
     fn range(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
@@ -2028,34 +1417,1129 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(())
     }
 
-    fn field_of(&self, t: &Type, go_field: &str) -> Result<(String, Type), String> {
-        let def = self
-            .m
-            .struct_def(&t.name)
-            .ok_or_else(|| format!("field {go_field} of non-struct {}", t.name))?;
-        let f = def
-            .fields
-            .iter()
-            .find(|f| f.name == go_field)
-            .ok_or_else(|| format!("{} has no field {go_field}", t.name))?;
-        Ok((field_rust_name(&t.name, &f.name)?, f.ty.clone()))
+    fn slice(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        let place = s.place.as_ref().ok_or("slice without place")?;
+        let elem = s.elem.as_ref().ok_or("slice without element")?;
+        match self.dir {
+            Dir::Decode => {
+                let call = self.list_call(s)?;
+                let e = call.clone().with_code(format!("{}?", call.code)).effect();
+                self.store(place, e, out)
+            }
+            Dir::Encode => {
+                let v = self.expr(place)?;
+                let list = Self::ref_iter(&v);
+                let recv = method_recv(&v.e.code);
+                let max = self.limit(Some(place)).map(|max| int_lit(&max.to_string()));
+                if is_byte_list(s, elem) {
+                    let q = self.q();
+                    let code = match &max {
+                        Some(max) => format!("w.byte_slice_max({}, {max}){q}", list.code),
+                        None => format!("w.byte_slice({}){q}", list.code),
+                    };
+                    out.push(S::Expr(list.with_code(code).effect()));
+                    return Ok(());
+                }
+                match s.prefix.as_str() {
+                    "varuint32" | "uint8" | "uint32" => {
+                        let q = self.q();
+                        let len = match &max {
+                            Some(max) => format!("length_max({recv}.len(), {max})"),
+                            None => format!("length({recv}.len())"),
+                        };
+                        let code = format!("w.{}({len}{q})", s.prefix);
+                        out.push(S::Expr(v.e.clone().with_code(code).effect()));
+                    }
+                    "" => {
+                        let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
+                        let len = self.usize_value(len)?;
+                        self.fallible = true;
+                        let over =
+                            max.map_or_else(String::new, |max| format!(" || {recv}.len() > {max}"));
+                        let cond = len
+                            .clone()
+                            .with(&v.e)
+                            .with_code(format!("{recv}.len() != {}{over}", len.code));
+                        out.push(S::If {
+                            cond: Cond::Plain { e: cond, neg: None },
+                            then: vec![S::Fail(E::new("Error::Size".to_owned()))],
+                            els: Vec::new(),
+                        });
+                    }
+                    other => return Err(format!("unsupported slice prefix {other}")),
+                }
+                let key = self.limit_key(place);
+                self.limit_vars
+                    .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
+                let body = self.encode_elem_body(&s.body, elem);
+                self.limit_vars.pop();
+                let (pat, body) = body?;
+                let code = format!("for {pat} in {} {{ {} }}", list.code, body.code);
+                out.push(S::Expr(list.with(&body).with_code(code).effect()));
+                Ok(())
+            }
+        }
     }
 
-    fn shadow(&self, e: &Expr) -> Option<E> {
-        let id = *self.shadows.get(&place_path(e)?)?;
-        let mut x = E::new(self.name(id));
-        x.reads.insert(id);
-        Some(x)
-    }
-
-    fn val(&self, e: E, ty: Type, form: Form) -> Val {
-        let prim = prim_of(&ty);
-        let form = if self.m.is_copy(&ty) && form != Form::Ref {
-            Form::Copy
+    /// Lowers an element body when encoding to the pattern and printed body run on each
+    /// element (or the optional's value).
+    fn encode_elem_body(&mut self, body: &[Stmt], elem: &Param) -> Result<(String, E), String> {
+        self.scopes.push(BTreeMap::new());
+        let name = param_name(&elem.name)?;
+        let copy = self.m.is_copy(&elem.ty);
+        let kind = if copy { BKind::Owned } else { BKind::Ref };
+        self.bind(
+            &elem.name,
+            Binding {
+                code: name.clone(),
+                ty: elem.ty.clone(),
+                kind,
+                var: None,
+                external: true,
+                borrowed: false,
+            },
+        );
+        let first = self.vars.len();
+        let mut out = Vec::new();
+        let result = self.stmts(body, &mut out);
+        self.scopes.pop();
+        result?;
+        let (code, reads) = self.print_nested(out, first, PrintMode::Loop)?;
+        let mut e = E::new(code);
+        e.reads = reads;
+        let pat = if copy && mentions_name(&e.code, &name) {
+            format!("&{name}")
+        } else if mentions_name(&e.code, &name) {
+            name
         } else {
-            form
+            "_".to_owned()
         };
-        Val { e, ty, form, prim }
+        Ok((pat, e.effect()))
+    }
+
+    /// Builds the `r.list_*(F)` call of a slice statement when decoding, which returns
+    /// `Result`; `r.list_*_max(N, F)` when the field holds at most `N` elements.
+    fn list_call(&mut self, s: &Stmt) -> Result<E, String> {
+        let elem = s.elem.as_ref().ok_or("slice without element")?;
+        let max = self.limit(s.place.as_ref());
+        if is_byte_list(s, elem) {
+            self.fallible = true;
+            return Ok(E::new(match max {
+                Some(max) => format!("r.byte_slice_max({})", int_lit(&max.to_string())),
+                None => "r.byte_slice()".to_owned(),
+            }));
+        }
+        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
+        self.limit_vars
+            .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
+        let f = self.elem_fn(&s.body, elem);
+        self.limit_vars.pop();
+        let f = f?;
+        let (suffix, max) = match max {
+            Some(max) => ("_max", format!("{}, ", int_lit(&max.to_string()))),
+            None => ("", String::new()),
+        };
+        Ok(match s.prefix.as_str() {
+            "varuint32" | "uint8" | "uint32" => f
+                .clone()
+                .with_code(format!("r.list_{}{suffix}({max}{})", s.prefix, f.code)),
+            "" => {
+                let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
+                let len = self.u64_value(len)?;
+                f.clone()
+                    .with(&len)
+                    .with_code(format!("r.list{suffix}({}, {max}{})", len.code, f.code))
+            }
+            other => return Err(format!("unsupported slice prefix {other}")),
+        })
+    }
+
+    /// Builds the element reader passed to a list read when decoding.
+    fn elem_fn(&mut self, body: &[Stmt], elem: &Param) -> Result<E, String> {
+        self.fallible = true;
+        if let Some((value, call)) = self.elem_value(body, elem)? {
+            if !call {
+                return Ok(value.clone().with_code(format!("|r| Ok({})", value.code)));
+            }
+            let code = &value.code;
+            if let Some(path) = code.strip_suffix("::decode(r)") {
+                return Ok(value.clone().with_code(format!("{path}::decode")));
+            }
+            if let Some(method) = code.strip_prefix("r.").and_then(|m| m.strip_suffix("()"))
+                && !method.contains('(')
+            {
+                return Ok(value.clone().with_code(format!("Reader::{method}")));
+            }
+            return Ok(value.clone().with_code(format!("|r| {code}")));
+        }
+        let (stmts, first) = self.elem_stmts(body, elem)?;
+        let (code, reads) = self.print_nested(stmts, first, PrintMode::Closure)?;
+        let mut e = E::new(format!("|r| {{ {code} }}"));
+        e.reads = reads;
+        Ok(e)
+    }
+
+    /// Builds the value a single-statement element body gives its element when decoding:
+    /// `(call, true)` for an expression returning `Result`, `(value, false)` for a plain value.
+    fn elem_value(&mut self, body: &[Stmt], elem: &Param) -> Result<Option<(E, bool)>, String> {
+        let [s] = body else { return Ok(None) };
+        let on_elem = s
+            .place
+            .as_ref()
+            .is_some_and(|p| p.kind == "var" && p.name == elem.name);
+        if !on_elem {
+            return Ok(None);
+        }
+        Ok(match s.kind.as_str() {
+            "io" if model::io_spec(&s.method).is_some_and(|sp| sp.read == Read::Returns) => {
+                Some((E::new(self.io_read_call(s)?), true))
+            }
+            "marshal" if !s.dynamic && self.m.has_codec(&s.ty) => {
+                Some((E::new(self.marshal_call(&s.ty, None)?), true))
+            }
+            "slice" => Some((self.list_call(s)?, true)),
+            "optional" => Some((self.option_value(s)?, false)),
+            _ => None,
+        })
+    }
+
+    /// Builds the `if r.bool()? { Some(..) } else { None }` of an optional statement when
+    /// decoding. The value takes the place's limit.
+    fn option_value(&mut self, s: &Stmt) -> Result<E, String> {
+        let elem = s.elem.as_ref().ok_or("optional without element")?;
+        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
+        self.limit_vars.push((elem.name.clone(), key));
+        let value = self.option_inner(s, elem);
+        self.limit_vars.pop();
+        value
+    }
+
+    fn option_inner(&mut self, s: &Stmt, elem: &Param) -> Result<E, String> {
+        self.fallible = true;
+        let inner = if let Some((value, call)) = self.elem_value(&s.body, elem)? {
+            if call {
+                value.clone().with_code(format!("{}?", value.code))
+            } else {
+                value
+            }
+        } else {
+            let (stmts, first) = self.elem_stmts(&s.body, elem)?;
+            let (code, reads) = self.print_nested(stmts, first, PrintMode::Block)?;
+            let mut e = E::new(format!("{{ {code} }}"));
+            e.reads = reads;
+            e
+        };
+        Ok(inner.clone().with_code(format!(
+            "if r.bool()? {{ Some({}) }} else {{ None }}",
+            inner.code
+        )))
+    }
+
+    /// Builds the statements that build one element in a fresh default local when decoding,
+    /// ending in a return of it, and the first local id of the nested body.
+    fn elem_stmts(&mut self, body: &[Stmt], elem: &Param) -> Result<(Vec<S>, usize), String> {
+        if contains_return(body) {
+            return Err("return inside an element body".to_owned());
+        }
+        self.scopes.push(BTreeMap::new());
+        let rust = self.rust_type(&elem.ty)?;
+        let first = self.vars.len();
+        let id = self.new_var(&elem.name, None)?;
+        self.bind(
+            &elem.name,
+            Binding {
+                code: self.name(id),
+                ty: elem.ty.clone(),
+                kind: BKind::Owned,
+                var: Some(id),
+                external: false,
+                borrowed: false,
+            },
+        );
+        let fields = if elem.ty.kind == "named" {
+            self.m.struct_def(&elem.ty.name).map(|d| d.fields.len())
+        } else {
+            None
+        };
+        let path = type_path(&rust);
+        let mut out = vec![S::Let {
+            vars: vec![Some(id)],
+            init: Some(E::new(format!("{path}::default()"))),
+            default_of: Some((path, fields)),
+        }];
+        let result = self.stmts(body, &mut out);
+        self.scopes.pop();
+        result?;
+        let mut tail = E::new(self.name(id));
+        tail.reads.insert(id);
+        out.push(S::Return(Some(tail)));
+        Ok((out, first))
+    }
+
+    fn switch(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        if !s.init.is_empty() {
+            return Err("switch with init".to_owned());
+        }
+        let Some(tag) = &s.tag else {
+            return Err("switch without a tag".to_owned());
+        };
+        let v = self.expr(tag)?;
+        let scrut = if is_string(&v.ty) {
+            match v.form {
+                Form::Ref => v.e.clone(),
+                _ => v.e.clone().with_code(format!("{}.as_str()", v.e.code)),
+            }
+        } else {
+            self.copy_value(v)?
+        };
+        let mut arms = Vec::new();
+        for c in &s.cases {
+            let pats = if c.default {
+                Vec::new()
+            } else {
+                c.values
+                    .iter()
+                    .map(|x| self.pattern(x))
+                    .collect::<Result<Vec<_>, String>>()?
+            };
+            let body = self.scoped(&c.body)?;
+            arms.push((pats, body));
+        }
+        out.push(S::Match { scrut, arms });
+        Ok(())
+    }
+
+    fn scoped(&mut self, stmts: &[Stmt]) -> Result<Vec<S>, String> {
+        self.scopes.push(BTreeMap::new());
+        let mut out = Vec::new();
+        let result = self.stmts(stmts, &mut out);
+        self.scopes.pop();
+        result.map(|()| out)
+    }
+
+    fn assign(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        match (s.lhs.as_slice(), s.rhs.as_slice()) {
+            ([lhs_expr], [rhs_expr]) if s.op == ":=" => {
+                let val = self.expr(rhs_expr)?;
+                let ty = rhs_expr.ty.clone().ok_or("untyped assignment")?;
+                // Encoders borrow; decoders own, except arrays of string constants.
+                let borrows = match self.dir {
+                    Dir::Encode => !(val.form == Form::Owned && is_string(&ty)),
+                    Dir::Decode => rhs_expr.kind == "composite" && ty.kind == "array",
+                };
+                let holding = if borrows {
+                    Holding::Borrowed
+                } else {
+                    Holding::Owned
+                };
+                let mut init = self.local_value(val, holding)?;
+                if borrows && is_string(&ty) {
+                    // `let x: &str = *y` derefs automatically (clippy::explicit_auto_deref).
+                    if init.code.starts_with('*') {
+                        init.code.remove(0);
+                    }
+                }
+                let id = self.declare(&lhs_expr.name, &ty, holding)?;
+                out.push(S::Let {
+                    vars: vec![Some(id)],
+                    init: Some(init),
+                    default_of: None,
+                });
+                Ok(())
+            }
+            ([lhs_expr], [rhs_expr]) if s.op == "=" => {
+                if self.drops_store(lhs_expr)? && !may_fail(rhs_expr) {
+                    return Ok(());
+                }
+                let val = self.expr(rhs_expr)?;
+                let local = lhs_expr.kind == "var"
+                    && self.lookup(&lhs_expr.name).is_ok_and(|b| b.var.is_some());
+                let rhs = if local {
+                    let holding = if self
+                        .lookup(&lhs_expr.name)
+                        .is_ok_and(|b| b.kind == BKind::Ref)
+                    {
+                        Holding::Borrowed
+                    } else {
+                        Holding::Owned
+                    };
+                    self.local_value(val, holding)?
+                } else {
+                    match self.dir {
+                        Dir::Decode => Self::owned_value(val),
+                        Dir::Encode => val.e,
+                    }
+                };
+                self.store(lhs_expr, rhs, out)
+            }
+            ([lhs_expr, rest @ ..], [rhs_expr])
+                if rest.iter().all(|x| x.kind == "blank") && rhs_expr.kind == "optional_value" =>
+            {
+                // `place, _ = opt.Value()`
+                let opt = self.expr(rhs_expr.x.as_deref().ok_or("Value without receiver")?)?;
+                let value = match self.dir {
+                    Dir::Decode => {
+                        let owned = Self::owned_value(opt);
+                        owned
+                            .clone()
+                            .with_code(format!("{}.unwrap_or_default()", owned.code))
+                    }
+                    Dir::Encode => opt
+                        .e
+                        .clone()
+                        .with_code(format!("{}.unwrap_or_default()", opt.e.code)),
+                };
+                self.store(lhs_expr, value, out)
+            }
+            (lhs, [rhs_expr]) if s.op == ":=" && lhs.len() > 1 => {
+                let val = self.expr(rhs_expr)?;
+                let types = match &rhs_expr.ty {
+                    Some(ty) if ty.kind == "tuple" => ty.elems.clone(),
+                    _ => return Err("tuple assignment from a non-tuple".to_owned()),
+                };
+                let mut ids = Vec::new();
+                for (lhs_expr, ty) in lhs.iter().zip(&types) {
+                    if lhs_expr.kind == "blank" {
+                        ids.push(None);
+                    } else {
+                        let holding = self.direction_holding();
+                        ids.push(Some(self.declare_unannotated(
+                            &lhs_expr.name,
+                            ty,
+                            holding,
+                        )?));
+                    }
+                }
+                out.push(S::Let {
+                    vars: ids,
+                    init: Some(val.e),
+                    default_of: None,
+                });
+                Ok(())
+            }
+            _ => Err(format!("unsupported assignment {:?}", s.op)),
+        }
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: one match arm per call target"
+    )]
+    fn call_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        match s.target.as_str() {
+            "function" => {
+                if let Some(method) = Model::hand_function(&s.func) {
+                    let Some((place, rest)) = s.args.split_first() else {
+                        return Err(format!("{} takes the place it reads or writes", s.func));
+                    };
+                    let q = self.q();
+                    let mut call = E::default();
+                    let mut codes = Vec::new();
+                    for arg_expr in rest {
+                        let val = self.expr(arg_expr)?;
+                        let arg = self.copy_value(val)?;
+                        call = call.with(&arg);
+                        codes.push(arg.code);
+                    }
+                    return match self.dir {
+                        Dir::Decode => self.store(
+                            place,
+                            call.with_code(format!("r.{method}({}){q}", codes.join(", ")))
+                                .effect(),
+                            out,
+                        ),
+                        Dir::Encode => {
+                            let val = self.expr(place)?;
+                            let place_expr = Self::ref_arg(&val);
+                            codes.insert(0, place_expr.code.clone());
+                            out.push(S::Expr(
+                                call.with(&place_expr)
+                                    .with_code(format!("w.{method}({}){q}", codes.join(", ")))
+                                    .effect(),
+                            ));
+                            Ok(())
+                        }
+                    };
+                }
+                let func = *self
+                    .m
+                    .functions
+                    .get(s.func.as_str())
+                    .ok_or_else(|| format!("unknown function {}", s.func))?;
+                let sum = self
+                    .sums
+                    .get(&(s.func.clone(), self.dir == Dir::Decode))
+                    .cloned()
+                    .ok_or_else(|| format!("no summary for {}", s.func))?;
+                let all: Vec<&Param> = func.receiver.iter().chain(&func.params).collect();
+                let args: Vec<&Expr> = s.recv.iter().chain(&s.args).collect();
+                let mut codes = vec![self.r().to_owned()];
+                let mut call = E::default();
+                for (i, (param, arg_expr)) in all.iter().zip(&args).enumerate() {
+                    if !sum.used.get(i).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    let val = self.expr(arg_expr)?;
+                    let arg = if param.by_ref {
+                        match self.dir {
+                            Dir::Decode => Self::mut_arg(&val),
+                            Dir::Encode if self.m.is_copy(&param.ty) => self.copy_value(val)?,
+                            Dir::Encode => Self::ref_arg(&val),
+                        }
+                    } else if is_string(&param.ty) {
+                        Self::ref_arg(&val)
+                    } else {
+                        self.copy_value(val)?
+                    };
+                    call = call.with(&arg);
+                    codes.push(arg.code);
+                }
+                if !func.io {
+                    return Err(format!("{}: a pure function as a statement", s.func));
+                }
+                let prefix = match self.dir {
+                    Dir::Decode => "decode_",
+                    Dir::Encode => "encode_",
+                };
+                let q = if sum.fallible { self.q() } else { "" };
+                let name = self.fn_path(&s.func, prefix)?;
+                let call = call
+                    .with_code(format!("{name}({}){q}", codes.join(", ")))
+                    .effect();
+                if self.dir == Dir::Encode && !sum.in_out.is_empty() {
+                    let [i] = sum.in_out.as_slice() else {
+                        return Err(format!("{} has more than one in-out parameter", s.func));
+                    };
+                    let arg_expr = args.get(*i).ok_or("in-out argument missing")?;
+                    return self.store(arg_expr, call, out);
+                }
+                out.push(S::Expr(call));
+                Ok(())
+            }
+            "enum" => {
+                let en = *self
+                    .m
+                    .enums
+                    .get(s.func.as_str())
+                    .ok_or_else(|| format!("unknown enum {}", s.func))?;
+                let out_index = en
+                    .params
+                    .iter()
+                    .position(|param| param.name == en.output)
+                    .ok_or_else(|| {
+                        format!(
+                            "{}: a call statement of an enum that returns its value",
+                            s.func
+                        )
+                    })?;
+                let mut codes = Vec::new();
+                let mut call = E::default();
+                for (i, arg_expr) in s.args.iter().enumerate() {
+                    if i == out_index {
+                        continue;
+                    }
+                    let val = self.expr(arg_expr)?;
+                    let arg = if is_string(&val.ty) {
+                        Self::ref_arg(&val)
+                    } else {
+                        self.copy_value(val)?
+                    };
+                    call = call.with(&arg);
+                    codes.push(arg.code);
+                }
+                let name = self.fn_path(&s.func, "")?;
+                let q = self.q();
+                let call = call
+                    .with_code(format!("{name}({}){q}", codes.join(", ")))
+                    .effect();
+                let target = s
+                    .args
+                    .get(out_index)
+                    .ok_or("enum output argument missing")?;
+                self.store(target, call, out)
+            }
+            other => Err(format!("unsupported call statement target {other}")),
+        }
+    }
+
+    fn cond(&mut self, e: &Expr) -> Result<Cond, String> {
+        let v = self.expr(e)?;
+        let neg = self.negate(e)?;
+        Ok(Cond::Plain { e: v.e, neg })
+    }
+
+    /// Declares a tracked local bound to a Go name, with its type written out unless it is a
+    /// tuple; `Borrowed` locals hold references.
+    fn declare(&mut self, go: &str, t: &Type, holding: Holding) -> Result<usize, String> {
+        let ty = match (t.kind.as_str(), holding) {
+            ("tuple", _) => None,
+            (_, Holding::Borrowed) => Some(self.borrowed_type(t)?),
+            (_, Holding::Owned) => Some(self.rust_type(t)?),
+        };
+        self.declare_typed(go, t, ty, holding)
+    }
+
+    /// Declares a tracked local like [`Self::declare`], with the type left to inference.
+    fn declare_unannotated(
+        &mut self,
+        go: &str,
+        t: &Type,
+        holding: Holding,
+    ) -> Result<usize, String> {
+        self.declare_typed(go, t, None, holding)
+    }
+
+    /// Declares a tracked local whose written type is `ty`.
+    fn declare_typed(
+        &mut self,
+        go: &str,
+        t: &Type,
+        ty: Option<String>,
+        holding: Holding,
+    ) -> Result<usize, String> {
+        let borrowed = holding == Holding::Borrowed;
+        let reference = borrowed && self.borrowed_type(t)?.starts_with('&');
+        let id = self.new_var(go, ty)?;
+        let kind = if reference { BKind::Ref } else { BKind::Owned };
+        self.bind(
+            go,
+            Binding {
+                code: self.name(id),
+                ty: t.clone(),
+                kind,
+                var: Some(id),
+                external: false,
+                borrowed,
+            },
+        );
+        Ok(id)
+    }
+
+    fn error(&mut self, s: &Stmt) -> Result<S, String> {
+        self.fallible = true;
+        let mut reads = Vars::new();
+        let code = match s.error.as_str() {
+            "invalid_value" => {
+                let field = self.static_str(s.field.as_ref().ok_or("error without field")?)?;
+                let reason = self.static_str(s.reason.as_ref().ok_or("error without reason")?)?;
+                reads.extend(&field.reads);
+                reads.extend(&reason.reads);
+                format!(
+                    "Error::InvalidValue {{ field: {}, reason: {} }}",
+                    field.code, reason.code
+                )
+            }
+            "unknown_enum_option" => {
+                let name = self.static_str(s.enum_name.as_ref().ok_or("error without enum")?)?;
+                let value = self.expr(s.value.as_ref().ok_or("error without value")?)?;
+                let value = self.i64_value(value)?;
+                reads.extend(&value.reads);
+                format!(
+                    "Error::UnknownEnum {{ name: {}, value: {} }}",
+                    name.code, value.code
+                )
+            }
+            other => return Err(format!("unsupported error {other}")),
+        };
+        let mut e = E::new(code);
+        e.reads = reads;
+        Ok(S::Fail(e))
+    }
+
+    fn i64_value(&mut self, v: Val) -> Result<E, String> {
+        let from = v.prim.ok_or("enum value of unknown type")?;
+        let e = self.copy_value(v)?;
+        let code = self.convert_code(&e.code, from, "i64")?;
+        Ok(e.with_code(code))
+    }
+
+    /// Lowers the init and condition of `if v, ok := opt.Value(); ok [&& c]` and
+    /// `if err := f(); err != nil`.
+    fn if_let(&mut self, init: &Stmt, cond: &Expr) -> Result<Cond, String> {
+        let ([l, rest @ ..], [r]) = (init.lhs.as_slice(), init.rhs.as_slice()) else {
+            return Err("unsupported if init".to_owned());
+        };
+        if init.kind != "assign" || init.op != ":=" {
+            return Err("unsupported if init".to_owned());
+        }
+        if r.kind == "optional_value" {
+            let [ok] = rest else {
+                return Err("unsupported Value() init".to_owned());
+            };
+            let opt_expr = r.x.as_deref().ok_or("Value without receiver")?;
+            let opt = self.expr(opt_expr)?;
+            let elem_t = opt
+                .ty
+                .elem
+                .as_deref()
+                .cloned()
+                .ok_or("Value of a non-optional")?;
+            let copy = self.m.is_copy(&elem_t);
+            let scrut = if opt.form == Form::Place && !copy {
+                format!("&{}", opt.e.code)
+            } else {
+                opt.e.code.clone()
+            };
+            let borrowed_local =
+                opt_expr.kind == "var" && self.lookup(&opt_expr.name).is_ok_and(|b| b.borrowed);
+            let by_ref =
+                !copy && (opt.form == Form::Place || opt.form == Form::Ref || borrowed_local);
+            let id = self.new_var(&l.name, None)?;
+            let kind = if by_ref { BKind::Ref } else { BKind::Owned };
+            self.bind(
+                &l.name,
+                Binding {
+                    code: self.name(id),
+                    ty: elem_t,
+                    kind,
+                    var: Some(id),
+                    external: false,
+                    borrowed: false,
+                },
+            );
+            let extra = match (cond.kind.as_str(), cond.op.as_str()) {
+                ("var", _) if cond.name == ok.name => None,
+                ("binary", "&&")
+                    if cond
+                        .x
+                        .as_deref()
+                        .is_some_and(|x| x.kind == "var" && x.name == ok.name) =>
+                {
+                    Some(
+                        self.expr(cond.y.as_deref().ok_or("&& without right side")?)?
+                            .e,
+                    )
+                }
+                _ => return Err("unsupported Value() condition".to_owned()),
+            };
+            return Ok(Cond::Let {
+                var: id,
+                expr: opt.e.clone().with_code(scrut),
+                extra,
+            });
+        }
+        let is_err = r.ty.as_ref().is_some_and(|t| t.kind == "error");
+        let checks_nil = cond.kind == "binary"
+            && cond.op == "!="
+            && cond
+                .x
+                .as_deref()
+                .is_some_and(|x| x.kind == "var" && x.name == l.name)
+            && cond.y.as_deref().is_some_and(|y| y.kind == "nil");
+        if is_err && rest.is_empty() && checks_nil {
+            let v = self.expr(r)?;
+            let id = self.new_var(&l.name, None)?;
+            let ty = Type {
+                kind: "error".to_owned(),
+                ..basic_ty("")
+            };
+            self.bind(
+                &l.name,
+                Binding {
+                    code: self.name(id),
+                    ty,
+                    kind: BKind::Message,
+                    var: Some(id),
+                    external: false,
+                    borrowed: false,
+                },
+            );
+            return Ok(Cond::Let {
+                var: id,
+                expr: v.e,
+                extra: None,
+            });
+        }
+        Err("unsupported if init".to_owned())
+    }
+
+    fn bind(&mut self, go: &str, b: Binding) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(go.to_owned(), b);
+        }
+    }
+
+    fn integer_func(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        let place = s.place.as_ref().ok_or("integer_func without place")?;
+        let elem = s.elem.as_ref().ok_or("integer_func without element")?;
+        let [inner] = s.body.as_slice() else {
+            return Err("integer_func body is not one IO call".to_owned());
+        };
+        if inner.kind != "io" || inner.place.as_ref().is_none_or(|p| p.name != elem.name) {
+            return Err("integer_func body is not one IO call on its element".to_owned());
+        }
+        let wire = model::basic(&elem.ty.name)?;
+        let spec = model::io_spec(&inner.method).ok_or("unknown IO method")?;
+        let target = self.expr(place)?;
+        let prim = target.prim.ok_or("integer_func on a non-integer")?;
+        match self.dir {
+            Dir::Decode => {
+                let call = self.io_read_call(inner)?;
+                let code = self.convert_code(&format!("{call}?"), wire, prim)?;
+                self.store(place, E::new(code).effect(), out)
+            }
+            Dir::Encode => {
+                let v = self.copy_value(target)?;
+                // A value that does not fit a narrower wire type is an error, where
+                // gophertunnel truncates it (encoding never truncates).
+                let code = if bits(wire) < bits(prim) {
+                    let owner = place.x.as_deref().and_then(|x| x.ty.as_ref());
+                    let field =
+                        field_rust_name(owner.map_or("", |t| t.name.as_str()), &place.name)?;
+                    let field = str_lit(field.trim_start_matches("r#"));
+                    let q = self.q();
+                    format!(
+                        "{wire}::try_from({}).map_err(|_| Error::InvalidValue {{ field: {field}, reason: \"out of range for its wire type\" }}){q}",
+                        v.code
+                    )
+                } else {
+                    self.convert_code(&v.code, prim, wire)?
+                };
+                let q = if spec.write_fails { self.q() } else { "" };
+                out.push(S::Expr(
+                    v.with_code(format!("w.{}({code}){q}", spec.rust)).effect(),
+                ));
+                Ok(())
+            }
+        }
+    }
+
+    fn io(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        let spec =
+            model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
+        let place = s.place.as_ref().ok_or("io without place")?;
+        match self.dir {
+            Dir::Decode if spec.read == Read::Checks => {
+                let v = self.expr(place)?;
+                let arg = Self::ref_arg(&v);
+                let q = self.q();
+                out.push(S::Expr(
+                    arg.clone()
+                        .with_code(format!("r.{}({}){q}", spec.rust, arg.code))
+                        .effect(),
+                ));
+                Ok(())
+            }
+            Dir::Decode => {
+                let call = self.io_read_call(s)?;
+                self.store(place, E::new(format!("{call}?")).effect(), out)
+            }
+            Dir::Encode => {
+                let v = self.expr(place)?;
+                let arg = match spec.pass {
+                    Pass::Value => self.copy_value(v)?,
+                    Pass::Ref => Self::ref_arg(&v),
+                };
+                let mut args = vec![arg.code.clone()];
+                args.extend(Self::io_args(s)?);
+                let (method, q) = match self.limit(Some(place)) {
+                    Some(max) => {
+                        if !matches!(spec.rust, "string" | "byte_slice") || args.len() != 1 {
+                            return Err(format!(
+                                "{} has no writer that takes a field limit",
+                                s.method
+                            ));
+                        }
+                        args.push(int_lit(&max.to_string()));
+                        (format!("{}_max", spec.rust), self.q())
+                    }
+                    None => (
+                        spec.rust.to_owned(),
+                        if spec.write_fails { self.q() } else { "" },
+                    ),
+                };
+                out.push(S::Expr(
+                    arg.with_code(format!("w.{method}({}){q}", args.join(", ")))
+                        .effect(),
+                ));
+                Ok(())
+            }
+        }
+    }
+
+    /// Builds the `r.method(args)` call of an IO statement when decoding; the call returns
+    /// `Result`.
+    fn io_read_call(&mut self, s: &Stmt) -> Result<String, String> {
+        let spec =
+            model::io_spec(&s.method).ok_or_else(|| format!("unknown IO method {}", s.method))?;
+        if spec.read != Read::Returns {
+            return Err(format!("{} does not return a value", s.method));
+        }
+        self.fallible = true;
+        let args = Self::io_args(s)?;
+        if let Some(max) = self.limit(s.place.as_ref()) {
+            if !matches!(spec.rust, "string" | "byte_slice") || !args.is_empty() {
+                return Err(format!(
+                    "{} has no reader that takes a field limit",
+                    s.method
+                ));
+            }
+            return Ok(format!(
+                "r.{}_max({})",
+                spec.rust,
+                int_lit(&max.to_string())
+            ));
+        }
+        Ok(format!("r.{}({})", spec.rust, args.join(", ")))
+    }
+
+    /// Looks up the limit of the string or list read into or written from a place: the decoder
+    /// refuses what is over it, and the encoder does not write it, so a packet the client would
+    /// refuse is never sent, whoever built it. Decode marks it as applied.
+    fn limit(&mut self, place: Option<&Expr>) -> Option<usize> {
+        let key = self.limit_key(place?)?;
+        let max = *self.m.limits.get(&key)?;
+        if self.dir == Dir::Decode {
+            self.helpers.insert(format!("{LIMIT_USED}{key}"));
+        }
+        Some(max)
+    }
+
+    /// Gives the initial or assigned value of a local.
+    fn local_value(&mut self, v: Val, holding: Holding) -> Result<E, String> {
+        if holding == Holding::Owned {
+            return Ok(Self::owned_value(v));
+        }
+        if v.form == Form::Owned && !self.m.is_copy(&v.ty) {
+            return Ok(v.e);
+        }
+        self.ref_value_or_copy(v)
+    }
+
+    fn marshal_stmt(&mut self, s: &Stmt, out: &mut Vec<S>) -> Result<(), String> {
+        let place = s.place.as_ref().ok_or("marshal without place")?;
+        if s.dynamic {
+            let v = self.expr(place)?;
+            let q = self.q();
+            let recv = method_recv(&v.e.code);
+            return match self.dir {
+                Dir::Decode => {
+                    let e =
+                        v.e.clone()
+                            .with_code(format!(
+                                "std::mem::take(&mut {}).decode_variant(r){q}",
+                                v.e.code
+                            ))
+                            .effect();
+                    self.store(place, e, out)
+                }
+                Dir::Encode => {
+                    out.push(S::Expr(
+                        v.e.clone()
+                            .with_code(format!("{recv}.encode_variant(w){q}"))
+                            .effect(),
+                    ));
+                    Ok(())
+                }
+            };
+        }
+        if !self.m.has_codec(&s.ty) {
+            return Err(format!("marshal of {}, which has no Codec", s.ty));
+        }
+        match self.dir {
+            Dir::Decode => {
+                let call = self.marshal_call(&s.ty, Some(place))?;
+                self.store(place, E::new(format!("{call}?")).effect(), out)
+            }
+            Dir::Encode => {
+                let v = self.expr(place)?;
+                let q = self.q();
+                let recv = method_recv(&v.e.code);
+                out.push(S::Expr(
+                    v.e.clone()
+                        .with_code(format!("{recv}.encode(w){q}"))
+                        .effect(),
+                ));
+                Ok(())
+            }
+        }
+    }
+
+    /// Builds the `T::decode(r)` call when decoding, or `<Arc<T>>::decode(r)` for a shared
+    /// field.
+    fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> Result<String, String> {
+        self.fallible = true;
+        let name = self.m.named(go, self.module)?;
+        let shared = place.is_some_and(|p| {
+            p.kind == "field"
+                && p.x
+                    .as_deref()
+                    .and_then(|x| x.ty.as_ref())
+                    .is_some_and(|t| t.kind == "named" && model::is_shared(&t.name, &p.name))
+        });
+        let name = if shared { format!("Arc<{name}>") } else { name };
+        Ok(format!("{}::decode(r)", type_path(&name)))
+    }
+
+    /// Negates a condition when the negation is simpler than `!(..)`.
+    fn negate(&mut self, e: &Expr) -> Result<Option<String>, String> {
+        if e.kind == "unary" && e.op == "!" {
+            let x = self.expr(e.x.as_deref().ok_or("! without operand")?)?;
+            return Ok(Some(x.e.code));
+        }
+        if e.kind == "binary" {
+            let flipped = match e.op.as_str() {
+                "==" => "!=",
+                "!=" => "==",
+                "<" => ">=",
+                ">=" => "<",
+                ">" => "<=",
+                "<=" => ">",
+                _ => return Ok(None),
+            };
+            let x = e.x.as_deref().and_then(|x| x.ty.as_ref()).and_then(prim_of);
+            if x.is_some_and(|p| p.starts_with('f')) {
+                return Ok(None);
+            }
+            let mut flipped_expr = e.clone();
+            flipped.clone_into(&mut flipped_expr.op);
+            return Ok(Some(self.expr(&flipped_expr)?.e.code));
+        }
+        Ok(None)
+    }
+
+    fn new_var(&mut self, go: &str, ty: Option<String>) -> Result<usize, String> {
+        let name = param_name(go)?;
+        self.vars.push(Var { name, ty });
+        Ok(self.vars.len() - 1)
+    }
+
+    /// Lowers a case value to a pattern.
+    fn pattern(&mut self, e: &Expr) -> Result<String, String> {
+        match e.kind.as_str() {
+            "lit" | "const" => Ok(self.expr(e)?.e.code),
+            _ => Err(format!("unsupported case value {e:?}")),
+        }
+    }
+
+    /// Cleans and prints a nested body; returns its code and the outer locals it reads. A body
+    /// that assigns a local outside it is an error.
+    fn print_nested(
+        &mut self,
+        mut stmts: Vec<S>,
+        first: usize,
+        mode: PrintMode,
+    ) -> Result<(String, Vars), String> {
+        if sets_before(&stmts, first) {
+            return Err("a nested body assigns a local outside it".to_owned());
+        }
+        live(&mut stmts, &Vars::new());
+        let reads = outer(&stmts, first);
+        let (code, _) = self.print_block(&stmts, mode, &mut Vars::new());
+        Ok((code, reads))
+    }
+
+    fn return_stmt(&mut self, values: &[Expr]) -> Result<S, String> {
+        match self.ret.clone() {
+            Ret::Receiver(id) => {
+                let mut e = E::new(self.name(id));
+                e.reads.insert(id);
+                Ok(S::Return(Some(e)))
+            }
+            Ret::Unit => Ok(S::Return(None)),
+            Ret::Values { results, in_out } => {
+                let mut parts = Vec::new();
+                let mut e = E::default();
+                for (v, t) in values.iter().zip(&results) {
+                    let v = self.expr(v)?;
+                    let v = if t == "String" {
+                        Self::owned_value(v)
+                    } else {
+                        self.return_value(v)?
+                    };
+                    e = e.with(&v);
+                    parts.push(v.code);
+                }
+                for id in in_out {
+                    parts.push(self.name(id));
+                    e.reads.insert(id);
+                }
+                e.code = match parts.len() {
+                    0 => return Ok(S::Return(None)),
+                    1 => parts.concat(),
+                    _ => format!("({})", parts.join(", ")),
+                };
+                Ok(S::Return(Some(e)))
+            }
+        }
+    }
+
+    fn return_value(&mut self, v: Val) -> Result<E, String> {
+        if self.m.is_copy(&v.ty) && v.form != Form::Ref {
+            return self.copy_value(v);
+        }
+        match v.form {
+            Form::Copy | Form::Ref | Form::Owned => Ok(v.e),
+            Form::Place | Form::Local => self.ref_value_or_copy(v),
+        }
+    }
+
+    /// Lowers a string constant, or the message of a non-nil error, to a `&'static str`
+    /// expression.
+    fn static_str(&mut self, e: &Expr) -> Result<E, String> {
+        match e.kind.as_str() {
+            "lit" | "const" => Ok(E::new(str_lit(e.value.as_deref().unwrap_or_default()))),
+            "call" if e.func == "error.Error" => {
+                let recv = self.expr(e.recv.as_deref().ok_or("Error without receiver")?)?;
+                Ok(recv.e)
+            }
+            _ => Err(format!("unsupported error text {e:?}")),
+        }
+    }
+
+    /// Assigns a value to a Go place.
+    fn store(&mut self, place: &Expr, rhs: E, out: &mut Vec<S>) -> Result<(), String> {
+        if place.kind == "blank" {
+            if rhs.effects {
+                out.push(S::Expr(rhs));
+            }
+            return Ok(());
+        }
+        if let Some(path) = place_path(place)
+            && let Some(&id) = self.shadows.get(&path)
+        {
+            out.push(S::Set { var: id, rhs });
+            return Ok(());
+        }
+        let root =
+            root_name(place).ok_or_else(|| format!("unsupported assignment target {place:?}"))?;
+        let b = self.lookup(&root)?;
+        if place.kind == "var"
+            && let Some(id) = b.var
+        {
+            out.push(S::Set { var: id, rhs });
+            return Ok(());
+        }
+        if self.dir == Dir::Encode && b.external {
+            // A writer's assignment to what it writes, which nothing reads afterwards.
+            if rhs.effects {
+                out.push(S::Expr(rhs));
+            }
+            return Ok(());
+        }
+        let target = self.expr(place)?;
+        let field = match (place.kind.as_str(), place.x.as_deref()) {
+            ("field", Some(x)) if x.kind == "var" => {
+                let t = x.ty.clone().ok_or("field of untyped base")?;
+                Some(self.field_of(&t, &place.name)?.0)
+            }
+            _ => None,
+        };
+        let mut reads = target.e.reads.clone();
+        reads.extend(b.var);
+        let code = if place.kind == "var" {
+            b.code.clone()
+        } else {
+            target.e.code
+        };
+        out.push(S::Store {
+            place: code,
+            root: b.var,
+            field,
+            reads,
+            rhs,
+        });
+        Ok(())
     }
 
     #[expect(
@@ -2064,11 +2548,12 @@ impl<'m, 'a> Lower<'m, 'a> {
     )]
     fn expr(&mut self, e: &Expr) -> Result<Val, String> {
         let ty = e.ty.clone().unwrap_or_else(|| basic_ty("untyped int"));
+        if matches!(e.kind.as_str(), "var" | "field")
+            && let Some(x) = self.shadow(e)
+        {
+            return Ok(self.val(x, ty, Form::Copy));
+        }
         match e.kind.as_str() {
-            "var" | "field" if self.shadow(e).is_some() => {
-                let x = self.shadow(e).unwrap_or_default();
-                Ok(self.val(x, ty, Form::Copy))
-            }
             "var" => {
                 let b = self.lookup(&e.name)?;
                 let mut x = E::new(b.code.clone());
@@ -2152,11 +2637,12 @@ impl<'m, 'a> Lower<'m, 'a> {
                         Form::Copy
                     };
                     let x = x.clone().with_code(format!("*{}", x.code));
+                    let prim = prim_of(&ty);
                     Ok(Val {
                         e: x,
-                        prim: prim_of(&ty),
                         ty,
                         form,
+                        prim,
                     })
                 } else {
                     Ok(Val {
@@ -2225,8 +2711,8 @@ impl<'m, 'a> Lower<'m, 'a> {
                         })
                     }
                     (None, Some(to)) if matches!(xe.kind.as_str(), "lit" | "const") => Ok(Val {
-                        prim: Some(to),
                         ty,
+                        prim: Some(to),
                         ..x
                     }),
                     _ if x.ty == ty => Ok(x),
@@ -2255,32 +2741,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             }
             other => Err(format!("unsupported expression {other}")),
         }
-    }
-
-    fn constant(e: &Expr, ty: Type) -> Result<Val, String> {
-        let value = e.value.clone().ok_or("constant without value")?;
-        if is_string(&ty) {
-            return Ok(Val {
-                e: E::new(str_lit(&value)),
-                ty: basic_ty("string"),
-                form: Form::Ref,
-                prim: None,
-            });
-        }
-        let prim = prim_of(&ty);
-        let code = match prim {
-            Some("bool") => value,
-            Some("f32" | "f64") => float_lit(&value)?,
-            Some(_) => int_lit(&value),
-            None => return Err(format!("unsupported constant type {ty:?}")),
-        };
-        let untyped = ty.name.starts_with("untyped");
-        Ok(Val {
-            e: E::new(code),
-            ty,
-            form: Form::Copy,
-            prim: if untyped { None } else { prim },
-        })
     }
 
     fn binary(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
@@ -2375,7 +2835,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(val)
     }
 
-    /// `len(x) == 0` and the like as `is_empty` (`clippy::len_zero`).
+    /// Lowers `len(x) == 0` and the like to `is_empty` (`clippy::len_zero`).
     fn len_zero(&mut self, xe: &Expr, ye: &Expr, op: &str) -> Result<Option<Val>, String> {
         if xe.kind != "call" || xe.func != "len" || ye.kind != "lit" {
             return Ok(None);
@@ -2550,27 +3010,6 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    /// The value of a call result.
-    fn call_val(&self, x: E, ty: Type, string_form: Form) -> Val {
-        if is_string(&ty) {
-            Val {
-                e: x,
-                ty,
-                form: string_form,
-                prim: None,
-            }
-        } else if ty.kind == "error" || ty.kind == "tuple" {
-            Val {
-                e: x,
-                ty,
-                form: Form::Owned,
-                prim: None,
-            }
-        } else {
-            self.val(x, ty, Form::Owned)
-        }
-    }
-
     fn composite(&mut self, e: &Expr, ty: Type) -> Result<Val, String> {
         match ty.kind.as_str() {
             "optional" if e.fields.is_empty() && e.elems.is_empty() => Ok(Val {
@@ -2634,98 +3073,44 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    /// A `Copy` value.
-    fn copy_value(&mut self, v: Val) -> Result<E, String> {
-        match v.form {
-            Form::Copy => Ok(v.e),
-            _ if self.m.is_copy(&v.ty) => Ok(v.e),
-            _ => Err(format!("a non-Copy value used by value: {}", v.e.code)),
+    /// Converts `code` from the Rust integer `from` to `to` as a Go integer conversion does.
+    fn convert_code(&mut self, code: &str, from: &str, to: &str) -> Result<String, String> {
+        if from == to {
+            return Ok(code.to_owned());
         }
+        if !is_int(Some(from)) || !is_int(Some(to)) {
+            return Err(format!("unsupported conversion {from} to {to}"));
+        }
+        if from == "usize" || to == "usize" || bits(to) < bits(from) {
+            let name = format!("go_{from}_to_{to}");
+            self.helpers.insert(name.clone());
+            return Ok(format!("{}({code})", self.helper_path(&name)));
+        }
+        let to_signed = to.starts_with('i');
+        Ok(if bits(to) == bits(from) {
+            let method = if to_signed {
+                "cast_signed"
+            } else {
+                "cast_unsigned"
+            };
+            format!("{}.{method}()", paren(code))
+        } else if from.starts_with('i') && !to_signed {
+            format!("i{}::from({code}).cast_unsigned()", bits(to))
+        } else {
+            format!("{to}::from({code})")
+        })
     }
 
-    /// A reference to pass as a function argument (coerced at the call).
-    fn ref_arg(v: &Val) -> E {
-        match v.form {
-            Form::Ref => v.e.clone(),
-            _ => v.e.clone().with_code(format!("&{}", v.e.code)),
-        }
-    }
-
-    /// A borrowed value with its final type (`&str` for strings), or a `Copy` value.
+    /// Gives a borrowed value with its final type (`&str` for strings), or a `Copy` value.
     fn ref_value_or_copy(&mut self, v: Val) -> Result<E, String> {
         if self.m.is_copy(&v.ty) && v.form != Form::Ref {
             return self.copy_value(v);
         }
         Ok(match v.form {
-            Form::Ref | Form::Copy => v.e,
+            Form::Copy | Form::Ref => v.e,
             _ if is_string(&v.ty) => v.e.clone().with_code(format!("{}.as_str()", v.e.code)),
             _ => v.e.clone().with_code(format!("&{}", v.e.code)),
         })
-    }
-
-    /// Something to iterate by reference.
-    fn ref_iter(v: &Val) -> E {
-        match v.form {
-            Form::Ref => v.e.clone(),
-            _ => match v.e.code.strip_prefix('*') {
-                Some(inner) => v.e.clone().with_code(inner.to_owned()),
-                None => v.e.clone().with_code(format!("&{}", v.e.code)),
-            },
-        }
-    }
-
-    /// A mutable reference argument (decode).
-    fn mut_arg(v: &Val) -> E {
-        let mut e = v.e.clone();
-        e.muts.extend(&v.e.reads);
-        e.code = match e.code.strip_prefix('*') {
-            Some(inner) => inner.to_owned(),
-            None => format!("&mut {}", e.code),
-        };
-        e
-    }
-
-    /// An owned value (decode): locals move, places clone.
-    fn owned_value(v: Val) -> E {
-        match v.form {
-            Form::Copy | Form::Owned | Form::Local => v.e,
-            Form::Ref if is_string(&v.ty) => {
-                v.e.clone()
-                    .with_code(format!("{}.to_owned()", method_recv(&v.e.code)))
-            }
-            Form::Place | Form::Ref => {
-                v.e.clone()
-                    .with_code(format!("{}.clone()", method_recv(&v.e.code)))
-            }
-        }
-    }
-
-    /// The initial or assigned value of a local.
-    fn local_value(&mut self, v: Val, holding: Holding) -> Result<E, String> {
-        if holding == Holding::Owned {
-            return Ok(Self::owned_value(v));
-        }
-        if v.form == Form::Owned && !self.m.is_copy(&v.ty) {
-            return Ok(v.e);
-        }
-        self.ref_value_or_copy(v)
-    }
-
-    fn return_value(&mut self, v: Val) -> Result<E, String> {
-        if self.m.is_copy(&v.ty) && v.form != Form::Ref {
-            return self.copy_value(v);
-        }
-        match v.form {
-            Form::Owned | Form::Ref | Form::Copy => Ok(v.e),
-            Form::Local | Form::Place => self.ref_value_or_copy(v),
-        }
-    }
-
-    fn i64_value(&mut self, v: Val) -> Result<E, String> {
-        let from = v.prim.ok_or("enum value of unknown type")?;
-        let e = self.copy_value(v)?;
-        let code = self.convert_code(&e.code, from, "i64")?;
-        Ok(e.with_code(code))
     }
 
     fn u64_value(&mut self, v: Val) -> Result<E, String> {
@@ -2756,43 +3141,21 @@ impl<'m, 'a> Lower<'m, 'a> {
         Ok(e.with_code(code))
     }
 
-    fn helper_path(&self, name: &str) -> String {
-        if self.module == Module::Packet {
-            format!("super::types::{name}")
-        } else {
-            name.to_owned()
+    /// Gives the value as a `Copy` expression, or fails when it is not `Copy`.
+    fn copy_value(&mut self, v: Val) -> Result<E, String> {
+        match v.form {
+            Form::Copy => Ok(v.e),
+            _ if self.m.is_copy(&v.ty) => Ok(v.e),
+            _ => Err(format!("a non-Copy value used by value: {}", v.e.code)),
         }
     }
 
-    /// A Go integer conversion of `code` from the Rust integer `from` to `to`.
-    fn convert_code(&mut self, code: &str, from: &str, to: &str) -> Result<String, String> {
-        if from == to {
-            return Ok(code.to_owned());
-        }
-        if !is_int(Some(from)) || !is_int(Some(to)) {
-            return Err(format!("unsupported conversion {from} to {to}"));
-        }
-        if from == "usize" || to == "usize" || bits(to) < bits(from) {
-            let name = format!("go_{from}_to_{to}");
-            self.helpers.insert(name.clone());
-            return Ok(format!("{}({code})", self.helper_path(&name)));
-        }
-        let to_signed = to.starts_with('i');
-        Ok(if bits(to) == bits(from) {
-            let method = if to_signed {
-                "cast_signed"
-            } else {
-                "cast_unsigned"
-            };
-            format!("{}.{method}()", paren(code))
-        } else if from.starts_with('i') && !to_signed {
-            format!("i{}::from({code}).cast_unsigned()", bits(to))
-        } else {
-            format!("{to}::from({code})")
-        })
+    fn q(&mut self) -> &'static str {
+        self.fallible = true;
+        "?"
     }
 
-    /// The zero value of a Go type as a local initializer.
+    /// Gives the zero value of a Go type as a local initializer.
     fn zero(&mut self, t: &Type) -> Result<E, String> {
         Ok(E::new(match t.kind.as_str() {
             "basic" => match t.name.as_str() {
@@ -2811,355 +3174,6 @@ impl<'m, 'a> Lower<'m, 'a> {
             _ => format!("{}::default()", type_path(&self.rust_type(t)?)),
         }))
     }
-
-    /// Prints a cleaned statement list; `init` holds the locals initialized before it (by-value
-    /// parameters). Returns the code and the locals that need `mut`.
-    fn print_block(&self, stmts: &[S], mode: PrintMode, init: &mut Vars) -> (String, Vars) {
-        let folded = fold(stmts);
-        let stmts = folded.as_slice();
-        let mut muts = Vars::new();
-        let mut state = Some(init.clone());
-        assigned(stmts, &mut state, &mut muts);
-        collect_muts(stmts, &mut muts);
-        let mut out = String::new();
-        self.print(stmts, &muts, &mut out, mode, Ending::EndsBody);
-        (out, muts)
-    }
-
-    /// Prints statements; `ending` tells whether they end the body.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "consistency: one match arm per statement kind"
-    )]
-    fn print(&self, stmts: &[S], muts: &Vars, out: &mut String, mode: PrintMode, ending: Ending) {
-        // Late-initialized locals merged into their first assignment
-        // (clippy::needless_late_init): statement index to the `let` replacing it.
-        let mut merged: BTreeMap<usize, String> = BTreeMap::new();
-        let mut i = 0;
-        while let Some(s) = stmts.get(i) {
-            let is_last = ending == Ending::EndsBody && i + 1 == stmts.len();
-            let statement_ending = if is_last {
-                Ending::EndsBody
-            } else {
-                Ending::Inside
-            };
-            if let Some(text) = merged.remove(&i) {
-                out.push_str(&text);
-                i += 1;
-                continue;
-            }
-            match s {
-                S::Let {
-                    vars,
-                    init,
-                    default_of,
-                } => {
-                    let mut_of = |id: &usize| if muts.contains(id) { "mut " } else { "" };
-                    let ty = match vars.as_slice() {
-                        [Some(id)] => self.vars.get(*id).and_then(|v| v.ty.clone()),
-                        _ => None,
-                    };
-                    let annot = ty.map(|t| format!(": {t}")).unwrap_or_default();
-                    if let ([Some(id)], Some(init)) = (vars.as_slice(), init) {
-                        // A literal returned right away is the tail.
-                        let rest = stmts.get(i + 1..).unwrap_or_default();
-                        if default_of.is_some()
-                            && ending == Ending::EndsBody
-                            && matches!(rest, [S::Return(Some(e))] if e.code == self.name(*id))
-                        {
-                            put!(out, "{}", self.tail(&init.code, mode));
-                            return;
-                        }
-                    }
-                    let names: Vec<String> = vars
-                        .iter()
-                        .map(|v| {
-                            v.map_or_else(
-                                || "_".to_owned(),
-                                |id| format!("{}{}", mut_of(&id), self.name(id)),
-                            )
-                        })
-                        .collect();
-                    let pat = if names.len() == 1 {
-                        names.concat()
-                    } else {
-                        format!("({})", names.join(", "))
-                    };
-                    if let Some(init) = init {
-                        put!(out, "let {pat}{annot} = {};\n", init.code);
-                    } else {
-                        if let [Some(id)] = vars.as_slice() {
-                            let next = stmts
-                                .iter()
-                                .enumerate()
-                                .skip(i + 1)
-                                .find(|(_, s)| mentions(s, *id));
-                            if let Some((j, next)) = next
-                                && let Some(value) = self.late_init(*id, next)
-                            {
-                                let text = format!(
-                                    "let {}{}{annot} = {value};\n",
-                                    mut_of(id),
-                                    self.name(*id)
-                                );
-                                merged.insert(j, text);
-                                i += 1;
-                                continue;
-                            }
-                        }
-                        put!(out, "let {pat}{annot};\n");
-                    }
-                }
-                S::Set { var, rhs } => {
-                    put!(out, "{} = {};\n", self.name(*var), rhs.code);
-                }
-                S::Store { place, rhs, .. } => {
-                    put!(out, "{place} = {};\n", rhs.code);
-                }
-                S::Expr(e) => {
-                    let code = e.code.trim_end();
-                    if code.ends_with('}') && (code.starts_with("for ") || code.starts_with("if "))
-                    {
-                        put!(out, "{code}\n");
-                    } else {
-                        put!(out, "{};\n", code.trim_start_matches('*'));
-                    }
-                }
-                S::If { cond, then, els } => {
-                    self.print_if(cond, then, els, muts, out, mode, statement_ending);
-                    out.push('\n');
-                }
-                S::Match { scrut, arms } => {
-                    self.print_match(scrut, arms, muts, out, mode, statement_ending);
-                    out.push('\n');
-                }
-                S::Return(e) => {
-                    let value = e.as_ref().map_or("()", |e| e.code.as_str());
-                    if is_last && mode != PrintMode::Loop {
-                        put!(out, "{}", self.tail(value, mode));
-                    } else {
-                        put!(out, "return {};\n", self.fn_value(value));
-                    }
-                }
-                S::Fail(e) => {
-                    put!(out, "return Err({});\n", e.code);
-                }
-            }
-            i += 1;
-        }
-    }
-
-    /// The tail expression giving `value`.
-    fn tail(&self, value: &str, mode: PrintMode) -> String {
-        match mode {
-            PrintMode::Closure => format!("Ok({value})"),
-            PrintMode::Block => value.to_owned(),
-            PrintMode::Fn | PrintMode::Loop => {
-                let v = self.fn_value(value);
-                if v == "()" { String::new() } else { v }
-            }
-        }
-    }
-
-    /// `value` as returned from the function.
-    fn fn_value(&self, value: &str) -> String {
-        if self.fallible {
-            format!("Ok({value})")
-        } else {
-            value.to_owned()
-        }
-    }
-
-    /// The value of a late-initialized local when `next` assigns it on every path.
-    fn late_init(&self, id: usize, next: &S) -> Option<String> {
-        match next {
-            S::Set { var, rhs } if *var == id && !rhs.reads.contains(&id) => Some(rhs.code.clone()),
-            S::Match { scrut, arms } if arms.iter().any(|(p, _)| p.is_empty()) => {
-                let mut parts = Vec::new();
-                for (pats, body) in arms {
-                    let value = self.branch_value(id, body)?;
-                    let pat = if pats.is_empty() {
-                        "_".to_owned()
-                    } else {
-                        compress(pats)
-                    };
-                    parts.push(format!("{pat} => {value},"));
-                }
-                Some(format!("match {} {{ {} }}", scrut.code, parts.join(" ")))
-            }
-            S::If {
-                cond: Cond::Plain { e, .. },
-                then,
-                els,
-            } if !els.is_empty() => {
-                let a = self.branch_value(id, then)?;
-                let b = self.branch_value(id, els)?;
-                Some(format!("if {} {{ {a} }} else {{ {b} }}", e.code))
-            }
-            _ => None,
-        }
-    }
-
-    /// The statements of a branch followed by the value it assigns to `id` last.
-    fn branch_value(&self, id: usize, body: &[S]) -> Option<String> {
-        let (last, init) = body.split_last()?;
-        let S::Set { var, rhs } = last else {
-            return None;
-        };
-        if *var != id || init.iter().any(|s| mentions(s, id)) {
-            return None;
-        }
-        if init.is_empty() {
-            return Some(rhs.code.clone());
-        }
-        let mut out = String::new();
-        self.print(
-            init,
-            &Vars::new(),
-            &mut out,
-            PrintMode::Loop,
-            Ending::Inside,
-        );
-        Some(format!("{{ {out} {} }}", rhs.code))
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "consistency: printing passes one context to every statement kind"
-    )]
-    fn print_if(
-        &self,
-        cond: &Cond,
-        then: &[S],
-        els: &[S],
-        muts: &Vars,
-        out: &mut String,
-        mode: PrintMode,
-        ending: Ending,
-    ) {
-        let (cond_code, then, els) = match cond {
-            Cond::Plain { e, neg } => {
-                let negated = e.code.starts_with('!') || e.code.contains(" != ");
-                if then.is_empty() && !els.is_empty() {
-                    (
-                        neg.clone().unwrap_or_else(|| format!("!({})", e.code)),
-                        els,
-                        then,
-                    )
-                } else if !els.is_empty() && negated && neg.is_some() {
-                    (neg.clone().unwrap_or_default(), els, then)
-                } else {
-                    (e.code.clone(), then, els)
-                }
-            }
-            Cond::Let { var, expr, extra } => {
-                let used = then.iter().any(|s| mentions(s, *var))
-                    || extra.as_ref().is_some_and(|x| x.reads.contains(var));
-                let name = if used {
-                    let m = if muts.contains(var) { "mut " } else { "" };
-                    format!("{m}{}", self.name(*var))
-                } else {
-                    "_".to_owned()
-                };
-                let mut c = format!("let Some({name}) = {}", expr.code);
-                if let Some(x) = extra {
-                    put!(c, " && {}", x.code);
-                }
-                (c, then, els)
-            }
-        };
-        // `if a { if b { .. } }` is `if a && b { .. }` (clippy::collapsible_if).
-        if els.is_empty()
-            && let [
-                S::If {
-                    cond: Cond::Plain { e, .. },
-                    then: inner,
-                    els: inner_els,
-                },
-            ] = then
-            && inner_els.is_empty()
-            && !inner.is_empty()
-        {
-            put!(
-                out,
-                "if {} && {} {{ ",
-                paren_or(&cond_code),
-                paren_or(&e.code)
-            );
-            self.print(inner, muts, out, mode, ending);
-            out.push('}');
-            return;
-        }
-        put!(out, "if {cond_code} {{ ");
-        self.print(then, muts, out, mode, ending);
-        out.push('}');
-        if els.is_empty() {
-            return;
-        }
-        out.push_str(" else ");
-        if let [S::If { cond, then, els }] = els {
-            self.print_if(cond, then, els, muts, out, mode, ending);
-            return;
-        }
-        out.push_str("{ ");
-        self.print(els, muts, out, mode, ending);
-        out.push('}');
-    }
-
-    fn print_match(
-        &self,
-        scrut: &E,
-        arms: &[(Vec<String>, Vec<S>)],
-        muts: &Vars,
-        out: &mut String,
-        mode: PrintMode,
-        ending: Ending,
-    ) {
-        // Arms with the same body merge (clippy::match_same_arms); without a default, empty
-        // arms are the implicit `_ => {}`.
-        let mut printed: Vec<(Vec<String>, String)> = Vec::new();
-        let mut default: Option<String> = None;
-        for (pats, body) in arms {
-            let mut b = String::new();
-            self.print(body, muts, &mut b, mode, ending);
-            if pats.is_empty() {
-                default = Some(b);
-                continue;
-            }
-            if let Some(entry) = printed.iter_mut().find(|(_, x)| *x == b) {
-                entry.0.extend(pats.iter().cloned());
-                continue;
-            }
-            printed.push((pats.clone(), b));
-        }
-        let default = default.unwrap_or_default();
-        printed.retain(|(_, b)| *b != default);
-        match printed.as_slice() {
-            [] => {
-                if !default.trim().is_empty() {
-                    put!(out, "{{ {default} }}");
-                }
-            }
-            [(pats, body)] => {
-                let cond = pats
-                    .iter()
-                    .map(|p| format!("{} == {p}", scrut.code))
-                    .collect::<Vec<_>>()
-                    .join(" || ");
-                put!(out, "if {cond} {{ {body} }}");
-                if !default.trim().is_empty() {
-                    put!(out, " else {{ {default} }}");
-                }
-            }
-            _ => {
-                put!(out, "match {} {{ ", scrut.code);
-                for (pats, body) in &printed {
-                    put!(out, "{} => {{ {body} }} ", compress(pats));
-                }
-                put!(out, "_ => {{ {default} }} }}");
-            }
-        }
-    }
 }
 
 /// Lowers a function in one direction (pure functions use `Dir::Encode`: borrowed values).
@@ -3167,7 +3181,7 @@ impl<'m, 'a> Lower<'m, 'a> {
     clippy::too_many_lines,
     reason = "consistency: parameters, body and signature in one place"
 )]
-pub(crate) fn function(
+pub(super) fn function(
     m: &Model<'_>,
     sums: &Summaries,
     dir: Dir,
@@ -3287,7 +3301,7 @@ pub(crate) fn function(
 }
 
 /// Lowers a `Marshal` body of the Go type `go` in one direction.
-pub(crate) fn marshal(
+pub(super) fn marshal(
     m: &Model<'_>,
     sums: &Summaries,
     dir: Dir,
@@ -3311,7 +3325,7 @@ pub(crate) fn marshal(
     match dir {
         Dir::Decode => {
             let id = l.new_var(receiver, None)?;
-            let fields = m.struct_def(go).map_or(usize::MAX, |d| d.fields.len());
+            let fields = m.struct_def(go).map(|d| d.fields.len());
             l.bind(
                 receiver,
                 Binding {
@@ -3359,18 +3373,42 @@ pub(crate) fn marshal(
     })
 }
 
-fn ends(out: &[S]) -> bool {
-    matches!(out.last(), Some(S::Return(_) | S::Fail(_)))
-}
-
-fn named_ty(go: &str) -> Type {
-    Type {
-        kind: "named".to_owned(),
-        name: go.to_owned(),
-        len: None,
-        key: None,
-        elem: None,
-        elems: Vec::new(),
+/// Forward pass: locals assigned when they may already hold a value need `mut`.
+fn assigned(stmts: &[S], state: &mut Option<Vars>, muts: &mut Vars) {
+    for s in stmts {
+        let Some(st) = state.as_mut() else { return };
+        match s {
+            S::Let { vars, init, .. } => {
+                if init.is_some() {
+                    st.extend(vars.iter().flatten());
+                }
+            }
+            S::Set { var, .. } => {
+                if st.contains(var) {
+                    muts.insert(*var);
+                }
+                st.insert(*var);
+            }
+            S::Store { .. } | S::Expr(_) => {}
+            S::If { then, els, .. } => {
+                let mut a = state.clone();
+                assigned(then, &mut a, muts);
+                let mut b = state.clone();
+                assigned(els, &mut b, muts);
+                *state = union(a, b);
+            }
+            S::Match { arms, .. } => {
+                let has_default = arms.iter().any(|(p, _)| p.is_empty());
+                let mut acc = if has_default { None } else { state.clone() };
+                for (_, body) in arms {
+                    let mut a = state.clone();
+                    assigned(body, &mut a, muts);
+                    acc = union(acc, a);
+                }
+                *state = acc;
+            }
+            S::Return(_) | S::Fail(_) => *state = None,
+        }
     }
 }
 
@@ -3385,12 +3423,8 @@ fn basic_ty(name: &str) -> Type {
     }
 }
 
-fn is_int(prim: Option<&str>) -> bool {
-    prim.is_some_and(|p| p.starts_with('u') || p.starts_with('i'))
-}
-
 /// The bit width of a Rust integer type; `usize` counts as 64.
-pub(crate) fn bits(prim: &str) -> u32 {
+pub(super) fn bits(prim: &str) -> u32 {
     match prim {
         "u8" | "i8" => 8,
         "u16" | "i16" => 16,
@@ -3399,20 +3433,124 @@ pub(crate) fn bits(prim: &str) -> u32 {
     }
 }
 
-/// A Rust integer literal from a decimal string, digits grouped by three from five digits on.
-pub(crate) fn int_lit(value: &str) -> String {
-    let (sign, digits) = value.strip_prefix('-').map_or(("", value), |d| ("-", d));
-    if digits.len() < 5 {
-        return value.to_owned();
-    }
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('_');
+/// The Go names a body declares (locals, elements, loop variables).
+fn collect_locals(stmts: &[Stmt], out: &mut BTreeSet<String>) {
+    for s in stmts {
+        if s.kind == "var" {
+            out.insert(s.name.clone());
         }
-        out.push(c);
+        if s.kind == "assign" && s.op == ":=" || s.kind == "range" {
+            for e in s.lhs.iter().chain(&s.key).chain(&s.range_value) {
+                if e.kind == "var" {
+                    out.insert(e.name.clone());
+                }
+            }
+        }
+        if let Some(e) = &s.elem {
+            out.insert(e.name.clone());
+        }
+        for block in s.blocks() {
+            collect_locals(block, out);
+        }
     }
-    format!("{sign}{out}")
+}
+
+/// Locals written through a field or borrowed mutably need `mut`.
+fn collect_muts(stmts: &[S], muts: &mut Vars) {
+    for s in stmts {
+        match s {
+            S::Let { init: Some(e), .. } | S::Set { rhs: e, .. } | S::Expr(e) => {
+                muts.extend(&e.muts);
+            }
+            S::Store {
+                place, root, rhs, ..
+            } => {
+                if !place.starts_with('*') {
+                    muts.extend(root.iter());
+                }
+                muts.extend(&rhs.muts);
+            }
+            S::If { cond, then, els } => {
+                if let Cond::Plain { e, .. } = cond {
+                    muts.extend(&e.muts);
+                }
+                collect_muts(then, muts);
+                collect_muts(els, muts);
+            }
+            S::Match { arms, .. } => {
+                for (_, b) in arms {
+                    collect_muts(b, muts);
+                }
+            }
+            S::Let { init: None, .. } | S::Return(_) | S::Fail(_) => {}
+        }
+    }
+}
+
+/// An or-pattern with runs of three or more consecutive integers as ranges
+/// (`clippy::manual_range_patterns`).
+pub(super) fn compress(pats: &[String]) -> String {
+    let mut nums: Vec<i64> = Vec::new();
+    for p in pats {
+        match p.replace('_', "").parse() {
+            Ok(n) => nums.push(n),
+            Err(_) => return pats.join(" | "),
+        }
+    }
+    nums.sort_unstable();
+    nums.dedup();
+    let mut ranges = Vec::new();
+    for run in nums.chunk_by(|a, b| a + 1 == *b) {
+        if let [start, _, .., end] = run {
+            ranges.push(format!(
+                "{}..={}",
+                int_lit(&start.to_string()),
+                int_lit(&end.to_string())
+            ));
+        } else {
+            ranges.extend(run.iter().map(|n| int_lit(&n.to_string())));
+        }
+    }
+    ranges.join(" | ")
+}
+
+fn contains_return(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| {
+        s.kind == "return"
+            || contains_return(&s.then)
+            || contains_return(&s.els)
+            || contains_return(&s.body)
+            || s.cases.iter().any(|c| contains_return(&c.body))
+    })
+}
+
+fn ends(out: &[S]) -> bool {
+    matches!(out.last(), Some(S::Return(_) | S::Fail(_)))
+}
+
+/// Records the place paths an expression reads.
+fn expr_paths(e: &Expr, out: &mut Vec<(String, bool)>) {
+    if let Some(p) = place_path(e) {
+        out.push((p, false));
+        return;
+    }
+    for x in [&e.x, &e.y, &e.index, &e.low, &e.high, &e.recv]
+        .into_iter()
+        .flatten()
+    {
+        expr_paths(x, out);
+    }
+    for a in e.args.iter().chain(&e.elems) {
+        expr_paths(a, out);
+    }
+    for f in &e.fields {
+        expr_paths(&f.value, out);
+    }
+}
+
+/// The Rust name of a struct field.
+pub(super) fn field_rust_name(ty: &str, go: &str) -> Result<String, String> {
+    names::snake(go, &format!("{ty}.{go}"))
 }
 
 /// A Rust float literal from a Go `g` formatted value.
@@ -3428,9 +3566,15 @@ fn float_lit(value: &str) -> Result<String, String> {
     Ok(format!("{}.{frac}", int_lit(int)))
 }
 
-/// A Rust string literal.
-pub(crate) fn str_lit(value: &str) -> String {
-    format!("{value:?}")
+/// The Rust name of a generated function.
+pub(super) fn fn_name(go: &str, prefix: &str) -> Result<String, String> {
+    let local = go.split_once('.').map_or(go, |(_, n)| n);
+    let snake = local
+        .split('.')
+        .map(|part| names::snake(part, go).map(|s| s.trim_start_matches("r#").to_owned()))
+        .collect::<Result<Vec<_>, String>>()?
+        .join("_");
+    Ok(format!("{prefix}{snake}"))
 }
 
 /// Folds the field stores that follow a default struct into its literal
@@ -3482,7 +3626,7 @@ fn fold(stmts: &[S]) -> Vec<S> {
 
 /// The struct literal of a default value with the field stores after it folded in, and how many
 /// statements were folded.
-fn fold_literal(t: &str, total: usize, id: usize, rest: &[S]) -> (String, usize) {
+fn fold_literal(t: &str, total: Option<usize>, id: usize, rest: &[S]) -> (String, usize) {
     let mut fields: Vec<(String, String)> = Vec::new();
     for s in rest {
         if matches!(s, S::Let { init: None, .. }) {
@@ -3511,10 +3655,64 @@ fn fold_literal(t: &str, total: usize, id: usize, rest: &[S]) -> (String, usize)
         .into_iter()
         .map(|(n, v)| if n == v { n } else { format!("{n}: {v}") })
         .collect();
-    if used < total {
+    if total.is_none_or(|total| used < total) {
         parts.push(format!("..{t}::default()"));
     }
     (format!("{t} {{ {} }}", parts.join(", ")), used)
+}
+
+/// The single expression a loop variable indexes in a body, if it is used only as an index.
+fn index_base(stmts: &[Stmt], var: &str) -> Option<Expr> {
+    let mut base: Option<Expr> = None;
+    let mut ok = true;
+    visit_exprs(stmts, &mut |e, role| {
+        if e.kind == "index"
+            && e.index
+                .as_deref()
+                .is_some_and(|i| i.kind == "var" && i.name == var)
+        {
+            match (&base, e.x.as_deref()) {
+                (None, Some(b)) => base = Some(b.clone()),
+                (Some(x), Some(b)) if same_expr(x, b) => {}
+                _ => ok = false,
+            }
+        } else if e.kind == "var" && e.name == var && role != Role::Index {
+            ok = false;
+        }
+    });
+    if ok { base } else { None }
+}
+
+/// A Rust integer literal from a decimal string, digits grouped by three from five digits on.
+pub(super) fn int_lit(value: &str) -> String {
+    let (sign, digits) = value.strip_prefix('-').map_or(("", value), |d| ("-", d));
+    if digits.len() < 5 {
+        return value.to_owned();
+    }
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push('_');
+        }
+        out.push(c);
+    }
+    format!("{sign}{out}")
+}
+
+/// Whether a slice statement is a `varuint32` count followed by one `Uint8` per element, which
+/// is the wire form of a `ByteSlice`.
+fn is_byte_list(s: &Stmt, elem: &Param) -> bool {
+    s.prefix == "varuint32"
+        && matches!(
+            s.body.as_slice(),
+            [b] if b.kind == "io"
+                && b.method == "Uint8"
+                && b.place.as_ref().is_some_and(|p| p.kind == "var" && p.name == elem.name)
+        )
+}
+
+fn is_int(prim: Option<&str>) -> bool {
+    prim.is_some_and(|p| p.starts_with('u') || p.starts_with('i'))
 }
 
 /// Removes dead stores to locals, backwards from the locals live after the list; returns the
@@ -3708,6 +3906,18 @@ fn effect_only(mut e: E) -> E {
     e
 }
 
+/// Whether evaluating a Go expression may fail: it calls a function or indexes.
+fn may_fail(e: &Expr) -> bool {
+    matches!(e.kind.as_str(), "index" | "slice_of")
+        || (e.kind == "call" && e.target != "builtin")
+        || [&e.x, &e.y, &e.index, &e.low, &e.high, &e.recv]
+            .into_iter()
+            .flatten()
+            .any(|x| may_fail(x))
+        || e.args.iter().chain(&e.elems).any(may_fail)
+        || e.fields.iter().any(|f| may_fail(&f.value))
+}
+
 /// Whether a statement mentions a local.
 fn mentions(s: &S, id: usize) -> bool {
     match s {
@@ -3738,93 +3948,41 @@ fn mentions(s: &S, id: usize) -> bool {
     }
 }
 
-/// Forward pass: locals assigned when they may already hold a value need `mut`.
-fn assigned(stmts: &[S], state: &mut Option<Vars>, muts: &mut Vars) {
-    for s in stmts {
-        let Some(st) = state.as_mut() else { return };
-        match s {
-            S::Let { vars, init, .. } => {
-                if init.is_some() {
-                    st.extend(vars.iter().flatten());
-                }
-            }
-            S::Set { var, .. } => {
-                if st.contains(var) {
-                    muts.insert(*var);
-                }
-                st.insert(*var);
-            }
-            S::If { then, els, .. } => {
-                let mut a = state.clone();
-                assigned(then, &mut a, muts);
-                let mut b = state.clone();
-                assigned(els, &mut b, muts);
-                *state = union(a, b);
-            }
-            S::Match { arms, .. } => {
-                let has_default = arms.iter().any(|(p, _)| p.is_empty());
-                let mut acc = if has_default { None } else { state.clone() };
-                for (_, body) in arms {
-                    let mut a = state.clone();
-                    assigned(body, &mut a, muts);
-                    acc = union(acc, a);
-                }
-                *state = acc;
-            }
-            S::Return(_) | S::Fail(_) => *state = None,
-            S::Store { .. } | S::Expr(_) => {}
+/// Whether printed code names a Rust identifier (not as a field).
+fn mentions_name(code: &str, name: &str) -> bool {
+    let bytes = code.as_bytes();
+    let ident = |b: Option<&u8>| b.is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
+    let mut start = 0;
+    while let Some(pos) = code.get(start..).and_then(|c| c.find(name)) {
+        let at = start + pos;
+        let end = at + name.len();
+        let before = at.checked_sub(1).and_then(|i| bytes.get(i));
+        if !ident(before) && !ident(bytes.get(end)) && before != Some(&b'.') {
+            return true;
         }
+        start = end;
+    }
+    false
+}
+
+/// A method receiver: a dereference needs parentheses.
+fn method_recv(code: &str) -> String {
+    if code.starts_with('*') {
+        format!("({code})")
+    } else {
+        code.to_owned()
     }
 }
 
-fn union(a: Option<Vars>, b: Option<Vars>) -> Option<Vars> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(a.union(&b).copied().collect()),
-        (a, None) => a,
-        (None, b) => b,
+fn named_ty(go: &str) -> Type {
+    Type {
+        kind: "named".to_owned(),
+        name: go.to_owned(),
+        len: None,
+        key: None,
+        elem: None,
+        elems: Vec::new(),
     }
-}
-
-/// Locals written through a field or borrowed mutably need `mut`.
-fn collect_muts(stmts: &[S], muts: &mut Vars) {
-    for s in stmts {
-        match s {
-            S::Store {
-                root, place, rhs, ..
-            } => {
-                if !place.starts_with('*') {
-                    muts.extend(root.iter());
-                }
-                muts.extend(&rhs.muts);
-            }
-            S::Expr(e) | S::Set { rhs: e, .. } | S::Let { init: Some(e), .. } => {
-                muts.extend(&e.muts);
-            }
-            S::If { then, els, cond } => {
-                if let Cond::Plain { e, .. } = cond {
-                    muts.extend(&e.muts);
-                }
-                collect_muts(then, muts);
-                collect_muts(els, muts);
-            }
-            S::Match { arms, .. } => {
-                for (_, b) in arms {
-                    collect_muts(b, muts);
-                }
-            }
-            S::Let { init: None, .. } | S::Return(_) | S::Fail(_) => {}
-        }
-    }
-}
-
-/// Whether statements assign a local declared before `first`.
-fn sets_before(stmts: &[S], first: usize) -> bool {
-    stmts.iter().any(|s| match s {
-        S::Set { var, .. } => *var < first,
-        S::If { then, els, .. } => sets_before(then, first) || sets_before(els, first),
-        S::Match { arms, .. } => arms.iter().any(|(_, b)| sets_before(b, first)),
-        _ => false,
-    })
 }
 
 /// The locals declared before `first` that statements read.
@@ -3835,11 +3993,11 @@ fn outer(stmts: &[S], first: usize) -> Vars {
                 S::Let { init, .. } => all.extend(init.iter().flat_map(|e| e.reads.iter())),
                 S::Set { rhs: e, .. } | S::Expr(e) | S::Fail(e) => all.extend(&e.reads),
                 S::Store {
-                    reads, rhs, root, ..
+                    root, reads, rhs, ..
                 } => {
+                    all.extend(root.iter());
                     all.extend(reads.iter());
                     all.extend(&rhs.reads);
-                    all.extend(root.iter());
                 }
                 S::If { cond, then, els } => {
                     match cond {
@@ -3867,6 +4025,40 @@ fn outer(stmts: &[S], first: usize) -> Vars {
     all.into_iter().filter(|v| *v < first).collect()
 }
 
+fn overlaps(a: &str, b: &str) -> bool {
+    a == b || b.starts_with(&format!("{a}.")) || a.starts_with(&format!("{b}."))
+}
+
+/// The Rust name of a Go local or parameter (`r`, `w` and `self` are taken).
+fn param_name(go: &str) -> Result<String, String> {
+    let name = names::snake(go, go)?;
+    Ok(if matches!(name.as_str(), "r" | "w" | "self" | "r#self") {
+        format!("{}_", name.trim_start_matches("r#"))
+    } else {
+        name
+    })
+}
+
+fn paren(code: &str) -> String {
+    let simple = !code.starts_with('-')
+        && code.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '(' | ')' | ':' | '[' | ']' | '?')
+        });
+    if simple {
+        code.to_owned()
+    } else {
+        format!("({code})")
+    }
+}
+
+fn paren_or(code: &str) -> String {
+    if code.contains("||") {
+        format!("({code})")
+    } else {
+        code.to_owned()
+    }
+}
+
 /// The Go path (`x.A.B`) of a place made of a variable and fields.
 fn place_path(e: &Expr) -> Option<String> {
     match e.kind.as_str() {
@@ -3876,215 +4068,15 @@ fn place_path(e: &Expr) -> Option<String> {
     }
 }
 
-fn root_name(e: &Expr) -> Option<String> {
-    match e.kind.as_str() {
-        "var" => Some(e.name.clone()),
-        "field" | "index" | "deref" => root_name(e.x.as_deref()?),
-        _ => None,
+fn prim_of(t: &Type) -> Option<&'static str> {
+    if t.kind != "basic" || is_string(t) {
+        return None;
     }
+    model::basic(&t.name).ok()
 }
 
-fn overlaps(a: &str, b: &str) -> bool {
-    a == b || b.starts_with(&format!("{a}.")) || a.starts_with(&format!("{b}."))
-}
-
-/// Records the place paths an expression reads.
-fn expr_paths(e: &Expr, out: &mut Vec<(String, bool)>) {
-    if let Some(p) = place_path(e) {
-        out.push((p, false));
-        return;
-    }
-    for x in [&e.x, &e.y, &e.index, &e.low, &e.high, &e.recv]
-        .into_iter()
-        .flatten()
-    {
-        expr_paths(x, out);
-    }
-    for a in e.args.iter().chain(&e.elems) {
-        expr_paths(a, out);
-    }
-    for f in &e.fields {
-        expr_paths(&f.value, out);
-    }
-}
-
-/// The Go names a body declares (locals, elements, loop variables).
-fn collect_locals(stmts: &[Stmt], out: &mut BTreeSet<String>) {
-    for s in stmts {
-        if s.kind == "var" {
-            out.insert(s.name.clone());
-        }
-        if s.kind == "assign" && s.op == ":=" || s.kind == "range" {
-            for e in s.lhs.iter().chain(&s.key).chain(&s.range_value) {
-                if e.kind == "var" {
-                    out.insert(e.name.clone());
-                }
-            }
-        }
-        if let Some(e) = &s.elem {
-            out.insert(e.name.clone());
-        }
-        for block in s.blocks() {
-            collect_locals(block, out);
-        }
-    }
-}
-
-fn contains_return(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| {
-        s.kind == "return"
-            || contains_return(&s.then)
-            || contains_return(&s.els)
-            || contains_return(&s.body)
-            || s.cases.iter().any(|c| contains_return(&c.body))
-    })
-}
-
-/// Whether a slice statement is a `varuint32` count followed by one `Uint8` per element, which
-/// is the wire form of a `ByteSlice`.
-fn is_byte_list(s: &Stmt, elem: &Param) -> bool {
-    s.prefix == "varuint32"
-        && matches!(
-            s.body.as_slice(),
-            [b] if b.kind == "io"
-                && b.method == "Uint8"
-                && b.place.as_ref().is_some_and(|p| p.kind == "var" && p.name == elem.name)
-        )
-}
-
-/// Calls `f` on every expression with its role in its parent.
-fn visit_exprs(stmts: &[Stmt], f: &mut dyn FnMut(&Expr, Role)) {
-    fn walk(e: &Expr, role: Role, f: &mut dyn FnMut(&Expr, Role)) {
-        f(e, role);
-        for x in [&e.x, &e.y, &e.low, &e.high, &e.recv].into_iter().flatten() {
-            walk(x, Role::Other, f);
-        }
-        if let Some(i) = &e.index {
-            walk(i, Role::Index, f);
-        }
-        for a in e.args.iter().chain(&e.elems) {
-            walk(a, Role::Other, f);
-        }
-        for fv in &e.fields {
-            walk(&fv.value, Role::Other, f);
-        }
-    }
-    for s in stmts {
-        let singles = [
-            &s.place,
-            &s.len,
-            &s.recv,
-            &s.value,
-            &s.cond,
-            &s.tag,
-            &s.x,
-            &s.key,
-            &s.range_value,
-            &s.field,
-            &s.reason,
-            &s.enum_name,
-        ];
-        for e in singles.into_iter().flatten() {
-            walk(e, Role::Other, f);
-        }
-        for e in s.args.iter().chain(&s.lhs).chain(&s.rhs).chain(&s.values) {
-            walk(e, Role::Other, f);
-        }
-        for list in [&s.body, &s.then, &s.els, &s.init, &s.post] {
-            visit_exprs(list, f);
-        }
-        for c in &s.cases {
-            for v in &c.values {
-                walk(v, Role::Other, f);
-            }
-            visit_exprs(&c.body, f);
-        }
-    }
-}
-
-/// Whether evaluating a Go expression may fail: it calls a function or indexes.
-fn may_fail(e: &Expr) -> bool {
-    matches!(e.kind.as_str(), "index" | "slice_of")
-        || (e.kind == "call" && e.target != "builtin")
-        || [&e.x, &e.y, &e.index, &e.low, &e.high, &e.recv]
-            .into_iter()
-            .flatten()
-            .any(|x| may_fail(x))
-        || e.args.iter().chain(&e.elems).any(may_fail)
-        || e.fields.iter().any(|f| may_fail(&f.value))
-}
-
-/// Whether a Go variable is referenced in statements.
-pub(crate) fn uses_var(stmts: &[Stmt], name: &str) -> bool {
-    let mut used = false;
-    visit_exprs(stmts, &mut |e, _| used |= e.kind == "var" && e.name == name);
-    used
-}
-
-/// The single expression a loop variable indexes in a body, if it is used only as an index.
-fn index_base(stmts: &[Stmt], var: &str) -> Option<Expr> {
-    let mut base: Option<Expr> = None;
-    let mut ok = true;
-    visit_exprs(stmts, &mut |e, role| {
-        if e.kind == "index"
-            && e.index
-                .as_deref()
-                .is_some_and(|i| i.kind == "var" && i.name == var)
-        {
-            match (&base, e.x.as_deref()) {
-                (None, Some(b)) => base = Some(b.clone()),
-                (Some(x), Some(b)) if same_expr(x, b) => {}
-                _ => ok = false,
-            }
-        } else if e.kind == "var" && e.name == var && role != Role::Index {
-            ok = false;
-        }
-    });
-    if ok { base } else { None }
-}
-
-fn same_expr(a: &Expr, b: &Expr) -> bool {
-    let same = |x: &Option<Box<Expr>>, y: &Option<Box<Expr>>| match (x, y) {
-        (Some(x), Some(y)) => same_expr(x, y),
-        (None, None) => true,
-        _ => false,
-    };
-    a.kind == b.kind
-        && a.name == b.name
-        && a.value == b.value
-        && same(&a.x, &b.x)
-        && same(&a.index, &b.index)
-}
-
-/// Whether a body (decoding) writes `base[var]` or a place inside it.
-fn writes_index(stmts: &[Stmt], var: &str) -> bool {
-    let indexed = |e: &Expr| {
-        let mut cur = Some(e);
-        while let Some(c) = cur {
-            if c.kind == "index"
-                && c.index
-                    .as_deref()
-                    .is_some_and(|i| i.kind == "var" && i.name == var)
-            {
-                return true;
-            }
-            cur = c.x.as_deref();
-        }
-        false
-    };
-    stmts.iter().any(|s| {
-        let place_write = matches!(
-            s.kind.as_str(),
-            "io" | "marshal" | "slice" | "optional" | "integer_func"
-        ) && s.place.as_ref().is_some_and(indexed);
-        place_write
-            || (s.kind == "assign" && s.lhs.iter().any(indexed))
-            || (s.kind == "call" && s.args.iter().any(indexed))
-            || writes_index(&s.body, var)
-            || writes_index(&s.then, var)
-            || writes_index(&s.els, var)
-            || s.cases.iter().any(|c| writes_index(&c.body, var))
-    })
+pub(super) fn is_string(t: &Type) -> bool {
+    t.kind == "basic" && (t.name == "string" || t.name == "untyped string")
 }
 
 /// Replaces `base[var]` with the element binding `#elem:var`.
@@ -4169,48 +4161,44 @@ fn replace_index(stmts: &[Stmt], var: &str, base: &Expr) -> Vec<Stmt> {
     out
 }
 
-pub(crate) fn is_string(t: &Type) -> bool {
-    t.kind == "basic" && (t.name == "string" || t.name == "untyped string")
-}
-
-fn prim_of(t: &Type) -> Option<&'static str> {
-    if t.kind != "basic" || is_string(t) {
-        return None;
-    }
-    model::basic(&t.name).ok()
-}
-
-fn paren(code: &str) -> String {
-    let simple = !code.starts_with('-')
-        && code.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '(' | ')' | ':' | '[' | ']' | '?')
-        });
-    if simple {
-        code.to_owned()
-    } else {
-        format!("({code})")
+fn root_name(e: &Expr) -> Option<String> {
+    match e.kind.as_str() {
+        "var" => Some(e.name.clone()),
+        "field" | "index" | "deref" => root_name(e.x.as_deref()?),
+        _ => None,
     }
 }
 
-/// A method receiver: a dereference needs parentheses.
-fn method_recv(code: &str) -> String {
-    if code.starts_with('*') {
-        format!("({code})")
-    } else {
-        code.to_owned()
-    }
+fn same_expr(a: &Expr, b: &Expr) -> bool {
+    let same = |x: &Option<Box<Expr>>, y: &Option<Box<Expr>>| match (x, y) {
+        (Some(x), Some(y)) => same_expr(x, y),
+        (None, None) => true,
+        _ => false,
+    };
+    a.kind == b.kind
+        && a.name == b.name
+        && a.value == b.value
+        && same(&a.x, &b.x)
+        && same(&a.index, &b.index)
 }
 
-fn paren_or(code: &str) -> String {
-    if code.contains("||") {
-        format!("({code})")
-    } else {
-        code.to_owned()
-    }
+/// Whether statements assign a local declared before `first`.
+fn sets_before(stmts: &[S], first: usize) -> bool {
+    stmts.iter().any(|s| match s {
+        S::Set { var, .. } => *var < first,
+        S::If { then, els, .. } => sets_before(then, first) || sets_before(els, first),
+        S::Match { arms, .. } => arms.iter().any(|(_, b)| sets_before(b, first)),
+        _ => false,
+    })
+}
+
+/// A Rust string literal.
+pub(super) fn str_lit(value: &str) -> String {
+    format!("{value:?}")
 }
 
 /// A type usable as a path prefix (`<[f32; 3]>::default()`).
-pub(crate) fn type_path(rust: &str) -> String {
+pub(super) fn type_path(rust: &str) -> String {
     if rust.starts_with('[') || rust.contains('<') {
         format!("<{rust}>")
     } else {
@@ -4218,86 +4206,100 @@ pub(crate) fn type_path(rust: &str) -> String {
     }
 }
 
-/// Whether printed code names a Rust identifier (not as a field).
-fn mentions_name(code: &str, name: &str) -> bool {
-    let bytes = code.as_bytes();
-    let ident = |b: Option<&u8>| b.is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
-    let mut start = 0;
-    while let Some(pos) = code.get(start..).and_then(|c| c.find(name)) {
-        let at = start + pos;
-        let end = at + name.len();
-        let before = at.checked_sub(1).and_then(|i| bytes.get(i));
-        if !ident(before) && !ident(bytes.get(end)) && before != Some(&b'.') {
-            return true;
-        }
-        start = end;
+fn union(a: Option<Vars>, b: Option<Vars>) -> Option<Vars> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.union(&b).copied().collect()),
+        (a, None) => a,
+        (None, b) => b,
     }
-    false
 }
 
-/// An or-pattern with runs of three or more consecutive integers as ranges
-/// (`clippy::manual_range_patterns`).
-pub(crate) fn compress(pats: &[String]) -> String {
-    let mut nums: Vec<i64> = Vec::new();
-    for p in pats {
-        match p.replace('_', "").parse() {
-            Ok(n) => nums.push(n),
-            Err(_) => return pats.join(" | "),
+/// Whether a Go variable is referenced in statements.
+pub(super) fn uses_var(stmts: &[Stmt], name: &str) -> bool {
+    let mut used = false;
+    visit_exprs(stmts, &mut |e, _| used |= e.kind == "var" && e.name == name);
+    used
+}
+
+/// Calls `f` on every expression with its role in its parent.
+fn visit_exprs(stmts: &[Stmt], f: &mut dyn FnMut(&Expr, Role)) {
+    fn walk(e: &Expr, role: Role, f: &mut dyn FnMut(&Expr, Role)) {
+        f(e, role);
+        for x in [&e.x, &e.y, &e.low, &e.high, &e.recv].into_iter().flatten() {
+            walk(x, Role::Other, f);
+        }
+        if let Some(i) = &e.index {
+            walk(i, Role::Index, f);
+        }
+        for a in e.args.iter().chain(&e.elems) {
+            walk(a, Role::Other, f);
+        }
+        for fv in &e.fields {
+            walk(&fv.value, Role::Other, f);
         }
     }
-    nums.sort_unstable();
-    nums.dedup();
-    let mut ranges = Vec::new();
-    let mut i = 0;
-    while let Some(&start) = nums.get(i) {
-        let mut j = i;
-        while nums
-            .get(j + 1)
-            .is_some_and(|&n| nums.get(j).is_some_and(|&p| p + 1 == n))
-        {
-            j += 1;
+    for s in stmts {
+        let singles = [
+            &s.place,
+            &s.len,
+            &s.recv,
+            &s.value,
+            &s.cond,
+            &s.tag,
+            &s.x,
+            &s.key,
+            &s.range_value,
+            &s.field,
+            &s.reason,
+            &s.enum_name,
+        ];
+        for e in singles.into_iter().flatten() {
+            walk(e, Role::Other, f);
         }
-        let end = nums.get(j).copied().unwrap_or(start);
-        if j - i >= 2 {
-            ranges.push(format!(
-                "{}..={}",
-                int_lit(&start.to_string()),
-                int_lit(&end.to_string())
-            ));
-        } else {
-            for n in nums.get(i..=j).unwrap_or_default() {
-                ranges.push(int_lit(&n.to_string()));
+        for e in s.args.iter().chain(&s.lhs).chain(&s.rhs).chain(&s.values) {
+            walk(e, Role::Other, f);
+        }
+        for list in [&s.body, &s.then, &s.els, &s.init, &s.post] {
+            visit_exprs(list, f);
+        }
+        for c in &s.cases {
+            for v in &c.values {
+                walk(v, Role::Other, f);
             }
+            visit_exprs(&c.body, f);
         }
-        i = j + 1;
     }
-    ranges.join(" | ")
 }
 
-/// The Rust name of a struct field.
-pub(crate) fn field_rust_name(ty: &str, go: &str) -> Result<String, String> {
-    names::snake(go, &format!("{ty}.{go}"))
-}
-
-/// The Rust name of a Go local or parameter (`r`, `w` and `self` are taken).
-fn param_name(go: &str) -> Result<String, String> {
-    let name = names::snake(go, go)?;
-    Ok(if matches!(name.as_str(), "r" | "w" | "self" | "r#self") {
-        format!("{}_", name.trim_start_matches("r#"))
-    } else {
-        name
+/// Whether a body (decoding) writes `base[var]` or a place inside it.
+fn writes_index(stmts: &[Stmt], var: &str) -> bool {
+    let indexed = |e: &Expr| {
+        let mut cur = Some(e);
+        while let Some(c) = cur {
+            if c.kind == "index"
+                && c.index
+                    .as_deref()
+                    .is_some_and(|i| i.kind == "var" && i.name == var)
+            {
+                return true;
+            }
+            cur = c.x.as_deref();
+        }
+        false
+    };
+    stmts.iter().any(|s| {
+        let place_write = matches!(
+            s.kind.as_str(),
+            "io" | "marshal" | "slice" | "optional" | "integer_func"
+        ) && s.place.as_ref().is_some_and(indexed);
+        place_write
+            || (s.kind == "assign" && s.lhs.iter().any(indexed))
+            || (s.kind == "call" && s.args.iter().any(indexed))
+            || writes_index(&s.body, var)
+            || writes_index(&s.then, var)
+            || writes_index(&s.els, var)
+            || s.cases.iter().any(|c| writes_index(&c.body, var))
     })
-}
-
-/// The Rust name of a generated function.
-pub(crate) fn fn_name(go: &str, prefix: &str) -> Result<String, String> {
-    let local = go.split_once('.').map_or(go, |(_, n)| n);
-    let snake = local
-        .split('.')
-        .map(|part| names::snake(part, go).map(|s| s.trim_start_matches("r#").to_owned()))
-        .collect::<Result<Vec<_>, String>>()?
-        .join("_");
-    Ok(format!("{prefix}{snake}"))
 }
 
 #[cfg(test)]

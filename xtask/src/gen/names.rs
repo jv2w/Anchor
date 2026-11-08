@@ -8,6 +8,8 @@
 //! before them (`Vec3`, `Int64`, `V1`). The words are then joined as `snake_case`,
 //! `UpperCamelCase` (only the first letter of a word upper) or `SCREAMING_SNAKE_CASE`.
 
+use std::cmp::Ordering;
+
 /// Go names, qualified with their package, whose Rust name the rules do not give. Constant groups
 /// (`consts`) are named by their Go prefix: `protocol.Container` holds the container IDs
 /// (`ContainerAnvilInput`), which the bare name would confuse with containers; gophertunnel
@@ -33,9 +35,9 @@ const KEYWORDS: &[&str] = &[
 /// Keywords that cannot be raw identifiers.
 const RESERVED: &[&str] = &["self", "Self", "super", "crate", "_"];
 
-/// Names written together that the case rule would split, and plurals of acronyms that it would
-/// split before the `s`.
-const TERMS: &[&str] = &["PlayFab", "MoLang", "IDs"];
+/// Names written together that the case rule would split (`PlayFab`, `MoLang`, `NetherNet`, the
+/// last one word like any acronym), and plurals of acronyms that it would split before the `s`.
+const TERMS: &[&str] = &["PlayFab", "MoLang", "IDs", "NetherNet"];
 
 /// Method names of the extra results of union lookups (Go names them only by position): the
 /// lookup function, the result index after the ID, and the method name.
@@ -43,7 +45,7 @@ const UNION_EXTRAS: &[(&str, usize, &str)] = &[("protocol.itemDescriptorType", 0
 
 /// The Rust field, local or function name of a Go name. `qualified` is the name the
 /// exception table uses (for example `protocol.Skin.SkinID`).
-pub(crate) fn snake(go: &str, qualified: &str) -> Result<String, String> {
+pub(super) fn snake(go: &str, qualified: &str) -> Result<String, String> {
     if let Some(rust) = exception(qualified) {
         return Ok(rust.to_owned());
     }
@@ -52,7 +54,7 @@ pub(crate) fn snake(go: &str, qualified: &str) -> Result<String, String> {
 
 /// The Rust variant name of a Go name: `UpperCamelCase` without the module-word rule of
 /// [`type_name`]. `qualified` is the name the exception table uses.
-pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
+pub(super) fn camel(go: &str, qualified: &str) -> Result<String, String> {
     if let Some(rust) = exception(qualified) {
         return Ok(rust.to_owned());
     }
@@ -61,13 +63,13 @@ pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
 
 /// An upper camel case Rust name of a snake case or dump name (`oak_planks` → `OakPlanks`), with
 /// acronyms as one word (`TNT` → `Tnt`).
-pub(crate) fn upper_camel(name: &str) -> String {
+pub(super) fn upper_camel(name: &str) -> String {
     camel_of(&words(name))
 }
 
 /// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the
 /// exception table uses.
-pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
+pub(super) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
     if let Some(rust) = exception(qualified) {
         return Ok(rust.to_owned());
     }
@@ -76,7 +78,7 @@ pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
 
 /// The Rust type name of the Go type `qualified` (`package.Name`). Packet types drop a leading
 /// or trailing `Packet` word, which would repeat the module name.
-pub(crate) fn type_name(qualified: &str) -> Result<String, String> {
+pub(super) fn type_name(qualified: &str) -> Result<String, String> {
     if let Some(rust) = exception(qualified) {
         return Ok(rust.to_owned());
     }
@@ -93,7 +95,7 @@ pub(crate) fn type_name(qualified: &str) -> Result<String, String> {
 }
 
 /// The method name of extra result `k` of the union lookup `union`.
-pub(crate) fn union_extra(union: &str, k: usize) -> Result<&'static str, String> {
+pub(super) fn union_extra(union: &str, k: usize) -> Result<&'static str, String> {
     UNION_EXTRAS
         .iter()
         .find(|(u, i, _)| *u == union && *i == k)
@@ -103,7 +105,7 @@ pub(crate) fn union_extra(union: &str, k: usize) -> Result<&'static str, String>
 
 /// The variant names of a union: each variant type's words without the words all variants end
 /// with (`TakeStackRequestAction` → `Take`). A variant left without words keeps its full name.
-pub(crate) fn variants(types: &[&str]) -> Vec<String> {
+pub(super) fn variants(types: &[&str]) -> Vec<String> {
     let lists: Vec<Vec<String>> = types.iter().map(|t| words(t)).collect();
     let mut common = 0;
     'grow: loop {
@@ -125,8 +127,14 @@ pub(crate) fn variants(types: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// Orders constant names word by word, a shorter word first (`QUEUE_CAPACITY` before
+/// `QUEUED_WORDS`).
+pub(super) fn by_words(a: &str, b: &str) -> Ordering {
+    a.split('_').cmp(b.split('_'))
+}
+
 /// The words of a Go identifier.
-pub(crate) fn words(name: &str) -> Vec<String> {
+pub(super) fn words(name: &str) -> Vec<String> {
     let chars: Vec<char> = name.chars().collect();
     let mut words = Vec::new();
     let mut i = 0;
@@ -302,6 +310,10 @@ mod tests {
             ["Item", "Descriptor", "MoLang"]
         );
         assert_eq!(split("BlobIDs"), ["Blob", "IDs"]);
+        assert_eq!(
+            split("DisconnectReasonNetherNetICE"),
+            ["Disconnect", "Reason", "NetherNet", "ICE"]
+        );
         assert_eq!(split("Identity"), ["Identity"]);
     }
 
@@ -312,6 +324,7 @@ mod tests {
         assert_eq!(snake("NBTData", "x").unwrap(), "nbt_data");
         assert_eq!(snake("PlayFabID", "x").unwrap(), "playfab_id");
         assert_eq!(snake("BlobIDs", "x").unwrap(), "blob_ids");
+        assert_eq!(camel("NetherNetICE", "x").unwrap(), "NethernetIce");
         assert_eq!(
             type_name("protocol.EntityRuntimeID").unwrap(),
             "EntityRuntimeId"

@@ -181,7 +181,7 @@ const SHARED_FIELDS: &[&str] = &["protocol.PlayerListEntry.Skin", "packet.Player
 
 /// How a writer takes an IO method's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Pass {
+pub(super) enum Pass {
     /// By value (`Copy` values).
     Value,
     /// By reference.
@@ -190,7 +190,7 @@ pub(crate) enum Pass {
 
 /// How a reader produces an IO method's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Read {
+pub(super) enum Read {
     /// `r.method(args)?` returns the value.
     Returns,
     /// `r.method(&place)?` checks the current value and returns nothing.
@@ -199,20 +199,20 @@ pub(crate) enum Read {
 
 /// One `protocol.IO` method in Rust.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct IoSpec {
+pub(super) struct IoSpec {
     /// The Rust method name on `Reader` and `Writer`.
-    pub(crate) rust: &'static str,
+    pub(super) rust: &'static str,
     /// How the writer takes the value.
-    pub(crate) pass: Pass,
+    pub(super) pass: Pass,
     /// Whether the writer returns `Result`.
-    pub(crate) write_fails: bool,
+    pub(super) write_fails: bool,
     /// How the reader produces the value.
-    pub(crate) read: Read,
+    pub(super) read: Read,
 }
 
 /// The Rust module a generated item lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Module {
+pub(super) enum Module {
     /// `src/protocol/types.rs`.
     Types,
     /// `src/protocol/packet.rs`.
@@ -221,42 +221,40 @@ pub(crate) enum Module {
 
 /// A union interface: its variants and lookup functions.
 #[derive(Debug)]
-pub(crate) struct UnionInfo {
+pub(super) struct UnionInfo {
     /// The Rust enum name.
-    pub(crate) rust: String,
+    pub(super) rust: String,
     /// Variants in ID table order: Go type and Rust variant name.
-    pub(crate) variants: Vec<(String, String)>,
+    pub(super) variants: Vec<(String, String)>,
     /// The `id`-key lookup (ID to variant).
-    pub(crate) by_id: String,
+    pub(super) by_id: String,
     /// The `type`-key lookups (variant to ID).
-    pub(crate) by_type: Vec<String>,
+    pub(super) by_type: Vec<String>,
 }
 
 /// Everything the emitter and translator look up.
 #[derive(Debug)]
-pub(crate) struct Model<'a> {
-    pub(crate) ir: &'a Ir,
-    pub(crate) types: BTreeMap<&'a str, &'a TypeDef>,
-    pub(crate) functions: BTreeMap<&'a str, &'a Function>,
-    pub(crate) enums: BTreeMap<&'a str, &'a Enum>,
-    pub(crate) unions: BTreeMap<&'a str, &'a Union>,
+pub(super) struct Model<'a> {
+    pub(super) ir: &'a Ir,
+    pub(super) types: BTreeMap<&'a str, &'a TypeDef>,
+    pub(super) functions: BTreeMap<&'a str, &'a Function>,
+    pub(super) enums: BTreeMap<&'a str, &'a Enum>,
+    pub(super) unions: BTreeMap<&'a str, &'a Union>,
     /// Union interfaces by Go name.
-    pub(crate) interfaces: BTreeMap<String, UnionInfo>,
-    /// Go union variant type to its interface.
-    pub(crate) variant_of: BTreeMap<String, String>,
+    pub(super) interfaces: BTreeMap<String, UnionInfo>,
     /// Rust names of generated types by Go name.
-    pub(crate) rust_names: BTreeMap<String, (String, Module)>,
+    pub(super) rust_names: BTreeMap<String, (String, Module)>,
     /// Struct fields of type `any` written with `AbilityValue`.
-    pub(crate) ability_fields: BTreeSet<(String, String)>,
+    pub(super) ability_fields: BTreeSet<(String, String)>,
     /// Packet type names.
-    pub(crate) packets: BTreeSet<&'a str>,
+    pub(super) packets: BTreeSet<&'a str>,
     /// Decode limits by field (`<Go type>.<field>`, `[]` for its list elements): the most bytes
     /// of a string or elements of a list (`xtask/data/reference/protocol_limits.json`).
-    pub(crate) limits: BTreeMap<String, usize>,
+    pub(super) limits: BTreeMap<String, usize>,
 }
 
 impl<'a> Model<'a> {
-    pub(crate) fn new(ir: &'a Ir, limits: BTreeMap<String, usize>) -> Result<Self, String> {
+    pub(super) fn new(ir: &'a Ir, limits: BTreeMap<String, usize>) -> Result<Self, String> {
         let names: Vec<&str> = ir.io_methods.iter().map(|m| m.name.as_str()).collect();
         for name in &names {
             if !IO_NON_STATEMENTS.contains(name)
@@ -285,7 +283,6 @@ impl<'a> Model<'a> {
             enums: ir.enums.iter().map(|e| (e.name.as_str(), e)).collect(),
             unions: ir.unions.iter().map(|u| (u.name.as_str(), u)).collect(),
             interfaces: BTreeMap::new(),
-            variant_of: BTreeMap::new(),
             rust_names: BTreeMap::new(),
             ability_fields: BTreeSet::new(),
             packets: ir.packets.iter().map(|p| p.ty.as_str()).collect(),
@@ -318,7 +315,7 @@ impl<'a> Model<'a> {
     }
 
     /// The hand method of a function, if it is hand-written.
-    pub(crate) fn hand_function(go: &str) -> Option<&'static str> {
+    pub(super) fn hand_function(go: &str) -> Option<&'static str> {
         HAND_FUNCTIONS
             .iter()
             .find(|(g, _)| *g == go)
@@ -326,7 +323,7 @@ impl<'a> Model<'a> {
     }
 
     /// Whether a `marshal` statement may name this type.
-    pub(crate) fn has_codec(&self, go: &str) -> bool {
+    pub(super) fn has_codec(&self, go: &str) -> bool {
         if hand_type(go).is_some() {
             return HAND_CODECS.contains(&go);
         }
@@ -335,14 +332,14 @@ impl<'a> Model<'a> {
 
     /// Whether a union variant or packet type is boxed: its estimated size is past
     /// [`BOX_OVER`].
-    pub(crate) fn is_boxed(&self, go: &str) -> bool {
+    pub(super) fn is_boxed(&self, go: &str) -> bool {
         self.types
             .get(go)
             .is_some_and(|d| self.struct_bytes(d) > BOX_OVER)
     }
 
     /// Whether the Rust type of a Go type is `Copy`.
-    pub(crate) fn is_copy(&self, t: &Type) -> bool {
+    pub(super) fn is_copy(&self, t: &Type) -> bool {
         match t.kind.as_str() {
             "basic" => t.name != "string",
             "named" => {
@@ -363,7 +360,7 @@ impl<'a> Model<'a> {
     }
 
     /// The Rust type of a Go type, written from `from`.
-    pub(crate) fn rust_type(&self, t: &Type, from: Module) -> Result<String, String> {
+    pub(super) fn rust_type(&self, t: &Type, from: Module) -> Result<String, String> {
         Ok(match t.kind.as_str() {
             "basic" => basic(&t.name)?.to_owned(),
             "named" => self.named(&t.name, from)?,
@@ -399,7 +396,7 @@ impl<'a> Model<'a> {
     }
 
     /// The Rust name of a named Go type, written from `from`.
-    pub(crate) fn named(&self, go: &str, from: Module) -> Result<String, String> {
+    pub(super) fn named(&self, go: &str, from: Module) -> Result<String, String> {
         if let Some((rust, _)) = hand_type(go) {
             return Ok(self.qualify(rust, Module::Types, from));
         }
@@ -414,7 +411,7 @@ impl<'a> Model<'a> {
     }
 
     /// The fields of a named struct type.
-    pub(crate) fn struct_def(&self, go: &str) -> Option<&'a TypeDef> {
+    pub(super) fn struct_def(&self, go: &str) -> Option<&'a TypeDef> {
         self.types.get(go).copied().filter(|t| t.kind == "struct")
     }
 
@@ -560,9 +557,6 @@ impl<'a> Model<'a> {
             if self.interfaces.contains_key(&u.interface) {
                 return Err(format!("{}: two id lookups", u.interface));
             }
-            for g in &go {
-                self.variant_of.insert(g.clone(), u.interface.clone());
-            }
             self.interfaces.insert(
                 u.interface.clone(),
                 UnionInfo {
@@ -592,7 +586,7 @@ impl<'a> Model<'a> {
 }
 
 /// The Rust primitive of a Go basic type.
-pub(crate) fn basic(name: &str) -> Result<&'static str, String> {
+pub(super) fn basic(name: &str) -> Result<&'static str, String> {
     Ok(match name {
         "bool" | "untyped bool" => "bool",
         "uint8" => "u8",
@@ -636,24 +630,24 @@ fn collect_ability_fields(
 }
 
 /// The element type of a slice, array, map or optional type.
-pub(crate) fn elem(t: &Type) -> Result<&Type, String> {
+pub(super) fn elem(t: &Type) -> Result<&Type, String> {
     t.elem
         .as_deref()
         .ok_or_else(|| format!("{t:?} has no element type"))
 }
 
 /// The Rust names of the hand-written types.
-pub(crate) fn hand_names() -> impl Iterator<Item = &'static str> {
+pub(super) fn hand_names() -> impl Iterator<Item = &'static str> {
     HAND_TYPES.iter().map(|(_, rust, _, _)| *rust)
 }
 
 /// The Rust names of the hand-written types with their sizes in bytes.
-pub(crate) fn hand_sizes() -> impl Iterator<Item = (&'static str, u64)> {
+pub(super) fn hand_sizes() -> impl Iterator<Item = (&'static str, u64)> {
     HAND_TYPES.iter().map(|(_, rust, _, bytes)| (*rust, *bytes))
 }
 
 /// The hand type of a Go type.
-pub(crate) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
+pub(super) fn hand_type(go: &str) -> Option<(&'static str, bool)> {
     hand_row(go).map(|(_, rust, copy, _)| (*rust, *copy))
 }
 
@@ -689,24 +683,24 @@ const fn io_fallible(rust: &'static str, pass: Pass) -> IoSpec {
 }
 
 /// The Rust form of an IO method.
-pub(crate) fn io_spec(go: &str) -> Option<IoSpec> {
+pub(super) fn io_spec(go: &str) -> Option<IoSpec> {
     IO_METHODS.iter().find(|(g, _)| *g == go).map(|(_, s)| *s)
 }
 
 /// Whether field `field` of Go type `go` is held as `Arc<T>` ([`SHARED_FIELDS`]).
-pub(crate) fn is_shared(go: &str, field: &str) -> bool {
+pub(super) fn is_shared(go: &str, field: &str) -> bool {
     SHARED_FIELDS
         .iter()
         .any(|k| k.strip_prefix(go).and_then(|f| f.strip_prefix('.')) == Some(field))
 }
 
 /// The unqualified part of a Go name.
-pub(crate) fn local(name: &str) -> &str {
+pub(super) fn local(name: &str) -> &str {
     name.rsplit_once('.').map_or(name, |(_, n)| n)
 }
 
 /// The module a Go name's items go to.
-pub(crate) fn module_of(go: &str) -> Module {
+pub(super) fn module_of(go: &str) -> Module {
     if package(go) == "packet" {
         Module::Packet
     } else {

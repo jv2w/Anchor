@@ -4,8 +4,8 @@
 //! registry, creative inventory and effect tables (see `data`), the biome table and the import's
 //! upgrade tables (see `upgrade`) from the committed data in `xtask/data/`. It extracts the IR into `target/` and writes the committed IR
 //! and the generated files only after all of them are made. With `--check` it writes nothing and
-//! fails if the committed IR or a generated file differs. The protocol decoders also apply the
-//! per-field limits in `xtask/data/reference/protocol_limits.json`.
+//! fails if the committed IR or a generated file differs. The protocol decoders and encoders both
+//! apply the per-field limits in `xtask/data/reference/protocol_limits.json`.
 
 // The macro is defined before the modules, whose code uses it.
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
@@ -126,7 +126,7 @@ fn extract(root: &Path, out: &Path) -> Result<(), String> {
 /// calls for.
 fn finish(root: &Path, text: &str) -> Result<String, String> {
     let formatted = rustfmt(root, text)?;
-    let marked = mark_long_functions(&formatted);
+    let marked = mark_long_functions(&formatted)?;
     let formatted = rustfmt(root, &marked)?;
     if formatted != rustfmt(root, &formatted)? {
         return Err("rustfmt output is not stable".to_owned());
@@ -168,7 +168,7 @@ fn rustfmt(root: &Path, text: &str) -> Result<String, String> {
 /// Adds `#[expect(clippy::too_many_lines)]` to functions whose body has more than
 /// [`TOO_MANY_LINES`] lines of code, counted like clippy: non-blank lines from the opening to
 /// the closing brace.
-fn mark_long_functions(text: &str) -> String {
+fn mark_long_functions(text: &str) -> Result<String, String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut marks: Vec<(usize, String)> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -185,7 +185,9 @@ fn mark_long_functions(text: &str) -> String {
         if !is_fn {
             continue;
         }
-        let indent = line.strip_suffix(trimmed).unwrap_or_default();
+        let Some(indent) = line.strip_suffix(trimmed) else {
+            return Err(format!("line {} does not end with its trimmed text", i + 1));
+        };
         let Some(open) =
             (i..lines.len()).find(|&j| lines.get(j).is_some_and(|l| l.trim_end().ends_with('{')))
         else {
@@ -197,9 +199,13 @@ fn mark_long_functions(text: &str) -> String {
         else {
             continue;
         };
-        let count = lines
-            .get(open..=close)
-            .unwrap_or_default()
+        let Some(function) = lines.get(open..=close) else {
+            return Err(format!(
+                "line {}: the function range is outside the text",
+                i + 1
+            ));
+        };
+        let count = function
             .iter()
             .filter(|l| {
                 let t = l.trim();
@@ -225,5 +231,5 @@ fn mark_long_functions(text: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    out
+    Ok(out)
 }
