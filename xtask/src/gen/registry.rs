@@ -1,6 +1,8 @@
 //! `src/item/registry.rs`: the item registry, every entry of the reference list
 //! (`xtask/data/reference/items.json`) with its component data, in runtime ID order.
 
+use std::path::Path;
+
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -10,25 +12,26 @@ use super::emit::HEADER;
 use crate::dump::{REFERENCE_DIR, REFERENCE_ITEMS};
 
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/item/registry.rs";
+pub(super) const PATH: &str = "src/item/registry.rs";
 
 /// The shield item, whose network stacks differ (gophertunnel `ItemStack` `BlockingTick`).
 const SHIELD: &str = "minecraft:shield";
 
+/// An item of the reference list.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Entry {
-    name: String,
-    runtime_id: i32,
+pub(super) struct Entry {
+    pub(super) name: String,
+    pub(super) runtime_id: i32,
     component_based: bool,
     version: i32,
-    data: Json,
+    pub(super) data: Json,
 }
 
 /// Generates the file text (unformatted) for the reference list of the game version
 /// `game_version`. Fails if the list is not in strict runtime ID order or an ID does not fit the
 /// network's int16.
-pub(crate) fn generate(root: &std::path::Path, game_version: &str) -> Result<String, String> {
+pub(super) fn generate(root: &Path, game_version: &str) -> Result<String, String> {
     let entries: Vec<Entry> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
     let shield = entries
         .iter()

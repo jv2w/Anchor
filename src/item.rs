@@ -38,25 +38,10 @@ use crate::protocol::{self, ItemType, packet};
 /// The data of a custom block's item: a plain block item.
 static CUSTOM_BLOCK_ITEM: Info = Info::custom(MAX_STACK, 0, 1, None, None);
 
-/// The dye colours by dye colour ID (white 0 … black 15): the dye item's name and the colour's
-/// RGB value.
-const DYES: [(&str, u32); 16] = [
-    ("minecraft:white_dye", 0xf0_f0f0),
-    ("minecraft:orange_dye", 0xf9_801d),
-    ("minecraft:magenta_dye", 0xc7_4ebd),
-    ("minecraft:light_blue_dye", 0x3a_b3da),
-    ("minecraft:yellow_dye", 0xfe_d83d),
-    ("minecraft:lime_dye", 0x80_c71f),
-    ("minecraft:pink_dye", 0xf3_8baa),
-    ("minecraft:gray_dye", 0x47_4f52),
-    ("minecraft:light_gray_dye", 0x9d_9d97),
-    ("minecraft:cyan_dye", 0x16_9c9c),
-    ("minecraft:purple_dye", 0x89_32b8),
-    ("minecraft:blue_dye", 0x3c_44aa),
-    ("minecraft:brown_dye", 0x83_5432),
-    ("minecraft:green_dye", 0x5e_7c16),
-    ("minecraft:red_dye", 0xb0_2e26),
-    ("minecraft:black_dye", 0x1d_1d21),
+/// The RGB values of the dye colours by dye colour ID (white 0 … black 15).
+const DYES: [u32; 16] = [
+    0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
+    0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
 ];
 
 /// The names of the Education Edition items ([`is_education`]), without `minecraft:`.
@@ -156,22 +141,6 @@ pub const TRIM_PATTERNS: [&str; 18] = [
 pub struct Type(Repr);
 
 impl Type {
-    /// The item type named `name` (with or without `minecraft:`): the default type of an item
-    /// kind, or the item of a block kind's default state. `None` for a name Anchor does not know;
-    /// a custom item or block is found by [`Context::custom_item`](crate::Context::custom_item)
-    /// instead. For a type with a meta, a block state or NBT use [`Type::from_name`].
-    pub fn find(name: &str) -> Option<Self> {
-        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
-        let kinds = Kind::all();
-        if let Ok(i) = kinds.binary_search_by(|k| k.name().cmp(name)) {
-            return kinds.get(i).map(|k| k.default_type());
-        }
-        let kinds = block::Kind::all();
-        let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
-        let state = kinds.get(i)?.default_state();
-        Self::from_name(state.name(), 0, Some(state), &nbt::Compound::new())
-    }
-
     /// The item of the registered custom block `block`, with the runtime ID the server gave it.
     /// Only the custom registry and the block's states call it, for blocks it has checked.
     #[expect(
@@ -281,6 +250,12 @@ impl Type {
         self.info().armor
     }
 
+    /// The armor points the item gives when worn.
+    #[doc(alias = "Item::getDefensePoints")]
+    pub fn armor_points(self) -> u8 {
+        self.info().defense_points
+    }
+
     /// The damage a hit with the item deals (1 for items that are not weapons).
     #[doc(alias = "Item::getAttackPoints")]
     pub fn attack_points(self) -> u8 {
@@ -336,8 +311,8 @@ impl Type {
     #[inline]
     pub fn custom_block(self) -> Option<&'static custom::Block> {
         match self.0 {
-            Repr::Block(block, ..) => Some(block),
             Repr::Vanilla(_) | Repr::Item(..) => None,
+            Repr::Block(block, ..) => Some(block),
         }
     }
 
@@ -345,15 +320,41 @@ impl Type {
     #[inline]
     pub fn custom_item(self) -> Option<&'static custom::Item> {
         match self.0 {
-            Repr::Item(item, _) => Some(item),
             Repr::Vanilla(_) | Repr::Block(..) => None,
+            Repr::Item(item, _) => Some(item),
         }
     }
 
-    /// The armor points the item gives when worn.
-    #[doc(alias = "Item::getDefensePoints")]
-    pub fn armor_points(self) -> u8 {
-        self.info().defense_points
+    /// The item type named `name` (with or without `minecraft:`): the type of that item name
+    /// ([`Type::name`]) as [`Type::from_name`] reads it with meta 0, no NBT and whatever block it
+    /// places, else the default type of an item kind, or
+    /// the item of a block kind's default state. `None` for a name Anchor does not know; a custom
+    /// item or block is found by [`Context::custom_item`](crate::Context::custom_item) instead.
+    /// For a type with a meta, a block state or NBT use [`Type::from_name`].
+    pub fn find(name: &str) -> Option<Self> {
+        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
+        // Every vanilla name has the namespace, so the names without it keep their order.
+        let named = equal_range(&table::NAMES, |(n, _)| {
+            n.strip_prefix(NAMESPACE).unwrap_or(*n).cmp(name)
+        });
+        if let Some((_, runtime_id)) = named.first()
+            && let Some(found) = Self::lookup(
+                Self::rows(*runtime_id),
+                |_| true,
+                Some(0),
+                &nbt::Compound::new(),
+            )
+        {
+            return Some(found);
+        }
+        let kinds = Kind::all();
+        if let Ok(i) = kinds.binary_search_by(|k| k.name().cmp(name)) {
+            return kinds.get(i).map(|k| k.default_type());
+        }
+        let kinds = block::Kind::all();
+        let i = kinds.binary_search_by(|k| k.name().cmp(name)).ok()?;
+        let state = kinds.get(i)?.default_state();
+        Self::from_name(state.name(), 0, Some(state), &nbt::Compound::new())
     }
 
     /// What eating the item restores.
@@ -796,13 +797,6 @@ pub enum ArmorSlot {
 }
 
 impl ArmorSlot {
-    /// The slot at armor index `index`; `None` past the feet.
-    pub(crate) fn from_index(index: usize) -> Option<Self> {
-        [Self::Head, Self::Chest, Self::Legs, Self::Feet]
-            .into_iter()
-            .find(|s| s.index() == index)
-    }
-
     /// The slot's index among a player's armor slots: head 0, chest 1, legs 2, feet 3.
     pub(crate) const fn index(self) -> usize {
         match self {
@@ -817,42 +811,30 @@ impl ArmorSlot {
 /// What an armor item is (its protection is [`Type::armor_points`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Armor {
-    slot: u8,
+    slot: ArmorSlot,
     toughness: u8,
 }
 
 impl Armor {
     /// What a custom item worn in `slot` is: no toughness.
     pub(crate) const fn custom(slot: ArmorSlot) -> Self {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "invariant: a slot's index is from 0 to 3"
-        )]
-        Self::new(slot.index() as u8, 0)
-    }
-
-    const fn new(slot: u8, toughness: u8) -> Self {
-        Self { slot, toughness }
+        Self::new(slot, 0)
     }
 
     /// The slot it is worn in.
     #[doc(alias = "Armor::getArmorSlot")]
-    #[expect(
-        clippy::missing_panics_doc,
-        reason = "invariant: the generator writes armor slots 0 to 3"
-    )]
     pub fn slot(self) -> ArmorSlot {
-        #[expect(
-            clippy::expect_used,
-            reason = "invariant: the generator writes armor slots 0 to 3"
-        )]
-        ArmorSlot::from_index(usize::from(self.slot)).expect("an armor slot is from 0 to 3")
+        self.slot
     }
 
     /// The armor toughness.
     #[doc(alias = "ArmorTypeInfo::getToughness")]
     pub fn toughness(self) -> u8 {
         self.toughness
+    }
+
+    const fn new(slot: ArmorSlot, toughness: u8) -> Self {
+        Self { slot, toughness }
     }
 }
 
@@ -873,16 +855,16 @@ impl Food {
         }
     }
 
-    /// The food points restored.
-    #[doc(alias = "FoodSource::getFoodRestore")]
-    pub fn food_restore(self) -> u8 {
-        self.points
-    }
-
     /// Whether the player can eat it with a full food bar.
     #[doc(alias = "FoodSource::requiresHunger")]
     pub fn can_eat_when_full(self) -> bool {
         !self.only_below_full
+    }
+
+    /// The food points restored.
+    #[doc(alias = "FoodSource::getFoodRestore")]
+    pub fn food_restore(self) -> u8 {
+        self.points
     }
 
     /// The saturation restored.
@@ -903,10 +885,6 @@ pub struct Consumable {
 }
 
 impl Consumable {
-    const fn new(residue: Option<Type>, effects: Option<(u16, u8)>) -> Self {
-        Self { residue, effects }
-    }
-
     /// The effects consuming one gives; `None` if they are drawn at random (a poisonous potato
     /// poisons six times in ten), which the eating rules work out.
     #[doc(alias = "Consumable::getAdditionalEffects")]
@@ -925,6 +903,10 @@ impl Consumable {
     pub fn residue(self) -> Option<Type> {
         self.residue
     }
+
+    const fn new(residue: Option<Type>, effects: Option<(u16, u8)>) -> Self {
+        Self { residue, effects }
+    }
 }
 
 /// The cooldown after using an item.
@@ -935,10 +917,6 @@ pub struct Cooldown {
 }
 
 impl Cooldown {
-    const fn new(ticks: u16, tag: Option<&'static str>) -> Self {
-        Self { ticks, tag }
-    }
-
     /// The tag items sharing the cooldown have; `None`: the item type alone.
     #[doc(alias = "Item::getCooldownTag")]
     pub fn tag(self) -> Option<&'static str> {
@@ -949,6 +927,10 @@ impl Cooldown {
     #[doc(alias = "Item::getCooldownTicks")]
     pub fn ticks(self) -> u16 {
         self.ticks
+    }
+
+    const fn new(ticks: u16, tag: Option<&'static str>) -> Self {
+        Self { ticks, tag }
     }
 }
 
@@ -1280,8 +1262,7 @@ pub(crate) fn max_runtime_id() -> i16 {
 
 /// The opaque ARGB value of a dye colour ID.
 pub(crate) fn dye_argb(colour: u8) -> Option<u32> {
-    DYES.get(usize::from(colour))
-        .map(|(_, rgb)| 0xff00_0000 | rgb)
+    DYES.get(usize::from(colour)).map(|rgb| 0xff00_0000 | rgb)
 }
 
 #[cfg(test)]
@@ -1688,6 +1669,17 @@ mod tests {
         assert_eq!(cobblestone.name(), "minecraft:cobblestone");
         assert_eq!(Type::find("minecraft:cobblestone"), Some(cobblestone));
         assert_eq!(Type::find("minecraft:nope"), None);
+    }
+
+    /// Every vanilla type's own name, with or without `minecraft:`, finds a type of that name.
+    #[test]
+    fn find_takes_every_item_name() {
+        for i in 0..u16::try_from(table::ITEMS.len()).unwrap() {
+            let name = Type::from_index(i).name();
+            assert_eq!(Type::find(name).map(Type::name), Some(name));
+            let short = name.strip_prefix(NAMESPACE).unwrap();
+            assert_eq!(Type::find(short).map(Type::name), Some(name));
+        }
     }
 
     fn by_name(name: &str) -> Type {

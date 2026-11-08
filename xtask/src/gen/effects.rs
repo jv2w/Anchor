@@ -26,19 +26,10 @@ const OFFICIAL_COLOURS: [(&str, [u8; 3]); 12] = [
     ("wither", [0x73, 0x61, 0x56]),
 ];
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/effect/table.rs";
-
-/// An effect's colour (RGBA): the official server's where [`OFFICIAL_COLOURS`] has it, the
-/// dump's otherwise.
-fn colour(name: &str, dumped: [u8; 4]) -> [u8; 4] {
-    OFFICIAL_COLOURS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map_or(dumped, |(_, [r, g, b])| [*r, *g, *b, dumped[3]])
-}
+pub(super) const PATH: &str = "src/effect/table.rs";
 
 /// Generates the file text (unformatted).
-pub(crate) fn generate(data: &Data) -> Result<String, String> {
+pub(super) fn generate(data: &Data) -> Result<String, String> {
     let effects = &data.tables.effects;
     let potions = &data.tables.potions;
     let mut out = String::new();
@@ -52,26 +43,26 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let names: Vec<&str> = effects.iter().map(|e| e.name.as_str()).collect();
     let effect_variants = variants(&names)?;
     api_enumeration(
-        &mut out,
         "A status effect type.",
         "#[doc(alias = \"Effect\", alias = \"VanillaEffects\")]
 ",
         "Type",
         &effect_variants,
+        &mut out,
     );
     put!(
         out,
         "\n/// Every effect type, in name order.\npub(super) static TYPES: [Type; {}] = [",
-        names.len()
+        int_lit(&names.len().to_string())
     );
     for (v, _) in &effect_variants {
         put!(out, "Type::{v},");
     }
     put!(
         out,
-        "];\n\n/// The data of each effect type: (ID, name, colour as RGBA, bad, instant, default \
-         duration, bubbles).\npub(super) static DATA: [Data; {}] = [",
-        effects.len()
+        "];\n\n/// The data of each effect type: (ID, translation key, colour as RGBA, bad, instant, \
+         default duration, bubbles).\npub(super) static DATA: [Data; {}] = [",
+        int_lit(&effects.len().to_string())
     );
     if let Some((name, _)) = OFFICIAL_COLOURS
         .iter()
@@ -105,34 +96,43 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
         .map(|(e, (v, _))| (e.id, v.as_str()))
         .collect();
     by_id(
-        &mut out,
         "The effect types by ID.",
         "TYPES_BY_ID",
         "Type",
         &ids,
+        &mut out,
     )?;
 
-    potion_types(&mut out, data)?;
+    potion_types(data, &mut out)?;
     Ok(out)
 }
 
-/// The potion type enum and tables.
-fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
+/// An effect's colour (RGBA): the official server's where [`OFFICIAL_COLOURS`] has it, the
+/// dump's otherwise.
+fn colour(name: &str, dumped: [u8; 4]) -> [u8; 4] {
+    OFFICIAL_COLOURS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or(dumped, |(_, [r, g, b])| [*r, *g, *b, dumped[3]])
+}
+
+/// Writes the potion type enum and tables.
+fn potion_types(data: &Data, out: &mut String) -> Result<(), String> {
     let potions = &data.tables.potions;
     let potion_names: Vec<&str> = potions.iter().map(|p| p.name.as_str()).collect();
     let potion_variants = variants(&potion_names)?;
     api_enumeration(
-        out,
         "A potion type: what a potion, splash potion, lingering potion or tipped arrow holds.",
         "#[doc(alias = \"PotionType\")]
 ",
         "Potion",
         &potion_variants,
+        out,
     );
     put!(
         out,
         "\n/// Every potion type, in name order.\npub(super) static POTIONS: [Potion; {}] = [",
-        potions.len()
+        int_lit(&potions.len().to_string())
     );
     for (v, _) in &potion_variants {
         put!(out, "Potion::{v},");
@@ -144,17 +144,17 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
         .map(|(p, (v, _))| (p.id, v.as_str()))
         .collect();
     by_id(
-        out,
         "The potion types by ID.",
         "POTIONS_BY_ID",
         "Potion",
         &ids,
+        out,
     )?;
     strings(
-        out,
         "The English display name of each potion type, not a translation key.",
         "POTION_DISPLAY_NAMES",
         &potions.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(),
+        out,
     );
     let mut instances = String::new();
     let mut count = 0;
@@ -162,14 +162,15 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
         out,
         "\n/// The data of each potion type: (ID, first effect in [`POTION_EFFECTS`], effect \
          count).\npub(super) static POTION_DATA: [PotionData; {}] = [",
-        potions.len()
+        int_lit(&potions.len().to_string())
     );
     for p in potions {
         put!(
             out,
-            "PotionData::new({}, {count}, {}),",
+            "PotionData::new({}, {}, {}),",
             p.id,
-            p.effects.len()
+            int_lit(&count.to_string()),
+            int_lit(&p.effects.len().to_string())
         );
         for e in &p.effects {
             put!(instances, "{},", effect_instance(e, ""));
@@ -179,7 +180,8 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
     put!(
         out,
         "];\n\n/// The effects of the potion types, one list after another.\npub(super) static \
-         POTION_EFFECTS: [Instance; {count}] = [{instances}];\n"
+         POTION_EFFECTS: [Instance; {}] = [{instances}];\n",
+        int_lit(&count.to_string())
     );
     Ok(())
 }

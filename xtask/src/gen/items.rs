@@ -11,30 +11,32 @@ use super::emit::HEADER;
 use super::info::{EffectJson, f64_lit};
 use super::names::upper_camel;
 
+/// The `ArmorSlot` variants by the dump's armor slot number.
+const ARMOR_SLOTS: [&str; 4] = ["Head", "Chest", "Legs", "Feet"];
 /// The state index of no block in the places tables.
 const NO_STATE: u16 = 0xffff;
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/item/table.rs";
+pub(super) const PATH: &str = "src/item/table.rs";
 
 /// Generates the file text (unformatted) for the reference list of the game version
 /// `game_version`. Fails if a lookup could not tell two types apart.
-pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String> {
+pub(super) fn generate(data: &Data, game_version: &str) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
         "{HEADER}\n//! Item types generated from the dump and the {game_version} reference list: \
          {} types.\n\n\
-         use super::{{Armor, Consumable, Cooldown, Data, Food, Info, Type}};\n\
+         use super::{{Armor, ArmorSlot, Consumable, Cooldown, Data, Food, Info, Type}};\n\
          use crate::block::{{State, ToolType}};\nuse crate::effect;\n\n\
          /// Every item type in Bedrock form, in dump order: (name, meta, block, block network \
          ID, type NBT, runtime ID).\npub(super) static ITEMS: [Data; {}] = [",
         data.items.len(),
-        data.items.len()
+        int_lit(&data.items.len().to_string())
     );
     for item in &data.items {
         let block = item.block.map_or_else(
             || "None".to_owned(),
-            |b| format!("Some(State::from_index({b}))"),
+            |b| format!("Some(State::from_index({}))", int_lit(&b.to_string())),
         );
         let nbt = item.nbt.as_ref().map_or_else(
             || "None".to_owned(),
@@ -44,9 +46,9 @@ pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String
             out,
             "Data::new({}, {}, {block}, {}, {nbt}, {}),",
             str_lit(&item.name),
-            item.meta,
+            int_lit(&item.meta.to_string()),
             hex_lit(u64::from(item.block_network_id), 8),
-            item.runtime_id
+            int_lit(&item.runtime_id.to_string())
         );
     }
     out.push_str("];\n");
@@ -58,7 +60,8 @@ pub(crate) fn generate(data: &Data, game_version: &str) -> Result<String, String
     Ok(out)
 }
 
-/// The item types: the `Kind` enum, its names and the item type the dump's item registry gives.
+/// Writes the item types: the `Kind` enum, its names and the item type the dump's item registry
+/// gives.
 fn kinds(data: &Data, out: &mut String) -> Result<(), String> {
     let set: BTreeSet<&str> = data
         .items
@@ -68,22 +71,22 @@ fn kinds(data: &Data, out: &mut String) -> Result<(), String> {
     let names: Vec<&str> = set.into_iter().collect();
     let variants = variants(&names)?;
     enumeration(
-        out,
         "An item type, such as `IronIngot`; [`Type::kind`] gives an item type's. Block items \
          have none: their block state has a `block::Kind`.",
         "Kind",
         &variants,
+        out,
     );
     strings(
-        out,
         "The name of each kind, lowercase.",
         "KIND_NAMES",
         &names,
+        out,
     );
     put!(
         out,
         "\n/// Every kind, in name order.\npub(super) static KINDS: [Kind; {}] = [",
-        names.len()
+        int_lit(&names.len().to_string())
     );
     for (v, _) in &variants {
         put!(out, "Kind::{v},");
@@ -92,7 +95,7 @@ fn kinds(data: &Data, out: &mut String) -> Result<(), String> {
         out,
         "];\n\n/// The item type the dump's item registry gives for each kind.\npub(super) static \
          KIND_DEFAULTS: [Type; {}] = [",
-        names.len()
+        int_lit(&names.len().to_string())
     );
     for name in &names {
         let mut found = data
@@ -103,30 +106,30 @@ fn kinds(data: &Data, out: &mut String) -> Result<(), String> {
         let (Some((index, _)), None) = (found.next(), found.next()) else {
             return Err(format!("item kind {name} has no single registry form"));
         };
-        put!(out, "Type::from_index({index}),");
+        put!(out, "Type::from_index({}),", int_lit(&index.to_string()));
     }
     out.push_str("];\n");
     Ok(())
 }
 
-/// The enchantment enum, its IDs and the enchantments by ID.
+/// Writes the enchantment enum, its IDs and the enchantments by ID.
 fn enchantments(data: &Data, out: &mut String) -> Result<(), String> {
     let list = &data.tables.enchantments;
     let names: Vec<&str> = list.iter().map(|e| e.name.as_str()).collect();
     let variants = variants(&names)?;
     api_enumeration(
-        out,
         "An enchantment.",
         "// api-class: Enchantment
 #[doc(alias = \"VanillaEnchantments\")]
 ",
         "Enchantment",
         &variants,
+        out,
     );
     put!(
         out,
         "\n/// Every enchantment, in name order.\npub(super) static ENCHANTMENTS: [Enchantment; {}] = [",
-        list.len()
+        int_lit(&list.len().to_string())
     );
     for (v, _) in &variants {
         put!(out, "Enchantment::{v},");
@@ -138,17 +141,17 @@ fn enchantments(data: &Data, out: &mut String) -> Result<(), String> {
         .map(|(e, (v, _))| (e.id, v.as_str()))
         .collect();
     by_id(
-        out,
         "The enchantments by ID.",
         "ENCHANTMENTS_BY_ID",
         "Enchantment",
         &ids,
+        out,
     )?;
     put!(
         out,
         "\n/// The ID of each enchantment, in name order.\npub(super) static ENCHANTMENT_IDS: \
          [u8; {}] = [",
-        list.len()
+        int_lit(&list.len().to_string())
     );
     for e in list {
         put!(out, "{},", e.id);
@@ -157,8 +160,8 @@ fn enchantments(data: &Data, out: &mut String) -> Result<(), String> {
     Ok(())
 }
 
-/// Item classes as an enum, the deduplicated item info rows and each item type's row, then the
-/// blocks the types place.
+/// Writes the item classes as an enum, the deduplicated item info rows and each item type's row,
+/// then the blocks the types place.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one table layout, emitted in one pass"
@@ -171,13 +174,13 @@ fn info(data: &Data, out: &mut String) -> Result<(), String> {
     let classes: Vec<&str> = class_set.into_iter().collect();
     let class_variants = variants(&classes)?;
     enumeration(
-        out,
         "An item class or one of its parents (`Item` for every item); [`Type::class`] gives an \
          item type's.",
         "Class",
         &class_variants,
+        out,
     );
-    strings(out, "The name of each class.", "CLASS_NAMES", &classes);
+    strings("The name of each class.", "CLASS_NAMES", &classes, out);
 
     let mut chain_at: BTreeMap<Vec<String>, (usize, usize)> = BTreeMap::new();
     let mut chains = String::new();
@@ -212,51 +215,60 @@ fn info(data: &Data, out: &mut String) -> Result<(), String> {
                             put!(effects, "{},", effect_instance(e, "effect::"));
                         }
                         effect_len += list.len();
-                        format!("Some(({start}, {}))", list.len())
+                        format!(
+                            "Some(({}, {}))",
+                            int_lit(&start.to_string()),
+                            int_lit(&list.len().to_string())
+                        )
                     }
                 };
                 format!(
                     "Some(Consumable::new({}, {effects_src}))",
                     opt(item
                         .consume_residue
-                        .map(|r| format!("Type::from_index({r})")))
+                        .map(|r| format!("Type::from_index({})", int_lit(&r.to_string()))))
                 )
+            }
+            None => "None".to_owned(),
+        };
+        let armor = match &d.armor {
+            Some(a) => {
+                let slot = ARMOR_SLOTS
+                    .get(usize::from(a.slot))
+                    .ok_or_else(|| format!("armor slot {} is not 0 to 3", a.slot))?;
+                format!("Some(Armor::new(ArmorSlot::{slot}, {}))", a.toughness)
             }
             None => "None".to_owned(),
         };
         let row = format!(
             "Info {{ kind: {}, class: ({}, {}), max_stack: {}, max_durability: {}, \
              fire_proof: {}, attack_points: {}, defense_points: {}, tool_type: ToolType::from_bits({}), \
-             harvest_level: {}, efficiency: {}, armor: {}, food: {}, consumable: \
+             harvest_level: {}, efficiency: {}, armor: {armor}, food: {}, consumable: \
              {consumable}, use_ticks: {}, cooldown: {}, throw_force: {}, potion: {} }},",
             opt(d
                 .kind
                 .as_deref()
                 .map(|k| format!("Kind::{}", upper_camel(k)))),
-            class.0,
-            class.1,
+            int_lit(&class.0.to_string()),
+            int_lit(&class.1.to_string()),
             d.max_stack,
-            d.max_durability.unwrap_or(0),
+            int_lit(&d.max_durability.unwrap_or(0).to_string()),
             d.fire_proof,
             d.attack_points,
             d.defense_points,
             d.tool.tool_type,
             d.tool.harvest_level,
             f64_lit(d.tool.efficiency),
-            opt(d
-                .armor
-                .as_ref()
-                .map(|a| format!("Armor::new({}, {})", a.slot, a.toughness))),
             opt(d.food.as_ref().map(|f| format!(
                 "Food::new({}, {}, {})",
                 f.food,
                 f64_lit(f.saturation),
                 f.requires_hunger
             ))),
-            item.use_ticks,
+            int_lit(&item.use_ticks.to_string()),
             opt(d.cooldown.as_ref().map(|c| format!(
                 "Cooldown::new({}, {})",
-                c.ticks,
+                int_lit(&c.ticks.to_string()),
                 c.tag
                     .as_deref()
                     .map_or_else(|| "None".to_owned(), |t| format!("Some({})", str_lit(t)))
@@ -276,23 +288,26 @@ fn info(data: &Data, out: &mut String) -> Result<(), String> {
     put!(
         out,
         "\n/// The class chains of [`INFO`] one after another, leaf first.\npub(super) static \
-         CLASS_CHAINS: [Class; {chain_len}] = [{chains}];\n\n/// The effects of consuming items, \
+         CLASS_CHAINS: [Class; {}] = [{chains}];\n\n/// The effects of consuming items, \
          one list after another.\npub(super) static CONSUME_EFFECTS: [effect::Instance; \
-         {effect_len}] = [{effects}];\n\n/// The distinct data rows of the item types (see `Info` \
+         {}] = [{effects}];\n\n/// The distinct data rows of the item types (see `Info` \
          in `src/item.rs`).\npub(super) static INFO: [Info; {}] = [{}];\n\n/// The [`INFO`] row of \
          each item type.\npub(super) static TYPE_INFO: [u16; {}] = [",
-        rows.len(),
+        int_lit(&chain_len.to_string()),
+        int_lit(&effect_len.to_string()),
+        int_lit(&rows.len().to_string()),
         rows.concat(),
-        type_rows.len()
+        int_lit(&type_rows.len().to_string())
     );
     for r in &type_rows {
-        put!(out, "{r},");
+        put!(out, "{},", int_lit(&r.to_string()));
     }
     out.push_str("];\n");
     places(data, out)
 }
 
-/// The blocks the item types place, kept out of the deduplicated rows because they rarely repeat.
+/// Writes the blocks the item types place, kept out of the deduplicated rows because they rarely
+/// repeat.
 fn places(data: &Data, out: &mut String) -> Result<(), String> {
     let state = |s: Option<u16>| match s {
         Some(s) if s < NO_STATE => Ok(s),
@@ -315,7 +330,7 @@ fn places(data: &Data, out: &mut String) -> Result<(), String> {
         put!(
             out,
             "\n/// {doc}\npub(super) static {name}: [u16; {}] = [",
-            data.items.len()
+            int_lit(&data.items.len().to_string())
         );
         for item in &data.items {
             let s = if pick == 0 {
@@ -332,7 +347,7 @@ fn places(data: &Data, out: &mut String) -> Result<(), String> {
 
 /// Rust source of a const `effect::Instance`; `path` is the path to the `effect` module with
 /// its `::` (empty inside it).
-pub(crate) fn effect_instance(e: &EffectJson, path: &str) -> String {
+pub(super) fn effect_instance(e: &EffectJson, path: &str) -> String {
     format!(
         "{path}Instance::new({path}Type::{}, {}, {}, {}, {})",
         upper_camel(&e.effect),
@@ -343,8 +358,8 @@ pub(crate) fn effect_instance(e: &EffectJson, path: &str) -> String {
     )
 }
 
-/// The types sorted by network form, so a lookup finds the types of a runtime ID and block by
-/// binary search. Checks that the network form tells types apart where the lookup needs it: a
+/// Writes the types sorted by network form, so a lookup finds the types of a runtime ID and block
+/// by binary search. Checks that the network form tells types apart where the lookup needs it: a
 /// block item's network ID is not 0 (the "no block" value), and types sharing runtime ID, block
 /// and meta differ in the size of their type NBT, so the most specific match is unique.
 fn network_index(data: &Data, out: &mut String) -> Result<(), String> {
@@ -372,21 +387,24 @@ fn network_index(data: &Data, out: &mut String) -> Result<(), String> {
         out,
         "\n/// The types by network form, sorted: (runtime ID, network ID of the block or 0, meta, \
          type index).\npub(super) static BY_NETWORK: [(i16, u32, u16, u16); {}] = [",
-        index.len()
+        int_lit(&index.len().to_string())
     );
     for (runtime_id, block, meta, _, i) in index {
         put!(
             out,
-            "({runtime_id}, {}, {meta}, {i}),",
-            int_lit(&block.to_string())
+            "({}, {}, {}, {}),",
+            int_lit(&runtime_id.to_string()),
+            int_lit(&block.to_string()),
+            int_lit(&meta.to_string()),
+            int_lit(&i.to_string())
         );
     }
     out.push_str("];\n");
     Ok(())
 }
 
-/// The item names with their runtime IDs, sorted by name. Every name has one runtime ID and no
-/// two names share one.
+/// Writes the item names with their runtime IDs, sorted by name. Every name has one runtime ID
+/// and no two names share one.
 fn name_index(data: &Data, out: &mut String) -> Result<(), String> {
     let mut names = BTreeMap::new();
     for item in &data.items {
@@ -403,10 +421,15 @@ fn name_index(data: &Data, out: &mut String) -> Result<(), String> {
         out,
         "\n/// The item names with their runtime IDs, sorted by name.\n\
          pub(super) static NAMES: [(&str, i16); {}] = [",
-        names.len()
+        int_lit(&names.len().to_string())
     );
     for (name, runtime_id) in names {
-        put!(out, "({}, {runtime_id}),", str_lit(name));
+        put!(
+            out,
+            "({}, {}),",
+            str_lit(name),
+            int_lit(&runtime_id.to_string())
+        );
     }
     out.push_str("];\n");
     Ok(())

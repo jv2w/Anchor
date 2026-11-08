@@ -38,6 +38,19 @@ use crate::block_entity::MAX_NAME_BYTES;
 use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
 use crate::protocol::{self, Writer};
 
+/// The key of a block item's block state in the disk item compound.
+const KEY_BLOCK: &str = "Block";
+/// The key of the count in the disk item compound: a `TAG_Byte`.
+const KEY_COUNT: &str = "Count";
+/// The key of the meta in the disk item compound: a `TAG_Short`.
+const KEY_DAMAGE: &str = "Damage";
+/// The key of the item name in the disk item compound: a `TAG_String`.
+const KEY_NAME: &str = "Name";
+/// The key of the slot an item list adds to the disk item compound: a `TAG_Byte`.
+const KEY_SLOT: &str = "Slot";
+/// The key of the item NBT tag ([`Stack::tag`]) in the disk item compound.
+const KEY_TAG: &str = "tag";
+
 /// The highest enchantment level a stack keeps: the most its saved `lvl`, a `TAG_Short`, holds.
 pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
 
@@ -356,7 +369,8 @@ impl Stack {
     /// The same stack with `extra` (`None` removes it), read as its outside forms read the tag
     /// it makes: keys of [`Extra::nbt`] in the exact form of a name, lore, enchantments or (for
     /// an item that wears) a durability become those fields and that damage, where the fields do
-    /// not already set them. `self` stays as it is.
+    /// not already set them, and type NBT (an ominous banner's `Type`) gives the type it names.
+    /// `self` stays as it is.
     ///
     /// # Errors
     ///
@@ -383,7 +397,20 @@ impl Stack {
             damage: self.damage,
             extra: fields,
         };
-        Self::from_parts(item, self.count, given.meta(), given.tag_with(item, nbt))
+        let meta = given.meta();
+        let tag = given.tag_with(item, nbt);
+        // Type NBT in the tag can name another type of the name and meta (a white banner given
+        // an ominous banner's `Type`): the stack takes the type its saved form reads back as. A
+        // custom type is not in the table and stays as it is.
+        let empty = Compound::new();
+        let item = Type::from_name(
+            item.name(),
+            meta,
+            item.block(),
+            tag.as_ref().unwrap_or(&empty),
+        )
+        .unwrap_or(item);
+        Self::from_parts(item, self.count, meta, tag)
     }
 
     /// The network form with its stack network ID (`ItemInstance`); an empty stack has ID 0.
@@ -394,6 +421,14 @@ impl Stack {
         }
     }
 
+    /// The disk form as the official server writes it in the NBT it sends (trade offers): with
+    /// `WasPickedUp` 0 (P6).
+    pub(crate) fn to_sent_nbt(&self) -> Compound {
+        let mut out = self.to_nbt();
+        out.insert("WasPickedUp".to_owned(), Value::Byte(0));
+        out
+    }
+
     /// The disk form (Bedrock item compound) Anchor saves the stack in, as in an item list:
     /// `{Name, Count, Damage, Block?, tag?}`; the air compound for an empty stack.
     /// [`Context::stack_from_nbt`](crate::Context::stack_from_nbt) reads it back.
@@ -401,24 +436,27 @@ impl Stack {
     pub fn to_nbt(&self) -> Compound {
         let Some(item) = self.item else {
             return Compound::from([
-                ("Count".to_owned(), Value::Byte(0)),
-                ("Damage".to_owned(), Value::Short(0)),
-                ("Name".to_owned(), Value::String(String::new())),
+                (KEY_COUNT.to_owned(), Value::Byte(0)),
+                (KEY_DAMAGE.to_owned(), Value::Short(0)),
+                (KEY_NAME.to_owned(), Value::String(String::new())),
             ]);
         };
         let mut out = Compound::from([
-            ("Count".to_owned(), Value::Byte(self.count)),
-            ("Damage".to_owned(), Value::Short(self.meta().cast_signed())),
-            ("Name".to_owned(), Value::String(item.name().to_owned())),
+            (KEY_COUNT.to_owned(), Value::Byte(self.count)),
+            (
+                KEY_DAMAGE.to_owned(),
+                Value::Short(self.meta().cast_signed()),
+            ),
+            (KEY_NAME.to_owned(), Value::String(item.name().to_owned())),
         ]);
         if let Some(block) = item.block() {
             out.insert(
-                "Block".to_owned(),
+                KEY_BLOCK.to_owned(),
                 Value::Compound(crate::save::state_nbt(block)),
             );
         }
         if let Some(tag) = self.tag() {
-            out.insert("tag".to_owned(), Value::Compound(tag));
+            out.insert(KEY_TAG.to_owned(), Value::Compound(tag));
         }
         out
     }
@@ -450,14 +488,6 @@ impl Stack {
         });
         let nbt_data = self.tag_with(item, nbt).unwrap_or_default();
         super::network_stack_with(item, self.meta(), u16::from(self.count), nbt_data)
-    }
-
-    /// The disk form as the official server writes it in the NBT it sends (trade offers): with
-    /// `WasPickedUp` 0 (P6).
-    pub(crate) fn to_sent_nbt(&self) -> Compound {
-        let mut out = self.to_nbt();
-        out.insert("WasPickedUp".to_owned(), Value::Byte(0));
-        out
     }
 
     /// The stack if it is within the limits and its enchantment levels read back. One without
@@ -492,7 +522,7 @@ impl Stack {
         } else {
             self.to_nbt()
         };
-        nbt.insert("Slot".to_owned(), Value::Byte(0));
+        nbt.insert(KEY_SLOT.to_owned(), Value::Byte(0));
         let mut w = Writer::new(Vec::new(), 0);
         w.nbt_within(&nbt, Encoding::LittleEndian, bytes)
             .ok()
@@ -502,26 +532,26 @@ impl Stack {
     /// The stack of a disk item compound, knowing the vanilla items and blocks and, with
     /// `custom`, the server's own.
     fn read_nbt(nbt: &Compound, custom: Option<&crate::custom::Registry>) -> Option<Self> {
-        let Some(Value::String(name)) = nbt.get("Name") else {
+        let Some(Value::String(name)) = nbt.get(KEY_NAME) else {
             return None;
         };
-        let Some(Value::Byte(count)) = nbt.get("Count") else {
+        let Some(Value::Byte(count)) = nbt.get(KEY_COUNT) else {
             return None;
         };
         if name.is_empty() || name == "minecraft:air" || *count == 0 {
             return Some(Self::EMPTY);
         }
-        let meta = match nbt.get("Damage") {
+        let meta = match nbt.get(KEY_DAMAGE) {
             Some(Value::Short(m)) => u16::try_from(*m).ok()?,
             Some(_) => return None,
             None => 0,
         };
-        let block = match nbt.get("Block") {
+        let block = match nbt.get(KEY_BLOCK) {
             Some(Value::Compound(b)) => Some(b),
             Some(_) => return None,
             None => None,
         };
-        let tag = match nbt.get("tag") {
+        let tag = match nbt.get(KEY_TAG) {
             Some(Value::Compound(t)) => Some(t.clone()),
             Some(_) => return None,
             None => None,
@@ -768,16 +798,21 @@ fn read_enchantment(entry: &Compound) -> Option<(Enchantment, u16)> {
 fn visible_only(stored: &Compound) -> Compound {
     let mut visible: Compound = stored
         .iter()
-        .filter(|(key, _)| matches!(key.as_str(), "Name" | "Count" | "Damage" | "Block" | "Slot"))
+        .filter(|(key, _)| {
+            matches!(
+                key.as_str(),
+                KEY_NAME | KEY_COUNT | KEY_DAMAGE | KEY_BLOCK | KEY_SLOT
+            )
+        })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    if let Some(Value::Compound(tag)) = stored.get("tag")
+    if let Some(Value::Compound(tag)) = stored.get(KEY_TAG)
         && let Some(Value::Compound(display)) = tag.get(TAG_DISPLAY)
         && let Some(name) = display.get(TAG_DISPLAY_NAME)
     {
         let display = Compound::from([(TAG_DISPLAY_NAME.to_owned(), name.clone())]);
         let tag = Compound::from([(TAG_DISPLAY.to_owned(), Value::Compound(display))]);
-        visible.insert("tag".to_owned(), Value::Compound(tag));
+        visible.insert(KEY_TAG.to_owned(), Value::Compound(tag));
     }
     visible
 }
@@ -898,6 +933,32 @@ mod tests {
             let net = stack.to_network();
             let back = Stack::from_network(&net).expect("a known item reads back");
             assert_eq!(back.to_network(), net, "{item:?}");
+        }
+    }
+
+    /// Extra NBT that names another type of the same name and meta (a banner's `Type`) gives the
+    /// stack that type, as its saved form reads back.
+    #[test]
+    fn extra_type_nbt_gives_the_type_its_saved_form_reads_back_as() {
+        let empty = Compound::new();
+        let white = Type::from_name("minecraft:banner", 15, None, &empty).unwrap();
+        let ominous_nbt = Compound::from([("Type".to_owned(), Value::Int(1))]);
+        let ominous = Type::from_name("minecraft:banner", 15, None, &ominous_nbt).unwrap();
+        assert_ne!(white, ominous);
+        for (item, nbt) in [
+            (white, ominous_nbt),
+            (
+                ominous,
+                Compound::from([("Type".to_owned(), Value::Int(0))]),
+            ),
+        ] {
+            let stack = Stack::new(item, 1)
+                .with_extra(Some(Extra {
+                    nbt,
+                    ..Extra::default()
+                }))
+                .unwrap();
+            assert_eq!(Stack::from_nbt(&stack.to_nbt()), Some(stack));
         }
     }
 

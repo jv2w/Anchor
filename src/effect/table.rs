@@ -95,7 +95,7 @@ pub(super) static TYPES: [Type; 27] = [
     Type::Wither,
 ];
 
-/// The data of each effect type: (ID, name, colour as RGBA, bad, instant, default duration, bubbles).
+/// The data of each effect type: (ID, translation key, colour as RGBA, bad, instant, default duration, bubbles).
 pub(super) static DATA: [Data; 27] = [
     Data::new(
         22,

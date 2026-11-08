@@ -6,19 +6,19 @@ use std::path::Path;
 
 use serde_json::Value as Json;
 
-use super::body::str_lit;
+use super::body::{int_lit, str_lit};
 use super::data::{Data, Tag, read_json, static_compound};
 use super::emit::HEADER;
 use crate::dump::{DUMP_CREATIVE, DUMP_DIR};
 
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/item/creative.rs";
+pub(super) const PATH: &str = "src/item/creative.rs";
 
 /// A dumped stack resolved to an item type: type index, network meta, stack NBT.
 type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);
 
 /// Generates the file text (unformatted).
-pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
+pub(super) fn generate(root: &Path, data: &Data) -> Result<String, String> {
     let entries: Vec<Json> = read_json(root, DUMP_DIR, DUMP_CREATIVE)?;
 
     // The dump source's `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first
@@ -70,7 +70,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
          pub(super) static GROUPS: [CreativeGroup; {}] = [",
         groups.len(),
         items.len(),
-        groups.len()
+        int_lit(&groups.len().to_string())
     );
     for (category, group) in &groups {
         let Some(g) = group else {
@@ -98,14 +98,15 @@ pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
     }
     put!(
         out,
-        "];\n\n/// The items in the dump's order, so an item's index is its creative item network ID: \
+        "];\n\n/// The items in the dump's order, so an item's index plus one is its creative item network ID: \
          (group index, stack).\npub(super) static ITEMS: [CreativeItem; {}] = [",
-        items.len()
+        int_lit(&items.len().to_string())
     );
     for (group, (item, meta, nbt)) in &items {
         put!(
             out,
-            "CreativeItem::new({group}, {}),",
+            "CreativeItem::new({}, {}),",
+            int_lit(&group.to_string()),
             stack(*item, *meta, nbt.as_ref())
         );
     }
@@ -130,12 +131,16 @@ fn stack(item: usize, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> String 
         || "None".to_owned(),
         |c| format!("Some({})", static_compound(c)),
     );
-    format!("StaticStack::new(Type::from_index({item}), {meta}, {nbt})")
+    format!(
+        "StaticStack::new(Type::from_index({}), {}, {nbt})",
+        int_lit(&item.to_string()),
+        int_lit(&meta.to_string())
+    )
 }
 
 /// Whether a dumped stack is an enchanted book without enchantments. The dump source drops the enchantments
 /// it does not implement when it reads the creative data, which leaves a bare book in place of
-/// each book of such an enchantment (61 identical entries that the official server does not list, P6); Anchor
+/// each book of such an enchantment (identical entries that the official server does not list, P6); Anchor
 /// leaves them out.
 fn is_lost_enchanted_book(stack: &Json) -> bool {
     stack.get("name").and_then(Json::as_str) == Some("minecraft:enchanted_book")

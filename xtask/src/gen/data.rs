@@ -14,6 +14,7 @@ use serde_json::Value as Json;
 
 use super::body::{int_lit, str_lit};
 use super::info::{Break, EVERY_TOOL, Identity, ItemData, Physics, Tables, exact, support_codes};
+use super::registry::Entry;
 use super::upgrade::{ADDING, block_schema};
 use crate::dump::{
     BLOCK_PHYSICS, DUMP_BLOCKS, DUMP_DESERIALIZED, DUMP_DIR, DUMP_ITEMS, DUMP_TABLES,
@@ -22,7 +23,7 @@ use crate::dump::{
 use crate::fs::read;
 
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
-pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
+pub(super) const FACES: [&str; 4] = ["north", "east", "south", "west"];
 /// The block type of a state the dump does not have: the dump's type for blocks without a
 /// behaviour of their own, which custom blocks use too.
 const INFO_UPDATE_KIND: &str = "info_update";
@@ -41,7 +42,7 @@ const OMINOUS: Tag = Tag::Int(1);
 /// differ in type, class, block flags or item form; where their item forms differ, the Anchor
 /// state's is marked as depending on the block entity. Every other value must still agree, and
 /// every entry must be needed.
-pub(crate) const SHARED: [(&str, &str, &str); 4] = [
+const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:bed",
         "bed",
@@ -83,7 +84,7 @@ enum ItemSource {
 
 /// A state's item form (`Block::asItem` of the dump).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StateItem {
+pub(super) enum StateItem {
     /// The state has no item.
     None,
     /// The item type index.
@@ -95,7 +96,7 @@ pub(crate) enum StateItem {
 /// A block state property value. The derived order (byte, int, string, then by value) is part of
 /// the state order.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Prop {
+pub(super) enum Prop {
     Byte(u8),
     Int(i32),
     String(String),
@@ -104,49 +105,49 @@ pub(crate) enum Prop {
 /// A block name and its properties, sorted by property name: the identity of a Bedrock block
 /// state.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct StateKey {
-    pub(crate) name: String,
-    pub(crate) properties: Vec<(String, Prop)>,
+pub(super) struct StateKey {
+    pub(super) name: String,
+    pub(super) properties: Vec<(String, Prop)>,
 }
 
 /// A block state of the reference list, with the values of the dump, or, for a state the dump
 /// does not have, of `block_physics.json`.
 #[derive(Debug)]
 pub(crate) struct State {
-    pub(crate) key: StateKey,
+    pub(super) key: StateKey,
     /// The network ID the reference list gives.
     pub(crate) network_id: u32,
-    pub(crate) light_emission: u8,
-    pub(crate) light_filter: u8,
-    pub(crate) blocks_direct_sky_light: bool,
+    pub(super) light_emission: u8,
+    pub(super) light_filter: u8,
+    pub(super) blocks_direct_sky_light: bool,
     /// The horizontal faces with full support (`getSupportType` of the dump), as [`FACES`] bits;
     /// a stair's are those of its `minecraft:corner` shape.
-    pub(crate) full_faces: u8,
+    pub(super) full_faces: u8,
     /// How the dump works the state out from its neighbours, if it does.
-    pub(crate) connect: Option<Connect>,
+    pub(super) connect: Option<Connect>,
     /// Physical values; a fence's, pane's or stair's support and boxes are those of the variant
     /// its neighbour properties name.
-    pub(crate) physics: Physics,
+    pub(super) physics: Physics,
     /// The block type, classes and traits.
-    pub(crate) identity: Identity,
+    pub(super) identity: Identity,
     /// The item form.
-    pub(crate) item: StateItem,
+    pub(super) item: StateItem,
 }
 
 /// The dump's `connect` entry: what it takes to work out a state from its neighbours.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Connect {
+pub(super) struct Connect {
     /// `fence`, `thin`, `wall`, `fence_gate`, `stair`, `tripwire` or `tripwire_hook`.
-    pub(crate) kind: String,
+    pub(super) kind: String,
     /// A fence's class: fences connect to fences of their own class.
     #[serde(default)]
-    pub(crate) group: Option<String>,
+    pub(super) group: Option<String>,
     /// The horizontal facing of fence gates, stairs and tripwire hooks.
     #[serde(default)]
-    pub(crate) facing: Option<String>,
+    pub(super) facing: Option<String>,
     #[serde(default)]
-    pub(crate) upside_down: Option<bool>,
+    pub(super) upside_down: Option<bool>,
     /// The support and boxes of each variant the neighbours choose (fences, panes, stairs).
     #[serde(default)]
     variants: Option<Vec<Variant>>,
@@ -166,7 +167,7 @@ struct Variant {
 /// types the data uses, which `crate::nbt::Static` mirrors; another type fails generation, and
 /// supporting it means adding it to both.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Tag {
+pub(super) enum Tag {
     Byte(u8),
     Short(i16),
     Int(i32),
@@ -180,7 +181,7 @@ pub(crate) enum Tag {
 
 /// A list of one of the element types the data uses.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum List {
+pub(super) enum List {
     End,
     Int(Vec<i32>),
     /// Bit patterns.
@@ -191,48 +192,48 @@ pub(crate) enum List {
 
 /// An item type in its Bedrock form.
 #[derive(Debug)]
-pub(crate) struct Item {
-    pub(crate) name: String,
-    pub(crate) meta: u16,
+pub(super) struct Item {
+    pub(super) name: String,
+    pub(super) meta: u16,
     /// The block state index of a block item: the state it places.
-    pub(crate) block: Option<u16>,
+    pub(super) block: Option<u16>,
     /// The network ID of the block state a block item is sent with (0 for other items).
-    pub(crate) block_network_id: u32,
+    pub(super) block_network_id: u32,
     /// NBT that is part of the type (`serializeType` extra data of the dump), such as an ominous
     /// banner's `Type`.
-    pub(crate) nbt: Option<BTreeMap<String, Tag>>,
+    pub(super) nbt: Option<BTreeMap<String, Tag>>,
     /// The runtime ID of the name in the reference list.
-    pub(crate) runtime_id: i16,
+    pub(super) runtime_id: i16,
     /// Whether the dump's item registry gives this form (the default form of its kind).
-    pub(crate) vanilla: bool,
+    pub(super) vanilla: bool,
     /// The dump's data for the type.
-    pub(crate) data: ItemData,
+    pub(super) data: ItemData,
     /// The item type left after consuming one (`ConsumableItem::getResidue` of the dump).
-    pub(crate) consume_residue: Option<u16>,
+    pub(super) consume_residue: Option<u16>,
     /// The ticks the client takes to eat or drink one ([`use_ticks`]); 0 for items not consumed.
-    pub(crate) use_ticks: u16,
+    pub(super) use_ticks: u16,
     /// The state index placing the item puts down, and the one against a side where that
     /// differs (`Item::getBlock` of the dump).
-    pub(crate) places: (Option<u16>, Option<u16>),
+    pub(super) places: (Option<u16>, Option<u16>),
 }
 
 /// An item stack of the dumps (creative entries): the item type index, the count and the stack
 /// NBT as the dump serializes it (type NBT merged in).
 #[derive(Debug)]
-pub(crate) struct Stack {
-    pub(crate) item: u16,
+pub(super) struct Stack {
+    pub(super) item: u16,
     /// The stack's meta, which the dump sends; it differs from the type's meta where the dump
     /// reads meta as stack state.
-    pub(crate) meta: u16,
-    pub(crate) count: u16,
-    pub(crate) nbt: Option<BTreeMap<String, Tag>>,
+    pub(super) meta: u16,
+    pub(super) count: u16,
+    pub(super) nbt: Option<BTreeMap<String, Tag>>,
 }
 
 /// A reference state that is not a dump state but that the dump reads as one of its states
 /// (`deserialized.json`): the dump ignores some vanilla properties and writes one value for them.
 #[derive(Debug)]
 pub(crate) struct Alias {
-    pub(crate) key: StateKey,
+    pub(super) key: StateKey,
     /// The reference list's network ID of `key`.
     pub(crate) network_id: u32,
     /// The state index of the dump state it becomes.
@@ -245,12 +246,12 @@ pub(crate) struct Data {
     pub(crate) states: Vec<State>,
     /// The aliases, sorted by key.
     pub(crate) aliases: Vec<Alias>,
-    pub(crate) items: Vec<Item>,
+    pub(super) items: Vec<Item>,
     /// The block types (names lowercase, sorted): their identity and the state index of their
     /// default state.
-    pub(crate) kinds: Vec<(Identity, u16)>,
+    pub(super) kinds: Vec<(Identity, u16)>,
     /// The effect, potion, enchantment and banner pattern tables.
-    pub(crate) tables: Tables,
+    pub(super) tables: Tables,
     /// State index of a dump state (in its Bedrock form of the dump's data version), upgraded with
     /// the default values.
     dump_state_index: BTreeMap<StateKey, u16>,
@@ -260,152 +261,8 @@ pub(crate) struct Data {
     runtime_ids: BTreeMap<String, i16>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DumpBlock {
-    #[serde(rename = "type")]
-    kind: String,
-    bedrock: Json,
-    default: bool,
-    light_emission: u8,
-    light_filter: u8,
-    blocks_direct_sky_light: bool,
-    classes: Vec<String>,
-    traits: Vec<String>,
-    #[serde(rename = "break")]
-    break_info: Break,
-    flags: Vec<String>,
-    friction: f64,
-    tags: Vec<String>,
-    support: Vec<String>,
-    boxes: Vec<[f64; 6]>,
-    item: Option<Json>,
-    #[serde(default)]
-    connect: Option<Connect>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DumpItem {
-    bedrock: Json,
-    data: ItemData,
-    #[serde(rename = "names")]
-    _names: Vec<String>,
-    vanilla: bool,
-}
-
-/// `block_physics.json` (see `dump`).
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BlockPhysics {
-    shapes: Vec<Vec<[f64; 6]>>,
-    states: Vec<PhysicsRow>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReferenceBlock {
-    name: String,
-    states: Json,
-    #[serde(rename = "version")]
-    _version: i32,
-    network_id: u32,
-}
-
-/// An entry of the dump's `deserialized.json`: a reference state and the Bedrock form of the dump
-/// state the dump reads it as, `None` where the dump rejects it.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Deserialized {
-    name: String,
-    states: Json,
-    read_as: Option<Json>,
-}
-
-/// How the dump reads each reference state it does not read as itself: the state it becomes, or
-/// `None` where it rejects the state.
-type DumpReading = BTreeMap<StateKey, Option<StateKey>>;
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReferenceItem {
-    name: String,
-    runtime_id: i32,
-    #[serde(rename = "component_based")]
-    _component_based: bool,
-    #[serde(rename = "version")]
-    _version: i32,
-    data: Json,
-}
-
-/// An entry of the reference `item_blocks.json`.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ItemBlock {
-    item: String,
-    name: String,
-    states: Json,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct Upgrade {
-    #[serde(rename = "maxVersionMajor")]
-    _major: u32,
-    #[serde(rename = "maxVersionMinor")]
-    _minor: u32,
-    #[serde(rename = "maxVersionPatch")]
-    _patch: u32,
-    #[serde(rename = "maxVersionRevision")]
-    _revision: u32,
-    added_properties: BTreeMap<String, BTreeMap<String, Json>>,
-}
-
-/// The per-state values. Overlapping dump states must agree on all but the identity, block flags
-/// and item, which may differ only as [`SHARED`] allows.
-#[derive(Debug, Clone, PartialEq)]
-struct Values {
-    light_emission: u8,
-    light_filter: u8,
-    blocks_direct_sky_light: bool,
-    connect: Option<Connect>,
-    physics: Physics,
-    identity: Identity,
-    item: ItemSource,
-}
-
-impl Values {
-    /// The values every overlapping dump state must agree on.
-    fn strict(&self) -> (u8, u8, bool, &Option<Connect>, &Physics) {
-        (
-            self.light_emission,
-            self.light_filter,
-            self.blocks_direct_sky_light,
-            &self.connect,
-            &self.physics,
-        )
-    }
-}
-
-/// The dump states by their Bedrock form of the dump's data version, merged, and the default
-/// state and identity of each block type by name.
-type DumpStates = (
-    BTreeMap<StateKey, Values>,
-    BTreeMap<String, (StateKey, Identity)>,
-);
-
-/// A state of `block_physics.json`: network ID, hardness, light emission, light dampening and the
-/// index of its collision boxes.
-type PhysicsRow = (u32, f64, u8, u8, usize);
-
-/// The reference block list: network ID by state, and the states of each name.
-type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
-
-/// The upgraded states with their values, and the upgraded default form of each dump state.
-type Upgraded = (BTreeMap<StateKey, Values>, BTreeMap<StateKey, StateKey>);
-
 impl Data {
-    /// Loads and checks every file.
+    /// The data of every file, loaded and checked.
     pub(crate) fn load(root: &Path) -> Result<Self, String> {
         let (network, reference_names) = read_reference(root)?;
         let added = read_upgrade(root)?;
@@ -484,7 +341,7 @@ impl Data {
 
     /// The state index of a dump state in its Bedrock form of the dump's data version: its
     /// upgraded default form.
-    pub(crate) fn dump_state(&self, key: &StateKey) -> Result<u16, String> {
+    fn dump_state(&self, key: &StateKey) -> Result<u16, String> {
         self.dump_state_index
             .get(key)
             .copied()
@@ -493,13 +350,13 @@ impl Data {
 
     /// The item type of an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`), by
     /// the rules of [`Data::stack`].
-    pub(crate) fn item_type(&self, json: &Json) -> Result<u16, String> {
+    fn item_type(&self, json: &Json) -> Result<u16, String> {
         let (name, meta, block, nbt) = self.item_form(json)?;
         self.type_of(&name, meta, block, nbt.as_ref())
     }
 
     /// The runtime ID of an item name of the reference list.
-    pub(crate) fn runtime_id(&self, name: &str) -> Result<i16, String> {
+    fn runtime_id(&self, name: &str) -> Result<i16, String> {
         self.runtime_ids
             .get(name)
             .copied()
@@ -514,7 +371,7 @@ impl Data {
     /// colour). The stack keeps its own meta. A dumped block item always names the state its type
     /// places, so the fallback `from_name` has for a saved block item with another state (the
     /// block's item form) never applies here.
-    pub(crate) fn stack(&self, json: &Json) -> Result<Stack, String> {
+    pub(super) fn stack(&self, json: &Json) -> Result<Stack, String> {
         let (name, meta, block, nbt) = self.item_form(json)?;
         let count = json
             .get("count")
@@ -581,16 +438,9 @@ impl Data {
             .and_then(|a| self.states.get(usize::from(a.state)))
     }
 
-    /// Reads an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`, and `count`
-    /// when `with_count`).
-    #[expect(
-        clippy::type_complexity,
-        reason = "consistency: a private tuple of the four parts"
-    )]
-    fn item_form(
-        &self,
-        json: &Json,
-    ) -> Result<(String, u16, Option<u16>, Option<BTreeMap<String, Tag>>), String> {
+    /// Reads an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`; a `count` key is
+    /// allowed).
+    fn item_form(&self, json: &Json) -> Result<ItemForm, String> {
         let obj = json.as_object().ok_or("item is not an object")?;
         let name = obj
             .get("name")
@@ -669,7 +519,7 @@ impl Data {
         network: &BTreeMap<StateKey, u32>,
         vanilla: &[ItemBlock],
     ) -> Result<(), String> {
-        let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
+        let reference: Vec<Entry> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
             .iter()
             .map(|i| {
@@ -772,6 +622,141 @@ impl Data {
         Ok(())
     }
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DumpBlock {
+    #[serde(rename = "type")]
+    kind: String,
+    bedrock: Json,
+    default: bool,
+    light_emission: u8,
+    light_filter: u8,
+    blocks_direct_sky_light: bool,
+    classes: Vec<String>,
+    traits: Vec<String>,
+    #[serde(rename = "break")]
+    break_info: Break,
+    flags: Vec<String>,
+    friction: f64,
+    tags: Vec<String>,
+    support: Vec<String>,
+    boxes: Vec<[f64; 6]>,
+    item: Option<Json>,
+    #[serde(default)]
+    connect: Option<Connect>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DumpItem {
+    bedrock: Json,
+    data: ItemData,
+    #[serde(rename = "names")]
+    _names: Vec<String>,
+    vanilla: bool,
+}
+
+/// `block_physics.json` (see `dump`).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BlockPhysics {
+    shapes: Vec<Vec<[f64; 6]>>,
+    states: Vec<PhysicsRow>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReferenceBlock {
+    name: String,
+    states: Json,
+    #[serde(rename = "version")]
+    _version: i32,
+    network_id: u32,
+}
+
+/// An entry of the dump's `deserialized.json`: a reference state and the Bedrock form of the dump
+/// state the dump reads it as, `None` where the dump rejects it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Deserialized {
+    name: String,
+    states: Json,
+    read_as: Option<Json>,
+}
+
+/// How the dump reads each reference state it does not read as itself: the state it becomes, or
+/// `None` where it rejects the state.
+type DumpReading = BTreeMap<StateKey, Option<StateKey>>;
+
+/// An entry of the reference `item_blocks.json`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ItemBlock {
+    item: String,
+    name: String,
+    states: Json,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Upgrade {
+    #[serde(rename = "maxVersionMajor")]
+    _major: u32,
+    #[serde(rename = "maxVersionMinor")]
+    _minor: u32,
+    #[serde(rename = "maxVersionPatch")]
+    _patch: u32,
+    #[serde(rename = "maxVersionRevision")]
+    _revision: u32,
+    added_properties: BTreeMap<String, BTreeMap<String, Json>>,
+}
+
+/// The per-state values. Overlapping dump states must agree on all but the identity, block flags
+/// and item, which may differ only as [`SHARED`] allows.
+#[derive(Debug, Clone, PartialEq)]
+struct Values {
+    light_emission: u8,
+    light_filter: u8,
+    blocks_direct_sky_light: bool,
+    connect: Option<Connect>,
+    physics: Physics,
+    identity: Identity,
+    item: ItemSource,
+}
+
+impl Values {
+    /// The values every overlapping dump state must agree on.
+    fn strict(&self) -> (u8, u8, bool, &Option<Connect>, &Physics) {
+        (
+            self.light_emission,
+            self.light_filter,
+            self.blocks_direct_sky_light,
+            &self.connect,
+            &self.physics,
+        )
+    }
+}
+
+/// The dump states by their Bedrock form of the dump's data version, merged, and the default
+/// state and identity of each block type by name.
+type DumpStates = (
+    BTreeMap<StateKey, Values>,
+    BTreeMap<String, (StateKey, Identity)>,
+);
+
+/// An item in Bedrock form: name, meta, the block state index and the type NBT.
+type ItemForm = (String, u16, Option<u16>, Option<BTreeMap<String, Tag>>);
+
+/// A state of `block_physics.json`: network ID, hardness, light emission, light dampening and the
+/// index of its collision boxes.
+type PhysicsRow = (u32, f64, u8, u8, usize);
+
+/// The reference block list: network ID by state, and the states of each name.
+type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
+
+/// The upgraded states with their values, and the upgraded default form of each dump state.
+type Upgraded = (BTreeMap<StateKey, Values>, BTreeMap<StateKey, StateKey>);
 
 /// The meta of an item form, corrected where the dump sends a different one than the official
 /// server: the dump's ominous banner (`Type` 1) has the black base colour, meta 0, where the
@@ -1285,7 +1270,7 @@ fn variant_physics(key: &StateKey, values: &Values) -> Result<Physics, String> {
 }
 
 /// Reads a committed JSON file.
-pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(
+pub(super) fn read_json<T: for<'de> Deserialize<'de>>(
     root: &Path,
     dir: &str,
     file: &str,
@@ -1296,7 +1281,7 @@ pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(
 }
 
 /// Reads a Bedrock block state object (`name`, `states`).
-pub(crate) fn bedrock_state(json: &Json) -> Result<StateKey, String> {
+fn bedrock_state(json: &Json) -> Result<StateKey, String> {
     let name = json
         .get("name")
         .and_then(Json::as_str)
@@ -1336,7 +1321,7 @@ fn prop_value(json: &Json) -> Result<Prop, String> {
 }
 
 /// Reads a typed NBT compound body (`{key: typed value}`).
-pub(crate) fn compound(json: &Json) -> Result<BTreeMap<String, Tag>, String> {
+pub(super) fn compound(json: &Json) -> Result<BTreeMap<String, Tag>, String> {
     let obj = json.as_object().ok_or("NBT compound is not an object")?;
     obj.iter()
         .map(|(k, v)| Ok((k.clone(), tag(v).map_err(|e| format!("{k}: {e}"))?)))
@@ -1344,7 +1329,7 @@ pub(crate) fn compound(json: &Json) -> Result<BTreeMap<String, Tag>, String> {
 }
 
 /// Reads one typed NBT value (`{"type": value}`).
-pub(crate) fn tag(json: &Json) -> Result<Tag, String> {
+fn tag(json: &Json) -> Result<Tag, String> {
     let obj = json.as_object().ok_or("NBT value is not an object")?;
     let mut entries = obj.iter();
     let (Some((kind, value)), None) = (entries.next(), entries.next()) else {
@@ -1461,7 +1446,7 @@ fn list(value: &Json) -> Result<List, String> {
 
 /// Rust source of a `crate::nbt::StaticCompound` (`&[("key", Static::...)]`), keys in byte
 /// order like `nbt::Compound`.
-pub(crate) fn static_compound(c: &BTreeMap<String, Tag>) -> String {
+pub(super) fn static_compound(c: &BTreeMap<String, Tag>) -> String {
     let mut out = "&[".to_owned();
     for (k, v) in c {
         put!(out, "({}, {}),", str_lit(k), static_value(v));
@@ -1514,7 +1499,7 @@ fn float_lit(bits: u32) -> String {
 }
 
 /// A hex literal of `width` digits, grouped by four.
-pub(crate) fn hex_lit(v: u64, width: usize) -> String {
+pub(super) fn hex_lit(v: u64, width: usize) -> String {
     let digits = format!("{v:0width$x}");
     let mut out = "0x".to_owned();
     for (i, c) in digits.chars().enumerate() {

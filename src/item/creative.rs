@@ -466,7 +466,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
 ];
 
-/// The items in the dump's order, so an item's index is its creative item network ID: (group index, stack).
+/// The items in the dump's order, so an item's index plus one is its creative item network ID: (group index, stack).
 pub(super) static ITEMS: [CreativeItem; 1633] = [
     CreativeItem::new(0, StaticStack::new(Type::from_index(1027), 0, None)),
     CreativeItem::new(0, StaticStack::new(Type::from_index(1383), 0, None)),

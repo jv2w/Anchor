@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::body::str_lit;
+use super::body::{int_lit, str_lit};
 use super::data::{hex_lit, read_json};
 use super::emit::HEADER;
 use crate::dump::REFERENCE_DIR;
@@ -15,11 +15,11 @@ use crate::dump::REFERENCE_DIR;
 /// The committed data file in `xtask/data/reference/`, written by `cargo xtask dump`.
 pub(crate) const FILE: &str = "biomes.json";
 /// The generated file, relative to the repository root.
-pub(crate) const PATH: &str = "src/world/biome/table.rs";
+pub(super) const PATH: &str = "src/world/biome/table.rs";
 
 /// One line of [`FILE`]: a biome definition as the official server sends it, without chunk
-/// generation data. Numbers keep the decimal text of source B's file; [`single`] reads them at
-/// the packet's precision.
+/// generation data. Numbers keep the decimal text of the reference list's file; [`single`] reads
+/// them at the packet's precision.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Biome {
@@ -44,19 +44,9 @@ pub(crate) struct Colour {
     pub(crate) b: u8,
 }
 
-/// The `f32` nearest to the decimal a JSON number was written as. The shortest text of the `f64`
-/// is that decimal, so the value is rounded once, as the official server and gophertunnel read it.
-pub(crate) fn single(value: f64) -> Result<f32, String> {
-    let text = value.to_string();
-    match text.parse::<f32>() {
-        Ok(v) if v.is_finite() => Ok(v),
-        _ => Err(format!("{text} is not a finite f32")),
-    }
-}
-
 /// Generates the file text (unformatted). Fails unless the biomes are in strict name order, every
 /// value fits its packet field, and the strings fit the packet's 16-bit indices.
-pub(crate) fn generate(root: &Path) -> Result<String, String> {
+pub(super) fn generate(root: &Path) -> Result<String, String> {
     let biomes: Vec<Biome> = read_json(root, REFERENCE_DIR, FILE)?;
     if biomes
         .windows(2)
@@ -91,14 +81,14 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The biome definitions generated from source B's stripped biome \
+        "{HEADER}\n//! The biome definitions generated from the reference list's stripped biome \
          definitions: {} biomes, {} strings.\n\n\
          use super::Definition;\n\n\
          /// The packet's string list: every biome name and tag once, in order of first use.\n\
          pub(super) static STRINGS: [&str; {}] = [",
         biomes.len(),
         strings.len(),
-        strings.len()
+        int_lit(&strings.len().to_string())
     );
     for s in &strings {
         put!(out, "{},", str_lit(s));
@@ -107,7 +97,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
         out,
         "];\n\n/// Every biome in name order, its strings as indices into [`STRINGS`].\n\
          pub(super) static DEFINITIONS: [Definition; {}] = [",
-        biomes.len()
+        int_lit(&biomes.len().to_string())
     );
     for b in &biomes {
         let float = |v: f64| single(v).map_err(|e| format!("{}: {e}", b.name));
@@ -115,13 +105,13 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
         let argb = u32::from_be_bytes([c.a, c.r, c.g, c.b]);
         let mut tags = Vec::with_capacity(b.tags.len());
         for t in &b.tags {
-            tags.push(at(t)?.to_string());
+            tags.push(int_lit(&at(t)?.to_string()));
         }
         put!(
             out,
             "Definition {{ name: {}, temperature: {:?}, downfall: {:?}, foliage_snow: {:?}, \
              depth: {:?}, scale: {:?}, map_water_colour: {}, rain: {}, tags: &[{}] }},",
-            at(&b.name)?,
+            int_lit(&at(&b.name)?.to_string()),
             float(b.temperature)?,
             float(b.downfall)?,
             float(b.foliage_snow)?,
@@ -134,4 +124,14 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     out.push_str("];\n");
     Ok(out)
+}
+
+/// The `f32` nearest to the decimal a JSON number was written as. The shortest text of the `f64`
+/// is that decimal, so the value is rounded once, as the official server and gophertunnel read it.
+fn single(value: f64) -> Result<f32, String> {
+    let text = value.to_string();
+    match text.parse::<f32>() {
+        Ok(v) if v.is_finite() => Ok(v),
+        _ => Err(format!("{text} is not a finite f32")),
+    }
 }
