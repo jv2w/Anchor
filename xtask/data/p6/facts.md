@@ -45,7 +45,7 @@
 - 주민 메타데이터: AddActor `villager_v2`에 101 TradeTier 0, 102 MaxTradeTier 4, 103 TradeExperience 0, 104 SkinId(기본 생성 이벤트면 무작위, 0과 4를 봄; `become_farmer` 소환은 0). 거래 뒤 SetActorData는 바뀐 키만(예 `{103: 5}`).
 - 직업 번호(공식 서버 `behavior_packs/vanilla` villager_v2): 0 무직, 1 농부, 2 어부, 3 양치기, 4 화살 제조인, 5 사서, 6 지도 제작자, 7 성직자, 8 갑옷 제조인, 9 무기 제조인, 10 도구 제조인, 11 도축업자, 12 가죽 세공인, 13 석공, 14 니트윗. 소환한 주민의 Variant와 거래 창 제목이 이 표와 맞는다(3 → `entity.villager.shepherd`, 7 → `entity.villager.cleric`).
 - 닫기: 클라이언트 ContainerClose(창, 15, false) → 공식 서버 ContainerClose(창, 247, false).
-- Anchor: 주민형 NPC의 actor 종류는 `minecraft:villager_v2` 하나, 창 종류 15, 닫기 응답 247, 오퍼 NBT는 공식 서버 키 전부, `netId`는 서버 카운터(처음 열 때 매기고 유지), `uses`만 늘리고 UpdateTrade를 다시 보내지 않는다(등급이 올라도). 메타데이터 101~104는 공식 서버 키이고 SkinId는 0으로 고정한다. 직업 번호 표(`trade.rs`)는 공식 서버와 같다. 주민 AI가 없어 demand는 늘 0이다. 거래 Event EntityInteract는 보내지 않는다(통계용, 클라이언트 동작에 영향 없음).
+- Anchor: 주민형 NPC의 actor 종류는 `minecraft:villager_v2` 하나, 닫기 응답 247. 창 종류, 오퍼 NBT 키, `netId`, 거래 뒤 UpdateTrade는 `.claude/docs/architecture.md`의 거래 프로토콜 값이다. 메타데이터 101~104는 공식 서버 키이고 SkinId는 0으로 고정한다. 직업 번호 표(`trade.rs`)는 공식 서버와 같다. 주민 AI가 없어 demand는 늘 0이다. 거래 Event EntityInteract는 보내지 않는다(통계용, 클라이언트 동작에 영향 없음).
 
 ## 스폰 창
 - 순서: NetworkSettings → ServerToClientHandshake → PlayStatus(0) → ResourcePacksInfo → ResourcePackStack → LevelEventGeneric → PlayerList → SyncWorldClocks → JigsawStructureData → VoxelShapes → StartGame → SyncActorProperty ×13 → ItemRegistry → (RequestChunkRadius) → SetSpawnPosition → SyncWorldClocks → SetDifficulty → SetCommandsEnabled → UpdateAdventureSettings → UpdateAbilities → GameRulesChanged → PlayerList → UpdateAbilities → BiomeDefinitionList → AvailableActorIdentifiers → PlayerFog → CameraPresets → CameraAimAssistPresets → CameraSpline → UpdateAttributes → CreativeContent → TrimData → InventoryContent ×4 → PlayerHotBar → CraftingData → AvailableCommands → Respawn ×3 → (청크) → LevelSoundEvent → SetActorData → CurrentStructureFeature → UpdateAttributes → ChunkRadiusUpdated → (주변 몹 AddActor 등) → SetHealth → PlayStatus(3).
@@ -201,7 +201,7 @@
 - Anchor: 생성기가 뒤집힌 축을 `min/2 ..= 1 - min/2`로 다시 만들어 공식 서버와 같다.
 
 ## NetherNet 신원
-- 공식 서버는 클라이언트 offer `a=identity` 토큰의 `cpk`가 base64 SPKI일 때 받고, JWK 객체이면 시그널링 오류 37(go-nethernet `ErrorCodeIdentityNotAllowed`)로 거절한다(go-nethernet v1.0.25 봇은 JWK, v1.0.26은 base64). 서버 자신의 답 토큰 `cpk`는 JWK다. Anchor는 클라이언트의 두 모양을 모두 받는다.
+- 공식 서버는 클라이언트 offer `a=identity` 토큰의 `cpk`가 base64 SPKI일 때 받고, JWK 객체이면 시그널링 오류 37(go-nethernet `ErrorCodeIdentityNotAllowed`)로 거절한다(봇의 go-nethernet 버전: `.claude/docs/dependencies.md`). 서버 자신의 답 토큰 `cpk`는 JWK다. Anchor가 받는 모양은 `.claude/docs/network.md`에 있다.
 
 ## 월드 파일
 - 공식 서버가 만든 평지 월드 `level.dat`: `StorageVersion` 10, `FlatWorldLayers`에 `"preset_id":null`이 없다. Anchor의 내보내기도 같다(`xtask/data/export/level.dat`이 그 파일).
@@ -214,8 +214,8 @@
 - `gamemode` 숫자 5·6을 공식 서버가 받는지 보지 않았다.
 - 셋째 플레이어부터의 플레이어 목록 색은 보지 않았다.
 - 투척 물약이 머리 위 높이에서 깨질 때 몇 틱 차이, 즉시 효과의 거리 식은 공식 서버로 재지 않았다.
+- 메뉴(가짜 용기) 열기 지연 `OPEN_DELAY_TICKS`(`src/tick/inventory/menu.rs`)가 공식 클라이언트에 필요한 값인지는 확인하지 않았다.
 - 바닐라 토템이 살릴 때 공식 서버가 보내는 것(ActorEvent TalismanActivate의 데이터와 받는 사람, OnScreenTextureAnimation도 보내는지: bedrock-protocol-docs의 그 패킷 주석이 토템 연출을 용도로 든다)은 보지 않았다.
-- `cargo xtask p6 anchor snappy`처럼 한 압축만 돌리면 NetworkSettings를 zlib 공식 서버 캡처와 비교하는 문제가 있다. 두 압축을 함께 돌린다.
 
 ## 실제 클라이언트로만 확인
 - 화이트리스트에 없는 플레이어: Disconnect(Reason 45 NotAllowed, Message "")에 클라이언트가 자기 언어의 "이 서버에 초대받지 않았습니다" 문구를 보이는지, 리소스 팩 내려받기 화면 없이 바로 끊기는지. 공식 서버는 `allow-list=true`와 `online-mode=false`로는 시작을 거부하므로 P6로 볼 수 없다.
