@@ -34,8 +34,8 @@ pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
 
 /// An effect with its duration and strength, as a potion or food gives it. A
 /// `Copy` value: the `with_*` methods return a changed copy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(alias = "EffectInstance")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Instance {
     effect: Type,
     duration: u32,
@@ -285,6 +285,14 @@ impl Type {
         self.data().colour
     }
 
+    /// An instance of the effect with the defaults: the [default
+    /// duration](Self::default_duration_ticks), level I, particles shown, not ambient, not infinite.
+    /// The [`Instance`] `with_*` methods change the rest.
+    #[doc(alias = "EffectInstance::__construct")]
+    pub fn instance(self) -> Instance {
+        Instance::new(self, self.default_duration_ticks(), 0, true, false)
+    }
+
     /// The duration in ticks an instance has when none is given.
     #[doc(alias = "Effect::getDefaultDuration")]
     pub fn default_duration_ticks(self) -> u32 {
@@ -301,14 +309,6 @@ impl Type {
     #[doc(alias = "EffectIdMap::toId")]
     pub fn id(self) -> u8 {
         self.data().id
-    }
-
-    /// An instance of the effect with the defaults: the [default
-    /// duration](Self::default_duration_ticks), level I, particles shown, not ambient, not infinite.
-    /// The [`Instance`] `with_*` methods change the rest.
-    #[doc(alias = "EffectInstance::__construct")]
-    pub fn instance(self) -> Instance {
-        Instance::new(self, self.default_duration_ticks(), 0, true, false)
     }
 
     /// Whether the effect harms.

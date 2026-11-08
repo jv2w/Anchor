@@ -85,6 +85,9 @@ pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
 pub struct State(Repr);
 
 impl State {
+    /// The factor of the break time of wool with shears.
+    const SHEARS_WOOL_MULTIPLIER: f64 = 3.0;
+
     /// The state with this table index.
     ///
     /// Only generated tables call it, with indices of the state table.
@@ -137,13 +140,6 @@ impl State {
         }
     }
 
-    /// How hard the block is to break and which tool it needs.
-    #[doc(alias = "Block::getBreakInfo")]
-    #[inline]
-    pub fn break_info(self) -> BreakInfo {
-        self.info().breaking()
-    }
-
     /// The seconds the block takes to break with `tool` (the empty stack is a hand).
     ///
     /// It is [`BreakInfo::break_time_secs`], except for the blocks with a rule of their own:
@@ -162,10 +158,17 @@ impl State {
         }
         let time = self.break_info().break_time_secs(tool)?;
         if self.kind() == Kind::Wool && tool_type == ToolType::SHEARS {
-            Some(time * 3.0)
+            Some(time * Self::SHEARS_WOOL_MULTIPLIER)
         } else {
             Some(time)
         }
+    }
+
+    /// How hard the block is to break and which tool it needs.
+    #[doc(alias = "Block::getBreakInfo")]
+    #[inline]
+    pub fn break_info(self) -> BreakInfo {
+        self.info().breaking()
     }
 
     /// Whether a liquid's current reaches into the block.
@@ -213,6 +216,27 @@ impl State {
         let info = self.info();
         let start = usize::from(info.box_start);
         &table::BOXES[start..start + usize::from(info.box_count)]
+    }
+
+    /// The variant `index` of this state (see [`State::connect`] for the order).
+    ///
+    /// It is the state with the same properties except those the neighbours decide. `None` if
+    /// the state has no variants or `index` is past them.
+    pub(crate) fn variant(self, index: usize) -> Option<Self> {
+        let word = self.connect();
+        let offset = word >> 16;
+        let count = match self.connection() {
+            Connection::None | Connection::TripwireHook => 0,
+            Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => 16,
+            Connection::Wall => 162,
+            Connection::FenceGate => 2,
+            Connection::Stair => 5,
+        };
+        if offset == NO_VARIANTS || index >= count {
+            return None;
+        }
+        let at = usize::try_from(offset).ok()?.checked_add(index)?;
+        table::VARIANTS.get(at).copied().map(Self::from_index)
     }
 
     /// The state's part in neighbour connections.
@@ -272,12 +296,31 @@ impl State {
         Facing::ALL.get(at.checked_sub(1)?).copied()
     }
 
+    /// The state a vanilla block state from outside the server becomes.
+    ///
+    /// It is the state of the table with this name and exactly these properties
+    /// ([`State::find`]), else the state the dump reads it as. The dump ignores some vanilla
+    /// properties and has one value for them, so a pumpkin facing east is the pumpkin facing
+    /// south. `None` for a state the reference list does not have (the caller keeps it as an
+    /// unknown block). It never allocates.
+    pub(crate) fn read(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
+        Self::find(name, properties).or_else(|| {
+            let at = search(
+                &table::ALIASES,
+                |a| (a.name, a.first_property, a.property_count),
+                name,
+                properties,
+            )?;
+            table::ALIASES.get(at).map(|a| Self::from_index(a.state))
+        })
+    }
+
     /// The state of the table with this name and exactly these properties, given in any order.
     ///
     /// It is meant for input from disk or the network: it never allocates, and an unknown name,
     /// a missing, extra or repeated property, a value of the wrong type or an unknown value gives
     /// `None`. Custom states are not in the table; they come from their definition
-    /// ([`State::from_network_id`]).
+    /// ([`Context::custom_block`](crate::Context::custom_block) and [`State::with`]).
     #[doc(alias = "BlockStateDictionary::lookupStateIdFromData")]
     pub fn find(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
         let at = search(
@@ -454,25 +497,6 @@ impl State {
         }
     }
 
-    /// The state a vanilla block state from outside the server becomes.
-    ///
-    /// It is the state of the table with this name and exactly these properties
-    /// ([`State::find`]), else the state the dump reads it as. The dump ignores some vanilla
-    /// properties and has one value for them, so a pumpkin facing east is the pumpkin facing
-    /// south. `None` for a state the reference list does not have (the caller keeps it as an
-    /// unknown block). It never allocates.
-    pub(crate) fn read(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> Option<Self> {
-        Self::find(name, properties).or_else(|| {
-            let at = search(
-                &table::ALIASES,
-                |a| (a.name, a.first_property, a.property_count),
-                name,
-                properties,
-            )?;
-            table::ALIASES.get(at).map(|a| Self::from_index(a.state))
-        })
-    }
-
     /// The support the face gives to blocks that need it.
     #[doc(alias = "Block::getSupportType")]
     #[inline]
@@ -497,27 +521,6 @@ impl State {
             Repr::Custom(_) => self.properties().find(|p| p.name == name),
         };
         found.map(|p| p.value)
-    }
-
-    /// The variant `index` of this state (see [`State::connect`] for the order).
-    ///
-    /// It is the state with the same properties except those the neighbours decide. `None` if
-    /// the state has no variants or `index` is past them.
-    pub(crate) fn variant(self, index: usize) -> Option<Self> {
-        let word = self.connect();
-        let offset = word >> 16;
-        let count = match self.connection() {
-            Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => 16,
-            Connection::Stair => 5,
-            Connection::Wall => 162,
-            Connection::FenceGate => 2,
-            Connection::None | Connection::TripwireHook => 0,
-        };
-        if offset == NO_VARIANTS || index >= count {
-            return None;
-        }
-        let at = usize::try_from(offset).ok()?.checked_add(index)?;
-        table::VARIANTS.get(at).copied().map(Self::from_index)
     }
 
     /// The state with the property `name` set to `value` and the other properties kept.
@@ -853,8 +856,8 @@ impl BitOr for ToolType {
 }
 
 /// How hard a block is to break and which tool it needs.
-#[derive(Debug, Clone, Copy, PartialEq)]
 #[doc(alias = "BlockBreakInfo")]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BreakInfo {
     hardness: f64,
     blast_resistance: f64,
@@ -867,6 +870,8 @@ impl BreakInfo {
     const COMPATIBLE_TOOL_MULTIPLIER: f64 = 1.5;
     /// The factor of the break time without a compatible tool.
     const INCOMPATIBLE_TOOL_MULTIPLIER: f64 = 5.0;
+    /// The factor of a sword's mining efficiency over its base efficiency.
+    const SWORD_EFFICIENCY_MULTIPLIER: f64 = 1.5;
 
     pub(crate) const fn new(
         hardness: f64,
@@ -922,7 +927,7 @@ impl BreakInfo {
             // the factor 1.5 applied below.
             efficiency = item.mining_efficiency();
             if sword {
-                efficiency /= 1.5;
+                efficiency /= Self::SWORD_EFFICIENCY_MULTIPLIER;
             }
             let level = tool
                 .enchantment_level(item::Enchantment::Efficiency)
@@ -933,7 +938,7 @@ impl BreakInfo {
             }
         }
         if sword {
-            efficiency *= 1.5;
+            efficiency *= Self::SWORD_EFFICIENCY_MULTIPLIER;
         }
         (efficiency > 0.0).then(|| self.hardness * multiplier / efficiency)
     }
@@ -1008,16 +1013,16 @@ pub enum SupportType {
 }
 
 impl SupportType {
-    /// Whether the face supports a block that needs the edge (a torch needs the center).
-    #[doc(alias = "SupportType::hasEdgeSupport")]
-    pub fn has_edge_support(self) -> bool {
-        matches!(self, Self::Full | Self::Edge)
-    }
-
     /// Whether the face supports a block that needs the center.
     #[doc(alias = "SupportType::hasCenterSupport")]
     pub fn has_center_support(self) -> bool {
         matches!(self, Self::Full | Self::Center)
+    }
+
+    /// Whether the face supports a block that needs the edge (a torch needs the center).
+    #[doc(alias = "SupportType::hasEdgeSupport")]
+    pub fn has_edge_support(self) -> bool {
+        matches!(self, Self::Full | Self::Edge)
     }
 }
 
@@ -1548,6 +1553,18 @@ fn search<T>(
     start.checked_add(offset)
 }
 
+/// The properties of the `count` rows from `first` ([`property_rows`]), sorted by name.
+#[inline]
+fn properties_of(first: u32, count: u8) -> impl ExactSizeIterator<Item = Property> + 'static {
+    property_rows(first, count).map(|&p| {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: the generated state properties index the property table"
+        )]
+        table::PROPERTIES[usize::from(p)]
+    })
+}
+
 /// The `count` rows of [`table::STATE_PROPERTIES`] from `first`: those of a state or an alias.
 #[inline]
 fn property_rows(first: u32, count: u8) -> std::slice::Iter<'static, u16> {
@@ -1562,18 +1579,6 @@ fn property_rows(first: u32, count: u8) -> std::slice::Iter<'static, u16> {
     )]
     let rows = &table::STATE_PROPERTIES[start..start + usize::from(count)];
     rows.iter()
-}
-
-/// The properties of the `count` rows from `first` ([`property_rows`]), sorted by name.
-#[inline]
-fn properties_of(first: u32, count: u8) -> impl ExactSizeIterator<Item = Property> + 'static {
-    property_rows(first, count).map(|&p| {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated state properties index the property table"
-        )]
-        table::PROPERTIES[usize::from(p)]
-    })
 }
 
 #[cfg(test)]
@@ -1621,16 +1626,16 @@ mod tests {
         for state in State::all() {
             let kind = state.connection();
             let (names, count): (&[&str], usize) = match kind {
-                Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => {
-                    (&CONNECTIONS, 16)
-                }
-                Connection::Stair => (&["minecraft:corner"], 5),
-                Connection::Wall => (&WALL, 162),
-                Connection::FenceGate => (&["in_wall_bit"], 2),
                 Connection::None | Connection::TripwireHook => {
                     assert_eq!(state.variant(0), None);
                     continue;
                 }
+                Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => {
+                    (&CONNECTIONS, 16)
+                }
+                Connection::Wall => (&WALL, 162),
+                Connection::FenceGate => (&["in_wall_bit"], 2),
+                Connection::Stair => (&["minecraft:corner"], 5),
             };
             counts[usize::try_from(state.connect() & 0xf).unwrap()] += 1;
             assert_eq!(state.variant(count), None);
@@ -1640,15 +1645,6 @@ mod tests {
                 assert_eq!(v.name(), state.name());
                 assert_eq!(others(v, names), others(state, names));
                 let expected = match kind {
-                    Connection::Stair => vec![PropertyValue::String(
-                        [
-                            "none",
-                            "inner_left",
-                            "inner_right",
-                            "outer_left",
-                            "outer_right",
-                        ][i],
-                    )],
                     Connection::Wall => {
                         let mut sides: Vec<_> = (0..4)
                             .map(|s| {
@@ -1660,6 +1656,15 @@ mod tests {
                         sides
                     }
                     Connection::FenceGate => vec![PropertyValue::Byte(u8::try_from(i).unwrap())],
+                    Connection::Stair => vec![PropertyValue::String(
+                        [
+                            "none",
+                            "inner_left",
+                            "inner_right",
+                            "outer_left",
+                            "outer_right",
+                        ][i],
+                    )],
                     _ => Facing::ALL
                         .iter()
                         .map(|f| PropertyValue::Byte(u8::from(i & usize::from(f.bit()) != 0)))
@@ -2001,6 +2006,7 @@ mod tests {
             assert!(s.collision_boxes().iter().all(|b| b.min.x <= b.max.x));
             assert!(s.break_info().hardness().is_finite());
             match s.item() {
+                ItemForm::None => {}
                 ItemForm::Item(t) => {
                     items += 1;
                     // A block item places a state of the block's kind.
@@ -2014,11 +2020,10 @@ mod tests {
                         "minecraft:bed" | "minecraft:standing_banner" | "minecraft:wall_banner"
                     ));
                 }
-                ItemForm::None => {}
             }
         }
         assert!(items > 11_000);
-        assert_eq!(ItemForm::None, AIR.item());
+        assert_eq!(AIR.item(), ItemForm::None);
         let stone = state("minecraft:stone", &[]);
         let ItemForm::Item(stone_item) = stone.item() else {
             panic!("stone has an item");

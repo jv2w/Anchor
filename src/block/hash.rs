@@ -45,12 +45,6 @@ pub enum PropertyValue<'a> {
 struct Fnv(u32);
 
 impl Fnv {
-    fn bytes(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.0 = (self.0 ^ u32::from(b)).wrapping_mul(PRIME);
-        }
-    }
-
     /// Feeds an NBT string: its length as a little-endian `u16`, then its bytes.
     ///
     /// Names and values are short (block identifiers and property values are checked when they
@@ -60,6 +54,12 @@ impl Fnv {
         let len = u16::try_from(s.len()).unwrap_or(u16::MAX);
         self.bytes(&len.to_le_bytes());
         self.bytes(s.as_bytes().get(..usize::from(len)).unwrap_or_default());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u32::from(b)).wrapping_mul(PRIME);
+        }
     }
 }
 
