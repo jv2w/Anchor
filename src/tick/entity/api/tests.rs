@@ -107,15 +107,15 @@ fn every_kind_reads_as_what_it_is() {
         match kind {
             Kind::Item(item) => {
                 assert_eq!(e.item(), Some(&item.stack));
-                assert_eq!(e.pickup_delay_ticks(), Some(item.pickup_delay));
-                assert_eq!(e.despawn_delay_ticks(), Some(item.despawn_delay));
+                assert_eq!(e.pickup_delay_ticks(), Some(item.pickup_delay_ticks));
+                assert_eq!(e.despawn_delay_ticks(), Some(item.despawn_delay_ticks));
                 assert_eq!(e.owner(), Some(item.owner.as_str()));
                 assert_eq!(e.thrower(), Some(item.thrower.as_str()));
                 assert_eq!(e.entity_type(), Type::Item);
             }
             Kind::XpOrb(orb) => {
                 assert_eq!(e.xp_value(), Some(orb.value));
-                assert_eq!(e.despawn_delay_ticks(), Some(orb.despawn_delay));
+                assert_eq!(e.despawn_delay_ticks(), Some(orb.despawn_delay_ticks));
             }
             Kind::FallingBlock(f) => assert_eq!(e.falling_block(), Some(f.block)),
             Kind::Tnt(t) => {
@@ -194,7 +194,7 @@ fn owners_targets_and_viewers_are_players() {
     });
     let orb = Kind::XpOrb(Orb {
         value: 3,
-        despawn_delay: 6000,
+        despawn_delay_ticks: 6000,
         look_for_target: 0,
         target: Some(me),
     });

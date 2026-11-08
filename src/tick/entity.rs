@@ -405,7 +405,7 @@ pub struct Entity {
     /// Ticks it keeps burning.
     fire_ticks: i16,
     /// Ticks it has been ticked.
-    age: u32,
+    age_ticks: u32,
     kind: Kind,
     /// The name tag (at most [`kind::MAX_NAME_TAG_BYTES`]); a human NPC's is its name.
     name_tag: String,
@@ -477,7 +477,7 @@ impl Entity {
             pitch,
             health,
             fire_ticks: 0,
-            age: 0,
+            age_ticks: 0,
             kind,
             name_tag,
             name_tag_visible: true,
@@ -525,7 +525,7 @@ impl Entity {
             pitch,
             health,
             fire_ticks,
-            age,
+            age_ticks,
             kind,
             name_tag,
             name_tag_visible,
@@ -562,31 +562,31 @@ impl Entity {
         h.u64(pitch.to_bits());
         h.u64(health.to_bits());
         h.u64(u64::from(fire_ticks.cast_unsigned()));
-        h.u64(u64::from(*age));
+        h.u64(u64::from(*age_ticks));
         match kind {
             Kind::Item(Item {
                 stack,
-                pickup_delay,
-                despawn_delay,
+                pickup_delay_ticks,
+                despawn_delay_ticks,
                 owner,
                 thrower,
             }) => {
                 h.u64(0);
                 super::inventory::hash_stack(h, stack);
-                h.u64(u64::from(pickup_delay.cast_unsigned()));
-                h.u64(u64::from(despawn_delay.cast_unsigned()));
+                h.u64(u64::from(pickup_delay_ticks.cast_unsigned()));
+                h.u64(u64::from(despawn_delay_ticks.cast_unsigned()));
                 h.bytes(owner.as_bytes());
                 h.bytes(thrower.as_bytes());
             }
             Kind::XpOrb(Orb {
                 value,
-                despawn_delay,
+                despawn_delay_ticks,
                 look_for_target,
                 target,
             }) => {
                 h.u64(1);
                 h.u64(u64::from(*value));
-                h.u64(u64::from(despawn_delay.cast_unsigned()));
+                h.u64(u64::from(despawn_delay_ticks.cast_unsigned()));
                 h.u64(u64::from(*look_for_target));
                 h.u64(target.map_or(0, |s| s.get().wrapping_add(1)));
             }
@@ -811,7 +811,7 @@ super::checkpoint::fields!(Entity {
     pitch,
     health,
     fire_ticks,
-    age,
+    age_ticks,
     kind,
     name_tag,
     name_tag_visible,
@@ -2149,7 +2149,7 @@ fn apply(state: &mut State, id: Id, step: Step, hooks: Hooks, budget: &mut Budge
     let Some(e) = state.rules.entities.get_mut(id) else {
         return;
     };
-    e.age = e.age.saturating_add(1);
+    e.age_ticks = e.age_ticks.saturating_add(1);
     if e.flagged || matches!(&e.kind, Kind::Npc(c) if c.dead_ticks.is_some()) {
         return;
     }
@@ -2792,10 +2792,10 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     let Kind::Item(item) = &mut e.kind else {
         return;
     };
-    if item.pickup_delay > 0 {
-        item.pickup_delay -= 1;
+    if item.pickup_delay_ticks > 0 {
+        item.pickup_delay_ticks -= 1;
     }
-    let check = moving && item.despawn_delay % MERGE_CHECK_PERIOD_TICKS == 0;
+    let check = moving && item.despawn_delay_ticks % MERGE_CHECK_PERIOD_TICKS == 0;
     if check && is_merge_candidate(item) && *merges < MAX_MERGES_PER_TICK {
         merge(state, id, merges);
     }
@@ -2810,10 +2810,10 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
         return;
     };
     // Counting stops at 0, so the time being up never reads as NEVER (-1).
-    if item.despawn_delay > 0 {
-        item.despawn_delay -= 1;
+    if item.despawn_delay_ticks > 0 {
+        item.despawn_delay_ticks -= 1;
     }
-    if item.despawn_delay == 0 {
+    if item.despawn_delay_ticks == 0 {
         if heard {
             despawn_item(state, id);
         } else {
@@ -2831,7 +2831,7 @@ fn despawn_item(state: &mut State, id: Id) {
             .entities
             .get(id)
             .and_then(as_item)
-            .is_some_and(|i| i.despawn_delay == 0)
+            .is_some_and(|i| i.despawn_delay_ticks == 0)
     };
     let mut e = ItemDespawn {
         entity: id,
@@ -2839,11 +2839,11 @@ fn despawn_item(state: &mut State, id: Id) {
     };
     dispatch::call(state, &mut e);
     if e.cancelled {
-        let delay = item_despawn_delay_ticks(state);
+        let delay_ticks = item_despawn_delay_ticks(state);
         if due(state)
             && let Some(Kind::Item(item)) = state.rules.entities.get_mut(id).map(|e| &mut e.kind)
         {
-            item.despawn_delay = delay;
+            item.despawn_delay_ticks = delay_ticks;
         }
         return;
     }
@@ -2936,7 +2936,7 @@ fn merge_now(state: &mut State, source: Id, target: Id) -> bool {
         return false;
     };
     let count = si.stack.count().saturating_add(ti.stack.count());
-    let (delay, despawn) = (si.pickup_delay, si.despawn_delay);
+    let (pickup_delay_ticks, despawn_delay_ticks) = (si.pickup_delay_ticks, si.despawn_delay_ticks);
     let source_key = (s.world, s.chunk);
     entities.doom(source);
     entities.changed.insert(source_key);
@@ -2947,8 +2947,8 @@ fn merge_now(state: &mut State, source: Id, target: Id) -> bool {
         return false;
     };
     ti.stack = ti.stack.with_count(count);
-    ti.pickup_delay = ti.pickup_delay.max(delay);
-    ti.despawn_delay = ti.despawn_delay.max(despawn);
+    ti.pickup_delay_ticks = ti.pickup_delay_ticks.max(pickup_delay_ticks);
+    ti.despawn_delay_ticks = ti.despawn_delay_ticks.max(despawn_delay_ticks);
     let packet = actor_event(t.runtime_id, ActorEvent::UpdateStackSize, i32::from(count));
     let key = (t.world, t.chunk);
     send_to(&mut state.players, &t.viewers, &packet);
@@ -2967,7 +2967,7 @@ fn is_mergeable(a: &Item, b: &Item) -> bool {
 
 /// Whether the item can merge: it can be picked up and its stack is not full.
 fn is_merge_candidate(item: &Item) -> bool {
-    item.pickup_delay != NEVER && item.stack.count() < item.stack.max_stack_size()
+    item.pickup_delay_ticks != NEVER && item.stack.count() < item.stack.max_stack_size()
 }
 
 /// The item data of an unflagged dropped item.
@@ -3010,15 +3010,15 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
         return;
     };
     let (world, position, bounds) = (e.world, e.body.position, e.bounding_box());
-    let mut despawn = orb.despawn_delay;
+    let mut despawn_delay_ticks = orb.despawn_delay_ticks;
     // Never (-1) is not counted down: such an orb stays.
-    if despawn != i32::from(NEVER) {
-        despawn -= 1;
-        if despawn <= 0 {
+    if despawn_delay_ticks != i32::from(NEVER) {
+        despawn_delay_ticks -= 1;
+        if despawn_delay_ticks <= 0 {
             if let Some(e) = state.rules.entities.get_mut(id) {
                 e.flagged = true;
                 if let Kind::XpOrb(orb) = &mut e.kind {
-                    orb.despawn_delay = despawn;
+                    orb.despawn_delay_ticks = despawn_delay_ticks;
                 }
             }
             return;
@@ -3075,7 +3075,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let Kind::XpOrb(orb) = &mut e.kind else {
         return;
     };
-    orb.despawn_delay = despawn;
+    orb.despawn_delay_ticks = despawn_delay_ticks;
     orb.look_for_target = look;
     orb.target = target;
     let value = orb.value;
@@ -3299,11 +3299,20 @@ pub(super) fn drop_item_with(
     pos: Vec3,
     stack: Stack,
     motion: Option<Vec3>,
-    pickup_delay: i16,
+    pickup_delay_ticks: i16,
     thrower: String,
 ) -> bool {
     stack.is_empty()
-        || drop_stack(state, world, pos, stack, motion, pickup_delay, thrower).is_some()
+        || drop_stack(
+            state,
+            world,
+            pos,
+            stack,
+            motion,
+            pickup_delay_ticks,
+            thrower,
+        )
+        .is_some()
 }
 
 /// [`drop_item_with`] for a stack that is not empty, giving the new entity.
@@ -3313,13 +3322,13 @@ fn drop_stack(
     pos: Vec3,
     stack: Stack,
     motion: Option<Vec3>,
-    pickup_delay: i16,
+    pickup_delay_ticks: i16,
     thrower: String,
 ) -> Option<Id> {
     let item = Item {
         stack,
-        pickup_delay: max_delay(pickup_delay),
-        despawn_delay: item_despawn_delay_ticks(state),
+        pickup_delay_ticks: max_delay(pickup_delay_ticks),
+        despawn_delay_ticks: item_despawn_delay_ticks(state),
         owner: String::new(),
         thrower,
     };
@@ -3367,7 +3376,7 @@ pub(super) fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount:
             .unwrap_or(1);
         let orb = Orb {
             value: size,
-            despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
+            despawn_delay_ticks: DEFAULT_DESPAWN_DELAY_TICKS,
             look_for_target: 0,
             target: None,
         };
@@ -3535,7 +3544,7 @@ fn pick_up(state: &mut State, hooks: Hooks) {
             let Kind::Item(item) = &mut e.kind else {
                 continue;
             };
-            if item.pickup_delay != 0 {
+            if item.pickup_delay_ticks != 0 {
                 continue;
             }
             let Some(player) = state.players.get_mut(&session) else {
@@ -3582,7 +3591,7 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
         };
         let player = state.players.get(&session)?;
         let reach = survival::bounding_box(player).grow(PICKUP_REACH);
-        if item.pickup_delay != 0
+        if item.pickup_delay_ticks != 0
             || !can_collect(state, player, hooks)
             || player.world != e.world
             || !e.bounding_box().overlaps(reach, EPSILON)
@@ -4847,6 +4856,11 @@ mod tests {
             self.state.players[&SessionId::new(session)].runtime_id
         }
 
+        /// The health of the entity `id`.
+        pub(super) fn health(&self, id: Id) -> f64 {
+            self.state.rules.entities.get(id).unwrap().health
+        }
+
         pub(super) fn live(&self) -> Vec<&Entity> {
             let entities = &self.state.rules.entities;
             entities.ids().filter_map(|id| entities.get(id)).collect()
@@ -4878,12 +4892,17 @@ mod tests {
                 skin: None,
             };
             let id = spawn_npc(&mut self.state, 0, pos, npc).unwrap();
+            self.make_vulnerable(id);
+            id
+        }
+
+        /// Makes the NPC `id` take damage.
+        pub(super) fn make_vulnerable(&mut self, id: Id) {
             with(&mut self.state, id, |e| {
                 if let Kind::Npc(c) = &mut e.kind {
                     c.invulnerable = false;
                 }
             });
-            id
         }
     }
 
@@ -5092,7 +5111,7 @@ mod tests {
         let delay = |h: &Harness| {
             h.live()
                 .iter()
-                .find_map(|e| as_item(e).map(|i| i.despawn_delay))
+                .find_map(|e| as_item(e).map(|i| i.despawn_delay_ticks))
         };
         assert_eq!(delay(&h), Some(40));
         for _ in 0..39 {
@@ -5703,7 +5722,7 @@ mod tests {
         let [e] = live.as_slice() else {
             panic!("one item: {}", live.len());
         };
-        assert!(matches!(&e.kind, Kind::Item(i) if i.pickup_delay == 40));
+        assert!(matches!(&e.kind, Kind::Item(i) if i.pickup_delay_ticks == 40));
         let m = e.body.motion;
         assert!(
             (m.x - 0.4).abs() < 1e-9 && m.y.abs() < 1e-9 && m.z.abs() < 1e-9,
@@ -5763,7 +5782,7 @@ mod tests {
             };
             assert_eq!(thrower.as_deref(), Some(name.as_str()), "dies {dies}");
             assert!(
-                item.pickup_delay <= 40 && item.pickup_delay > 30,
+                item.pickup_delay_ticks <= 40 && item.pickup_delay_ticks > 30,
                 "dies {dies}"
             );
         }
@@ -6433,7 +6452,7 @@ mod tests {
             .map(|k| match k {
                 Kind::Tnt(t) => Kind::Tnt(Tnt { fuse: 100, ..t }),
                 Kind::XpOrb(o) => Kind::XpOrb(Orb {
-                    despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
+                    despawn_delay_ticks: DEFAULT_DESPAWN_DELAY_TICKS,
                     ..o
                 }),
                 other => other,

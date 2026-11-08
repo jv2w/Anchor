@@ -266,7 +266,7 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
     let delay = |h: &mut Harness, d: i32| {
         with(&mut h.state, id, |e| {
             if let Kind::Item(i) = &mut e.kind {
-                i.despawn_delay = d;
+                i.despawn_delay_ticks = d;
             }
         });
     };
@@ -390,7 +390,7 @@ fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
             with(&mut h.state, id, |e| {
                 e.body.motion = Vec3::new(0.0, 0.3, 0.0);
                 if let Kind::Item(i) = &mut e.kind {
-                    i.pickup_delay = 0;
+                    i.pickup_delay_ticks = 0;
                 }
             });
         }
@@ -563,10 +563,6 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
     assert!(taken() > 0);
 }
 
-fn health(h: &Harness, id: Id) -> f64 {
-    h.state.rules.entities.get(id).unwrap().health
-}
-
 /// Player 1 (standing at block 0, 0, looking along +z) hits `target` in melee.
 fn hit(h: &mut Harness, target: Id) {
     npc::attack_with(&mut h.state, session(1), target, TEST_HOOKS);
@@ -607,7 +603,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     h.spawn(1, standing(0.0, 0.0));
     let npc = h.vulnerable_human(at(0.5, -60.0, 2.5));
     hit(&mut h, npc);
-    assert_eq!(health(&h, npc), 20.0, "cancelled");
+    assert_eq!(h.health(npc), 20.0, "cancelled");
     assert_eq!(
         h.state.rules.entities.get(npc).unwrap().body.motion,
         Vec3::ZERO,
@@ -624,7 +620,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     assert!(base > 0.0);
     set(switch, 1);
     hit(&mut h, npc);
-    assert_eq!(health(&h, npc), 15.0, "the listener's damage");
+    assert_eq!(h.health(npc), 15.0, "the listener's damage");
     assert_ne!(
         h.state.rules.entities.get(npc).unwrap().body.motion,
         Vec3::ZERO
@@ -633,7 +629,7 @@ fn an_npc_hit_raises_damage_with_its_source_and_listeners_decide() {
     set(switch, 2);
     let other = h.vulnerable_human(at(1.5, -60.0, 2.5));
     hit(&mut h, other);
-    assert_eq!(health(&h, other), 20.0, "removed by the listener: not hurt");
+    assert_eq!(h.health(other), 20.0, "removed by the listener: not hurt");
 }
 
 // api: EntityDeathEvent
@@ -806,7 +802,7 @@ fn fire_sets_entities_burning_through_combust_and_water_puts_them_out() {
     h.entities();
     assert_eq!(fire(&h), 0);
     assert_eq!(got(&out), [ExtinguishCause::Water]);
-    assert_eq!(health(&h, npc), 20.0);
+    assert_eq!(h.health(npc), 20.0);
 }
 
 fn fill(h: &mut Harness, from: BlockPos, to: BlockPos, name: &str) {
@@ -892,7 +888,7 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
         dirt,
         "the explosion was cancelled"
     );
-    assert_eq!(health(&h, npc), 20.0, "nothing hurt when cancelled");
+    assert_eq!(h.health(npc), 20.0, "nothing hurt when cancelled");
     set(pre, 2);
     set(boom, 1);
     clear(&lists);
@@ -905,7 +901,7 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     );
     assert_eq!(block(&h, BlockPos::new(-1, -50, 0)), dirt, "only that one");
     assert_eq!(h.ground(), 0, "a yield of 0 drops nothing");
-    assert!(health(&h, npc) < 20.0, "the blast hurts once it goes off");
+    assert!(h.health(npc) < 20.0, "the blast hurts once it goes off");
 }
 
 /// An explosion breaks the TNT blocks it reaches into their own item, and primes none.
@@ -1168,7 +1164,7 @@ fn projectile_hits_name_what_they_hit() {
         h.entities();
     }
     assert_eq!(got(&entities), [(arrow, Actor::Entity(npc))]);
-    assert_eq!(health(&h, npc), 20.0);
+    assert_eq!(h.health(npc), 20.0);
 }
 
 // api: EntityTeleportEvent
@@ -1385,10 +1381,10 @@ fn healing_an_npc_asks_its_listeners() {
     let npc = h.vulnerable_human(at(0.5, -60.0, 0.5));
     with(&mut h.state, npc, |e| e.health = 10.0);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
-    assert_eq!(health(&h, npc), 10.0, "cancelled");
+    assert_eq!(h.health(npc), 10.0, "cancelled");
     set(switch, 1);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
-    assert_eq!(health(&h, npc), 11.0, "the listener's amount");
+    assert_eq!(h.health(npc), 11.0, "the listener's amount");
 }
 
 /// Healing an NPC follows the players' rule: nothing is asked at full health, and an amount a
@@ -1410,14 +1406,14 @@ fn healing_an_npc_asks_only_below_full_health_and_an_amount_that_does_not_heal_c
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(8.0, 8.0));
     let npc = h.vulnerable_human(at(0.5, -60.0, 0.5));
-    let full = health(&h, npc);
+    let full = h.health(npc);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert!(got(&asked).is_empty(), "full health");
     with(&mut h.state, npc, |e| e.health = 10.0);
     crate::tick::entity::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
     assert_eq!(got(&asked), [4.0]);
     assert!(got(&watched).is_empty(), "cancelled");
-    assert_eq!(health(&h, npc), 10.0);
+    assert_eq!(h.health(npc), 10.0);
     assert!(full > 10.0);
 }
 
@@ -1458,7 +1454,7 @@ fn an_entity_a_listener_moves_during_the_tick_moves_on_from_there() {
     TARGET.with(|t| t.set(Some(second)));
     with(&mut h.state, first, |e| {
         if let Kind::Item(i) = &mut e.kind {
-            i.despawn_delay = 1;
+            i.despawn_delay_ticks = 1;
         }
     });
     h.entities();
@@ -1536,16 +1532,16 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     let mut runs = 0;
     run_deferred(&mut h.state, &mut runs);
     assert_eq!(got(&causes), [DamageCause::EntityAttack]);
-    assert!(health(&h, npc) < 20.0);
+    assert!(h.health(npc) < 20.0);
     // A direct explosion hurts without events; the action raises them.
     clear(&causes);
     let far = h.vulnerable_human(at(30.5, -60.0, 30.5));
     let center = Vec3::new(30.5, -59.0, 31.5);
     let mut cx = h.context();
     cx.explode(WORLD, center, 2.0).unwrap();
-    assert!(health(&h, far) < 20.0);
+    assert!(h.health(far) < 20.0);
     assert!(got(&causes).is_empty(), "direct calls raise nothing");
-    let before = health(&h, far);
+    let before = h.health(far);
     // Past the NPC's hit cooldown.
     for _ in 0..12 {
         h.entities();
@@ -1559,7 +1555,7 @@ fn actions_raise_the_events_that_direct_calls_do_not() {
     let causes = got(&causes);
     assert!(!causes.is_empty());
     assert!(causes.iter().all(|&c| c == DamageCause::BlockExplosion));
-    assert!(health(&h, far) < before);
+    assert!(h.health(far) < before);
 }
 
 /// A player an exploding entity hits is pushed back with the knockback the damage listeners left.

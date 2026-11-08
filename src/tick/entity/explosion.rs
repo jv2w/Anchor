@@ -1019,10 +1019,9 @@ mod tests {
         let p = &h.state.players[&SessionId::new(1)];
         let player_damage = expected(&h, survival::feet(p), survival::bounding_box(p));
         size_four(&mut h, center);
-        let health = |h: &Harness, id: Id| h.state.rules.entities.get(id).unwrap().health;
-        assert_eq!(health(&h, npc), 20.0 - npc_damage);
+        assert_eq!(h.health(npc), 20.0 - npc_damage);
         assert_eq!(hidden_damage, 1.0, "behind obsidian: no ray reaches it");
-        assert_eq!(health(&h, hidden), 20.0 - hidden_damage);
+        assert_eq!(h.health(hidden), 20.0 - hidden_damage);
         assert!(
             h.state.rules.entities.get(npc).unwrap().body.motion.x < 0.0,
             "pushed away"
@@ -1048,9 +1047,9 @@ mod tests {
                 c.invulnerable = true;
             }
         });
-        let before = health(&h, hidden);
+        let before = h.health(hidden);
         size_four(&mut h, center);
-        assert_eq!(health(&h, hidden), before);
+        assert_eq!(h.health(hidden), before);
         let sticks = h
             .live()
             .iter()

@@ -158,16 +158,16 @@ pub(super) fn save(entity: &Entity) -> Compound {
         Kind::Item(item) => {
             put("Item", Value::Compound(item.stack.to_nbt()));
             put("Health", Value::Short(health_short(entity.health)));
-            put("Age", Value::Short(age_ticks(item.despawn_delay)));
-            if item.despawn_delay > MAX_DESPAWN_DELAY_TICKS {
-                put("DespawnDelay", Value::Int(item.despawn_delay));
+            put("Age", Value::Short(age_ticks(item.despawn_delay_ticks)));
+            if item.despawn_delay_ticks > MAX_DESPAWN_DELAY_TICKS {
+                put("DespawnDelay", Value::Int(item.despawn_delay_ticks));
             }
-            put("PickupDelay", Value::Short(item.pickup_delay));
+            put("PickupDelay", Value::Short(item.pickup_delay_ticks));
             put("Owner", Value::String(item.owner.clone()));
             put("Thrower", Value::String(item.thrower.clone()));
         }
         Kind::XpOrb(orb) => {
-            put("Age", Value::Short(age_ticks(orb.despawn_delay)));
+            put("Age", Value::Short(age_ticks(orb.despawn_delay_ticks)));
             put("Value", Value::Short(orb.value.cast_signed()));
         }
         Kind::FallingBlock(falling) => {
@@ -531,7 +531,7 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     crate::tick::rules::reads::add(|r| r.stacks += 1);
     let stack = crate::tick::inventory::read_saved_stack(stack, content, "a dropped item")
         .filter(|s| !s.is_empty())?;
-    let pickup_delay = match c.get("PickupDelay") {
+    let pickup_delay_ticks = match c.get("PickupDelay") {
         Some(Value::Short(d)) => (*d).max(NEVER),
         _ => 0,
     };
@@ -543,14 +543,14 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     };
     // Anchor's key for a delay `Age` cannot hold; a value outside that range is not Anchor's.
     let longest = ITEM_DESPAWN_TICKS_RANGE.end().cast_signed();
-    let despawn_delay = match c.get("DespawnDelay") {
+    let despawn_delay_ticks = match c.get("DespawnDelay") {
         Some(Value::Int(d)) if (MAX_DESPAWN_DELAY_TICKS + 1..=longest).contains(d) => *d,
         _ => despawn_delay_ticks(c),
     };
     Some(Item {
         stack,
-        pickup_delay,
-        despawn_delay,
+        pickup_delay_ticks,
+        despawn_delay_ticks,
         owner: text("Owner")?,
         thrower: text("Thrower")?,
     })
@@ -564,7 +564,7 @@ fn load_orb(c: &Compound) -> Orb {
     };
     Orb {
         value,
-        despawn_delay: despawn_delay_ticks(c),
+        despawn_delay_ticks: despawn_delay_ticks(c),
         look_for_target: 0,
         target: None,
     }
@@ -929,28 +929,28 @@ pub(super) mod tests {
         vec![
             Kind::Item(Item {
                 stack: stack("minecraft:stick", 13),
-                pickup_delay: 7,
-                despawn_delay: 5000,
+                pickup_delay_ticks: 7,
+                despawn_delay_ticks: 5000,
                 owner: "owner".to_owned(),
                 thrower: String::new(),
             }),
             Kind::Item(Item {
                 stack: enchanted,
-                pickup_delay: NEVER,
-                despawn_delay: i32::from(NEVER),
+                pickup_delay_ticks: NEVER,
+                despawn_delay_ticks: i32::from(NEVER),
                 owner: String::new(),
                 thrower: "thrower".to_owned(),
             }),
             Kind::Item(Item {
                 stack: stack("minecraft:oak_planks", 64),
-                pickup_delay: 0,
-                despawn_delay: MAX_DESPAWN_DELAY_TICKS,
+                pickup_delay_ticks: 0,
+                despawn_delay_ticks: MAX_DESPAWN_DELAY_TICKS,
                 owner: String::new(),
                 thrower: String::new(),
             }),
             Kind::XpOrb(Orb {
                 value: 2477,
-                despawn_delay: 1,
+                despawn_delay_ticks: 1,
                 look_for_target: 0,
                 target: None,
             }),
@@ -1121,8 +1121,8 @@ pub(super) mod tests {
             // The longest `item-despawn-ticks`, past what the saved `Age` holds.
             Kind::Item(Item {
                 stack: stack("minecraft:oak_planks", 1),
-                pickup_delay: 0,
-                despawn_delay: i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end()).unwrap(),
+                pickup_delay_ticks: 0,
+                despawn_delay_ticks: i32::try_from(*ITEM_DESPAWN_TICKS_RANGE.end()).unwrap(),
                 owner: String::new(),
                 thrower: String::new(),
             }),

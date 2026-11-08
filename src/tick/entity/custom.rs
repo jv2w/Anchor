@@ -402,7 +402,7 @@ pub(super) fn tick(state: &mut State, id: Id) {
     let due = state.rules.entities.get(id).is_some_and(|e| {
         e.kind
             .custom()
-            .is_some_and(|c| e.age % c.spec.tick_period == 0)
+            .is_some_and(|c| e.age_ticks % c.spec.tick_period == 0)
     });
     if !due {
         return;

@@ -146,15 +146,6 @@ enum Hit {
     Entity(ProjectileHitEntity),
 }
 
-/// The base damage of an arrow shot from a bow of Power `power`.
-pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
-    if power > 0 {
-        Arrow::DAMAGE + f64::midpoint(power as f64, 1.0)
-    } else {
-        Arrow::DAMAGE
-    }
-}
-
 /// Throws the projectile of `item` ([`super::throw`]) with the given hooks.
 pub(super) fn throw_with(
     state: &mut State,
@@ -220,31 +211,6 @@ pub(super) fn throw_with(
     let feet = survival::feet_at(s.eye);
     super::play(state, s.world, feet, crate::world::Sound::Throw);
     true
-}
-
-/// The player of `session` if it may shoot: spawned, alive and not a spectator.
-fn shooter(state: &State, session: SessionId, hooks: Hooks) -> Option<Shooter> {
-    let player = state.players.get(&session)?;
-    let mode = survival::game_mode(state, player);
-    if player.phase != Phase::Spawned || !(hooks.is_alive)(player) || mode == GameMode::Spectator {
-        return None;
-    }
-    let (yaw, pitch) = (hooks.look)(player);
-    Some(Shooter {
-        world: player.world,
-        eye: player.position,
-        runtime_id: player.runtime_id,
-        yaw,
-        pitch,
-        mode,
-    })
-}
-
-/// Whether the player of `session` may still shoot after a shot's listeners, in the game `mode`
-/// the shot was decided in: a listener that changed the mode cancels it, as what the shot takes
-/// from the player and what the projectile gives back depend on it.
-fn still_shoots(state: &State, session: SessionId, mode: GameMode, hooks: Hooks) -> bool {
-    shooter(state, session, hooks).is_some_and(|s| s.mode == mode)
 }
 
 /// Releases a bow ([`super::release_bow`]) with the given hooks.
@@ -339,6 +305,15 @@ pub(super) fn release_bow_with(
     true
 }
 
+/// The base damage of an arrow shot from a bow of Power `power`.
+pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
+    if power > 0 {
+        Arrow::DAMAGE + f64::midpoint(power as f64, 1.0)
+    } else {
+        Arrow::DAMAGE
+    }
+}
+
 /// Throws the trident `session` holds after drawing it for `used_ticks`: drawn long enough, one
 /// trident leaves the hand worn by one (with finite items; a throw that would break it fails) and
 /// flies from the eyes along the look. False if nothing was thrown; the caller takes the trident
@@ -407,6 +382,31 @@ pub(super) fn release_trident_with(
     let middle = survival::feet_at(s.eye) + Vec3::new(0.0, PLAYER_HEIGHT / 2.0, 0.0);
     super::play(state, s.world, middle, crate::world::Sound::TridentThrow);
     true
+}
+
+/// Whether the player of `session` may still shoot after a shot's listeners, in the game `mode`
+/// the shot was decided in: a listener that changed the mode cancels it, as what the shot takes
+/// from the player and what the projectile gives back depend on it.
+fn still_shoots(state: &State, session: SessionId, mode: GameMode, hooks: Hooks) -> bool {
+    shooter(state, session, hooks).is_some_and(|s| s.mode == mode)
+}
+
+/// The player of `session` if it may shoot: spawned, alive and not a spectator.
+fn shooter(state: &State, session: SessionId, hooks: Hooks) -> Option<Shooter> {
+    let player = state.players.get(&session)?;
+    let mode = survival::game_mode(state, player);
+    if player.phase != Phase::Spawned || !(hooks.is_alive)(player) || mode == GameMode::Spectator {
+        return None;
+    }
+    let (yaw, pitch) = (hooks.look)(player);
+    Some(Shooter {
+        world: player.world,
+        eye: player.position,
+        runtime_id: player.runtime_id,
+        yaw,
+        pitch,
+        mode,
+    })
 }
 
 /// The yaw a projectile is created with when its shooter looks along `yaw`, in the range the
@@ -495,7 +495,7 @@ pub(super) fn hit(
     let Kind::Projectile(shot_data) = &this.kind else {
         return;
     };
-    let (world, age, owner) = (this.world, this.age, shot_data.owner);
+    let (world, age_ticks, owner) = (this.world, this.age_ticks, shot_data.owner);
     // A trident hits nothing between an entity hit and a block, and never its owner.
     let (collides, trident) = match &shot_data.shot {
         Shot::Trident(t) => (t.can_collide, true),
@@ -535,7 +535,7 @@ pub(super) fn hit(
             }
         });
         super::each_player_in(state, world, area, hooks, |session, player| {
-            if owner == Some(session) && (trident || age < OWNER_GRACE_TICKS) {
+            if owner == Some(session) && (trident || age_ticks < OWNER_GRACE_TICKS) {
                 return;
             }
             let reach =
@@ -767,19 +767,6 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, pos: BlockPos) {
     }
 }
 
-/// Whether the entity `id` is a thrown trident.
-fn is_trident(state: &State, id: Id) -> bool {
-    state.rules.entities.get(id).is_some_and(|e| {
-        matches!(
-            &e.kind,
-            Kind::Projectile(Projectile {
-                shot: Shot::Trident(_),
-                ..
-            })
-        )
-    })
-}
-
 /// A projectile that hit a player or an entity at `at`, flying at `motion`, ends, except a
 /// trident: it bounces back and hits nothing more until it meets a block.
 fn ended(state: &mut State, id: Id, world: WorldIndex, at: Vec3, motion: Vec3) {
@@ -817,19 +804,6 @@ fn set_collides(e: &mut Entity, collides: bool) {
     {
         t.can_collide = collides;
     }
-}
-
-/// The extra push of a Punch arrow.
-fn punch(p: &Projectile, motion: Vec3) -> Option<Vec3> {
-    let Shot::Arrow(a) = &p.shot else {
-        return None;
-    };
-    let horizontal = (motion.x * motion.x + motion.z * motion.z).sqrt();
-    if a.punch == 0 || horizontal <= 0.0 {
-        return None;
-    }
-    let m = f64::from(a.punch) * PUNCH_PUSH / horizontal;
-    Some(Vec3::new(motion.x * m, PUNCH_LIFT, motion.z * m))
 }
 
 /// A projectile hits a player: the damage of `blow` from its source; the knockback along the
@@ -885,17 +859,17 @@ fn hit_player(
     }
 }
 
-/// Whether damage from `source` may reach a player: not when `pvp` is off and a player shot or
-/// threw the projectile.
-fn may_hurt_player(state: &State, source: DamageSource) -> bool {
-    state.settings.pvp
-        || !matches!(
-            source,
-            DamageSource::Child {
-                owner: Some(Actor::Player(_)),
-                ..
-            }
-        )
+/// The extra push of a Punch arrow.
+fn punch(p: &Projectile, motion: Vec3) -> Option<Vec3> {
+    let Shot::Arrow(a) = &p.shot else {
+        return None;
+    };
+    let horizontal = (motion.x * motion.x + motion.z * motion.z).sqrt();
+    if a.punch == 0 || horizontal <= 0.0 {
+        return None;
+    }
+    let m = f64::from(a.punch) * PUNCH_PUSH / horizontal;
+    Some(Vec3::new(motion.x * m, PUNCH_LIFT, motion.z * m))
 }
 
 /// An ender pearl lands at `at`: its thrower, if still in the world and alive, is moved there
@@ -969,33 +943,6 @@ fn hit_particles(state: &mut State, world: WorldIndex, at: Vec3, data: i32) {
     }
 }
 
-/// The splash particle in a colour and the glass sound.
-fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, colour: [u8; 4]) {
-    let [r, g, b, a] = colour;
-    let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
-    crate::tick::emit::particle(state, world, at, splash);
-    super::play(state, world, at, crate::world::Sound::PotionSplash);
-}
-
-/// A new cloud giving `effects` (at most [`Cloud::MAX_EFFECTS`] of them) with the defaults of a
-/// lingering potion's.
-pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
-    Cloud {
-        effects: effects.iter().copied().take(Cloud::MAX_EFFECTS).collect(),
-        age: 0,
-        max_age: Cloud::DEFAULT_MAX_AGE_TICKS,
-        max_age_on_use: 0,
-        reapplication_delay: Cloud::DEFAULT_REAPPLICATION_DELAY_TICKS,
-        pickup_count: 0,
-        initial_radius: Cloud::DEFAULT_RADIUS,
-        radius: Cloud::DEFAULT_RADIUS,
-        radius_on_pickup: Cloud::DEFAULT_RADIUS_ON_USE,
-        radius_on_use: Cloud::DEFAULT_RADIUS_ON_USE,
-        radius_per_tick: Cloud::DEFAULT_RADIUS_PER_TICK,
-        victims: std::collections::BTreeMap::new(),
-    }
-}
-
 /// A potion hits: a splash gives its effects to the players and NPCs within [`SPLASH_RANGE`] of
 /// their eyes, weaker with the distance (full to what it hit: durations by [`duration_share`],
 /// instant effects by the distance from the eyes); a lingering potion leaves a cloud. A water
@@ -1060,6 +1007,33 @@ fn potion_hit(
     }
 }
 
+/// The splash particle in a colour and the glass sound.
+fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, colour: [u8; 4]) {
+    let [r, g, b, a] = colour;
+    let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
+    crate::tick::emit::particle(state, world, at, splash);
+    super::play(state, world, at, crate::world::Sound::PotionSplash);
+}
+
+/// A new cloud giving `effects` (at most [`Cloud::MAX_EFFECTS`] of them) with the defaults of a
+/// lingering potion's.
+pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
+    Cloud {
+        effects: effects.iter().copied().take(Cloud::MAX_EFFECTS).collect(),
+        age: 0,
+        max_age: Cloud::DEFAULT_MAX_AGE_TICKS,
+        max_age_on_use: 0,
+        reapplication_delay: Cloud::DEFAULT_REAPPLICATION_DELAY_TICKS,
+        pickup_count: 0,
+        initial_radius: Cloud::DEFAULT_RADIUS,
+        radius: Cloud::DEFAULT_RADIUS,
+        radius_on_pickup: Cloud::DEFAULT_RADIUS_ON_USE,
+        radius_on_use: Cloud::DEFAULT_RADIUS_ON_USE,
+        radius_per_tick: Cloud::DEFAULT_RADIUS_PER_TICK,
+        victims: std::collections::BTreeMap::new(),
+    }
+}
+
 /// What deals a projectile's damage: the projectile, and its shooter while that one is online.
 fn child_source(state: &State, id: Id) -> DamageSource {
     let owner = match state.rules.entities.get(id).map(|e| &e.kind) {
@@ -1072,28 +1046,6 @@ fn child_source(state: &State, id: Id) -> DamageSource {
             .filter(|s| state.players.contains_key(s))
             .map(player_actor),
     }
-}
-
-/// Who a potion or cloud can affect in `area`: living NPCs (not `except`) in `Id` order, then
-/// players that can be hit, by session.
-fn living_in(
-    state: &State,
-    world: WorldIndex,
-    area: Aabb,
-    except: Id,
-    hooks: Hooks,
-) -> Vec<Struck> {
-    let entities = &state.rules.entities;
-    let mut out: Vec<Struck> = entities
-        .nearby(world, area)
-        .into_iter()
-        .filter(|&o| o != except && entities.get(o).is_some_and(|e| e.kind.is_living()))
-        .map(Struck::Entity)
-        .collect();
-    super::each_player_in(state, world, area, hooks, |s, _| {
-        out.push(Struck::Player(s));
-    });
-    out
 }
 
 /// The eye position of a player or entity.
@@ -1129,78 +1081,12 @@ fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
     )
 }
 
-/// The feet position of a player or NPC.
-fn feet_of(state: &State, target: Struck) -> Option<Vec3> {
-    match target {
-        Struck::Player(s) => state.players.get(&s).map(survival::feet),
-        Struck::Entity(id) => state.rules.entities.get(id).map(|e| e.body.position),
-        Struck::Block(_) => None,
-    }
-}
-
 /// Whether `target` is what the projectile hit.
 fn same(target: Struck, struck: Struck) -> bool {
     match (target, struck) {
         (Struck::Player(a), Struck::Player(b)) => a == b,
         (Struck::Entity(a), Struck::Entity(b)) => a == b,
         _ => false,
-    }
-}
-
-/// `effect` lasting `ticks`.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "invariant: ticks is a rounded duration between 0 and the effect's own u32 duration"
-)]
-fn with_duration(effect: effect::Instance, ticks: f64) -> effect::Instance {
-    effect::Instance::new(
-        effect.effect(),
-        crate::math::max(ticks, 0.0) as u32,
-        effect.amplifier(),
-        effect.is_visible(),
-        effect.is_ambient(),
-    )
-}
-
-/// Gives a lasting effect: players get it; NPCs have no lasting effects (they have no AI the
-/// effects could change).
-fn give(state: &mut State, target: Struck, effect: effect::Instance, hooks: Hooks) {
-    if let Struck::Player(s) = target {
-        (hooks.add_effect)(state, s, effect);
-    }
-}
-
-/// An instant effect at `potency`: health heals the drunk amount × potency; damage deals the
-/// drunk amount × potency magic damage from `source`, to a player only where [`may_hurt_player`].
-fn instant(
-    state: &mut State,
-    target: Struck,
-    effect: effect::Instance,
-    potency: f64,
-    source: DamageSource,
-    hooks: Hooks,
-) {
-    let amount = survival::instant_amount(effect.effect(), effect.amplifier()) * potency;
-    match effect.effect() {
-        effect::Type::InstantHealth => match target {
-            Struck::Player(s) => (hooks.heal)(state, s, amount),
-            Struck::Entity(id) => heal(state, id, amount, RegainReason::Magic),
-            Struck::Block(_) => {}
-        },
-        effect::Type::InstantDamage => match target {
-            Struck::Player(s) => {
-                if may_hurt_player(state, source) {
-                    let none = DamageSource::None;
-                    (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
-                }
-            }
-            Struck::Entity(id) => {
-                hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
-            }
-            Struck::Block(_) => {}
-        },
-        _ => {}
     }
 }
 
@@ -1298,6 +1184,19 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
         }
     }
     finish_pickup(state, session, id, event)
+}
+
+/// Whether the entity `id` is a thrown trident.
+fn is_trident(state: &State, id: Id) -> bool {
+    state.rules.entities.get(id).is_some_and(|e| {
+        matches!(
+            &e.kind,
+            Kind::Projectile(Projectile {
+                shot: Shot::Trident(_),
+                ..
+            })
+        )
+    })
 }
 
 /// A player touches a stuck trident: the player gets its item if all of it fits, and it goes; one
@@ -1553,6 +1452,107 @@ fn actor_of(target: Struck) -> Option<Actor> {
         Struck::Entity(id) => Some(Actor::Entity(id)),
         Struck::Block(_) => None,
     }
+}
+
+/// Who a potion or cloud can affect in `area`: living NPCs (not `except`) in `Id` order, then
+/// players that can be hit, by session.
+fn living_in(
+    state: &State,
+    world: WorldIndex,
+    area: Aabb,
+    except: Id,
+    hooks: Hooks,
+) -> Vec<Struck> {
+    let entities = &state.rules.entities;
+    let mut out: Vec<Struck> = entities
+        .nearby(world, area)
+        .into_iter()
+        .filter(|&o| o != except && entities.get(o).is_some_and(|e| e.kind.is_living()))
+        .map(Struck::Entity)
+        .collect();
+    super::each_player_in(state, world, area, hooks, |s, _| {
+        out.push(Struck::Player(s));
+    });
+    out
+}
+
+/// The feet position of a player or NPC.
+fn feet_of(state: &State, target: Struck) -> Option<Vec3> {
+    match target {
+        Struck::Player(s) => state.players.get(&s).map(survival::feet),
+        Struck::Entity(id) => state.rules.entities.get(id).map(|e| e.body.position),
+        Struck::Block(_) => None,
+    }
+}
+
+/// An instant effect at `potency`: health heals the drunk amount × potency; damage deals the
+/// drunk amount × potency magic damage from `source`, to a player only where [`may_hurt_player`].
+fn instant(
+    state: &mut State,
+    target: Struck,
+    effect: effect::Instance,
+    potency: f64,
+    source: DamageSource,
+    hooks: Hooks,
+) {
+    let amount = survival::instant_amount(effect.effect(), effect.amplifier()) * potency;
+    match effect.effect() {
+        effect::Type::InstantHealth => match target {
+            Struck::Player(s) => (hooks.heal)(state, s, amount),
+            Struck::Entity(id) => heal(state, id, amount, RegainReason::Magic),
+            Struck::Block(_) => {}
+        },
+        effect::Type::InstantDamage => match target {
+            Struck::Player(s) => {
+                if may_hurt_player(state, source) {
+                    let none = DamageSource::None;
+                    (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
+                }
+            }
+            Struck::Entity(id) => {
+                hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
+            }
+            Struck::Block(_) => {}
+        },
+        _ => {}
+    }
+}
+
+/// Whether damage from `source` may reach a player: not when `pvp` is off and a player shot or
+/// threw the projectile.
+fn may_hurt_player(state: &State, source: DamageSource) -> bool {
+    state.settings.pvp
+        || !matches!(
+            source,
+            DamageSource::Child {
+                owner: Some(Actor::Player(_)),
+                ..
+            }
+        )
+}
+
+/// Gives a lasting effect: players get it; NPCs have no lasting effects (they have no AI the
+/// effects could change).
+fn give(state: &mut State, target: Struck, effect: effect::Instance, hooks: Hooks) {
+    if let Struck::Player(s) = target {
+        (hooks.add_effect)(state, s, effect);
+    }
+}
+
+/// `effect` lasting `ticks`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "invariant: ticks is a rounded duration between 0 and the effect's own u32 duration"
+)]
+fn with_duration(effect: effect::Instance, ticks: f64) -> effect::Instance {
+    effect::Instance::new(
+        effect.effect(),
+        crate::math::max(ticks, 0.0) as u32,
+        effect.amplifier(),
+        effect.is_visible(),
+        effect.is_ambient(),
+    )
 }
 
 #[cfg(test)]

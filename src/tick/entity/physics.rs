@@ -181,7 +181,7 @@ impl Touch {
 /// How a block hurts what is inside it: the one rule for players and entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::tick) enum Harm {
-    /// Fire (1) or soul fire (2) fire damage, then burning.
+    /// Fire or soul fire, with its damage: fire damage, then burning.
     Fire(u8),
     /// Lava, in a block or (`cauldron`) a cauldron: lava damage, then burning; lava in a block
     /// ends the fall.
@@ -189,13 +189,13 @@ pub(in crate::tick) enum Harm {
         /// In a lava cauldron.
         cauldron: bool,
     },
-    /// A lit campfire (1) or soul campfire (2): fire damage to a living thing.
+    /// A lit campfire or soul campfire, with its damage: fire damage to a living thing.
     Campfire(u8),
-    /// Magma: 1 fire damage to a living thing that neither sneaks nor wears Frost Walker.
+    /// Magma: fire damage to a living thing that neither sneaks nor wears Frost Walker.
     Magma,
-    /// A cactus: 1 contact damage.
+    /// A cactus: contact damage.
     Cactus,
-    /// A sweet berry bush past its first stage: 1 contact damage to a living thing, whose fall
+    /// A sweet berry bush past its first stage: contact damage to a living thing, whose fall
     /// ends.
     BerryBush,
 }

@@ -188,18 +188,6 @@ fn interacting_with_a_villager_in_reach_opens_trading() {
     assert_eq!(OPENED.with(Cell::get), 1);
 }
 
-fn health(h: &Harness, id: Id) -> f64 {
-    h.state.rules.entities.get(id).unwrap().health
-}
-
-fn vulnerable(h: &mut Harness, id: Id) {
-    with(&mut h.state, id, |e| {
-        if let Kind::Npc(c) = &mut e.kind {
-            c.invulnerable = false;
-        }
-    });
-}
-
 fn e_runtime(h: &Harness, id: Id) -> u64 {
     h.state.rules.entities.get(id).unwrap().runtime_id
 }
@@ -217,14 +205,14 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
     h.entities();
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
-    assert_eq!(health(&h, guide), 20.0, "spawned NPCs are invulnerable");
-    vulnerable(&mut h, guide);
+    assert_eq!(h.health(guide), 20.0, "spawned NPCs are invulnerable");
+    h.make_vulnerable(guide);
     let sword = stack("minecraft:diamond_sword", 1);
     let points = f64::from(sword.item().unwrap().attack_points());
     hold(&mut h, sword);
     h.take(1);
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
-    assert_eq!(health(&h, guide), 20.0 - points);
+    assert_eq!(h.health(guide), 20.0 - points);
     let e = h.state.rules.entities.get(guide).unwrap();
     assert!(
         e.body.motion.x > 0.0 && e.body.motion.y > 0.0,
@@ -234,7 +222,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     assert_eq!(held.damage(), 1, "the sword wears");
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
     assert_eq!(
-        health(&h, guide),
+        h.health(guide),
         20.0 - points,
         "within the cooldown: ignored"
     );
@@ -258,7 +246,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
         }
     }
     assert!(is_dying(&h.state, guide));
-    assert_eq!(health(&h, guide), 0.0);
+    assert_eq!(h.health(guide), 0.0);
     let died = h.state.players[&s].outbox.iter().any(|p| {
         matches!(p,
         Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
@@ -284,7 +272,7 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
     let item = h.live()[0].runtime_id;
     let id = crate::tick::entity::find(&h.state, item).unwrap();
     attack_with(&mut h.state, s, id, TEST_HOOKS);
-    assert_eq!(health(&h, id), 5.0);
+    assert_eq!(h.health(id), 5.0);
 }
 
 // api: EntityDamageEvent
@@ -316,10 +304,10 @@ fn a_hit_on_an_invulnerable_npc_raises_a_cancelled_damage_event() {
         rx.try_recv(),
         Ok((Actor::Entity(guide), by, DamageCause::EntityAttack, true))
     );
-    assert_eq!(health(&h, guide), 20.0, "uncancelling hurts nothing");
+    assert_eq!(h.health(guide), 20.0, "uncancelling hurts nothing");
     landed(&mut h.state, guide, 10.0);
     assert!(rx.try_recv().is_err(), "a fall raises nothing");
-    vulnerable(&mut h, guide);
+    h.make_vulnerable(guide);
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
     assert_eq!(
         rx.try_recv().map(|(.., cancelled)| cancelled),
@@ -339,7 +327,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
     calls(|c| c.look = (270.0, 0.0));
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
     let far = human(&mut h, at(12.5, -60.0, 0.5), "Far");
-    vulnerable(&mut h, guide);
+    h.make_vulnerable(guide);
     h.entities();
     let strength = crate::effect::Instance::new(crate::effect::Type::Strength, 600, 0, true, false);
     assert!(survival::add_effect(&mut h.state, s, strength));
@@ -360,11 +348,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
         .clear();
     attack_with(&mut h.state, s, guide, TEST_HOOKS);
     let want = 20.0 - (points + points * 0.3 + 1.0);
-    assert!(
-        (health(&h, guide) - want).abs() < 1e-9,
-        "{}",
-        health(&h, guide)
-    );
+    assert!((h.health(guide) - want).abs() < 1e-9, "{}", h.health(guide));
     let (attacker, npc) = (h.runtime_id(1), e_runtime(&h, guide));
     let seen = h.state.players[&SessionId::new(2)].outbox.clone();
     let swing = seen.iter().any(|p| {
@@ -394,7 +378,7 @@ fn npc_hits_count_the_attackers_effects_and_show_the_swing() {
         .outbox
         .clear();
     attack_with(&mut h.state, s, far, TEST_HOOKS);
-    assert_eq!(health(&h, far), 20.0);
+    assert_eq!(h.health(far), 20.0);
     let seen = h.state.players[&SessionId::new(2)].outbox.clone();
     assert!(sound(&seen, SoundEvent::AttackNoDamage), "out of reach");
 }
@@ -406,13 +390,13 @@ fn a_hit_on_an_entity_in_another_world_is_not_swung_at_or_heard() {
     h.spawn(2, standing(0.0, 3.0));
     calls(|c| c.look = (270.0, 0.0));
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
-    vulnerable(&mut h, guide);
+    h.make_vulnerable(guide);
     h.entities();
     with(&mut h.state, guide, |e| e.world = 1);
     let observer = SessionId::new(2);
     h.state.players.get_mut(&observer).unwrap().outbox.clear();
     attack_with(&mut h.state, SessionId::new(1), guide, TEST_HOOKS);
-    assert_eq!(health(&h, guide), 20.0);
+    assert_eq!(h.health(guide), 20.0);
     assert!(
         h.state.players[&observer].outbox.is_empty(),
         "nothing shown"
@@ -433,7 +417,7 @@ fn a_listener_sets_an_npcs_hit_cooldown_beyond_255_ticks() {
     h.spawn(1, standing(0.0, 0.0));
     calls(|c| c.look = (270.0, 0.0));
     let guide = human(&mut h, at(2.5, -60.0, 0.5), "Guide");
-    vulnerable(&mut h, guide);
+    h.make_vulnerable(guide);
     h.entities();
     attack_with(&mut h.state, SessionId::new(1), guide, TEST_HOOKS);
     let cooldown = match &h.state.rules.entities.get(guide).unwrap().kind {
@@ -471,7 +455,7 @@ fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
         .any(|p| matches!(p, Packet::AddActor(a) if a.entity_type == "minecraft:zombie"));
     assert!(added);
     h.context().entity_mut(z).unwrap().attack(5.0);
-    assert_eq!(health(&h, z), 15.0);
+    assert_eq!(h.health(z), 15.0);
 }
 
 /// The rotten flesh, rare items and xp on the ground.
@@ -651,14 +635,14 @@ fn npcs_leave_farmland_as_it_is_and_take_fall_damage_when_they_land() {
     let farmland = named("minecraft:farmland");
     h.state.worlds[0].set_block(soil, farmland).unwrap();
     let v = villager(&mut h, at(5.5, -50.0, 5.5));
-    vulnerable(&mut h, v);
+    h.make_vulnerable(v);
     for _ in 0..40 {
         h.entities();
     }
     let y = h.state.rules.entities.get(v).unwrap().body.position.y;
     assert_eq!(y, -60.0625, "on the farmland (15/16 high)");
     assert_eq!(h.state.worlds[0].block(soil), Some(farmland));
-    let lost = 20.0 - health(&h, v);
+    let lost = 20.0 - h.health(v);
     assert!(
         (6.0..=8.0).contains(&lost),
         "about 10 blocks fallen: {lost}"
@@ -860,7 +844,7 @@ fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
     let mut h = Harness::with_player();
     let target = human(&mut h, at(3.5, -60.0, 0.5), "Target");
     let source = human(&mut h, at(-3.5, -60.0, 0.5), "Source");
-    vulnerable(&mut h, target);
+    h.make_vulnerable(target);
     h.entities();
     let runtime_id = e_runtime(&h, target);
     let mut causes = Vec::new();
@@ -878,7 +862,7 @@ fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
             TEST_HOOKS,
             crate::tick::entity::Raise::Events,
         );
-        assert!(health(&h, target) > 0.0, "hurt, alive");
+        assert!(h.health(target) > 0.0, "hurt, alive");
         h.entities();
         causes.extend(h.take(1).iter().filter_map(|p| match p {
             Packet::ActorEvent(a)
@@ -902,7 +886,7 @@ fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
 fn an_npc_hurt_by_lightning_shows_the_lightning_cause() {
     let mut h = Harness::with_player();
     let target = human(&mut h, at(3.5, -60.0, 0.5), "Target");
-    vulnerable(&mut h, target);
+    h.make_vulnerable(target);
     h.entities();
     let runtime_id = e_runtime(&h, target);
     h.take(1);
@@ -970,17 +954,17 @@ fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
         .set_block(BlockPos::new(3, -60, 0), bush)
         .unwrap();
     let pricked = human(&mut h, at(3.5, -60.0, 0.5), "Pricked");
-    vulnerable(&mut h, pricked);
+    h.make_vulnerable(pricked);
     h.entities();
-    assert_eq!(health(&h, pricked), 19.0, "1 contact damage");
+    assert_eq!(h.health(pricked), 19.0, "1 contact damage");
     // A magma block the NPC stands in: its box reaches into the block.
     h.state.worlds[0]
         .set_block(BlockPos::new(-3, -60, 0), named("minecraft:magma"))
         .unwrap();
     let burnt = human(&mut h, at(-2.5, -59.5, 0.5), "Burnt");
-    vulnerable(&mut h, burnt);
+    h.make_vulnerable(burnt);
     h.entities();
-    assert!(health(&h, burnt) < 20.0, "fire damage");
+    assert!(h.health(burnt) < 20.0, "fire damage");
 }
 
 // api: Entity::isInsideOfSolid
@@ -995,7 +979,7 @@ fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
     let mut cx = h.context();
     cx.entity_mut(z).unwrap().set_scale(2.0).unwrap();
     h.entities();
-    assert_eq!(health(&h, z), 19.0);
+    assert_eq!(h.health(z), 19.0);
 }
 
 // api: Entity::getEyeHeight

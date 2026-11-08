@@ -479,10 +479,10 @@ pub(super) struct Item {
     /// The items; never empty.
     pub(super) stack: Stack,
     /// The ticks until a player may pick it up; [`NEVER`] never.
-    pub(super) pickup_delay: i16,
+    pub(super) pickup_delay_ticks: i16,
     /// The ticks until it disappears; [`NEVER`] never.
     /// Otherwise it is 0 to the larger of [`MAX_DESPAWN_DELAY_TICKS`] and `item-despawn-ticks`.
-    pub(super) despawn_delay: i32,
+    pub(super) despawn_delay_ticks: i32,
     /// The saved `Owner` (a player name).
     pub(super) owner: String,
     /// The saved `Thrower` (a player name).
@@ -491,8 +491,8 @@ pub(super) struct Item {
 
 checkpoint::fields!(Item {
     stack,
-    pickup_delay,
-    despawn_delay,
+    pickup_delay_ticks,
+    despawn_delay_ticks,
     owner,
     thrower,
 });
@@ -503,7 +503,7 @@ pub(super) struct Orb {
     /// The xp points it gives, 1 to [`Self::MAX_VALUE`].
     pub(super) value: u16,
     /// The ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY_TICKS`].
-    pub(super) despawn_delay: i32,
+    pub(super) despawn_delay_ticks: i32,
     /// The ticks since it last looked for a player to follow, 0 to 20.
     pub(super) look_for_target: u8,
     /// The player it follows.
@@ -517,7 +517,7 @@ impl Orb {
 
 checkpoint::fields!(Orb {
     value,
-    despawn_delay,
+    despawn_delay_ticks,
     look_for_target,
     target,
 });

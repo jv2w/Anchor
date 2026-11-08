@@ -369,8 +369,15 @@ impl Mut<'_> {
             return Err(Error::OutOfRange);
         }
         match &mut self.entity_mut().kind {
-            Kind::Item(Item { despawn_delay, .. }) | Kind::XpOrb(Orb { despawn_delay, .. }) => {
-                *despawn_delay = ticks;
+            Kind::Item(Item {
+                despawn_delay_ticks,
+                ..
+            })
+            | Kind::XpOrb(Orb {
+                despawn_delay_ticks,
+                ..
+            }) => {
+                *despawn_delay_ticks = ticks;
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -643,7 +650,7 @@ impl Mut<'_> {
     pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> Result<()> {
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
-                item.pickup_delay = ticks.max(NEVER);
+                item.pickup_delay_ticks = ticks.max(NEVER);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -1112,8 +1119,8 @@ impl Entity {
     #[doc(alias = "ExperienceOrb::getDespawnDelay")]
     pub fn despawn_delay_ticks(&self) -> Option<i32> {
         match &self.kind {
-            Kind::Item(item) => Some(item.despawn_delay),
-            Kind::XpOrb(orb) => Some(orb.despawn_delay),
+            Kind::Item(item) => Some(item.despawn_delay_ticks),
+            Kind::XpOrb(orb) => Some(orb.despawn_delay_ticks),
             _ => None,
         }
     }
@@ -1399,7 +1406,7 @@ impl Entity {
     #[doc(alias = "ItemEntity::getPickupDelay")]
     pub fn pickup_delay_ticks(&self) -> Option<i16> {
         match &self.kind {
-            Kind::Item(item) => Some(item.pickup_delay),
+            Kind::Item(item) => Some(item.pickup_delay_ticks),
             _ => None,
         }
     }
@@ -2096,7 +2103,7 @@ impl Context<'_> {
         }
         let orb = Orb {
             value,
-            despawn_delay: super::DEFAULT_DESPAWN_DELAY_TICKS,
+            despawn_delay_ticks: super::DEFAULT_DESPAWN_DELAY_TICKS,
             look_for_target: 0,
             target: None,
         };

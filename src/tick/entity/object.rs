@@ -324,18 +324,19 @@ pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
     let Kind::Firework(f) = &e.kind else {
         return;
     };
-    let (world, at, age, max_flight_ticks) = (e.world, e.body.position, e.age, f.max_flight);
-    if age == 1 {
+    let (world, at, age_ticks, max_flight_ticks) =
+        (e.world, e.body.position, e.age_ticks, f.max_flight);
+    if age_ticks == 1 {
         super::play(state, world, at, Sound::FireworkLaunch);
     }
-    if age < FIREWORK_BOOST_TICKS {
+    if age_ticks < FIREWORK_BOOST_TICKS {
         with(state, id, |e| {
             let m = e.body.motion;
             let push = Vec3::new(m.x * FIREWORK_SPREAD, FIREWORK_CLIMB, m.z * FIREWORK_SPREAD);
             e.body.motion = physics::bounded(m + push);
         });
     }
-    if age >= max_flight_ticks {
+    if age_ticks >= max_flight_ticks {
         state.rules.entities.doom(id);
         burst(state, id, hooks);
     }
