@@ -4,7 +4,7 @@
 //! It is no global subscriber. [`Server::run`](crate::Server::run) makes it the default of its
 //! calling thread while it runs, and every thread Anchor starts under it takes it on
 //! ([`inherited`], [`logged`], [`attach`]); threads of the program keep their own default. A line
-//! reads `2026-10-05 14:03:12.345Z INFO  player joined (session=3 name=Steve)`: the wall-clock
+//! reads `2026-10-05 14:03:12.345Z INFO  player joined (session=3 player=Steve)`: the wall-clock
 //! time in UTC, the level, the message and the event's fields. Control characters are escaped and
 //! Minecraft format codes (`§` and the character after it) are left out, so a name or a chat line
 //! cannot forge lines or steer the terminal. The text past 4 KiB is cut, with a marker. A field
@@ -38,7 +38,13 @@ use crate::clock;
 use crate::config::LogLevel;
 use crate::error::write_chain;
 
-/// Ends the text of a line that was cut.
+thread_local! {
+    /// The console log of a pool thread: set by the pool's thread-start hook, dropped with the
+    /// thread's locals when it ends.
+    static ATTACHED: Cell<Option<DefaultGuard>> = const { Cell::new(None) };
+}
+
+/// The end of the text of a line that was cut.
 const CUT: &str = "…(cut)";
 
 /// How long the end of the log waits for the log thread to write the lines still queued. A
@@ -47,16 +53,10 @@ const END_WAIT: Duration = Duration::from_secs(5);
 
 /// The bytes of a line's message and fields, the [`CUT`] marker included: the text past them is
 /// left out. The time, the level, the brackets and the line end add 35 bytes.
-const LINE_BYTES: usize = 4096;
+pub(super) const LINE_BYTES: usize = 4096;
 
 /// The lines that may wait for the log thread: with [`LINE_BYTES`], about 16 MiB at most.
 const QUEUE_LINES: usize = 4096;
-
-thread_local! {
-    /// The console log of a pool thread: set by the pool's thread-start hook, dropped with the
-    /// thread's locals when it ends.
-    static ATTACHED: Cell<Option<DefaultGuard>> = const { Cell::new(None) };
-}
 
 /// Anchor's console log: its subscriber and the thread that writes its lines. Dropping it lets
 /// the thread write the lines already queued, then joins it, or leaves it after [`END_WAIT`].
@@ -109,7 +109,7 @@ pub(crate) struct Installed {
 }
 
 impl Installed {
-    /// Waits for the log's queue to be written ([`Drained::wait`]).
+    /// A handle that waits for the log's queue to be written ([`Drained::wait`]).
     pub(crate) fn drained(&self) -> Drained {
         self.log.drained.clone()
     }
@@ -373,10 +373,11 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
             Ok(()) | Err(_) => {}
         }
     })?;
+    let drained = Drained(lines.downgrade());
     Ok(Some(Log {
         dispatch: Dispatch::new(logger),
-        drained: Drained(lines.downgrade()),
         lines: Some(lines),
+        drained,
         thread: Some(thread),
         ended,
     }))
@@ -494,7 +495,7 @@ fn compose(millis: i64, level: Level, message: &str, fields: &str) -> String {
 fn timestamp(millis: i64) -> String {
     let (secs, ms) = (millis.div_euclid(1000), millis.rem_euclid(1000));
     let (days, secs) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Days to a civil date (Howard Hinnant's `civil_from_days`).
+    // Days to a civil date: the proleptic Gregorian calendar in 400-year eras from 0000-03-01.
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -514,7 +515,10 @@ pub(crate) mod tests {
 
     use tracing::{debug, error, info, warn};
 
-    /// The last line `event` formats under a subscriber that records instead of writing.
+    /// How long a test waits for work that must not block.
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// A subscriber that records the lines it formats instead of writing them.
     #[derive(Debug, Default)]
     struct Capture {
         #[expect(
@@ -552,16 +556,16 @@ pub(crate) mod tests {
 
     #[test]
     fn a_line_has_the_utc_time_the_level_the_message_and_the_fields() {
-        let name = "Steve";
+        let player = "Steve";
         let lines = captured(|| {
-            info!(session = 3, %name, ok = true, "player joined");
+            info!(session = 3, %player, ok = true, "player joined");
             warn!("no fields");
             error!(error = ?"bad", "quoted debug value");
         });
         assert_eq!(
             lines,
             [
-                "2025-10-05 14:03:20.123Z INFO  player joined (session=3 name=Steve ok=true)\n",
+                "2025-10-05 14:03:20.123Z INFO  player joined (session=3 player=Steve ok=true)\n",
                 "2025-10-05 14:03:20.123Z WARN  no fields\n",
                 "2025-10-05 14:03:20.123Z ERROR quoted debug value (error=\"bad\")\n",
             ]
@@ -663,9 +667,6 @@ pub(crate) mod tests {
         });
         assert!(start_writing(LogLevel::Off, io::sink()).unwrap().is_none());
     }
-
-    /// How long a test waits for work that must not block.
-    const LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 
     /// Whether `work`, on a thread of its own, ends within [`LIMIT`].
     #[expect(

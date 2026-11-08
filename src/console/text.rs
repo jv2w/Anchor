@@ -4,6 +4,7 @@
 //! log reads the sentence. Every path to the console uses [`render`]: command results and
 //! errors, the copies of command results, and messages sent to the console.
 
+use super::log::LINE_BYTES;
 use crate::player::Message;
 
 /// Anchor's sentences by translation key, in key order; `{%0}`, `{%1}`... are the parameters.
@@ -193,7 +194,11 @@ pub(crate) fn render<S: AsRef<str>>(text: &str, params: &[S]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut found = false;
     let mut rest = text;
-    while let Some(at) = rest.find('%') {
+    // Each key copies every parameter, so a short text could grow without bound; the log keeps
+    // only a line's first `LINE_BYTES` anyway, so the keys past them stay as they are.
+    while out.len() < LINE_BYTES
+        && let Some(at) = rest.find('%')
+    {
         let (before, after) = rest.split_at(at);
         out.push_str(before);
         let tail = after.get(1..).unwrap_or_default();
@@ -361,6 +366,20 @@ mod tests {
                 parameters: vec!["Steve".to_owned()],
             }),
             "Steve is an operator now"
+        );
+    }
+
+    /// A text that repeats a key with a sentence renders about a log line, not a copy of the
+    /// parameters per key.
+    #[test]
+    fn a_text_repeating_a_key_renders_about_a_log_line() {
+        let text = "%chat.type.text".repeat(1000);
+        let param = "x".repeat(10_000);
+        let rendered = render(&text, &[&param, &param]);
+        assert!(
+            rendered.len() <= LINE_BYTES + 2 * param.len() + text.len(),
+            "{} bytes",
+            rendered.len()
         );
     }
 
