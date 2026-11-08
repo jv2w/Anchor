@@ -18,6 +18,7 @@ paths:
   - "src/protocol/compression/**"
   - "src/tick/queue.rs"
   - "src/tick/spawn.rs"
+  - "src/tick/spawn/**"
 ---
 # Network rules
 
