@@ -7,7 +7,8 @@
 //! ([`data`]) rides the save snapshots. Every one of them runs only in the tick's serial step, so
 //! a replay of the input log runs them at the same points with the same state.
 //!
-//! The villager method (`spawn_villager`) takes the NPC from the rule module that owns it.
+//! The villager method (`spawn_villager`) makes the offers with the trade module and hands the NPC
+//! to the entity module, which spawns it.
 
 #[cfg(test)]
 pub(in crate::tick) mod crash;
@@ -65,19 +66,16 @@ impl Context<'_> {
     #[doc(alias = "Server::TARGET_TICKS_PER_SECOND")]
     pub const TICKS_PER_SECOND: u32 = 20;
 
-    /// The engine time: ticks since the world was created
-    /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
-    #[doc(alias = "Server::getTick")]
-    pub fn tick(&self) -> u64 {
-        self.state.tick
+    /// The mean of [`mspt`](Self::mspt) over the last second's measured ticks.
+    #[doc(alias = "Server::getTickUsageAverage")]
+    pub fn average_mspt(&self) -> Duration {
+        self.state.network.average_mspt()
     }
 
-    /// The server name the server list shows: `motd`, or what
-    /// [`set_motd`](Self::set_motd) set since.
-    #[doc(alias = "Server::getMotd")]
-    #[doc(alias = "Network::getName")]
-    pub fn motd(&self) -> &str {
-        &self.state.settings.motd
+    /// The mean of [`tps`](Self::tps) over the last second's measured ticks.
+    #[doc(alias = "Server::getTicksPerSecondAverage")]
+    pub fn average_tps(&self) -> f64 {
+        self.state.network.average_tps()
     }
 
     /// The connections the networking holds, logged in or not, as it last reported (every
@@ -87,57 +85,23 @@ impl Context<'_> {
         usize::try_from(self.state.network.connections().0).unwrap_or(usize::MAX)
     }
 
-    /// The connections whose login was verified, as the networking last reported.
-    #[doc(alias = "Network::getValidConnectionCount")]
-    pub fn valid_connection_count(&self) -> usize {
-        usize::try_from(self.state.network.connections().1).unwrap_or(usize::MAX)
+    /// The game mode new players get (`gamemode`).
+    #[doc(alias = "Server::getGamemode")]
+    pub fn default_game_mode(&self) -> GameMode {
+        self.state.settings.game_mode
     }
 
-    /// The ticks a second the latest measured tick allows:
-    /// [`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) unless it took longer than one tick at that
-    /// rate. Every tick's time is measured off the game logic and read as a logged
-    /// input by the next tick, so a replay reads the same.
-    #[doc(alias = "Server::getTicksPerSecond")]
-    pub fn tps(&self) -> f64 {
-        self.state.network.tps()
-    }
-
-    /// The mean of [`tps`](Self::tps) over the last 20 measured ticks.
-    #[doc(alias = "Server::getTicksPerSecondAverage")]
-    pub fn average_tps(&self) -> f64 {
-        self.state.network.average_tps()
-    }
-
-    /// How long the latest measured tick took.
-    #[doc(alias = "Server::getTickUsage")]
-    #[doc(alias = "World::getTickRateTime")]
-    pub fn mspt(&self) -> Duration {
-        self.state.network.mspt()
-    }
-
-    /// The mean of [`mspt`](Self::mspt) over the last 20 measured ticks.
-    #[doc(alias = "Server::getTickUsageAverage")]
-    pub fn average_mspt(&self) -> Duration {
-        self.state.network.average_mspt()
-    }
-
-    /// The most players at once (`max-players`), those whose saved data is still loading
-    /// included.
-    #[doc(alias = "Server::getMaxPlayers")]
-    pub fn max_players(&self) -> u32 {
-        self.state.settings.max_players
+    /// The default world, where players join: the one the settings name (`level-name`) unless
+    /// [`set_default_world`](Self::set_default_world) named another.
+    #[doc(alias = "WorldManager::getDefaultWorld")]
+    pub fn default_world(&self) -> &World {
+        super::world_api::world_at(self.state, self.state.catalog.default_world())
     }
 
     /// The difficulty (`difficulty`).
     #[doc(alias = "Server::getDifficulty")]
     pub fn difficulty(&self) -> Difficulty {
         self.state.settings.difficulty
-    }
-
-    /// The game mode new players get (`gamemode`).
-    #[doc(alias = "Server::getGamemode")]
-    pub fn default_game_mode(&self) -> GameMode {
-        self.state.settings.game_mode
     }
 
     /// Whether every join gets the server's game mode instead of the saved one
@@ -153,38 +117,32 @@ impl Context<'_> {
         self.state.settings.hardcore
     }
 
-    /// The largest chunk radius a player gets (`view-distance`), in a world without its own
-    /// (`[worlds.<name>]`).
-    #[doc(alias = "Server::getViewDistance")]
-    pub fn view_distance(&self) -> u8 {
-        self.state.settings.view.view_distance
-    }
-
     /// Whether player data is loaded and saved (`save-player-data`).
     #[doc(alias = "Server::shouldSavePlayerData")]
     pub fn is_player_data_saved(&self) -> bool {
         self.state.settings.save_player_data
     }
 
-    /// The players in the game, in [`Id`](PlayerId) order. A player is in the game from the
-    /// moment its saved data has loaded until it leaves; a player kicked or transferred leaves
-    /// at the end of the tick, and until then is here with
-    /// [`Player::is_online`](crate::player::Player::is_online) false. To change them all, collect
-    /// their [`Id`](PlayerId)s and lend each through [`player_mut`](Self::player_mut).
-    #[doc(alias = "Server::getOnlinePlayers")]
-    pub fn players(&self) -> impl Iterator<Item = &Player> + '_ {
-        self.state.players.values().filter(|p| in_game(p))
+    /// The most players at once (`max-players`), those whose saved data is still loading
+    /// included.
+    #[doc(alias = "Server::getMaxPlayers")]
+    pub fn max_players(&self) -> u32 {
+        self.state.settings.max_players
     }
 
-    /// The number of players in the game ([`players`](Self::players)).
-    pub fn player_count(&self) -> usize {
-        self.players().count()
+    /// The server name the server list shows: `motd`, or what
+    /// [`set_motd`](Self::set_motd) set since.
+    #[doc(alias = "Server::getMotd")]
+    #[doc(alias = "Network::getName")]
+    pub fn motd(&self) -> &str {
+        &self.state.settings.motd
     }
 
-    /// The player `id` while it is in the game ([`players`](Self::players)); `None` once it has
-    /// left.
-    pub fn player(&self, id: PlayerId) -> Option<&Player> {
-        self.state.players.get(&id.session()).filter(|p| in_game(p))
+    /// How long the latest measured tick took.
+    #[doc(alias = "Server::getTickUsage")]
+    #[doc(alias = "World::getTickRateTime")]
+    pub fn mspt(&self) -> Duration {
+        self.state.network.mspt()
     }
 
     /// The player in the game whose name is `name`, ignoring ASCII case, the first in
@@ -233,11 +191,54 @@ impl Context<'_> {
             .map(Player::id)
     }
 
-    /// The default world, where players join: the one the settings name (`level-name`) unless
-    /// [`set_default_world`](Self::set_default_world) named another.
-    #[doc(alias = "WorldManager::getDefaultWorld")]
-    pub fn default_world(&self) -> &World {
-        super::world_api::world_at(self.state, self.state.catalog.default_world())
+    /// The player `id` while it is in the game ([`players`](Self::players)); `None` once it has
+    /// left.
+    pub fn player(&self, id: PlayerId) -> Option<&Player> {
+        self.state.players.get(&id.session()).filter(|p| in_game(p))
+    }
+
+    /// The number of players in the game ([`players`](Self::players)).
+    pub fn player_count(&self) -> usize {
+        self.players().count()
+    }
+
+    /// The players in the game, in [`Id`](PlayerId) order. A player is in the game from the
+    /// moment its saved data has loaded until it leaves; a player kicked or transferred leaves
+    /// at the end of the tick, and until then is here with
+    /// [`Player::is_online`](crate::player::Player::is_online) false. To change them all, collect
+    /// their [`Id`](PlayerId)s and lend each through [`player_mut`](Self::player_mut).
+    #[doc(alias = "Server::getOnlinePlayers")]
+    pub fn players(&self) -> impl Iterator<Item = &Player> + '_ {
+        self.state.players.values().filter(|p| in_game(p))
+    }
+
+    /// The engine time: ticks since the world was created
+    /// ([`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) a second).
+    #[doc(alias = "Server::getTick")]
+    pub fn tick(&self) -> u64 {
+        self.state.tick
+    }
+
+    /// The ticks a second the latest measured tick allows:
+    /// [`TICKS_PER_SECOND`](Self::TICKS_PER_SECOND) unless it took longer than one tick at that
+    /// rate. Every tick's time is measured off the game logic and read as a logged
+    /// input by the next tick, so a replay reads the same.
+    #[doc(alias = "Server::getTicksPerSecond")]
+    pub fn tps(&self) -> f64 {
+        self.state.network.tps()
+    }
+
+    /// The connections whose login was verified, as the networking last reported.
+    #[doc(alias = "Network::getValidConnectionCount")]
+    pub fn valid_connection_count(&self) -> usize {
+        usize::try_from(self.state.network.connections().1).unwrap_or(usize::MAX)
+    }
+
+    /// The largest chunk radius a player gets (`view-distance`), in a world without its own
+    /// (`[worlds.<name>]`).
+    #[doc(alias = "Server::getViewDistance")]
+    pub fn view_distance(&self) -> u8 {
+        self.state.settings.view.view_distance
     }
 
     /// The loaded world named `name`, if any.
@@ -245,111 +246,6 @@ impl Context<'_> {
     pub fn world_named(&self, name: &str) -> Option<&World> {
         let index = self.state.catalog.named(name)?;
         self.world(crate::world::Id::of(index))
-    }
-
-    /// Changes the server name the server list shows (the RakNet pong and NetherNet's
-    /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::InvalidMotd`](crate::task::Error::InvalidMotd) for a name the `motd` setting
-    /// refuses (empty, over 256 bytes, or with `;` or control characters).
-    ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
-    /// tick.
-    ///
-    /// Nothing is changed on an error.
-    #[doc(alias = "Network::setName")]
-    #[doc(alias = "Network::updateName")]
-    pub fn set_motd(&mut self, motd: impl Into<String>) -> crate::task::Result<()> {
-        let motd = motd.into();
-        if !crate::config::is_motd(&motd) {
-            return Err(crate::task::Error::InvalidMotd);
-        }
-        self.network_control(Control::Motd(motd.clone()))?;
-        self.state.settings.motd = motd;
-        Ok(())
-    }
-
-    /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
-    /// the end of this tick; [`Duration::MAX`] lasts until
-    /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
-    /// replaces its end. Players already connected from it
-    /// stay ([`Player::kick`](crate::player::Player::kick) them). At most 4,096 addresses are
-    /// blocked at once, and the networking refuses a block past that with a warning.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
-    /// tick; nothing is changed.
-    #[doc(alias = "Network::blockAddress")]
-    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> crate::task::Result<()> {
-        self.network_control(Control::Block { ip, duration })
-    }
-
-    /// Accepts connections from `ip` again, at the end of this tick.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256 network changes in one
-    /// tick; nothing is changed.
-    #[doc(alias = "Network::unblockAddress")]
-    pub fn unblock_address(&mut self, ip: IpAddr) -> crate::task::Result<()> {
-        self.network_control(Control::Unblock(ip))
-    }
-
-    /// Changes the most players at once until the server stops; the server list shows it once
-    /// this tick ends. Players already in stay; joins beyond it are refused. The networking
-    /// holds at most twice the value the server started with of joined and joining players (each
-    /// takes a share of the tick's input queue, sized at start), so a value above it lets no more
-    /// players in.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256
-    /// network changes in one tick; nothing is changed.
-    pub fn set_max_players(&mut self, max: u32) -> crate::task::Result<()> {
-        self.network_control(Control::MaxPlayers(max))?;
-        self.state.settings.max_players = max;
-        Ok(())
-    }
-
-    /// Lends the player `id` to change while it is in the game ([`players`](Self::players));
-    /// `None` once it has left.
-    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut Player> {
-        self.state
-            .players
-            .get_mut(&id.session())
-            .filter(|p| in_game(p))
-    }
-
-    /// Shows `message` to every player in the game that is not leaving;
-    /// returns how many got it.
-    ///
-    /// # Errors
-    ///
-    /// Nothing is sent for a message a client does not decode:
-    /// [`Error::TooLong`](crate::player::Error::TooLong) for a text or source over its bound.
-    /// [`Error::TooManyParameters`](crate::player::Error::TooManyParameters) for a translation
-    /// with too many parameters.
-    #[doc(alias = "Server::broadcastMessage")]
-    #[doc(alias = "Server::broadcastTip")]
-    #[doc(alias = "Server::broadcastPopup")]
-    #[doc(alias = "Server::broadcastTitle")]
-    pub fn broadcast(&mut self, message: Message) -> PlayerResult<usize> {
-        player::broadcast(self.state, message)
-    }
-
-    /// Lends the default world to change.
-    pub fn default_world_mut(&mut self) -> &mut World {
-        let index = self.state.catalog.default_world();
-        super::world_api::world_at_mut(self.state, index)
-    }
-
-    /// Lends the loaded world named `name` to change, if any.
-    pub fn world_named_mut(&mut self, name: &str) -> Option<&mut World> {
-        let index = self.state.catalog.named(name)?;
-        self.world_mut(crate::world::Id::of(index))
     }
 
     /// Asks for a save: the next snapshot commits every persistent world and, with
@@ -381,6 +277,93 @@ impl Context<'_> {
         true
     }
 
+    /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
+    /// the end of this tick; [`Duration::MAX`] lasts until
+    /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
+    /// replaces its end. Players already connected from it
+    /// stay ([`Player::kick`](crate::player::Player::kick) them). At most 4,096 addresses are
+    /// blocked at once, and the networking refuses a block past that with a warning.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
+    /// in one tick; nothing is changed.
+    #[doc(alias = "Network::blockAddress")]
+    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> crate::task::Result<()> {
+        self.network_control(Control::Block { ip, duration })
+    }
+
+    /// Shows `message` to every player in the game that is not leaving;
+    /// returns how many got it.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`](crate::player::Error::TooLong) for a text or source over its bound;
+    /// nothing is sent.
+    /// [`Error::TooManyParameters`](crate::player::Error::TooManyParameters) for a translation
+    /// with too many parameters; nothing is sent.
+    #[doc(alias = "Server::broadcastMessage")]
+    #[doc(alias = "Server::broadcastTip")]
+    #[doc(alias = "Server::broadcastPopup")]
+    #[doc(alias = "Server::broadcastTitle")]
+    pub fn broadcast(&mut self, message: Message) -> PlayerResult<usize> {
+        player::broadcast(self.state, message)
+    }
+
+    /// Lends the default world to change.
+    pub fn default_world_mut(&mut self) -> &mut World {
+        let index = self.state.catalog.default_world();
+        super::world_api::world_at_mut(self.state, index)
+    }
+
+    /// Lends the player `id` to change while it is in the game ([`players`](Self::players));
+    /// `None` once it has left.
+    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut Player> {
+        self.state
+            .players
+            .get_mut(&id.session())
+            .filter(|p| in_game(p))
+    }
+
+    /// Changes the most players at once until the server stops; the server list shows it once
+    /// this tick ends. Players already in stay; joins beyond it are refused. The networking
+    /// holds at most twice the value the server started with of joined and joining players (each
+    /// takes a share of the tick's input queue, sized at start), so a value above it lets no more
+    /// players in.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
+    /// in one tick; nothing is changed.
+    pub fn set_max_players(&mut self, max: u32) -> crate::task::Result<()> {
+        self.network_control(Control::MaxPlayers(max))?;
+        self.state.settings.max_players = max;
+        Ok(())
+    }
+
+    /// Changes the server name the server list shows (the RakNet pong and NetherNet's
+    /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidMotd`](crate::task::Error::InvalidMotd) for a name the `motd` setting
+    /// refuses (empty, over 256 bytes, or with `;` or control characters).
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
+    /// in one tick.
+    ///
+    /// Nothing is changed on an error.
+    #[doc(alias = "Network::setName")]
+    #[doc(alias = "Network::updateName")]
+    pub fn set_motd(&mut self, motd: impl Into<String>) -> crate::task::Result<()> {
+        let motd = motd.into();
+        if !crate::config::is_motd(&motd) {
+            return Err(crate::task::Error::InvalidMotd);
+        }
+        self.network_control(Control::Motd(motd.clone()))?;
+        self.state.settings.motd = motd;
+        Ok(())
+    }
+
     /// Spawns a villager-type NPC (no AI, network actor `minecraft:villager_v2`) at `pos` (its
     /// feet) in `world`, showing `profession` (the actor variant) and trading `offers` in screen
     /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity).
@@ -403,6 +386,23 @@ impl Context<'_> {
             super::world_api::index(self.state, world).ok_or(crate::custom::Error::NotSpawned)?;
         let npc = entity::Npc::Villager { profession, offers };
         entity::spawn_npc(self.state, w, pos, npc).ok_or(crate::custom::Error::NotSpawned)
+    }
+
+    /// Accepts connections from `ip` again, at the end of this tick.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
+    /// in one tick; nothing is changed.
+    #[doc(alias = "Network::unblockAddress")]
+    pub fn unblock_address(&mut self, ip: IpAddr) -> crate::task::Result<()> {
+        self.network_control(Control::Unblock(ip))
+    }
+
+    /// Lends the loaded world named `name` to change, if any.
+    pub fn world_named_mut(&mut self, name: &str) -> Option<&mut World> {
+        let index = self.state.catalog.named(name)?;
+        self.world_mut(crate::world::Id::of(index))
     }
 
     /// Queues `control` for the networking, which applies it once this tick ends.
@@ -455,12 +455,6 @@ impl Tasks {
         offline.checkpoint(w);
     }
 
-    /// The ids of the blocking jobs waiting for their result, in order.
-    #[cfg(test)]
-    pub(super) fn waiting_jobs(&self) -> Vec<u64> {
-        self.jobs.waiting()
-    }
-
     #[cfg(test)]
     pub(super) fn hash_into(&self, data: &UserData, h: &mut super::Fnv) {
         let Self {
@@ -478,22 +472,6 @@ impl Tasks {
         offline.hash_into(data, h);
     }
 
-    /// Adds `task`, run on every tick that is a multiple of `period`.
-    pub(crate) fn push(
-        &mut self,
-        period: NonZeroU32,
-        task: impl FnMut(&mut Context<'_>) + Send + 'static,
-    ) {
-        self.every.push((period, Box::new(task)));
-    }
-
-    /// Runs blocking jobs from now on: on `handle`'s blocking pool, their results into the tick's
-    /// input queue. Until then (and in a replay, which never starts it) jobs run no work and
-    /// wait for results from the input log.
-    pub(crate) fn start(&mut self, handle: tokio::runtime::Handle, inputs: &InputSender) {
-        self.jobs.start(handle, inputs);
-    }
-
     /// Runs the tasks due at the state's tick: the build-time tasks on the multiples of their
     /// period, in registration order, then the scheduled tasks due. The build-time tasks are
     /// taken out of the state while they run, so a task's [`Context`] can lend the whole state.
@@ -509,11 +487,33 @@ impl Tasks {
         schedule::run(state);
     }
 
+    /// The ids of the blocking jobs waiting for their result, in order.
+    #[cfg(test)]
+    pub(super) fn waiting_jobs(&self) -> Vec<u64> {
+        self.jobs.waiting()
+    }
+
+    /// Adds `task`, run on every tick that is a multiple of `period`.
+    pub(crate) fn push(
+        &mut self,
+        period: NonZeroU32,
+        task: impl FnMut(&mut Context<'_>) + Send + 'static,
+    ) {
+        self.every.push((period, Box::new(task)));
+    }
+
     /// Reads what [`Self::checkpoint`] wrote into the tasks registered at build.
     pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
         self.queue.restore(r)?;
         self.jobs.restore(r)?;
         self.offline.restore(r)
+    }
+
+    /// Runs blocking jobs from now on: on `handle`'s blocking pool, their results into the tick's
+    /// input queue. Until then (and in a replay, which never starts it) jobs run no work and
+    /// wait for results from the input log.
+    pub(crate) fn start(&mut self, handle: tokio::runtime::Handle, inputs: &InputSender) {
+        self.jobs.start(handle, inputs);
     }
 }
 
@@ -544,10 +544,13 @@ mod tests {
 
     use tokio::sync::mpsc;
 
+    use crate::config::MAX_MOTD_BYTES;
     use crate::event::Listeners;
     use crate::item::{Stack, Type};
     use crate::nbt::Compound;
-    use crate::tick::queue::{Client, Identity, InputKind, Outbound, Skin, outbound_queue};
+    use crate::tick::queue::{
+        Client, Identity, InputKind, MAX_CONTROLS_PER_TICK, Outbound, Skin, outbound_queue,
+    };
     use crate::tick::tests::{
         initialised, input, join, new_state, radius, received, settings, tick,
     };
@@ -829,5 +832,20 @@ mod tests {
             .spawn_villager(WorldId::DEFAULT, at, FARMER, std::slice::from_ref(&offer))
             .unwrap();
         assert_eq!(cx.trade_offers(id), Some(vec![offer]));
+    }
+
+    /// The rustdoc and the error text of this module name the limits the code enforces.
+    #[test]
+    fn the_api_docs_name_the_limits_they_enforce() {
+        let context_source = include_str!("task.rs");
+        let error_source = include_str!("../task.rs");
+        for text in [
+            format!("over {MAX_MOTD_BYTES} bytes, or with"),
+            format!("for more than {MAX_CONTROLS_PER_TICK} network changes"),
+        ] {
+            assert!(context_source.contains(&text), "{text}");
+        }
+        let text = format!("over {MAX_MOTD_BYTES} bytes, or has");
+        assert!(error_source.contains(&text), "{text}");
     }
 }

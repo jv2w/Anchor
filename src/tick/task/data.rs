@@ -35,7 +35,7 @@ use crate::tick::checkpoint::{self, Reader, Writer};
 use crate::tick::extra;
 
 /// The key of the player's extra compound that holds its data values.
-pub(in crate::tick) const DATA_KEY: &str = "anchor:data";
+pub(super) const DATA_KEY: &str = "anchor:data";
 
 /// The registered data types and the server's values, fixed at build.
 #[derive(Default)]
@@ -879,6 +879,30 @@ pub(super) mod tests {
             builder.setup.data.finish(),
             Err(Error::InvalidName { .. })
         ));
+    }
+
+    /// The server data types register up to [`MAX_SERVER_TYPES`]; one more is the error the build
+    /// reports, and is not registered.
+    #[test]
+    fn server_data_types_are_kept_up_to_their_limit_and_one_more_is_a_build_error() {
+        let mut data = UserData::default();
+        macro_rules! many {
+            ($($n:literal)*) => {$(
+                {
+                    #[derive(Default, Serialize, Deserialize)]
+                    struct T;
+                    data.register_server::<T>(format!("t{}", $n));
+                }
+            )*};
+        }
+        many!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29
+            30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57
+            58 59 60 61 62 63);
+        assert_eq!(data.finish(), Ok(()));
+        assert_eq!(data.servers.len(), MAX_SERVER_TYPES);
+        data.register_server::<Kills>("one-more".to_owned());
+        assert_eq!(data.finish(), Err(Error::TooManyTypes));
+        assert_eq!(data.servers.len(), MAX_SERVER_TYPES);
     }
 
     /// Commits `snapshot` through the save thread on `dir`.

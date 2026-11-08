@@ -110,7 +110,7 @@ impl fmt::Debug for Offline {
 
 /// The offline players' records held and the loads waiting for the save thread.
 #[derive(Default)]
-pub(crate) struct Holds {
+pub(super) struct Holds {
     /// Every ticket given and not let go, held or waiting: its record's storage key. At most
     /// [`MAX_TICKETS`].
     tickets: BTreeMap<u64, StoredPlayer>,

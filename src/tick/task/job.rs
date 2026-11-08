@@ -33,7 +33,7 @@ type Done = Box<dyn FnOnce(&mut Context<'_>, std::result::Result<&[u8], JobError
 
 /// The blocking jobs waiting for their result.
 #[derive(Default)]
-pub(crate) struct Jobs {
+pub(super) struct Jobs {
     /// The callbacks of the jobs whose result has not arrived, by job id.
     pending: BTreeMap<u64, Done>,
     /// The id of the next job; ids are never reused.
@@ -49,6 +49,7 @@ impl Jobs {
         let Self {
             pending,
             next_id,
+            // Where jobs run, not game state.
             runner: _,
         } = self;
         w.opaque("blocking jobs waiting for their result", pending.len());
@@ -60,6 +61,7 @@ impl Jobs {
         let Self {
             pending,
             next_id,
+            // Where jobs run, not game state.
             runner: _,
         } = self;
         h.u64(*next_id);
@@ -113,7 +115,7 @@ struct Runner {
     handle: tokio::runtime::Handle,
     inputs: InputSender,
     /// One permit per job allowed to run at once, so jobs cannot take every blocking thread
-    /// from the engine's own blocking work (the authorization fetch, pack and key loading).
+    /// from the engine's own blocking work (the authorization fetch and key loading).
     slots: Arc<Semaphore>,
 }
 

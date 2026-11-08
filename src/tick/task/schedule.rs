@@ -12,7 +12,7 @@ use crate::tick::checkpoint::{self, Codec, Reader, Writer};
 /// The scheduled tasks. `order` and `tasks` hold the same tasks; the running task is in neither
 /// while it runs.
 #[derive(Default)]
-pub(crate) struct Queue {
+pub(super) struct Queue {
     /// (due tick, id) of every scheduled task: the run order.
     order: BTreeSet<(u64, u64)>,
     /// Every scheduled task by id.

@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::num::NonZeroU32;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -40,12 +41,22 @@ pub(in crate::tick) const CHILD_TICKS: u64 = 1200;
 const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
 /// Kills, each followed by a restart that checks the file.
 const KILLS: u32 = 20;
-/// The child's environment variable: `run` keeps writing, `check` only reports.
+/// The height of the marker block, in the spawn chunks' dirt layer.
+const MARKER_HEIGHT: i32 = -62;
+/// The x and z coordinates the marker block can have.
+const MARKER_RANGE: Range<i32> = -16..32;
+/// The child's mode that only reports what it started with.
+const MODE_CHECK: &str = "check";
+/// The child's environment variable naming its mode: [`MODE_RUN`] or [`MODE_CHECK`].
 const MODE_ENV: &str = "ANCHOR_USER_CRASH_MODE";
+/// The child's mode that keeps writing.
+const MODE_RUN: &str = "run";
 /// The name of the player the child joins as.
 const NAME: &str = "keeper";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-USER";
+/// How long the parent waits for a line of the child's report.
+const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The session of the child's player.
 pub(in crate::tick) const SESSION: SessionId = SessionId::new(1);
 
@@ -138,16 +149,20 @@ impl Writer {
             return false;
         }
         let mut golds = Vec::new();
-        for x in -16..32 {
-            for z in -16..32 {
-                if world.block(BlockPos::new(x, -62, z)) == Some(gold()) {
+        for x in MARKER_RANGE {
+            for z in MARKER_RANGE {
+                if world.block(BlockPos::new(x, MARKER_HEIGHT, z)) == Some(gold()) {
                     golds.push(format!("{x},{z}"));
                 }
             }
         }
         self.marker = golds.first().and_then(|g| {
             let (x, z) = g.split_once(',')?;
-            Some(BlockPos::new(x.parse().ok()?, -62, z.parse().ok()?))
+            Some(BlockPos::new(
+                x.parse().ok()?,
+                MARKER_HEIGHT,
+                z.parse().ok()?,
+            ))
         });
         let server = cx.data::<Progress>().copied().expect("registered");
         let mine = player.data::<Progress>().copied().expect("registered");
@@ -164,6 +179,12 @@ impl Writer {
     }
 }
 
+/// A started child and its report lines.
+pub(in crate::tick) struct Running {
+    pub(in crate::tick) child: Child,
+    pub(in crate::tick) lines: std::sync::mpsc::Receiver<String>,
+}
+
 /// The server process the parent test starts and kills. Without the parent's environment it
 /// does nothing.
 #[test]
@@ -174,7 +195,7 @@ fn user_data_crash_child() {
     };
     let (stop_tx, stop) = mpsc::channel(1);
     let mut writer = Writer {
-        writes: mode == "run",
+        writes: mode == MODE_RUN,
         stop: stop_tx,
         start: None,
         ready: false,
@@ -307,11 +328,11 @@ fn forced_kills_keep_user_data_with_its_tick() {
     let mut advanced = 0;
     let mut last_start = 0;
     for kill in 0..=KILLS {
-        let mode = if kill == KILLS { "check" } else { "run" };
+        let mode = if kill == KILLS { MODE_CHECK } else { MODE_RUN };
         let mut server = start(&data, mode);
         let line = server
             .lines
-            .recv_timeout(Duration::from_secs(120))
+            .recv_timeout(REPORT_TIMEOUT)
             .unwrap_or_else(|_| {
                 let status = server.child.try_wait().unwrap();
                 panic!("kill {kill}: no report (exit {status:?}): a damaged file is refused")
@@ -362,7 +383,7 @@ fn forced_kills_keep_user_data_with_its_tick() {
                 written.insert(tick, values);
             }
         };
-        if mode == "run" {
+        if mode == MODE_RUN {
             // The kill lands a random number of ticks after the run's first commit, counted by
             // the child's reports, so every restart finds a newer commit however slow the
             // machine is.
@@ -371,7 +392,7 @@ fn forced_kills_keep_user_data_with_its_tick() {
             while since_commit.is_none_or(|ticks| ticks < after) {
                 let line = server
                     .lines
-                    .recv_timeout(Duration::from_secs(120))
+                    .recv_timeout(REPORT_TIMEOUT)
                     .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
                 record(&line);
                 if line.starts_with("committed=") {
@@ -394,10 +415,15 @@ fn forced_kills_keep_user_data_with_its_tick() {
     remove(&data);
 }
 
-/// Gives the place of the marker block after tick `tick`, in the spawn chunks' dirt layer.
+/// The place of the marker block after tick `tick`, in the spawn chunks' dirt layer.
 pub(in crate::tick) fn path(tick: u64) -> BlockPos {
     let t = i32::try_from(tick % 100_000).unwrap();
-    BlockPos::new((t * 7) % 48 - 16, -62, (t * 11) % 48 - 16)
+    let span = MARKER_RANGE.end - MARKER_RANGE.start;
+    BlockPos::new(
+        (t * 7) % span + MARKER_RANGE.start,
+        MARKER_HEIGHT,
+        (t * 11) % span + MARKER_RANGE.start,
+    )
 }
 
 pub(in crate::tick) fn gold() -> block::State {
@@ -507,12 +533,6 @@ pub(in crate::tick) fn stop_server(stop: &mpsc::Sender<()>) {
     match stop.try_send(()) {
         Ok(()) | Err(_) => {}
     }
-}
-
-/// A started child and its report lines.
-pub(in crate::tick) struct Running {
-    pub(in crate::tick) child: Child,
-    pub(in crate::tick) lines: std::sync::mpsc::Receiver<String>,
 }
 
 /// Starts this test binary as the child that runs the ignored test `test` with the environment
