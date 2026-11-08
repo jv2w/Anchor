@@ -34,4 +34,6 @@ API reference: `cargo doc --open -p anchor`. Design notes: [.claude/docs/](.clau
 
 Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Third-party code and data are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Anchor by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
