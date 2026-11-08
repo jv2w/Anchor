@@ -127,7 +127,6 @@ use crate::protocol::packet::{ActorEvent as ActorEventPacket, Packet, TakeItemAc
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
-
 use kind::{Cause, Character, DEFAULT_DESPAWN_DELAY_TICKS, Form, Item, Kind, NEVER, Orb};
 #[cfg(test)]
 use kind::{Cloud, Crystal, Falling, Firework, Painting, Projectile, Shot, Tnt};
@@ -137,6 +136,8 @@ use physics::{Body, Inside, Step};
 pub(super) const ATTACK_COOLDOWN_TICKS: u8 = 10;
 /// The random stream (`crate::random`) of a death's drops.
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
+/// The upward motion of a dropped item.
+const DROP_LIFT: f64 = 0.2;
 /// The pickup delay of a dropped item, in ticks.
 const DROP_PICKUP_DELAY_TICKS: i16 = 10;
 /// The random stream (`crate::random`) of a drop.
@@ -164,6 +165,8 @@ const HOOKS: Hooks = Hooks {
 };
 /// Horizontal knockback of a hit on an entity or a player.
 pub(super) const KNOCKBACK: f64 = 0.4;
+/// How far above a whole block's height a falling block may rest to land in that cell.
+const LANDING_TOLERANCE: f64 = 0.001;
 /// The most chunks a "what is near" query looks up one by one; a larger area walks the chunk
 /// index instead ([`Entities::nearby`]).
 const MAX_CHUNK_LOOKUPS: u64 = 64;
@@ -197,8 +200,12 @@ const MAX_SPAWNS_PER_PLAYER: u32 = 512;
 const MERGE_CHECK_PERIOD_TICKS: i32 = 2;
 /// How far around an item's box it looks for stacks to merge with.
 const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+/// The square of the speed change (0.05 a tick) that is recorded as the last seen speed.
+const MOTION_CHANGE_SQUARED: f64 = 0.0025;
 /// Ticks between an orb's searches for a player.
 const ORB_LOOK_PERIOD_TICKS: u8 = 20;
+/// The motion an orb gains per tick towards the player it follows, at the player's side.
+const ORB_PULL_STRENGTH: f64 = 0.2;
 /// The orb sizes a drop of xp splits into, largest first.
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
 /// How far an orb looks for a player to follow.
@@ -214,12 +221,18 @@ pub(super) const SAFE_FALL: f64 = 3.0;
 pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
 /// The fuse of lit TNT in ticks (4 seconds), and of saved primed TNT without one.
 pub(super) const TNT_FUSE_TICKS: u16 = 80;
+/// The square of the turn in degrees (yaw and pitch together) that is sent.
+const TURN_SQUARED: f64 = 1.0;
 /// The random stream (`crate::random`) of unsticking.
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 /// Damage the void deals an entity or a player each tick.
 pub(super) const VOID_DAMAGE: f64 = 10.0;
 /// At or below this feet height the void hurts: 16 under the lowest block.
 pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
+/// The highest roll of a zombie's chance at a rare drop; rolls run from 0.
+const ZOMBIE_RARE_DROP_MAX_ROLL: i32 = 199;
+/// The rolls that win a zombie a rare drop: the lowest ones (5 of 200).
+const ZOMBIE_RARE_DROP_WINNING_ROLLS: i32 = 5;
 /// The xp a zombie drops.
 const ZOMBIE_XP: u32 = 5;
 
@@ -422,71 +435,6 @@ pub struct Entity {
 }
 
 impl Entity {
-    /// A new entity at `body` (not yet in the store). One at rest is still from the start:
-    /// still is otherwise set only when the motion changes, so an entity that never moves would
-    /// be left to the client, which pushes it where the server never put it.
-    fn new(world: WorldIndex, body: Body, yaw: f64, pitch: f64, kind: Kind) -> Self {
-        let health = kind.max_health();
-        let still = body.motion.length_squared() == 0.0;
-        let radius = match &kind {
-            Kind::Cloud(c) => c.radius,
-            _ => 0.0,
-        };
-        let mut e = Self {
-            runtime_id: 0,
-            world,
-            chunk: chunk_of(body.position),
-            body,
-            forced: false,
-            yaw,
-            pitch,
-            health,
-            fire_ticks: 0,
-            age: 0,
-            name_tag_always_visible: kind.is_name_always_shown(),
-            name_tag: kind.default_name_tag().to_owned(),
-            saved: kind.is_saved(),
-            kind,
-            name_tag_visible: true,
-            scale: 1.0,
-            invisible: false,
-            gravity: true,
-            resend: false,
-            flagged: false,
-            still,
-            viewers: BTreeSet::new(),
-            sent: Sent {
-                position: body.position,
-                motion: body.motion,
-                yaw,
-                pitch,
-                flags: 0,
-                radius,
-                health,
-            },
-        };
-        e.sent.flags = track::flags(&e, still);
-        e
-    }
-
-    /// Width and height of its box: its kind's, times its scale.
-    fn size(&self) -> (f64, f64) {
-        let (width, height) = self.kind.size();
-        (width * self.scale, height * self.scale)
-    }
-
-    /// The physics constants it moves with: its kind's, scaled, and without gravity when it has
-    /// none (a cloud keeps its kind's small box: only its drawn box follows its radius).
-    fn physics(&self) -> kind::Physics {
-        let kind = self.kind.physics();
-        kind::Physics {
-            width: kind.width * self.scale,
-            height: kind.height * self.scale,
-            gravity: if self.gravity { kind.gravity } else { 0.0 },
-            ..*kind
-        }
-    }
-
     /// Its box: its size around its position; a painting's is the picture on its wall.
     #[doc(alias = "Entity::getBoundingBox")]
     pub fn bounding_box(&self) -> Aabb {
@@ -506,103 +454,59 @@ impl Entity {
         )
     }
 
-    /// Whether a hit of `amount` for `cause` would hurt it, and how (with an NPC's cooldown,
-    /// before the event): `None` when the kind ignores the cause, the amount is not within 0
-    /// through [`MAX_DAMAGE`], an NPC is dying, or a hit no stronger than the last comes within
-    /// an NPC's cooldown.
-    fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
-        let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
-        if !self.kind.is_hurt_by(cause) || !(0.0..=MAX_DAMAGE).contains(&amount) || dead_crystal {
-            return None;
-        }
-        let Kind::Npc(c) = &self.kind else {
-            return Some(Plan {
-                cold: false,
-                previous: None,
-            });
+    /// A new entity at `body` (not yet in the store). One at rest is still from the start:
+    /// still is otherwise set only when the motion changes, so an entity that never moves would
+    /// be left to the client, which pushes it where the server never put it.
+    fn new(world: WorldIndex, body: Body, yaw: f64, pitch: f64, kind: Kind) -> Self {
+        let health = kind.max_health();
+        let still = body.motion.length_squared() == 0.0;
+        let radius = match &kind {
+            Kind::Cloud(c) => c.radius,
+            _ => 0.0,
         };
-        if c.dead_ticks.is_some() {
-            return None;
-        }
-        let cold = c.attack_time == 0;
-        if !cold && c.last_damage >= amount {
-            return None;
-        }
-        Some(Plan {
-            cold,
-            previous: (!cold).then_some(c.last_damage),
-        })
-    }
-
-    /// Takes a planned hit: `taken.damage` off its health; an NPC remembers the base damage and,
-    /// on a cold hit, starts its cooldown.
-    fn take_hit(&mut self, plan: Plan, taken: Taken) -> Hurt {
-        let Kind::Npc(c) = &mut self.kind else {
-            self.health -= taken.damage;
-            return if self.health <= 0.0 {
-                Hurt::Died
-            } else {
-                Hurt::Took { cold: false }
-            };
+        let name_tag = kind.default_name_tag().to_owned();
+        let name_tag_always_visible = kind.is_name_always_shown();
+        let saved = kind.is_saved();
+        let mut e = Self {
+            runtime_id: 0,
+            world,
+            chunk: chunk_of(body.position),
+            body,
+            forced: false,
+            yaw,
+            pitch,
+            health,
+            fire_ticks: 0,
+            age: 0,
+            kind,
+            name_tag,
+            name_tag_visible: true,
+            name_tag_always_visible,
+            scale: 1.0,
+            invisible: false,
+            gravity: true,
+            saved,
+            resend: false,
+            flagged: false,
+            still,
+            viewers: BTreeSet::new(),
+            sent: Sent {
+                position: body.position,
+                motion: body.motion,
+                yaw,
+                pitch,
+                flags: 0,
+                radius,
+                health,
+            },
         };
-        c.last_damage = taken.base;
-        if plan.cold {
-            c.attack_time = taken.cooldown;
-        }
-        self.health = crate::math::max(self.health - taken.damage, 0.0);
-        if self.health <= 0.0 {
-            c.dead_ticks = Some(0);
-            Hurt::Died
-        } else {
-            Hurt::Took { cold: plan.cold }
-        }
-    }
-
-    /// What a hit that came to `result` does afterwards to the kinds that care: an end crystal
-    /// hit by anything but the void is primed, and when dead it stays until its tick explodes it
-    /// ([`explosion::crystal_died`]). True when a death removes the entity at once (every other
-    /// kind that does not live).
-    fn after_hit(&mut self, cause: Cause, result: Hurt) -> bool {
-        match &mut self.kind {
-            Kind::EndCrystal(c) => {
-                if result != Hurt::Ignored && cause != Cause::Void {
-                    c.primed = true;
-                }
-                false
-            }
-            _ => true,
-        }
-    }
-
-    /// Whether placing a block in its box is refused: its kind's answer, and an end crystal only
-    /// while its health is above 0.
-    fn is_obstacle(&self) -> bool {
-        self.kind.is_obstacle() && !(matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0)
+        e.sent.flags = track::flags(&e, still);
+        e
     }
 
     /// Whether setting it on fire for `seconds` would change its burning.
     fn can_burn(&self, seconds: i16) -> bool {
-        seconds.saturating_mul(20) > self.fire_ticks && !self.kind.is_fire_proof()
-    }
-
-    /// Sets it on fire for `seconds` unless it burns longer already.
-    fn set_on_fire(&mut self, seconds: i16) {
-        if self.can_burn(seconds) {
-            self.fire_ticks = seconds.saturating_mul(20);
-        }
-    }
-
-    /// One tick of burning: true when a burn's damage is due.
-    fn burn(&mut self) -> bool {
-        if self.fire_ticks <= 0 {
-            return false;
-        }
-        if self.kind.is_fire_proof() {
-            self.fire_ticks = 0;
-            return false;
-        }
-        self.fire_ticks -= 1;
-        self.fire_ticks % i16::from(FIRE_DAMAGE_TICKS) == 0
+        burn_ticks(seconds) > self.fire_ticks && !self.kind.is_fire_proof()
     }
 
     #[cfg(test)]
@@ -750,17 +654,13 @@ impl Entity {
             }
         }
         h.bytes(name_tag.as_bytes());
-        for b in [
-            *name_tag_visible,
-            *name_tag_always_visible,
-            *invisible,
-            *gravity,
-            *saved,
-            *resend,
-        ] {
+        for b in [*name_tag_visible, *name_tag_always_visible] {
             h.u64(u64::from(b));
         }
         h.u64(scale.to_bits());
+        for b in [*invisible, *gravity, *saved, *resend] {
+            h.u64(u64::from(b));
+        }
         h.u64(u64::from(*flagged));
         h.u64(u64::from(*still));
         h.usize(viewers.len());
@@ -786,6 +686,118 @@ impl Entity {
         h.u64(*flags);
         h.u64(radius.to_bits());
         h.u64(sent_health.to_bits());
+    }
+
+    /// Whether placing a block in its box is refused: its kind's answer, and an end crystal only
+    /// while its health is above 0.
+    fn is_obstacle(&self) -> bool {
+        self.kind.is_obstacle() && !(matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0)
+    }
+
+    /// The physics constants it moves with: its kind's, scaled, and without gravity when it has
+    /// none (a cloud keeps its kind's small box: only its drawn box follows its radius).
+    fn physics(&self) -> kind::Physics {
+        let kind = self.kind.physics();
+        kind::Physics {
+            width: kind.width * self.scale,
+            height: kind.height * self.scale,
+            gravity: if self.gravity { kind.gravity } else { 0.0 },
+            ..*kind
+        }
+    }
+
+    /// Whether a hit of `amount` for `cause` would hurt it, and how (with an NPC's cooldown,
+    /// before the event): `None` when the kind ignores the cause, the amount is not within 0
+    /// through [`MAX_DAMAGE`], an NPC is dying, or a hit no stronger than the last comes within
+    /// an NPC's cooldown.
+    fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
+        let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
+        if !self.kind.is_hurt_by(cause) || !(0.0..=MAX_DAMAGE).contains(&amount) || dead_crystal {
+            return None;
+        }
+        let Kind::Npc(c) = &self.kind else {
+            return Some(Plan {
+                cold: false,
+                previous: None,
+            });
+        };
+        if c.dead_ticks.is_some() {
+            return None;
+        }
+        let cold = c.attack_time == 0;
+        if !cold && c.last_damage >= amount {
+            return None;
+        }
+        Some(Plan {
+            cold,
+            previous: (!cold).then_some(c.last_damage),
+        })
+    }
+
+    /// Width and height of its box: its kind's, times its scale.
+    fn size(&self) -> (f64, f64) {
+        let (width, height) = self.kind.size();
+        (width * self.scale, height * self.scale)
+    }
+
+    /// Applies to the kinds that care what a hit that came to `result` does afterwards: an end
+    /// crystal hit by anything but the void is primed, and when dead it stays until its tick
+    /// explodes it ([`explosion::crystal_died`]). True when a death removes the entity at once
+    /// (every other kind that does not live).
+    fn after_hit(&mut self, cause: Cause, result: Hurt) -> bool {
+        match &mut self.kind {
+            Kind::EndCrystal(c) => {
+                if result != Hurt::Ignored && cause != Cause::Void {
+                    c.primed = true;
+                }
+                false
+            }
+            _ => true,
+        }
+    }
+
+    /// Burns it for one tick: true when a burn's damage is due.
+    fn burn(&mut self) -> bool {
+        if self.fire_ticks <= 0 {
+            return false;
+        }
+        if self.kind.is_fire_proof() {
+            self.fire_ticks = 0;
+            return false;
+        }
+        self.fire_ticks -= 1;
+        self.fire_ticks % i16::from(FIRE_DAMAGE_TICKS) == 0
+    }
+
+    /// Sets it on fire for `seconds` unless it burns longer already.
+    fn set_on_fire(&mut self, seconds: i16) {
+        if self.can_burn(seconds) {
+            self.fire_ticks = burn_ticks(seconds);
+        }
+    }
+
+    /// Takes a planned hit: `taken.damage` off its health; an NPC remembers the base damage and,
+    /// on a cold hit, starts its cooldown.
+    fn take_hit(&mut self, plan: Plan, taken: Taken) -> Hurt {
+        let Kind::Npc(c) = &mut self.kind else {
+            self.health -= taken.damage;
+            return if self.health <= 0.0 {
+                Hurt::Died
+            } else {
+                Hurt::Took { cold: false }
+            };
+        };
+        c.last_damage = taken.base;
+        if plan.cold {
+            c.attack_time = taken.cooldown;
+        }
+        self.health = crate::math::max(self.health - taken.damage, 0.0);
+        if self.health <= 0.0 {
+            c.dead_ticks = Some(0);
+            Hurt::Died
+        } else {
+            Hurt::Took { cold: plan.cold }
+        }
     }
 }
 
@@ -896,10 +908,11 @@ impl Watched {
         for c in [position.x, position.y, position.z, *yaw, *pitch] {
             h.u64(c.to_bits());
         }
-        for stack in std::iter::once(held).chain([off_hand]).chain(armor) {
+        super::inventory::hash_stack(h, held);
+        h.u64(u64::from(*held_slot));
+        for stack in std::iter::once(off_hand).chain(armor) {
             super::inventory::hash_stack(h, stack);
         }
-        h.u64(u64::from(*held_slot));
     }
 }
 
@@ -992,398 +1005,69 @@ pub(super) struct Entities {
 }
 
 impl Entities {
-    /// Whether the player of session `viewer`, in world `viewer_world` with `view`, is shown the
-    /// player of session `target` standing in chunk `chunk` of `world`: their worlds are the
-    /// same, the view has the chunk, and the viewer does not hide the target. The one rule of who
-    /// gets a player's packets: its tracking and every packet the rules send about it.
-    pub(super) fn shows(
-        &self,
-        viewer: SessionId,
-        viewer_world: WorldIndex,
-        view: &View,
-        target: SessionId,
-        world: WorldIndex,
-        chunk: ChunkPos,
-    ) -> bool {
-        viewer_world == world && view.can_see(chunk) && !self.hidden.contains(&(viewer, target))
-    }
-
-    /// The live entity `id` names, if it still exists.
-    fn get(&self, id: Id) -> Option<&Entity> {
-        live(&self.slots, id)
-    }
-
-    /// [`Entities::get`], to change.
-    fn get_mut(&mut self, id: Id) -> Option<&mut Entity> {
-        let slot = self.slots.get_mut(usize::try_from(id.index()).ok()?)?;
-        if slot.generation != id.generation() {
-            return None;
-        }
-        slot.entity.as_mut()
-    }
-
-    /// The live entities in `Id` order.
-    #[cfg(test)]
-    fn ids(&self) -> impl Iterator<Item = Id> + '_ {
-        (0_u32..)
-            .zip(&self.slots)
-            .filter(|(_, s)| s.entity.is_some())
-            .map(|(i, s)| Id::new(i, s.generation))
+    /// Writes every field but the custom types and the xp setting, which are fixed at
+    /// start.
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        let Self {
+            slots,
+            free,
+            retired,
+            counts,
+            columns,
+            runtime_ids,
+            unassigned,
+            kept,
+            changed,
+            departed,
+            watched,
+            hidden,
+            // Empty and stale between ticks: built in each entity tick from the players.
+            players: _,
+            players_fresh: _,
+            doomed,
+            ending,
+            cursor,
+            restep,
+            applying,
+            spawned,
+            left,
+            despawn_heard,
+            bolts,
+            custom: _,
+            xp: _,
+            // Empty between ticks: buffers of the entity tick.
+            ticking: _,
+            steps: _,
+            // Back to 0 when each explosion ends, so 0 between ticks.
+            blast_depth: _,
+        } = self;
+        slots.encode(w);
+        free.encode(w);
+        retired.encode(w);
+        counts.encode(w);
+        columns.encode(w);
+        runtime_ids.encode(w);
+        unassigned.encode(w);
+        kept.encode(w);
+        changed.encode(w);
+        departed.encode(w);
+        watched.encode(w);
+        hidden.encode(w);
+        doomed.encode(w);
+        ending.encode(w);
+        cursor.encode(w);
+        restep.encode(w);
+        applying.encode(w);
+        spawned.encode(w);
+        left.encode(w);
+        despawn_heard.encode(w);
+        bolts.encode(w);
     }
 
     /// Live entities of `world`.
     pub(super) fn count(&self, world: WorldIndex) -> usize {
         self.counts.get(&world).copied().unwrap_or(0)
-    }
-
-    /// Puts an entity into a slot and the chunk index; the caller checked the cap.
-    fn insert(&mut self, entity: Entity) -> Id {
-        let key = (entity.world, entity.chunk);
-        let world = entity.world;
-        let id = if let Some(index) = self.free.pop_first() {
-            let slot = self
-                .slots
-                .get_mut(usize::try_from(index).unwrap_or(usize::MAX));
-            match slot {
-                Some(slot) => {
-                    slot.entity = Some(entity);
-                    Id::new(index, slot.generation)
-                }
-                None => self.push(entity),
-            }
-        } else {
-            self.push(entity)
-        };
-        *self.counts.entry(world).or_insert(0) += 1;
-        let column = self.columns.entry(key).or_default();
-        column.ids.insert(id);
-        column.arrived.insert(id);
-        self.changed.insert(key);
-        id
-    }
-
-    /// Puts an entity into a new slot at the end.
-    fn push(&mut self, entity: Entity) -> Id {
-        let index = u32::try_from(self.slots.len()).unwrap_or(u32::MAX);
-        self.slots.push(Slot {
-            generation: self.retired,
-            entity: Some(entity),
-        });
-        Id::new(index, self.retired)
-    }
-
-    /// Takes an entity out of its slot and every index. Trailing free slots are dropped, so the
-    /// store returns to empty.
-    fn take(&mut self, id: Id) -> Option<Entity> {
-        let index = usize::try_from(id.index()).ok()?;
-        let slot = self.slots.get_mut(index)?;
-        if slot.generation != id.generation() {
-            return None;
-        }
-        let entity = slot.entity.take()?;
-        slot.generation = slot.generation.wrapping_add(1);
-        self.free.insert(id.index());
-        while self.slots.last().is_some_and(|s| s.entity.is_none()) {
-            if let Some(last) = self.slots.pop() {
-                self.retired = self.retired.max(last.generation);
-                self.free
-                    .remove(&u32::try_from(self.slots.len()).unwrap_or(u32::MAX));
-            }
-        }
-        if let Some(n) = self.counts.get_mut(&entity.world) {
-            *n = n.saturating_sub(1);
-            if *n == 0 {
-                self.counts.remove(&entity.world);
-            }
-        }
-        let key = (entity.world, entity.chunk);
-        if let Some(column) = self.columns.get_mut(&key) {
-            column.ids.remove(&id);
-            if column.ids.is_empty() {
-                self.columns.remove(&key);
-            }
-        }
-        if entity.runtime_id != 0 {
-            self.runtime_ids.remove(&entity.runtime_id);
-        }
-        self.doomed.remove(&id);
-        self.ending.remove(&id);
-        self.restep.remove(&id);
-        self.spawned.remove(&id);
-        self.changed.insert(key);
-        Some(entity)
-    }
-
-    /// Moves an entity's index entry to the chunk of its position; both chunks change.
-    fn reindex(&mut self, id: Id) {
-        let Some(e) = self.get_mut(id) else {
-            return;
-        };
-        let to = chunk_of(e.body.position);
-        let from = e.chunk;
-        if to == from {
-            return;
-        }
-        e.chunk = to;
-        let world = e.world;
-        if let Some(column) = self.columns.get_mut(&(world, from)) {
-            column.ids.remove(&id);
-            if column.ids.is_empty() {
-                self.columns.remove(&(world, from));
-            }
-        }
-        let column = self.columns.entry((world, to)).or_default();
-        column.ids.insert(id);
-        column.arrived.insert(id);
-        self.changed.insert((world, from));
-        self.changed.insert((world, to));
-    }
-
-    /// Flags an entity gone: everything ignores it from now on, and it is removed at the end of
-    /// the tick (or a later one, within the removal bound). False if it was gone already.
-    fn doom(&mut self, id: Id) -> bool {
-        let Some(e) = self.get_mut(id) else {
-            return false;
-        };
-        if e.flagged {
-            return false;
-        }
-        e.flagged = true;
-        let key = (e.world, e.chunk);
-        self.changed.insert(key);
-        self.doomed.insert(id);
-        true
-    }
-
-    /// Adds the entity `id` to [`Self::ending`] if its death is in progress.
-    fn note_ending(&mut self, id: Id) {
-        let ends = self.get(id).is_some_and(|e| {
-            !e.flagged
-                && match &e.kind {
-                    Kind::Npc(c) => c.dead_ticks.is_some(),
-                    Kind::EndCrystal(_) => e.health <= 0.0,
-                    _ => false,
-                }
-        });
-        if ends {
-            self.ending.insert(id);
-        }
-    }
-
-    /// The live, unflagged entities of `world` whose box overlaps `area`, in chunk then `Id`
-    /// order (the chunks within 2 blocks of the box). A small area looks
-    /// up each of its chunks; a large one walks the index's columns in its x range instead, so
-    /// the cost is bounded by the entities' chunks whatever the area (API callers pass any box).
-    fn nearby(&self, world: WorldIndex, area: Aabb) -> Vec<Id> {
-        let mut out = Vec::new();
-        self.each_nearby(world, area, |id| out.push(id));
-        out
-    }
-
-    /// Calls `f` with each entity [`Self::nearby`] returns, in the same order, for callers that
-    /// only read the store meanwhile.
-    fn each_nearby(&self, world: WorldIndex, area: Aabb, mut f: impl FnMut(Id)) {
-        let chunk = |v: f64| physics_block(v) >> 4;
-        let (x0, x1) = (chunk(area.min.x - 2.0), chunk(area.max.x + 2.0));
-        let (z0, z1) = (chunk(area.min.z - 2.0), chunk(area.max.z + 2.0));
-        if x0 > x1 || z0 > z1 {
-            return;
-        }
-        let mut visit = |column: &Column| {
-            for &id in &column.ids {
-                if let Some(e) = self.get(id)
-                    && !e.flagged
-                    && e.bounding_box().overlaps(area, EPSILON)
-                {
-                    f(id);
-                }
-            }
-        };
-        let span = |a: i32, b: i32| u64::from(b.abs_diff(a)).saturating_add(1);
-        if span(x0, x1).saturating_mul(span(z0, z1)) <= MAX_CHUNK_LOOKUPS {
-            for x in x0..=x1 {
-                for z in z0..=z1 {
-                    if let Some(column) = self.columns.get(&(world, ChunkPos::new(x, z))) {
-                        visit(column);
-                    }
-                }
-            }
-        } else {
-            let range = (world, ChunkPos::new(x0, i32::MIN))..=(world, ChunkPos::new(x1, i32::MAX));
-            for ((_, pos), column) in self.columns.range(range) {
-                if (z0..=z1).contains(&pos.z) {
-                    visit(column);
-                }
-            }
-        }
-    }
-
-    /// Takes whether orbs exist ([`super::Settings::has_orbs`]; at start, before any chunk
-    /// loads).
-    pub(super) fn set_xp(&mut self, on: bool) {
-        self.xp = on;
-    }
-
-    /// A chunk's saved list arrived ([`mod@super::rules`]), `saved` read from `list` off the
-    /// tick ([`read`]): its entities enter the store, waiting for runtime IDs; compounds that are
-    /// not entities here, entities over the cap, and, without xp, saved orbs are kept as saved.
-    pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
-        let mut kept = Vec::new();
-        let mut over = 0_usize;
-        for (Saved(read), c) in saved.into_iter().zip(list) {
-            let l = match read {
-                Read::Entity(l) => *l,
-                Read::Kept(c) => {
-                    kept.push(c);
-                    continue;
-                }
-            };
-            let orb_off = !self.xp && matches!(l.kind, Kind::XpOrb(_));
-            let full = self.count(key.0) >= MAX_ENTITIES_PER_WORLD;
-            if orb_off || full {
-                over += usize::from(full);
-                #[cfg(test)]
-                super::rules::reads::add(|r| r.clones += 1);
-                kept.push(c.clone());
-                continue;
-            }
-            let mut e = Entity::new(key.0, l.body, l.yaw, l.pitch, l.kind);
-            e.health = l.health;
-            e.fire_ticks = l.fire_ticks;
-            let saved::Looks {
-                name_tag,
-                name_tag_visible,
-                name_tag_always_visible,
-                scale,
-                invisible,
-                gravity,
-            } = l.looks;
-            e.name_tag = name_tag;
-            e.name_tag_visible = name_tag_visible;
-            e.name_tag_always_visible =
-                name_tag_always_visible.unwrap_or(e.name_tag_always_visible);
-            e.scale = scale;
-            e.invisible = invisible;
-            e.gravity = gravity;
-            e.sent.flags = track::flags(&e, e.still);
-            let id = self.insert(e);
-            self.note_ending(id);
-            self.unassigned.push(id);
-        }
-        // Loading changes nothing to save.
-        self.changed.remove(&key);
-        if over > 0 {
-            warn!(
-                world = key.0,
-                x = key.1.x,
-                z = key.1.z,
-                over,
-                "the world's entity limit is reached; saved entities stay as saved and do not tick"
-            );
-        }
-        if !kept.is_empty() {
-            debug!(
-                world = key.0,
-                x = key.1.x,
-                z = key.1.z,
-                kept = kept.len(),
-                "saved entities kept as they are"
-            );
-            self.kept.insert(key, kept);
-        }
-    }
-
-    /// [`read`] with the store's custom entity types and [`Self::load`] in one.
-    #[cfg(test)]
-    pub(super) fn load_list(
-        &mut self,
-        key: Key,
-        list: &[Compound],
-        content: &crate::custom::Registry,
-    ) {
-        let saved = read(key.1, list, self.types(), content);
-        self.load(key, saved, list);
-    }
-
-    /// A chunk leaves: its entities leave the store (their viewers are sent the removal next
-    /// tick). Returns the chunk's list if it changed since [`Self::take_changed`].
-    pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
-        let changed = self.changed.remove(&key);
-        let ids: Vec<Id> = self
-            .columns
-            .get(&key)
-            .map(|c| c.ids.iter().copied().collect())
-            .unwrap_or_default();
-        // Only a chunk that changed hands its list back, so an unchanged one saves no entity.
-        let mut list = if changed {
-            Vec::with_capacity(ids.len())
-        } else {
-            Vec::new()
-        };
-        // Only an entity waiting for its runtime ID is in `unassigned`.
-        let mut took_unassigned = false;
-        for id in ids {
-            // An entity whose spawn was not announced yet leaves unannounced.
-            let announced = !self.spawned.contains(&id);
-            let Some(e) = self.take(id) else {
-                continue;
-            };
-            took_unassigned |= e.runtime_id == 0;
-            if announced && self.despawn_heard && e.runtime_id != 0 {
-                self.left.push(id);
-            }
-            if changed && !e.flagged && e.saved {
-                list.push(saved::save(&e));
-            }
-            if e.runtime_id != 0 && !e.viewers.is_empty() {
-                self.departed.push(Departed {
-                    runtime_id: e.runtime_id,
-                    viewers: e.viewers,
-                });
-            }
-        }
-        if took_unassigned {
-            let slots = &self.slots;
-            self.unassigned.retain(|&id| {
-                usize::try_from(id.index())
-                    .ok()
-                    .and_then(|i| slots.get(i))
-                    .is_some_and(|s| s.generation == id.generation() && s.entity.is_some())
-            });
-        }
-        let kept = self.kept.remove(&key).unwrap_or_default();
-        // Taking the entities out marked the chunk; what counts is whether it changed before.
-        self.changed.remove(&key);
-        changed.then(|| {
-            list.extend(kept);
-            list
-        })
-    }
-
-    /// The full lists of the chunks that changed since the last call, for a save snapshot.
-    pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
-        let keys = std::mem::take(&mut self.changed);
-        keys.into_iter().map(|key| (key, self.list(key))).collect()
-    }
-
-    /// A chunk's saved list: its entities in `Id` order, then the kept compounds.
-    fn list(&self, key: Key) -> Vec<Compound> {
-        let mut list: Vec<Compound> = self
-            .columns
-            .get(&key)
-            .map(|c| {
-                c.ids
-                    .iter()
-                    .filter_map(|&id| self.get(id))
-                    .filter(|e| !e.flagged && e.saved)
-                    .map(saved::save)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Some(kept) = self.kept.get(&key) {
-            list.extend(kept.iter().cloned());
-        }
-        list
     }
 
     #[cfg(test)]
@@ -1415,9 +1099,9 @@ impl Entities {
             applying,
             spawned,
             left,
-            bolts,
             // A function of the listeners, which are code fixed at build.
             despawn_heard: _,
+            bolts,
             // Fixed at start (definitions and code); entities hash their type index.
             custom: _,
             // A setting, fixed at start.
@@ -1525,64 +1209,103 @@ impl Entities {
         }
     }
 
-    /// Writes every field but the custom types and the xp setting, which are fixed at
-    /// start.
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
-        let Self {
-            slots,
-            free,
-            retired,
-            counts,
-            columns,
-            runtime_ids,
-            unassigned,
-            kept,
-            changed,
-            departed,
-            watched,
-            hidden,
-            // Empty and stale between ticks: built in each entity tick from the players.
-            players: _,
-            players_fresh: _,
-            doomed,
-            ending,
-            cursor,
-            restep,
-            applying,
-            spawned,
-            left,
-            despawn_heard,
-            bolts,
-            custom: _,
-            xp: _,
-            // Empty between ticks: buffers of the entity tick.
-            ticking: _,
-            steps: _,
-            // Back to 0 when each explosion ends, so 0 between ticks.
-            blast_depth: _,
-        } = self;
-        slots.encode(w);
-        free.encode(w);
-        retired.encode(w);
-        counts.encode(w);
-        columns.encode(w);
-        runtime_ids.encode(w);
-        unassigned.encode(w);
-        kept.encode(w);
-        changed.encode(w);
-        departed.encode(w);
-        watched.encode(w);
-        hidden.encode(w);
-        doomed.encode(w);
-        ending.encode(w);
-        cursor.encode(w);
-        restep.encode(w);
-        applying.encode(w);
-        spawned.encode(w);
-        left.encode(w);
-        despawn_heard.encode(w);
-        bolts.encode(w);
+    /// Whether the player of session `viewer`, in world `viewer_world` with `view`, is shown the
+    /// player of session `target` standing in chunk `chunk` of `world`: their worlds are the
+    /// same, the view has the chunk, and the viewer does not hide the target. The one rule of who
+    /// gets a player's packets: its tracking and every packet the rules send about it.
+    pub(super) fn shows(
+        &self,
+        viewer: SessionId,
+        viewer_world: WorldIndex,
+        view: &View,
+        target: SessionId,
+        world: WorldIndex,
+        chunk: ChunkPos,
+    ) -> bool {
+        viewer_world == world && view.can_see(chunk) && !self.hidden.contains(&(viewer, target))
+    }
+
+    /// Reads `list` with the store's custom entity types and loads it ([`read`] and
+    /// [`Self::load`] in one).
+    #[cfg(test)]
+    pub(super) fn load_list(
+        &mut self,
+        key: Key,
+        list: &[Compound],
+        content: &crate::custom::Registry,
+    ) {
+        let saved = read(key.1, list, self.types(), content);
+        self.load(key, saved, list);
+    }
+
+    /// Loads the saved list of a chunk that arrived ([`mod@super::rules`]), `saved` read from
+    /// `list` off the tick ([`read`]): its entities enter the store, waiting for runtime IDs;
+    /// compounds that are not entities here, entities over the cap, and, without xp, saved orbs
+    /// are kept as saved.
+    pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
+        let mut kept = Vec::new();
+        let mut over = 0_usize;
+        for (Saved(read), c) in saved.into_iter().zip(list) {
+            let l = match read {
+                Read::Entity(l) => *l,
+                Read::Kept(c) => {
+                    kept.push(c);
+                    continue;
+                }
+            };
+            let orb_off = !self.xp && matches!(l.kind, Kind::XpOrb(_));
+            let full = self.count(key.0) >= MAX_ENTITIES_PER_WORLD;
+            if orb_off || full {
+                over += usize::from(full);
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
+                kept.push(c.clone());
+                continue;
+            }
+            let mut e = Entity::new(key.0, l.body, l.yaw, l.pitch, l.kind);
+            e.health = l.health;
+            e.fire_ticks = l.fire_ticks;
+            let saved::Looks {
+                name_tag,
+                name_tag_visible,
+                name_tag_always_visible,
+                scale,
+                invisible,
+                gravity,
+            } = l.looks;
+            e.name_tag = name_tag;
+            e.name_tag_visible = name_tag_visible;
+            e.name_tag_always_visible =
+                name_tag_always_visible.unwrap_or(e.name_tag_always_visible);
+            e.scale = scale;
+            e.invisible = invisible;
+            e.gravity = gravity;
+            e.sent.flags = track::flags(&e, e.still);
+            let id = self.insert(e);
+            self.note_ending(id);
+            self.unassigned.push(id);
+        }
+        // Loading changes nothing to save.
+        self.changed.remove(&key);
+        if over > 0 {
+            warn!(
+                world_index = key.0,
+                x = key.1.x,
+                z = key.1.z,
+                over,
+                "the world's entity limit is reached; saved entities stay as saved and do not tick"
+            );
+        }
+        if !kept.is_empty() {
+            debug!(
+                world_index = key.0,
+                x = key.1.x,
+                z = key.1.z,
+                kept = kept.len(),
+                "saved entities kept as they are"
+            );
+            self.kept.insert(key, kept);
+        }
     }
 
     /// Reads what [`Self::checkpoint`] wrote; the custom types and the xp setting stay.
@@ -1622,6 +1345,299 @@ impl Entities {
             blast_depth: 0,
         };
         Ok(())
+    }
+
+    /// Takes whether orbs exist ([`super::Settings::has_orbs`]; at start, before any chunk
+    /// loads).
+    pub(super) fn set_xp(&mut self, on: bool) {
+        self.xp = on;
+    }
+
+    /// Takes the full lists of the chunks that changed since the last call, for a save
+    /// snapshot.
+    pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
+        let keys = std::mem::take(&mut self.changed);
+        keys.into_iter().map(|key| (key, self.list(key))).collect()
+    }
+
+    /// Unloads a chunk: its entities leave the store (their viewers are sent the removal next
+    /// tick). Returns the chunk's list if it changed since [`Self::take_changed`].
+    pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
+        let changed = self.changed.remove(&key);
+        let ids: Vec<Id> = self
+            .columns
+            .get(&key)
+            .map(|c| c.ids.iter().copied().collect())
+            .unwrap_or_default();
+        // Only a chunk that changed hands its list back, so an unchanged one saves no entity.
+        let mut list = if changed {
+            Vec::with_capacity(ids.len())
+        } else {
+            Vec::new()
+        };
+        // Only an entity waiting for its runtime ID is in `unassigned`.
+        let mut took_unassigned = false;
+        for id in ids {
+            // An entity whose spawn was not announced yet leaves unannounced.
+            let announced = !self.spawned.contains(&id);
+            let Some(e) = self.take(id) else {
+                continue;
+            };
+            took_unassigned |= e.runtime_id == 0;
+            if announced && self.despawn_heard && e.runtime_id != 0 {
+                self.left.push(id);
+            }
+            if changed && !e.flagged && e.saved {
+                list.push(saved::save(&e));
+            }
+            if e.runtime_id != 0 && !e.viewers.is_empty() {
+                self.departed.push(Departed {
+                    runtime_id: e.runtime_id,
+                    viewers: e.viewers,
+                });
+            }
+        }
+        if took_unassigned {
+            let slots = &self.slots;
+            self.unassigned.retain(|&id| {
+                usize::try_from(id.index())
+                    .ok()
+                    .and_then(|i| slots.get(i))
+                    .is_some_and(|s| s.generation == id.generation() && s.entity.is_some())
+            });
+        }
+        let kept = self.kept.remove(&key).unwrap_or_default();
+        // Taking the entities out marked the chunk; what counts is whether it changed before.
+        self.changed.remove(&key);
+        changed.then(|| {
+            list.extend(kept);
+            list
+        })
+    }
+
+    /// The live entity `id` names, if it still exists.
+    fn get(&self, id: Id) -> Option<&Entity> {
+        live(&self.slots, id)
+    }
+
+    /// The live entities in `Id` order.
+    #[cfg(test)]
+    fn ids(&self) -> impl Iterator<Item = Id> + '_ {
+        (0_u32..)
+            .zip(&self.slots)
+            .filter(|(_, s)| s.entity.is_some())
+            .map(|(i, s)| Id::new(i, s.generation))
+    }
+
+    /// A chunk's saved list: its entities in `Id` order, then the kept compounds.
+    fn list(&self, key: Key) -> Vec<Compound> {
+        let mut list: Vec<Compound> = self
+            .columns
+            .get(&key)
+            .map(|c| {
+                c.ids
+                    .iter()
+                    .filter_map(|&id| self.get(id))
+                    .filter(|e| !e.flagged && e.saved)
+                    .map(saved::save)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(kept) = self.kept.get(&key) {
+            list.extend(kept.iter().cloned());
+        }
+        list
+    }
+
+    /// The live, unflagged entities of `world` whose box overlaps `area`, in chunk then `Id`
+    /// order (the chunks within 2 blocks of the box). A small area looks
+    /// up each of its chunks; a large one walks the index's columns in its x range instead, so
+    /// the cost is bounded by the entities' chunks whatever the area (API callers pass any box).
+    fn nearby(&self, world: WorldIndex, area: Aabb) -> Vec<Id> {
+        let mut out = Vec::new();
+        self.each_nearby(world, area, |id| out.push(id));
+        out
+    }
+
+    /// Calls `f` with each entity [`Self::nearby`] returns, in the same order, for callers that
+    /// only read the store meanwhile.
+    fn each_nearby(&self, world: WorldIndex, area: Aabb, mut f: impl FnMut(Id)) {
+        let chunk = |v: f64| physics_block(v) >> 4;
+        let (x0, x1) = (chunk(area.min.x - 2.0), chunk(area.max.x + 2.0));
+        let (z0, z1) = (chunk(area.min.z - 2.0), chunk(area.max.z + 2.0));
+        if x0 > x1 || z0 > z1 {
+            return;
+        }
+        let mut visit = |column: &Column| {
+            for &id in &column.ids {
+                if let Some(e) = self.get(id)
+                    && !e.flagged
+                    && e.bounding_box().overlaps(area, EPSILON)
+                {
+                    f(id);
+                }
+            }
+        };
+        let span = |a: i32, b: i32| u64::from(b.abs_diff(a)).saturating_add(1);
+        if span(x0, x1).saturating_mul(span(z0, z1)) <= MAX_CHUNK_LOOKUPS {
+            for x in x0..=x1 {
+                for z in z0..=z1 {
+                    if let Some(column) = self.columns.get(&(world, ChunkPos::new(x, z))) {
+                        visit(column);
+                    }
+                }
+            }
+        } else {
+            let range = (world, ChunkPos::new(x0, i32::MIN))..=(world, ChunkPos::new(x1, i32::MAX));
+            for ((_, pos), column) in self.columns.range(range) {
+                if (z0..=z1).contains(&pos.z) {
+                    visit(column);
+                }
+            }
+        }
+    }
+
+    /// Flags an entity gone: everything ignores it from now on, and it is removed at the end of
+    /// the tick (or a later one, within the removal bound). False if it was gone already.
+    fn doom(&mut self, id: Id) -> bool {
+        let Some(e) = self.get_mut(id) else {
+            return false;
+        };
+        if e.flagged {
+            return false;
+        }
+        e.flagged = true;
+        let key = (e.world, e.chunk);
+        self.changed.insert(key);
+        self.doomed.insert(id);
+        true
+    }
+
+    /// Puts an entity into a slot and the chunk index; the caller checked the cap.
+    fn insert(&mut self, entity: Entity) -> Id {
+        let key = (entity.world, entity.chunk);
+        let world = entity.world;
+        let id = if let Some(index) = self.free.pop_first() {
+            let slot = self
+                .slots
+                .get_mut(usize::try_from(index).unwrap_or(usize::MAX));
+            match slot {
+                Some(slot) => {
+                    slot.entity = Some(entity);
+                    Id::new(index, slot.generation)
+                }
+                None => self.push(entity),
+            }
+        } else {
+            self.push(entity)
+        };
+        *self.counts.entry(world).or_insert(0) += 1;
+        let column = self.columns.entry(key).or_default();
+        column.ids.insert(id);
+        column.arrived.insert(id);
+        self.changed.insert(key);
+        id
+    }
+
+    /// Adds the entity `id` to [`Self::ending`] if its death is in progress.
+    fn note_ending(&mut self, id: Id) {
+        let ends = self.get(id).is_some_and(|e| {
+            !e.flagged
+                && match &e.kind {
+                    Kind::Npc(c) => c.dead_ticks.is_some(),
+                    Kind::EndCrystal(_) => e.health <= 0.0,
+                    _ => false,
+                }
+        });
+        if ends {
+            self.ending.insert(id);
+        }
+    }
+
+    /// Puts an entity into a new slot at the end.
+    fn push(&mut self, entity: Entity) -> Id {
+        let index = u32::try_from(self.slots.len()).unwrap_or(u32::MAX);
+        self.slots.push(Slot {
+            generation: self.retired,
+            entity: Some(entity),
+        });
+        Id::new(index, self.retired)
+    }
+
+    /// Moves an entity's index entry to the chunk of its position; both chunks change.
+    fn reindex(&mut self, id: Id) {
+        let Some(e) = self.get_mut(id) else {
+            return;
+        };
+        let to = chunk_of(e.body.position);
+        let from = e.chunk;
+        if to == from {
+            return;
+        }
+        e.chunk = to;
+        let world = e.world;
+        if let Some(column) = self.columns.get_mut(&(world, from)) {
+            column.ids.remove(&id);
+            if column.ids.is_empty() {
+                self.columns.remove(&(world, from));
+            }
+        }
+        let column = self.columns.entry((world, to)).or_default();
+        column.ids.insert(id);
+        column.arrived.insert(id);
+        self.changed.insert((world, from));
+        self.changed.insert((world, to));
+    }
+
+    /// Takes an entity out of its slot and every index. Trailing free slots are dropped, so the
+    /// store returns to empty.
+    fn take(&mut self, id: Id) -> Option<Entity> {
+        let index = usize::try_from(id.index()).ok()?;
+        let slot = self.slots.get_mut(index)?;
+        if slot.generation != id.generation() {
+            return None;
+        }
+        let entity = slot.entity.take()?;
+        slot.generation = slot.generation.wrapping_add(1);
+        self.free.insert(id.index());
+        while self.slots.last().is_some_and(|s| s.entity.is_none()) {
+            if let Some(last) = self.slots.pop() {
+                self.retired = self.retired.max(last.generation);
+                self.free
+                    .remove(&u32::try_from(self.slots.len()).unwrap_or(u32::MAX));
+            }
+        }
+        if let Some(n) = self.counts.get_mut(&entity.world) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                self.counts.remove(&entity.world);
+            }
+        }
+        let key = (entity.world, entity.chunk);
+        if let Some(column) = self.columns.get_mut(&key) {
+            column.ids.remove(&id);
+            if column.ids.is_empty() {
+                self.columns.remove(&key);
+            }
+        }
+        if entity.runtime_id != 0 {
+            self.runtime_ids.remove(&entity.runtime_id);
+        }
+        self.doomed.remove(&id);
+        self.ending.remove(&id);
+        self.restep.remove(&id);
+        self.spawned.remove(&id);
+        self.changed.insert(key);
+        Some(entity)
+    }
+
+    /// [`Entities::get`], to change.
+    fn get_mut(&mut self, id: Id) -> Option<&mut Entity> {
+        let slot = self.slots.get_mut(usize::try_from(id.index()).ok()?)?;
+        if slot.generation != id.generation() {
+            return None;
+        }
+        slot.entity.as_mut()
     }
 }
 
@@ -1766,7 +1782,7 @@ impl Change {
         let now_still = if still == was_still { e.still } else { still };
         let turned = (e.yaw - e.sent.yaw) * (e.yaw - e.sent.yaw)
             + (e.pitch - e.sent.pitch) * (e.pitch - e.sent.pitch)
-            > 1.0;
+            > TURN_SQUARED;
         let radius = match &e.kind {
             Kind::Cloud(c) if (c.radius - e.sent.radius).abs() >= RADIUS_STEP => Some(c.radius),
             _ => None,
@@ -1775,7 +1791,8 @@ impl Change {
             still: now_still,
             flags: track::flags(e, now_still),
             moved: track::has_moved(e) || turned || (!was_still && still),
-            sped: (e.body.motion - e.sent.motion).length_squared() > 0.0025 || was_still != still,
+            sped: (e.body.motion - e.sent.motion).length_squared() > MOTION_CHANGE_SQUARED
+                || was_still != still,
             radius,
             health: e.kind.custom().is_some() && e.health != e.sent.health,
         }
@@ -1830,10 +1847,10 @@ fn physics_block(v: f64) -> i32 {
     v.floor() as i32
 }
 
-/// Whether a point may hold an entity: finite and inside the world border on every axis, as a
-/// player's position (so its `f32` in packets is finite too).
-pub(super) fn is_valid_position(v: Vec3) -> bool {
-    super::inside_border(v)
+/// The ticks `seconds` of fire burn for, saturating at the `i16` that burning is counted in.
+fn burn_ticks(seconds: i16) -> i16 {
+    let ticks = i64::from(seconds) * i64::from(crate::Context::TICKS_PER_SECOND);
+    i16::try_from(ticks).unwrap_or(if seconds < 0 { i16::MIN } else { i16::MAX })
 }
 
 /// Whether an explosion of `size` at `center` happens: a valid position and a finite size above
@@ -1851,66 +1868,64 @@ fn is_valid_scale(scale: f64, kind: &Kind) -> bool {
         && physics.height * scale <= custom::MAX_SIZE
 }
 
-/// Whether [`create`] makes an entity at `position` in `world`: the world exists, the position
-/// is valid and loaded, the world is below its cap and runtime IDs remain. A caller that changes
-/// the world for the entity asks first, so a refusal leaves the world as it was.
-pub(super) fn can_create(state: &State, world: WorldIndex, position: Vec3) -> bool {
-    state
-        .worlds
-        .get(world)
-        .is_some_and(|w| is_valid_position(position) && w.is_chunk_loaded(chunk_of(position)))
-        && state.rules.entities.count(world) < MAX_ENTITIES_PER_WORLD
-        && state.next_runtime_id.checked_add(1).is_some()
-}
-
-/// Creates an entity of `kind` at `position` with the motion and rotation (yaw, pitch) `motion`
-/// gives once it has its runtime ID; `None` when [`can_create`] refuses.
-fn create(
-    state: &mut State,
-    world: WorldIndex,
-    position: Vec3,
-    kind: Kind,
-    motion: impl FnOnce(&mut Random) -> (Vec3, f64, f64),
-) -> Option<Id> {
-    if !can_create(state, world, position) {
-        return None;
-    }
-    let w = state.worlds.get(world)?;
-    let runtime_id = state.next_runtime_id;
-    let next = runtime_id.checked_add(1)?;
-    let mut random = Random::new(
-        w.seed(),
-        state.tick,
-        random::key(DROP_RANDOM, &[runtime_id]),
-    );
-    let (motion, yaw, pitch) = motion(&mut random);
-    state.next_runtime_id = next;
-    let body = Body {
-        position,
-        motion: physics::bounded(motion),
-        ..Body::default()
-    };
-    let mut entity = Entity::new(world, body, yaw, pitch, kind);
-    given(&mut entity, runtime_id);
-    let heard = is_spawn_heard(state);
-    let entities = &mut state.rules.entities;
-    let id = entities.insert(entity);
-    entities.runtime_ids.insert(runtime_id, id);
-    if heard {
-        entities.spawned.insert(id);
-    }
-    Some(id)
-}
-
-/// Whether someone listens to the spawn of entities ([`EntitySpawn`], [`ItemSpawn`]).
-fn is_spawn_heard(state: &State) -> bool {
-    dispatch::heard::<EntitySpawn>(state) || dispatch::heard::<ItemSpawn>(state)
-}
-
 /// Takes an entity that was never shown out of the store at once: a projectile whose launch a
 /// listener cancelled. Its spawn is not announced and no despawn follows.
 fn discard(state: &mut State, id: Id) {
     let _gone = state.rules.entities.take(id);
+}
+
+/// The entity with runtime ID `runtime_id`, for packets that name one (attacks and interactions).
+pub(super) fn find(state: &State, runtime_id: u64) -> Option<Id> {
+    state.rules.entities.runtime_ids.get(&runtime_id).copied()
+}
+
+/// Removes an entity at the end of this tick (killed, used up), with its removal sent to its
+/// viewers. False if it is gone already.
+#[cfg(test)]
+pub(super) fn remove(state: &mut State, id: Id) -> bool {
+    state.rules.entities.doom(id)
+}
+
+/// Marks the entities whose box touches the cell of `pos` to move at their next tick even at
+/// rest, as the block at `pos` changed or is next to one that did, so an item falls when the
+/// block under it goes. Block updates call it for each changed block and its neighbours.
+pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
+    let at = pos.to_corner();
+    let cell = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
+    let entities = &mut state.rules.entities;
+    for id in entities.nearby(world, cell) {
+        if let Some(e) = entities.get_mut(id) {
+            e.forced = true;
+        }
+    }
+}
+
+/// Ticks every entity once: physics on the CPU pool (read-only), then the results applied in
+/// entity order, then pickups, removals and tracking.
+pub(super) fn tick(state: &mut State, pool: &Pool) {
+    tick_with(state, pool, HOOKS);
+}
+
+/// Ticks every entity once like [`tick`], with the given hooks.
+fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
+    state.rules.entities.despawn_heard = dispatch::heard::<EntityDespawn>(state);
+    assign_runtime_ids(state);
+    announce(state);
+    let mut steps = std::mem::take(&mut state.rules.entities.steps);
+    compute(state, pool, &mut steps);
+    index_players(state);
+    apply_steps(state, &mut steps, hooks);
+    state.rules.entities.steps = steps;
+    let entities = &mut state.rules.entities;
+    entities.players.clear();
+    entities.players_fresh = false;
+    pick_up(state, hooks);
+    announce(state);
+    remove_flagged(state);
+    lightning::remove_due(state);
+    let mut budget = spawn_budget(state);
+    track_entities(state, &mut budget);
+    track_players(state, &mut budget);
 }
 
 /// Announces the entities that left with their chunk ([`EntityDespawn`]) and those that
@@ -1945,224 +1960,7 @@ fn announce(state: &mut State) {
     }
 }
 
-/// A random yaw from 0 up to 360 degrees, kept to float precision as saved.
-fn random_yaw(random: &mut Random) -> f64 {
-    f64::from(to_f32(random.unit() * 360.0))
-}
-
-/// Drops `stack` as an item entity at `pos` with a random motion and the default pickup delay.
-/// False (nothing created, the caller keeps the stack) when the world's entity limit is reached
-/// or the position is not loaded; true for an empty stack, which drops nothing.
-pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: Stack) -> bool {
-    drop_item_with(
-        state,
-        world,
-        pos,
-        stack,
-        None,
-        DROP_PICKUP_DELAY_TICKS,
-        String::new(),
-    )
-}
-
-/// [`drop_item`] with a given motion (`None`: a random one), pickup delay in ticks and thrower
-/// (the name of the player who throws it, saved with it; empty for none), for items a player
-/// throws (its look direction × 0.4, delay 40).
-pub(super) fn drop_item_with(
-    state: &mut State,
-    world: WorldIndex,
-    pos: Vec3,
-    stack: Stack,
-    motion: Option<Vec3>,
-    pickup_delay: i16,
-    thrower: String,
-) -> bool {
-    stack.is_empty()
-        || drop_stack(state, world, pos, stack, motion, pickup_delay, thrower).is_some()
-}
-
-/// [`drop_item_with`] for a stack that is not empty, giving the new entity.
-fn drop_stack(
-    state: &mut State,
-    world: WorldIndex,
-    pos: Vec3,
-    stack: Stack,
-    motion: Option<Vec3>,
-    pickup_delay: i16,
-    thrower: String,
-) -> Option<Id> {
-    let item = Item {
-        stack,
-        pickup_delay: max_delay(pickup_delay),
-        despawn_delay: item_despawn_delay_ticks(state),
-        owner: String::new(),
-        thrower,
-    };
-    create(state, world, pos, Kind::Item(item), |r| {
-        let yaw = random_yaw(r);
-        let motion = motion.unwrap_or_else(|| {
-            let x = r.unit() * 0.2 - 0.1;
-            let z = r.unit() * 0.2 - 0.1;
-            Vec3::new(x, 0.2, z)
-        });
-        (motion, yaw, 0.0)
-    })
-}
-
-/// The ticks a dropped item lives (`item-despawn-ticks`, at most 72,000).
-fn item_despawn_delay_ticks(state: &State) -> i32 {
-    i32::try_from(state.settings.item_despawn_ticks).unwrap_or(i32::MAX)
-}
-
-/// A pickup delay of at least [`NEVER`].
-fn max_delay(d: i16) -> i16 {
-    d.max(NEVER)
-}
-
-/// Drops `amount` xp as orbs at `pos`, split into the orb sizes, each with a random motion. At
-/// the world's entity limit the rest is not dropped: xp is not an item a caller can keep.
-/// Without orbs ([`Settings::has_orbs`]) nothing drops: every rule that gives xp (mobs, trades,
-/// bottles, deaths) comes here.
-///
-/// [`Settings::has_orbs`]: super::Settings::has_orbs
-pub(super) fn drop_xp(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
-    drop_orbs(state, world, pos, amount);
-}
-
-/// [`drop_xp`], returning the points dropped.
-fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u32 {
-    if !state.settings.has_orbs() {
-        return 0;
-    }
-    let mut left = amount;
-    while left > 0 {
-        let size = ORB_SPLIT_SIZES
-            .into_iter()
-            .find(|&s| u32::from(s) <= left)
-            .unwrap_or(1);
-        let orb = Orb {
-            value: size,
-            despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
-            look_for_target: 0,
-            target: None,
-        };
-        let made = create(state, world, pos, Kind::XpOrb(orb), |r| {
-            let yaw = random_yaw(r);
-            let x = (r.unit() * 0.2 - 0.1) * 2.0;
-            let y = r.unit() * 0.4;
-            let z = (r.unit() * 0.2 - 0.1) * 2.0;
-            (Vec3::new(x, y, z), yaw, 0.0)
-        });
-        if made.is_none() {
-            break;
-        }
-        left = left.saturating_sub(u32::from(size));
-    }
-    amount - left
-}
-
-/// Turns the block at `pos` into a falling block entity: the block becomes air and the entity
-/// starts at the bottom center of its cell. False, with the block left as it is, when
-/// [`can_create`] refuses or `pos` is outside the world height.
-#[cfg(test)]
-pub(super) fn fall(
-    state: &mut State,
-    world: WorldIndex,
-    pos: BlockPos,
-    block: block::State,
-) -> bool {
-    let at = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y),
-        f64::from(pos.z) + 0.5,
-    );
-    if !can_create(state, world, at) {
-        return false;
-    }
-    let Some(w) = state.worlds.get_mut(world) else {
-        return false;
-    };
-    if w.set_block(pos, block::AIR).is_err() {
-        return false;
-    }
-    let kind = Kind::FallingBlock(Falling { block });
-    create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).expect("the entity is made");
-    true
-}
-
-/// The entity with runtime ID `runtime_id`, for packets that name one (attacks and interactions).
-pub(super) fn find(state: &State, runtime_id: u64) -> Option<Id> {
-    state.rules.entities.runtime_ids.get(&runtime_id).copied()
-}
-
-/// Removes an entity at the end of this tick (killed, used up), with its removal sent to its
-/// viewers. False if it is gone already.
-#[cfg(test)]
-pub(super) fn remove(state: &mut State, id: Id) -> bool {
-    state.rules.entities.doom(id)
-}
-
-/// The block at `pos` changed or is next to one that did: the entities whose box touches its
-/// cell move at their next tick even at rest, so an item falls when the block under it goes.
-/// Block updates call it for each changed block and its neighbours.
-pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let at = pos.to_corner();
-    let cell = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
-    let entities = &mut state.rules.entities;
-    for id in entities.nearby(world, cell) {
-        if let Some(e) = entities.get_mut(id) {
-            e.forced = true;
-        }
-    }
-}
-
-/// One tick of every entity: physics on the CPU pool (read-only), then the results applied in
-/// entity order, then pickups, removals and tracking.
-pub(super) fn tick(state: &mut State, pool: &Pool) {
-    tick_with(state, pool, HOOKS);
-}
-
-/// [`tick`] with the given hooks.
-fn tick_with(state: &mut State, pool: &Pool, hooks: Hooks) {
-    state.rules.entities.despawn_heard = dispatch::heard::<EntityDespawn>(state);
-    assign_runtime_ids(state);
-    announce(state);
-    let mut steps = std::mem::take(&mut state.rules.entities.steps);
-    compute(state, pool, &mut steps);
-    index_players(state);
-    apply_steps(state, &mut steps, hooks);
-    state.rules.entities.steps = steps;
-    let entities = &mut state.rules.entities;
-    entities.players.clear();
-    entities.players_fresh = false;
-    pick_up(state, hooks);
-    announce(state);
-    remove_flagged(state);
-    lightning::remove_due(state);
-    let mut budget = spawn_budget(state);
-    track_entities(state, &mut budget);
-    track_players(state, &mut budget);
-}
-
-/// The movement of `e` this tick, from its state now; `None` if its world is gone.
-fn step_of(worlds: &Worlds, tick: u64, e: &Entity) -> Option<Step> {
-    let world = worlds.get(e.world)?;
-    let key = random::key(UNSTICK_RANDOM, &[e.runtime_id]);
-    let stuck = match &e.kind {
-        Kind::Projectile(p) => p.stuck,
-        _ => None,
-    };
-    let input = physics::Input {
-        body: e.body,
-        physics: e.physics(),
-        forced: e.forced,
-        random: (world.seed(), tick, key),
-        stuck,
-    };
-    Some(physics::step(world, &input))
-}
-
-/// Phase 2: the movement of every ticking entity, on the CPU pool, in `Id` order, with the body
+/// Computes the movement of every ticking entity, on the CPU pool, in `Id` order, with the body
 /// it was computed from, put in `steps` (emptied first). Each pool task reads its entity and
 /// builds its input itself, so the tick thread only lists the entities.
 fn compute(state: &mut State, pool: &Pool, steps: &mut Vec<Computed>) {
@@ -2186,7 +1984,7 @@ fn live(slots: &[Slot], id: Id) -> Option<&Entity> {
         .flatten()
 }
 
-/// Phase 3: the steps applied and the kind rules run, in `Id` order; an entity whose body
+/// Applies the steps and runs the kind rules, in `Id` order; an entity whose body
 /// changed since its step was computed (a rule's knockback or push), or that is in
 /// [`Entities::restep`], moves again from its new state. `steps` is emptied.
 fn apply_steps(state: &mut State, steps: &mut Vec<Computed>, hooks: Hooks) {
@@ -2216,6 +2014,24 @@ fn restep(state: &State, id: Id) -> Option<Step> {
     step_of(&state.worlds, state.tick, state.rules.entities.get(id)?)
 }
 
+/// The movement of `e` this tick, from its state now; `None` if its world is gone.
+fn step_of(worlds: &Worlds, tick: u64, e: &Entity) -> Option<Step> {
+    let world = worlds.get(e.world)?;
+    let key = random::key(UNSTICK_RANDOM, &[e.runtime_id]);
+    let stuck = match &e.kind {
+        Kind::Projectile(p) => p.stuck,
+        _ => None,
+    };
+    let input = physics::Input {
+        body: e.body,
+        physics: e.physics(),
+        forced: e.forced,
+        random: (world.seed(), tick, key),
+        stuck,
+    };
+    Some(physics::step(world, &input))
+}
+
 /// Gives the loaded entities their runtime IDs, in load order.
 fn assign_runtime_ids(state: &mut State) {
     let heard = is_spawn_heard(state);
@@ -2236,18 +2052,6 @@ fn assign_runtime_ids(state: &mut State) {
         if heard {
             entities.spawned.insert(id);
         }
-    }
-}
-
-/// Gives an entity its runtime ID (and a human NPC the player list UUID made from it).
-fn given(e: &mut Entity, runtime_id: u64) {
-    e.runtime_id = runtime_id;
-    if let Kind::Npc(Character {
-        form: Form::Human { uuid, .. },
-        ..
-    }) = &mut e.kind
-    {
-        *uuid = track::npc_uuid(runtime_id);
     }
 }
 
@@ -2371,8 +2175,8 @@ fn apply(state: &mut State, id: Id, step: Step, hooks: Hooks, budget: &mut Budge
     }
 }
 
-/// The blocks an entity is inside, the void and burning. Entities never sneak nor wear boots:
-/// magma spares none that is living.
+/// Applies the blocks an entity is inside, the void and burning. Entities never sneak nor wear
+/// boots: magma spares none that is living.
 fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
     for inside in inside {
         match inside {
@@ -2441,21 +2245,6 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
 /// Whether projectiles hit it: living things, and end crystals while they live.
 fn is_projectile_target(e: &Entity) -> bool {
     e.kind.is_living() || (matches!(e.kind, Kind::EndCrystal(_)) && e.health > 0.0)
-}
-
-/// Whether the entity exists and is not flagged.
-fn is_live(state: &State, id: Id) -> bool {
-    state.rules.entities.get(id).is_some_and(|e| !e.flagged)
-}
-
-/// Runs `f` on the entity `id` if it exists and is not flagged.
-fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Option<T> {
-    state
-        .rules
-        .entities
-        .get_mut(id)
-        .filter(|e| !e.flagged)
-        .map(f)
 }
 
 /// Hurts the entity `id` as the game does, with the events: [`EntityDamage`] before the health
@@ -2554,16 +2343,6 @@ fn broken_by(state: &mut State, id: Id, source: DamageSource) {
     }
 }
 
-/// How `blow` would hurt the live entity `id` ([`Entity::plan_hit`]).
-fn plan_of(state: &State, id: Id, blow: Blow) -> Option<Plan> {
-    state
-        .rules
-        .entities
-        .get(id)
-        .filter(|e| !e.flagged)
-        .and_then(|e| e.plan_hit(blow.cause, blow.amount))
-}
-
 /// Raises [`EntityDamage`] for `blow` on the entity `id` as `plan`ned, with the knockback
 /// `knock` gives: what the hit takes and its knockback as the listeners leave them, and the
 /// event; `None` when a listener cancelled it or changed the game so that the hit no longer
@@ -2595,6 +2374,30 @@ fn damage_event(
     Some((taken, knock, e))
 }
 
+/// Ignores `blow` on an invulnerable NPC (see [`hurt`]); one an entity dealt (a player's hit, a
+/// projectile) still raises [`EntityDamage`], already cancelled, so listeners learn who hit it,
+/// as the event of a hit that does not land is raised cancelled. The NPC takes nothing
+/// whatever they do, and no monitor sees a cancelled event. A blow of nothing or a block (a
+/// fall, a cactus) raises nothing.
+fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
+    let dealt = matches!(
+        blow.source,
+        DamageSource::Entity(_) | DamageSource::Child { .. }
+    );
+    let invulnerable = state.rules.entities.get(id).is_some_and(|e| {
+        !e.flagged && matches!(&e.kind, Kind::Npc(c) if c.invulnerable && c.dead_ticks.is_none())
+    });
+    if dealt
+        && invulnerable
+        && (0.0..=MAX_DAMAGE).contains(&blow.amount)
+        && dispatch::heard::<EntityDamage>(state)
+    {
+        let mut e = damage_of(id, blow, None, knock);
+        e.cancelled = true;
+        dispatch::call(state, &mut e);
+    }
+}
+
 /// [`EntityDamage`] for `blow` on the entity `id`, not cancelled: with the cooldown modifier of a
 /// hit within the cooldown of a `previous` one, and the knockback `knock` gives.
 fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) -> EntityDamage {
@@ -2622,32 +2425,18 @@ fn damage_of(id: Id, blow: Blow, previous: Option<f64>, knock: Option<Knock>) ->
     }
 }
 
-/// An invulnerable NPC ignores `blow` (see [`hurt`]); one an entity dealt (a player's hit, a
-/// projectile) still raises [`EntityDamage`], already cancelled, so listeners learn who hit it,
-/// as the event of a hit that does not land is raised cancelled. The NPC takes nothing
-/// whatever they do, and no monitor sees a cancelled event. A blow of nothing or a block (a
-/// fall, a cactus) raises nothing.
-fn shielded(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) {
-    let dealt = matches!(
-        blow.source,
-        DamageSource::Entity(_) | DamageSource::Child { .. }
-    );
-    let invulnerable = state.rules.entities.get(id).is_some_and(|e| {
-        !e.flagged && matches!(&e.kind, Kind::Npc(c) if c.invulnerable && c.dead_ticks.is_none())
-    });
-    if dealt
-        && invulnerable
-        && (0.0..=MAX_DAMAGE).contains(&blow.amount)
-        && dispatch::heard::<EntityDamage>(state)
-    {
-        let mut e = damage_of(id, blow, None, knock);
-        e.cancelled = true;
-        dispatch::call(state, &mut e);
-    }
+/// How `blow` would hurt the live entity `id` ([`Entity::plan_hit`]).
+fn plan_of(state: &State, id: Id, blow: Blow) -> Option<Plan> {
+    state
+        .rules
+        .entities
+        .get(id)
+        .filter(|e| !e.flagged)
+        .and_then(|e| e.plan_hit(blow.cause, blow.amount))
 }
 
-/// The NPC `id` died at `at`, seen at its first tick after the death, whatever killed it (a
-/// hit, the API): it drops its kind's drops and xp (a zombie's; other NPCs drop nothing; no xp
+/// Handles the death of the NPC `id` at `at`, seen at its first tick after the death, whatever
+/// killed it (a hit, the API): it drops its kind's drops and xp (a zombie's; other NPCs drop nothing; no xp
 /// with `xp = false`), as [`EntityDeath`]'s listeners leave them. Drops the world cannot take
 /// now (the entity limit) wait as a spill ([`block_entity::drop_all`]).
 fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
@@ -2698,7 +2487,7 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
         Stack::new(kind.default_type(), u8::try_from(count).unwrap_or(0))
     };
     let mut drops = vec![one(crate::item::Kind::RottenFlesh, r.range(0, 2))];
-    if r.range(0, 199) < 5 {
+    if r.range(0, ZOMBIE_RARE_DROP_MAX_ROLL) < ZOMBIE_RARE_DROP_WINNING_ROLLS {
         let rare = [
             crate::item::Kind::IronIngot,
             crate::item::Kind::Carrot,
@@ -2768,18 +2557,6 @@ fn combust(state: &mut State, id: Id, seconds: i16, source: CombustSource) {
     dispatch::watch(state, &e);
 }
 
-/// The entity `id` stopped burning ([`EntityExtinguish`], after the change).
-fn extinguished(state: &mut State, id: Id, cause: ExtinguishCause) {
-    if dispatch::heard::<EntityExtinguish>(state) {
-        let mut e = EntityExtinguish {
-            entity: Actor::Entity(id),
-            cause,
-        };
-        dispatch::call(state, &mut e);
-        dispatch::watch(state, &e);
-    }
-}
-
 /// Puts the entity `id` out for `cause`; true if it was burning.
 fn put_out(state: &mut State, id: Id, cause: ExtinguishCause) -> bool {
     let burning = with(state, id, |e| {
@@ -2791,6 +2568,18 @@ fn put_out(state: &mut State, id: Id, cause: ExtinguishCause) -> bool {
         extinguished(state, id, cause);
     }
     burning
+}
+
+/// Raises [`EntityExtinguish`] for the entity `id` that stopped burning (after the change).
+fn extinguished(state: &mut State, id: Id, cause: ExtinguishCause) {
+    if dispatch::heard::<EntityExtinguish>(state) {
+        let mut e = EntityExtinguish {
+            entity: Actor::Entity(id),
+            cause,
+        };
+        dispatch::call(state, &mut e);
+        dispatch::watch(state, &e);
+    }
 }
 
 /// The world of the entity `id` and its block at `pos`.
@@ -2840,7 +2629,8 @@ fn heal(state: &mut State, id: Id, amount: f64, reason: RegainReason) {
     }
 }
 
-/// [`hurt`] on the store and the players, without events (the API and the rules' quiet path).
+/// Hurts like [`hurt`] on the store and the players, without events (the API and the rules'
+/// quiet path).
 fn hurt_in(
     entities: &mut Entities,
     players: &mut BTreeMap<SessionId, Player>,
@@ -2973,16 +2763,6 @@ pub(super) fn direction(yaw: f64, pitch: f64) -> Vec3 {
     .normalize()
 }
 
-/// An `ActorEvent` of an entity.
-fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
-    Packet::ActorEvent(ActorEventPacket {
-        entity_runtime_id: runtime_id,
-        event_type: event as u8,
-        event_data: data,
-        fire_at_position: None,
-    })
-}
-
 /// The rule of a kind.
 fn rule_of(kind: &Kind) -> Rule {
     match kind {
@@ -2997,12 +2777,12 @@ fn rule_of(kind: &Kind) -> Rule {
             ..
         }) => Rule::Custom,
         Kind::Npc(_) => Rule::Npc,
-        Kind::Firework(_) => Rule::Firework,
         Kind::Painting(_) | Kind::EndCrystal(_) => Rule::Inert,
+        Kind::Firework(_) => Rule::Firework,
     }
 }
 
-/// An item's tick: the pickup delay, merging, despawning.
+/// Ticks an item: the pickup delay, merging, despawning.
 fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     let entities = &mut state.rules.entities;
     let Some(e) = entities.get_mut(id) else {
@@ -3042,7 +2822,7 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     }
 }
 
-/// A dropped item's time is up: [`ItemDespawn`], whose
+/// Despawns a dropped item whose time is up through [`ItemDespawn`], whose
 /// cancelling gives it the whole time again; a listener that gave it time itself keeps it.
 fn despawn_item(state: &mut State, id: Id) {
     let due = |state: &State| {
@@ -3072,28 +2852,6 @@ fn despawn_item(state: &mut State, id: Id) {
     }
     with(state, id, |e| e.flagged = true);
     dispatch::watch(state, &e);
-}
-
-/// Whether the item can merge: it can be picked up and its stack is not full.
-fn is_merge_candidate(item: &Item) -> bool {
-    item.pickup_delay != NEVER && item.stack.count() < item.stack.max_stack_size()
-}
-
-/// Whether two items merge: two candidates of stacking stacks that fit one stack.
-fn is_mergeable(a: &Item, b: &Item) -> bool {
-    is_merge_candidate(a)
-        && is_merge_candidate(b)
-        && a.stack.can_stack_with(&b.stack)
-        && u16::from(a.stack.count()) + u16::from(b.stack.count())
-            <= u16::from(a.stack.max_stack_size())
-}
-
-/// The item data of an unflagged dropped item.
-fn as_item(e: &Entity) -> Option<&Item> {
-    match &e.kind {
-        Kind::Item(item) if !e.flagged => Some(item),
-        _ => None,
-    }
 }
 
 /// Merges the items around `id` into the one with the largest stack.
@@ -3191,41 +2949,33 @@ fn merge_now(state: &mut State, source: Id, target: Id) -> bool {
     ti.stack = ti.stack.with_count(count);
     ti.pickup_delay = ti.pickup_delay.max(delay);
     ti.despawn_delay = ti.despawn_delay.max(despawn);
-    let packet = stack_size(t.runtime_id, count);
+    let packet = actor_event(t.runtime_id, ActorEvent::UpdateStackSize, i32::from(count));
     let key = (t.world, t.chunk);
     send_to(&mut state.players, &t.viewers, &packet);
     entities.changed.insert(key);
     true
 }
 
-/// `ActorEvent` with an item entity's new count.
-fn stack_size(runtime_id: u64, count: u8) -> Packet {
-    Packet::ActorEvent(ActorEventPacket {
-        entity_runtime_id: runtime_id,
-        event_type: ActorEvent::UpdateStackSize as u8,
-        event_data: i32::from(count),
-        fire_at_position: None,
-    })
+/// Whether two items merge: two candidates of stacking stacks that fit one stack.
+fn is_mergeable(a: &Item, b: &Item) -> bool {
+    is_merge_candidate(a)
+        && is_merge_candidate(b)
+        && a.stack.can_stack_with(&b.stack)
+        && u16::from(a.stack.count()) + u16::from(b.stack.count())
+            <= u16::from(a.stack.max_stack_size())
 }
 
-/// Queues `packet` for every viewer still online.
-fn send_to(
-    players: &mut BTreeMap<SessionId, Player>,
-    viewers: &BTreeSet<SessionId>,
-    packet: &Packet,
-) {
-    for s in viewers {
-        if let Some(p) = players.get_mut(s) {
-            p.send_packet(packet.clone());
-        }
+/// Whether the item can merge: it can be picked up and its stack is not full.
+fn is_merge_candidate(item: &Item) -> bool {
+    item.pickup_delay != NEVER && item.stack.count() < item.stack.max_stack_size()
+}
+
+/// The item data of an unflagged dropped item.
+fn as_item(e: &Entity) -> Option<&Item> {
+    match &e.kind {
+        Kind::Item(item) if !e.flagged => Some(item),
+        _ => None,
     }
-}
-
-/// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator.
-fn can_collect(state: &State, player: &Player, hooks: Hooks) -> bool {
-    player.phase == Phase::Spawned
-        && (hooks.is_alive)(player)
-        && survival::game_mode(state, player) != GameMode::Spectator
 }
 
 /// Builds the players' index of this entity tick ([`Entities::players`]): one sort of every
@@ -3244,10 +2994,98 @@ fn index_players(state: &mut State) {
     rules.entities.players_fresh = true;
 }
 
-/// A player moved during the entity tick (a pearl's teleport): the players' index no longer
-/// says where everyone is, so the lookups of the rest of the tick pass over every player.
+/// Notes that a player moved during the entity tick (a pearl's teleport): the players' index no
+/// longer says where everyone is, so the lookups of the rest of the tick pass over every player.
 pub(super) fn player_moved(state: &mut State) {
     state.rules.entities.players_fresh = false;
+}
+
+/// Ticks an orb: despawning, following the nearest
+/// player within 8 blocks, and giving it the xp on touch.
+fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
+    let Some(e) = state.rules.entities.get(id) else {
+        return;
+    };
+    let Kind::XpOrb(orb) = &e.kind else {
+        return;
+    };
+    let (world, position, bounds) = (e.world, e.body.position, e.bounding_box());
+    let mut despawn = orb.despawn_delay;
+    // Never (-1) is not counted down: such an orb stays.
+    if despawn != i32::from(NEVER) {
+        despawn -= 1;
+        if despawn <= 0 {
+            if let Some(e) = state.rules.entities.get_mut(id) {
+                e.flagged = true;
+                if let Kind::XpOrb(orb) = &mut e.kind {
+                    orb.despawn_delay = despawn;
+                }
+            }
+            return;
+        }
+    }
+    let reach = ORB_TARGET_DISTANCE * ORB_TARGET_DISTANCE;
+    let valid = |s: &SessionId| {
+        state.players.get(s).filter(|p| {
+            p.world == world
+                && can_collect(state, p, hooks)
+                && p.can_attract_xp_orbs()
+                && survival::feet(p).distance_squared(position) <= reach
+        })
+    };
+    let mut target = orb.target.filter(|s| valid(s).is_some());
+    let mut look = orb.look_for_target;
+    if look >= ORB_LOOK_PERIOD_TICKS {
+        if target.is_none() {
+            let mut best = reach;
+            // One block past the reach, so the box of every player with its feet in reach
+            // overlaps the area.
+            let around = Vec3::new(1.0, 1.0, 1.0) * (ORB_TARGET_DISTANCE + 1.0);
+            let area = Aabb::new(position - around, position + around);
+            each_player_in(state, world, area, hooks, |s, p| {
+                let d = survival::feet(p).distance_squared(position);
+                if p.can_attract_xp_orbs() && d < best {
+                    best = d;
+                    target = Some(s);
+                }
+            });
+        }
+        look = 0;
+    } else {
+        look += 1;
+    }
+    let mut pull = Vec3::ZERO;
+    let mut picker = None;
+    if let Some(p) = target.and_then(|s| state.players.get(&s)) {
+        let aim = survival::feet(p) + Vec3::new(0.0, EYE_HEIGHT / 2.0, 0.0);
+        let vector = (aim - position) * (1.0 / ORB_TARGET_DISTANCE);
+        let distance = vector.length_squared();
+        if distance < 1.0 {
+            let k = 1.0 - distance.sqrt();
+            pull = vector.normalize() * (ORB_PULL_STRENGTH * k * k);
+        }
+        if bounds.overlaps(survival::bounding_box(p), EPSILON) {
+            picker = target;
+        }
+    }
+    let Some(e) = state.rules.entities.get_mut(id) else {
+        return;
+    };
+    e.body.motion = physics::bounded(e.body.motion + pull);
+    let Kind::XpOrb(orb) = &mut e.kind else {
+        return;
+    };
+    orb.despawn_delay = despawn;
+    orb.look_for_target = look;
+    orb.target = target;
+    let value = orb.value;
+    // The orb goes only when the player can pick it up.
+    if let Some(s) = picker
+        && (hooks.pickup_xp)(state, s, u32::from(value))
+        && let Some(e) = state.rules.entities.get_mut(id)
+    {
+        e.flagged = true;
+    }
 }
 
 /// Calls `f` with each player [`is_targetable`] in `world` whose box overlaps `area` by more than
@@ -3334,94 +3172,7 @@ fn is_targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks
     player.world == world && can_collect(state, player, hooks)
 }
 
-/// An orb's tick: despawning, following the nearest
-/// player within 8 blocks, and giving it the xp on touch.
-fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
-    let Some(e) = state.rules.entities.get(id) else {
-        return;
-    };
-    let Kind::XpOrb(orb) = &e.kind else {
-        return;
-    };
-    let (world, position, bounds) = (e.world, e.body.position, e.bounding_box());
-    let mut despawn = orb.despawn_delay;
-    // Never (-1) is not counted down: such an orb stays.
-    if despawn != i32::from(NEVER) {
-        despawn -= 1;
-        if despawn <= 0 {
-            if let Some(e) = state.rules.entities.get_mut(id) {
-                e.flagged = true;
-                if let Kind::XpOrb(orb) = &mut e.kind {
-                    orb.despawn_delay = despawn;
-                }
-            }
-            return;
-        }
-    }
-    let reach = ORB_TARGET_DISTANCE * ORB_TARGET_DISTANCE;
-    let valid = |s: &SessionId| {
-        state.players.get(s).filter(|p| {
-            p.world == world
-                && can_collect(state, p, hooks)
-                && p.can_attract_xp_orbs()
-                && survival::feet(p).distance_squared(position) <= reach
-        })
-    };
-    let mut target = orb.target.filter(|s| valid(s).is_some());
-    let mut look = orb.look_for_target;
-    if look >= ORB_LOOK_PERIOD_TICKS {
-        if target.is_none() {
-            let mut best = reach;
-            for (&s, p) in &state.players {
-                if p.world != world || !can_collect(state, p, hooks) || !p.can_attract_xp_orbs() {
-                    continue;
-                }
-                let d = survival::feet(p).distance_squared(position);
-                if d < best {
-                    best = d;
-                    target = Some(s);
-                }
-            }
-        }
-        look = 0;
-    } else {
-        look += 1;
-    }
-    let mut pull = Vec3::ZERO;
-    let mut picker = None;
-    if let Some(p) = target.and_then(|s| state.players.get(&s)) {
-        let aim = survival::feet(p) + Vec3::new(0.0, EYE_HEIGHT / 2.0, 0.0);
-        let vector = (aim - position) * (1.0 / ORB_TARGET_DISTANCE);
-        let distance = vector.length_squared();
-        if distance < 1.0 {
-            let k = 1.0 - distance.sqrt();
-            pull = vector.normalize() * (0.2 * k * k);
-        }
-        if bounds.overlaps(survival::bounding_box(p), EPSILON) {
-            picker = target;
-        }
-    }
-    let Some(e) = state.rules.entities.get_mut(id) else {
-        return;
-    };
-    e.body.motion = physics::bounded(e.body.motion + pull);
-    let Kind::XpOrb(orb) = &mut e.kind else {
-        return;
-    };
-    orb.despawn_delay = despawn;
-    orb.look_for_target = look;
-    orb.target = target;
-    let value = orb.value;
-    // The orb goes only when the player can pick it up.
-    if let Some(s) = picker
-        && (hooks.pickup_xp)(state, s, u32::from(value))
-        && let Some(e) = state.rules.entities.get_mut(id)
-    {
-        e.flagged = true;
-    }
-}
-
-/// A falling block's tick: on the ground it is placed where it is if that block can be
+/// Ticks a falling block: on the ground it is placed where it is if that block can be
 /// replaced, otherwise its item form drops. If the item cannot drop (the entity limit), the
 /// falling block stays and tries again next tick.
 fn falling_tick(state: &mut State, id: Id) {
@@ -3443,7 +3194,7 @@ fn falling_tick(state: &mut State, id: Id) {
     }
     let fits = (MIN_Y..=MAX_Y).contains(&pos.y)
         && w.block(pos).is_some_and(block::State::can_be_replaced)
-        && (position.y - position.y.floor()).abs() <= 0.001;
+        && (position.y - position.y.floor()).abs() <= LANDING_TOLERANCE;
     let done = if fits {
         let before = w.block(pos).unwrap_or(block::AIR);
         land(state, id, world, pos, before, falling.block)
@@ -3460,7 +3211,7 @@ fn falling_tick(state: &mut State, id: Id) {
     }
 }
 
-/// The falling block `id` becomes `to` at `pos`, where `before` is, through
+/// Turns the falling block `id` into `to` at `pos`, where `before` is, through
 /// [`EntityBlockChange`]: cancelling, or a listener leaving a block there that cannot be
 /// replaced, keeps the old block and the falling block goes all the same. True when the falling
 /// block is done; false to try again next tick (the block could not be set).
@@ -3506,7 +3257,12 @@ fn land(
     set
 }
 
-/// An entity hit the ground after falling `fall` blocks: an NPC takes fall damage
+/// Whether the entity exists and is not flagged.
+fn is_live(state: &State, id: Id) -> bool {
+    state.rules.entities.get(id).is_some_and(|e| !e.flagged)
+}
+
+/// Handles an entity that hit the ground after falling `fall` blocks: an NPC takes fall damage
 /// ([`npc::landed`]).
 fn landed(state: &mut State, id: Id, fall: f64) {
     if state
@@ -3519,7 +3275,225 @@ fn landed(state: &mut State, id: Id, fall: f64) {
     }
 }
 
-/// Players pick up the items they touch: what fits goes to the inventory; a stack taken whole is
+/// Drops `stack` as an item entity at `pos` with a random motion and the default pickup delay.
+/// False (nothing created, the caller keeps the stack) when the world's entity limit is reached
+/// or the position is not loaded; true for an empty stack, which drops nothing.
+pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: Stack) -> bool {
+    drop_item_with(
+        state,
+        world,
+        pos,
+        stack,
+        None,
+        DROP_PICKUP_DELAY_TICKS,
+        String::new(),
+    )
+}
+
+/// [`drop_item`] with a given motion (`None`: a random one), pickup delay in ticks and thrower
+/// (the name of the player who throws it, saved with it; empty for none), for items a player
+/// throws (its look direction × 0.4, delay 40).
+pub(super) fn drop_item_with(
+    state: &mut State,
+    world: WorldIndex,
+    pos: Vec3,
+    stack: Stack,
+    motion: Option<Vec3>,
+    pickup_delay: i16,
+    thrower: String,
+) -> bool {
+    stack.is_empty()
+        || drop_stack(state, world, pos, stack, motion, pickup_delay, thrower).is_some()
+}
+
+/// [`drop_item_with`] for a stack that is not empty, giving the new entity.
+fn drop_stack(
+    state: &mut State,
+    world: WorldIndex,
+    pos: Vec3,
+    stack: Stack,
+    motion: Option<Vec3>,
+    pickup_delay: i16,
+    thrower: String,
+) -> Option<Id> {
+    let item = Item {
+        stack,
+        pickup_delay: max_delay(pickup_delay),
+        despawn_delay: item_despawn_delay_ticks(state),
+        owner: String::new(),
+        thrower,
+    };
+    create(state, world, pos, Kind::Item(item), |r| {
+        let yaw = random_yaw(r);
+        let motion = motion.unwrap_or_else(|| {
+            let x = drop_spread(r);
+            let z = drop_spread(r);
+            Vec3::new(x, DROP_LIFT, z)
+        });
+        (motion, yaw, 0.0)
+    })
+}
+
+/// The ticks a dropped item lives (`item-despawn-ticks`, at most 72,000).
+fn item_despawn_delay_ticks(state: &State) -> i32 {
+    i32::try_from(state.settings.item_despawn_ticks).unwrap_or(i32::MAX)
+}
+
+/// A pickup delay of at least [`NEVER`].
+fn max_delay(d: i16) -> i16 {
+    d.max(NEVER)
+}
+
+/// Drops `amount` xp as orbs at `pos`, split into the orb sizes, each with a random motion. At
+/// the world's entity limit the rest is not dropped: xp is not an item a caller can keep.
+/// Without orbs ([`Settings::has_orbs`]) nothing drops: every rule that gives xp (mobs, trades,
+/// bottles, deaths) comes here.
+///
+/// [`Settings::has_orbs`]: super::Settings::has_orbs
+pub(super) fn drop_xp(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
+    drop_orbs(state, world, pos, amount);
+}
+
+/// [`drop_xp`], returning the points dropped (fewer at the world's entity limit).
+pub(super) fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u32 {
+    if !state.settings.has_orbs() {
+        return 0;
+    }
+    let mut left = amount;
+    while left > 0 {
+        let size = ORB_SPLIT_SIZES
+            .into_iter()
+            .find(|&s| u32::from(s) <= left)
+            .unwrap_or(1);
+        let orb = Orb {
+            value: size,
+            despawn_delay: DEFAULT_DESPAWN_DELAY_TICKS,
+            look_for_target: 0,
+            target: None,
+        };
+        let made = create(state, world, pos, Kind::XpOrb(orb), |r| {
+            let yaw = random_yaw(r);
+            let x = drop_spread(r) * 2.0;
+            let y = r.unit() * 0.4;
+            let z = drop_spread(r) * 2.0;
+            (Vec3::new(x, y, z), yaw, 0.0)
+        });
+        if made.is_none() {
+            break;
+        }
+        left = left.saturating_sub(u32::from(size));
+    }
+    amount - left
+}
+
+/// A random horizontal motion of a drop along one axis: from -0.1 up to 0.1.
+fn drop_spread(random: &mut Random) -> f64 {
+    random.unit() * 0.2 - 0.1
+}
+
+/// A random yaw from 0 up to 360 degrees, kept to float precision as saved.
+fn random_yaw(random: &mut Random) -> f64 {
+    f64::from(to_f32(random.unit() * 360.0))
+}
+
+/// Turns the block at `pos` into a falling block entity: the block becomes air and the entity
+/// starts at the bottom center of its cell. False, with the block left as it is, when
+/// [`can_create`] refuses or `pos` is outside the world height.
+#[cfg(test)]
+pub(super) fn fall(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+) -> bool {
+    let at = Vec3::new(
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y),
+        f64::from(pos.z) + 0.5,
+    );
+    if !can_create(state, world, at) {
+        return false;
+    }
+    let Some(w) = state.worlds.get_mut(world) else {
+        return false;
+    };
+    if w.set_block(pos, block::AIR).is_err() {
+        return false;
+    }
+    let kind = Kind::FallingBlock(Falling { block });
+    create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).expect("the entity is made");
+    true
+}
+
+/// Creates an entity of `kind` at `position` with the motion and rotation (yaw, pitch) `motion`
+/// gives once it has its runtime ID; `None` when [`can_create`] refuses.
+fn create(
+    state: &mut State,
+    world: WorldIndex,
+    position: Vec3,
+    kind: Kind,
+    motion: impl FnOnce(&mut Random) -> (Vec3, f64, f64),
+) -> Option<Id> {
+    if !can_create(state, world, position) {
+        return None;
+    }
+    let w = state.worlds.get(world)?;
+    let runtime_id = state.next_runtime_id;
+    let next = runtime_id.checked_add(1)?;
+    let mut random = Random::new(
+        w.seed(),
+        state.tick,
+        random::key(DROP_RANDOM, &[runtime_id]),
+    );
+    let (motion, yaw, pitch) = motion(&mut random);
+    state.next_runtime_id = next;
+    let body = Body {
+        position,
+        motion: physics::bounded(motion),
+        ..Body::default()
+    };
+    let mut entity = Entity::new(world, body, yaw, pitch, kind);
+    given(&mut entity, runtime_id);
+    let heard = is_spawn_heard(state);
+    let entities = &mut state.rules.entities;
+    let id = entities.insert(entity);
+    entities.runtime_ids.insert(runtime_id, id);
+    if heard {
+        entities.spawned.insert(id);
+    }
+    Some(id)
+}
+
+/// Whether [`create`] makes an entity at `position` in `world`: the world exists, the position
+/// is valid and loaded, the world is below its cap and runtime IDs remain. A caller that changes
+/// the world for the entity asks first, so a refusal leaves the world as it was.
+pub(super) fn can_create(state: &State, world: WorldIndex, position: Vec3) -> bool {
+    state
+        .worlds
+        .get(world)
+        .is_some_and(|w| is_valid_position(position) && w.is_chunk_loaded(chunk_of(position)))
+        && state.rules.entities.count(world) < MAX_ENTITIES_PER_WORLD
+        && state.next_runtime_id.checked_add(1).is_some()
+}
+
+/// Gives an entity its runtime ID (and a human NPC the player list UUID made from it).
+fn given(e: &mut Entity, runtime_id: u64) {
+    e.runtime_id = runtime_id;
+    if let Kind::Npc(Character {
+        form: Form::Human { uuid, .. },
+        ..
+    }) = &mut e.kind
+    {
+        *uuid = track::npc_uuid(runtime_id);
+    }
+}
+
+/// Whether someone listens to the spawn of entities ([`EntitySpawn`], [`ItemSpawn`]).
+fn is_spawn_heard(state: &State) -> bool {
+    dispatch::heard::<EntitySpawn>(state) || dispatch::heard::<ItemSpawn>(state)
+}
+
+/// Lets players pick up the items they touch: what fits goes to the inventory; a stack taken whole is
 /// shown taken (`TakeItemActor`, then `RemoveActor`), a part leaves the rest on the ground.
 /// Stuck arrows are picked up by the rules of [`projectile::pick_up`]. A player looks once
 /// every `item-pickup-interval` ticks, on the ticks its session number staggers it to, so the
@@ -3583,7 +3557,7 @@ fn pick_up(state: &mut State, hooks: Hooks) {
             } else {
                 let count = rest.count();
                 item.stack = rest;
-                stack_size(e.runtime_id, count)
+                actor_event(e.runtime_id, ActorEvent::UpdateStackSize, i32::from(count))
             };
             send_to(&mut state.players, &e.viewers, &packet);
             let entities = &mut state.rules.entities;
@@ -3595,7 +3569,7 @@ fn pick_up(state: &mut State, hooks: Hooks) {
     }
 }
 
-/// A player picks up the item `id` while someone listens to [`EntityItemPickup`]: the event
+/// Picks up the item `id` for a player while someone listens to [`EntityItemPickup`]: the event
 /// offers what fits; cancelling leaves the item where it is, and so does a listener that
 /// changes the item, the player or its room so that the offer no longer holds. An item a listener replaced is given instead (what of it does not
 /// fit drops where the item was), and the item on the ground loses what was offered. True if the
@@ -3656,7 +3630,7 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
         if let Kind::Item(item) = &mut en.kind {
             item.stack = stack.with_count(left);
         }
-        stack_size(en.runtime_id, left)
+        actor_event(en.runtime_id, ActorEvent::UpdateStackSize, i32::from(left))
     };
     send_to(&mut state.players, &en.viewers, &packet);
     if left == 0 {
@@ -3668,6 +3642,23 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
     }
     dispatch::watch(state, &e);
     true
+}
+
+/// An `ActorEvent` of an entity.
+fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
+    Packet::ActorEvent(ActorEventPacket {
+        entity_runtime_id: runtime_id,
+        event_type: event as u8,
+        event_data: data,
+        fire_at_position: None,
+    })
+}
+
+/// Whether a player picks up items and attracts orbs: spawned, alive and not a spectator.
+fn can_collect(state: &State, player: &Player, hooks: Hooks) -> bool {
+    player.phase == Phase::Spawned
+        && (hooks.is_alive)(player)
+        && survival::game_mode(state, player) != GameMode::Spectator
 }
 
 /// Raises [`EntityItemPickup`] for `session` picking up `origin` with `offered`: the event to
@@ -3947,33 +3938,6 @@ fn commit_movement(e: &mut Entity, change: Change) {
     }
 }
 
-/// The players that should see each spawned player, in session order. It is worked out before
-/// anything is sent (sending changes no view), and each watcher's view is looked up once, not
-/// once per pair.
-fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
-    let entities = &state.rules.entities;
-    state
-        .players
-        .iter()
-        .filter(|(_, p)| p.phase == Phase::Spawned)
-        .map(|(&t, target)| {
-            let (world, chunk) = (target.world, chunk_of(target.position));
-            let want = state
-                .chunks
-                .viewers_of((world, chunk))
-                .filter(|&s| {
-                    s != t
-                        && state
-                            .players
-                            .get(&s)
-                            .is_some_and(|p| entities.shows(s, p.world, &p.view, t, world, chunk))
-                })
-                .collect();
-            (t, want)
-        })
-        .collect()
-}
-
 /// Queues `packet` for the players shown the player of `session` ([`Entities::shows`]), and for
 /// that player too with [`Audience::Itself`] when its own view has its chunk: every packet the
 /// rules send about a player, so one who hides it gets none.
@@ -4006,32 +3970,6 @@ pub(super) fn send_about_player(
         };
         if to {
             p.send_to_viewer(packet.clone());
-        }
-    }
-}
-
-/// Removes the players no longer spawned from those who saw them.
-fn untrack_gone_players(state: &mut State) {
-    let gone: Vec<SessionId> = state
-        .rules
-        .entities
-        .watched
-        .keys()
-        .filter(|s| {
-            !state
-                .players
-                .get(s)
-                .is_some_and(|p| p.phase == Phase::Spawned)
-        })
-        .copied()
-        .collect();
-    for s in gone {
-        if let Some(w) = state.rules.entities.watched.remove(&s) {
-            send_to(&mut state.players, &w.viewers, &track::remove(w.runtime_id));
-            if state.settings.locator_bar {
-                let bar = track::locator_removed(w.runtime_id);
-                send_to(&mut state.players, &w.viewers, &bar);
-            }
         }
     }
 }
@@ -4140,6 +4078,59 @@ fn track_players(state: &mut State, budget: &mut BTreeMap<SessionId, u32>) {
     }
 }
 
+/// Removes the players no longer spawned from those who saw them.
+fn untrack_gone_players(state: &mut State) {
+    let gone: Vec<SessionId> = state
+        .rules
+        .entities
+        .watched
+        .keys()
+        .filter(|s| {
+            !state
+                .players
+                .get(s)
+                .is_some_and(|p| p.phase == Phase::Spawned)
+        })
+        .copied()
+        .collect();
+    for s in gone {
+        if let Some(w) = state.rules.entities.watched.remove(&s) {
+            send_to(&mut state.players, &w.viewers, &track::remove(w.runtime_id));
+            if state.settings.locator_bar {
+                let bar = track::locator_removed(w.runtime_id);
+                send_to(&mut state.players, &w.viewers, &bar);
+            }
+        }
+    }
+}
+
+/// The players that should see each spawned player, in session order. It is worked out before
+/// anything is sent (sending changes no view), and each watcher's view is looked up once, not
+/// once per pair.
+fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
+    let entities = &state.rules.entities;
+    state
+        .players
+        .iter()
+        .filter(|(_, p)| p.phase == Phase::Spawned)
+        .map(|(&t, target)| {
+            let (world, chunk) = (target.world, chunk_of(target.position));
+            let want = state
+                .chunks
+                .viewers_of((world, chunk))
+                .filter(|&s| {
+                    s != t
+                        && state
+                            .players
+                            .get(&s)
+                            .is_some_and(|p| entities.shows(s, p.world, &p.view, t, world, chunk))
+                })
+                .collect();
+            (t, want)
+        })
+        .collect()
+}
+
 /// Takes one spawn or removal from the bound of `session` ([`spawn_budget`]): false, taking
 /// nothing, when none is left; true for a session that is gone, which is sent nothing.
 fn spend(budget: &mut BTreeMap<SessionId, u32>, session: SessionId) -> bool {
@@ -4153,14 +4144,36 @@ fn spend(budget: &mut BTreeMap<SessionId, u32>, session: SessionId) -> bool {
     }
 }
 
-/// The player of `session` left: its hidden pairs ([`Entities::hidden`]) go, both ways (a scan
-/// of every pair, once per leave).
+/// Removes the hidden pairs ([`Entities::hidden`]) of the player of `session`, who left, both
+/// ways.
 pub(super) fn left(state: &mut State, session: SessionId) {
-    state
-        .rules
-        .entities
-        .hidden
-        .retain(|(v, t)| *v != session && *t != session);
+    let State { players, rules, .. } = state;
+    let hidden = &mut rules.entities.hidden;
+    // A pass over the pairs, or, when that costs more, the leaver's own range and two lookups
+    // (of about log2 of the pairs each) per player: a pair's viewer and target are online, since
+    // each leave takes its pairs.
+    let Some(depth) = hidden.len().checked_ilog2() else {
+        return;
+    };
+    let lookups = players.len().saturating_mul(2).saturating_mul(
+        usize::try_from(depth)
+            .unwrap_or(usize::MAX)
+            .saturating_add(1),
+    );
+    if hidden.len() <= lookups {
+        hidden.retain(|(v, t)| *v != session && *t != session);
+        return;
+    }
+    let own: Vec<SessionId> = hidden
+        .range((session, SessionId::new(0))..=(session, SessionId::CONSOLE))
+        .map(|&(_, t)| t)
+        .collect();
+    for t in own {
+        hidden.remove(&(session, t));
+    }
+    for &v in players.keys() {
+        hidden.remove(&(v, session));
+    }
 }
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
@@ -4201,7 +4214,7 @@ pub(super) fn launch_firework(
     object::launch_firework(state, session, world, at, item, random)
 }
 
-/// An explosion of `size` at `center`: breaks blocks through `interact::destroy_deferring_hooks`, hurts and
+/// Explodes with `size` at `center`: breaks blocks through `interact::destroy_deferring_hooks`, hurts and
 /// pushes entities and players, sets fire when `fire`, raising the events of the hits and
 /// pushes with [`Raise::Events`]. See [`explosion`] for the bounds.
 pub(super) fn explode(
@@ -4228,13 +4241,13 @@ pub(super) fn strike_lightning(
     lightning::strike(state, world, at, lightning)
 }
 
-/// `session` hits the entity `target` in melee; see [`npc`].
+/// Lets `session` hit the entity `target` in melee; see [`npc`].
 #[doc(alias = "Player::attackEntity")]
 pub(super) fn attack(state: &mut State, session: SessionId, target: Id) {
     npc::attack_with(state, session, target, HOOKS);
 }
 
-/// `session` interacts with the entity `target`: a villager NPC within reach (8 blocks, in
+/// Lets `session` interact with the entity `target`: a villager NPC within reach (8 blocks, in
 /// front) opens trading through `open_trade` (`trade::open`, or `trade::open_from_client` for
 /// the player's client). False if nothing happened.
 #[doc(alias = "Player::interactEntity")]
@@ -4253,18 +4266,7 @@ pub(super) fn reaches(state: &State, session: SessionId, id: Id) -> bool {
     npc::reaches(state, session, id, HOOKS).is_some()
 }
 
-/// Spawns `npc` at `pos` (feet); `None` where no entity may be ([`is_valid_position`]: not finite
-/// or outside the world border), at the entity limit, in an unloaded chunk, or for a human name over
-/// [`MAX_NAME_TAG_BYTES`] bytes. NPCs
-/// spawned here are invulnerable (only the void hurts them), except zombies (see [`npc`]).
-pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
-    if !is_valid_position(pos) {
-        return None;
-    }
-    npc::spawn(state, world, pos, npc)
-}
-
-/// A spawn egg used on a block: a zombie or a villager (with no trades, taking damage) stands
+/// Spawns what a spawn egg used on a block makes: a zombie or a villager (with no trades, taking damage) stands
 /// at `at` facing `yaw`, named after the egg's custom name if it has one. A squid's egg does
 /// nothing (squids swim: mob AI is out of scope), and neither does any other item.
 pub(super) fn hatch(
@@ -4298,6 +4300,33 @@ pub(super) fn hatch(
     Placed::Made
 }
 
+/// Spawns `npc` at `pos` (feet); `None` where no entity may be ([`is_valid_position`]: not finite
+/// or outside the world border), at the entity limit, in an unloaded chunk, or for a human name over
+/// [`MAX_NAME_TAG_BYTES`] bytes. NPCs
+/// spawned here are invulnerable (only the void hurts them), except zombies (see [`npc`]).
+pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
+    if !is_valid_position(pos) {
+        return None;
+    }
+    npc::spawn(state, world, pos, npc)
+}
+
+/// Whether a point may hold an entity: finite and inside the world border on every axis, as a
+/// player's position (so its `f32` in packets is finite too).
+pub(super) fn is_valid_position(v: Vec3) -> bool {
+    super::inside_border(v)
+}
+
+/// Runs `f` on the entity `id` if it exists and is not flagged.
+fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Option<T> {
+    state
+        .rules
+        .entities
+        .get_mut(id)
+        .filter(|e| !e.flagged)
+        .map(f)
+}
+
 /// Whether `world` can take `count` more entities now (below its entity limit), so a caller can
 /// refuse an action before it changes anything.
 pub(super) fn has_room(state: &State, world: WorldIndex, count: usize) -> bool {
@@ -4309,27 +4338,8 @@ pub(super) fn has_room(state: &State, world: WorldIndex, count: usize) -> bool {
         .is_some_and(|n| n <= MAX_ENTITIES_PER_WORLD)
 }
 
-/// The live villager NPC `id` for trading: its world, position (feet), runtime ID (the unique
-/// ID `UpdateTrade` names), profession and offers; `None` for anything else, a dead NPC or a stale `Id`.
-pub(super) fn villager(
-    state: &State,
-    id: Id,
-) -> Option<(WorldIndex, Vec3, u64, u8, &super::trade::Offers)> {
-    let e = state.rules.entities.get(id).filter(|e| !e.flagged)?;
-    match &e.kind {
-        Kind::Npc(Character {
-            form: Form::Villager {
-                profession, offers, ..
-            },
-            dead_ticks: None,
-            ..
-        }) => Some((e.world, e.body.position, e.runtime_id, *profession, offers)),
-        _ => None,
-    }
-}
-
-/// The trade tier or xp of the villager NPC `id` changed from `before` (a trade, a
-/// change of its offers): its viewers get the changed keys.
+/// Tells the viewers of the villager NPC `id` that its trade tier or xp changed from `before`
+/// (a trade, a change of its offers): they get the changed keys.
 pub(super) fn villager_traded(state: &mut State, id: Id, before: (u8, u32)) {
     let State { players, rules, .. } = state;
     let Some(e) = rules.entities.get(id).filter(|e| !e.flagged) else {
@@ -4361,6 +4371,38 @@ pub(super) fn offers_mut(state: &mut State, id: Id) -> Option<&mut super::trade:
             ..
         }) => Some(offers),
         _ => None,
+    }
+}
+
+/// The live villager NPC `id` for trading: its world, position (feet), runtime ID (the unique
+/// ID `UpdateTrade` names), profession and offers; `None` for anything else, a dead NPC or a stale `Id`.
+pub(super) fn villager(
+    state: &State,
+    id: Id,
+) -> Option<(WorldIndex, Vec3, u64, u8, &super::trade::Offers)> {
+    let e = state.rules.entities.get(id).filter(|e| !e.flagged)?;
+    match &e.kind {
+        Kind::Npc(Character {
+            form: Form::Villager {
+                profession, offers, ..
+            },
+            dead_ticks: None,
+            ..
+        }) => Some((e.world, e.body.position, e.runtime_id, *profession, offers)),
+        _ => None,
+    }
+}
+
+/// Queues `packet` for every viewer still online.
+fn send_to(
+    players: &mut BTreeMap<SessionId, Player>,
+    viewers: &BTreeSet<SessionId>,
+    packet: &Packet,
+) {
+    for s in viewers {
+        if let Some(p) = players.get_mut(s) {
+            p.send_packet(packet.clone());
+        }
     }
 }
 
@@ -6856,8 +6898,12 @@ mod tests {
                     let mut steps = std::mem::take(&mut state.rules.entities.steps);
                     compute(state, &h.pool, &mut steps);
                     mark(0, &mut lap);
+                    index_players(state);
                     apply_steps(state, &mut steps, TEST_HOOKS);
                     state.rules.entities.steps = steps;
+                    let entities = &mut state.rules.entities;
+                    entities.players.clear();
+                    entities.players_fresh = false;
                     mark(1, &mut lap);
                     pick_up(state, TEST_HOOKS);
                     announce(state);
