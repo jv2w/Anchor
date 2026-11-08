@@ -4,6 +4,8 @@ paths:
   - "src/storage.rs"
   - "src/storage/**"
   - "src/tick/save.rs"
+  - "src/tick/log.rs"
+  - "src/tick/checkpoint.rs"
   - "src/import.rs"
   - "src/import/**"
   - "src/replay.rs"
@@ -28,7 +30,7 @@ paths:
 
 ## Records
 - Store blocks only as Bedrock disk-palette NBT `{name, states, version}`, never as runtime IDs.
-- Check a value in this order: checksum, format version, length, decompression. The checksum covers the version bytes, so a damaged version is never reported as a newer format.
+- Check a value in this order: checksum, format version, length, decompression.
 - Make every decoder check that each palette index is inside its palette and that the value ends exactly where its record ends.
 
 ## Changing the format
@@ -48,7 +50,7 @@ paths:
 - Do what cannot be undone (removing a world file, renaming or pruning a backup) only after the main file's commit of the save that holds it.
 - Put the deletion of a world into the main file's commit (a deletion mark, `Key::Deleted`), remove its file only after that commit, and make the next start finish a marked deletion as soon as it opens the main file, before it rolls any file back (`save::finish_deletions`).
 - When a world is made again under the name of a world whose deletion no commit holds yet, delete every value of the old world in the new world's first commit of that file (`Batch::clear`).
-- Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot to every file, finish any backup in progress, then delete each open file's savepoint and commit the normal-stop mark to it: zero duplication, zero loss.
+- Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot as any save does, finish any backup in progress, then delete each open file's savepoint and commit the normal-stop mark to it: zero duplication, zero loss.
 - Make the next start roll every file later than the main file back to the main file's last save (`storage::settle`): remove a file whose savepoint holds no save and no world record, and refuse the start, keeping the file as it is, when the file has no savepoint or its savepoint is later too. Keep the roll back idempotent.
 
 ## Damage
