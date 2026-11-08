@@ -80,7 +80,7 @@ Do these steps in order. Start a step only after the one before it passes.
 3. Pin: write the Go versions into `xtask/go/go.mod` and `xtask/go/go.sum` as a tag or a pseudo-version, and set `version` and `commit` in `xtask/go/extract/main.go` to the same values.
 4. Generate: run `cargo xtask gen`. When extraction fails on an unknown construct, extend the extractor. Read the IR diff (`xtask/data/protocol.json`) for new, changed, and removed packets, fields, unions, and constants, and align the hand-written codecs and the engine code that uses them.
 5. Field limits: set `PROTOCOL_DOCS` in `xtask/src/dump.rs` to the bedrock-protocol-docs release commit of the same version and run `cargo xtask dump`. When `dump` or `gen` fails on a limit, fix the table in `xtask/src/dump/limits.rs`.
-6. Test: `cargo xtask verify`, P1 to P5 included, must PASS. It runs only when the user orders `/verify` (`CLAUDE.md`).
+6. Test: `cargo xtask verify`, P1 to P5 included, must PASS; when it may run is in `CLAUDE.md`.
 7. Data: move the dump source and the reference list sources in the pinned-source table of `.claude/docs/data.md` to the same version, and align the state comparison and the upgrade schemas (`.claude/rules/data.md`).
 8. Compare with the official server: run all of P6 against a copy of the new official server in `.cache/official/<version>/`, and follow the official server wherever they differ (`.claude/rules/testing.md`).
 9. Publish: align the sentences of `.claude/docs/protocol.md` that depend on the version (the gophertunnel defect list, the pinned-source table).
