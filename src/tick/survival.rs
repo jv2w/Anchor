@@ -785,8 +785,8 @@ fn is_survival(mode: GameMode) -> bool {
     matches!(mode, GameMode::Survival | GameMode::Adventure)
 }
 
-/// Whether the game mode uses items up: placing, eating, shooting and hitting wear them, and a
-/// death drops them: every mode but creative.
+/// Whether the game mode uses items up: placing, eating, shooting and hitting wear them: every
+/// mode but creative.
 pub(super) fn has_finite_resources(mode: GameMode) -> bool {
     mode != GameMode::Creative
 }

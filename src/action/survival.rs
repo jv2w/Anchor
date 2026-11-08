@@ -38,8 +38,8 @@ impl Sealed for Chat {
 
 /// Damage to a player as the game would deal it.
 ///
-/// Its armor, effects, enchantments, invulnerability and game mode count (except for
-/// [`DamageCause::Suicide`], which skips them), the [`EntityDamage`](crate::event::EntityDamage)
+/// Its armor, effects, enchantments, invulnerability and game mode count
+/// ([`DamageCause::Suicide`] skips all but the game mode: creative takes no damage), the [`EntityDamage`](crate::event::EntityDamage)
 /// listeners decide, and a death raises [`PlayerDeath`](crate::event::PlayerDeath). A player in
 /// the source is the attacker: its Strength adds damage, the player is knocked back from it, and
 /// thorns answer the hit.

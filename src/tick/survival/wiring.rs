@@ -381,10 +381,11 @@ fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
     let mut game = Game::new(1, listeners);
     assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Contact));
     assert_eq!(game.survival_mut(1).health, 20.0);
-    // A self-kill is not spared by a game mode.
+    game.player_mut(1).set_game_mode(GameMode::Survival);
+    // A self-kill too.
     let source = DamageSource::Entity(Actor::Player(pid(1)));
-    assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_some());
-    assert!(game.survival_mut(1).is_dead());
+    assert!(damage_by(&mut game.state, sid(1), 30.0, Damage::Suicide, source).is_none());
+    assert_eq!(game.survival_mut(1).health, 20.0);
 }
 
 /// A listener that weakens a hit leaves the totem and the absorption the hit no longer needs:
@@ -499,18 +500,34 @@ fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
     assert_eq!(game.survival_mut(1).health, 12.0);
 }
 
-/// A creative player that dies drops nothing but still loses what it carries, but for the items
-/// kept on death.
+/// A creative player takes no damage and never dies, not by a self-kill, `kill` or a health of 0,
+/// so it keeps what it carries.
 #[test]
-fn a_creative_player_that_dies_loses_its_inventory_and_drops_nothing() {
+fn a_creative_player_never_dies_and_keeps_its_inventory() {
     let mut game = Game::new(1, Listeners::default());
     game.player_mut(1).set_game_mode(GameMode::Creative);
     assert!(inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5)).is_empty());
-    assert!(damage(&mut game.state, sid(1), 30.0, Damage::Suicide));
-    assert!(game.survival_mut(1).is_dead());
-    assert_eq!(carried(game.player(1)), 0);
+    assert!(!damage(&mut game.state, sid(1), 30.0, Damage::Suicide));
+    assert!(!damage(&mut game.state, sid(1), 30.0, Damage::Void));
+    assert!(!game.player_mut(1).kill());
+    game.player_mut(1).set_health(0.0).unwrap();
     game.idle(1);
+    assert_eq!(game.survival_mut(1).health, 20.0);
+    assert_eq!(carried(game.player(1)), 5);
     assert_eq!(dropped(&game.take(1)), 0);
+}
+
+/// A player made creative after it was killed, before its death runs, drops what it carries
+/// as any dead player.
+#[test]
+fn a_player_made_creative_while_dying_drops_its_inventory() {
+    let mut game = Game::new(1, Listeners::default());
+    assert!(inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5)).is_empty());
+    assert!(game.player_mut(1).kill());
+    game.player_mut(1).set_game_mode(GameMode::Creative);
+    game.idle(1);
+    assert_eq!(carried(game.player(1)), 0);
+    assert_eq!(dropped(&game.take(1)), 5);
 }
 
 // api: PlayerDeathEvent
@@ -1773,7 +1790,6 @@ fn the_damage_action_hurts_through_the_rules() {
     let by = DamageSource::Entity(Actor::Player(pid(2)));
     game.perform(action::Damage::new(pid(1), 6.0, DamageCause::Magic).with_source(by));
     assert_eq!(game.player(1).health(), 14.0);
-    game.player_mut(1).set_game_mode(GameMode::Creative);
     game.perform(action::Damage::new(pid(1), 1000.0, DamageCause::Suicide));
     assert!(!game.player(1).is_alive());
     assert_eq!(drain(&mut seen), [pid(1)]);

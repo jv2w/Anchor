@@ -747,7 +747,7 @@ pub(super) fn take_death_xp(s: &mut Survival) -> u32 {
 }
 
 /// The xp points a dead player drops if the game lets it drop any: 7 per level, at most 100,
-/// none with `xp = false`. The caller drops none in creative or without orbs (`xp-orbs = false`).
+/// none with `xp = false`. The caller drops none without orbs (`xp-orbs = false`).
 pub(super) fn death_xp(s: &Survival) -> u32 {
     if s.switches.xp {
         s.xp_level.saturating_mul(7).min(100)

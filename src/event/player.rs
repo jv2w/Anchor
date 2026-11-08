@@ -232,8 +232,8 @@ getters!(PlayerDeath {
     #[doc(alias = "PlayerDeathEvent::getEntity")]
     player: player::Id,
     /// What the player drops. Starts as its main slots, armor and off hand without items that
-    /// vanish or stay on death, or empty for a creative player. Ignored when the player keeps the
-    /// inventory or earlier death drops still wait for room (then it starts empty too).
+    /// vanish or stay on death. Ignored when the player keeps the inventory or earlier death drops
+    /// still wait for room (then it starts empty).
     drops: &[Stack],
     /// The XP the player drops.
     xp_drop_amount: u32,

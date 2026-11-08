@@ -1116,8 +1116,8 @@ impl Player {
     }
 
     /// Sets the health, at most [`max_health`](Self::max_health); 0 or less kills the player as
-    /// [`kill`](Self::kill) does. A dead player stays dead until it respawns. Fails for a value
-    /// that is not finite.
+    /// [`kill`](Self::kill) does, so a creative player keeps its health. A dead player stays dead
+    /// until it respawns. Fails for a value that is not finite.
     ///
     /// # Errors
     ///
@@ -1144,13 +1144,14 @@ impl Player {
     }
 
     /// Kills the player: its health drops to 0, and once it is spawned it drops what it carries
-    /// and sees the death screen with the generic death message. False if it is already dead.
+    /// and sees the death screen with the generic death message. False if it is already dead or
+    /// creative, which never dies.
     #[doc(alias = "Entity::kill")]
     pub fn kill(&mut self) -> bool {
-        let s = &mut self.survival;
-        if s.is_dead() {
+        if self.survival.is_dead() || self.game_mode() == GameMode::Creative {
             return false;
         }
+        let s = &mut self.survival;
         s.health = 0.0;
         s.custom.killed = true;
         s.touch(HEALTH);

@@ -100,7 +100,7 @@ pub(in crate::tick) enum Damage {
     Contact,
     /// A falling block landing on the player.
     FallingBlock,
-    /// The player killed itself: no modifier, invulnerability or game mode spares it.
+    /// The player killed itself: no modifier or invulnerability spares it, only creative.
     Suicide,
     /// A lightning bolt, dealt only quietly ([`damage_quiet`]): it raises no [`EntityDamage`],
     /// and its cause is custom where one is named.
@@ -483,17 +483,18 @@ pub(super) fn damage_quiet(
     true
 }
 
-/// Whether a hit can land on the player at all: spawned and alive, not creative nor just
+/// Whether a hit can land on the player at all: spawned and alive, never creative, not just
 /// respawned, a spectator only in the void, no fall for a player that may fly, fire resistance
-/// against fire, and within the hit cooldown only a stronger hit. Nothing but death or not being
-/// spawned spares a player from [`Damage::Suicide`].
+/// against fire, and within the hit cooldown only a stronger hit. Nothing but death, creative or
+/// not being spawned spares a player from [`Damage::Suicide`].
 fn lands(player: &Player, hit: &Hit) -> bool {
     let s = &player.survival;
     let mode = s.mode();
     let self_kill = hit.cause == Damage::Suicide;
     player.phase == Phase::Spawned
         && !s.is_dead()
-        && (self_kill || (mode != GameMode::Creative && s.no_damage_ticks == 0))
+        && mode != GameMode::Creative
+        && (self_kill || s.no_damage_ticks == 0)
         && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
         && !(hit.cause == Damage::Fall && s.can_fly())
         && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
@@ -1403,7 +1404,6 @@ pub(super) fn die(
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let finite = super::has_finite_resources(player.survival.mode());
     let orbs = state.settings.has_orbs();
     let world_name = state
         .worlds
@@ -1425,7 +1425,7 @@ pub(super) fn die(
         ""
     };
     let mut event = heard.then(|| {
-        let drops = if finite && player.survival.held_back.is_empty() {
+        let drops = if player.survival.held_back.is_empty() {
             carried(player)
         } else {
             Vec::new()
@@ -1433,7 +1433,7 @@ pub(super) fn die(
         PlayerDeath {
             player: player::Id::new(session),
             drops,
-            xp_drop_amount: if finite && orbs {
+            xp_drop_amount: if orbs {
                 food::death_xp(&player.survival)
             } else {
                 0
@@ -1453,7 +1453,6 @@ pub(super) fn die(
         state,
         session,
         (world, at),
-        finite,
         event.as_mut().zip(original.as_deref()),
     );
     let chat = event
@@ -1529,7 +1528,6 @@ fn drop_death(
     state: &mut State,
     session: SessionId,
     place: (WorldIndex, Vec3),
-    finite: bool,
     mut event: Option<(&mut PlayerDeath, &[Stack])>,
 ) {
     let (world, at) = place;
@@ -1546,13 +1544,6 @@ fn drop_death(
     } else {
         Vec::new()
     };
-    // A creative player drops nothing, yet loses what it carries but for the items kept on
-    // death, which `drop_all` returns.
-    let stacks = if finite {
-        stacks
-    } else {
-        stacks.into_iter().filter(keeps_on_death).collect()
-    };
     let to_drop = match &event {
         Some((e, original)) if free && e.drops != *original => {
             replace_drops(stacks, original, e.drops.clone())
@@ -1563,7 +1554,7 @@ fn drop_death(
         0
     } else {
         let xp = food::take_death_xp(&mut player.survival);
-        let xp = if finite && orbs { xp } else { 0 };
+        let xp = if orbs { xp } else { 0 };
         event.as_ref().map_or(xp, |(e, _)| e.xp_drop_amount)
     };
     let mut dropped = Vec::new();
