@@ -24,7 +24,7 @@ A defect has all three, proven.
    - Normal operation: repeated joins and quits, long uptime, inputs overlapping in one tick, a target disappearing mid-processing, crash and restart, world load and unload.
    - Open every check on the path (decoder bounds, the `Reader` allocation budget, input budgets, coordinate checks, types, earlier validation, queue bounds) and show that none stops this value. If any check is left unopened, reach is unproven.
 2. **Harm**: a rule in `CLAUDE.md` §3 Safety or §4 is broken, or the result reaches CRITICAL or MAJOR in the grade table.
-3. **Evidence**: a test that starts at the trust boundary, or from a state the boundary can produce, fails now. A test that feeds an internal function a value or state no entry point can produce is not evidence. What cannot be reproduced by a test on this PC (a result that differs only on another OS, a value only the official client sends) is not fixed but left unconfirmed; report the code path, the specification evidence (IEEE 754, the protocol source), and how to confirm it (a Linux run, a real client).
+3. **Evidence**: a test that starts at the trust boundary, or from a state the boundary can produce, fails now. A test that feeds an internal function a value or state no entry point can produce is not evidence. What cannot be reproduced by a test (a result that differs only on another OS, a value only the official client sends) is not fixed but left unconfirmed; report the code path, the specification evidence (IEEE 754, the pinned gophertunnel), and how to confirm it (a Linux run, a real client).
 
 ## Grades
 | Grade | Result |
