@@ -379,6 +379,7 @@ pub enum DamageSource {
 /// A change to damage on top of the base damage. The final damage is the base damage plus every
 /// applicable modifier, so a reduction is negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum DamageModifier {
     /// Armor points.
     #[doc(alias = "EntityDamageEvent::MODIFIER_ARMOR")]
@@ -1128,8 +1129,10 @@ mod tests {
     use crate::event::fixtures::{POS, entity, player, sticks};
     use crate::event::{DEFAULT_FIRE_CHANCE, MAX_EXPLOSION_RADIUS};
 
-    const WORLD: world::Id = world::Id::DEFAULT;
+    /// A position away from the block grid.
     const AT: Vec3 = Vec3::new(1.5, 2.0, -3.25);
+    /// The world the events happen in.
+    const WORLD: world::Id = world::Id::DEFAULT;
 
     // api: AreaEffectCloudApplyEvent, AreaEffectCloudApplyEvent::getEntity,
     // api: AreaEffectCloudApplyEvent::getAffectedEntities,

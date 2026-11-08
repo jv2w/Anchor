@@ -5,8 +5,12 @@ use std::fmt;
 
 use crate::{crypto, protocol};
 
-/// The size of a cape image: 64 × 32 pixels of RGBA.
-const CAPE_BYTES: usize = 64 * 32 * 4;
+/// The size of a cape image: [`CAPE_WIDTH`] × [`CAPE_HEIGHT`] pixels of RGBA.
+const CAPE_BYTES: usize = CAPE_WIDTH as usize * CAPE_HEIGHT as usize * 4;
+/// The height of a cape image, in pixels.
+const CAPE_HEIGHT: u32 = 32;
+/// The width of a cape image, in pixels.
+const CAPE_WIDTH: u32 = 64;
 /// The geometry of the standard player model.
 const DEFAULT_GEOMETRY: &str = "geometry.humanoid.custom";
 /// The largest geometry JSON, in bytes (vanilla geometries are a few KiB).
@@ -145,8 +149,8 @@ impl Skin {
             skin_image_width: width,
             skin_image_height: height,
             skin_data: self.data.clone(),
-            cape_image_width: if has_cape { 64 } else { 0 },
-            cape_image_height: if has_cape { 32 } else { 0 },
+            cape_image_width: if has_cape { CAPE_WIDTH } else { 0 },
+            cape_image_height: if has_cape { CAPE_HEIGHT } else { 0 },
             cape_data: self.cape.clone(),
             skin_geometry: if self.geometry_data.is_empty() {
                 NO_CUSTOM_GEOMETRY.to_vec()

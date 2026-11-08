@@ -11,9 +11,10 @@ use crate::protocol::packet::{self, Packet};
 #[non_exhaustive]
 // api-class: Animation
 pub enum Animation {
-    /// The arm swings. Anchor raises no event for the swing of a player's own left click; a
-    /// receive hook ([`ServerBuilder::on_receive`](crate::ServerBuilder::on_receive)) sees its
-    /// `Animate` packet.
+    /// The arm swings. A player's own swing at nothing raises
+    /// [`PlayerMissSwing`](crate::event::PlayerMissSwing); a receive hook
+    /// ([`ServerBuilder::on_receive`](crate::ServerBuilder::on_receive)) sees the `Animate` packet
+    /// of any swing.
     #[doc(alias = "ArmSwingAnimation")]
     #[doc(alias = "ArmSwingAnimation::__construct")]
     ArmSwing,
