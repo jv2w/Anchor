@@ -140,9 +140,9 @@ block\Lectern::isProducingSignal skipped redstone
 block\Lectern::setProducingSignal skipped redstone
 world\sound\PressurePlate*Sound** skipped redstone
 
-# Mob AI: Anchor's entities are items, orbs, falling blocks, TNT, projectiles,
-# clouds, AI-less NPCs and the API table's zombie, which has no AI either. The API table's squid
-# swims about on its own.
+# Mob AI: Anchor's entities are items, orbs, falling blocks, TNT, projectiles, clouds,
+# paintings, end crystals, firework rockets, AI-less NPCs (the API table's zombie among them,
+# which has no AI either) and custom entities. The API table's squid swims about on its own.
 entity\Squid** skipped mob AI: the API table's squid swims on its own
 entity\WaterAnimal** skipped mob AI: the API table's water animals are its swimming squid
 entity\animation\SquidInkCloudAnimation** skipped mob AI: the API table's squid swims on its own
@@ -836,7 +836,7 @@ entity\**::saveNBT skipped entity NBT is internal to the chunk store
 entity\**::parseBlockNBT skipped entity NBT is internal to the chunk store
 entity\Human::parseSkinNBT skipped entity NBT is internal to the chunk store
 entity\EntityDataHelper** skipped entity NBT is internal to the chunk store
-entity\EntityFactory** skipped entity types are a closed enum made with `Context::spawn_*`
+entity\EntityFactory** skipped entities are made with `Context::spawn_*` and custom types registered with `ServerBuilder::custom_entity`
 entity\NeverSavedWithChunkEntity merged Entity::canSaveWithChunk
 entity\Entity::addMotion differs `Mut::set_motion` replaces the motion; it does not add to it
 entity\**::getResultDamage skipped projectile rule code: listeners see EntityDamage
