@@ -179,7 +179,7 @@ fn handshake(
     session
 }
 
-/// P1: a duplicate epoch-1 record that arrives before `ChangeCipherSpec` hit
+/// Fix 1: a duplicate epoch-1 record that arrives before `ChangeCipherSpec` hit
 /// `assert_eq!(seq_current.epoch, 0)` (engine.rs). One forged or duplicated UDP datagram is
 /// enough; the copy is now dropped like any replayed record.
 #[test]
@@ -202,7 +202,7 @@ fn duplicate_epoch_one_record_before_change_cipher_spec_is_dropped() {
     assert!(drain(&mut client, &mut buffer).too_small.is_none());
 }
 
-/// P1 with real traffic: the server's encrypted Finished arrives twice before its
+/// Fix 1 with real traffic: the server's encrypted Finished arrives twice before its
 /// `ChangeCipherSpec` (a duplicated and reordered datagram). The handshake still completes.
 #[test]
 fn duplicated_server_finished_before_change_cipher_spec_still_connects() {
@@ -280,7 +280,7 @@ fn inflate(der: &[u8], extra: usize) -> Vec<u8> {
     element(0x30, &content)
 }
 
-/// P2: a peer certificate larger than the poll buffer hit `assert!(l <= buf.len())`
+/// Fix 2: a peer certificate larger than the poll buffer hit `assert!(l <= buf.len())`
 /// (client.rs `LocalEvent::into_output`). str0m polls with 2000 bytes, so any peer could abort
 /// it. dimpl now answers `BufferTooSmall` and keeps the event, and the whole certificate comes
 /// out once the buffer is large enough.
@@ -303,8 +303,8 @@ fn peer_certificate_larger_than_the_poll_buffer_asks_for_a_larger_buffer() {
     assert!(session.client_connected && session.server_connected);
 }
 
-/// P3: in auto mode a `ServerHello` whose last extension is a `supported_versions` header with no
-/// data read past the end of the message (auto.rs). It is now an unrecognized response.
+/// Fix 3: in auto mode a `ServerHello` whose last extension is a `supported_versions` header with
+/// no data read past the end of the message (auto.rs). It is now an unrecognized response.
 #[test]
 fn truncated_supported_versions_in_auto_mode_is_rejected() {
     let now = start();

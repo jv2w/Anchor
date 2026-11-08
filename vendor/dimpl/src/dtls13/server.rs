@@ -287,7 +287,7 @@ impl Server {
         if let Some(event) = self.local_events.pop_front() {
             let output = event.into_output(buf, &self.client_certificates);
             if matches!(output, Output::BufferTooSmall { .. }) {
-                // Only PeerCert needs room; keep it until the buffer is larger.
+                // Anchor fix 2: only PeerCert needs room; keep it until the buffer is larger.
                 self.local_events.push_front(LocalEvent::PeerCert);
             }
             return output;

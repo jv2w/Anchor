@@ -430,9 +430,9 @@ impl Endpoint {
             return None;
         }
 
-        // RFC 4960 1.4: at most one association between two endpoints. A new INIT from a remote
-        // that has one would otherwise add an association per INIT, which a user that only
-        // expects its own stays unaware of and never drains.
+        // Anchor fix 4: RFC 4960 1.4: at most one association between two endpoints. A new
+        // INIT from a remote that has one would otherwise add an association per INIT, which a
+        // user that only expects its own stays unaware of and never drains.
         if self
             .associations
             .iter()

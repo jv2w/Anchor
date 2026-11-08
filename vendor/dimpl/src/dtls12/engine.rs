@@ -376,7 +376,7 @@ impl Engine {
             Err(index) => self.queue_rx.insert(index, incoming),
             Ok(_) => {
                 // For epoch 0, we can get duplicates due to resends.
-                // Epoch 1 records that arrive before peer encryption is enabled
+                // Anchor fix 1: epoch 1 records that arrive before peer encryption is enabled
                 // are queued without the replay window, so a duplicated or
                 // forged datagram can repeat one. Drop it like a replay.
                 self.recycle_incoming(incoming);

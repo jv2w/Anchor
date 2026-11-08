@@ -3667,7 +3667,8 @@ fn handle_init_test(name: &str, initial_state: AssociationState, expect_err: boo
         "{} should match",
         name
     );
-    // RFC 4960 5.1.1: we send on at most the peer's MIS and receive on at most its OS.
+    // Anchor fix 3: RFC 4960 5.1.1: we send on at most the peer's MIS and receive on at most
+    // its OS.
     assert_eq!(1002, a.my_max_num_outbound_streams, "{} should match", name);
     assert_eq!(1001, a.my_max_num_inbound_streams, "{} should match", name);
     assert_eq!(5678, a.peer_verification_tag, "{} should match", name);

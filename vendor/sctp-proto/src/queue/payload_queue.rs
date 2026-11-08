@@ -13,7 +13,7 @@ pub(crate) struct PayloadQueue {
     pub(crate) sorted: Vec<u32>,
     dup_tsn: Vec<u32>,
     n_bytes: usize,
-    /// Anchor: whether a chunk may still be marked to retransmit (set by
+    /// Anchor fix 8: whether a chunk may still be marked to retransmit (set by
     /// `mark_all_to_retrasmit`, cleared once a retransmission walk sent them all).
     marked_to_retransmit: bool,
 }
@@ -23,7 +23,7 @@ impl PayloadQueue {
         PayloadQueue::default()
     }
 
-    /// Anchor: inserts `tsn` where it sorts. Sorting the whole list on every push cost
+    /// Anchor fix 7: inserts `tsn` where it sorts. Sorting the whole list on every push cost
     /// O(queued) per chunk, O(n²) per window.
     fn insert_sorted(&mut self, tsn: u32) {
         let at = self.sorted.partition_point(|&queued| sna32lt(queued, tsn));
@@ -116,8 +116,9 @@ impl PayloadQueue {
         let mut b = GapAckBlock::default();
         let mut gap_ack_blocks = vec![];
         for (i, tsn) in self.sorted.iter().enumerate() {
-            // Gap offsets are 16 bits: TSNs further past the cumulative TSN go unreported (the
-            // peer retransmits them) instead of wrapping into wrong blocks or overflowing below.
+            // Anchor fix 6: gap offsets are 16 bits: TSNs further past the cumulative TSN go
+            // unreported (the peer retransmits them) instead of wrapping into wrong blocks or
+            // overflowing below.
             let Ok(diff) = u16::try_from(tsn.wrapping_sub(cumulative_tsn)) else {
                 if i == 0 {
                     return gap_ack_blocks;
@@ -178,7 +179,7 @@ impl PayloadQueue {
         self.marked_to_retransmit = true;
     }
 
-    /// Anchor: `false` only when no chunk is marked to retransmit.
+    /// Anchor fix 8: `false` only when no chunk is marked to retransmit.
     pub(crate) fn is_marked_to_retransmit(&self) -> bool {
         self.marked_to_retransmit
     }

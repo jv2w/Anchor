@@ -69,13 +69,13 @@ mod anchor_test;
 #[cfg(test)]
 mod association_test;
 
-/// Memory one TSN held in the receive payload queue costs (the record, its map entry and its
-/// sorted key), charged to the receive window.
+/// Anchor fix 2: memory one TSN held in the receive payload queue costs (the record, its map
+/// entry and its sorted key), charged to the receive window.
 const RECEIVED_TSN_COST: u32 =
     (core::mem::size_of::<ChunkPayloadData>() + 2 * core::mem::size_of::<u32>()) as u32;
 
-/// The receive payload queue tracks TSNs only; the data lives in the reassembly queue and must
-/// not stay alive after the application read it.
+/// Anchor fix 2: the receive payload queue tracks TSNs only; the data lives in the reassembly
+/// queue and must not stay alive after the application read it.
 fn tsn_record(d: &ChunkPayloadData) -> ChunkPayloadData {
     ChunkPayloadData {
         user_data: Bytes::new(),
@@ -1692,8 +1692,8 @@ impl Association {
         }
 
         // Should we be setting any of these permanently until we've ACKed further?
-        // RFC 4960 5.1.1: we receive on at most the peer's outbound streams and send on at
-        // most its inbound streams.
+        // Anchor fix 3: RFC 4960 5.1.1: we receive on at most the peer's outbound streams and
+        // send on at most its inbound streams.
         self.my_max_num_inbound_streams =
             core::cmp::min(i.num_outbound_streams, self.my_max_num_inbound_streams);
         self.my_max_num_outbound_streams =
@@ -1761,8 +1761,8 @@ impl Association {
             return Ok(vec![]);
         }
 
-        // RFC 4960 5.1.1: we receive on at most the peer's outbound streams and send on at
-        // most its inbound streams.
+        // Anchor fix 3: RFC 4960 5.1.1: we receive on at most the peer's outbound streams and
+        // send on at most its inbound streams.
         self.my_max_num_inbound_streams =
             core::cmp::min(i.num_outbound_streams, self.my_max_num_inbound_streams);
         self.my_max_num_outbound_streams =
@@ -2382,8 +2382,8 @@ impl Association {
         );
         self.stats.inc_datas();
 
-        // RFC 4960 6.2: DATA without user data ends the association. Queued, it would hold
-        // memory the receive window never counts.
+        // Anchor fix 5: RFC 4960 6.2: DATA without user data ends the association. Queued, it
+        // would hold memory the receive window never counts.
         if d.user_data.is_empty() {
             return Err(Error::ErrChunkPayloadNoUserData);
         }
@@ -2395,9 +2395,9 @@ impl Association {
             if self.get_my_receiver_window_credit() > 0 {
                 defer_stream_data = true;
             } else if let Some(last_tsn) = self.payload_queue.get_last_tsn_received() {
-                // Only the chunk that advances the cumulative TSN: accepting every missing
-                // chunk past a full window grows without bound (RFC 4960 6.2 drops the largest
-                // held chunk instead).
+                // Anchor fix 1: only the chunk that advances the cumulative TSN: accepting every
+                // missing chunk past a full window grows without bound (RFC 4960 6.2 drops the
+                // largest held chunk instead).
                 if sna32lt(d.tsn, *last_tsn) && d.tsn == self.peer_last_tsn.wrapping_add(1) {
                     debug!(
                         "[{}] receive buffer full, but accepted deferred \
@@ -2415,7 +2415,8 @@ impl Association {
                 } else {
                     // Receive buffer is full
                     if let Some(last_tsn) = self.payload_queue.get_last_tsn_received() {
-                        // As for deferred DATA above: only the cumulative TSN's next chunk.
+                        // Anchor fix 1: as for deferred DATA above, only the cumulative TSN's
+                        // next chunk.
                         if sna32lt(d.tsn, *last_tsn) && d.tsn == self.peer_last_tsn.wrapping_add(1)
                         {
                             debug!(
@@ -2435,10 +2436,10 @@ impl Association {
             } else if self.get_my_receiver_window_credit() > 0
                 || d.tsn == self.peer_last_tsn.wrapping_add(1)
             {
-                // RFC 4960 6.5: DATA on a stream the peer may not use is acknowledged and its
-                // data discarded (no ERROR chunk is sent). Unacknowledged, its TSN would stall
-                // the cumulative TSN for good. Only the TSN is kept, under the window rule of
-                // other DATA.
+                // Anchor fix 3: RFC 4960 6.5: DATA on a stream the peer may not use is
+                // acknowledged and its data discarded (no ERROR chunk is sent). Unacknowledged,
+                // its TSN would stall the cumulative TSN for good. Only the TSN is kept, under
+                // the window rule of other DATA.
                 debug!(
                     "[{}] discard DATA on stream {} beyond the negotiated streams",
                     self.side, d.stream_identifier
@@ -2571,6 +2572,7 @@ impl Association {
             }
 
             // RFC 3758 Sec 3.5 C2
+            // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
             let mut i = self.advanced_peer_tsn_ack_point.wrapping_add(1);
             while let Some(c) = self.inflight_queue.get(i) {
                 if !c.abandoned() {
@@ -3006,6 +3008,7 @@ impl Association {
         // New ack point, so pop all ACKed packets from inflight_queue
         // We add 1 because the "currentAckPoint" has already been popped from the inflight queue
         // For the first SACK we take care of this by setting the ackpoint to cumAck - 1
+        // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
         let mut i = self.cumulative_tsn_ack_point.wrapping_add(1);
         //log::debug!("[{}] i={} d={}", self.name, i, d.cumulative_tsn_ack);
         while sna32lte(i, d.cumulative_tsn_ack) {
@@ -3073,6 +3076,7 @@ impl Association {
         // Mark selectively acknowledged chunks as "acked"
         for g in &d.gap_ack_blocks {
             for i in g.start..=g.end {
+                // Anchor fix 6: the gap offset is added with wrapping arithmetic.
                 let tsn = d.cumulative_tsn_ack.wrapping_add(u32::from(i));
 
                 let (is_existed, is_acked) = if let Some(c) = self.inflight_queue.get(tsn) {
@@ -3221,6 +3225,7 @@ impl Association {
                 htna
             } else {
                 // b) increment for all TSNs reported missing
+                // Anchor fix 6: wrapping arithmetic here and in the walk below.
                 cum_tsn_ack_point
                     .wrapping_add(self.inflight_queue.len() as u32)
                     .wrapping_add(1)
@@ -3424,8 +3429,8 @@ impl Association {
             default_payload_type,
         );
 
-        // A stream reset and opened again is queued once: an application that never accepts
-        // streams would otherwise see the queue grow with every reopening.
+        // Anchor fix 3: a stream reset and opened again is queued once: an application that
+        // never accepts streams would otherwise see the queue grow with every reopening.
         if accept {
             if !self.stream_queue.contains(&stream_identifier) {
                 self.stream_queue.push_back(stream_identifier);
@@ -3453,9 +3458,9 @@ impl Association {
         } else if self.my_max_num_inbound_streams != 0
             && stream_identifier >= self.my_max_num_inbound_streams
         {
-            // RFC 4960 6.5: a stream the peer may not use; `handle_data` acknowledges its DATA
-            // and discards it. Zero is no negotiated count (an INIT announcing zero streams is
-            // refused), so no limit.
+            // Anchor fix 3: RFC 4960 6.5: a stream the peer may not use; `handle_data`
+            // acknowledges its DATA and discards it. Zero is no negotiated count (an INIT
+            // announcing zero streams is refused), so no limit.
             None
         } else {
             self.create_stream(
@@ -3474,8 +3479,8 @@ impl Association {
         for chunk in self.deferred_reset_data.values() {
             bytes_queued += chunk.user_data.len() as u32;
         }
-        // Each TSN held above the cumulative TSN costs memory even after its data was read, so
-        // a TSN gap closes the window instead of growing the queue without bound.
+        // Anchor fix 2: each TSN held above the cumulative TSN costs memory even after its data
+        // was read, so a TSN gap closes the window instead of growing the queue without bound.
         bytes_queued = bytes_queued
             .saturating_add((self.payload_queue.len() as u32).saturating_mul(RECEIVED_TSN_COST));
 
@@ -3722,6 +3727,7 @@ impl Association {
 
             let mut i = 0;
             loop {
+                // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
                 let tsn = self
                     .cumulative_tsn_ack_point
                     .wrapping_add(i)
@@ -3884,7 +3890,7 @@ impl Association {
     /// out and retransmit outstanding data chunks that are not acked
     /// or abandoned yet.
     fn get_data_packets_to_retransmit(&mut self, now: Instant) -> Vec<Packet> {
-        // Anchor: only a T3-rtx timeout marks chunks. Without one, walking every chunk in
+        // Anchor fix 8: only a T3-rtx timeout marks chunks. Without one, walking every chunk in
         // flight on each outbound poll found nothing and cost O(in flight) per poll.
         if !self.inflight_queue.is_marked_to_retransmit() {
             return vec![];
@@ -3895,6 +3901,7 @@ impl Association {
         let mut done = false;
         let mut i = 0;
         while !done {
+            // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
             let tsn = self
                 .cumulative_tsn_ack_point
                 .wrapping_add(i)
@@ -3919,7 +3926,7 @@ impl Association {
 
                 c.nsent += 1;
             } else {
-                // Anchor: the walk reached the end, so every marked chunk was sent.
+                // Anchor fix 8: the walk reached the end, so every marked chunk was sent.
                 self.inflight_queue.clear_marked_to_retransmit();
                 break; // end of pending data
             }
@@ -4113,6 +4120,7 @@ impl Association {
     fn create_forward_tsn(&self) -> ChunkForwardTsn {
         // RFC 3758 Sec 3.5 C4
         let mut stream_map: HashMap<u16, u16> = HashMap::new(); // to report only once per SI
+        // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
         let mut i = self.cumulative_tsn_ack_point.wrapping_add(1);
         while sna32lte(i, self.advanced_peer_tsn_ack_point) {
             if let Some(c) = self.inflight_queue.get(i) {
@@ -4323,6 +4331,7 @@ impl Association {
                 //  the procedures outlined in C2 - C5.
                 if self.use_forward_tsn {
                     // RFC 3758 Sec 3.5 C2
+                    // Anchor fix 6: wrapping arithmetic, TSNs wrap around.
                     let mut i = self.advanced_peer_tsn_ack_point.wrapping_add(1);
                     while let Some(c) = self.inflight_queue.get(i) {
                         if !c.abandoned() {

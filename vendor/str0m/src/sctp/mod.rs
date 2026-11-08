@@ -37,16 +37,17 @@ pub const LOCAL_MAX_MESSAGE_SIZE: u32 = 256 * 1024;
 /// Default max message size if remote doesn't advertise
 pub const DEFAULT_REMOTE_MAX_MESSAGE_SIZE: u32 = 64 * 1024;
 
-/// Initial retransmission timeout (RTO.Initial) in milliseconds: 1 s as RFC 9260 section 16
-/// recommends, not sctp-proto's RFC 4960 default of 3 s, which makes a lost INIT cost 3 s
-/// before the first resend. It equals sctp-proto's RTO.Min, so it only shortens the timers
-/// that run before the first RTT sample.
+/// Anchor fix 1: initial retransmission timeout (RTO.Initial) in milliseconds: 1 s as RFC 9260
+/// section 16 recommends, not sctp-proto's RFC 4960 default of 3 s, which makes a lost INIT
+/// cost 3 s before the first resend. It equals sctp-proto's RTO.Min, so it only shortens the
+/// timers that run before the first RTT sample.
 pub(crate) const RTO_INITIAL_MS: u64 = 1000;
 
-/// Inbound streams the client association announces (MIS). sctp-proto's default is 65,535, so
-/// the remote's outbound count picked the bound and each stream it wrote on cost a stream and
-/// a channel entry scanned on every poll. A data channel peer acting as the DTLS server opens
-/// odd stream ids from 1 (RFC 8832), and a NetherNet client needs two channels (ids 1 and 3).
+/// Anchor fix 2: inbound streams the client association announces (MIS). sctp-proto's default
+/// is 65,535, so the remote's outbound count picked the bound and each stream it wrote on cost
+/// a stream and a channel entry scanned on every poll. A data channel peer acting as the DTLS
+/// server opens odd stream ids from 1 (RFC 8832), and a NetherNet client needs two channels
+/// (ids 1 and 3).
 pub(crate) const MAX_INBOUND_STREAMS: u16 = 16;
 
 pub(crate) struct RtcSctp {
@@ -1498,7 +1499,7 @@ mod tests {
         (client, server)
     }
 
-    /// Anchor copy fix (.claude/docs/dependencies.md): the client association announced 65,535
+    /// Anchor fix 2 (.claude/docs/dependencies.md): the client association announced 65,535
     /// inbound streams, so a remote writing on many stream ids made a stream and an entry per id,
     /// each scanned on every poll. Fails on the published 0.24.1.
     #[test]

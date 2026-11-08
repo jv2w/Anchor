@@ -437,7 +437,7 @@ fn server_hello_version_inner(packet: &[u8]) -> Option<DetectedVersion> {
         if ext_type == 0x002B {
             // ServerHello supported_versions: just 2 bytes (selected_version)
             if ext_len >= 2 {
-                // The declared length may run past the extensions.
+                // Anchor fix 3: the declared length may run past the extensions.
                 if pos + 2 > ext_end {
                     return None;
                 }

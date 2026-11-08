@@ -215,7 +215,7 @@ impl Client {
         if let Some(event) = self.local_events.pop_front() {
             let output = event.into_output(buf, &self.server_certificates);
             if matches!(output, Output::BufferTooSmall { .. }) {
-                // Only PeerCert needs room; keep it until the buffer is larger.
+                // Anchor fix 2: only PeerCert needs room; keep it until the buffer is larger.
                 self.local_events.push_front(LocalEvent::PeerCert);
             }
             return output;
@@ -1400,7 +1400,7 @@ impl LocalEvent {
             LocalEvent::PeerCert => {
                 let l = peer_certs[0].len();
                 if l > buf.len() {
-                    // The caller puts the event back (see poll_output).
+                    // Anchor fix 2: the caller puts the event back (see poll_output).
                     return Output::BufferTooSmall { needed: l };
                 }
                 buf[..l].copy_from_slice(&peer_certs[0]);
