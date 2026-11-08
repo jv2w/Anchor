@@ -163,7 +163,7 @@ fn tell(cx: &mut Context<'_>, player: player::Id, message: Message) {
     if let Some(p) = cx.player_mut(player) {
         #[expect(
             clippy::expect_used,
-            reason = "invariant: a command's message holds a command line's text and names, far below a client's bounds"
+            reason = "invariant: the messages commands show players are fixed client keys, far below a client's bounds"
         )]
         p.send(message)
             .expect("a command's message fits a client text");
@@ -200,17 +200,17 @@ fn has_room(cx: &Context<'_>, actions: usize) -> Result<()> {
     Ok(())
 }
 
+/// Kicks `player` with `reason`: the [`PlayerKick`](crate::event::PlayerKick) listeners decide
+/// after the command has returned; a player already leaving stays as it is.
+fn kick(cx: &mut Context<'_>, player: player::Id, reason: &str) -> Result<()> {
+    perform(cx, action::Kick::new(player, reason))
+}
+
 /// Queues `action` ([`Context::perform`]), so that its events are raised once the command has
 /// returned (a command may run inside a listener: the events must not re-enter it). A full
 /// queue fails the command.
 fn perform(cx: &mut Context<'_>, action: impl Action) -> Result<()> {
     cx.perform(action).map_err(|e| Error::failed(e.to_string()))
-}
-
-/// Kicks `player` with `reason`: the [`PlayerKick`](crate::event::PlayerKick) listeners decide
-/// after the command has returned; a player already leaving stays as it is.
-fn kick(cx: &mut Context<'_>, player: player::Id, reason: &str) -> Result<()> {
-    perform(cx, action::Kick::new(player, reason))
 }
 
 /// Copies the result `msg` for the operators ([`notify`]) and returns it for `sender`.
@@ -244,14 +244,14 @@ fn notify(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) {
     copied.expect("a copy of a command result fits a client text");
 }
 
-/// Finds the sender's name ([`Context::sender_name`]); empty for a player who has left.
-fn name_of(cx: &Context<'_>, sender: Sender) -> String {
-    cx.sender_name(sender).unwrap_or_default().to_owned()
-}
-
 /// Finds the name of player `id`; empty once it has left.
 fn player_name(cx: &Context<'_>, id: player::Id) -> String {
     name_of(cx, Sender::Player(id))
+}
+
+/// Finds the sender's name ([`Context::sender_name`]); empty for a player who has left.
+fn name_of(cx: &Context<'_>, sender: Sender) -> String {
+    cx.sender_name(sender).unwrap_or_default().to_owned()
 }
 
 /// Finds the world `sender` is in: a player's own, the default world for the console.
@@ -261,20 +261,6 @@ fn sender_world(cx: &Context<'_>, sender: Sender) -> world::Id {
             .player(id)
             .map_or_else(|| cx.default_world().id(), Player::world),
         Sender::Console => cx.default_world().id(),
-    }
-}
-
-/// Builds the failure of a line that fits none of `command`'s forms after all.
-fn usage(cx: &Context<'_>, command: &str) -> Error {
-    #[expect(
-        clippy::expect_used,
-        reason = "invariant: a running built-in command is registered under its own name"
-    )]
-    let command = cx
-        .command(command)
-        .expect("a running built-in command is registered");
-    Error::Usage {
-        usage: command.usage_text(),
     }
 }
 
@@ -307,6 +293,20 @@ fn permitted_targets(
         }
     }
     Ok(targets)
+}
+
+/// Builds the failure of a line that fits none of `command`'s forms after all.
+fn usage(cx: &Context<'_>, command: &str) -> Error {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a running built-in command is registered under its own name"
+    )]
+    let command = cx
+        .command(command)
+        .expect("a running built-in command is registered");
+    Error::Usage {
+        usage: command.usage_text(),
+    }
 }
 
 /// Checks that `sender` has `permission`, failing with the permission failure of `command` if

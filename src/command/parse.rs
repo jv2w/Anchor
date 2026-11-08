@@ -7,12 +7,12 @@ use std::borrow::Cow;
 
 use serde::de::IgnoredAny;
 
-use super::{Error, Kind, Param, Result, Value};
+use super::{Error, Kind, Param, Result, Value, cmp_ignoring_ascii_case};
 use crate::block;
 use crate::effect;
 use crate::item;
 
-/// The longest line, in bytes: the chat limit, which commands share.
+/// The longest line, in bytes.
 pub(crate) const MAX_LINE_BYTES: usize = 2048;
 /// The longest line, in characters.
 pub(crate) const MAX_LINE_CHARS: usize = 512;
@@ -292,13 +292,13 @@ pub(crate) fn fit(
                 }
                 Raw::Value(Value::Text(json.to_owned()))
             }
-            Kind::Enum { values, .. } => {
-                let value = values
-                    .iter()
-                    .find(|v| v.eq_ignore_ascii_case(text))
-                    .ok_or(bad)?;
-                Raw::Value(Value::Text(value.clone()))
-            }
+            Kind::Enum {
+                values,
+                by_lowercase,
+                ..
+            } => Raw::Value(Value::Text(
+                enum_value(values, by_lowercase, text).ok_or(bad)?.clone(),
+            )),
             Kind::Item => Raw::Value(Value::Item(names.item_param(text).ok_or(bad)?)),
             Kind::Block => Raw::Value(Value::Block(Names::block(text).ok_or(bad)?)),
             Kind::Effect => Raw::Value(Value::Effect(names.effect(text).ok_or(bad)?)),
@@ -383,6 +383,19 @@ fn json_end(text: &str) -> Option<usize> {
     let mut values = serde_json::Deserializer::from_str(text).into_iter::<IgnoredAny>();
     values.next()?.ok()?;
     Some(values.byte_offset())
+}
+
+/// The value of an enum's `values` that `text` names, ignoring ASCII case: the first listed of
+/// those equal but for case. `by_lowercase` holds the indexes of `values` in ASCII-lowercase
+/// order.
+fn enum_value<'a>(values: &'a [String], by_lowercase: &[usize], text: &str) -> Option<&'a String> {
+    let value_at = |i: &usize| values.get(*i);
+    let first = by_lowercase
+        .partition_point(|i| value_at(i).is_some_and(|v| cmp_ignoring_ascii_case(v, text).is_lt()));
+    by_lowercase
+        .get(first)
+        .and_then(value_at)
+        .filter(|v| v.eq_ignore_ascii_case(text))
 }
 
 /// The part of `line` from the byte `start` on, where one of its words starts.

@@ -43,7 +43,7 @@ checkpoint::fields!(Lists {
 
 /// The lists and the changes no snapshot holds yet.
 #[derive(Debug, Default)]
-pub(crate) struct Access {
+pub(super) struct Access {
     /// The operator list, the bans and the whitelist.
     lists: Arc<Lists>,
     /// Whether only whitelisted players (and operators) may join (`white-list`; not saved).
@@ -59,7 +59,7 @@ pub(crate) struct Access {
 
 impl Access {
     /// The lists the server file held, with the whitelist on or off as the settings say.
-    pub(crate) fn new(data: AccessData, whitelist_enabled: bool) -> Self {
+    pub(super) fn new(data: AccessData, whitelist_enabled: bool) -> Self {
         let AccessData {
             ops,
             bans,
@@ -186,11 +186,6 @@ impl Access {
             .filter(move |e| !e.has_expired(tick))
     }
 
-    /// Whether `name` (any ASCII case) is on the whitelist.
-    pub(super) fn is_listed(&self, name: &str) -> bool {
-        folded(name, |n| self.lists.whitelist.contains(n)).unwrap_or(false)
-    }
-
     /// Whether `name` (any ASCII case) is an operator. Asked for every permission check, so it
     /// does not allocate ([`folded`]).
     pub(super) fn is_op(&self, name: &str) -> bool {
@@ -218,8 +213,8 @@ impl Access {
         self.lists.whitelist.iter().map(String::as_str)
     }
 
-    /// Adds or replaces a ban made at engine tick `tick`, after dropping the bans of its list
-    /// that have ended.
+    /// Adds or replaces a ban made at engine tick `tick`, after dropping the name and IP bans that
+    /// have ended.
     pub(super) fn ban(&mut self, entry: BanEntry, tick: u64) -> permission::Result<()> {
         let entry = entry.checked(tick)?;
         self.drop_expired(tick);
@@ -329,9 +324,9 @@ impl Access {
         self.remove_name(AccessKind::Whitelist, name)
     }
 
-    /// Records `write` as the last write of the entry `name` of `kind`.
-    fn record(&mut self, kind: AccessKind, name: String, write: AccessWrite) {
-        self.changes.insert(AccessKey { kind, name }, write);
+    /// Whether `name` (any ASCII case) is on the whitelist.
+    fn is_listed(&self, name: &str) -> bool {
+        folded(name, |n| self.lists.whitelist.contains(n)).unwrap_or(false)
     }
 
     /// Adds `name` to `kind`'s list (operators or whitelist); true if it was not there.
@@ -358,28 +353,6 @@ impl Access {
         .insert(name.clone());
         self.record(kind, name, AccessWrite::Mark);
         Ok(true)
-    }
-
-    /// Removes `name` from `kind`'s list; true if it was there.
-    fn remove_name(&mut self, kind: AccessKind, name: &str) -> bool {
-        let name = name.to_ascii_lowercase();
-        let list = if kind == AccessKind::Op {
-            &self.lists.ops
-        } else {
-            &self.lists.whitelist
-        };
-        if !list.contains(&name) {
-            return false;
-        }
-        let lists = Arc::make_mut(&mut self.lists);
-        if kind == AccessKind::Op {
-            &mut lists.ops
-        } else {
-            &mut lists.whitelist
-        }
-        .remove(&name);
-        self.record(kind, name, AccessWrite::Delete);
-        true
     }
 
     /// Drops the bans that have ended at `tick`, found from the front of the end indexes.
@@ -418,6 +391,33 @@ impl Access {
             .iter()
             .filter_map(|(&ip, e)| Some((e.expires()?, ip)))
             .collect();
+    }
+
+    /// Removes `name` from `kind`'s list; true if it was there.
+    fn remove_name(&mut self, kind: AccessKind, name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        let list = if kind == AccessKind::Op {
+            &self.lists.ops
+        } else {
+            &self.lists.whitelist
+        };
+        if !list.contains(&name) {
+            return false;
+        }
+        let lists = Arc::make_mut(&mut self.lists);
+        if kind == AccessKind::Op {
+            &mut lists.ops
+        } else {
+            &mut lists.whitelist
+        }
+        .remove(&name);
+        self.record(kind, name, AccessWrite::Delete);
+        true
+    }
+
+    /// Records `write` as the last write of the entry `name` of `kind`.
+    fn record(&mut self, kind: AccessKind, name: String, write: AccessWrite) {
+        self.changes.insert(AccessKey { kind, name }, write);
     }
 }
 

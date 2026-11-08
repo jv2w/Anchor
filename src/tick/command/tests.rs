@@ -17,7 +17,7 @@ use crate::save::Request;
 use crate::tick::log::{EntryKind, InputLog};
 use crate::tick::queue::{Input, InputKind, Outbound, outbound_queue};
 use crate::tick::tests::{
-    answer, initialised, input, join, new_state, packet, radius, received, settings, tick,
+    answer, identity, initialised, input, join, new_state, packet, radius, received, settings, tick,
 };
 use crate::tick::{Output as TickOutput, boundary, deliver, step};
 
@@ -459,6 +459,49 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     assert_eq!(cx.permission_grants(player1).count(), 0);
     assert_eq!(effective(&cx, id(1)), Some(false));
     assert!(state.commands.resend.contains(&SessionId::new(1)));
+}
+
+/// A command a player runs through `run_command` sees the player with every permission, through
+/// `effective_permissions` as through `has_permission`.
+#[test]
+fn a_command_run_for_a_player_sees_every_permission_effective() {
+    let probe = Command::new("probe", "").overload(&[], |cx, sender, _| {
+        let has = cx.has_permission(*sender, FLY);
+        let effective = cx
+            .effective_permissions(*sender)
+            .find(|(p, _)| *p == FLY)
+            .map(|(_, has)| has);
+        Ok(format!("{has} {effective:?}").into())
+    });
+    let fly = Command::new("fly", "")
+        .permission(FLY)
+        .overload(&[], |_, _, _| Ok(Output::new()));
+    let (mut state, _rx) = server(vec![probe, fly]);
+    let player1 = player::Id::new(SessionId::new(1));
+    let mut cx = Context { state: &mut state };
+    assert_eq!(lines(cx.run_command(player1, "probe")), ["true Some(true)"]);
+    assert_eq!(
+        lines(cx.dispatch_command(id(1), "probe")),
+        ["false Some(false)"]
+    );
+}
+
+/// A hardcore server's difficulty does not change.
+#[test]
+fn a_hardcore_server_stays_hard() {
+    let (mut state, _rx) = server(Vec::new());
+    Context { state: &mut state }
+        .set_difficulty(Difficulty::Peaceful)
+        .unwrap();
+    state.settings.hardcore = true;
+    assert_eq!(
+        Context { state: &mut state }.set_difficulty(Difficulty::Easy),
+        Err(crate::world::Error::Hardcore)
+    );
+    assert_eq!(
+        Context { state: &mut state }.difficulty(),
+        Difficulty::Peaceful
+    );
 }
 
 /// A grant is named by its permission in a checkpoint, which a replay reads back only for a
@@ -964,6 +1007,30 @@ fn op_and_deop_send_the_abilities_the_official_server_sends() {
     tick(&mut state, &mut Vec::new(), &mut output);
     let got = abilities(&mut rx[0]);
     assert_eq!(got, [(0, 1, 63)], "a member again");
+}
+
+/// An operator change resends the command list of every joined player of the name, as players
+/// signed in with Xbox may share one.
+#[test]
+fn an_operator_change_reaches_every_player_of_the_name() {
+    let mut state = new_state(settings(|_| {}), Listeners::default());
+    state.commands.finish().unwrap();
+    let mut joins = Vec::new();
+    let mut receivers = Vec::new();
+    for session in [1, 2] {
+        let mut identity = identity(session);
+        identity.name = "Twin".to_owned();
+        let (outbound, rx) = outbound_queue();
+        joins.push(input(session, 0, InputKind::Join { identity, outbound }));
+        receivers.push(rx);
+    }
+    tick(&mut state, &mut joins, &mut TickOutput::default());
+    assert_eq!(state.players.len(), 2);
+    Context { state: &mut state }.op("twin").unwrap();
+    assert!(
+        state.commands.resend.contains(&SessionId::new(1))
+            && state.commands.resend.contains(&SessionId::new(2))
+    );
 }
 
 pub(super) fn request(session: u64, seq: u64, line: &str) -> Input {
@@ -1731,42 +1798,13 @@ fn every_name_and_alias_reaches_the_client_as_the_official_server_lists_them() {
     assert_eq!(p.commands.len(), usable.len());
 }
 
-/// The commands Anchor dropped, with their aliases and permissions, are not registered; `kill` is
-/// for operators only with one permission, as is `clear`, `ver` and `version` are merged into
-/// `about`, and `unban` and `unban-ip` replace `pardon` and
+/// The permissions of the commands Anchor dropped are not registered; `kill` is for operators
+/// only with one permission, as is `clear`, and `unban` and `unban-ip` replace `pardon` and
 /// `pardon-ip`.
 #[test]
-fn removed_commands_and_their_permissions_are_not_registered() {
+fn removed_commands_permissions_are_not_registered() {
     let (mut state, _rx) = server(Vec::new());
     let cx = Context { state: &mut state };
-    for name in [
-        "help",
-        "?",
-        "me",
-        "say",
-        "seed",
-        "setworldspawn",
-        "defaultgamemode",
-        "difficulty",
-        "time",
-        "particle",
-        "effect",
-        "enchant",
-        "spawnpoint",
-        "xp",
-        "title",
-        "tell",
-        "w",
-        "msg",
-        "transferserver",
-        "suicide",
-        "pardon",
-        "pardon-ip",
-        "ver",
-        "version",
-    ] {
-        assert!(cx.command(name).is_none(), "{name}");
-    }
     for name in [
         "anchor.command.help",
         "anchor.command.me",
@@ -1989,6 +2027,13 @@ fn the_api_docs_name_the_limits_they_enforce() {
             thousands(MAX_TEXT_BYTES)
         ),
         format!("has {} grants.", thousands(MAX_GRANTS)),
+        format!("over {} bytes or holds", permission::MAX_NAME),
+        format!(
+            "a reason over {} bytes or a source over {}.",
+            permission::MAX_REASON,
+            permission::MAX_SOURCE
+        ),
+        format!("holds {} entries", thousands(permission::MAX_ENTRIES)),
     ] {
         assert!(source.contains(&text), "{text}");
     }

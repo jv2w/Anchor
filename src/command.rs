@@ -34,6 +34,7 @@ pub mod register;
 
 pub use parse::{Word, split};
 
+use std::cmp::Ordering;
 use std::fmt;
 
 use crate::block;
@@ -181,8 +182,8 @@ impl Command {
         self
     }
 
-    /// Lets only senders with `permission` use the command (and see it in their command list).
-    /// Called again, it adds another: a sender needs any one of them, and the handler checks
+    /// Adds a permission that lets a sender use the command (and see it in their command list):
+    /// a sender needs any one of the command's permissions, and the handler checks
     /// which one an argument needs, such as `/give`'s permissions for giving oneself and others.
     /// A command names at most 16.
     #[doc(alias = "Command::setPermission")]
@@ -266,21 +267,28 @@ impl Param {
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
     /// typed). `type_name` is the enum type the client shows: every enum of a type name must have
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
-    /// [`register::Error::ConflictingEnum`]. Anchor's own commands use the official server's
-    /// names and values: `Boolean`, `Item`, `Block`, `Effect`, `Enchant`, `GameMode` and
-    /// `<name>CommandAliases` for a command with aliases, and Anchor's `BanListType`,
-    /// `WhitelistAction` and `WhitelistEdit`, unless the user replaces or drops the command.
+    /// [`register::Error::ConflictingEnum`]. The parameters [`bool`](Self::bool),
+    /// [`item`](Self::item), [`block`](Self::block), [`effect`](Self::effect) and
+    /// [`enchantment`](Self::enchantment) use the official server's names and values `Boolean`,
+    /// `Item`, `Block`, `Effect` and `Enchant`, and a command with aliases `<name>CommandAliases`.
+    /// Anchor's own commands use `GameMode`, as the official server does, and Anchor's
+    /// `BanListType`, `WhitelistAction` and `WhitelistEdit`, unless the user replaces or drops the
+    /// command.
     /// `CommandName` is the client's list of command names: no parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
         type_name: impl Into<String>,
         values: &[&str],
     ) -> Self {
+        let mut sorted: Vec<(usize, &str)> = values.iter().copied().enumerate().collect();
+        // A stable sort: of values equal but for ASCII case, the first listed comes first.
+        sorted.sort_by(|(_, a), (_, b)| cmp_ignoring_ascii_case(a, b));
         Self::new(
             name,
             Kind::Enum {
                 name: type_name.into(),
                 values: values.iter().map(|v| (*v).to_owned()).collect(),
+                by_lowercase: sorted.into_iter().map(|(i, _)| i).collect(),
             },
         )
     }
@@ -330,8 +338,8 @@ impl Param {
     }
 
     /// One word, or words in double quotes, as typed ([`Args::string`]); the client suggests the
-    /// values [`Context::set_soft_enum`] last set for the enum type `type_name`, none at first
-    /// but `minecraft:overworld` for `WorldClocks`. The handler checks the word: the client
+    /// values [`Context::set_soft_enum`] last set for the enum type `type_name`, none at first.
+    /// The handler checks the word: the client
     /// sends words it does not suggest. `type_name` may not be the type name of an
     /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
     /// [`register::Error::ConflictingEnum`]; an empty one refuses the build
@@ -404,14 +412,14 @@ impl Param {
         let suffixed;
         let ty = match &self.kind {
             Kind::Int => "int",
-            Kind::Suffixed { suffix } => {
-                suffixed = format!("int{suffix}");
-                &suffixed
-            }
             Kind::Float => "float",
             Kind::String => "string",
             Kind::Bool => BOOLEAN_ENUM,
             Kind::Target | Kind::Name => "target",
+            Kind::Suffixed { suffix } => {
+                suffixed = format!("int{suffix}");
+                &suffixed
+            }
             Kind::Position => "x y z",
             Kind::Message => "message",
             Kind::RawText => "text",
@@ -464,8 +472,13 @@ pub(crate) enum Kind {
     RawText,
     /// One JSON value.
     Json,
-    /// One of fixed words; `name` is the type the client shows.
-    Enum { name: String, values: Vec<String> },
+    /// One of fixed words; `name` is the type the client shows. `by_lowercase` holds the indexes
+    /// of `values` in ASCII-lowercase order, for the lookup of a typed word.
+    Enum {
+        name: String,
+        values: Vec<String>,
+        by_lowercase: Vec<usize>,
+    },
     /// Any word; the client suggests the values the server last set for the type `name`.
     SoftEnum { name: String },
     /// An item name.
@@ -831,6 +844,13 @@ impl std::error::Error for Error {}
 
 /// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Orders `a` and `b` as their ASCII-lowercase forms would be ordered, without making them.
+fn cmp_ignoring_ascii_case(a: &str, b: &str) -> Ordering {
+    a.bytes()
+        .map(|c| c.to_ascii_lowercase())
+        .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+}
 
 #[cfg(test)]
 mod tests {

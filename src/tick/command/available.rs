@@ -35,7 +35,7 @@ use crate::tick::queue::SessionId;
 /// The suffix of a command's aliases enum after its name, as the official server names it.
 const ALIASES_SUFFIX: &str = "CommandAliases";
 /// The enum of every command name and alias a player may type.
-pub(crate) const COMMAND_NAME_ENUM: &str = "CommandName";
+const COMMAND_NAME_ENUM: &str = "CommandName";
 /// The alias offset of a command without aliases: -1 as a u32.
 const NO_ALIASES: u32 = u32::MAX;
 /// A table position not given yet in a player's packet.
@@ -43,7 +43,7 @@ const UNSET: u32 = u32::MAX;
 
 /// The network form of every registered command, built once at build.
 #[derive(Debug, Default)]
-pub(crate) struct Catalog {
+pub(super) struct Catalog {
     /// Every enum value once, in first-use order over all commands.
     values: Vec<String>,
     /// Every enum once, each type name once.
@@ -60,10 +60,10 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// Builds the network form of `commands`, with the client's name enums from `names`. Fails
+    /// The network form of `commands`, with the client's name enums from `names`. Fails
     /// if two enums share a type name but not their values, or a soft enum shares one with an
     /// enum: the client would get only the first.
-    pub(crate) fn new(commands: &[Command], names: &Names) -> register::Result<Self> {
+    pub(super) fn new(commands: &[Command], names: &Names) -> register::Result<Self> {
         let mut b = Builder::default();
         // A parameter may not take the name of the enum every packet builds itself.
         b.enum_index.insert(COMMAND_NAME_ENUM.to_owned(), UNSET);
@@ -136,17 +136,17 @@ impl Catalog {
     }
 
     /// How many soft enum types the commands use.
-    pub(crate) fn soft_count(&self) -> usize {
+    pub(super) fn soft_count(&self) -> usize {
         self.soft.len()
     }
 
     /// The position of the soft enum of type `name` among [`Self::soft_count`].
-    pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
+    pub(super) fn soft_enum(&self, name: &str) -> Option<usize> {
         self.soft_index.get(name).map(|&index| slice_index(index))
     }
 
     /// The type name of soft enum `index`, a position among [`Self::soft_count`].
-    pub(crate) fn soft_name(&self, index: usize) -> &str {
+    pub(super) fn soft_name(&self, index: usize) -> &str {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: callers pass a position among the soft enums"
@@ -244,7 +244,7 @@ impl Builder {
             Kind::RawText => Type::Basic(CommandArgType::RawText),
             Kind::Json => Type::Basic(CommandArgType::Json),
             Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
-            Kind::Enum { name, values } => {
+            Kind::Enum { name, values, .. } => {
                 Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
             }
             Kind::Item => {
@@ -366,7 +366,7 @@ pub(crate) fn available_commands(
                 let value_indices = e
                     .values
                     .iter()
-                    .map(|&v| value_of(catalog, &mut value_at, &mut values, v))
+                    .map(|&v| value_of(catalog, v, &mut value_at, &mut values))
                     .collect();
                 enums.push(CommandEnum {
                     r#type: e.name.clone(),
@@ -377,10 +377,10 @@ pub(crate) fn available_commands(
         for &index in &entry.soft {
             soft_enum_of(
                 catalog,
+                index,
                 soft_values,
                 &mut soft_at,
                 &mut dynamic_enums,
-                index,
             );
         }
         let overloads = entry
@@ -414,7 +414,7 @@ pub(crate) fn available_commands(
     }
     let value_indices = names
         .into_iter()
-        .map(|v| value_of(catalog, &mut value_at, &mut values, v))
+        .map(|v| value_of(catalog, v, &mut value_at, &mut values))
         .collect();
     enums.push(CommandEnum {
         r#type: COMMAND_NAME_ENUM.to_owned(),
@@ -432,7 +432,8 @@ pub(crate) fn available_commands(
     }))
 }
 
-/// Computes a parameter's packet type, its enum renumbered by `enum_at` or `soft_at`.
+/// The packet type of a parameter of type `r#type`, its enum renumbered by `enum_at` or
+/// `soft_at`.
 fn wire_type(r#type: Type, enum_at: &[u32], soft_at: &[u32]) -> u32 {
     match r#type {
         Type::Basic(t) => u32::from(CommandArg::Valid) | u32::from(t),
@@ -448,7 +449,7 @@ fn wire_type(r#type: Type, enum_at: &[u32], soft_at: &[u32]) -> u32 {
     }
 }
 
-/// Looks up the packet position `at` gives catalog position `index`, which the command's enums
+/// The packet position `at` gives catalog position `index`, which the command's enums
 /// were renumbered with before its overloads.
 fn renumbered(at: &[u32], index: u32) -> u32 {
     #[expect(
@@ -461,10 +462,10 @@ fn renumbered(at: &[u32], index: u32) -> u32 {
 /// Copies catalog soft enum `index` with its values into `dynamic_enums` on first use.
 fn soft_enum_of(
     catalog: &Catalog,
+    index: u32,
     soft_values: &[Vec<String>],
     soft_at: &mut [u32],
     dynamic_enums: &mut Vec<DynamicEnum>,
-    index: u32,
 ) {
     let at = slice_index(index);
     #[expect(
@@ -483,7 +484,7 @@ fn soft_enum_of(
 }
 
 /// Finds the packet position of catalog value `v`, copying it into `values` on first use.
-fn value_of(catalog: &Catalog, value_at: &mut [u32], values: &mut Vec<String>, v: u32) -> u32 {
+fn value_of(catalog: &Catalog, v: u32, value_at: &mut [u32], values: &mut Vec<String>) -> u32 {
     let at = slice_index(v);
     #[expect(
         clippy::indexing_slicing,
@@ -506,7 +507,7 @@ fn slice_index(index: u32) -> usize {
     usize::try_from(index).expect("a u32 fits a usize")
 }
 
-/// Lists each of `names` as `minecraft:<name>` and as itself, the official server's order.
+/// Each of `names` as `minecraft:<name>` and as itself, the official server's order.
 fn namespaced<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
     names
         .flat_map(|n| [format!("{NAMESPACE}{n}"), n.to_owned()])

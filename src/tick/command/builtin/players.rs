@@ -107,33 +107,6 @@ pub(super) fn add(commands: &mut Vec<Command>) {
     ]);
 }
 
-/// Lists the slots `/clear` empties and what they hold.
-fn slots(p: &Player) -> Vec<(Slot, &Stack)> {
-    let inv = &p.inventory;
-    let mut out: Vec<(Slot, &Stack)> = (0_u8..)
-        .map_while(|i| inv.main_stack(i).map(|s| (Slot::Main(i), s)))
-        .collect();
-    out.push((Slot::Cursor, inv.cursor()));
-    out.extend(
-        inv.armor()
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (Slot::Armor(i), s)),
-    );
-    out.push((Slot::Offhand, inv.offhand()));
-    out
-}
-
-/// Replaces the stack in `slot` and tells the client.
-fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
-    match slot {
-        Slot::Main(i) => inventory::set_main(p, i, stack),
-        Slot::Cursor => inventory::set_cursor(p, stack),
-        Slot::Armor(i) => inventory::set_armor(p, i, stack),
-        Slot::Offhand => inventory::set_offhand(p, stack),
-    }
-}
-
 /// Empties the inventory, cursor, armor and off hand, or takes the stacks of `item` with damage
 /// `data` (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts
 /// them) (`/clear [player] [item] [data] [maxCount]`). Operators only.
@@ -146,7 +119,7 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
-        let Some(p) = cx.state.players.get_mut(&id.session()) else {
+        let Some(p) = cx.player_mut(id) else {
             continue;
         };
         let matches = |s: &Stack| {
@@ -193,6 +166,33 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         });
     }
     results.finish()
+}
+
+/// Lists the slots `/clear` empties and what they hold.
+fn slots(p: &Player) -> Vec<(Slot, &Stack)> {
+    let inv = &p.inventory;
+    let mut out: Vec<(Slot, &Stack)> = (0_u8..)
+        .map_while(|i| inv.main_stack(i).map(|s| (Slot::Main(i), s)))
+        .collect();
+    out.push((Slot::Cursor, inv.cursor()));
+    out.extend(
+        inv.armor()
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (Slot::Armor(i), s)),
+    );
+    out.push((Slot::Offhand, inv.offhand()));
+    out
+}
+
+/// Replaces the stack in `slot` and tells the client.
+fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
+    match slot {
+        Slot::Main(i) => inventory::set_main(p, i, stack),
+        Slot::Cursor => inventory::set_cursor(p, stack),
+        Slot::Armor(i) => inventory::set_armor(p, i, stack),
+        Slot::Offhand => inventory::set_offhand(p, stack),
+    }
 }
 
 /// Changes the players' game mode (`/gamemode <mode> [player]`): a player already in the mode is

@@ -89,7 +89,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             ),
         Command::new("unban", "Lifts the ban on a name")
             .permission(permission::COMMAND_UNBAN_PLAYER)
-            .overload(&[Param::player_name("name")], infallible(unban)),
+            .overload(&[Param::player_name("name")], unban),
         Command::new("unban-ip", "Lifts the ban on an IP address")
             .permission(permission::COMMAND_UNBAN_IP)
             .overload(&[Param::string("address")], unban_ip),
@@ -129,15 +129,12 @@ pub(super) fn add(commands: &mut Vec<Command>) {
     ]);
 }
 
-/// Turns a refused list change (a name over the list's bounds, a full list) into a failure.
-fn list_error(e: permission::Error) -> Error {
-    Error::failed(e.to_string())
-}
-
 /// Bans the name, with the sender as the source, and kicks the player of that name if online
 /// (`/ban <name> [reason]`).
 fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let name = args.string("name").unwrap_or_default();
+    let Some(name) = args.string("name") else {
+        return Err(usage(cx, "ban"));
+    };
     let reason = args.string("reason").unwrap_or_default();
     let online = cx.player_by_name(name);
     has_room(cx, usize::from(online.is_some()))?;
@@ -157,13 +154,15 @@ fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 /// Bans the address, or the address of the online player of that name, and kicks every player
 /// at it (`/ban-ip <address|player> [reason]`).
 fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let value = args.string("address").unwrap_or_default();
+    let Some(value) = args.string("address") else {
+        return Err(usage(cx, "ban-ip"));
+    };
     let reason = args.string("reason").unwrap_or_default();
     let (ip, owner) = if let Some(ip) = parse_ip(value) {
         (ip, None)
     } else {
         let address = cx.player_by_name(value).and_then(|id| {
-            let p = cx.state.players.get(&id.session())?;
+            let p = cx.player(id)?;
             Some((p.identity.address?, p.identity.name.clone()))
         });
         let Some((ip, name)) = address else {
@@ -191,25 +190,6 @@ fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     })
 }
 
-/// Adds to `out` the line of `names`, `count` in all (the first [`MAX_LISTED`], comma
-/// separated) and, when there are more, a line telling how many more.
-fn listed<'a>(out: Output, count: usize, names: impl Iterator<Item = &'a str>) -> Output {
-    let mut line = String::new();
-    for (i, name) in names.take(MAX_LISTED).enumerate() {
-        if i > 0 {
-            line.push_str(", ");
-        }
-        line.push_str(name);
-    }
-    let out = out.line(line);
-    let more = count.saturating_sub(MAX_LISTED);
-    if more > 0 {
-        out.line(format!("and {more} more"))
-    } else {
-        out
-    }
-}
-
 /// Shows how many bans are in force and the banned names in text order or the banned addresses
 /// in address order, at most [`MAX_LISTED`] of them (`/banlist [ips|players]`).
 fn banlist(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Output {
@@ -231,15 +211,19 @@ fn banlist(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Output {
 }
 
 /// Lifts the ban of the name (`/unban <name>`).
-fn unban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
-    let name = args.string("name").unwrap_or_default();
+fn unban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
+    let Some(name) = args.string("name") else {
+        return Err(usage(cx, "unban"));
+    };
     cx.unban(name);
-    announce(cx, *sender, UNBAN_SUCCESS, &[name])
+    Ok(announce(cx, *sender, UNBAN_SUCCESS, &[name]))
 }
 
 /// Lifts the ban of the address (`/unban-ip <address>`).
 fn unban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let value = args.string("address").unwrap_or_default();
+    let Some(value) = args.string("address") else {
+        return Err(usage(cx, "unban-ip"));
+    };
     let Some(ip) = parse_ip(value) else {
         return Err(UNBANIP_INVALID.error(&[]));
     };
@@ -251,15 +235,6 @@ fn unban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
 /// (`::ffff:1.2.3.4`) is the IPv4 address.
 fn parse_ip(text: &str) -> Option<IpAddr> {
     text.parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
-}
-
-/// Reads the name argument of `/op`, `/deop` and `/whitelist`, if it can be a player's name (a
-/// usage failure otherwise).
-fn listed_name<'a>(cx: &Context<'_>, args: &'a Args, command: &str) -> Result<&'a str> {
-    match args.string("player") {
-        Some(name) if crate::login::check_user_name(name).is_ok() => Ok(name),
-        _ => Err(usage(cx, command)),
-    }
 }
 
 /// Makes the name an operator and tells the player if online (`/op <player>`).
@@ -289,17 +264,17 @@ fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 /// `reload`. `on` and `off` last until the server stops
 /// (`white-list` decides at start). `list` shows at most [`MAX_LISTED`] names.
 fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let action = args.string("action").unwrap_or_default();
-    let needed = match action {
-        "on" => permission::COMMAND_WHITELIST_ENABLE,
-        "off" => permission::COMMAND_WHITELIST_DISABLE,
-        "list" => permission::COMMAND_WHITELIST_LIST,
-        "add" => permission::COMMAND_WHITELIST_ADD,
-        _ => permission::COMMAND_WHITELIST_REMOVE,
+    let needed = match args.string("action") {
+        Some("on") => permission::COMMAND_WHITELIST_ENABLE,
+        Some("off") => permission::COMMAND_WHITELIST_DISABLE,
+        Some("list") => permission::COMMAND_WHITELIST_LIST,
+        Some("add") => permission::COMMAND_WHITELIST_ADD,
+        Some("remove") => permission::COMMAND_WHITELIST_REMOVE,
+        _ => return Err(usage(cx, "whitelist")),
     };
     require(cx, *sender, needed, "whitelist")?;
-    match action {
-        "on" => {
+    match args.string("action") {
+        Some("on") => {
             // Every online player may be left out.
             has_room(cx, cx.player_count())?;
             cx.set_whitelist_enabled(true);
@@ -314,11 +289,11 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
             }
             Ok(announce(cx, *sender, WHITELIST_ENABLED, &[]))
         }
-        "off" => {
+        Some("off") => {
             cx.set_whitelist_enabled(false);
             Ok(announce(cx, *sender, WHITELIST_DISABLED, &[]))
         }
-        "list" => {
+        Some("list") => {
             let count = cx.state.commands.access.whitelisted().len();
             let shown = count.to_string();
             Ok(listed(
@@ -327,7 +302,7 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
                 cx.whitelist(),
             ))
         }
-        "add" => {
+        Some("add") => {
             let name = listed_name(cx, args, "whitelist")?;
             cx.add_to_whitelist(name).map_err(list_error)?;
             Ok(announce(cx, *sender, WHITELIST_ADD_SUCCESS, &[name]))
@@ -343,6 +318,39 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
             }
             Ok(announce(cx, *sender, WHITELIST_REMOVE_SUCCESS, &[name]))
         }
+    }
+}
+
+/// Turns a refused list change (a name over the list's bounds, a full list) into a failure.
+fn list_error(e: permission::Error) -> Error {
+    Error::failed(e.to_string())
+}
+
+/// Adds to `out` the line of `names`, `count` in all (the first [`MAX_LISTED`], comma
+/// separated) and, when there are more, a line telling how many more.
+fn listed<'a>(out: Output, count: usize, names: impl Iterator<Item = &'a str>) -> Output {
+    let mut line = String::new();
+    for (i, name) in names.take(MAX_LISTED).enumerate() {
+        if i > 0 {
+            line.push_str(", ");
+        }
+        line.push_str(name);
+    }
+    let out = out.line(line);
+    let more = count.saturating_sub(MAX_LISTED);
+    if more > 0 {
+        out.line(format!("and {more} more"))
+    } else {
+        out
+    }
+}
+
+/// Reads the name argument of `/op`, `/deop` and `/whitelist`, if it can be a player's name (a
+/// usage failure otherwise).
+fn listed_name<'a>(cx: &Context<'_>, args: &'a Args, command: &str) -> Result<&'a str> {
+    match args.string("player") {
+        Some(name) if crate::login::check_user_name(name).is_ok() => Ok(name),
+        _ => Err(usage(cx, command)),
     }
 }
 

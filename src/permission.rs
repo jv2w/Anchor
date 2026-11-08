@@ -16,6 +16,82 @@
 use std::fmt;
 use std::net::IpAddr;
 
+/// Declares Anchor's own permissions and the list of them.
+macro_rules! builtin {
+    ($($(#[$doc:meta])* $name:ident = $text:literal, $default:ident;)*) => {
+        $(
+            $(#[$doc])*
+            pub const $name: Permission = Permission::new($text, Default::$default);
+        )*
+
+        /// Anchor's own permissions, registered on every server.
+        pub(crate) const BUILTIN: &[Permission] = &[$($name),*];
+    };
+}
+
+builtin! {
+    /// The permission to get a copy of what operators' commands did, such as
+    /// `[Steve: Opped Alex]`.
+    #[doc(alias = "DefaultPermissionNames")]
+    BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
+    /// The permission to show the server version (`/about`).
+    COMMAND_ABOUT = "anchor.command.about", True;
+    /// The permission to back up the data files while the server runs (`/backup`).
+    COMMAND_BACKUP = "anchor.command.backup", Op;
+    /// The permission to ban IP addresses (`/ban-ip`).
+    COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
+    /// The permission to list the bans (`/banlist`).
+    COMMAND_BAN_LIST = "anchor.command.ban.list", Op;
+    /// The permission to ban players (`/ban`).
+    COMMAND_BAN_PLAYER = "anchor.command.ban.player", Op;
+    /// The permission to check the data files while the server runs (`/check`).
+    COMMAND_CHECK = "anchor.command.check", Op;
+    /// The permission to clear players' inventories (`/clear`).
+    COMMAND_CLEAR = "anchor.command.clear", Op;
+    /// The permission to change another player's game mode (`/gamemode`).
+    COMMAND_GAMEMODE_OTHER = "anchor.command.gamemode.other", Op;
+    /// The permission to change one's own game mode (`/gamemode`).
+    COMMAND_GAMEMODE_SELF = "anchor.command.gamemode.self", Op;
+    /// The permission to give items to another player (`/give`).
+    COMMAND_GIVE_OTHER = "anchor.command.give.other", Op;
+    /// The permission to give items to oneself (`/give`).
+    COMMAND_GIVE_SELF = "anchor.command.give.self", Op;
+    /// The permission to kick players (`/kick`).
+    COMMAND_KICK = "anchor.command.kick", Op;
+    /// The permission to kill players (`/kill`).
+    COMMAND_KILL = "anchor.command.kill", Op;
+    /// The permission to list the players online (`/list`).
+    COMMAND_LIST = "anchor.command.list", Op;
+    /// The permission to make players operators (`/op`).
+    COMMAND_OP_GIVE = "anchor.command.op.give", Op;
+    /// The permission to take operator status away (`/deop`).
+    COMMAND_OP_TAKE = "anchor.command.op.take", Op;
+    /// The permission to turn periodic saving on or off, or save now (`/save`).
+    COMMAND_SAVE = "anchor.command.save", Op;
+    /// The permission to show the server's uptime and load (`/status`).
+    COMMAND_STATUS = "anchor.command.status", Op;
+    /// The permission to stop the server (`/stop`).
+    COMMAND_STOP = "anchor.command.stop", Op;
+    /// The permission to teleport other players (`/tp`).
+    COMMAND_TELEPORT_OTHER = "anchor.command.teleport.other", Op;
+    /// The permission to teleport oneself (`/tp`).
+    COMMAND_TELEPORT_SELF = "anchor.command.teleport.self", Op;
+    /// The permission to lift IP bans (`/unban-ip`).
+    COMMAND_UNBAN_IP = "anchor.command.unban.ip", Op;
+    /// The permission to lift player bans (`/unban`).
+    COMMAND_UNBAN_PLAYER = "anchor.command.unban.player", Op;
+    /// The permission to add players to the whitelist (`/whitelist add`).
+    COMMAND_WHITELIST_ADD = "anchor.command.whitelist.add", Op;
+    /// The permission to turn the whitelist off (`/whitelist off`).
+    COMMAND_WHITELIST_DISABLE = "anchor.command.whitelist.disable", Op;
+    /// The permission to turn the whitelist on (`/whitelist on`).
+    COMMAND_WHITELIST_ENABLE = "anchor.command.whitelist.enable", Op;
+    /// The permission to list the whitelist (`/whitelist list`).
+    COMMAND_WHITELIST_LIST = "anchor.command.whitelist.list", Op;
+    /// The permission to remove players from the whitelist (`/whitelist remove`).
+    COMMAND_WHITELIST_REMOVE = "anchor.command.whitelist.remove", Op;
+}
+
 /// The most entries one list holds (operators, name bans, IP bans, whitelist).
 pub(crate) const MAX_ENTRIES: usize = 262_144;
 /// The longest name the operator list, the ban list and the whitelist hold, in bytes.
@@ -89,7 +165,7 @@ pub enum Default {
 }
 
 impl Default {
-    /// The default a permission file names: `op`, `notop`, `true`, `false` and the other
+    /// The default `name` names: `op`, `notop`, `true`, `false` and the other
     /// spellings (`isop`, `admin`, `!op`, `notadmin`, ...), ignoring ASCII case.
     #[doc(alias = "PermissionParser::defaultFromString")]
     pub fn from_name(name: &str) -> Option<Self> {
@@ -221,7 +297,7 @@ impl BanEntry {
         Ok(self)
     }
 
-    /// The ban ending at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
+    /// The same ban with its end at engine tick `tick`; a ban without an end lasts until it is lifted. A tick
     /// that has passed when the ban is added refuses it ([`Error::Expired`]).
     #[doc(alias = "BanEntry::setExpires")]
     #[must_use]
@@ -230,7 +306,7 @@ impl BanEntry {
         self
     }
 
-    /// The ban with `reason`, which a banned player sees when refused.
+    /// The same ban with `reason`, which a banned player sees when refused.
     #[doc(alias = "BanEntry::setReason")]
     #[must_use]
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
@@ -238,7 +314,7 @@ impl BanEntry {
         self
     }
 
-    /// The ban with `source`: who or what banned (`(Unknown)` by default).
+    /// The same ban with `source`: who or what banned (`(Unknown)` by default).
     #[doc(alias = "BanEntry::setSource")]
     #[must_use]
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
@@ -279,81 +355,6 @@ impl std::error::Error for Error {}
 /// A result with the module's [`enum@Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Declares Anchor's own permissions and the list of them.
-macro_rules! builtin {
-    ($($(#[$doc:meta])* $name:ident = $text:literal, $default:ident;)*) => {
-        $(
-            $(#[$doc])*
-            pub const $name: Permission = Permission::new($text, Default::$default);
-        )*
-
-        /// Anchor's own permissions, registered on every server.
-        pub(crate) const BUILTIN: &[Permission] = &[$($name),*];
-    };
-}
-
-builtin! {
-    /// Get a copy of what operators' commands did, such as `[Steve: Opped Alex]`.
-    #[doc(alias = "DefaultPermissionNames")]
-    BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
-    /// Show the server version (`/about`).
-    COMMAND_ABOUT = "anchor.command.about", True;
-    /// Back up the data files while the server runs (`/backup`).
-    COMMAND_BACKUP = "anchor.command.backup", Op;
-    /// Ban IP addresses (`/ban-ip`).
-    COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
-    /// List the bans (`/banlist`).
-    COMMAND_BAN_LIST = "anchor.command.ban.list", Op;
-    /// Ban players (`/ban`).
-    COMMAND_BAN_PLAYER = "anchor.command.ban.player", Op;
-    /// Check the data files while the server runs (`/check`).
-    COMMAND_CHECK = "anchor.command.check", Op;
-    /// Clear players' inventories (`/clear`).
-    COMMAND_CLEAR = "anchor.command.clear", Op;
-    /// Change another player's game mode (`/gamemode`).
-    COMMAND_GAMEMODE_OTHER = "anchor.command.gamemode.other", Op;
-    /// Change one's own game mode (`/gamemode`).
-    COMMAND_GAMEMODE_SELF = "anchor.command.gamemode.self", Op;
-    /// Give items to another player (`/give`).
-    COMMAND_GIVE_OTHER = "anchor.command.give.other", Op;
-    /// Give items to oneself (`/give`).
-    COMMAND_GIVE_SELF = "anchor.command.give.self", Op;
-    /// Kick players (`/kick`).
-    COMMAND_KICK = "anchor.command.kick", Op;
-    /// Kill players (`/kill`).
-    COMMAND_KILL = "anchor.command.kill", Op;
-    /// List the players online (`/list`).
-    COMMAND_LIST = "anchor.command.list", Op;
-    /// Make players operators (`/op`).
-    COMMAND_OP_GIVE = "anchor.command.op.give", Op;
-    /// Take operator status away (`/deop`).
-    COMMAND_OP_TAKE = "anchor.command.op.take", Op;
-    /// Turn periodic saving on or off, or save now (`/save`).
-    COMMAND_SAVE = "anchor.command.save", Op;
-    /// Show the server's uptime and load (`/status`).
-    COMMAND_STATUS = "anchor.command.status", Op;
-    /// Stop the server (`/stop`).
-    COMMAND_STOP = "anchor.command.stop", Op;
-    /// Teleport other players (`/tp`).
-    COMMAND_TELEPORT_OTHER = "anchor.command.teleport.other", Op;
-    /// Teleport oneself (`/tp`).
-    COMMAND_TELEPORT_SELF = "anchor.command.teleport.self", Op;
-    /// Lift IP bans (`/unban-ip`).
-    COMMAND_UNBAN_IP = "anchor.command.unban.ip", Op;
-    /// Lift player bans (`/unban`).
-    COMMAND_UNBAN_PLAYER = "anchor.command.unban.player", Op;
-    /// Add players to the whitelist (`/whitelist add`).
-    COMMAND_WHITELIST_ADD = "anchor.command.whitelist.add", Op;
-    /// Turn the whitelist off (`/whitelist off`).
-    COMMAND_WHITELIST_DISABLE = "anchor.command.whitelist.disable", Op;
-    /// Turn the whitelist on (`/whitelist on`).
-    COMMAND_WHITELIST_ENABLE = "anchor.command.whitelist.enable", Op;
-    /// List the whitelist (`/whitelist list`).
-    COMMAND_WHITELIST_LIST = "anchor.command.whitelist.list", Op;
-    /// Remove players from the whitelist (`/whitelist remove`).
-    COMMAND_WHITELIST_REMOVE = "anchor.command.whitelist.remove", Op;
-}
-
 /// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
 /// [`MAX_SOURCE`].
 pub(crate) fn check_ban_fields(reason: &str, source: &str) -> Result<()> {
@@ -392,6 +393,19 @@ mod tests {
         for (default, expected) in table {
             let p = Permission::new("x", default);
             assert_eq!([false, true].map(|op| p.granted_by_default(op)), expected);
+        }
+    }
+
+    #[test]
+    fn the_error_docs_name_the_limits_the_lists_enforce() {
+        let source = include_str!("permission.rs");
+        let entries = format!("{},{:03}", MAX_ENTRIES / 1000, MAX_ENTRIES % 1000);
+        for text in [
+            format!("longer than {MAX_NAME} bytes or holds"),
+            format!("longer than {MAX_REASON} bytes or its source longer than {MAX_SOURCE}."),
+            format!("The list holds {entries} entries."),
+        ] {
+            assert!(source.contains(&text), "{text}");
         }
     }
 

@@ -1,6 +1,8 @@
 //! Commands in the tick: the registered commands and permissions, `CommandRequest`, the console
 //! lines and `AvailableCommands`, and the operator list, bans and whitelist with the join policy
 //! that reads them.
+//! It also holds `Context::set_default_game_mode` and `set_difficulty`, the API of the
+//! `defaultgamemode` and `difficulty` commands Anchor removes.
 //!
 //! A command runs in the tick's serial step, where its input arrived: a player's
 //! `CommandRequest` in the packet inputs, a console line as its own input
@@ -11,7 +13,7 @@ mod access;
 mod available;
 mod builtin;
 
-pub(crate) use access::{Access, Lists};
+pub(crate) use access::Lists;
 pub(crate) use available::{Listing, available_commands};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,6 +44,7 @@ use crate::protocol::{COMMAND_DESCRIPTION_MAX_LEN, CommandOrigin, CommandOutputM
 use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::AccessKey;
+use access::Access;
 
 /// The client's `[sender: message]` text of a copy of a command result for operators.
 const ADMIN_KEY: &str = "chat.type.admin";
@@ -61,7 +64,7 @@ const MAX_OUTPUT_PARAMS: usize = 32;
 const RANDOM_TARGET: u64 = random::tag("command-random-target");
 
 /// The grants and denials of online players by session.
-pub(crate) type Grants = BTreeMap<SessionId, BTreeMap<&'static str, bool>>;
+type Grants = BTreeMap<SessionId, BTreeMap<&'static str, bool>>;
 
 /// Where a registered command comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +136,11 @@ pub(crate) struct Commands {
 }
 
 impl Commands {
+    /// The operator list, the bans and the whitelist, shared with the state until the next change.
+    pub(super) fn access_lists(&self) -> Arc<Lists> {
+        self.access.lists()
+    }
+
     /// Writes what changes while the server runs, as `Self::hash_into` hashes it, and the
     /// start tick.
     pub(super) fn checkpoint(&self, w: &mut Writer) {
@@ -242,11 +250,6 @@ impl Commands {
         access.hash_into(h);
         h.u64(u64::from(*auto_save));
         h.u64(u64::from(*stopping));
-    }
-
-    /// The operator list, the bans and the whitelist, shared with the state until the next change.
-    pub(super) fn access_lists(&self) -> Arc<Lists> {
-        self.access.lists()
     }
 
     /// Whether periodic saves are on: the save snapshot due every `save-interval-minutes` is
@@ -618,9 +621,10 @@ impl Context<'_> {
         self.state.commands.list.iter()
     }
 
-    /// Every registered permission in name order, with whether `sender` has it now: its grant or
-    /// denial, otherwise the default for its operator status (Anchor has no child permissions to
-    /// expand). A player who has left has none.
+    /// Every registered permission in name order, with whether `sender` has it now, as
+    /// [`has_permission`](Self::has_permission) tells: its grant or denial, otherwise the default
+    /// for its operator status (Anchor has no child permissions to expand). A player who has left
+    /// has none; the player a [`run_command`](Self::run_command) runs as has every one.
     #[doc(alias = "Permissible::getEffectivePermissions")]
     #[doc(alias = "Player::getEffectivePermissions")]
     pub fn effective_permissions(
@@ -628,6 +632,8 @@ impl Context<'_> {
         sender: Sender,
     ) -> impl Iterator<Item = (Permission, bool)> {
         let commands = &self.state.commands;
+        let unrestricted =
+            matches!(sender, Sender::Player(id) if commands.unrestricted == Some(id));
         // The session and operator status once, not per permission; `None` for a player gone.
         let holder = match sender {
             Sender::Console => Some((None, true)),
@@ -638,8 +644,10 @@ impl Context<'_> {
                 .map(|p| (Some(id.session()), commands.access.is_op(&p.identity.name))),
         };
         commands.permissions.values().map(move |&p| {
-            let has = holder
-                .is_some_and(|(session, op)| has_permission_of(&commands.grants, session, op, p));
+            let has = unrestricted
+                || holder.is_some_and(|(session, op)| {
+                    has_permission_of(&commands.grants, session, op, p)
+                });
             (p, has)
         })
     }
@@ -783,8 +791,8 @@ impl Context<'_> {
     }
 
     /// Adds `entry` to the name bans, or to the IP bans for [`BanEntry::ip`], replacing a ban of
-    /// the same name or address, saved at the next tick boundary. Its creation time is now. Bans
-    /// that have ended are dropped from the list first. A banned player who is online stays
+    /// the same name or address, saved at the next tick boundary. Its creation time is now. The
+    /// name and IP bans that have ended are dropped first. A banned player who is online stays
     /// until kicked; the ban refuses its next join, and the join of a player whose saved data
     /// is still loading when its data arrives.
     ///
@@ -954,8 +962,10 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// The errors of [`Player::send`](player::Player::send): [`player::Error::TooLong`] and
-    /// [`player::Error::TooManyParameters`] for a message a client does not decode.
+    /// [`player::Error::TooLong`] for a message too long for a client to decode, as
+    /// [`Player::send`](player::Player::send) refuses it.
+    /// [`player::Error::TooManyParameters`] for a message with more parameters than a client
+    /// decodes.
     #[doc(alias = "CommandSender::sendMessage")]
     #[doc(alias = "ConsoleCommandSender::sendMessage")]
     pub fn send_to(&mut self, sender: Sender, message: player::Message) -> player::Result<()> {
@@ -987,8 +997,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) past 256
-    /// network changes in one tick; nothing is changed.
+    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
+    /// in one tick; nothing is changed.
     pub fn set_default_game_mode(&mut self, mode: GameMode) -> crate::task::Result<()> {
         if !self.state.network.control(queue::Control::GameMode(mode)) {
             return Err(crate::task::Error::NetworkBusy);
@@ -1061,9 +1071,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`register::Error::InvalidSoftEnum`], changing nothing, if no registered command takes
-    /// `name`, or a value is empty, or there are more than 4,096 or more than 65,536 bytes of
-    /// them in all.
+    /// [`register::Error::InvalidSoftEnum`] for a `name` no registered command takes, an empty
+    /// value, or more than 4,096 or more than 65,536 bytes of values in all; nothing is changed.
     pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> register::Result<()> {
         let commands = &mut self.state.commands;
         let invalid = || register::Error::InvalidSoftEnum {
@@ -1153,6 +1162,24 @@ impl Context<'_> {
         true
     }
 
+    /// Makes every joined player named `name` (ASCII case), loading or not, follow a change of
+    /// operator status to `op` with its command list and abilities; players signed in with Xbox
+    /// may share a name.
+    fn operator_changed(&mut self, name: &str, op: bool) {
+        let state = &mut *self.state;
+        state.commands.forget_admins();
+        let named = state
+            .names
+            .range((name.to_ascii_lowercase(), SessionId::new(0))..)
+            .take_while(|(n, _)| n.eq_ignore_ascii_case(name));
+        for &(_, session) in named {
+            if let Some(p) = state.players.get_mut(&session) {
+                state.commands.resend.insert(session);
+                p.survival.set_operator(op);
+            }
+        }
+    }
+
     /// Sends `packets` to every online player with
     /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN) but `sender`, as a viewer: a command on
     /// many players makes a copy for each, so one whose outbox is nearly full is skipped. While a
@@ -1181,32 +1208,6 @@ impl Context<'_> {
         }
         if running {
             self.state.commands.admins = Admins::Known(admins);
-        }
-    }
-
-    /// Makes the joined player named `name` (ASCII case), loading or not, follow a change of
-    /// operator status to `op` with its command list and abilities. Without Xbox sign-in the name
-    /// is the player's key and the lookup is an index search; with it, the players' keys are
-    /// their XUIDs, and the players (at most `max-players`) are compared one by one, only when
-    /// the operator list changes.
-    fn operator_changed(&mut self, name: &str, op: bool) {
-        let state = &mut *self.state;
-        state.commands.forget_admins();
-        let key = PlayerKey::Name(name.to_ascii_lowercase());
-        let session = state.index.get(&key).copied().or_else(|| {
-            state
-                .players
-                .iter()
-                .find(|(_, p)| {
-                    p.identity.xuid.is_some() && p.identity.name.eq_ignore_ascii_case(name)
-                })
-                .map(|(&session, _)| session)
-        });
-        if let Some(session) = session
-            && let Some(p) = state.players.get_mut(&session)
-        {
-            state.commands.resend.insert(session);
-            p.survival.set_operator(op);
         }
     }
 }
@@ -1266,7 +1267,7 @@ fn check(command: &Command) -> register::Result<()> {
             {
                 return invalid("more than 4096 enum values");
             }
-            if let Kind::Enum { name, values } = &param.kind
+            if let Kind::Enum { name, values, .. } = &param.kind
                 && (name.is_empty()
                     || values.is_empty()
                     || values
@@ -1466,7 +1467,7 @@ fn execute(state: &mut State, sender: Sender, line: &str) -> command::Result<Out
     result
 }
 
-/// Looks up the registered command at `index`, a position `by_name` gave.
+/// The registered command at `index`, a position `by_name` gave.
 fn command_at(state: &State, index: usize) -> &Command {
     #[expect(
         clippy::indexing_slicing,
@@ -1475,7 +1476,7 @@ fn command_at(state: &State, index: usize) -> &Command {
     &state.commands.list[index]
 }
 
-/// Lends the slot where the handler of overload `overload` of command `index` waits between
+/// The slot where the handler of overload `overload` of command `index` waits between
 /// runs.
 fn handler_slot_mut(
     state: &mut State,
@@ -1564,7 +1565,7 @@ fn resolve(
     Ok(Args { values })
 }
 
-/// Finds where `sender` stands: its world and feet, after a teleport earlier in the tick
+/// Where `sender` stands: its world and feet, after a teleport earlier in the tick
 /// ([`Player::position`](crate::player::Player::position)). The console stands on the default
 /// world's spawn block.
 fn origin(state: &State, sender: Sender) -> Option<(usize, Vec3)> {
@@ -1800,7 +1801,7 @@ pub(crate) fn admit(state: &State, identity: &Identity) -> Result<(), Refusal> {
         .map_or(Ok(()), Err)
 }
 
-/// Lists every refusal of `identity` now, one per kick flag in priority order: the server
+/// Every refusal of `identity` now, one per kick flag in priority order: the server
 /// is full, the whitelist keeps it out, its name is banned (else its address). `PlayerLogin`
 /// carries them all, so that a listener clearing one does not let in a player another refuses.
 pub(crate) fn refusals(state: &State, identity: &Identity) -> [Option<Refusal>; 3] {

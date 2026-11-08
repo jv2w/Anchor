@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use super::*;
 use crate::command::{self, Command, Line};
-use crate::config::{Difficulty, GameMode};
+use crate::config::GameMode;
 use crate::event::{
     EntityTeleport, Listeners, PlayerGameModeChange, PlayerKick, Priority, TeleportCause,
 };
@@ -66,7 +66,7 @@ const OFFICIAL_OVERLOADS: [&str; 20] = [
     "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
 ];
 /// The commands that no longer exist, with the names they had.
-const REMOVED_COMMANDS: [&str; 25] = [
+const REMOVED_COMMANDS: [&str; 27] = [
     "help",
     "?",
     "me",
@@ -92,6 +92,8 @@ const REMOVED_COMMANDS: [&str; 25] = [
     "save-on",
     "save-off",
     "save-all",
+    "ver",
+    "version",
 ];
 
 #[test]
@@ -232,13 +234,13 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     );
 }
 
-/// Tells whether a failure is a line that does not fit the command: a syntax error, or the
+/// Whether a failure is a line that does not fit the command: a syntax error, or the
 /// command's usage from its handler.
 fn is_usage(result: &command::Result<Output>) -> bool {
     matches!(result, Err(Error::Syntax { .. } | Error::Usage { .. }))
 }
 
-/// Tells whether a failure is a missing permission.
+/// Whether a failure is a missing permission.
 fn is_refused(result: &command::Result<Output>) -> bool {
     matches!(result, Err(Error::Permission { .. }))
 }
@@ -631,23 +633,6 @@ fn messages_to_the_players_acted_on_are_raw_text() {
         p,
         Packet::Text(t) if t.text_type == 10 && !t.needs_translation && t.source_name.is_empty()
     )));
-}
-
-#[test]
-fn a_hardcore_server_stays_hard() {
-    let (mut state, _rx) = with_op();
-    Context { state: &mut state }
-        .set_difficulty(Difficulty::Peaceful)
-        .unwrap();
-    state.settings.hardcore = true;
-    assert_eq!(
-        Context { state: &mut state }.set_difficulty(Difficulty::Easy),
-        Err(crate::world::Error::Hardcore)
-    );
-    assert_eq!(
-        Context { state: &mut state }.difficulty(),
-        Difficulty::Peaceful
-    );
 }
 
 #[test]
