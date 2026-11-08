@@ -60,60 +60,6 @@ impl<T: Derive> Paletted<T> {
         Ok(Self::compacted(bits, words, palette))
     }
 
-    /// A cube from the exact parts of a live one ([`Self::bits`], [`Self::words`],
-    /// [`Self::palette`]), as a checkpoint for the replay tool keeps it: unlike
-    /// [`Self::from_parts`] nothing is compacted, so it is the cube that was kept, unused entries
-    /// and width included. Fails unless the parts keep the invariants: a Bedrock width, its word
-    /// count, distinct entries the width indexes, every slot's index in the palette and the bits
-    /// that are no slot's 0.
-    pub(crate) fn from_raw(bits: u8, words: &[u32], palette: &[T]) -> Result<Self> {
-        if !WIDTHS.contains(&bits) || words.len() != word_count(bits) {
-            return Err(Error::Malformed("a kept palette width or word count"));
-        }
-        if palette.is_empty() || palette.len() > capacity(bits) {
-            return Err(Error::Malformed("a kept palette size"));
-        }
-        let mut out = Self::with_palette(bits, words.to_vec(), palette.to_vec());
-        if out
-            .lookup
-            .iter()
-            .zip(out.lookup.iter().skip(1))
-            .any(|(a, b)| a.0 == b.0)
-        {
-            return Err(Error::Malformed("repeated kept palette entries"));
-        }
-        if bits == 0 {
-            out.counts = vec![SLOTS];
-            return Ok(out);
-        }
-        // The bits of each word that hold slots: whole indices, and in the last word only the
-        // slots left.
-        let per = per_word(bits);
-        let mut left = usize::from(SLOTS);
-        for &word in words {
-            let here = left.min(per);
-            left -= here;
-            let used = u32::try_from(here * usize::from(bits)).unwrap_or(32);
-            let mask = if used >= 32 {
-                u32::MAX
-            } else {
-                (1 << used) - 1
-            };
-            if word & !mask != 0 {
-                return Err(Error::Malformed("kept padding bits"));
-            }
-        }
-        for offset in 0..SLOTS {
-            let index = out.index(offset);
-            let Some(c) = out.counts.get_mut(usize::from(index)) else {
-                return Err(Error::Malformed("a kept slot points outside its palette"));
-            };
-            *c += 1;
-        }
-        out.count_dead();
-        Ok(out)
-    }
-
     /// Bits per index: 0, 1, 2, 3, 4, 5, 6, 8 or 16.
     pub(crate) fn bits(&self) -> u8 {
         self.bits
@@ -162,7 +108,7 @@ impl<T: Derive> Paletted<T> {
 
     /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
     /// entries as varints of at most [`MAX_VARINT32_BYTES`].
-    pub(crate) fn max_encoded_bytes(&self) -> usize {
+    pub(super) fn max_encoded_bytes(&self) -> usize {
         1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
     }
 
@@ -273,6 +219,60 @@ impl<T: Derive> Paletted<T> {
         }
         out.count_dead();
         out
+    }
+
+    /// A cube from the exact parts of a live one ([`Self::bits`], [`Self::words`],
+    /// [`Self::palette`]), as a checkpoint for the replay tool keeps it: unlike
+    /// [`Self::from_parts`] nothing is compacted, so it is the cube that was kept, unused entries
+    /// and width included. Fails unless the parts keep the invariants: a Bedrock width, its word
+    /// count, distinct entries the width indexes, every slot's index in the palette and the bits
+    /// that are no slot's 0.
+    fn from_raw(bits: u8, words: &[u32], palette: &[T]) -> Result<Self> {
+        if !WIDTHS.contains(&bits) || words.len() != word_count(bits) {
+            return Err(Error::Malformed("a kept palette width or word count"));
+        }
+        if palette.is_empty() || palette.len() > capacity(bits) {
+            return Err(Error::Malformed("a kept palette size"));
+        }
+        let mut out = Self::with_palette(bits, words.to_vec(), palette.to_vec());
+        if out
+            .lookup
+            .iter()
+            .zip(out.lookup.iter().skip(1))
+            .any(|(a, b)| a.0 == b.0)
+        {
+            return Err(Error::Malformed("repeated kept palette entries"));
+        }
+        if bits == 0 {
+            out.counts = vec![SLOTS];
+            return Ok(out);
+        }
+        // The bits of each word that hold slots: whole indices, and in the last word only the
+        // slots left.
+        let per = per_word(bits);
+        let mut left = usize::from(SLOTS);
+        for &word in words {
+            let here = left.min(per);
+            left -= here;
+            let used = u32::try_from(here * usize::from(bits)).unwrap_or(32);
+            let mask = if used >= 32 {
+                u32::MAX
+            } else {
+                (1 << used) - 1
+            };
+            if word & !mask != 0 {
+                return Err(Error::Malformed("kept padding bits"));
+            }
+        }
+        for offset in 0..SLOTS {
+            let index = out.index(offset);
+            let Some(c) = out.counts.get_mut(usize::from(index)) else {
+                return Err(Error::Malformed("a kept slot points outside its palette"));
+            };
+            *c += 1;
+        }
+        out.count_dead();
+        Ok(out)
     }
 
     /// A cube of `palette` (distinct entries) whose slots are not counted yet: `words` as given,

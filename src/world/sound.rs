@@ -32,6 +32,8 @@ const NO_ENTITY: &str = ":";
 /// The entity type of a player: the one hit and throw sounds carry, and the one the sounds a
 /// player makes name.
 pub(crate) const PLAYER_ENTITY_TYPE: &str = "minecraft:player";
+/// The extra data of a splash at full volume (1): the volume 0 to 1 is sent as 0 to this.
+const SPLASH_FULL_VOLUME: i32 = 16_777_215;
 
 /// A sound.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -155,7 +157,7 @@ pub enum Sound {
     /// A chorus flower growing.
     #[doc(alias = "ChorusFlowerGrowSound")]
     ChorusFlowerGrow,
-    /// A click at `pitch` (0 by default).
+    /// A click at `pitch` (usually 0, the API table's default).
     #[doc(alias = "ClickSound")]
     Click {
         /// The pitch.
@@ -173,7 +175,7 @@ pub enum Sound {
     /// A door being broken in.
     #[doc(alias = "DoorCrashSound")]
     DoorCrash,
-    /// A door opening or closing, at `pitch` (0 by default).
+    /// A door opening or closing, at `pitch` (usually 0, the API table's default).
     #[doc(alias = "DoorSound")]
     Door {
         /// The pitch.
@@ -221,7 +223,7 @@ pub enum Sound {
     /// A firework launching.
     #[doc(alias = "FireworkLaunchSound")]
     FireworkLaunch,
-    /// A fizz at `pitch` (0 by default).
+    /// A fizz at `pitch` (usually 0, the API table's default).
     #[doc(alias = "FizzSound")]
     Fizz {
         /// The pitch.
@@ -267,7 +269,7 @@ pub enum Sound {
     /// An item being used on a block of this state.
     #[doc(alias = "ItemUseOnBlockSound")]
     ItemUseOnBlock(block::State),
-    /// A launch at `pitch` (0 by default).
+    /// A launch at `pitch` (usually 0, the API table's default).
     #[doc(alias = "LaunchSound")]
     Launch {
         /// The pitch.
@@ -287,7 +289,7 @@ pub enum Sound {
     /// A painting being placed.
     #[doc(alias = "PaintingPlaceSound")]
     PaintingPlace,
-    /// A pop at `pitch` (0 by default).
+    /// A pop at `pitch` (usually 0, the API table's default).
     #[doc(alias = "PopSound")]
     Pop {
         /// The pitch.
@@ -513,9 +515,11 @@ impl Sound {
             Self::TridentHitBlock => plain(S::TridentHitGround),
             Self::TridentHitEntity => plain(S::TridentHit),
             Self::TridentThrow => plain(S::TridentThrow),
-            Self::WaterSplash { volume } => {
-                Sent::Sound(S::Splash, scaled(volume, 16_777_215.0), NO_ENTITY)
-            }
+            Self::WaterSplash { volume } => Sent::Sound(
+                S::Splash,
+                scaled(volume, f64::from(SPLASH_FULL_VOLUME)),
+                NO_ENTITY,
+            ),
             Self::XpCollect => level(L::SoundExperienceOrbPickup),
             Self::XpLevelUp { level } => {
                 // The volume field carries the level: 0x1000_0000 for every five levels up to 30,
@@ -614,6 +618,7 @@ fn horn_call(horn: item::Type) -> SoundEvent {
 fn record(disc: item::Type) -> SoundEvent {
     use item::Kind as K;
     match disc.kind() {
+        Some(K::Record11) => SoundEvent::Record11,
         Some(K::Record13) => SoundEvent::Record13,
         Some(K::Record5) => SoundEvent::Record5,
         Some(K::RecordCat) => SoundEvent::RecordCat,
@@ -631,9 +636,8 @@ fn record(disc: item::Type) -> SoundEvent {
         Some(K::RecordRelic) => SoundEvent::RecordRelic,
         Some(K::RecordStal) => SoundEvent::RecordStal,
         Some(K::RecordStrad) => SoundEvent::RecordStrad,
-        Some(K::RecordWard) => SoundEvent::RecordWard,
-        Some(K::Record11) => SoundEvent::Record11,
         Some(K::RecordWait) => SoundEvent::RecordWait,
+        Some(K::RecordWard) => SoundEvent::RecordWard,
         _ => SoundEvent::RecordNull,
     }
 }
@@ -741,7 +745,7 @@ mod tests {
             ),
             (
                 Sound::WaterSplash { volume: 1.0 },
-                ("splash".to_owned(), 16_777_215, ":".to_owned()),
+                ("splash".to_owned(), SPLASH_FULL_VOLUME, ":".to_owned()),
             ),
             (
                 Sound::XpLevelUp { level: 100 },

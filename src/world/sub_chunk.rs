@@ -115,13 +115,13 @@ impl SubChunk {
 
     /// The light values of the layer 0 block of a slot, kept by its palette.
     #[inline]
-    pub(crate) fn light_values(&self, offset: u16) -> super::light::Values {
+    pub(super) fn light_values(&self, offset: u16) -> super::light::Values {
         let [blocks, _] = &self.layers;
         blocks.derived(offset)
     }
 
     /// The most bytes [`Self::encode`] writes: three header bytes and both layers.
-    pub(crate) fn max_encoded_bytes(&self) -> usize {
+    pub(super) fn max_encoded_bytes(&self) -> usize {
         3 + self
             .layers
             .iter()

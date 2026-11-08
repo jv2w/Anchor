@@ -20,10 +20,11 @@
 //!   other tripwire and hook is not.
 //!
 //! A neighbour in a chunk that is not loaded, or in a state Anchor does not know, reads as air and
-//! is not changed. Which blocks are worked out again: the set block, its four horizontal neighbours and the block below (a wall's
-//! post depends on the block above), and the horizontal neighbours of a neighbour whose full faces
-//! changed (a stair whose corner changed). No rule depends on a state that a second round could
-//! change, so this covers every block whose state follows.
+//! is not changed; only the block above a wall differs: an unknown state there is not air, so the
+//! post is up. Which blocks are worked out again: the set block, its four horizontal neighbours and
+//! the block below (a wall's post depends on the block above), and the horizontal neighbours of a
+//! neighbour whose full faces changed (a stair whose corner changed). No rule depends on a state
+//! that a second round could change, so this covers every block whose state follows.
 
 use super::sub_chunk::Entry;
 use super::{BlockPos, World};

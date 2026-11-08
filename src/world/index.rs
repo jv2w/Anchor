@@ -15,14 +15,14 @@ const MIN_SLOTS: usize = 64;
 /// is a power of two at least [`MIN_SLOTS`]; at most half the slots are full, so every probe
 /// ends at an empty slot; a key sits at or after its home slot with no empty slot between.
 #[derive(Debug)]
-pub(crate) struct Chunks {
+pub(super) struct Chunks {
     slots: Vec<Option<(ChunkPos, Box<Chunk>)>>,
     len: usize,
 }
 
 impl Chunks {
     /// An index with no chunks.
-    pub(crate) fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             slots: empty(MIN_SLOTS),
             len: 0,
@@ -31,25 +31,25 @@ impl Chunks {
 
     /// Whether a chunk is at `pos`.
     #[inline]
-    pub(crate) fn contains(&self, pos: ChunkPos) -> bool {
+    pub(super) fn contains(&self, pos: ChunkPos) -> bool {
         self.find(pos).is_some()
     }
 
     /// The chunk at `pos`.
     #[inline]
-    pub(crate) fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
+    pub(super) fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
         let i = self.find(pos)?;
         self.slots.get(i)?.as_ref().map(|(_, c)| c.as_ref())
     }
 
     /// The chunk at `pos`, to change it.
-    pub(crate) fn get_mut(&mut self, pos: ChunkPos) -> Option<&mut Chunk> {
+    pub(super) fn get_mut(&mut self, pos: ChunkPos) -> Option<&mut Chunk> {
         let i = self.find(pos)?;
         self.slots.get_mut(i)?.as_mut().map(|(_, c)| c.as_mut())
     }
 
     /// Inserts or replaces the chunk at `pos`; returns the replaced one.
-    pub(crate) fn insert(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
+    pub(super) fn insert(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
         if let Some(i) = self.find(pos)
             && let Some(Some((_, old))) = self.slots.get_mut(i)
         {
@@ -65,7 +65,7 @@ impl Chunks {
 
     /// Removes the chunk at `pos`. Later keys of its run move back so no probe skips them, and
     /// the table halves when at most an eighth of it is full.
-    pub(crate) fn remove(&mut self, pos: ChunkPos) -> Option<Chunk> {
+    pub(super) fn remove(&mut self, pos: ChunkPos) -> Option<Chunk> {
         let mut hole = self.find(pos)?;
         let (_, chunk) = self.slots.get_mut(hole)?.take()?;
         self.len -= 1;

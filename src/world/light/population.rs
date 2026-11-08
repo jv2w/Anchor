@@ -116,7 +116,7 @@ impl Population {
     /// Lights sub-chunk `sub` from the open sky.
     ///
     /// The light is 15 at and above each column's sky height, and the top block of a column
-    /// blocked at the top is lit from above the world (above `Y_MAX`).
+    /// blocked at the top is lit from above the world (above `MAX_Y`).
     #[expect(
         clippy::expect_used,
         clippy::indexing_slicing,

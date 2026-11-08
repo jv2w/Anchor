@@ -84,8 +84,7 @@ const _: () = assert!(SUB_CHUNKS == 24);
 /// 4. A block keeps its own light and spreads it again when a neighbour's light is removed.
 /// 5. Every darkened block is looked past, so a block lit from another side stays lit.
 /// 6. The light an unloaded chunk gave its neighbours is taken out.
-/// 7. Queues are bounded (an overflow lights the chunk again) and the time correction is a table,
-///    not a platform `cos`.
+/// 7. Queues are bounded (an overflow lights the chunk again).
 #[derive(Clone)]
 pub(crate) struct Engine {
     /// How light is worked out.
@@ -218,18 +217,6 @@ impl Engine {
             .saturating_add(populations.saturating_mul(Population::WORK_BYTES))
     }
 
-    /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
-    pub(crate) fn is_lit(&self, chunks: &Chunks, pos: ChunkPos) -> bool {
-        chunks
-            .get(pos)
-            .is_some_and(|chunk| !self.is_calculating() || chunk.light().is_some())
-    }
-
-    /// Whether light is worked out at all: not [`Mode::Fixed`].
-    pub(crate) fn is_calculating(&self) -> bool {
-        !matches!(self.mode, Mode::Fixed(_))
-    }
-
     /// Whether no light work is waiting.
     #[cfg(test)]
     pub(crate) fn is_idle(&self) -> bool {
@@ -241,6 +228,13 @@ impl Engine {
             && self.overflowed.is_empty()
             && self.tasks.is_empty()
             && self.index.is_empty()
+    }
+
+    /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
+    pub(crate) fn is_lit(&self, chunks: &Chunks, pos: ChunkPos) -> bool {
+        chunks
+            .get(pos)
+            .is_some_and(|chunk| !self.is_calculating() || chunk.light().is_some())
     }
 
     /// The light of `channel` at `pos`, or `None` where there is none.
@@ -299,12 +293,6 @@ impl Engine {
                 self.add_task(at, Kind::Reset, Task::Reset(at));
             }
         }
-    }
-
-    /// Replaces the queue bounds (tests force overflows with small ones).
-    #[cfg(test)]
-    pub(crate) fn set_limits(&mut self, limits: Limits) {
-        self.limits = limits;
     }
 
     /// Sets how light is worked out for the chunks at `positions` (in order).
@@ -437,6 +425,11 @@ impl Engine {
         chunks.get(pos).is_some_and(|chunk| chunk.light().is_some())
     }
 
+    /// Whether light is worked out at all: not [`Mode::Fixed`].
+    fn is_calculating(&self) -> bool {
+        !matches!(self.mode, Mode::Fixed(_))
+    }
+
     /// Whether the node queues and the changed blocks are all empty.
     fn is_queue_empty(&self) -> bool {
         self.removal.is_empty()
@@ -458,103 +451,6 @@ impl Engine {
                 .light()?
                 .get(channel, spot.sub, spot.at),
         )
-    }
-
-    /// Looks past a block whose light `node.level` is gone.
-    ///
-    /// Each neighbour may have had its light from it.
-    fn remove_around(&mut self, chunks: &mut Chunks, node: Node) {
-        let Some(spot) = Spot::of(node.pos) else {
-            return;
-        };
-        let around = near(node.pos, spot);
-        if let Some(chunk) = chunks.get_mut(spot.chunk) {
-            for adjacent in around {
-                if let Near::Same(target, target_spot) = adjacent {
-                    self.remove_at(chunk, target, target_spot, node.channel, node.level);
-                }
-            }
-        }
-        for adjacent in around {
-            if let Near::Across(target) = adjacent {
-                self.remove(chunks, target, node.channel, node.level);
-            }
-        }
-    }
-
-    /// Spreads a queued block's light to its neighbours.
-    fn spread_from(&mut self, chunks: &mut Chunks, node: Node) {
-        let Some(spot) = Spot::of(node.pos) else {
-            return;
-        };
-        let around = near(node.pos, spot);
-        let Some(chunk) = chunks.get_mut(spot.chunk) else {
-            return;
-        };
-        let level = chunk
-            .light()
-            .map_or(0, |light| light.get(node.channel, spot.sub, spot.at));
-        if level <= 1 {
-            return;
-        }
-        for adjacent in around {
-            if let Near::Same(target, target_spot) = adjacent {
-                self.relax_at(chunk, target, target_spot, node.channel, level);
-            }
-        }
-        for adjacent in around {
-            if let Near::Across(target) = adjacent {
-                self.relax(chunks, target, node.channel, level);
-            }
-        }
-    }
-
-    /// Works out a block's light again from its own light and its neighbours.
-    ///
-    /// The difference is queued.
-    fn recalculate(&mut self, chunks: &mut Chunks, pos: BlockPos, channel: Channel) {
-        let Some(spot) = Spot::of(pos) else {
-            return;
-        };
-        let around = near(pos, spot);
-        // Neighbours in other chunks are read first, before the block's chunk is held to write;
-        // the others are read from that chunk's light without looking it up again.
-        let across = around
-            .into_iter()
-            .filter_map(|adjacent| match adjacent {
-                Near::Same(..) | Near::Out => None,
-                Near::Across(target) => Self::level(chunks, target, channel),
-            })
-            .max();
-        let Some(chunk) = chunks.get_mut(spot.chunk) else {
-            return;
-        };
-        let values = chunk.light_values_at(spot.sub, spot.at);
-        let Some(light) = chunk.light_mut() else {
-            return;
-        };
-        let own = source(channel, values, pos.y, light.height(spot.column));
-        let old = light.get(channel, spot.sub, spot.at);
-        let brightest = around
-            .into_iter()
-            .filter_map(|adjacent| match adjacent {
-                Near::Same(_, same) => Some(light.get(channel, same.sub, same.at)),
-                Near::Across(_) | Near::Out => None,
-            })
-            .chain(across)
-            .max()
-            .unwrap_or(0);
-        let new = own.max(brightest.saturating_sub(values.filter));
-        if new == old {
-            return;
-        }
-        light.set(channel, spot.sub, spot.at, new);
-        if new < old {
-            self.push_removal(pos, channel, old);
-        }
-        if new > 1 {
-            self.push_spread(pos, channel);
-        }
     }
 
     /// Follows a changed block and returns the units spent.
@@ -617,6 +513,341 @@ impl Engine {
             });
         }
         spent
+    }
+
+    /// Works out a block's light again from its own light and its neighbours.
+    ///
+    /// The difference is queued.
+    fn recalculate(&mut self, chunks: &mut Chunks, pos: BlockPos, channel: Channel) {
+        let Some(spot) = Spot::of(pos) else {
+            return;
+        };
+        let around = near(pos, spot);
+        // Neighbours in other chunks are read first, before the block's chunk is held to write;
+        // the others are read from that chunk's light without looking it up again.
+        let across = around
+            .into_iter()
+            .filter_map(|adjacent| match adjacent {
+                Near::Same(..) | Near::Out => None,
+                Near::Across(target) => Self::level(chunks, target, channel),
+            })
+            .max();
+        let Some(chunk) = chunks.get_mut(spot.chunk) else {
+            return;
+        };
+        let values = chunk.light_values_at(spot.sub, spot.at);
+        let Some(light) = chunk.light_mut() else {
+            return;
+        };
+        let own = source(channel, values, pos.y, light.height(spot.column));
+        let old = light.get(channel, spot.sub, spot.at);
+        let brightest = around
+            .into_iter()
+            .filter_map(|adjacent| match adjacent {
+                Near::Same(_, same) => Some(light.get(channel, same.sub, same.at)),
+                Near::Across(_) | Near::Out => None,
+            })
+            .chain(across)
+            .max()
+            .unwrap_or(0);
+        let new = own.max(brightest.saturating_sub(values.filter));
+        if new == old {
+            return;
+        }
+        light.set(channel, spot.sub, spot.at, new);
+        if new < old {
+            self.push_removal(pos, channel, old);
+        }
+        if new > 1 {
+            self.push_spread(pos, channel);
+        }
+    }
+
+    /// Looks past a block whose light `node.level` is gone.
+    ///
+    /// Each neighbour may have had its light from it.
+    fn remove_around(&mut self, chunks: &mut Chunks, node: Node) {
+        let Some(spot) = Spot::of(node.pos) else {
+            return;
+        };
+        let around = near(node.pos, spot);
+        if let Some(chunk) = chunks.get_mut(spot.chunk) {
+            for adjacent in around {
+                if let Near::Same(target, target_spot) = adjacent {
+                    self.remove_at(chunk, target, target_spot, node.channel, node.level);
+                }
+            }
+        }
+        for adjacent in around {
+            if let Near::Across(target) = adjacent {
+                self.remove(chunks, target, node.channel, node.level);
+            }
+        }
+    }
+
+    /// Works on the chunk task `task`, which was taken out under `seq`.
+    ///
+    /// It puts the task back if it is not done.
+    fn run_task(&mut self, chunks: &mut Chunks, seq: u64, task: Task, left: &mut u32) {
+        match task {
+            Task::Reset(pos) => {
+                *left -= 1;
+                self.index.remove(&(pos, Kind::Reset));
+                let lit_beside = Facing::ALL
+                    .into_iter()
+                    .filter_map(|side| beside(pos, side))
+                    .any(|other| Self::has_light(chunks, other));
+                if lit_beside && self.retired.len() >= self.limits.retired {
+                    // Wait behind the other tasks for a retired slot.
+                    self.add_task(pos, Kind::Reset, Task::Reset(pos));
+                    return;
+                }
+                let Some(chunk) = chunks.get_mut(pos) else {
+                    return;
+                };
+                let Some(light) = chunk.take_light() else {
+                    return;
+                };
+                let snapshot = chunk.clone();
+                self.forget(pos);
+                self.retire(chunks, pos, light);
+                let population = Population::new(snapshot);
+                self.add_task(
+                    pos,
+                    Kind::Populate,
+                    Task::Populate(pos, Box::new(population)),
+                );
+            }
+            Task::Populate(pos, mut population) => {
+                if !population.run(left) {
+                    self.tasks.insert(seq, Task::Populate(pos, population));
+                    return;
+                }
+                self.index.remove(&(pos, Kind::Populate));
+                let (light, changed) = population.finish();
+                let Some(chunk) = chunks.get_mut(pos) else {
+                    return;
+                };
+                chunk.set_light(light);
+                for block in changed {
+                    if self.changes.len() < self.limits.changes {
+                        self.changes.push_back(block);
+                    } else {
+                        self.reset(chunks, pos);
+                        break;
+                    }
+                }
+                self.connect(chunks, pos);
+            }
+            Task::Border(pos, side, mut cursor) => {
+                if self.cross(chunks, pos, side, &mut cursor, left) {
+                    self.index.remove(&(pos, Kind::Border(side.bit())));
+                } else {
+                    self.tasks.insert(seq, Task::Border(pos, side, cursor));
+                }
+            }
+        }
+    }
+
+    /// Queues spreading across each face between the chunk at `pos` and a lit neighbour.
+    fn connect(&mut self, chunks: &Chunks, pos: ChunkPos) {
+        for side in Facing::ALL {
+            if beside(pos, side).is_some_and(|other| Self::has_light(chunks, other)) {
+                self.add_task(pos, Kind::Border(side.bit()), Task::Border(pos, side, 0));
+            }
+        }
+    }
+
+    /// Spreads light both ways across the face of `pos` toward `side`, pair by pair.
+    ///
+    /// It starts at `cursor` and goes on while the node queues are empty, and returns whether it
+    /// is done.
+    fn cross(
+        &mut self,
+        chunks: &mut Chunks,
+        pos: ChunkPos,
+        side: Facing,
+        cursor: &mut u32,
+        left: &mut u32,
+    ) -> bool {
+        let Some(other) = beside(pos, side) else {
+            return true;
+        };
+        if !Self::has_light(chunks, pos) || !Self::has_light(chunks, other) {
+            return true;
+        }
+        while *left > 0 && self.is_queue_empty() {
+            if *cursor >= FACE_PAIRS {
+                return true;
+            }
+            *left -= 1;
+            let i = *cursor;
+            let sub = index_of(i / SUB_FACE_PAIRS);
+            if i.is_multiple_of(SUB_FACE_PAIRS) && Self::flat_face(chunks, pos, other, sub) {
+                *cursor += SUB_FACE_PAIRS;
+                continue;
+            }
+            *cursor += 1;
+            let Some((inside, outside)) = face_pair(pos, side, i) else {
+                continue;
+            };
+            // Both channels of a block from one lookup: relaxing one channel never changes the
+            // other.
+            let levels = |block| {
+                let spot = Spot::of(block)?;
+                let light = chunks.get(spot.chunk)?.light()?;
+                Some(Channel::ALL.map(|channel| (channel, light.get(channel, spot.sub, spot.at))))
+            };
+            let (Some(from_inside), Some(from_outside)) = (levels(inside), levels(outside)) else {
+                continue;
+            };
+            for ((channel, level_inside), (_, level_outside)) in
+                from_inside.into_iter().zip(from_outside)
+            {
+                if level_inside >= 2 {
+                    self.relax(chunks, outside, channel, level_inside);
+                }
+                if level_outside >= 2 {
+                    self.relax(chunks, inside, channel, level_outside);
+                }
+            }
+        }
+        *cursor >= FACE_PAIRS
+    }
+
+    /// Drops every task of the chunk at `pos` and the border tasks toward it.
+    fn forget(&mut self, pos: ChunkPos) {
+        let own = [Kind::Reset, Kind::Populate]
+            .into_iter()
+            .chain(Facing::ALL.map(|side| Kind::Border(side.bit())))
+            .map(|kind| Some((pos, kind)));
+        let toward = Facing::ALL.map(|side| {
+            beside(pos, side).map(|other| (other, Kind::Border(side.opposite().bit())))
+        });
+        for key in own.chain(toward).flatten() {
+            if let Some(seq) = self.index.remove(&key) {
+                self.tasks.remove(&seq);
+            }
+        }
+    }
+
+    /// Keeps `light`, which left `pos`, until what it lit in its lit neighbours is taken out.
+    ///
+    /// With no lit neighbour it is dropped; with too many chunks retiring, the neighbours are lit
+    /// again instead.
+    fn retire(&mut self, chunks: &Chunks, pos: ChunkPos, light: Box<Levels>) {
+        let lit = Facing::ALL
+            .map(|side| beside(pos, side).filter(|&other| Self::has_light(chunks, other)));
+        if lit.iter().all(Option::is_none) {
+            return;
+        }
+        if self.retired.len() < self.limits.retired {
+            self.retired.push_back(Retired {
+                chunk: pos,
+                light,
+                cursor: 0,
+            });
+        } else {
+            for other in lit.into_iter().flatten() {
+                self.reset(chunks, other);
+            }
+        }
+    }
+
+    /// Marks a lit chunk to be lit again from scratch: work about it did not fit a queue.
+    fn reset(&mut self, chunks: &Chunks, pos: ChunkPos) {
+        if Self::has_light(chunks, pos) {
+            self.add_task(pos, Kind::Reset, Task::Reset(pos));
+        }
+    }
+
+    /// Adds `task` of `kind` for the chunk at `pos` unless one of that kind waits already.
+    fn add_task(&mut self, pos: ChunkPos, kind: Kind, task: Task) {
+        if self.index.contains_key(&(pos, kind)) {
+            return;
+        }
+        let seq = self.next_task;
+        self.next_task += 1;
+        self.tasks.insert(seq, task);
+        self.index.insert((pos, kind), seq);
+    }
+
+    /// Replaces the queue bounds (tests force overflows with small ones).
+    #[cfg(test)]
+    fn set_limits(&mut self, limits: Limits) {
+        self.limits = limits;
+    }
+
+    /// Spreads a queued block's light to its neighbours.
+    fn spread_from(&mut self, chunks: &mut Chunks, node: Node) {
+        let Some(spot) = Spot::of(node.pos) else {
+            return;
+        };
+        let around = near(node.pos, spot);
+        let Some(chunk) = chunks.get_mut(spot.chunk) else {
+            return;
+        };
+        let level = chunk
+            .light()
+            .map_or(0, |light| light.get(node.channel, spot.sub, spot.at));
+        if level <= 1 {
+            return;
+        }
+        for adjacent in around {
+            if let Near::Same(target, target_spot) = adjacent {
+                self.relax_at(chunk, target, target_spot, node.channel, level);
+            }
+        }
+        for adjacent in around {
+            if let Near::Across(target) = adjacent {
+                self.relax(chunks, target, node.channel, level);
+            }
+        }
+    }
+
+    /// Does [`Self::relax_at`] for a block of any loaded chunk.
+    #[inline]
+    fn relax(&mut self, chunks: &mut Chunks, target: BlockPos, channel: Channel, level: u8) {
+        let Some(spot) = Spot::of(target) else {
+            return;
+        };
+        if let Some(chunk) = chunks.get_mut(spot.chunk) {
+            self.relax_at(chunk, target, spot, channel, level);
+        }
+    }
+
+    /// Raises `target` (in `chunk`) to `level` less its filter if that is brighter.
+    ///
+    /// It queues the block to spread.
+    #[inline]
+    fn relax_at(
+        &mut self,
+        chunk: &mut Chunk,
+        target: BlockPos,
+        spot: Spot,
+        channel: Channel,
+        level: u8,
+    ) {
+        let Some(current) = chunk
+            .light()
+            .map(|light| light.get(channel, spot.sub, spot.at))
+        else {
+            return;
+        };
+        // Every filter is at least 1 (`Entry::derive`), so a block this bright cannot be raised:
+        // its block is not looked up.
+        if current + 1 >= level {
+            return;
+        }
+        let potential = level.saturating_sub(chunk.light_values_at(spot.sub, spot.at).filter);
+        if potential > current
+            && let Some(light) = chunk.light_mut()
+        {
+            light.set(channel, spot.sub, spot.at, potential);
+            if potential > 1 {
+                self.push_spread(target, channel);
+            }
+        }
     }
 
     /// Takes a retired chunk's light out of its neighbours, pair by pair.
@@ -688,175 +919,6 @@ impl Engine {
         retired.cursor >= ALL_FACE_PAIRS
     }
 
-    /// Works on the chunk task `task`, which was taken out under `seq`.
-    ///
-    /// It puts the task back if it is not done.
-    fn run_task(&mut self, chunks: &mut Chunks, seq: u64, task: Task, left: &mut u32) {
-        match task {
-            Task::Reset(pos) => {
-                *left -= 1;
-                self.index.remove(&(pos, Kind::Reset));
-                let lit_beside = Facing::ALL
-                    .into_iter()
-                    .filter_map(|side| beside(pos, side))
-                    .any(|other| Self::has_light(chunks, other));
-                if lit_beside && self.retired.len() >= self.limits.retired {
-                    // Wait behind the other tasks for a retired slot.
-                    self.add_task(pos, Kind::Reset, Task::Reset(pos));
-                    return;
-                }
-                let Some(chunk) = chunks.get_mut(pos) else {
-                    return;
-                };
-                let Some(light) = chunk.take_light() else {
-                    return;
-                };
-                let snapshot = chunk.clone();
-                self.forget(pos);
-                self.retire(chunks, pos, light);
-                let population = Population::new(snapshot);
-                self.add_task(
-                    pos,
-                    Kind::Populate,
-                    Task::Populate(pos, Box::new(population)),
-                );
-            }
-            Task::Populate(pos, mut population) => {
-                if !population.run(left) {
-                    self.tasks.insert(seq, Task::Populate(pos, population));
-                    return;
-                }
-                self.index.remove(&(pos, Kind::Populate));
-                let (light, changed) = population.finish();
-                let Some(chunk) = chunks.get_mut(pos) else {
-                    return;
-                };
-                chunk.set_light(light);
-                for block in changed {
-                    if self.changes.len() < self.limits.changes {
-                        self.changes.push_back(block);
-                    } else {
-                        self.reset(chunks, pos);
-                        break;
-                    }
-                }
-                self.connect(chunks, pos);
-            }
-            Task::Border(pos, side, mut cursor) => {
-                if self.cross(chunks, pos, side, &mut cursor, left) {
-                    self.index.remove(&(pos, Kind::Border(side.bit())));
-                } else {
-                    self.tasks.insert(seq, Task::Border(pos, side, cursor));
-                }
-            }
-        }
-    }
-
-    /// Spreads light both ways across the face of `pos` toward `side`, pair by pair.
-    ///
-    /// It starts at `cursor` and goes on while the node queues are empty, and returns whether it
-    /// is done.
-    fn cross(
-        &mut self,
-        chunks: &mut Chunks,
-        pos: ChunkPos,
-        side: Facing,
-        cursor: &mut u32,
-        left: &mut u32,
-    ) -> bool {
-        let Some(other) = beside(pos, side) else {
-            return true;
-        };
-        if !Self::has_light(chunks, pos) || !Self::has_light(chunks, other) {
-            return true;
-        }
-        while *left > 0 && self.is_queue_empty() {
-            if *cursor >= FACE_PAIRS {
-                return true;
-            }
-            *left -= 1;
-            let i = *cursor;
-            let sub = index_of(i / SUB_FACE_PAIRS);
-            if i.is_multiple_of(SUB_FACE_PAIRS) && Self::flat_face(chunks, pos, other, sub) {
-                *cursor += SUB_FACE_PAIRS;
-                continue;
-            }
-            *cursor += 1;
-            let Some((inside, outside)) = face_pair(pos, side, i) else {
-                continue;
-            };
-            // Both channels of a block from one lookup: relaxing one channel never changes the
-            // other.
-            let levels = |block| {
-                let spot = Spot::of(block)?;
-                let light = chunks.get(spot.chunk)?.light()?;
-                Some(Channel::ALL.map(|channel| (channel, light.get(channel, spot.sub, spot.at))))
-            };
-            let (Some(from_inside), Some(from_outside)) = (levels(inside), levels(outside)) else {
-                continue;
-            };
-            for ((channel, level_inside), (_, level_outside)) in
-                from_inside.into_iter().zip(from_outside)
-            {
-                if level_inside >= 2 {
-                    self.relax(chunks, outside, channel, level_inside);
-                }
-                if level_outside >= 2 {
-                    self.relax(chunks, inside, channel, level_outside);
-                }
-            }
-        }
-        *cursor >= FACE_PAIRS
-    }
-
-    /// Queues spreading across each face between the chunk at `pos` and a lit neighbour.
-    fn connect(&mut self, chunks: &Chunks, pos: ChunkPos) {
-        for side in Facing::ALL {
-            if beside(pos, side).is_some_and(|other| Self::has_light(chunks, other)) {
-                self.add_task(pos, Kind::Border(side.bit()), Task::Border(pos, side, 0));
-            }
-        }
-    }
-
-    /// Keeps `light`, which left `pos`, until what it lit in its lit neighbours is taken out.
-    ///
-    /// With no lit neighbour it is dropped; with too many chunks retiring, the neighbours are lit
-    /// again instead.
-    fn retire(&mut self, chunks: &Chunks, pos: ChunkPos, light: Box<Levels>) {
-        let lit = Facing::ALL
-            .map(|side| beside(pos, side).filter(|&other| Self::has_light(chunks, other)));
-        if lit.iter().all(Option::is_none) {
-            return;
-        }
-        if self.retired.len() < self.limits.retired {
-            self.retired.push_back(Retired {
-                chunk: pos,
-                light,
-                cursor: 0,
-            });
-        } else {
-            for other in lit.into_iter().flatten() {
-                self.reset(chunks, other);
-            }
-        }
-    }
-
-    /// Drops every task of the chunk at `pos` and the border tasks toward it.
-    fn forget(&mut self, pos: ChunkPos) {
-        let own = [Kind::Reset, Kind::Populate]
-            .into_iter()
-            .chain(Facing::ALL.map(|side| Kind::Border(side.bit())))
-            .map(|kind| Some((pos, kind)));
-        let toward = Facing::ALL.map(|side| {
-            beside(pos, side).map(|other| (other, Kind::Border(side.opposite().bit())))
-        });
-        for key in own.chain(toward).flatten() {
-            if let Some(seq) = self.index.remove(&key) {
-                self.tasks.remove(&seq);
-            }
-        }
-    }
-
     /// Does [`Self::remove_at`] for a block of any loaded chunk.
     fn remove(&mut self, chunks: &mut Chunks, target: BlockPos, channel: Channel, old: u8) {
         let Some(spot) = Spot::of(target) else {
@@ -898,69 +960,6 @@ impl Engine {
         } else if current > 1 {
             self.push_spread(target, channel);
         }
-    }
-
-    /// Does [`Self::relax_at`] for a block of any loaded chunk.
-    #[inline]
-    fn relax(&mut self, chunks: &mut Chunks, target: BlockPos, channel: Channel, level: u8) {
-        let Some(spot) = Spot::of(target) else {
-            return;
-        };
-        if let Some(chunk) = chunks.get_mut(spot.chunk) {
-            self.relax_at(chunk, target, spot, channel, level);
-        }
-    }
-
-    /// Raises `target` (in `chunk`) to `level` less its filter if that is brighter.
-    ///
-    /// It queues the block to spread.
-    #[inline]
-    fn relax_at(
-        &mut self,
-        chunk: &mut Chunk,
-        target: BlockPos,
-        spot: Spot,
-        channel: Channel,
-        level: u8,
-    ) {
-        let Some(current) = chunk
-            .light()
-            .map(|light| light.get(channel, spot.sub, spot.at))
-        else {
-            return;
-        };
-        // Every filter is at least 1 (`Entry::derive`), so a block this bright cannot be raised:
-        // its block is not looked up.
-        if current + 1 >= level {
-            return;
-        }
-        let potential = level.saturating_sub(chunk.light_values_at(spot.sub, spot.at).filter);
-        if potential > current
-            && let Some(light) = chunk.light_mut()
-        {
-            light.set(channel, spot.sub, spot.at, potential);
-            if potential > 1 {
-                self.push_spread(target, channel);
-            }
-        }
-    }
-
-    /// Marks a lit chunk to be lit again from scratch: work about it did not fit a queue.
-    fn reset(&mut self, chunks: &Chunks, pos: ChunkPos) {
-        if Self::has_light(chunks, pos) {
-            self.add_task(pos, Kind::Reset, Task::Reset(pos));
-        }
-    }
-
-    /// Adds `task` of `kind` for the chunk at `pos` unless one of that kind waits already.
-    fn add_task(&mut self, pos: ChunkPos, kind: Kind, task: Task) {
-        if self.index.contains_key(&(pos, kind)) {
-            return;
-        }
-        let seq = self.next_task;
-        self.next_task += 1;
-        self.tasks.insert(seq, task);
-        self.index.insert((pos, kind), seq);
     }
 
     /// Queues a block whose light `level` is gone; if the queue is full its chunk is lit again.
@@ -1123,17 +1122,17 @@ checkpoint::variants!(Mode {
 
 /// Bounds on the engine's queues.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Limits {
+struct Limits {
     /// Changed blocks waiting to be looked at.
-    pub(crate) changes: usize,
+    changes: usize,
     /// Blocks to recalculate from their neighbours.
-    pub(crate) recalc: usize,
+    recalc: usize,
     /// Nodes in each of the removal and spread queues.
-    pub(crate) nodes: usize,
+    nodes: usize,
     /// Unloaded or reset chunks whose light is still being taken out of their neighbours.
-    pub(crate) retired: usize,
+    retired: usize,
     /// Blocks a chunk being lit on the tick may change before it starts again.
-    pub(crate) population_changes: usize,
+    population_changes: usize,
 }
 
 impl Limits {
@@ -1141,7 +1140,7 @@ impl Limits {
     ///
     /// These are at most about 9.5 MB of queued blocks per world (16 bytes each), and 256 retired
     /// chunks' light (typically a few KB each, 98 KB at most).
-    pub(crate) const DEFAULT: Self = Self {
+    const DEFAULT: Self = Self {
         changes: 16_384,
         recalc: 65_536,
         nodes: 262_144,
@@ -1251,15 +1250,15 @@ impl Levels {
         self.arrays.iter().flatten().map(Nibbles::heap_bytes).sum()
     }
 
-    /// The values of `channel` in sub-chunk `sub`, if the sub-chunk is in the world.
-    fn array(&self, channel: Channel, sub: usize) -> Option<&Nibbles> {
-        self.arrays.get(channel as usize)?.get(sub)
-    }
-
     /// The light of `channel` at offset `at` of sub-chunk `sub`.
     fn get(&self, channel: Channel, sub: usize, at: u16) -> u8 {
         self.array(channel, sub)
             .map_or(0, |nibbles| nibbles.get(at))
+    }
+
+    /// The values of `channel` in sub-chunk `sub`, if the sub-chunk is in the world.
+    fn array(&self, channel: Channel, sub: usize) -> Option<&Nibbles> {
+        self.arrays.get(channel as usize)?.get(sub)
     }
 
     /// The sky height of column index `column`.
@@ -1267,16 +1266,16 @@ impl Levels {
         self.heights.get(column).map_or(MIN_Y, |&h| i32::from(h))
     }
 
-    /// The values of `channel` in sub-chunk `sub`, to change.
-    fn array_mut(&mut self, channel: Channel, sub: usize) -> Option<&mut Nibbles> {
-        self.arrays.get_mut(channel as usize)?.get_mut(sub)
-    }
-
     /// Sets the light of `channel` at offset `at` of sub-chunk `sub`.
     fn set(&mut self, channel: Channel, sub: usize, at: u16, value: u8) {
         if let Some(nibbles) = self.array_mut(channel, sub) {
             nibbles.set(at, value);
         }
+    }
+
+    /// The values of `channel` in sub-chunk `sub`, to change.
+    fn array_mut(&mut self, channel: Channel, sub: usize) -> Option<&mut Nibbles> {
+        self.arrays.get_mut(channel as usize)?.get_mut(sub)
     }
 }
 
@@ -1301,10 +1300,10 @@ pub(crate) enum Channel {
 
 impl Channel {
     /// The number of kinds of light.
-    pub(crate) const COUNT: usize = 2;
+    const COUNT: usize = 2;
 
     /// Both kinds of light, in order.
-    pub(crate) const ALL: [Self; Self::COUNT] = [Self::Block, Self::Sky];
+    const ALL: [Self; Self::COUNT] = [Self::Block, Self::Sky];
 }
 
 checkpoint::variants!(Channel {
@@ -1394,13 +1393,6 @@ impl Digest {
             .rotate_left(29);
     }
 
-    /// Mixes in a block position.
-    fn pos(&mut self, pos: BlockPos) {
-        for c in [pos.x, pos.y, pos.z] {
-            self.word(u64::from(c.cast_unsigned()));
-        }
-    }
-
     /// Mixes in a chunk position.
     fn chunk(&mut self, pos: ChunkPos) {
         self.word(u64::from(pos.x.cast_unsigned()) << 32 | u64::from(pos.z.cast_unsigned()));
@@ -1409,6 +1401,13 @@ impl Digest {
     /// Mixes in a length.
     fn len(&mut self, n: usize) {
         self.word(u64::try_from(n).unwrap_or(u64::MAX));
+    }
+
+    /// Mixes in a block position.
+    fn pos(&mut self, pos: BlockPos) {
+        for c in [pos.x, pos.y, pos.z] {
+            self.word(u64::from(c.cast_unsigned()));
+        }
     }
 }
 

@@ -66,11 +66,6 @@ impl Generators {
         self.clash
     }
 
-    /// The names, in order.
-    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.by_name.keys().copied()
-    }
-
     /// The generator a world named `world` that picks the generator named `name` fills its chunks
     /// with, at its start, a load, a remaking or the replay of a crash log alike: the value the
     /// builder gave the world of that name when its generator has that name, else the first
@@ -102,10 +97,15 @@ impl Generators {
         generator
     }
 
+    /// The names, in order.
+    fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.by_name.keys().copied()
+    }
+
     /// Adds `generator` of type `type_id`. A name already taken by a generator of the same type
     /// keeps the first (two values of one type with one name must generate alike); one taken
     /// by another type is a clash.
-    pub(crate) fn add(&mut self, type_id: TypeId, generator: Arc<dyn Generator>) {
+    fn add(&mut self, type_id: TypeId, generator: Arc<dyn Generator>) {
         let name = generator.name();
         match self.by_name.get(name) {
             Some((known, _)) if *known == type_id => {}

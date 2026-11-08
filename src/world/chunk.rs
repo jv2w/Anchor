@@ -934,6 +934,30 @@ pub(crate) mod tests {
         }
     }
 
+    /// The stored parts of a chunk, rebuilt through the parts constructors.
+    fn parts(
+        c: &Chunk,
+    ) -> (
+        [Option<SubChunk>; SUB_CHUNKS],
+        [Paletted<u32>; SUB_CHUNKS],
+        Vec<nbt::Compound>,
+    ) {
+        let subs = std::array::from_fn(|i| {
+            c.sub_chunk(i).map(|s| {
+                SubChunk::from_layers(
+                    s.layers()
+                        .clone()
+                        .map(|l| Paletted::from_parts(l.bits(), l.words(), l.palette()).unwrap()),
+                )
+            })
+        });
+        let biomes = std::array::from_fn(|i| {
+            let b = c.biome_storage(i).unwrap();
+            Paletted::from_parts(b.bits(), b.words(), b.palette()).unwrap()
+        });
+        (subs, biomes, c.unknown().to_vec())
+    }
+
     /// A chunk with many states, unknown states, water logging and two biomes.
     fn varied(height: usize) -> Chunk {
         let states = plain_states();
@@ -979,30 +1003,6 @@ pub(crate) mod tests {
         subs[1] = Some(sub);
         let unknown = vec![nbt::Compound::new(), nbt::Compound::new()];
         Chunk::from_parts(subs, biomes, unknown).unwrap()
-    }
-
-    /// The stored parts of a chunk, rebuilt through the parts constructors.
-    fn parts(
-        c: &Chunk,
-    ) -> (
-        [Option<SubChunk>; SUB_CHUNKS],
-        [Paletted<u32>; SUB_CHUNKS],
-        Vec<nbt::Compound>,
-    ) {
-        let subs = std::array::from_fn(|i| {
-            c.sub_chunk(i).map(|s| {
-                SubChunk::from_layers(
-                    s.layers()
-                        .clone()
-                        .map(|l| Paletted::from_parts(l.bits(), l.words(), l.palette()).unwrap()),
-                )
-            })
-        });
-        let biomes = std::array::from_fn(|i| {
-            let b = c.biome_storage(i).unwrap();
-            Paletted::from_parts(b.bits(), b.words(), b.palette()).unwrap()
-        });
-        (subs, biomes, c.unknown().to_vec())
     }
 
     #[test]

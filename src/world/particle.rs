@@ -5,7 +5,7 @@
 //! Particle type numbers are the official server's: its snowball and egg hits send 15 and 14 and
 //! its potion clouds 35 (P6). gophertunnel's `protocol::consts::ParticleType` puts `CANDLE_FLAME`
 //! (9) and `BREEZE_WIND_EXPLOSION` (18) at its end, so its numbers from 9 on are one or two
-//! lower. The numbers used are the variants' docs.
+//! lower.
 //!
 //! Left out: floating text (an invisible entity per viewer, not an event; a human NPC with a name
 //! tag does the same), and particles by name with `MoLang` variables (the `SpawnParticleEffect`
@@ -88,24 +88,24 @@ use crate::protocol::packet::{LevelEvent as LevelEventPacket, Packet};
 #[non_exhaustive]
 // api-class: Particle
 pub enum Particle {
-    /// An angry villager's cloud (`VILLAGER_ANGRY`, 40).
+    /// An angry villager's cloud (`VILLAGER_ANGRY`).
     #[doc(alias = "AngryVillagerParticle")]
     AngryVillager,
     /// The pieces of a block of this state breaking, with its sound (level event
     /// `ParticlesDestroyBlock`).
     #[doc(alias = "BlockBreakParticle")]
     BlockBreak(block::State),
-    /// A block force field (`BLOCK_FORCE_FIELD`, 4) with its data (0 by default).
+    /// A block force field (`BLOCK_FORCE_FIELD`) with its data (usually 0, the API table's default).
     #[doc(alias = "BlockForceFieldParticle")]
     BlockForceField(i32),
     /// The cracks of a block of this state being hit on a face (level event
     /// `ParticlesCrackBlock`).
     #[doc(alias = "BlockPunchParticle")]
     BlockPunch(block::State, Face),
-    /// A bubble (`BUBBLE`, 1).
+    /// A bubble (`BUBBLE`).
     #[doc(alias = "BubbleParticle")]
     Bubble,
-    /// A critical hit's stars (`CRITICAL`, 3) of a scale (2 by default).
+    /// A critical hit's stars (`CRITICAL`) of a scale (usually 2, the API table's default).
     #[doc(alias = "CriticalParticle")]
     Critical(i32),
     /// A dragon egg's trail to a block this many blocks away on each axis (level event
@@ -119,52 +119,52 @@ pub enum Particle {
         /// Blocks along z.
         z: i16,
     },
-    /// Dust of a colour (`DUST`, 33).
+    /// Dust of a colour (`DUST`).
     #[doc(alias = "DustParticle")]
     Dust(Rgba),
-    /// Potion swirls of a colour (`MOB_SPELL`, 34).
+    /// Potion swirls of a colour (`MOB_SPELL`).
     #[doc(alias = "EnchantParticle")]
     Enchant(Rgba),
-    /// Enchanting table glyphs (`ENCHANTMENT_TABLE`, 42).
+    /// Enchanting table glyphs (`ENCHANTMENT_TABLE`).
     #[doc(alias = "EnchantmentTableParticle")]
     EnchantmentTable,
     /// An enderman's teleport (level event `ParticlesTeleport`).
     #[doc(alias = "EndermanTeleportParticle")]
     EndermanTeleport,
-    /// A burning entity's flame (`MOB_FLAME`, 19).
+    /// A burning entity's flame (`MOB_FLAME`).
     #[doc(alias = "EntityFlameParticle")]
     EntityFlame,
-    /// An explosion puff (`EXPLODE`, 6).
+    /// An explosion puff (`EXPLODE`).
     #[doc(alias = "ExplodeParticle")]
     Explode,
-    /// A flame (`FLAME`, 8).
+    /// A flame (`FLAME`).
     #[doc(alias = "FlameParticle")]
     Flame,
-    /// A happy villager's sparkle (`VILLAGER_HAPPY`, 41).
+    /// A happy villager's sparkle (`VILLAGER_HAPPY`).
     #[doc(alias = "HappyVillagerParticle")]
     HappyVillager,
-    /// Hearts of a scale (`HEART`, 20; 0 by default).
+    /// Hearts of a scale (`HEART`; usually 0, the API table's default).
     #[doc(alias = "HeartParticle")]
     Heart(i32),
-    /// A large explosion (`HUGE_EXPLODE`, 16).
+    /// A large explosion (`HUGE_EXPLODE`).
     #[doc(alias = "HugeExplodeParticle")]
     HugeExplode,
-    /// An explosion emitter (`HUGE_EXPLODE_SEED`, 17).
+    /// An explosion emitter (`HUGE_EXPLODE_SEED`).
     #[doc(alias = "HugeExplodeSeedParticle")]
     HugeExplodeSeed,
-    /// Ink of a scale (`INK`, 37; 0 by default).
+    /// Ink of a scale (`INK`; usually 0, the API table's default).
     #[doc(alias = "InkParticle")]
     Ink(i32),
-    /// Instant potion swirls of a colour (`MOB_SPELL_INSTANTANEOUS`, 36).
+    /// Instant potion swirls of a colour (`MOB_SPELL_INSTANTANEOUS`).
     #[doc(alias = "InstantEnchantParticle")]
     InstantEnchant(Rgba),
-    /// The pieces of an item of this type breaking (`ITEM_BREAK`, 14).
+    /// The pieces of an item of this type breaking (`ITEM_BREAK`).
     #[doc(alias = "ItemBreakParticle")]
     ItemBreak(item::Type),
-    /// A lava drip (`DRIP_LAVA`, 29).
+    /// A lava drip (`DRIP_LAVA`).
     #[doc(alias = "LavaDripParticle")]
     LavaDrip,
-    /// A lava pop (`LAVA`, 10).
+    /// A lava pop (`LAVA`).
     #[doc(alias = "LavaParticle")]
     Lava,
     /// A spawner's flames around a box of this width and height in blocks (level event
@@ -176,40 +176,40 @@ pub enum Particle {
         /// The height.
         height: u8,
     },
-    /// A portal's swirl (`PORTAL`, 23).
+    /// A portal's swirl (`PORTAL`).
     #[doc(alias = "PortalParticle")]
     Portal,
     /// A splash potion's burst of a colour (level event `ParticlesPotionSplash`).
     #[doc(alias = "PotionSplashParticle")]
     PotionSplash(Rgba),
-    /// A raindrop's splash (`RAIN_SPLASH`, 39).
+    /// A raindrop's splash (`RAIN_SPLASH`).
     #[doc(alias = "RainSplashParticle")]
     RainSplash,
-    /// Redstone dust lasting this long (`REDSTONE`, 12; 1 by default).
+    /// Redstone dust lasting this long (`REDSTONE`; usually 1, the API table's default).
     #[doc(alias = "RedstoneParticle")]
     Redstone(i32),
-    /// Smoke of a scale (`SMOKE`, 5; 0 by default).
+    /// Smoke of a scale (`SMOKE`; usually 0, the API table's default).
     #[doc(alias = "SmokeParticle")]
     Smoke(i32),
-    /// A snowball's puff (`SNOWBALL_POOF`, 15).
+    /// A snowball's puff (`SNOWBALL_POOF`).
     #[doc(alias = "SnowballPoofParticle")]
     SnowballPoof,
-    /// A sonic boom (`SONIC_EXPLOSION`, 85).
+    /// A sonic boom (`SONIC_EXPLOSION`).
     #[doc(alias = "SonicExplosionParticle")]
     SonicExplosion,
-    /// A water splash (`SPLASH`, 25).
+    /// A water splash (`SPLASH`).
     #[doc(alias = "SplashParticle")]
     Splash,
-    /// Spores in the air (`TOWN_AURA`, 22).
+    /// Spores in the air (`TOWN_AURA`).
     #[doc(alias = "SporeParticle")]
     Spore,
-    /// Pieces of a block of this state (`TERRAIN`, 21).
+    /// Pieces of a block of this state (`TERRAIN`).
     #[doc(alias = "TerrainParticle")]
     Terrain(block::State),
-    /// A water drip (`DRIP_WATER`, 28).
+    /// A water drip (`DRIP_WATER`).
     #[doc(alias = "WaterDripParticle")]
     WaterDrip,
-    /// A wake in water (`WATER_WAKE`, 27).
+    /// A wake in water (`WATER_WAKE`).
     #[doc(alias = "WaterParticle")]
     Water,
 }
@@ -323,8 +323,6 @@ mod tests {
         }
     }
 
-    // The numbers are the official server's: 14 and 15 in its snowball and egg hits (P6), 35 in
-    // its potion cloud (P6); gophertunnel's are smaller from 9 on.
     // api: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle,
     // api: BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle,
     // api: DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle,
