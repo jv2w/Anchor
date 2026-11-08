@@ -5,13 +5,143 @@
 //! is the caller's.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::RangeInclusive;
 
 use super::{BlockPos, MIN_Y, World};
 use crate::block::{self, Class, Face, Kind, PropertyValue, TypeTag};
 use crate::random::Random;
 
+/// The diagonal reach of an acacia's main branch: how many of its steps also move sideways.
+const ACACIA_DIAGONAL_RANGE: RangeInclusive<i32> = 1..=3;
+/// How far below an acacia's height its straight trunk ends; also the main branch's length.
+const ACACIA_FORK_DEPTH_RANGE: RangeInclusive<i32> = 1..=4;
+/// One of the two additions to [`ACACIA_MIN_HEIGHT`].
+const ACACIA_HEIGHT_STEP_RANGE: RangeInclusive<i32> = 0..=2;
+/// The radius and taxicab reach of the leaf layer at the end of an acacia's main branch.
+const ACACIA_LEAVES: (i32, i32) = (3, 5);
+/// The radius and taxicab reach of the leaf layer one above the end of an acacia's main branch.
+const ACACIA_LEAVES_TOP: (i32, i32) = (2, 2);
+/// The lowest height of an acacia; two draws from [`ACACIA_HEIGHT_STEP_RANGE`] add to it.
+const ACACIA_MIN_HEIGHT: i32 = 5;
+/// The height an acacia's room check assumes; the acacia draws its real height after the check.
+const ACACIA_ROOM_HEIGHT: i32 = 0;
+/// How far below the top of an acacia's straight trunk its second branch starts.
+const ACACIA_TWIG_DROP_RANGE: RangeInclusive<i32> = 0..=1;
+/// The radius and taxicab reach of the leaf layer at the end of an acacia's second branch.
+const ACACIA_TWIG_LEAVES: (i32, i32) = (2, 3);
+/// The radius and taxicab reach of the leaf layer one above the end of an acacia's second branch.
+const ACACIA_TWIG_LEAVES_TOP: (i32, i32) = (1, 2);
+/// The length of an acacia's second branch, every step diagonal.
+const ACACIA_TWIG_LENGTH_RANGE: RangeInclusive<i32> = 1..=3;
+/// The span of the two draws whose difference moves an azalea leaf up or down from its log.
+const AZALEA_LEAF_RISE: i32 = 2;
+/// The span of the two draws whose difference moves an azalea leaf sideways from its log.
+const AZALEA_LEAF_SPREAD: i32 = 3;
+/// How many times leaves try to grow around each leafy log of an azalea.
+const AZALEA_LEAF_TRIES: u32 = 50;
+/// The height an azalea's room check assumes; the azalea's own shape decides its real height.
+const AZALEA_ROOM_HEIGHT_RANGE: RangeInclusive<i32> = 4..=6;
+/// An azalea grows short with odds one in this.
+const AZALEA_SHORT_ODDS: i32 = 2;
+/// The logs of a short azalea, bottom first, as (steps along its facing, height, whether leaves
+/// grow around the log).
+const AZALEA_SHORT_TRUNK: [(i32, i32, bool); 5] = [
+    (0, 0, false),
+    (0, 1, false),
+    (1, 2, false),
+    (2, 3, true),
+    (3, 3, true),
+];
+/// The logs of a tall azalea, in the form of [`AZALEA_SHORT_TRUNK`].
+const AZALEA_TALL_TRUNK: [(i32, i32, bool); 6] = [
+    (0, 0, false),
+    (0, 1, false),
+    (0, 2, false),
+    (1, 3, true),
+    (2, 4, true),
+    (3, 4, true),
+];
+/// The height of a birch.
+const BIRCH_HEIGHT_RANGE: RangeInclusive<i32> = 5..=7;
+/// An azalea leaf flowers with odds one in this.
+const FLOWERING_AZALEA_ODDS: i32 = 4;
+/// The (decoration, hat, vine) chances of a hat corner above the low layers, for a crimson fungus.
+const FUNGUS_CORNER_HAT: (f64, f64, f64) = (0.01, 0.7, 0.083);
+/// The chance that each cell of a huge fungus's corner stem columns grows.
+const FUNGUS_CORNER_STEM_CHANCE: f64 = 0.1;
+/// A fungus doubles its height with odds one in this.
+const FUNGUS_DOUBLE_HEIGHT_ODDS: i32 = 12;
+/// The fewest layers of a fungus's hat, unless the fungus is shorter.
+const FUNGUS_HAT_MIN_HEIGHT: i32 = 5;
+/// The radius of a hat layer below the taper.
+const FUNGUS_HAT_RADIUS: i32 = 2;
+/// How many of a hat's top layers, at most, narrow to [`FUNGUS_HAT_TOP_RADIUS`]; drawn per layer.
+const FUNGUS_HAT_TAPER_RANGE: RangeInclusive<i32> = 0..=2;
+/// The radius of a hat layer inside the taper.
+const FUNGUS_HAT_TOP_RADIUS: i32 = 1;
+/// A fungus's height before doubling.
+const FUNGUS_HEIGHT_RANGE: RangeInclusive<i32> = 4..=12;
+/// The chance that a fungus is huge, with a 3×3 stem.
+const FUNGUS_HUGE_CHANCE: f64 = 0.06;
+/// The (decoration, hat, vine) chances of a hat cell inside the rim above the low layers, for a
+/// crimson fungus.
+const FUNGUS_INNER_HAT: (f64, f64, f64) = (0.1, 0.2, 0.1);
+/// The chance that a rim cell of a low hat layer grows a hat block when the block under it is no
+/// hat block.
+const FUNGUS_LOW_HAT_CHANCE: f64 = 0.15;
+/// How many of a hat's bottom layers are low layers: a rim with an open middle.
+const FUNGUS_LOW_HAT_LAYERS: i32 = 3;
+/// A hat block a crimson fungus's low layer adds by chance grows vines with odds one in this.
+const FUNGUS_LOW_VINE_ODDS: i32 = 11;
+/// The (decoration, hat, vine) chances of the other hat cells above the low layers (rim cells
+/// that are no corner, and the top layer's middle), for a crimson fungus.
+const FUNGUS_RIM_HAT: (f64, f64, f64) = (0.0005, 0.98, 0.07);
+/// A hat with more layers than this widens its bottom layers to [`FUNGUS_WIDE_HAT_RADIUS`].
+const FUNGUS_TALL_HAT_HEIGHT: i32 = 8;
+/// How many bottom layers of a tall hat widen.
+const FUNGUS_WIDE_HAT_LAYERS: i32 = 4;
+/// The radius of a tall hat's widened bottom layers.
+const FUNGUS_WIDE_HAT_RADIUS: i32 = 3;
+/// The height of a jungle tree.
+const JUNGLE_HEIGHT: i32 = 8;
 /// The most age of weeping and twisting vines.
-pub(crate) const MAX_VINE_AGE: i32 = 25;
+const MAX_VINE_AGE: i32 = 25;
+/// The height of an oak.
+const OAK_HEIGHT_RANGE: RangeInclusive<i32> = 4..=6;
+/// How many layers above a tree's height the room check covers.
+const ROOM_ABOVE_TOP: i32 = 2;
+/// The name of the rooted dirt under an azalea.
+const ROOTED_DIRT: &str = "minecraft:dirt_with_roots";
+/// A round crown drops a corner leaf of its lower layers with odds one in this.
+const ROUND_CORNER_ODDS: i32 = 2;
+/// How many layers below the tree's height a round crown starts.
+const ROUND_CROWN_DEPTH: i32 = 3;
+/// How many top layers of a round crown have [`ROUND_CROWN_NARROW_RADIUS`].
+const ROUND_CROWN_NARROW_LAYERS: i32 = 2;
+/// The radius of a round crown's top layers.
+const ROUND_CROWN_NARROW_RADIUS: i32 = 1;
+/// The radius of a round crown's lower layers.
+const ROUND_CROWN_WIDE_RADIUS: i32 = 2;
+/// How many logs short of its height a spruce's trunk stops.
+const SPRUCE_BARE_RANGE: RangeInclusive<i32> = 0..=2;
+/// The radius of a spruce's top leaf layer.
+const SPRUCE_FIRST_RADIUS_RANGE: RangeInclusive<i32> = 0..=1;
+/// The height of a spruce.
+const SPRUCE_HEIGHT_RANGE: RangeInclusive<i32> = 6..=9;
+/// How many layers fewer than its height a spruce's leaves have.
+const SPRUCE_SKIPPED_LAYERS_RANGE: RangeInclusive<i32> = 0..=1;
+/// The largest radius of a spruce's leaf layers.
+const SPRUCE_WIDEST_RANGE: RangeInclusive<i32> = 2..=3;
+/// The height of a tall birch.
+const TALL_BIRCH_HEIGHT_RANGE: RangeInclusive<i32> = 10..=12;
+/// A birch grows tall with odds one in this.
+const TALL_BIRCH_ODDS: i32 = 39;
+/// A vine strand doubles its length with odds one in this.
+const VINE_DOUBLE_ODDS: i32 = 7;
+/// The length of a vine strand before doubling.
+const VINE_LENGTH_RANGE: RangeInclusive<i32> = 1..=5;
+/// The age of a strand's top vine; each vine below is one older, up to [`MAX_VINE_AGE`].
+const VINE_TOP_AGE: i32 = 23;
 
 /// A kind of tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -61,197 +191,195 @@ impl TreeType {
     }
 }
 
-/// Blocks to set together, all or none.
-#[derive(Debug, Default)]
-struct Tx {
-    /// The blocks to set, by position.
-    blocks: BTreeMap<BlockPos, block::State>,
-}
-
-impl Tx {
-    /// The block at `pos` once the transaction is applied (air where not loaded).
-    fn fetch(&self, world: &World, pos: Option<BlockPos>) -> block::State {
-        pos.and_then(|p| self.blocks.get(&p).copied())
-            .unwrap_or_else(|| world.block_for_rules(pos))
-    }
-
-    /// Adds a block to set (replacing one added before at the same position).
-    fn add(&mut self, pos: BlockPos, s: block::State) {
-        self.blocks.insert(pos, s);
-    }
-}
-
-/// A tree of logs and leaves.
+/// A tree about to grow: its blocks, the height its room check uses, and its crown's form.
 struct Tree {
-    /// The trunk's log.
+    /// The log of the trunk and the branches.
     trunk: block::State,
-    /// The canopy's leaves.
-    leaf: block::State,
-    /// The tree's height.
+    /// The leaves.
+    leaves: block::State,
+    /// The height the room check uses; for a round or spruce crown also the height of the top
+    /// leaf layer above the origin.
     height: i32,
-    /// Whether a birch is the tall one of the one in 39 chance.
-    tall: bool,
+    /// The form of the crown.
+    crown: Crown,
 }
 
 impl Tree {
-    fn new(trunk: Kind, leaf: Kind, height: i32) -> Self {
+    /// A tree of `trunk` logs and `leaves` with the default states.
+    fn new(trunk: Kind, leaves: Kind, height: i32, crown: Crown) -> Self {
         Self {
             trunk: trunk.default_state(),
-            leaf: leaf.default_state(),
+            leaves: leaves.default_state(),
             height,
-            tall: false,
+            crown,
         }
     }
 
-    /// Works out the blocks of the tree at `pos`; `None` where it does not fit.
-    fn place(&self, world: &World, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
-        // The whole room of the tree must be free to grow through.
-        let mut radius = 0;
-        for yy in 0..self.height + 3 {
-            if yy == 1 || yy == self.height {
-                radius += 1;
-            }
-            for xx in -radius..=radius {
-                for zz in -radius..=radius {
-                    if !Self::can_override(world.block_for_rules(pos.offset(xx, yy, zz)), kind) {
-                        return None;
-                    }
-                }
-            }
-        }
-        let mut tx = Tx::default();
-        match kind {
-            TreeType::Acacia => self.acacia(world, &mut tx, pos, rng),
-            TreeType::Azalea => self.azalea(world, &mut tx, pos, rng),
-            _ => {
-                let trunk = match kind {
-                    TreeType::Spruce => self.height - below(rng, 3),
-                    _ => self.height - 1,
-                };
-                self.trunk(world, &mut tx, pos, trunk, kind);
-                if kind == TreeType::Spruce {
-                    self.spruce_canopy(world, &mut tx, pos, rng);
-                } else {
-                    self.canopy(world, &mut tx, pos, rng);
-                }
-            }
-        }
-        Some(tx)
+    /// Whether the world leaves room for the tree at `pos`: every block of a column that widens
+    /// with height is one the tree can grow through.
+    fn has_room(&self, world: &World, pos: BlockPos, kind: TreeType) -> bool {
+        (0..=self.height + ROOM_ABOVE_TOP).all(|dy| {
+            // One wider from the first layer above the origin, one more from the tree's height.
+            let reach = i32::from(dy >= 1) + i32::from(dy >= self.height);
+            (-reach..=reach).all(|dx| {
+                (-reach..=reach).all(|dz| {
+                    Self::can_override(world.block_for_rules(pos.offset(dx, dy, dz)), kind)
+                })
+            })
+        })
     }
 
-    /// Tells whether a tree may grow through `s`, with azalea's additions.
+    /// Whether a `kind` tree grows through `s`.
     fn can_override(s: block::State, kind: TreeType) -> bool {
         s.can_be_replaced()
             || s.is(Class::Sapling)
             || s.is(Class::Leaves)
-            || (kind == TreeType::Azalea
+            || (matches!(kind, TreeType::Azalea)
                 && matches!(s.kind(), Kind::Azalea | Kind::FloweringAzalea))
     }
 
-    /// Places the trunk: dirt below, logs up through replaceable blocks.
+    /// Draws the tree's blocks at `pos`, or `None` when the world leaves no room for it.
+    fn place(&self, world: &World, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
+        if !self.has_room(world, pos, kind) {
+            return None;
+        }
+        let mut tx = Tx::default();
+        let soil = match self.crown {
+            Crown::Round | Crown::Spruce | Crown::Acacia => Some(block::DIRT),
+            Crown::Azalea => block::State::find(ROOTED_DIRT, &[]),
+        };
+        if let Some(soil) = soil {
+            tx.insert(pos.offset(0, -1, 0), soil);
+        }
+        match self.crown {
+            Crown::Round => {
+                // The top log stands under the second highest leaf layer.
+                self.trunk(world, &mut tx, pos, self.height - 1, kind);
+                self.canopy(world, &mut tx, pos, rng);
+            }
+            Crown::Spruce => {
+                let bare = draw(rng, SPRUCE_BARE_RANGE);
+                self.trunk(world, &mut tx, pos, self.height - bare, kind);
+                self.spruce_canopy(world, &mut tx, pos, rng);
+            }
+            Crown::Acacia => self.acacia(world, &mut tx, pos, rng),
+            Crown::Azalea => self.azalea(world, &mut tx, pos, rng),
+        }
+        Some(tx)
+    }
+
+    /// Adds a column of `height` logs from `pos` up, each where the tree grows through the block.
     fn trunk(&self, world: &World, tx: &mut Tx, pos: BlockPos, height: i32, kind: TreeType) {
-        if let Some(below) = pos.offset(0, -1, 0) {
-            tx.add(below, block::DIRT);
-        }
-        for yy in 0..height {
-            let at = pos.offset(0, yy, 0);
-            if Self::can_override(tx.fetch(world, at), kind)
-                && let Some(at) = at
-            {
-                tx.add(at, self.trunk);
+        for dy in 0..height {
+            let at = pos.offset(0, dy, 0);
+            if Self::can_override(tx.get(world, at), kind) {
+                tx.insert(at, self.trunk);
             }
         }
     }
 
-    /// Places the canopy.
+    /// Adds a round crown: two wide layers and two narrow ones, its lower corners each dropped by
+    /// chance and its top corners always.
     fn canopy(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let top = pos.y + self.height;
-        for yy in (top - 3)..=top {
-            let y_off = yy - top;
-            let mid = 1 + (-y_off) / 2;
-            for dx in -mid..=mid {
-                for dz in -mid..=mid {
-                    if dx.abs() == mid && dz.abs() == mid && (y_off == 0 || rng.below(2) == 0) {
-                        continue;
-                    }
-                    let at = Some(BlockPos::new(pos.x + dx, yy, pos.z + dz));
-                    if !tx.fetch(world, at).is_solid()
-                        && let Some(at) = at
-                    {
-                        tx.add(at, self.leaf);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Places a spruce's canopy.
-    fn spruce_canopy(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let top_size = self.height - (1 + below(rng, 2));
-        let l_radius = 2 + below(rng, 2);
-        let mut radius = below(rng, 2);
-        let (mut max_r, mut min_r) = (1, 0);
-        for yy in 0..=top_size {
-            let y = pos.y + self.height - yy;
+        let top = self.height;
+        for dy in top - ROUND_CROWN_DEPTH..=top {
+            let radius = if dy > top - ROUND_CROWN_NARROW_LAYERS {
+                ROUND_CROWN_NARROW_RADIUS
+            } else {
+                ROUND_CROWN_WIDE_RADIUS
+            };
             for dx in -radius..=radius {
                 for dz in -radius..=radius {
-                    if dx.abs() == radius && dz.abs() == radius && radius > 0 {
+                    // The top layer drops its corners without a draw; a draw is made even for a
+                    // corner on a solid block.
+                    let corner = dx.abs() == radius && dz.abs() == radius;
+                    if corner && (dy == top || below(rng, ROUND_CORNER_ODDS) == 0) {
                         continue;
                     }
-                    let at = Some(BlockPos::new(pos.x + dx, y, pos.z + dz));
-                    if !tx.fetch(world, at).is_solid()
-                        && let Some(at) = at
-                    {
-                        tx.add(at, self.leaf);
+                    let at = pos.offset(dx, dy, dz);
+                    if !tx.get(world, at).is_solid() {
+                        tx.insert(at, self.leaves);
                     }
                 }
             }
-            if radius >= max_r {
-                radius = min_r;
-                min_r = 1;
-                max_r += 1;
-                if max_r > l_radius {
-                    max_r = l_radius;
+        }
+    }
+
+    /// Adds a spruce's leaves: square layers without corners from the top down, whose radius
+    /// climbs and falls back with a ceiling that rises toward the drawn widest radius.
+    fn spruce_canopy(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
+        let skipped = draw(rng, SPRUCE_SKIPPED_LAYERS_RANGE);
+        let widest = draw(rng, SPRUCE_WIDEST_RANGE);
+        let mut radius = draw(rng, SPRUCE_FIRST_RADIUS_RANGE);
+        // A climb ends at `ceiling`; the next one starts at `floor`, which is 0 only the first time.
+        let mut floor = 0;
+        let mut ceiling = 1;
+        for layer in 0..self.height - skipped {
+            let dy = self.height - layer;
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    if radius > 0 && dx.abs() == radius && dz.abs() == radius {
+                        continue;
+                    }
+                    let at = pos.offset(dx, dy, dz);
+                    if !tx.get(world, at).is_solid() {
+                        tx.insert(at, self.leaves);
+                    }
                 }
+            }
+            if radius >= ceiling {
+                radius = floor;
+                floor = 1;
+                ceiling = (ceiling + 1).min(widest);
             } else {
                 radius += 1;
             }
         }
     }
 
-    /// Places an acacia: a trunk with a main and a second branch, a flat canopy on each.
+    /// Adds an acacia: a straight trunk, a main branch that bends to one side, maybe a second
+    /// branch to another side, and a flat leaf crown on each branch end.
     fn acacia(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let height = 5 + below(rng, 3) + below(rng, 3);
-        if let Some(below) = pos.offset(0, -1, 0) {
-            tx.add(below, block::DIRT);
+        let height = ACACIA_MIN_HEIGHT
+            + draw(rng, ACACIA_HEIGHT_STEP_RANGE)
+            + draw(rng, ACACIA_HEIGHT_STEP_RANGE);
+        let depth = draw(rng, ACACIA_FORK_DEPTH_RANGE);
+        let fork = height - depth;
+        for dy in 0..=fork {
+            tx.insert(pos.offset(0, dy, 0), self.trunk);
         }
-        let first = height - 1 - below(rng, 4);
-        for yy in 0..=first {
-            if let Some(at) = pos.offset(0, yy, 0) {
-                tx.add(at, self.trunk);
-            }
-        }
-        let main_facing = pick(rng, &Face::HORIZONTAL);
-        let start = BlockPos::new(pos.x, pos.y + first, pos.z);
-        let diagonal = 1 + below(rng, 3);
-        let main_tip = self.branch(tx, start, main_facing, diagonal, height - first);
-        let second_facing = pick(rng, &Face::HORIZONTAL);
-        let mut second_tip = None;
-        if second_facing != main_facing {
-            let length = 1 + below(rng, 3);
-            let start = BlockPos::new(pos.x, pos.y + (first - below(rng, 2)), pos.z);
-            second_tip = Some(self.branch(tx, start, second_facing, length, length));
-        }
-        self.acacia_layer(world, tx, Some(main_tip), 3, 5);
-        self.acacia_layer(world, tx, main_tip.offset(0, 1, 0), 2, 2);
-        if let Some(tip) = second_tip {
-            self.acacia_layer(world, tx, Some(tip), 2, 3);
-            self.acacia_layer(world, tx, tip.offset(0, 1, 0), 1, 2);
+        // `branch` takes and returns a position, so its starts saturate; from an origin inside
+        // the world no branch comes near the `i32` bounds.
+        let fork_top = BlockPos::new(pos.x, pos.y.saturating_add(fork), pos.z);
+        let facing = pick(rng, &Face::HORIZONTAL);
+        let diagonal = draw(rng, ACACIA_DIAGONAL_RANGE);
+        let end = self.branch(tx, fork_top, facing, diagonal, depth);
+        let twig_facing = pick(rng, &Face::HORIZONTAL);
+        let twig_end = if twig_facing == facing {
+            None
+        } else {
+            let length = draw(rng, ACACIA_TWIG_LENGTH_RANGE);
+            let drop = draw(rng, ACACIA_TWIG_DROP_RANGE);
+            let start = BlockPos::new(pos.x, pos.y.saturating_add(fork - drop), pos.z);
+            Some(self.branch(tx, start, twig_facing, length, length))
+        };
+        // Leaves come after every log, so they never cover a branch.
+        let layers = [
+            (Some(end), ACACIA_LEAVES),
+            (end.offset(0, 1, 0), ACACIA_LEAVES_TOP),
+            (twig_end, ACACIA_TWIG_LEAVES),
+            (
+                twig_end.and_then(|p| p.offset(0, 1, 0)),
+                ACACIA_TWIG_LEAVES_TOP,
+            ),
+        ];
+        for (center, (radius, taxicab)) in layers {
+            self.acacia_layer(world, tx, center, radius, taxicab);
         }
     }
 
-    /// Places an acacia branch: up `length` blocks, sideways for the first `diagonal`. Returns
-    /// the branch's tip.
+    /// Adds `length` logs rising one per step from `start` toward `facing`, the first `diagonal`
+    /// steps also moving one sideways, and returns the last log's position.
     fn branch(
         &self,
         tx: &mut Tx,
@@ -260,21 +388,22 @@ impl Tree {
         diagonal: i32,
         length: i32,
     ) -> BlockPos {
-        let mut at = start;
-        let mut placed = 0;
-        for _ in 0..length {
-            at = BlockPos::new(at.x, at.y + 1, at.z);
-            if placed < diagonal {
-                let (dx, _, dz) = facing.offset();
-                at = BlockPos::new(at.x + dx, at.y, at.z + dz);
-                placed += 1;
-            }
-            tx.add(at, self.trunk);
+        let (step_x, _, step_z) = facing.offset();
+        let mut end = start;
+        for step in 1..=length {
+            let across = step.min(diagonal);
+            end = BlockPos::new(
+                start.x.saturating_add(step_x * across),
+                start.y.saturating_add(step),
+                start.z.saturating_add(step_z * across),
+            );
+            tx.insert(Some(end), self.trunk);
         }
-        at
+        end
     }
 
-    /// Places an acacia canopy layer.
+    /// Adds leaves on the replaceable blocks of the layer around `center` within `radius` on
+    /// each axis and `taxicab` in sum; no layer without a center.
     fn acacia_layer(
         &self,
         world: &World,
@@ -283,249 +412,294 @@ impl Tree {
         radius: i32,
         taxicab: i32,
     ) {
-        let Some(c) = center else {
+        let Some(center) = center else {
             return;
         };
         for dx in -radius..=radius {
             for dz in -radius..=radius {
-                let at = BlockPos::new(c.x + dx, c.y, c.z + dz);
-                if dx.abs() + dz.abs() <= taxicab && tx.fetch(world, Some(at)).can_be_replaced() {
-                    tx.add(at, self.leaf);
+                if dx.abs() + dz.abs() > taxicab {
+                    continue;
+                }
+                let at = center.offset(dx, 0, dz);
+                if tx.get(world, at).can_be_replaced() {
+                    tx.insert(at, self.leaves);
                 }
             }
         }
     }
 
-    /// Places an azalea tree: a bent trunk on rooted dirt, leaves scattered around its top.
+    /// Adds an azalea: a trunk that bends toward a drawn side and leaves scattered around its
+    /// top logs, some of them flowering.
     fn azalea(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let height = (4 + below(rng, 2)).min(5);
-        if let (Some(below_pos), Some(rooted)) = (
-            pos.offset(0, -1, 0),
-            block::State::find("minecraft:dirt_with_roots", &[]),
-        ) {
-            tx.add(below_pos, rooted);
-        }
-        let direction = pick(rng, &Face::HORIZONTAL);
-        let (dx, _, dz) = direction.offset();
-        let side_up = (height - 2).clamp(0, 2);
-        let mut lead_up = (height - side_up).min(3);
-        let total = lead_up + side_up + 1;
-        if total < height {
-            lead_up += height - total;
-        }
-        let (mut x, mut y, mut z) = (pos.x, pos.y, pos.z);
-        let mut attachments = Vec::new();
-        for i in 0..total {
-            let is_lead_up = i < lead_up;
-            let is_side_up = i < lead_up + side_up - 1;
-            if !is_lead_up {
-                x += dx;
-                z += dz;
-            }
-            let at = BlockPos::new(x, y, z);
-            if Self::can_override(tx.fetch(world, Some(at)), TreeType::Azalea) {
-                tx.add(at, self.trunk);
-            }
-            if i >= 3 {
-                attachments.push(at);
-            }
-            if is_lead_up || is_side_up {
-                y += 1;
+        let trunk: &[(i32, i32, bool)] = if below(rng, AZALEA_SHORT_ODDS) == 0 {
+            &AZALEA_SHORT_TRUNK
+        } else {
+            &AZALEA_TALL_TRUNK
+        };
+        let (step_x, _, step_z) = pick(rng, &Face::HORIZONTAL).offset();
+        let log_at = |along: i32, up: i32| pos.offset(step_x * along, up, step_z * along);
+        for &(along, up, _) in trunk {
+            let at = log_at(along, up);
+            if Self::can_override(tx.get(world, at), TreeType::Azalea) {
+                tx.insert(at, self.trunk);
             }
         }
         let flowering = Kind::FloweringAzaleaLeaves.default_state();
-        let mut visited = BTreeSet::new();
-        for a in attachments {
-            for _ in 0..50 {
-                let ddx = below(rng, 3) - below(rng, 3);
-                let ddy = below(rng, 2) - below(rng, 2);
-                let ddz = below(rng, 3) - below(rng, 3);
-                let at = BlockPos::new(a.x + ddx, a.y + ddy, a.z + ddz);
-                if !visited.insert(at) {
+        // A cell tried once is never tried again, from any log: the later try draws nothing.
+        let mut tried = BTreeSet::new();
+        // The leafy logs count whether or not a log went in.
+        for &(along, up, _) in trunk.iter().filter(|log| log.2) {
+            let Some(log) = log_at(along, up) else {
+                continue;
+            };
+            for _ in 0..AZALEA_LEAF_TRIES {
+                let dx = spread(rng, AZALEA_LEAF_SPREAD);
+                let dy = spread(rng, AZALEA_LEAF_RISE);
+                let dz = spread(rng, AZALEA_LEAF_SPREAD);
+                let Some(at) = log.offset(dx, dy, dz) else {
+                    continue;
+                };
+                if !tried.insert(at) || !tx.get(world, Some(at)).is_transparent() {
                     continue;
                 }
-                if tx.fetch(world, Some(at)).is_transparent() {
-                    let leaf = if rng.below(4) == 0 {
-                        flowering
-                    } else {
-                        self.leaf
-                    };
-                    tx.add(at, leaf);
-                }
+                let leaves = if below(rng, FLOWERING_AZALEA_ODDS) == 0 {
+                    flowering
+                } else {
+                    self.leaves
+                };
+                tx.insert(Some(at), leaves);
             }
         }
     }
-
-    fn with_tall(mut self, tall: bool) -> Self {
-        self.tall = tall;
-        self
-    }
 }
 
-/// A huge fungus to grow.
+/// The form of a tree's crown, which decides the rest of its shape.
+enum Crown {
+    /// Four square layers around the trunk's top (oak, birch, jungle).
+    Round,
+    /// Layers that widen and narrow by turns down the trunk.
+    Spruce,
+    /// Flat crowns on bent branches.
+    Acacia,
+    /// Leaves scattered around a bent trunk.
+    Azalea,
+}
+
+/// A huge fungus about to grow.
 struct Fungus {
-    /// The stem's block.
+    /// The stem block.
     stem: block::State,
-    /// The hat's block.
+    /// The hat block.
     hat: block::State,
-    /// The stem's height.
+    /// The stem's height; the hat's top layer is one above it.
     height: i32,
-    /// Whether it is crimson (with weeping vines) and not warped.
+    /// Whether it is crimson, whose hat grows weeping vines.
     crimson: bool,
-    /// Whether the stem is 3 × 3.
+    /// Whether the stem is 3×3 and the hat one wider.
     huge: bool,
 }
 
-/// Works out the blocks of a tree of `kind` that grows at `pos`, or `None` where it does not
-/// fit or the kind has no shape (dark oak).
+/// The blocks a shape places, by position, over the world's blocks.
 ///
-/// The shapes add to the origin without checks: an origin the world holds is inside the world
-/// border and height, where a tree's extent cannot overflow.
+/// A later block at a position replaces the earlier one, and the shape's later checks see it.
+#[derive(Debug, Default)]
+struct Tx {
+    /// The placed blocks.
+    blocks: BTreeMap<BlockPos, block::State>,
+}
+
+impl Tx {
+    /// The block at `pos` as the shape sees it: the placed one, else the world's (air where no
+    /// position or no loaded chunk is).
+    fn get(&self, world: &World, pos: Option<BlockPos>) -> block::State {
+        match pos.and_then(|p| self.blocks.get(&p)) {
+            Some(&s) => s,
+            None => world.block_for_rules(pos),
+        }
+    }
+
+    /// Places `s` at `pos`; no position places nothing.
+    fn insert(&mut self, pos: Option<BlockPos>, s: block::State) {
+        if let Some(pos) = pos {
+            self.blocks.insert(pos, s);
+        }
+    }
+}
+
+/// Draws the shape of a `kind` tree growing at `pos`: every block it places, or `None` when the
+/// world leaves no room for it. A fungus always has room.
+///
+/// The caller decides which blocks are loaded and actually change.
 pub(crate) fn shape(
     world: &World,
     pos: BlockPos,
     kind: TreeType,
     rng: &mut Random,
 ) -> Option<BTreeMap<BlockPos, block::State>> {
-    let plain = |k: Kind| k.default_state();
-    let mut tree = match kind {
-        TreeType::Oak => Tree::new(Kind::OakLog, Kind::OakLeaves, 4 + below(rng, 3)),
-        TreeType::Spruce => Tree::new(Kind::SpruceLog, Kind::SpruceLeaves, 10),
+    let tree = match kind {
+        TreeType::Oak => Tree::new(
+            Kind::OakLog,
+            Kind::OakLeaves,
+            draw(rng, OAK_HEIGHT_RANGE),
+            Crown::Round,
+        ),
+        TreeType::Spruce => Tree::new(
+            Kind::SpruceLog,
+            Kind::SpruceLeaves,
+            draw(rng, SPRUCE_HEIGHT_RANGE),
+            Crown::Spruce,
+        ),
         TreeType::Birch => {
-            let tall = rng.below(39) == 0;
-            Tree::new(Kind::BirchLog, Kind::BirchLeaves, 7).with_tall(tall)
+            let heights = if below(rng, TALL_BIRCH_ODDS) == 0 {
+                TALL_BIRCH_HEIGHT_RANGE
+            } else {
+                BIRCH_HEIGHT_RANGE
+            };
+            Tree::new(
+                Kind::BirchLog,
+                Kind::BirchLeaves,
+                draw(rng, heights),
+                Crown::Round,
+            )
         }
-        TreeType::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
-        TreeType::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
+        TreeType::Jungle => Tree::new(
+            Kind::JungleLog,
+            Kind::JungleLeaves,
+            JUNGLE_HEIGHT,
+            Crown::Round,
+        ),
+        TreeType::Acacia => Tree::new(
+            Kind::AcaciaLog,
+            Kind::AcaciaLeaves,
+            ACACIA_ROOM_HEIGHT,
+            Crown::Acacia,
+        ),
         TreeType::Crimson | TreeType::Warped => {
-            let base = below(rng, 9) + 4;
-            let height = base * if rng.below(12) == 0 { 2 } else { 1 };
-            let huge = rng.unit() < 0.06;
-            let (stem, hat) = if kind == TreeType::Crimson {
+            let crimson = matches!(kind, TreeType::Crimson);
+            let (stem, hat) = if crimson {
                 (Kind::CrimsonStem, Kind::NetherWartBlock)
             } else {
                 (Kind::WarpedStem, Kind::WarpedWartBlock)
             };
+            let base = draw(rng, FUNGUS_HEIGHT_RANGE);
+            let height = if below(rng, FUNGUS_DOUBLE_HEIGHT_ODDS) == 0 {
+                base * 2
+            } else {
+                base
+            };
             let fungus = Fungus {
-                stem: plain(stem),
-                hat: plain(hat),
+                stem: stem.default_state(),
+                hat: hat.default_state(),
                 height,
-                crimson: kind == TreeType::Crimson,
-                huge,
+                crimson,
+                huge: rng.unit() < FUNGUS_HUGE_CHANCE,
             };
             return Some(nether(world, pos, rng, &fungus).blocks);
         }
-        TreeType::Azalea => Tree::new(Kind::OakLog, Kind::AzaleaLeaves, 0),
+        TreeType::Azalea => Tree::new(
+            Kind::OakLog,
+            Kind::AzaleaLeaves,
+            draw(rng, AZALEA_ROOM_HEIGHT_RANGE),
+            Crown::Azalea,
+        ),
     };
-    // The heights of these kinds are drawn after the draws above, in this order.
-    match kind {
-        TreeType::Spruce => tree.height = below(rng, 4) + 6,
-        TreeType::Birch => tree.height = below(rng, 3) + 5 + if tree.tall { 5 } else { 0 },
-        TreeType::Azalea => tree.height = below(rng, 3) + 4,
-        _ => {}
-    }
     tree.place(world, pos, kind, rng).map(|tx| tx.blocks)
 }
 
-/// Works out the blocks of a huge fungus.
+/// Draws a huge fungus at `pos`: its stem, then its hat layer by layer from the bottom up.
 fn nether(world: &World, pos: BlockPos, rng: &mut Random, fungus: &Fungus) -> Tx {
-    let Fungus {
-        stem,
-        hat,
-        height,
-        crimson,
-        huge,
-    } = *fungus;
     let can_override =
         |s: block::State| s.can_be_replaced() || s.has_type_tag(TypeTag::HugeFungusReplaceable);
-    let decor = Kind::Shroomlight.default_state();
     let mut tx = Tx::default();
-    // The stem.
-    let i = i32::from(huge);
-    for j in -i..=i {
-        for k in -i..=i {
-            let corner = huge && j.abs() == i && k.abs() == i;
-            for l in 0..height {
-                let at = BlockPos::new(pos.x + j, pos.y + l, pos.z + k);
-                if (!corner || rng.unit() < 0.1) && can_override(tx.fetch(world, Some(at))) {
-                    tx.add(at, stem);
+    let stem_reach = i32::from(fungus.huge);
+    for dx in -stem_reach..=stem_reach {
+        for dz in -stem_reach..=stem_reach {
+            for dy in 0..fungus.height {
+                // Each cell of a corner column draws whether it grows, whatever block is there.
+                if dx != 0 && dz != 0 && rng.unit() >= FUNGUS_CORNER_STEM_CHANCE {
+                    continue;
+                }
+                let at = pos.offset(dx, dy, dz);
+                if can_override(tx.get(world, at)) {
+                    tx.insert(at, fungus.stem);
                 }
             }
         }
     }
-    // The hat.
-    let hat_height = (below(rng, 1 + height / 3) + 5).min(height);
-    let start = height - hat_height;
-    for k in start..=height {
-        let mut l = if k < height - below(rng, 3) { 2 } else { 1 };
-        if hat_height > 8 && k < start + 4 {
-            l = 3;
+    let hat_height = (draw(rng, 0..=fungus.height / 3) + FUNGUS_HAT_MIN_HEIGHT).min(fungus.height);
+    let bottom = fungus.height - hat_height;
+    let top = fungus.height;
+    let decor = Kind::Shroomlight.default_state();
+    for layer in bottom..=top {
+        let taper = draw(rng, FUNGUS_HAT_TAPER_RANGE);
+        let mut radius = if layer < top - taper {
+            FUNGUS_HAT_RADIUS
+        } else {
+            FUNGUS_HAT_TOP_RADIUS
+        };
+        if hat_height > FUNGUS_TALL_HAT_HEIGHT && layer < bottom + FUNGUS_WIDE_HAT_LAYERS {
+            radius = FUNGUS_WIDE_HAT_RADIUS;
         }
-        if huge {
-            l += 1;
+        if fungus.huge {
+            radius += 1;
         }
-        for i1 in -l..=l {
-            for j1 in -l..=l {
-                let edge_x = i1 == -l || i1 == l;
-                let edge_z = j1 == -l || j1 == l;
-                let inner = !edge_x && !edge_z && k != height;
-                let corner = edge_x && edge_z;
-                let lower = k < start + 3;
-                let at = BlockPos::new(pos.x + i1, pos.y + k, pos.z + j1);
-                if !can_override(tx.fetch(world, Some(at))) {
+        let is_low = layer < bottom + FUNGUS_LOW_HAT_LAYERS;
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                let Some(at) = pos.offset(dx, layer, dz) else {
+                    continue;
+                };
+                if !can_override(tx.get(world, Some(at))) {
                     continue;
                 }
-                let vine = |c: f64| if crimson { c } else { 0.0 };
-                if lower {
-                    if !inner {
-                        let below_at = Some(BlockPos::new(at.x, at.y - 1, at.z));
-                        if tx.fetch(world, below_at).kind() == hat.kind() {
-                            tx.add(at, hat);
-                        } else if rng.unit() < 0.15 {
-                            tx.add(at, hat);
-                            if crimson && rng.below(11) == 0 {
-                                weeping_vines(world, &mut tx, at, rng, &can_override);
-                            }
+                let on_x_rim = dx.abs() == radius;
+                let on_z_rim = dz.abs() == radius;
+                let is_inner = !on_x_rim && !on_z_rim && layer != top;
+                if is_low {
+                    if is_inner {
+                        continue;
+                    }
+                    // A rim cell over a hat block always closes the hat; others close it by chance.
+                    if tx.get(world, at.offset(0, -1, 0)).kind() == fungus.hat.kind() {
+                        tx.insert(Some(at), fungus.hat);
+                    } else if rng.unit() < FUNGUS_LOW_HAT_CHANCE {
+                        tx.insert(Some(at), fungus.hat);
+                        if fungus.crimson && below(rng, FUNGUS_LOW_VINE_ODDS) == 0 {
+                            weeping_vines(world, &mut tx, at, rng, &can_override);
                         }
                     }
-                } else if inner {
-                    hat_block(
-                        world,
-                        &mut tx,
-                        at,
-                        rng,
-                        (0.1, 0.2, vine(0.1)),
-                        (decor, hat),
-                        &can_override,
-                    );
-                } else if corner {
-                    hat_block(
-                        world,
-                        &mut tx,
-                        at,
-                        rng,
-                        (0.01, 0.7, vine(0.083)),
-                        (decor, hat),
-                        &can_override,
-                    );
-                } else {
-                    hat_block(
-                        world,
-                        &mut tx,
-                        at,
-                        rng,
-                        (0.0005, 0.98, vine(0.07)),
-                        (decor, hat),
-                        &can_override,
-                    );
+                    continue;
                 }
+                let (decor_chance, hat_chance, crimson_vine_chance) = if is_inner {
+                    FUNGUS_INNER_HAT
+                } else if on_x_rim && on_z_rim {
+                    FUNGUS_CORNER_HAT
+                } else {
+                    FUNGUS_RIM_HAT
+                };
+                let vine_chance = if fungus.crimson {
+                    crimson_vine_chance
+                } else {
+                    0.0
+                };
+                hat_block(
+                    world,
+                    &mut tx,
+                    at,
+                    rng,
+                    (decor_chance, hat_chance, vine_chance),
+                    (decor, fungus.hat),
+                    &can_override,
+                );
             }
         }
     }
     tx
 }
 
-/// Places a hat block with the (decoration, hat, vine) chances and the (decoration, hat) blocks.
+/// Draws one hat cell at `at`: a decoration, or else a hat block that may grow vines, or nothing.
+///
+/// The vine chance is drawn after every hat block, even when it is 0.
 fn hat_block(
     world: &World,
     tx: &mut Tx,
@@ -536,16 +710,20 @@ fn hat_block(
     can_override: &dyn Fn(block::State) -> bool,
 ) {
     if rng.unit() < decor_chance {
-        tx.add(at, decor);
-    } else if rng.unit() < hat_chance {
-        tx.add(at, hat);
-        if rng.unit() < vine_chance {
-            weeping_vines(world, tx, at, rng, can_override);
-        }
+        tx.insert(Some(at), decor);
+        return;
+    }
+    if rng.unit() >= hat_chance {
+        return;
+    }
+    tx.insert(Some(at), hat);
+    if rng.unit() < vine_chance {
+        weeping_vines(world, tx, at, rng, can_override);
     }
 }
 
-/// Places weeping vines under `at`, down to the world bottom.
+/// Draws a strand of weeping vines hanging from the hat block at `at`, older toward its end; it
+/// stops at the first block it cannot grow through or below the world.
 fn weeping_vines(
     world: &World,
     tx: &mut Tx,
@@ -553,33 +731,42 @@ fn weeping_vines(
     rng: &mut Random,
     can_override: &dyn Fn(block::State) -> bool,
 ) {
-    let y = at.y - 1;
-    if !can_override(tx.fetch(world, Some(BlockPos::new(at.x, y, at.z)))) {
+    if !can_override(tx.get(world, at.offset(0, -1, 0))) {
         return;
     }
-    let mut count = below(rng, 5) + 1;
-    if rng.below(7) == 0 {
-        count *= 2;
+    let mut length = draw(rng, VINE_LENGTH_RANGE);
+    if below(rng, VINE_DOUBLE_ODDS) == 0 {
+        length *= 2;
     }
     let vine = Kind::WeepingVines.default_state();
-    for v in 0..count {
-        let vy = y - v;
-        if vy < MIN_Y {
+    for hang in 0..length {
+        let Some(cell) = at.offset(0, -1 - hang, 0) else {
+            break;
+        };
+        if cell.y < MIN_Y || !can_override(tx.get(world, Some(cell))) {
             break;
         }
-        let p = BlockPos::new(at.x, vy, at.z);
-        if !can_override(tx.fetch(world, Some(p))) {
-            break;
-        }
-        let age = (23 + v).min(MAX_VINE_AGE);
-        if let Some(s) = vine.with(nether_vines_age(vine), PropertyValue::Int(age)) {
-            tx.add(p, s);
+        let age = PropertyValue::Int((VINE_TOP_AGE + hang).min(MAX_VINE_AGE));
+        if let Some(aged) = vine.with(nether_vines_age(vine), age) {
+            tx.insert(Some(cell), aged);
         }
     }
 }
 
+/// Draws a value of `range` with one draw.
+fn draw(rng: &mut Random, range: RangeInclusive<i32>) -> i32 {
+    let (lowest, highest) = range.into_inner();
+    lowest + below(rng, highest - lowest + 1)
+}
+
+/// Draws the difference of two draws below `span`: a value within `span - 1` of 0, near 0 most
+/// often.
+fn spread(rng: &mut Random, span: i32) -> i32 {
+    below(rng, span) - below(rng, span)
+}
+
 /// The name of the age property of nether vines: weeping or twisting.
-pub(crate) fn nether_vines_age(block: block::State) -> &'static str {
+fn nether_vines_age(block: block::State) -> &'static str {
     if block.kind() == Kind::WeepingVines {
         "weeping_vines_age"
     } else {
