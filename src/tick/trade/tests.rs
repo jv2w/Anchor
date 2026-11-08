@@ -15,6 +15,7 @@ use crate::tick::queue::Outbound;
 use crate::tick::tests::{join, new_state, radius, settings, tick};
 use crate::tick::{Output, SessionId, State};
 
+/// The hooks of the test server: stand-ins for the entity and inventory modules.
 const TEST_HOOKS: Hooks = Hooks {
     villager: villager_of,
     offers_mut,
@@ -52,6 +53,9 @@ pub(super) struct Fixtures {
     drops: Vec<(WorldIndex, Vec3, u32)>,
     /// The villagers told of a trade, with their tier and xp before it.
     traded: Vec<(Id, (u8, u32))>,
+    /// A change of the offers the next opened window makes first, as a close listener of the
+    /// window it replaces.
+    change: Option<fn(&mut Offers)>,
 }
 
 impl Fixtures {
@@ -68,6 +72,8 @@ impl Fixtures {
             drops,
             // Records of calls that only send packets.
             traded: _,
+            // A test switch.
+            change: _,
         } = self;
         h.usize(villagers.len());
         for (id, v) in villagers {
@@ -77,6 +83,23 @@ impl Fixtures {
         // Dropped orbs are entities in the game.
         h.usize(drops.len());
     }
+}
+
+fn offer_compounds(offers: &Compound) -> Vec<Compound> {
+    match offers.get("Recipes") {
+        Some(Value::List(List::Compound(l))) => l.clone(),
+        other => panic!("no offers: {other:?}"),
+    }
+}
+
+fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
+    offer_compounds(&from_network_bytes(&screen.serialised_offers))
+        .iter()
+        .map(|o| match o.get("netId") {
+            Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
+            other => panic!("no netId: {other:?}"),
+        })
+        .collect()
 }
 
 /// A test server with joined players 1 to `players`.
@@ -208,7 +231,7 @@ fn offers_mut(state: &mut State, id: Id) -> Option<&mut Offers> {
 }
 
 /// Opens a window as `inventory::open_trade` does: an open trade window closes first (reporting
-/// `closed`). Window IDs count from 2 to 99 and start over at 2, on one counter for every player.
+/// `closed`). Window IDs run from 2 to 99, then 1, as there, on one counter for every player.
 fn open_window(state: &mut State, session: SessionId, _: Id) -> Option<u8> {
     if state.trades.fixtures.refuse {
         return None;
@@ -217,11 +240,7 @@ fn open_window(state: &mut State, session: SessionId, _: Id) -> Option<u8> {
         closed(state, session);
     }
     let f = &mut state.trades.fixtures;
-    f.window = if f.window >= 99 {
-        2
-    } else {
-        f.window.max(1) + 1
-    };
+    f.window = ((f.window.max(1) + 1) % 100).max(1);
     Some(f.window)
 }
 
@@ -245,23 +264,6 @@ fn drop_xp(state: &mut State, world: WorldIndex, at: Vec3, amount: u32) {
 
 fn villager_traded(state: &mut State, villager: Id, before: (u8, u32)) {
     state.trades.fixtures.traded.push((villager, before));
-}
-
-fn offer_compounds(offers: &Compound) -> Vec<Compound> {
-    match offers.get("Recipes") {
-        Some(Value::List(List::Compound(l))) => l.clone(),
-        other => panic!("no offers: {other:?}"),
-    }
-}
-
-fn net_ids(screen: &UpdateTrade) -> Vec<u32> {
-    offer_compounds(&from_network_bytes(&screen.serialised_offers))
-        .iter()
-        .map(|o| match o.get("netId") {
-            Some(Value::Int(id)) => u32::try_from(*id).unwrap(),
-            other => panic!("no netId: {other:?}"),
-        })
-        .collect()
 }
 
 #[test]
@@ -550,6 +552,54 @@ fn reopening_keeps_the_ids_and_the_counter() {
     assert_eq!(net_ids(&screen), ids);
     assert_eq!(screen.window_id, 3, "a new window");
     assert_eq!(server.state.trades.next_net_id, next);
+}
+
+/// Opens player 1's trade window with villager 2 while one with villager 1 is open, as an
+/// `InventoryClose` listener of the old window that changes villager 2's offers with `change`.
+fn open_while_the_old_window_closes_changing(server: &mut Server, change: fn(&mut Offers)) -> bool {
+    let old = server.villager(1, sample());
+    let new = server.villager(2, sample());
+    assert!(server.open(1, old));
+    server.screens(1);
+    server.state.trades.fixtures.change = Some(change);
+    let hooks = Hooks {
+        open_window: |state, session, villager| {
+            if let Some(change) = state.trades.fixtures.change.take() {
+                change(offers_mut(state, villager).unwrap());
+            }
+            open_window(state, session, villager)
+        },
+        ..TEST_HOOKS
+    };
+    open_with(&mut server.state, SessionId::new(1), new, hooks)
+}
+
+#[test]
+fn a_list_changed_while_the_old_window_closes_is_the_one_shown() {
+    let mut server = Server::new(1);
+    let opened = open_while_the_old_window_closes_changing(&mut server, |o| {
+        o.set(sample().list()[..1].to_vec()).unwrap();
+    });
+    assert!(opened);
+    let ids = server.net_ids(1);
+    assert_eq!(ids.len(), 1, "the changed list");
+    assert!(server.offer(1, ids[0]).is_some(), "its IDs trade");
+}
+
+#[test]
+fn a_list_emptied_while_the_old_window_closes_opens_nothing() {
+    let mut server = Server::new(1);
+    let opened = open_while_the_old_window_closes_changing(&mut server, |o| {
+        o.set(Vec::new()).unwrap();
+    });
+    assert!(!opened);
+    assert!(!server.is_trading(1));
+    assert!(server.screens(1).is_empty());
+    assert_eq!(
+        server.state.trades.fixtures.closed_without_event,
+        [SessionId::new(1)],
+        "the window opened for it closes"
+    );
 }
 
 #[test]

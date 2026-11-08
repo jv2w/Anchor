@@ -48,7 +48,7 @@ use crate::save::WorldIndex;
 const ANY_ENTITY: i64 = -1;
 /// The title of other professions (the nitwit, 14, has none of its own).
 const DEFAULT_DISPLAY_NAME: &str = "entity.villager.name";
-/// The trade screen titles by profession (`EntityVariant`), from the official server 1.26.52's
+/// The trade screen titles by profession (`EntityVariant`), from the official server's
 /// `villager_v2` economy trade tables: unskilled, farmer, fisherman, shepherd, fletcher, librarian,
 /// cartographer, cleric, armorer, weaponsmith, toolsmith, butcher, leatherworker, mason.
 const DISPLAY_NAMES: [&str; 14] = [
@@ -252,7 +252,7 @@ struct View {
 }
 
 impl View {
-    /// Builds the villager's screen as it is now; `None` if it is gone, its offers have no
+    /// The villager's screen as it is now; `None` if it is gone, its offers have no
     /// network IDs or are too large to send.
     fn of(state: &State, villager: Id, hooks: Hooks) -> Option<Self> {
         let v = (hooks.villager)(state, villager)?;
@@ -304,12 +304,7 @@ pub(super) fn open(state: &mut State, session: SessionId, villager: Id) -> bool 
 }
 
 fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
-    let can_open = |state: &State| {
-        let world = state.players.get(&session).map(|p| p.world);
-        (hooks.villager)(state, villager)
-            .is_some_and(|v| Some(v.world) == world && !v.offers.is_empty())
-    };
-    if !can_open(state) {
+    if !can_open(state, session, villager, hooks) {
         return false;
     }
     let mut event = dispatch::heard::<TradeOpen>(state).then(|| TradeOpen {
@@ -319,7 +314,10 @@ fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) 
     });
     if let Some(e) = &mut event {
         dispatch::call(state, e);
-        if e.cancelled || (dispatch::listened::<TradeOpen>(state) && !can_open(state)) {
+        if e.cancelled
+            || (dispatch::listened::<TradeOpen>(state)
+                && !can_open(state, session, villager, hooks))
+        {
             return false;
         }
     }
@@ -330,16 +328,28 @@ fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) 
     opened
 }
 
+/// Whether `session` may trade with `villager`: a villager NPC with offers in the player's world.
+fn can_open(state: &State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
+    let world = state.players.get(&session).map(|p| p.world);
+    (hooks.villager)(state, villager)
+        .is_some_and(|v| Some(v.world) == world && !v.offers.is_empty())
+}
+
 /// Opens the trade window of a villager the player may trade with ([`open_with`]).
 fn open_now(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
     if !(hooks.can_open_window)(state, session) {
         return false;
     }
-    allocate_net_ids(state, villager, hooks);
-    let Some(view) = View::of(state, villager, hooks) else {
+    let Some(window) = (hooks.open_window)(state, session, villager) else {
         return false;
     };
-    let Some(window) = (hooks.open_window)(state, session, villager) else {
+    // Opening closed a trade window that was open, whose close listeners may have changed this
+    // villager: the screen is built after it.
+    allocate_net_ids(state, villager, hooks);
+    let view =
+        View::of(state, villager, hooks).filter(|_| can_open(state, session, villager, hooks));
+    let Some(view) = view else {
+        (hooks.close_window_without_event)(state, session);
         return false;
     };
     state.trades.start(session, villager, window);
@@ -349,7 +359,7 @@ fn open_now(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -
     true
 }
 
-/// Finds the offer with network ID `net_id` of the villager `session` trades with, if it can be
+/// The offer with network ID `net_id` of the villager `session` trades with, if it can be
 /// traded now: the ID is from the list as it is now (not an older screen, not another
 /// villager's, not a recipe's), the villager is in the player's world (until [`tick`] closes the
 /// window), its tier is unlocked and it has uses left.
@@ -372,7 +382,7 @@ fn offer_with(state: &State, session: SessionId, net_id: u32, hooks: Hooks) -> O
     })
 }
 
-/// Finds the villager `session` trades with and the place of the offer with network ID `net_id`
+/// The villager `session` trades with and the place of the offer with network ID `net_id`
 /// in its list (for the trade event).
 pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<(Id, usize)> {
     let s = state.trades.sessions.get(&session)?;
@@ -380,7 +390,7 @@ pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<
     Some((s.villager, v.offers.index_of(net_id)?))
 }
 
-/// Checks whether `given` pays for the payment `want` of an offer, counts aside: the same item
+/// Whether `given` pays for the payment `want` of an offer, counts aside: the same item
 /// type and damage, and the same extra data when the offer's payment has any. A payment of any
 /// damage (`Damage` 32767, the Bedrock any-meta value) takes the item of any damage or meta:
 /// the same item name.
@@ -471,7 +481,7 @@ fn traded_with(
     (hooks.villager_traded)(state, villager, before);
 }
 
-/// Counts the trades of `offer` one request may make now: its uses left, at most
+/// The trades of `offer` one request may make now: its uses left, at most
 /// [`MAX_REPEAT`].
 fn times_allowed(offer: &StoredOffer) -> u32 {
     offer.uses_left().min(MAX_REPEAT)
@@ -566,7 +576,7 @@ fn allocate_net_ids(state: &mut State, villager: Id, hooks: Hooks) {
     state.trades.next_net_id = next;
 }
 
-/// Looks up the trade screen title of a profession.
+/// The trade screen title of a profession.
 fn display_name(profession: u8) -> &'static str {
     DISPLAY_NAMES
         .get(usize::from(profession))
@@ -574,7 +584,7 @@ fn display_name(profession: u8) -> &'static str {
         .unwrap_or(DEFAULT_DISPLAY_NAME)
 }
 
-/// Reads the villager NPC `id` as the entity module keeps it.
+/// The villager NPC `id` as the entity module keeps it.
 fn entity_villager(state: &State, id: Id) -> Option<Villager<'_>> {
     let (world, position, unique_id, profession, offers) = entity::villager(state, id)?;
     Some(Villager {
