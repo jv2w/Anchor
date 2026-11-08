@@ -216,7 +216,7 @@ pub(super) struct Inventory {
     recent: VecDeque<i32>,
     /// The same IDs, to look them up.
     recent_set: BTreeSet<i32>,
-    /// Requests handled in a tick: (tick, count), at most [`request::MAX_REQUESTS_PER_TICK`].
+    /// Requests handled in a tick: (tick, count), at most the per-tick bound of [`request`].
     budget: (u64, u16),
     /// The tick of the last full resend after a refused request (once a tick at most).
     resent: Option<u64>,

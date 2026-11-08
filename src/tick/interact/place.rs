@@ -220,8 +220,8 @@ fn transaction(attempt: &Attempt<'_>) -> Option<Blocks> {
         let blocked = blocks.iter().any(|(p, s)| {
             *p != attempt.replace
                 && attempt.world.block(*p).is_none_or(|old| {
-                    !old.can_be_replaced()
-                        && !(old.is(Class::BaseBigDripleaf) && s.kind() == Kind::BigDripleafStem)
+                    !(old.can_be_replaced()
+                        || old.is(Class::BaseBigDripleaf) && s.kind() == Kind::BigDripleafStem)
                 })
         });
         if blocked {

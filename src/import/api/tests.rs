@@ -320,7 +320,6 @@ fn full_raw() -> Raw {
             meta: 0,
         }],
         ignored: vec![0x36],
-        ..empty_raw()
     }
 }
 

@@ -652,9 +652,9 @@ fn nether(world: &World, pos: BlockPos, rng: &mut Random, fungus: &Fungus) -> Tx
                 if !can_override(tx.get(world, Some(at))) {
                     continue;
                 }
-                let on_x_rim = dx.abs() == radius;
-                let on_z_rim = dz.abs() == radius;
-                let is_inner = !on_x_rim && !on_z_rim && layer != top;
+                let on_rim = dx.abs() == radius || dz.abs() == radius;
+                let on_corner = dx.abs() == radius && dz.abs() == radius;
+                let is_inner = !on_rim && layer != top;
                 if is_low {
                     if is_inner {
                         continue;
@@ -672,7 +672,7 @@ fn nether(world: &World, pos: BlockPos, rng: &mut Random, fungus: &Fungus) -> Tx
                 }
                 let (decor_chance, hat_chance, crimson_vine_chance) = if is_inner {
                     FUNGUS_INNER_HAT
-                } else if on_x_rim && on_z_rim {
+                } else if on_corner {
                     FUNGUS_CORNER_HAT
                 } else {
                     FUNGUS_RIM_HAT
