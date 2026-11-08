@@ -46,6 +46,7 @@
 //	               forms, scores, boss bar, titles, menu clicks), for the example tests
 //	weather, joinrain, joinstorm  weather changes and lightning, and joining in rain and thunder (weather.go)
 //	boltpeaceful, bolteasy, bolthard  lightning damage at each difficulty (weather.go)
+//	itemuse        bow, trident, potion and snowball use and the server's answers (itemuse.go)
 //	sneak          quick and long sneaks and the server's answers (sneak.go)
 //	potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
 //	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the verification scenarios (verify.go); the line
@@ -67,7 +68,7 @@
 // to ".world.jsonl": nothing is shortened and NBT values keep their tag types ({"byte":1}). In the game
 // scenarios every other received packet line keeps its fields in this full form, the "sent" lines of the
 // inventory and interaction packets carry their full fields, and the script adds "step", "response",
-// "check" and "command" lines (game.go), and "output", "available" and "form" lines (api.go).
+// "check", "fact" and "command" lines (game.go), and "output", "available" and "form" lines (api.go).
 //
 // In the sub-chunk request mode the bot asks for the sub-chunks of the 3x3 chunks around the spawn chunk, from
 // index -4 up to SubChunkLimit sub-chunks, as those chunks arrive. After spawning, the spawn scenario sends three

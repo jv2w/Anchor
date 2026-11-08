@@ -45,7 +45,6 @@ func issuerCommand(args []string) error {
 	}
 	b64 := base64.RawURLEncoding.EncodeToString
 	cache := map[string]any{
-		"auth": map[string]any{"serviceUri": "https://issuer.invalid", "issuer": *iss},
 		"openid": map[string]any{
 			"issuer":   *iss,
 			"jwks_uri": "https://issuer.invalid/.well-known/keys",

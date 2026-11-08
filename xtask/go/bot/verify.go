@@ -27,6 +27,7 @@ import (
 //	           the numbers the server uses)
 //	syntax     player commands with syntax errors and with game mode and effect names in their output
 //	limits     chat lines and commands of many-byte characters near the protocol's string limits
+//	limitchat  one chat line of three-byte characters over the protocol's 65,536-byte string limit
 //	others     a second player (the mover companion, -scenario mover) joins, walks, turns, attacks the bot,
 //	           lands a critical hit from a jump, dies and respawns: what the bot is sent about it
 //	mover      the companion of others
@@ -831,7 +832,7 @@ func breathless(flags any) any {
 	return f &^ (1 << protocol.EntityDataFlagBreathing)
 }
 
-// moved summarises the packets about entity rid: each move packet with its mode or flags, and the others by
+// moveSummary summarises the packets about entity rid: each move packet with its mode or flags, and the others by
 // name, consecutive repeats folded.
 type moveSummary struct {
 	rid   uint64

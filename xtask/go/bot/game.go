@@ -31,7 +31,8 @@ import (
 // The script records {"type":"step"} lines (what it is about to do, with the request it sends; "setup" marks
 // steps that only run console commands and "random" steps whose amounts depend on server randomness),
 // {"type":"state"} lines (the items the client sees when a step ends), {"type":"response"} and
-// {"type":"check"} lines (a fact it established), and the scenario passes when the script returns nil.
+// {"type":"check"} lines (a fact it established; "fact" lines in a part whose steps differ between
+// servers), and the scenario passes when the script returns nil.
 
 // gameWait bounds one wait for the server's answer.
 const gameWait = 15 * time.Second
