@@ -59,6 +59,9 @@ type randomIO struct {
 	dims     [2]uint32
 	dimsCall int
 	names    map[uintptr]string
+	// sample is the index of the sample being generated. EventType takes the event at this index, so the
+	// Event samples hold every event, not only those a random draw picks.
+	sample int
 }
 
 // inSkinImage reports whether the last recorded call came from Skin or SkinAnimation Marshal. Their
@@ -717,10 +720,10 @@ func (r *randomIO) MaterialReducer(m *protocol.MaterialReducer) {
 	protocol.Slice(r, &m.Outputs)
 }
 
-// EventType: random event that also has an ordinal (the Event packet needs both).
+// EventType: the sample's event among those that also have an ordinal (the Event packet needs both).
 func (r *randomIO) EventType(x *protocol.Event) {
 	r.begin()
-	e := tables.events[r.rng.IntN(len(tables.events))]
+	e := tables.events[r.sample%len(tables.events)]
 	*x = reflect.New(e.typ.Elem()).Interface().(protocol.Event)
 	r.w.Varint32(&e.tag)
 }

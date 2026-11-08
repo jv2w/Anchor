@@ -111,14 +111,12 @@ func run(args []string) error {
 	out := fs.String("out", "", "output record file")
 	var seed *uint64
 	var samples *int
-	var verbose *bool
 	var limitsPath *string
 	var algo *string
 	switch args[0] {
 	case "corpus":
 		seed = fs.Uint64("seed", 0, "PCG seed")
 		samples = fs.Int("samples", 64, "samples per packet")
-		verbose = fs.Bool("v", false, "print per-packet attempt counts")
 		limitsPath = fs.String("limits", "", "Anchor's field limits (protocol_limits.json)")
 	case "compress", "decompress":
 		algo = fs.String("algo", "", "zlib or snappy")
@@ -146,7 +144,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return writeRecords(*out, corpus(*seed, *samples, *verbose, lim))
+		return writeRecords(*out, corpus(*seed, *samples, lim))
 	}
 	if *in == "" {
 		return errors.New("-in is required")

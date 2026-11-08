@@ -185,7 +185,7 @@ func keepProb(attempt int) float64 {
 
 // genSample produces one sample that gophertunnel decodes fully, that sortedWriter re-encodes to the
 // same bytes and that keeps within lim. ok is false if every attempt failed.
-func genSample(r *randomIO, newPk func() packet.Packet, lim limits) ([]byte, int, bool) {
+func genSample(r *randomIO, newPk func() packet.Packet, lim limits) ([]byte, bool) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		r.reset(keepProb(attempt))
 		if try(func() { newPk().Marshal(r) }) != nil {
@@ -209,9 +209,9 @@ func genSample(r *randomIO, newPk func() packet.Packet, lim limits) ([]byte, int
 		if lim.violation(reflect.ValueOf(pk)) != "" {
 			continue
 		}
-		return sample, attempt + 1, true
+		return sample, true
 	}
-	return nil, maxAttempts, false
+	return nil, false
 }
 
 func firstDiff(a, b []byte) int {
@@ -226,7 +226,7 @@ func firstDiff(a, b []byte) int {
 
 // corpus generates samples within lim for every packet ID in ascending order. Each packet has its own
 // PCG seeded from (seed, packet ID), so packets are independent of each other.
-func corpus(seed uint64, samples int, verbose bool, lim limits) []record {
+func corpus(seed uint64, samples int, lim limits) []record {
 	for _, w := range tables.warnings {
 		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
@@ -234,11 +234,10 @@ func corpus(seed uint64, samples int, verbose bool, lim limits) []record {
 	var out []record
 	for _, id := range sortedIDs(pool) {
 		r := newRandomIO(rand.New(rand.NewPCG(seed, uint64(id))))
-		total := 0
 		got := 0
 		for s := 0; s < samples; s++ {
-			b, attempts, ok := genSample(r, pool[id], lim)
-			total += attempts
+			r.sample = s
+			b, ok := genSample(r, pool[id], lim)
 			if !ok {
 				break
 			}
@@ -247,9 +246,6 @@ func corpus(seed uint64, samples int, verbose bool, lim limits) []record {
 		}
 		if got < samples {
 			fmt.Fprintf(os.Stderr, "warning: packet %d (%T): %d/%d samples\n", id, pool[id](), got, samples)
-		}
-		if verbose {
-			fmt.Fprintf(os.Stderr, "packet %d (%T): %d samples, %d attempts\n", id, pool[id](), got, total)
 		}
 	}
 	return out

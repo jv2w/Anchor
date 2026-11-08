@@ -4,8 +4,18 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"testing"
+
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+func TestBuildsAgainstTheCorrectedModule(t *testing.T) {
+	if protocol.EntityDataKeyNameplateRenderDistanceMax != 140 {
+		t.Fatalf("EntityDataKeyNameplateRenderDistanceMax is %d, want 140 (xtask/go/fix)", protocol.EntityDataKeyNameplateRenderDistanceMax)
+	}
+}
 
 func encodeRecords(recs []record) []byte {
 	var b bytes.Buffer
@@ -30,8 +40,8 @@ func testLimits(t *testing.T) limits {
 func TestCorpusIsDeterministicAndFullyCovered(t *testing.T) {
 	const samples = 64
 	lim := testLimits(t)
-	a := corpus(1, samples, false, lim)
-	b := corpus(1, samples, false, lim)
+	a := corpus(1, samples, lim)
+	b := corpus(1, samples, lim)
 	if !bytes.Equal(encodeRecords(a), encodeRecords(b)) {
 		t.Fatal("corpus output differs between runs")
 	}
@@ -54,12 +64,28 @@ func TestCorpusIsDeterministicAndFullyCovered(t *testing.T) {
 		}
 	}
 	t.Logf("%d records, %d packets", len(a), len(counts))
+	events := map[reflect.Type]bool{}
+	for _, r := range a {
+		if r.id != packet.IDEvent {
+			continue
+		}
+		pk, _, err := decode(pool[r.id], r.data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		events[reflect.TypeOf(pk.(*packet.Event).Event)] = true
+	}
+	for _, e := range tables.events {
+		if !events[e.typ] {
+			t.Errorf("no Event sample holds %v (type %d)", e.typ, e.tag)
+		}
+	}
 }
 
 // TestCheckRoundTrip: every corpus record decodes in check; re-encoded bytes differ from the input only
 // for samples holding multi-key NBT compounds (gophertunnel writes map keys in random order).
 func TestCheckRoundTrip(t *testing.T) {
-	in := corpus(1, 64, false, testLimits(t))
+	in := corpus(1, 64, testLimits(t))
 	out := check(in)
 	pool := packetPool()
 	mismatch, multiKeyMismatch := 0, 0
