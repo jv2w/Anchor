@@ -962,10 +962,10 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`player::Error::TooLong`] for a message too long for a client to decode, as
-    /// [`Player::send`](player::Player::send) refuses it.
-    /// [`player::Error::TooManyParameters`] for a message with more parameters than a client
-    /// decodes.
+    /// [`player::Error::TooLong`] for a message to a player too long for a client to decode, as
+    /// [`Player::send`](player::Player::send) refuses it; the console's log takes any message.
+    /// [`player::Error::TooManyParameters`] for a message to a player with more parameters than
+    /// a client decodes.
     #[doc(alias = "CommandSender::sendMessage")]
     #[doc(alias = "ConsoleCommandSender::sendMessage")]
     pub fn send_to(&mut self, sender: Sender, message: player::Message) -> player::Result<()> {
