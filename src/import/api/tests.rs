@@ -65,7 +65,6 @@ fn state(name: &str, states: &[(&str, Value)]) -> Compound {
 
 fn empty_raw() -> Raw {
     Raw {
-        version: 42,
         sections: Vec::new(),
         block_entities: Vec::new(),
         legacy_blocks: Vec::new(),
@@ -88,71 +87,6 @@ fn paletted(palette: Vec<Compound>, at: &[(u16, u32)]) -> Layer {
 
 fn offset(x: u16, y: u16, z: u16) -> u16 {
     x << 8 | z << 4 | y
-}
-
-/// A legacy layer of air with (id, meta) at the (x, y, z) positions given.
-fn legacy(blocks: &[([usize; 3], (u8, u8))]) -> Layer {
-    let mut ids = Box::new([0_u8; 4096]);
-    let mut meta = Box::new([0_u8; 2048]);
-    for &([x, y, z], (id, m)) in blocks {
-        let i = x << 8 | z << 4 | y;
-        ids[i] = id;
-        meta[i >> 1] |= m << ((i & 1) * 4);
-    }
-    Layer::Legacy(LegacyLayer { ids, meta })
-}
-
-fn item(name: &str) -> Compound {
-    Compound::from([
-        ("Name".to_owned(), s(name)),
-        ("Count".to_owned(), Value::Byte(1)),
-    ])
-}
-
-/// A chunk with every kind of data the import converts.
-fn full_raw() -> Raw {
-    Raw {
-        sections: vec![
-            Section {
-                y: -4,
-                version: 9,
-                layers: vec![paletted(
-                    vec![
-                        state("minecraft:air", &[]),
-                        state("minecraft:red_flower", &[("mapped_type", Value::Int(0))]),
-                        state("minecraft:stone", &[]),
-                        state("anchor:nope", &[]),
-                    ],
-                    &[
-                        (offset(0, 0, 0), 1),
-                        (offset(0, 1, 0), 2),
-                        (offset(0, 2, 0), 3),
-                    ],
-                )],
-            },
-            Section {
-                y: 0,
-                version: 0,
-                layers: vec![legacy(&[([1, 2, 3], (1, 0)), ([0, 0, 0], (1, 15))])],
-            },
-        ],
-        block_entities: vec![Compound::from([
-            ("id".to_owned(), s("Chest")),
-            (
-                "Items".to_owned(),
-                Value::List(List::Compound(vec![item("minecraft:photo")])),
-            ),
-        ])],
-        legacy_blocks: vec![LegacyBlock {
-            x: 5,
-            y: 3,
-            z: 5,
-            id: 9,
-            meta: 0,
-        }],
-        ignored: vec![0x36],
-        ..empty_raw()
-    }
 }
 
 fn catalog(chunks: Vec<(i32, i32)>) -> Catalog {
@@ -248,11 +182,6 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
     )
 }
 
-fn world_record(storage: &mut Storage) -> Option<WorldRecord> {
-    let sealed = storage.read(&[Key::World]).unwrap().pop()?.unwrap()?;
-    Some(unseal(&Key::World.to_bytes(), &sealed).unwrap())
-}
-
 fn known(nbt: &Compound) -> crate::block::State {
     save::find_state(nbt).unwrap()
 }
@@ -328,6 +257,76 @@ fn table_blocks_import_over_their_water_and_only_unknown_blocks_are_counted() {
             .iter()
             .any(|k| k.get("name") == nope.get("name") && k.get("states") == nope.get("states"))
     );
+}
+
+/// A legacy layer of air with (id, meta) at the (x, y, z) positions given.
+fn legacy(blocks: &[([usize; 3], (u8, u8))]) -> Layer {
+    let mut ids = Box::new([0_u8; 4096]);
+    let mut meta = Box::new([0_u8; 2048]);
+    for &([x, y, z], (id, m)) in blocks {
+        let i = x << 8 | z << 4 | y;
+        ids[i] = id;
+        meta[i >> 1] |= m << ((i & 1) * 4);
+    }
+    Layer::Legacy(LegacyLayer { ids, meta })
+}
+
+fn item(name: &str) -> Compound {
+    Compound::from([
+        ("Name".to_owned(), s(name)),
+        ("Count".to_owned(), Value::Byte(1)),
+    ])
+}
+
+/// A chunk with every kind of data the import converts.
+fn full_raw() -> Raw {
+    Raw {
+        sections: vec![
+            Section {
+                y: -4,
+                version: 9,
+                layers: vec![paletted(
+                    vec![
+                        state("minecraft:air", &[]),
+                        state("minecraft:red_flower", &[("mapped_type", Value::Int(0))]),
+                        state("minecraft:stone", &[]),
+                        state("anchor:nope", &[]),
+                    ],
+                    &[
+                        (offset(0, 0, 0), 1),
+                        (offset(0, 1, 0), 2),
+                        (offset(0, 2, 0), 3),
+                    ],
+                )],
+            },
+            Section {
+                y: 0,
+                version: 0,
+                layers: vec![legacy(&[([1, 2, 3], (1, 0)), ([0, 0, 0], (1, 15))])],
+            },
+        ],
+        block_entities: vec![Compound::from([
+            ("id".to_owned(), s("Chest")),
+            (
+                "Items".to_owned(),
+                Value::List(List::Compound(vec![item("minecraft:photo")])),
+            ),
+        ])],
+        legacy_blocks: vec![LegacyBlock {
+            x: 5,
+            y: 3,
+            z: 5,
+            id: 9,
+            meta: 0,
+        }],
+        ignored: vec![0x36],
+        ..empty_raw()
+    }
+}
+
+fn world_record(storage: &mut Storage) -> Option<WorldRecord> {
+    let sealed = storage.read(&[Key::World]).unwrap().pop()?.unwrap()?;
+    Some(unseal(&Key::World.to_bytes(), &sealed).unwrap())
 }
 
 #[test]

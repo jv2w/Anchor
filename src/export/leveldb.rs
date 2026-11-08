@@ -241,7 +241,7 @@ impl Writer {
     }
 }
 
-/// Returns the data blocks of the keys and values `entries` (in strictly increasing key order).
+/// The data blocks of the keys and values `entries` (in strictly increasing key order).
 pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
     let mut blocks = Vec::new();
     let mut builder = BlockBuilder::default();
@@ -272,7 +272,7 @@ pub(super) fn blocks(entries: &[(Vec<u8>, Vec<u8>)]) -> io::Result<Vec<Block>> {
     Ok(blocks)
 }
 
-/// Returns `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is
+/// `raw` as a table stores it: compressed with raw DEFLATE by `deflate`, or as it is
 /// without, then the compression byte and the masked CRC-32C of the stored block and that byte.
 fn seal(raw: &[u8], deflate: Option<&mut Encoder>) -> Vec<u8> {
     // Sized once: compressing first grows the output to the compressor's worst-case bound.
@@ -315,7 +315,7 @@ fn put_varint(out: &mut Vec<u8>, mut value: u64) {
     }
 }
 
-/// Returns `record` as a log file: physical records of at most what is left of each 32 KiB block, a
+/// `record` as a log file: physical records of at most what is left of each 32 KiB block, a
 /// block's last 6 bytes or fewer zero padding, as LevelDB's `log::Writer` cuts them.
 fn log_record(record: &[u8]) -> Vec<u8> {
     let mut out =
@@ -361,7 +361,7 @@ mod tests {
     use crate::protocol::Rng;
     use crate::save::tests::TempDir;
 
-    /// Returns `len` bytes of which runs repeat, so blocks compress some.
+    /// `len` bytes of which runs repeat, so blocks compress some.
     fn value(rng: &mut Rng, len: usize) -> Vec<u8> {
         let mut out = Vec::with_capacity(len);
         while out.len() < len {

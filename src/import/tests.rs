@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use super::chunk::Layer;
 use super::*;
+use crate::import::chunk::tests::key;
 use crate::import::leveldb::tests::database_files;
 use crate::save::tests::TempDir;
 
@@ -19,7 +20,7 @@ const CONTINENTAL: &[u8] = include_bytes!(concat!(
 ));
 /// The world the official server 1.26.52 made: a flat world, seed 7, with blocks filled, water placed, a chest, a
 /// sign, a pig, an armor stand and pending ticks over five runs, so it has a table and a live log.
-pub(crate) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
+pub(super) const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
 /// Every file under `dir` with its bytes.
 #[expect(
@@ -39,48 +40,12 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: writes a test world folder"
-)]
-fn copy_fixture(to: &Path) {
-    std::fs::create_dir_all(to.join("db")).unwrap();
-    for (path, bytes) in snapshot(Path::new(FIXTURE)) {
-        let relative = path.strip_prefix(FIXTURE).unwrap();
-        std::fs::write(to.join(relative), bytes).unwrap();
-    }
-}
-
-/// Writes a world folder whose database holds `writes`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: writes a test world folder"
-)]
-pub(crate) fn write_world(dir: &Path, writes: &[(Vec<u8>, Option<Vec<u8>>)]) {
-    std::fs::create_dir_all(dir.join("db")).unwrap();
-    for (name, bytes) in database_files(writes) {
-        std::fs::write(dir.join("db").join(name), bytes).unwrap();
-    }
-    let level_dat = level_dat::tests::encode(&level_dat::tests::root());
-    std::fs::write(dir.join("level.dat"), level_dat).unwrap();
-}
-
-fn key(x: i32, z: i32, suffix: &[u8]) -> Vec<u8> {
-    let mut key = chunk::prefix(x, z).to_vec();
-    key.extend_from_slice(suffix);
-    key
-}
-
 /// The string `name` of `compound`.
 fn text(compound: &crate::nbt::Compound, name: &str) -> String {
     match compound.get(name) {
         Some(crate::nbt::Value::String(text)) => text.clone(),
         other => panic!("{name}: {other:?}"),
     }
-}
-
-fn put(key: Vec<u8>, value: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
-    (key, Some(value.to_vec()))
 }
 
 #[test]
@@ -101,7 +66,6 @@ fn the_official_fixture_reads_as_raw_chunks_without_writing() {
     let (mut block_entities, mut ticks) = (Vec::new(), 0);
     for &(x, z) in &catalog.chunks {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
-        assert_eq!(raw.version, 42);
         assert!(!raw.sections.is_empty());
         for section in &raw.sections {
             assert_eq!(section.version, 9);
@@ -118,6 +82,24 @@ fn the_official_fixture_reads_as_raw_chunks_without_writing() {
     assert_eq!(ticks, 3);
     source.unchanged().unwrap();
     assert_eq!(snapshot(Path::new(FIXTURE)), before, "the source changed");
+}
+
+/// Writes a world folder whose database holds `writes`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: writes a test world folder"
+)]
+pub(super) fn write_world(dir: &Path, writes: &[(Vec<u8>, Option<Vec<u8>>)]) {
+    std::fs::create_dir_all(dir.join("db")).unwrap();
+    for (name, bytes) in database_files(writes) {
+        std::fs::write(dir.join("db").join(name), bytes).unwrap();
+    }
+    let level_dat = level_dat::tests::encode(&level_dat::tests::root());
+    std::fs::write(dir.join("level.dat"), level_dat).unwrap();
+}
+
+fn put(key: Vec<u8>, value: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+    (key, Some(value.to_vec()))
 }
 
 #[test]
@@ -198,7 +180,7 @@ fn a_read_takes_the_chunks_keys_only() {
 }
 
 /// The key and value pairs of [`CONTINENTAL`].
-pub(crate) fn continental() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+pub(super) fn continental() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     fn take(rest: &mut &[u8]) -> Vec<u8> {
         let (len, after) = rest.split_first_chunk::<4>().unwrap();
         let (bytes, after) = after.split_at(usize::try_from(u32::from_le_bytes(*len)).unwrap());
@@ -223,7 +205,7 @@ fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
     assert_eq!(catalog.chunks, vec![(-198, 8), (-5, -44)]);
     assert_eq!(catalog.entities, 3);
     let raw = chunk::decode(&source.read(-198, 8).unwrap()).unwrap();
-    assert_eq!((raw.version, raw.sections.len()), (41, 1));
+    assert_eq!(raw.sections.len(), 1);
     assert!(raw.block_entities.is_empty());
     assert_eq!(raw.ignored, vec![0x2b, 0x3d, 0x40, 0x76]);
     let raw = chunk::decode(&source.read(-5, -44).unwrap()).unwrap();
@@ -246,6 +228,18 @@ fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
         raw.ignored,
         vec![0x2b, 0x35, 0x36, 0x3d, 0x3f, 0x40, 0x41, 0x76]
     );
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: writes a test world folder"
+)]
+fn copy_fixture(to: &Path) {
+    std::fs::create_dir_all(to.join("db")).unwrap();
+    for (path, bytes) in snapshot(Path::new(FIXTURE)) {
+        let relative = path.strip_prefix(FIXTURE).unwrap();
+        std::fs::write(to.join(relative), bytes).unwrap();
+    }
 }
 
 #[test]

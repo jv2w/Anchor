@@ -68,11 +68,11 @@ const LEGACY_META_BYTES: usize = 16_384;
 const LEGACY_SECTION_BYTES: usize = BLOCKS + BLOCKS / 2;
 /// A legacy sub-chunk with light after its ids and meta nibbles.
 const LEGACY_SECTION_LIGHT_BYTES: usize = LEGACY_SECTION_BYTES + BLOCKS;
-/// The sub-chunks of legacy terrain: its column is 128 blocks high.
-const LEGACY_TERRAIN_SUB_CHUNKS: usize = 8;
 /// Legacy terrain: ids, meta, light, height map, biome colours.
 const LEGACY_TERRAIN_BYTES: usize =
     LEGACY_IDS_BYTES + LEGACY_META_BYTES + LEGACY_LIGHT_BYTES + 256 + 1024;
+/// The sub-chunks of legacy terrain: its column is 128 blocks high.
+const LEGACY_TERRAIN_SUB_CHUNKS: usize = 8;
 /// The most value bytes kept for one chunk.
 const MAX_CHUNK_BYTES: usize = 64 << 20;
 /// The newest chunk version read (1.21.120), which the export writes.
@@ -209,8 +209,6 @@ impl Entries {
 /// A chunk's data as stored, before block states are upgraded.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Raw {
-    /// The chunk version.
-    pub(crate) version: u8,
     /// The stored sub-chunks in the world height, by ascending y; the others hold only air.
     pub(crate) sections: Vec<Section>,
     /// Block entity compounds.
@@ -382,7 +380,6 @@ fn decode_unlocated(entries: &Entries) -> Result<Raw> {
         None => Vec::new(),
     };
     Ok(Raw {
-        version,
         sections,
         block_entities,
         legacy_blocks,
@@ -657,4 +654,4 @@ fn short(_: crate::protocol::Error) -> Error {
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+pub(super) mod tests;

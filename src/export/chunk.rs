@@ -28,7 +28,7 @@ const HEIGHT_MAP_BYTES: usize = 512;
 /// A biome storage header that repeats the storage below.
 const SAME_BIOMES: u8 = 0xff;
 
-/// Returns the values of the chunk at `pos` with the terrain `record` and the block entities
+/// The values of the chunk at `pos` with the terrain `record` and the block entities
 /// `block_entities`, sorted by key.
 pub(super) fn values(
     pos: ChunkPos,
@@ -72,7 +72,7 @@ pub(super) fn values(
     Ok(values)
 }
 
-/// Returns a zero height map, then the biome storage of each sub-chunk from the lowest up.
+/// A zero height map, then the biome storage of each sub-chunk from the lowest up.
 fn data_3d(record: &ChunkRecord) -> Result<Vec<u8>> {
     let mut w = Writer::new(vec![0; HEIGHT_MAP_BYTES], 0);
     let mut below: Option<&Biomes> = None;
@@ -121,7 +121,30 @@ mod tests {
     use crate::protocol::{Rng, word_count};
     use crate::storage::codec::tests::{empty_chunk, random_chunk};
 
-    /// Reads the biome storages of a `Data3D` value after its height map, one per sub-chunk.
+    #[test]
+    fn plains_biomes_are_the_bytes_the_official_server_writes() {
+        let mut db = Db::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/xtask/data/import/flat"
+        ))
+        .unwrap();
+        let mut key = prefix(0, 0).to_vec();
+        key.push(DATA_3D);
+        let official = db.get(&key).unwrap().unwrap();
+        let ours = data_3d(&empty_chunk()).unwrap();
+        assert_eq!(
+            ours.get(HEIGHT_MAP_BYTES..),
+            official.get(HEIGHT_MAP_BYTES..)
+        );
+        assert!(
+            ours.get(..HEIGHT_MAP_BYTES)
+                .unwrap()
+                .iter()
+                .all(|&b| b == 0)
+        );
+    }
+
+    /// The biome storages of a `Data3D` value after its height map, one per sub-chunk.
     fn read_biomes(mut bytes: &[u8]) -> Vec<Biomes> {
         let u32_at = |bytes: &mut &[u8]| {
             let (head, rest) = bytes.split_first_chunk::<4>().unwrap();
@@ -147,29 +170,6 @@ mod tests {
             });
         }
         out
-    }
-
-    #[test]
-    fn plains_biomes_are_the_bytes_the_official_server_writes() {
-        let mut db = Db::open(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/xtask/data/import/flat"
-        ))
-        .unwrap();
-        let mut key = prefix(0, 0).to_vec();
-        key.push(DATA_3D);
-        let official = db.get(&key).unwrap().unwrap();
-        let ours = data_3d(&empty_chunk()).unwrap();
-        assert_eq!(
-            ours.get(HEIGHT_MAP_BYTES..),
-            official.get(HEIGHT_MAP_BYTES..)
-        );
-        assert!(
-            ours.get(..HEIGHT_MAP_BYTES)
-                .unwrap()
-                .iter()
-                .all(|&b| b == 0)
-        );
     }
 
     #[test]

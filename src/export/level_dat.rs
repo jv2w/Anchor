@@ -1,5 +1,5 @@
 //! The exported world's `level.dat`, in the layout the import's `level_dat` module reads (a
-//! little-endian `i32` storage version, the `i32` length of the rest, one little-endian NBT root
+//! little-endian `i32` storage version, the `u32` length of the rest, one little-endian NBT root
 //! compound). It holds the world's state (name, spawn, time), the storage and network versions
 //! of this protocol's release, and a flat generator, which makes the chunks the world never
 //! saved: the official server's default flat layers for a world of [`Flat`] (the same terrain
@@ -29,7 +29,7 @@ const FLAT_LAYERS: &str = "{\"biome_id\":1,\"block_layers\":[\
     \"encoding_version\":6,\"structure_options\":null,\
     \"world_version\":\"version.post_1_18\"}\n";
 
-/// Returns the `level.dat` of the world `name` with the state `record`, made with `generator`.
+/// The `level.dat` of the world `name` with the state `record`, made with `generator`.
 #[expect(
     clippy::expect_used,
     reason = "invariant: a world name is at most 250 bytes, so the compound is far within the NBT \
@@ -73,7 +73,7 @@ mod tests {
     use crate::protocol::Reader;
     use crate::world::{BlockPos, Chunk, ChunkPos, MIN_Y, Void};
 
-    /// Reads the root compound of the `level.dat` bytes `bytes`.
+    /// The root compound of the `level.dat` bytes `bytes`.
     fn root(bytes: &[u8]) -> Compound {
         let (_, body) = bytes.split_first_chunk::<8>().unwrap();
         Reader::new(body, 1 << 20, 0)

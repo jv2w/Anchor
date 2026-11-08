@@ -1,7 +1,7 @@
 //! The Go cross-check of the world import reader: goleveldb, a LevelDB
 //! reader, must read the official server's fixture world (`xtask/data/import/flat`) as
 //! `xtask/data/import/flat.dump` says, and Anchor's reader is checked against that same file
-//! (`import::leveldb::tests::the_fixture_reads_like_goleveldb`). Like the other Go tests,
+//! (`import::leveldb::tests::the_official_server_fixture_reads_like_goleveldb`). Like the other Go tests,
 //! it needs Go on PATH.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
@@ -25,8 +25,8 @@ fn goleveldb_reads_the_fixture_as_the_committed_dump() {
     );
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     let want = std::fs::read(root.join("data/import/flat.dump")).unwrap();
-    assert!(
-        output.stdout == want,
+    assert_eq!(
+        output.stdout, want,
         "goleveldb reads the fixture differently from xtask/data/import/flat.dump"
     );
 }

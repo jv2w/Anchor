@@ -547,7 +547,6 @@ fn convert(pos: ChunkPos, raw: Raw, target: &Target<'_>) -> super::Result<Conver
         mut block_entities,
         legacy_blocks,
         ignored,
-        ..
     } = raw;
     let generated = Chunk::generate(target.spec.generator.as_ref(), target.seed, pos);
     let mut sub_chunks: Box<[SubChunkRecord; SUB_CHUNKS]> =

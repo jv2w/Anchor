@@ -46,7 +46,7 @@ pub(crate) const STEP: usize = 256;
 /// The read value bytes after which a step ends, if it has not reached [`STEP`] chunks.
 pub(crate) const STEP_BYTES: usize = 256 << 20;
 
-/// A failure to read the world being imported.
+/// A failure to import a world: its source cannot be read, or the target name is refused.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -219,7 +219,7 @@ impl Source {
 
     /// Fails with [`Error::SourceChanged`] unless every file of the world is as it was when it
     /// was opened.
-    pub(crate) fn unchanged(&self) -> Result<()> {
+    fn unchanged(&self) -> Result<()> {
         // A `level.dat` that can no longer be read is not the one read.
         if stamp(&self.level_dat_path).ok().as_ref() != Some(&self.level_dat_stamp) {
             return Err(Error::SourceChanged {
@@ -273,7 +273,7 @@ impl fmt::Debug for Source {
     }
 }
 
-/// What a world holds besides its overworld chunks, which Anchor does not import.
+/// The overworld chunks of a world, and the counts of what it holds that Anchor does not import.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Catalog {
     /// The overworld chunks, in numeric (x, z) order.

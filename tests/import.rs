@@ -35,7 +35,8 @@ fn config(cpu: u16) -> Config {
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
     config.general.server_port = 0;
-    config.developer.cpu_threads = Threads::Count(NonZeroU16::new(cpu).expect("not zero"));
+    config.developer.cpu_threads =
+        Threads::Count(NonZeroU16::new(cpu).expect("the count is not zero"));
     config.developer.network_threads = Threads::Count(NonZeroU16::MIN);
     config
 }
@@ -56,12 +57,15 @@ fn server(data: &Path, cpu: u16) -> Server {
 )]
 fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut files = BTreeMap::new();
-    for entry in std::fs::read_dir(dir).expect("read the folder") {
-        let path = entry.expect("a folder entry").path();
+    for entry in std::fs::read_dir(dir).expect("the folder is readable") {
+        let path = entry.expect("the entry is readable").path();
         if path.is_dir() {
             files.extend(snapshot(&path));
         } else {
-            files.insert(path.clone(), std::fs::read(&path).expect("read the file"));
+            files.insert(
+                path.clone(),
+                std::fs::read(&path).expect("the file is readable"),
+            );
         }
     }
     files
@@ -78,7 +82,7 @@ fn an_official_world_imports_once_and_the_server_loads_it() {
     let before = snapshot(Path::new(FIXTURE));
     let report = server(&data.0, 2)
         .import_world(NAME, FIXTURE)
-        .expect("the import");
+        .expect("the import succeeds");
     assert_eq!(report.chunks(), 36);
     assert_eq!((report.block_entities(), report.entities()), (2, 2));
     // Pending ticks and biomes are left out, counted by the chunks that had them.
@@ -101,7 +105,7 @@ fn an_official_world_imports_once_and_the_server_loads_it() {
     // the data folder as it was.
     let err = server(&data.0, 2)
         .import_world(NAME, FIXTURE)
-        .expect_err("a second import");
+        .expect_err("the second import is refused");
     assert!(
         matches!(&err, Error::Import(import::Error::WorldExists { name }) if name == NAME),
         "{err:?}"
@@ -119,7 +123,7 @@ fn an_official_world_imports_once_and_the_server_loads_it() {
             let world = cx
                 .worlds()
                 .find(|w| w.name() == NAME)
-                .expect("the imported world");
+                .expect("the imported world exists");
             let spawn = world.spawn();
             if !world.is_chunk_loaded(spawn.chunk()) {
                 return;
@@ -132,7 +136,8 @@ fn an_official_world_imports_once_and_the_server_loads_it() {
                         .map_or("?".to_owned(), |s| s.name().to_owned())
                 })
                 .collect();
-            *out.lock().expect("not poisoned") = Some((World::seed(world), spawn, column));
+            *out.lock().expect("the mutex is not poisoned") =
+                Some((World::seed(world), spawn, column));
             cx.shutdown();
         })
         .build()
@@ -140,7 +145,7 @@ fn an_official_world_imports_once_and_the_server_loads_it() {
     server.run().expect("the server runs");
     let (world_seed, spawn, column) = seen
         .lock()
-        .expect("not poisoned")
+        .expect("the mutex is not poisoned")
         .take()
         .expect("the spawn chunk loaded");
     assert_ne!(world_seed, 7, "level.dat's seed is a setting, not imported");
@@ -168,26 +173,28 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     };
     // A declared world and one that is not: both become a world file of their own.
     for world in [NAME, "second"] {
-        server().import_world(world, FIXTURE).expect("the import");
+        server()
+            .import_world(world, FIXTURE)
+            .expect("the import succeeds");
     }
     let mut files: Vec<String> = std::fs::read_dir(data.0.join("worlds"))
-        .expect("the world folder")
+        .expect("the world folder is readable")
         .map(|e| {
-            e.expect("an entry")
+            e.expect("the entry is readable")
                 .file_name()
                 .into_string()
-                .expect("a name")
+                .expect("the entry has a name")
         })
         .collect();
     files.sort();
     assert_eq!(files, [format!("{NAME}.redb"), "second.redb".to_owned()]);
     let mut top: Vec<String> = std::fs::read_dir(&data.0)
-        .expect("the data folder")
+        .expect("the data folder is readable")
         .map(|e| {
-            e.expect("an entry")
+            e.expect("the entry is readable")
                 .file_name()
                 .into_string()
-                .expect("a name")
+                .expect("the entry has a name")
         })
         .collect();
     top.sort();
@@ -200,7 +207,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     let before = snapshot(&data.0);
     let err = server()
         .import_world("SECOND", FIXTURE)
-        .expect_err("the world exists");
+        .expect_err("the import is refused");
     assert!(
         matches!(&err, Error::Import(import::Error::WorldExists { .. })),
         "{err:?}"
@@ -219,9 +226,9 @@ fn one_and_many_threads_write_the_same_world_file() {
         let data = TempPath::new(&format!("threads-{cpu}"));
         server(&data.0, cpu)
             .import_world(NAME, FIXTURE)
-            .expect("the import");
+            .expect("the import succeeds");
         let file = data.0.join("worlds").join(format!("{NAME}.redb"));
-        files.push(std::fs::read(file).expect("the world file"));
+        files.push(std::fs::read(file).expect("the world file is readable"));
     }
     assert_eq!(files[0], files[1], "the world files differ");
 }
@@ -242,7 +249,7 @@ fn a_temporary_world_cannot_be_imported_into_in_any_letter_case() {
     for world in ["arena", "ARENA"] {
         let err = server
             .import_world(world, FIXTURE)
-            .expect_err("a temporary world");
+            .expect_err("the import is refused");
         assert!(
             matches!(&err, Error::Import(import::Error::TemporaryWorld { name }) if name == world),
             "{err:?}"
@@ -260,7 +267,7 @@ fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
     let data = TempPath::new("not-a-world");
     let err = server(&data.0, 1)
         .import_world(NAME, data.0.join("missing"))
-        .expect_err("not a world");
+        .expect_err("the import is refused");
     assert!(matches!(err, Error::Import(_)), "{err:?}");
     assert!(!data.0.join("worlds").join(format!("{NAME}.redb")).exists());
 }
@@ -274,15 +281,19 @@ fn the_world_database_reads_the_keys_the_import_leaves_out() {
     db.scan_prefix(b"actorprefix", |key, value| {
         entities.push((key.to_vec(), value.to_vec()));
     })
-    .expect("the scan");
+    .expect("the scan succeeds");
     assert_eq!(entities.len(), 2);
     for (key, value) in &entities {
-        assert_eq!(db.get(key).expect("the read").as_ref(), Some(value));
+        assert_eq!(
+            db.get(key).expect("the read succeeds").as_ref(),
+            Some(value)
+        );
     }
     let missing = [b"actorprefix".as_slice(), &[0xff; 8]].concat();
-    assert_eq!(db.get(&missing).expect("the read"), None);
+    assert_eq!(db.get(&missing).expect("the read succeeds"), None);
     assert_eq!(snapshot(Path::new(FIXTURE)), before, "the source changed");
 
-    let err = import::Db::open(Path::new(FIXTURE).join("missing")).expect_err("not a world");
+    let err = import::Db::open(Path::new(FIXTURE).join("missing"))
+        .expect_err("a missing folder does not open");
     assert!(matches!(err, import::Error::File { .. }), "{err:?}");
 }

@@ -259,7 +259,7 @@ pub(crate) fn run(
 )]
 fn create_temp(temp: &Path) -> Result<()> {
     if let Some(parent) = temp.parent() {
-        std::fs::create_dir_all(parent).map_err(written(parent))?;
+        crate::fs::create_dir_all_durable(parent).map_err(written(parent))?;
     }
     std::fs::create_dir(temp).map_err(|e| match e.kind() {
         io::ErrorKind::AlreadyExists => Error::FolderExists {

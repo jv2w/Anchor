@@ -51,10 +51,10 @@ const MAX_FILES: usize = 65_536;
 /// Decompressed blocks one scan may hold at once.
 const MAX_HELD: usize = 256 << 20;
 /// The longest user key.
-pub(crate) const MAX_KEY: usize = 1024;
-/// The most bytes of one log file.
+const MAX_KEY: usize = 1024;
+/// The most bytes of the live logs together.
 const MAX_LOG_BYTES: u64 = 64 << 20;
-/// The most keys one log file may hold.
+/// The most distinct keys the live logs may hold together.
 const MAX_LOG_KEYS: usize = 1 << 20;
 /// The most bytes of the `MANIFEST` file.
 const MAX_MANIFEST: u64 = 64 << 20;
@@ -126,7 +126,7 @@ impl Db {
 
         let mut levels: [Vec<TableFile>; LEVELS] = Default::default();
         let mut seen = BTreeSet::new();
-        for (level, files_at) in version.files.into_iter().enumerate() {
+        for (at, files_at) in levels.iter_mut().zip(version.files) {
             for (number, file) in files_at {
                 if !seen.insert(number) {
                     return Err(in_manifest(Error::Malformed("table in two levels")));
@@ -147,9 +147,7 @@ impl Db {
                         ));
                     }
                 }
-                if let Some(at) = levels.get_mut(level) {
-                    at.push(file);
-                }
+                at.push(file);
             }
         }
         for level in levels.iter_mut().skip(1) {
@@ -187,7 +185,7 @@ impl Db {
 
     /// Fails with [`Error::SourceChanged`] unless the folder holds the same files, with the same
     /// lengths and modification times, as when it was opened.
-    pub(crate) fn unchanged(&self) -> Result<()> {
+    pub(super) fn unchanged(&self) -> Result<()> {
         let now = self.tables.files.list()?;
         let changed = self
             .listing
@@ -420,7 +418,7 @@ pub(crate) enum Files {
         dir: PathBuf,
         #[expect(
             clippy::disallowed_types,
-            reason = "off-tick: the import runs before the server starts"
+            reason = "off-tick: the reader runs before the server starts or in a blocking task"
         )]
         open: BTreeMap<String, std::fs::File>,
     },
@@ -441,7 +439,7 @@ impl Files {
     /// Every file in the folder with its stamp.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the import runs before the server starts"
+        reason = "off-tick: the reader runs before the server starts or in a blocking task"
     )]
     fn list(&self) -> Result<BTreeMap<OsString, Stamp>> {
         let mut listing = BTreeMap::new();
@@ -517,7 +515,7 @@ impl Files {
     /// Fills `buf` from the file `name` at `offset`; callers check the range against its size.
     #[expect(
         clippy::disallowed_types,
-        reason = "off-tick: the import runs before the server starts"
+        reason = "off-tick: the reader runs before the server starts or in a blocking task"
     )]
     fn read_at(&mut self, name: &str, offset: u64, buf: &mut [u8]) -> Result<()> {
         let read = match self {
@@ -612,13 +610,13 @@ struct Logged {
 
 /// A file's length and modification time: a source that changes during an import fails it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Stamp {
+pub(super) struct Stamp {
     len: u64,
     modified: Option<SystemTime>,
 }
 
 impl Stamp {
-    pub(crate) fn new(len: u64, modified: SystemTime) -> Self {
+    pub(super) fn new(len: u64, modified: SystemTime) -> Self {
         Self {
             len,
             modified: Some(modified),
@@ -878,4 +876,4 @@ pub(crate) fn masked_crc(parts: &[&[u8]]) -> u32 {
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+pub(super) mod tests;

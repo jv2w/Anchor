@@ -25,7 +25,7 @@ const SEED: i64 = 5;
 /// A chunk to store: its terrain (`None` for none) and its block entities and entities.
 type StoredChunk = (ChunkPos, Option<ChunkRecord>, [Vec<Compound>; 2]);
 
-/// Returns the world record the tests store.
+/// The world record the tests store.
 fn record() -> WorldRecord {
     WorldRecord {
         number: 0,
@@ -34,7 +34,7 @@ fn record() -> WorldRecord {
     }
 }
 
-/// Returns the declared worlds: [`NAME`], flat, of the seed [`SEED`].
+/// The declared worlds: [`NAME`], flat, of the seed [`SEED`].
 fn worlds() -> Vec<WorldSpec> {
     vec![WorldSpec {
         name: NAME.to_owned(),
@@ -45,7 +45,7 @@ fn worlds() -> Vec<WorldSpec> {
     }]
 }
 
-/// Returns the compound of `entries`.
+/// The compound of `entries`.
 fn compound(entries: &[(&str, Value)]) -> Compound {
     entries
         .iter()
@@ -53,7 +53,7 @@ fn compound(entries: &[(&str, Value)]) -> Compound {
         .collect()
 }
 
-/// Returns a block entity in Bedrock form at (`x`, `y`, `z`).
+/// A block entity in Bedrock form at (`x`, `y`, `z`).
 fn chest(x: i32, y: i32, z: i32) -> Compound {
     compound(&[
         ("id", Value::String("Chest".to_owned())),
@@ -64,7 +64,7 @@ fn chest(x: i32, y: i32, z: i32) -> Compound {
     ])
 }
 
-/// Returns three chunks: one with terrain and a chest, one with a chest but no terrain
+/// Three chunks: one with terrain and a chest, one with a chest but no terrain
 /// (generated), one with empty terrain and an entity.
 fn chunks() -> Vec<StoredChunk> {
     let entity = compound(&[("identifier", Value::String("minecraft:item".to_owned()))]);
@@ -109,25 +109,6 @@ fn write_world(data: &Path, record: WorldRecord, chunks: &[StoredChunk]) {
     storage.close().unwrap();
 }
 
-/// Reads every file under `dir` with its bytes, by path relative to `dir`.
-#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut folders = vec![dir.to_path_buf()];
-    while let Some(folder) = folders.pop() {
-        for entry in std::fs::read_dir(&folder).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                folders.push(path);
-            } else {
-                let name = path.strip_prefix(dir).unwrap().display().to_string();
-                out.insert(name, std::fs::read(&path).unwrap());
-            }
-        }
-    }
-    out
-}
-
 #[test]
 #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
 fn exported_chunks_read_back_as_stored() {
@@ -158,7 +139,6 @@ fn exported_chunks_read_back_as_stored() {
     assert_eq!(catalog.chunks, [(-1, 5), (0, 0), (3, -2)]);
     for (pos, terrain, [block_entities, _]) in &chunks {
         let raw = decode(&source.read(pos.x, pos.z).unwrap()).unwrap();
-        assert_eq!(raw.version, 42);
         // A chunk stored without terrain has its generator's.
         let terrain = terrain
             .clone()
@@ -184,7 +164,7 @@ fn exported_chunks_read_back_as_stored() {
         // Biomes and finalization are written, not read by the import.
         assert_eq!(raw.ignored, [0x2b, 0x36], "{pos:?}");
     }
-    assert!(!data.0.join("bedrock").join("w.tmp").exists());
+    assert!(!data.0.join("bedrock").join(format!("{NAME}.tmp")).exists());
 }
 
 #[test]
@@ -241,6 +221,25 @@ fn messages_say_what_the_export_needs() {
         temporary.to_string(),
         "the world \"w\" is declared temporary"
     );
+}
+
+/// Every file under `dir` with its bytes, by path relative to `dir`.
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                let name = path.strip_prefix(dir).unwrap().display().to_string();
+                out.insert(name, std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    out
 }
 
 #[test]

@@ -9,26 +9,6 @@ use super::table::tests::encode_table;
 use super::*;
 use crate::protocol::Rng;
 
-pub(crate) fn put_varint(out: &mut Vec<u8>, mut value: u64) {
-    while value >= 0x80 {
-        out.push(u8::try_from(value & 0x7f).unwrap() | 0x80);
-        value >>= 7;
-    }
-    out.push(u8::try_from(value).unwrap());
-}
-
-pub(crate) fn put_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
-    put_varint(out, bytes.len() as u64);
-    out.extend_from_slice(bytes);
-}
-
-/// The internal key of `user` at `sequence` with `kind`.
-pub(crate) fn internal(user: &[u8], sequence: u64, kind: u8) -> Vec<u8> {
-    let mut key = user.to_vec();
-    key.extend_from_slice(&(sequence << 8 | u64::from(kind)).to_le_bytes());
-    key
-}
-
 /// One write: a key and its value, or `None` for a deletion.
 type Write = (Vec<u8>, Option<Vec<u8>>);
 /// A write batch: its first sequence number and its writes.
@@ -37,15 +17,15 @@ type Batch = (u64, Vec<Write>);
 type Model = BTreeMap<Vec<u8>, Vec<u8>>;
 
 /// A database being written in memory.
-pub(crate) struct Writer {
-    pub(crate) files: BTreeMap<String, Vec<u8>>,
+struct Writer {
+    files: BTreeMap<String, Vec<u8>>,
     next: u64,
     /// `MANIFEST` records.
-    pub(crate) edits: Vec<Vec<u8>>,
+    edits: Vec<Vec<u8>>,
 }
 
 impl Writer {
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         let mut comparator = vec![1];
         put_prefixed(&mut comparator, COMPARATOR);
         Self {
@@ -56,7 +36,7 @@ impl Writer {
     }
 
     /// Writes a log of write batches; `cut` cuts the last record short, as an unfinished write.
-    pub(crate) fn log(&mut self, number: u64, batches: &[Vec<u8>], cut: Option<&mut Rng>) {
+    fn log(&mut self, number: u64, batches: &[Vec<u8>], cut: Option<&mut Rng>) {
         let mut bytes = log::tests::write(batches);
         if let Some(rng) = cut {
             let start = log::tests::write(&batches[..batches.len() - 1]).len();
@@ -66,12 +46,7 @@ impl Writer {
     }
 
     /// Writes a table of internal-key `entries` and returns its file number and edit fields.
-    pub(super) fn table(
-        &mut self,
-        entries: &[(Vec<u8>, Vec<u8>)],
-        rng: &mut Rng,
-        sst: bool,
-    ) -> TableFile {
+    fn table(&mut self, entries: &[(Vec<u8>, Vec<u8>)], rng: &mut Rng, sst: bool) -> TableFile {
         let number = self.number();
         let block_size = 32 + rng.below(4096);
         let interval = 1 + rng.below(16);
@@ -88,13 +63,13 @@ impl Writer {
         file
     }
 
-    pub(crate) fn number(&mut self) -> u64 {
+    fn number(&mut self) -> u64 {
         self.next += 1;
         self.next
     }
 
     /// A version edit adding `file` at `level`.
-    pub(super) fn add(level: usize, file: &TableFile) -> Vec<u8> {
+    fn add(level: usize, file: &TableFile) -> Vec<u8> {
         let mut edit = vec![7];
         put_varint(&mut edit, level as u64);
         put_varint(&mut edit, file.number);
@@ -105,7 +80,7 @@ impl Writer {
     }
 
     /// A version edit deleting table `number` from `level`.
-    pub(crate) fn delete(level: usize, number: u64) -> Vec<u8> {
+    fn delete(level: usize, number: u64) -> Vec<u8> {
         let mut edit = vec![6];
         put_varint(&mut edit, level as u64);
         put_varint(&mut edit, number);
@@ -113,7 +88,7 @@ impl Writer {
     }
 
     /// Writes the `MANIFEST` (its records as given) and `CURRENT`.
-    pub(crate) fn finish(mut self) -> Files {
+    fn finish(mut self) -> Files {
         let number = self.number();
         let name = format!("MANIFEST-{number:06}");
         self.files
@@ -124,8 +99,41 @@ impl Writer {
     }
 }
 
+/// The layouts a random database has, to check that the generator reaches each.
+#[derive(Debug, Clone, Copy, Default)]
+struct Layouts {
+    level0_tables: usize,
+    deeper_levels: bool,
+    sst: bool,
+    stale_log: bool,
+    stale_table: bool,
+    prev_log: bool,
+    cut_tail: bool,
+    fragmented: bool,
+}
+
+pub(super) fn put_varint(out: &mut Vec<u8>, mut value: u64) {
+    while value >= 0x80 {
+        out.push(u8::try_from(value & 0x7f).unwrap() | 0x80);
+        value >>= 7;
+    }
+    out.push(u8::try_from(value).unwrap());
+}
+
+pub(super) fn put_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
+    put_varint(out, bytes.len() as u64);
+    out.extend_from_slice(bytes);
+}
+
+/// The internal key of `user` at `sequence` with `kind`.
+pub(super) fn internal(user: &[u8], sequence: u64, kind: u8) -> Vec<u8> {
+    let mut key = user.to_vec();
+    key.extend_from_slice(&(sequence << 8 | u64::from(kind)).to_le_bytes());
+    key
+}
+
 /// A version edit setting the log number.
-pub(crate) fn log_number(number: u64) -> Vec<u8> {
+fn log_number(number: u64) -> Vec<u8> {
     let mut edit = vec![2];
     put_varint(&mut edit, number);
     edit
@@ -205,19 +213,6 @@ fn history(rng: &mut Rng, keys: &[Vec<u8>]) -> (Vec<Batch>, u64, Model) {
     }
 
     (batches, sequence, model)
-}
-
-/// The layouts a random database has, to check that the generator reaches each.
-#[derive(Debug, Clone, Copy, Default)]
-struct Layouts {
-    level0_tables: usize,
-    deeper_levels: bool,
-    sst: bool,
-    stale_log: bool,
-    stale_table: bool,
-    prev_log: bool,
-    cut_tail: bool,
-    fragmented: bool,
 }
 
 /// Writes the `flushed` batches as tables: in level 0 one table per segment, deeper levels
@@ -580,13 +575,6 @@ fn memory(files: Files) -> BTreeMap<String, Vec<u8>> {
     }
 }
 
-fn memory_mut(files: &mut Files) -> &mut BTreeMap<String, Vec<u8>> {
-    match files {
-        Files::Memory(files) => files,
-        Files::Disk { .. } => panic!("not in memory"),
-    }
-}
-
 #[test]
 fn current_must_name_a_manifest_in_256_bytes() {
     for bad in [
@@ -819,6 +807,13 @@ fn the_masked_crc_matches_leveldb() {
     );
 }
 
+fn memory_mut(files: &mut Files) -> &mut BTreeMap<String, Vec<u8>> {
+    match files {
+        Files::Memory(files) => files,
+        Files::Disk { .. } => panic!("not in memory"),
+    }
+}
+
 #[test]
 fn source_changes_are_found() {
     let w = small(&small_entries(), &[]);
@@ -911,7 +906,7 @@ fn mutated_tables_logs_manifests_and_current_never_panic() {
 }
 
 /// `hex(key) hex(sha256(value))` for every live key, one line each: the form of the Go dump.
-pub(crate) fn dump(db: &mut Db) -> String {
+fn dump(db: &mut Db) -> String {
     use std::fmt::Write as _;
     let hex = |out: &mut String, bytes: &[u8]| {
         for b in bytes {
@@ -936,15 +931,18 @@ fn the_official_server_fixture_reads_like_goleveldb() {
     let mut db = Db::open(root.join("flat")).unwrap();
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     let want = std::fs::read_to_string(root.join("flat.dump")).unwrap();
-    assert!(
-        dump(&mut db) == want,
+    assert_eq!(
+        dump(&mut db),
+        want,
         "differs from xtask/data/import/flat.dump"
     );
     assert!(db.unchanged().is_ok());
 }
 
 /// The files of a database whose one live log holds `writes`, starting at sequence 1.
-pub(crate) fn database_files(writes: &[(Vec<u8>, Option<Vec<u8>>)]) -> BTreeMap<String, Vec<u8>> {
+pub(in crate::import) fn database_files(
+    writes: &[(Vec<u8>, Option<Vec<u8>>)],
+) -> BTreeMap<String, Vec<u8>> {
     let mut w = Writer::new();
     let number = w.number();
     w.log(number, &[log::tests::encode_batch(1, writes)], None);

@@ -6,96 +6,30 @@ use crate::nbt::Value;
 use crate::protocol::Writer;
 use crate::storage::codec::tests::{block, pack};
 
-/// Little-endian NBT bytes of `compound`.
-pub(crate) fn nbt(compound: &Compound) -> Vec<u8> {
-    let mut w = Writer::new(Vec::new(), 0);
-    w.nbt(compound, Encoding::LittleEndian).unwrap();
-    w.into_inner()
-}
+/// The legacy terrain golden values, from the dump's converter, on ids `(i * 7 + 3) & 0xff` and
+/// meta bytes `(i * 13 + 5) & 0xff`: `id << 4 | meta` at (x, y, z) of sub-chunk 3.
+const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
+    ((0, 0, 0), 1341),
+    ((1, 2, 3), 3610),
+    ((15, 15, 15), 965),
+    ((5, 9, 12), 2343),
+    ((8, 0, 7), 3389),
+];
+/// The legacy sub-chunk golden values, from the dump's converter, on the
+/// first 4,096 ids and 2,048 meta bytes of the column above.
+const LEGACY_XZY_GOLDEN: [((usize, usize, usize), u16); 5] = [
+    ((0, 0, 0), 53),
+    ((1, 2, 3), 1562),
+    ((15, 15, 15), 4047),
+    ((5, 9, 12), 2089),
+    ((8, 0, 7), 317),
+];
 
-/// A block layer on disk.
-pub(crate) fn layer(bits: u8, indices: &[u16], palette: &[Compound]) -> Vec<u8> {
-    let mut out = vec![bits << 1];
-    for word in pack(bits, indices) {
-        out.extend_from_slice(&word.to_le_bytes());
-    }
-    if bits != 0 {
-        out.extend_from_slice(&i32::try_from(palette.len()).unwrap().to_le_bytes());
-    }
-    for entry in palette {
-        out.extend(nbt(entry));
-    }
-    out
-}
-
-/// A version 9 sub-chunk at `y` with the given layers.
-pub(crate) fn sub_chunk_v9(y: i8, layers: &[Vec<u8>]) -> Vec<u8> {
-    let mut out = vec![9, u8::try_from(layers.len()).unwrap(), y.to_le_bytes()[0]];
-    for l in layers {
-        out.extend_from_slice(l);
-    }
-    out
-}
-
-/// The low byte of `n`.
-fn byte(n: usize) -> u8 {
-    u8::try_from(n & 0xff).unwrap()
-}
-
-/// The slot offset of block (`x`, `y`, `z`) in a legacy layer.
-fn offset(x: usize, y: usize, z: usize) -> u16 {
-    u16::try_from(x << 8 | z << 4 | y).unwrap()
-}
-
-fn stone_layer() -> Vec<u8> {
-    let indices: Vec<u16> = (0..4096).map(|i| u16::from(i % 7 == 0)).collect();
-    layer(
-        1,
-        &indices,
-        &[block("minecraft:air", &[]), block("minecraft:stone", &[])],
-    )
-}
-
-fn key(x: i32, z: i32, suffix: &[u8]) -> Vec<u8> {
+/// The key of the chunk (`x`, `z`) with `suffix`.
+pub(in crate::import) fn key(x: i32, z: i32, suffix: &[u8]) -> Vec<u8> {
     let mut key = prefix(x, z).to_vec();
     key.extend_from_slice(suffix);
     key
-}
-
-fn entries(version: u8, values: &[(&[u8], Vec<u8>)]) -> Entries {
-    let mut e = Entries::new(3, -2);
-    e.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[version])
-        .unwrap();
-    for (suffix, value) in values {
-        e.add(&key(3, -2, suffix), value).unwrap();
-    }
-    e
-}
-
-/// The error inside the chunk error, and inside the key error if there is one.
-fn inner(result: Result<Raw>) -> Error {
-    match result {
-        Err(Error::Chunk {
-            x: 3,
-            z: -2,
-            source,
-        }) => match *source {
-            Error::Key { source, .. } => *source,
-            other => other,
-        },
-        other => panic!("{other:?}"),
-    }
-}
-
-/// The kind and hexadecimal bytes of the key the chunk error names.
-fn faulty_key(result: Result<Raw>) -> (&'static str, String) {
-    match result {
-        Err(Error::Chunk { source, .. }) => match *source {
-            Error::Key { kind, key, .. } => (kind, key),
-            other => panic!("{other:?}"),
-        },
-        other => panic!("{other:?}"),
-    }
 }
 
 #[test]
@@ -240,16 +174,51 @@ fn chunk_data_over_64_mib_is_refused() {
     ));
 }
 
+fn entries(version: u8, values: &[(&[u8], Vec<u8>)]) -> Entries {
+    let mut e = Entries::new(3, -2);
+    e.add(&key(3, -2, &[CHUNK_TAG_VERSION]), &[version])
+        .unwrap();
+    for (suffix, value) in values {
+        e.add(&key(3, -2, suffix), value).unwrap();
+    }
+    e
+}
+
+/// The error inside the chunk error, and inside the key error if there is one.
+fn inner(result: Result<Raw>) -> Error {
+    match result {
+        Err(Error::Chunk {
+            x: 3,
+            z: -2,
+            source,
+        }) => match *source {
+            Error::Key { source, .. } => *source,
+            other => other,
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The kind and hexadecimal bytes of the key the chunk error names.
+fn faulty_key(result: Result<Raw>) -> (&'static str, String) {
+    match result {
+        Err(Error::Chunk { source, .. }) => match *source {
+            Error::Key { kind, key, .. } => (kind, key),
+            other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn versions_are_checked() {
     let both = entries(40, &[(&[CHUNK_TAG_OLD_VERSION], vec![3])]);
     let raw = decode(&both).unwrap();
-    assert_eq!(raw.version, 40);
     assert_eq!(raw.ignored, vec![CHUNK_TAG_OLD_VERSION]);
     let mut old = Entries::new(3, -2);
     old.add(&key(3, -2, &[CHUNK_TAG_OLD_VERSION]), &[7])
         .unwrap();
-    assert_eq!(decode(&old).unwrap().version, 7);
+    decode(&old).unwrap();
     assert!(matches!(
         inner(decode(&Entries::new(3, -2))),
         Error::Malformed("chunk has no version")
@@ -275,6 +244,46 @@ fn versions_are_checked() {
             ..
         }
     ));
+}
+
+/// Little-endian NBT bytes of `compound`.
+pub(in crate::import) fn nbt(compound: &Compound) -> Vec<u8> {
+    let mut w = Writer::new(Vec::new(), 0);
+    w.nbt(compound, Encoding::LittleEndian).unwrap();
+    w.into_inner()
+}
+
+/// A block layer on disk.
+fn layer(bits: u8, indices: &[u16], palette: &[Compound]) -> Vec<u8> {
+    let mut out = vec![bits << 1];
+    for word in pack(bits, indices) {
+        out.extend_from_slice(&word.to_le_bytes());
+    }
+    if bits != 0 {
+        out.extend_from_slice(&i32::try_from(palette.len()).unwrap().to_le_bytes());
+    }
+    for entry in palette {
+        out.extend(nbt(entry));
+    }
+    out
+}
+
+/// A version 9 sub-chunk at `y` with the given layers.
+fn sub_chunk_v9(y: i8, layers: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = vec![9, u8::try_from(layers.len()).unwrap(), y.to_le_bytes()[0]];
+    for l in layers {
+        out.extend_from_slice(l);
+    }
+    out
+}
+
+fn stone_layer() -> Vec<u8> {
+    let indices: Vec<u16> = (0..4096).map(|i| u16::from(i % 7 == 0)).collect();
+    layer(
+        1,
+        &indices,
+        &[block("minecraft:air", &[]), block("minecraft:stone", &[])],
+    )
 }
 
 #[test]
@@ -312,6 +321,11 @@ fn paletted_sub_chunks_decode_as_stored() {
         panic!("not paletted")
     };
     assert_eq!((second.bits, &second.palette), (0, &vec![water]));
+}
+
+/// The slot offset of block (`x`, `y`, `z`) in a legacy layer.
+fn offset(x: usize, y: usize, z: usize) -> u16 {
+    u16::try_from(x << 8 | z << 4 | y).unwrap()
 }
 
 #[test]
@@ -460,15 +474,10 @@ fn biomes_entities_and_pending_ticks_are_not_read() {
     assert_eq!(raw.ignored, vec![0x2b, 0x2d, 0x32, 0x33]);
 }
 
-/// The legacy terrain golden values, from the dump's converter, on ids `(i * 7 + 3) & 0xff` and
-/// meta bytes `(i * 13 + 5) & 0xff`: `id << 4 | meta` at (x, y, z) of sub-chunk 3.
-const LEGACY_COLUMN_GOLDEN: [((usize, usize, usize), u16); 5] = [
-    ((0, 0, 0), 1341),
-    ((1, 2, 3), 3610),
-    ((15, 15, 15), 965),
-    ((5, 9, 12), 2343),
-    ((8, 0, 7), 3389),
-];
+/// The low byte of `n`.
+fn byte(n: usize) -> u8 {
+    u8::try_from(n & 0xff).unwrap()
+}
 
 #[test]
 fn legacy_terrain_splits_the_column_into_golden_values() {
@@ -507,16 +516,6 @@ fn legacy_terrain_splits_the_column_into_golden_values() {
         Error::Malformed("chunk has no legacy terrain")
     ));
 }
-
-/// The legacy sub-chunk golden values, from the dump's converter, on the
-/// first 4,096 ids and 2,048 meta bytes of the column above.
-const LEGACY_XZY_GOLDEN: [((usize, usize, usize), u16); 5] = [
-    ((0, 0, 0), 53),
-    ((1, 2, 3), 1562),
-    ((15, 15, 15), 4047),
-    ((5, 9, 12), 2089),
-    ((8, 0, 7), 317),
-];
 
 #[test]
 fn legacy_sub_chunks_index_blocks_into_golden_values() {

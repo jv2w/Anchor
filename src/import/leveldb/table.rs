@@ -263,7 +263,7 @@ impl Cache {
 
 /// A position in a block.
 #[derive(Debug)]
-pub(super) struct BlockCursor {
+struct BlockCursor {
     block: Arc<Block>,
     /// The offset of the entry after the current one.
     next: usize,
@@ -274,7 +274,7 @@ pub(super) struct BlockCursor {
 }
 
 impl BlockCursor {
-    pub(super) fn new(block: Arc<Block>) -> Self {
+    fn new(block: Arc<Block>) -> Self {
         Self {
             block,
             next: 0,
@@ -285,12 +285,12 @@ impl BlockCursor {
         }
     }
 
-    pub(super) fn block(&self) -> &Block {
+    fn block(&self) -> &Block {
         &self.block
     }
 
     /// The current internal key and value, if the cursor is on an entry.
-    pub(super) fn entry(&self) -> Option<(&[u8], &[u8])> {
+    fn entry(&self) -> Option<(&[u8], &[u8])> {
         if !self.valid {
             return None;
         }
@@ -301,7 +301,7 @@ impl BlockCursor {
     }
 
     /// Moves to the first entry at or after `target` (an internal key).
-    pub(super) fn seek(&mut self, target: &[u8]) -> Result<()> {
+    fn seek(&mut self, target: &[u8]) -> Result<()> {
         // The first restart whose key is at or after the target; the entry sought is in the
         // run before it.
         let (mut left, mut right) = (0, self.block.count);
@@ -330,7 +330,7 @@ impl BlockCursor {
     }
 
     /// Moves to the next entry; past the last one the cursor is on none.
-    pub(super) fn advance(&mut self) -> Result<()> {
+    fn advance(&mut self) -> Result<()> {
         if self.next >= self.block.restarts {
             self.valid = false;
             return Ok(());
@@ -347,7 +347,7 @@ impl BlockCursor {
     }
 
     /// Moves to the first entry.
-    pub(super) fn seek_first(&mut self) -> Result<()> {
+    fn seek_first(&mut self) -> Result<()> {
         self.start_at(0)
     }
 
@@ -361,7 +361,7 @@ impl BlockCursor {
 
 /// A decompressed block: entries, then restart offsets and their count.
 #[derive(Debug)]
-pub(super) struct Block {
+struct Block {
     data: Vec<u8>,
     /// Where the restart offsets start, which is where the entries end.
     restarts: usize,
@@ -370,7 +370,7 @@ pub(super) struct Block {
 }
 
 impl Block {
-    pub(super) fn parse(data: Vec<u8>) -> Result<Self> {
+    fn parse(data: Vec<u8>) -> Result<Self> {
         let count = data
             .last_chunk::<4>()
             .map(|c| u32::from_le_bytes(*c))
@@ -392,7 +392,7 @@ impl Block {
 
     /// The memory the block holds, which the cache and the scan count against their bounds: its
     /// buffer's capacity, which a decompressor sizes from the input and may leave above the data.
-    pub(super) fn held(&self) -> usize {
+    fn held(&self) -> usize {
         self.data.capacity()
     }
 
@@ -450,7 +450,7 @@ impl Block {
 
 /// Where a block is in its file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Handle {
+struct Handle {
     offset: u64,
     size: u64,
 }
@@ -475,7 +475,7 @@ impl Handle {
 }
 
 /// The index block handle in a table's footer.
-pub(super) fn footer(tail: &[u8]) -> Result<Handle> {
+fn footer(tail: &[u8]) -> Result<Handle> {
     let (handles, magic) = tail
         .split_last_chunk::<8>()
         .ok_or(Error::Malformed("table shorter than its footer"))?;
@@ -488,7 +488,7 @@ pub(super) fn footer(tail: &[u8]) -> Result<Handle> {
 }
 
 /// Checks a stored block's trailer and decompresses it. `raw` is the block and its trailer.
-pub(super) fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
+fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
     let (sealed, crc) = raw
         .split_last_chunk::<4>()
         .ok_or(Error::Malformed("block shorter than its trailer"))?;
