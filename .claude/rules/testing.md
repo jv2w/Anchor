@@ -18,17 +18,17 @@ paths:
 ## Writing tests
 - Public API tests in `tests/` use only the public API, as a user's binary does.
 - Mark a measurement test `#[ignore = "measurement"]`.
-- Mark a test that serves as another test's child process `#[ignore = "the child process of <parent>"]`; the parent runs it.
+- Mark a test that serves as another test's child process `#[ignore = "the child process of <parent>"]`, where `<parent>` is the parent test's name, or, when several tests run it, a noun phrase for them (`the replay tests`); the parent runs it.
 - Decide moments by tick counts and commit reports, never by wall-clock time.
 - Fix the cause of a test that fails under load. Never cover it with retries, sleeps, or longer time limits.
 
 ## P6
-- Compare every client-visible change with the official server through P6. A bot scenario must first pass on the official server before it verifies Anchor.
+- A bot scenario must first pass on the official server before it verifies Anchor.
 - Run the official server only from its copy in `.cache/official/<version>/`, the version the harness pins. Never run the original download. Never analyze the executable.
 - Compare with the official server only through the packets the bot receives.
 - For what only the official client shows, make Anchor send the values the official server sends, and give the user a checklist of what to look at in the client.
 - Keep the P6 test settings at Anchor's defaults, except the values that align the two servers (no Xbox login, world name, seed) and what the harness needs to run (ports, transport, compression, cheats for the API session).
-- Where Anchor differs from the official server, follow the official server. Only a difference Anchor keeps on purpose in an API or import comparison goes into `xtask/data/p6/intended.txt`, with its reason. The spawn and game comparisons do not read that file.
+- Where Anchor differs from the official server, follow the official server. Only a difference Anchor keeps on purpose goes into `xtask/data/p6/intended.txt`, with its reason (which comparisons read it: `.claude/docs/testing.md`).
 - Review `intended.txt` like a code change.
 - Never put a value that differs per world or per run into `fields.txt`.
 - Keep `facts.md` grouped by topic, with the open questions and the real-client checks at the end.

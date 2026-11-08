@@ -58,7 +58,7 @@ paths:
 - Delete the str0m-proto, str0m-aws-lc-rs, and is copies together with the str0m copy.
 
 ## Build settings
-- The repository's build settings hold only what shortens build time with the same result. The one exception is release `overflow-checks` on Anchor's own crates (safety: an overflow fails a release test instead of wrapping silently).
+- The repository's build settings hold only what shortens build time with the same result. The one exception is release `overflow-checks` on Anchor's own crates (reason at `Cargo.toml`).
 - Never use dependency `opt-level = 1` or sccache.
 
 ## Copyright
@@ -74,6 +74,6 @@ paths:
 
 ## Evidence
 - The only evidence is official documentation, code, and measurement.
-- When sources disagree, follow the official server comparison, then the protocol source, then Mojang documentation.
+- When sources disagree, follow the official server comparison, then the pinned gophertunnel, go-raknet, and go-nethernet, then Mojang documentation.
 
 Background and detailed facts: `.claude/docs/dependencies.md`.
