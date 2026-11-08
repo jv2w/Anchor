@@ -53,8 +53,9 @@ const COMMANDS: [&str; 10] = [
     "/nothing",
 ];
 
-/// The most unanswered forms the script remembers per session (the server keeps 16).
-pub(super) const MAX_REMEMBERED_FORMS: usize = 32;
+/// The most unanswered forms the script remembers per session: twice what the server keeps, so
+/// some answers name forms the server has forgotten.
+pub(super) const MAX_REMEMBERED_FORMS: usize = 2 * crate::form::MAX_PENDING;
 
 /// A script made from a seed and a number of sessions.
 type MakeScript = fn(u64, usize) -> Script;

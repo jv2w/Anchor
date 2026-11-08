@@ -283,8 +283,9 @@ fn grid(i: u64, n: u64) -> Vec3 {
     Vec3::new(at(i % side), FEET, at(i / side))
 }
 
-/// `n` players spawned, placed on a grid, then walking east together for [`MEASURED_TICKS`] ticks
-/// (each crossing about four chunks, so views keep loading and sending chunks).
+/// Measures `n` players spawned, placed on a grid, then walking east together for
+/// [`MEASURED_TICKS`] ticks (each crossing about four chunks, so views keep loading and sending
+/// chunks).
 fn players_walking(n: u64, run: Run) {
     let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(n);
@@ -317,8 +318,8 @@ fn players_walking(n: u64, run: Run) {
     b.report(&format!("{n} players walking{}", run.label));
 }
 
-/// One player at the spawn watching `count` dropped swords (they do not merge), four to a block
-/// around it, once they lie still.
+/// Measures one player at the spawn watching `count` dropped swords (they do not merge), four to a
+/// block around it, once they lie still.
 fn items(count: u32, run: Run) {
     let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(1);
@@ -347,9 +348,9 @@ fn items(count: u32, run: Run) {
     b.report(&format!("{count} items lying{}", run.label));
 }
 
-/// One player at the spawn, then 1,000 glowstone blocks set at once in the air around it (each
-/// a light source that also shades the sky light below), and the ticks after it until the light
-/// work is done (at least [`MIN_BURST_TICKS`]).
+/// Measures one player at the spawn, then 1,000 glowstone blocks set at once in the air around it
+/// (each a light source that also shades the sky light below), and the ticks after it until the
+/// light work is done (at least [`MIN_BURST_TICKS`]).
 fn burst(lighting: bool, run: Run) {
     let mut b = Bench::new((run.listeners)(), |c| {
         c.developer.lighting = if lighting {

@@ -26,14 +26,15 @@ pub(crate) const USAGE: &str = "usage: <program> update-config, \
 /// What the process arguments ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Task {
-    /// Run the server: no argument, or the program's own.
+    /// Running the server: no argument, or the program's own.
     Run,
-    /// `update-config`: add the missing keys to the settings file and remove the unknown ones.
+    /// `update-config`: adding the missing keys to the settings file and removing the unknown
+    /// ones.
     UpdateConfig,
-    /// `import <world folder> [<world name>]`: import a Bedrock world; without a name, as the
+    /// `import <world folder> [<world name>]`: importing a Bedrock world; without a name, as the
     /// default world (`level-name`).
     Import { dir: PathBuf, world: Option<String> },
-    /// `export <new folder> [<world name>]`: export a world, chosen by name, as a Bedrock world
+    /// `export <new folder> [<world name>]`: exporting a world, chosen by name, as a Bedrock world
     /// into a folder that does not exist yet; without a name, the default world
     /// (`level-name`).
     Export { dir: PathBuf, world: Option<String> },

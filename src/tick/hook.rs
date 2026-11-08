@@ -65,20 +65,6 @@ impl fmt::Debug for Hooks {
 #[derive(Debug)]
 pub struct SentPacket<'a>(Slot<'a>);
 
-/// Where the packet a hook sees is held.
-#[derive(Debug)]
-enum Slot<'a> {
-    /// A packet a player sent, as the input log holds it, and its copy once a hook changes it.
-    Received {
-        logged: &'a Packet,
-        copy: &'a mut Option<Packet>,
-    },
-    /// This player's own packet.
-    Own(&'a mut Packet),
-    /// A packet shared with other players.
-    Shared(&'a mut Arc<SharedPacket>),
-}
-
 impl SentPacket<'_> {
     /// The packet.
     pub fn get(&self) -> &Packet {
@@ -102,6 +88,20 @@ impl SentPacket<'_> {
             Slot::Shared(packet) => Arc::make_mut(packet).get_mut(),
         }
     }
+}
+
+/// Where the packet a hook sees is held.
+#[derive(Debug)]
+enum Slot<'a> {
+    /// A packet a player sent, as the input log holds it, and its copy once a hook changes it.
+    Received {
+        logged: &'a Packet,
+        copy: &'a mut Option<Packet>,
+    },
+    /// This player's own packet.
+    Own(&'a mut Packet),
+    /// A packet shared with other players.
+    Shared(&'a mut Arc<SharedPacket>),
 }
 
 impl ServerBuilder {

@@ -24,6 +24,9 @@ use tracing::{debug, info, warn};
 use crate::command::parse::MAX_LINE_BYTES;
 use crate::tick::queue::{self, InputKind, InputSender, SessionId, SessionInputs};
 
+/// The bytes a line end (`\r\n`) may take beyond [`MAX_LINE_BYTES`].
+const LINE_END_BYTES: usize = 2;
+
 /// Starts the console thread reading standard input into the tick's input queue.
 #[expect(
     clippy::disallowed_methods,
@@ -41,7 +44,7 @@ pub(crate) fn start(inputs: &InputSender) -> io::Result<()> {
 /// line longer than the bound, or not UTF-8, is skipped with a warning; a full queue drops the
 /// line (the tick is far behind) rather than waiting.
 fn read(mut input: impl BufRead, mut session: SessionInputs) {
-    let mut line = Vec::with_capacity(MAX_LINE_BYTES + 2);
+    let mut line = Vec::with_capacity(MAX_LINE_BYTES + LINE_END_BYTES);
     loop {
         line.clear();
         let (complete, more) = match read_bounded(&mut input, &mut line) {
@@ -55,7 +58,7 @@ fn read(mut input: impl BufRead, mut session: SessionInputs) {
             }
         };
         if !complete {
-            warn!(max = MAX_LINE_BYTES, "console line too long; skipped");
+            warn!(max_bytes = MAX_LINE_BYTES, "console line too long; skipped");
         } else if let Ok(text) = std::str::from_utf8(trim_line_end(&line)) {
             let text = strip_terminal(text);
             if !text.trim().is_empty() {
@@ -98,8 +101,7 @@ fn read_bounded(input: &mut impl BufRead, line: &mut Vec<u8>) -> io::Result<(boo
             None => (buffer, false),
         };
         let used = part.len();
-        // The line end may take two bytes (`\r\n`) beyond the bound.
-        if fits && line.len().saturating_add(used) <= MAX_LINE_BYTES + 2 {
+        if fits && line.len().saturating_add(used) <= MAX_LINE_BYTES + LINE_END_BYTES {
             line.extend_from_slice(part);
         } else {
             fits = false;

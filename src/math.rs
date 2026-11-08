@@ -244,6 +244,21 @@ impl Aabb {
         clip(self.min.z, self.max.z, moving.min.z, moving.max.z, dz)
     }
 
+    /// Whether the two boxes overlap with a positive volume (touching faces do not count).
+    pub fn intersects(self, other: Self) -> bool {
+        self.overlaps(other, 0.0)
+    }
+
+    /// Whether the boxes overlap by more than `epsilon` on every axis.
+    pub fn overlaps(self, other: Self, epsilon: f64) -> bool {
+        other.max.x - self.min.x > epsilon
+            && self.max.x - other.min.x > epsilon
+            && other.max.y - self.min.y > epsilon
+            && self.max.y - other.min.y > epsilon
+            && other.max.z - self.min.z > epsilon
+            && self.max.z - other.min.z > epsilon
+    }
+
     /// The box grown by `by` on each side (shrunk for negative components).
     #[must_use]
     pub fn grow(self, by: Vec3) -> Self {
@@ -253,11 +268,6 @@ impl Aabb {
         }
     }
 
-    /// Whether the two boxes overlap with a positive volume (touching faces do not count).
-    pub fn intersects(self, o: Self) -> bool {
-        self.overlaps(o, 0.0)
-    }
-
     /// The box moved by `by`.
     #[must_use]
     pub fn offset(self, by: Vec3) -> Self {
@@ -265,16 +275,6 @@ impl Aabb {
             min: self.min + by,
             max: self.max + by,
         }
-    }
-
-    /// Whether the boxes overlap by more than `epsilon` on every axis.
-    pub fn overlaps(self, o: Self, epsilon: f64) -> bool {
-        o.max.x - self.min.x > epsilon
-            && self.max.x - o.min.x > epsilon
-            && o.max.y - self.min.y > epsilon
-            && self.max.y - o.min.y > epsilon
-            && o.max.z - self.min.z > epsilon
-            && self.max.z - o.min.z > epsilon
     }
 
     /// The box stretched toward `by`: the side each component points to moves by it, so the

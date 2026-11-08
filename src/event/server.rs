@@ -36,8 +36,8 @@ impl Command {
     /// Replaces the command line that runs, written without a leading `/`: one with it names no
     /// command.
     #[doc(alias = "CommandEvent::setCommand")]
-    pub fn set_command(&mut self, line: String) {
-        self.line = line;
+    pub fn set_command(&mut self, line: impl Into<String>) {
+        self.line = line.into();
     }
 }
 

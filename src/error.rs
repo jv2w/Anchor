@@ -16,8 +16,7 @@ pub enum Error {
     /// The settings are invalid; [`source`](std::error::Error::source) names the setting.
     Config(config::Error),
     /// The runtime, a thread (run, tick, save, CPU pool, console, console log) or the startup state
-    /// (server key, random numbers, shared spawn batches, the blocking tasks that load resource
-    /// packs, the NetherNet identity key and TLS files, the NetherNet DTLS certificate, the
+    /// (server key, random numbers, shared spawn batches, the NetherNet identity key and TLS files, the NetherNet DTLS certificate, the
     /// NetherNet signaling task) could not be started.
     Start(io::Error),
     /// A network socket could not be opened.
