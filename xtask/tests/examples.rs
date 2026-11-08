@@ -66,6 +66,22 @@ fn build_example(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("cargo built no executable for the example {name}"))
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn create_file(path: &Path) -> std::fs::File {
+    std::fs::File::create(path).expect("create a test file")
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test waits between reads of the example's log"
+)]
+fn pause() {
+    std::thread::sleep(Duration::from_millis(100));
+}
+
 /// An example binary running as a child process in its own folder. Dropping it kills that
 /// child, and only that child.
 struct Example {
@@ -204,20 +220,4 @@ fn the_lobby_example_opens_the_menu_shop_and_arena() {
 #[test]
 fn the_custom_example_serves_its_pack_items_blocks_and_entities() {
     Example::start("custom").play();
-}
-
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn create_file(path: &Path) -> std::fs::File {
-    std::fs::File::create(path).expect("create a test file")
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test waits between pings"
-)]
-fn pause() {
-    std::thread::sleep(Duration::from_millis(100));
 }
