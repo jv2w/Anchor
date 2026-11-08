@@ -14,12 +14,13 @@ mod peer;
 mod sdp;
 mod signaling;
 
-pub(crate) use peer::MAX_DATAGRAM;
+pub(crate) use peer::MAX_DATAGRAM_BYTES;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -44,6 +45,8 @@ use signaling::{Code, Host, Offer, Reply};
 
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
+/// The first byte of a DTLS record on the shared UDP port (RFC 7983 7).
+const DTLS_FIRST_BYTE_RANGE: RangeInclusive<u8> = 20..=63;
 /// How long an offer waits for the lookup of the DNS name its client gave. A resolver answers
 /// in milliseconds, the more so as the client has just resolved the same name; past this the
 /// answer goes without the name's addresses, well inside the signaling request deadline.
@@ -56,8 +59,8 @@ const MAX_ANSWER_CANDIDATES: usize = 4;
 /// The peers that may linger after their session closed them, at most; a new one removes the
 /// oldest. A closing peer keeps up to `MAX_UNSENT_BYTES` unacknowledged and its str0m state for
 /// `CLOSE_LINGER`, and the client can withhold the acknowledgements, so the count is bounded as
-/// the pre-login peers are (`MAX_PRE_LOGIN`).
-const MAX_CLOSING_PEERS: usize = 64;
+/// the pre-login peers are: by `MAX_PRE_LOGIN`.
+const MAX_CLOSING_PEERS: usize = MAX_PRE_LOGIN;
 /// The DNS lookups of client-given names that run at once. A lookup runs on a blocking thread
 /// and keeps it until the OS resolver returns, even after its offer is gone, so this bounds the
 /// blocking threads names whose lookups hang can hold (`runtime` reserves them).
@@ -68,13 +71,16 @@ const MAX_LOOKUP_ADDRS: usize = 16;
 /// its valid STUN request can carry any source address; the bound keeps one peer from filling
 /// the address index.
 const MAX_PEER_ADDRS: usize = 8;
-/// The largest message a peer takes before its player logged in: far above a Login with the
-/// largest skin (`MAX_SKIN_BYTES`), far below `max-batch-bytes`, so that unfinished messages of
-/// the pre-login peers (`MAX_PRE_LOGIN`) hold a bounded share of memory. RakNet derives its
-/// pre-login reassembly limit from it too.
+/// The largest message a peer takes before its player logged in, in bytes: it holds a Login with
+/// the largest skin (`MAX_SKIN_BYTES`), so that unfinished messages of the pre-login peers
+/// (`MAX_PRE_LOGIN`) hold a bounded share of memory. A peer takes no more than the message limit
+/// derived from `max-batch-bytes` either. RakNet derives its pre-login reassembly limit from it
+/// too.
 pub(crate) const MAX_PRE_LOGIN_MESSAGE_BYTES: usize = 8 << 20;
 /// The offers waiting for the offer task; the signaling server answers 503 when it is full.
 const OFFER_QUEUE: usize = 64;
+/// The first byte of a STUN message on the shared UDP port (RFC 7983 7).
+const STUN_FIRST_BYTE_RANGE: RangeInclusive<u8> = 0..=1;
 /// The length of a STUN message header in bytes (RFC 5389): the type, the length, the magic
 /// cookie and the transaction ID.
 const STUN_HEADER_LEN: usize = 20;
@@ -333,7 +339,7 @@ impl Offers {
         };
         let advertised = self.advertised(local_ip)?;
         // After the verification, so that only a verified offer makes the server look up a name.
-        let candidates = self.with_host_addrs(advertised, host).await;
+        let candidates = self.candidates(advertised, host).await;
         let remote = peer::Remote {
             ice_ufrag: offer.ice_ufrag,
             ice_pwd: offer.ice_pwd,
@@ -388,38 +394,6 @@ impl Offers {
         }
     }
 
-    /// Verifies the offer identity: online against the authorization keys through
-    /// `Auth::verify_with_refresh`, as the Login check does.
-    async fn verify(
-        &self,
-        assertion: &sdp::Assertion,
-        fingerprint: &sdp::Fingerprint,
-    ) -> Result<PublicKey, Refusal> {
-        let Some(auth) = &self.auth else {
-            return identity::verify_offer(
-                assertion,
-                fingerprint,
-                Mode::Offline,
-                clock::token_now(),
-            )
-            .map_err(Refusal::Identity);
-        };
-        auth.verify_with_refresh(
-            |keys| {
-                identity::verify_offer(
-                    assertion,
-                    fingerprint,
-                    Mode::Online(keys),
-                    clock::token_now(),
-                )
-            },
-            |e| matches!(e, identity::Error::Token(login::Error::UnknownKeyId)),
-        )
-        .await
-        .ok_or(Refusal::Keys)?
-        .map_err(Refusal::Identity)
-    }
-
     /// The first host candidate to advertise, the one str0m holds: `public-ip`, or the address
     /// the client reached the signaling server on, with the UDP port of that address family.
     fn advertised(&self, local_ip: IpAddr) -> Result<SocketAddr, Refusal> {
@@ -436,7 +410,7 @@ impl Offers {
     /// [`MAX_ANSWER_CANDIDATES`] in all. Behind a NAT the signaling address is a private one; the
     /// host the client was given is an address it can reach. Only this client's answer carries
     /// them: the server never sends to its own candidates.
-    async fn with_host_addrs(&self, first: SocketAddr, host: Option<Host>) -> Vec<SocketAddr> {
+    async fn candidates(&self, first: SocketAddr, host: Option<Host>) -> Vec<SocketAddr> {
         let mut candidates = vec![first];
         let Some(host) = host.filter(|_| self.public_ip.is_none()) else {
             return candidates;
@@ -502,6 +476,38 @@ impl Offers {
                 Vec::new()
             }
         }
+    }
+
+    /// Verifies the offer identity: online against the authorization keys through
+    /// `Auth::verify_with_refresh`, as the Login check does.
+    async fn verify(
+        &self,
+        assertion: &sdp::Assertion,
+        fingerprint: &sdp::Fingerprint,
+    ) -> Result<PublicKey, Refusal> {
+        let Some(auth) = &self.auth else {
+            return identity::verify_offer(
+                assertion,
+                fingerprint,
+                Mode::Offline,
+                clock::token_now(),
+            )
+            .map_err(Refusal::Identity);
+        };
+        auth.verify_with_refresh(
+            |keys| {
+                identity::verify_offer(
+                    assertion,
+                    fingerprint,
+                    Mode::Online(keys),
+                    clock::token_now(),
+                )
+            },
+            |e| matches!(e, identity::Error::Token(login::Error::UnknownKeyId)),
+        )
+        .await
+        .ok_or(Refusal::Keys)?
+        .map_err(Refusal::Identity)
     }
 }
 
@@ -739,9 +745,9 @@ impl Driver {
         !self.stopping && self.pre_login_total < MAX_PRE_LOGIN && per_ip < MAX_PRE_LOGIN_PER_IP
     }
 
-    /// The timer pass: reads the connections' flags, applies the commands queued before them,
-    /// then removes the closing peers that delivered everything and drives those whose time
-    /// came.
+    /// Runs the timer pass: reads the connections' flags, applies the commands queued before
+    /// them, then removes the closing peers that delivered everything and drives those whose
+    /// time came.
     fn update(&mut self) {
         let now = clock::now();
         self.read_flags(now);
@@ -758,36 +764,6 @@ impl Driver {
         }
         while let Some(id) = self.due.pop() {
             self.drive(id, now);
-        }
-        self.reap();
-    }
-
-    /// Reads the connections' flags. A peer the session closed stops reading and joins the
-    /// closing peers; when more than `MAX_CLOSING_PEERS` are left, the oldest go at once.
-    fn read_flags(&mut self, now: Instant) {
-        for (&id, entry) in &mut self.peers {
-            if let Some(link) = &mut entry.link
-                && let Some(flags) = Flags::changed(&mut link.signal)
-            {
-                if flags.logged_in
-                    && let Some(key) = entry.pre_login.take()
-                {
-                    release(&mut self.pre_login, &mut self.pre_login_total, key);
-                    entry.peer.set_max_message_bytes(self.max_message_bytes);
-                    link.inbox.raise_to_login_budget();
-                }
-                if flags.closed && entry.closing.is_none() {
-                    let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
-                    entry.closing = Some(until);
-                    entry.peer.stop_reading();
-                    self.closing_peers.insert((until, id));
-                }
-            }
-        }
-        while self.closing_peers.len() > MAX_CLOSING_PEERS
-            && let Some((_, id)) = self.closing_peers.pop_first()
-        {
-            self.doomed.push(id);
         }
         self.reap();
     }
@@ -840,7 +816,7 @@ impl Driver {
                 };
                 if let Err(e) = entry.peer.send(message) {
                     debug!(
-                        peer = id,
+                        connection = id,
                         error = &e as &(dyn std::error::Error + 'static),
                         "nethernet send failed"
                     );
@@ -952,7 +928,7 @@ impl Driver {
                         .as_ref()
                         .is_some_and(|link| link.inbox.deliver(message))
                     {
-                        debug!(peer = id, "nethernet session not keeping up; closing");
+                        debug!(connection = id, "nethernet session not keeping up; closing");
                         self.doomed.push(id);
                         return;
                     }
@@ -964,7 +940,7 @@ impl Driver {
                 }
                 peer::Output::Closed(reason) => {
                     debug!(
-                        peer = id,
+                        connection = id,
                         ufrag = %entry.ufrag,
                         error = &reason as &(dyn std::error::Error + 'static),
                         "nethernet peer closed"
@@ -979,6 +955,36 @@ impl Driver {
         }
     }
 
+    /// Reads the connections' flags. A peer the session closed stops reading and joins the
+    /// closing peers; when more than `MAX_CLOSING_PEERS` are left, the oldest go at once.
+    fn read_flags(&mut self, now: Instant) {
+        for (&id, entry) in &mut self.peers {
+            if let Some(link) = &mut entry.link
+                && let Some(flags) = Flags::changed(&mut link.signal)
+            {
+                if flags.logged_in
+                    && let Some(key) = entry.pre_login.take()
+                {
+                    release(&mut self.pre_login, &mut self.pre_login_total, key);
+                    entry.peer.set_max_message_bytes(self.max_message_bytes);
+                    link.inbox.raise_to_login_budget();
+                }
+                if flags.closed && entry.closing.is_none() {
+                    let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
+                    entry.closing = Some(until);
+                    entry.peer.stop_reading();
+                    self.closing_peers.insert((until, id));
+                }
+            }
+        }
+        while self.closing_peers.len() > MAX_CLOSING_PEERS
+            && let Some((_, id)) = self.closing_peers.pop_first()
+        {
+            self.doomed.push(id);
+        }
+        self.reap();
+    }
+
     /// Removes the peers marked for closing.
     fn reap(&mut self) {
         while let Some(id) = self.doomed.pop() {
@@ -991,7 +997,7 @@ impl Driver {
         let Some(mut entry) = self.peers.remove(&id) else {
             return;
         };
-        debug!(peer = id, "nethernet peer removed");
+        debug!(connection = id, "nethernet peer removed");
         if let Some(until) = entry.closing {
             self.closing_peers.remove(&(until, id));
         }
@@ -1102,8 +1108,8 @@ fn lookup(name: &str) -> io::Result<Vec<IpAddr>> {
 /// 4-byte attribute padding never gives.
 pub(crate) fn is_nethernet(datagram: &[u8]) -> bool {
     match datagram {
-        [20..=63, ..] => true,
-        [0..=1, _, l0, l1, c0, c1, c2, c3, ..] => {
+        [first, ..] if DTLS_FIRST_BYTE_RANGE.contains(first) => true,
+        [first, _, l0, l1, c0, c1, c2, c3, ..] if STUN_FIRST_BYTE_RANGE.contains(first) => {
             let length = usize::from(u16::from_be_bytes([*l0, *l1]));
             [*c0, *c1, *c2, *c3] == STUN_MAGIC_COOKIE
                 && length % 4 == 0
@@ -1355,11 +1361,6 @@ pub(crate) mod tests {
         (client, socket, connection)
     }
 
-    #[test]
-    fn shutdown_delivers_the_last_messages_of_a_peer() {
-        run(shutdown_delivers_the_last_message());
-    }
-
     async fn shutdown_delivers_the_last_message() {
         let start = clock::now();
         let (udp, server, commands, mut connections) = spawn_both();
@@ -1393,6 +1394,11 @@ pub(crate) mod tests {
             step(&mut client, &socket).await;
         }
         task.await.unwrap();
+    }
+
+    #[test]
+    fn shutdown_delivers_the_last_messages_of_a_peer() {
+        run(shutdown_delivers_the_last_message());
     }
 
     /// A message a session queued before it set its close flag is applied before the driver
@@ -1614,11 +1620,10 @@ pub(crate) mod tests {
         assert!(by_addr.is_empty());
     }
 
-    /// A negotiation ends once its signaling request is gone, whatever it waits for, so the
-    /// negotiations never outnumber the signaling connections.
-    #[test]
-    fn a_negotiation_ends_when_its_signaling_request_is_gone() {
-        run(negotiation_ends_when_its_request_is_gone());
+    /// An offer offline, without an identity, as a client behind a NAT sends it.
+    fn offer_without_identity() -> String {
+        let identity = format!("{}\n", sdp::tests::identity_line());
+        sdp::tests::OFFER.replace(&identity, "")
     }
 
     async fn negotiation_ends_when_its_request_is_gone() {
@@ -1633,11 +1638,10 @@ pub(crate) mod tests {
             lookups: Arc::new(Semaphore::new(MAX_HOST_LOOKUPS)),
         });
         let (reply, replied) = oneshot::channel();
-        let identity = format!("{}\n", sdp::tests::identity_line());
         let offer = Offer {
             network_id: 1,
             // Offline, an offer without an identity goes on to the driver.
-            sdp: sdp::tests::OFFER.replace(&identity, ""),
+            sdp: offer_without_identity(),
             peer: SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000)),
             local: server,
             host: None,
@@ -1658,6 +1662,13 @@ pub(crate) mod tests {
             .expect("the negotiation outlived its request")
             .unwrap();
         drop(held);
+    }
+
+    /// A negotiation ends once its signaling request is gone, whatever it waits for, so the
+    /// negotiations never outnumber the signaling connections.
+    #[test]
+    fn a_negotiation_ends_when_its_signaling_request_is_gone() {
+        run(negotiation_ends_when_its_request_is_gone());
     }
 
     /// An offer is refused with a reason the log shows, and the client gets the code of that
@@ -1699,8 +1710,7 @@ pub(crate) mod tests {
 
             // Offline, an offer without an identity passes, and the server has no UDP socket
             // to advertise.
-            let identity = format!("{}\n", sdp::tests::identity_line());
-            let offer = sdp::tests::OFFER.replace(&identity, "");
+            let offer = offer_without_identity();
             let refusal = offers
                 .negotiate(&offer, client, client, None)
                 .await
@@ -1760,12 +1770,6 @@ pub(crate) mod tests {
             assert_eq!(refusal.reply(), Reply::Busy);
             serving.abort();
         });
-    }
-
-    /// An offer offline, without an identity, as a client behind a NAT sends it.
-    fn offer_without_identity() -> String {
-        let identity = format!("{}\n", sdp::tests::identity_line());
-        sdp::tests::OFFER.replace(&identity, "")
     }
 
     /// Offers answered by a serving driver on a loopback UDP port, with `public_ip`; the port.
@@ -1833,19 +1837,19 @@ pub(crate) mod tests {
             let first = SocketAddr::from((Ipv4Addr::new(192, 168, 0, 160), port));
             let at = |ip: IpAddr| SocketAddr::new(ip, port);
             let same = Host::Ip(first.ip());
-            assert_eq!(offers.with_host_addrs(first, Some(same)).await, [first]);
+            assert_eq!(offers.candidates(first, Some(same)).await, [first]);
             let v6 = Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST));
-            assert_eq!(offers.with_host_addrs(first, Some(v6)).await, [first]);
-            assert_eq!(offers.with_host_addrs(first, None).await, [first]);
+            assert_eq!(offers.candidates(first, Some(v6)).await, [first]);
+            assert_eq!(offers.candidates(first, None).await, [first]);
             let name = Host::Name("localhost".to_owned());
             let loopback = at(IpAddr::V4(Ipv4Addr::LOCALHOST));
             assert_eq!(
-                offers.with_host_addrs(first, Some(name)).await,
+                offers.candidates(first, Some(name)).await,
                 [first, loopback]
             );
             let mapped = Host::Ip(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped()));
             assert_eq!(
-                offers.with_host_addrs(first, Some(mapped)).await,
+                offers.candidates(first, Some(mapped)).await,
                 [first, loopback]
             );
             serving.abort();
@@ -1855,7 +1859,7 @@ pub(crate) mod tests {
             let first = offers.advertised(first.ip()).unwrap();
             assert_eq!(first, SocketAddr::new(public, port));
             let given = Host::Ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
-            assert_eq!(offers.with_host_addrs(first, Some(given)).await, [first]);
+            assert_eq!(offers.candidates(first, Some(given)).await, [first]);
             serving.abort();
         });
     }
@@ -1906,13 +1910,6 @@ pub(crate) mod tests {
         assert!(admit(&mut by_addr, &mut first_addrs, FIRST_PEER, victim));
     }
 
-    /// A NetherNet peer and a RakNet ping reach their own drivers through the one UDP port, so
-    /// a server needs only `server-port` open.
-    #[test]
-    fn nethernet_and_raknet_share_the_udp_port() {
-        run(share_the_udp_port());
-    }
-
     async fn share_the_udp_port() {
         let start = clock::now();
         let (udp, server, commands, mut connections) = spawn_both();
@@ -1935,6 +1932,13 @@ pub(crate) mod tests {
         udp.shutdown().await;
     }
 
+    /// A NetherNet peer and a RakNet ping reach their own drivers through the one UDP port, so
+    /// a server needs only `server-port` open.
+    #[test]
+    fn nethernet_and_raknet_share_the_udp_port() {
+        run(share_the_udp_port());
+    }
+
     /// STUN and DTLS go to the NetherNet driver; everything a RakNet client sends goes to
     /// RakNet, even a ping whose timestamp spells the STUN cookie.
     #[test]
@@ -1950,7 +1954,7 @@ pub(crate) mod tests {
         assert!(is_nethernet(&stun(0, 0)));
         assert!(is_nethernet(&stun(8, 8)));
         assert!(!is_nethernet(&stun(8, 4)));
-        for first in 20..=63 {
+        for first in DTLS_FIRST_BYTE_RANGE {
             assert!(is_nethernet(&[first, 0xfe, 0xfd]));
         }
 

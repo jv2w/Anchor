@@ -1,5 +1,5 @@
 //! SDP for NetherNet signaling: the client's offer parser and Anchor's answer
-//! writer, in the layout the official server 1.26.52 answers with.
+//! writer, in the layout the official server answers with.
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -40,9 +40,9 @@ const MAX_IDENTITY_JSON_BYTES: usize = 32 * 1024;
 const MAX_LINES: usize = 1024;
 /// The `a=max-message-size` Anchor answers with, as the official server: one 262,143-byte fragment and its
 /// 1-byte header.
-pub(crate) const MAX_MESSAGE_BYTES: u32 = 262_144;
+pub(super) const MAX_MESSAGE_BYTES: u32 = 262_144;
 /// The largest offer body, in bytes. A real offer is about 2 KiB, most of it the identity token.
-pub(crate) const MAX_OFFER_BYTES: usize = 64 * 1024;
+pub(super) const MAX_OFFER_BYTES: usize = 64 * 1024;
 /// The longest identity token text, in bytes: the longest the Login token check accepts.
 const MAX_TOKEN_BYTES: usize = max_jws_text(MAX_TOKEN_PAYLOAD_BYTES);
 /// The smallest `max-message-size` accepted, in bytes.
@@ -53,7 +53,7 @@ const SCTP_PORT: &str = "5000";
 /// Why an offer was rejected. The offer task answers every one with code 13, the shape of the
 /// `a=identity` value included (go-nethernet parses it with the rest of the offer).
 #[derive(Debug)]
-pub(crate) enum Error {
+pub(super) enum Error {
     /// The body is longer than [`MAX_OFFER_BYTES`].
     TooLarge,
     /// The body has more than [`MAX_LINES`] lines.
@@ -103,61 +103,61 @@ impl std::error::Error for Error {
 }
 
 /// A result with the module's [`enum@Error`].
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A client offer: what the server needs to answer and connect.
 #[derive(Debug)]
-pub(crate) struct Offer {
+pub(super) struct Offer {
     /// The client's ICE username fragment.
-    pub(crate) ice_ufrag: String,
+    pub(super) ice_ufrag: String,
     /// The client's ICE password.
-    pub(crate) ice_pwd: String,
+    pub(super) ice_pwd: String,
     /// The client's DTLS certificate fingerprint.
-    pub(crate) fingerprint: Fingerprint,
+    pub(super) fingerprint: Fingerprint,
     /// Largest message the client receives.
-    pub(crate) max_message_bytes: u32,
+    pub(super) max_message_bytes: u32,
     /// Usable candidates in offer order: UDP, component 1, IP literal addresses.
-    pub(crate) candidates: Vec<SocketAddr>,
+    pub(super) candidates: Vec<SocketAddr>,
     /// The session-level `a=identity`, shape-checked but not verified.
-    pub(crate) identity: Option<Assertion>,
+    pub(super) identity: Option<Assertion>,
 }
 
 /// A SHA-256 DTLS certificate fingerprint (`a=fingerprint`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Fingerprint {
+pub(super) struct Fingerprint {
     /// The hash name as written (`sha-256` in any case). The identity signature covers it.
-    pub(crate) algorithm: String,
+    pub(super) algorithm: String,
     /// The hex digest as written (any case). The identity signature covers it.
-    pub(crate) digest: String,
+    pub(super) digest: String,
     /// The digest bytes.
-    pub(crate) bytes: [u8; FINGERPRINT_BYTES],
+    pub(super) bytes: [u8; FINGERPRINT_BYTES],
 }
 
 /// The `a=identity` assertion (go-nethernet `identityData`), shape-checked but not verified.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Assertion {
+pub(super) struct Assertion {
     /// The identity JWT, a compact JWS.
-    pub(crate) token: String,
+    pub(super) token: String,
     /// A detached JWS (`header..signature`) over the fingerprint JSON.
-    pub(crate) fingerprints: String,
+    pub(super) fingerprints: String,
 }
 
-/// Anchor's answer. [`write_answer`] lays it out as the official server 1.26.52 does.
+/// Anchor's answer. [`write_answer`] lays it out as the official server does.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Answer<'a> {
+pub(super) struct Answer<'a> {
     /// The `o=` session ID, random per answer as the official server draws it.
-    pub(crate) session_id: u64,
+    pub(super) session_id: u64,
     /// The `a=identity` value: base64 of the server assertion.
-    pub(crate) identity: &'a str,
+    pub(super) identity: &'a str,
     /// The advertised host candidates, one address family, at least one; the first is also the
     /// media address. An IPv4-mapped IPv6 address is written as IPv4.
-    pub(crate) addrs: &'a [SocketAddr],
+    pub(super) addrs: &'a [SocketAddr],
     /// The server's ICE username fragment.
-    pub(crate) ice_ufrag: &'a str,
+    pub(super) ice_ufrag: &'a str,
     /// The server's ICE password.
-    pub(crate) ice_pwd: &'a str,
+    pub(super) ice_pwd: &'a str,
     /// The server's DTLS fingerprint as [`fingerprint_text`] writes it.
-    pub(crate) fingerprint: &'a str,
+    pub(super) fingerprint: &'a str,
 }
 
 /// Attributes collected while reading an offer.
@@ -171,6 +171,15 @@ struct Attributes<'a> {
     sctp_port: Option<()>,
     candidates: Vec<SocketAddr>,
     identity: Option<Assertion>,
+}
+
+/// The level of the SDP an attribute sits at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Level {
+    /// Before the media section.
+    Session,
+    /// Inside the media section.
+    Media,
 }
 
 /// The JSON of an `a=identity` value.
@@ -198,7 +207,7 @@ struct AssertionJson {
 /// Parses a client offer. Lines end in CRLF or LF; empty lines and unknown line
 /// types and attributes are skipped. ICE, DTLS, SCTP attributes and candidates may sit at the
 /// session or the media level; `a=identity` only at the session level.
-pub(crate) fn parse_offer(text: &str) -> Result<Offer> {
+pub(super) fn parse_offer(text: &str) -> Result<Offer> {
     if text.len() > MAX_OFFER_BYTES {
         return Err(Error::TooLarge);
     }
@@ -239,7 +248,12 @@ pub(crate) fn parse_offer(text: &str) -> Result<Offer> {
                     Some((name, value)) => (name, Some(value)),
                     None => (value, None),
                 };
-                attribute(&mut found, name, value, media > 0)?;
+                let level = if media > 0 {
+                    Level::Media
+                } else {
+                    Level::Session
+                };
+                attribute(&mut found, name, value, level)?;
             }
             _ if kind.len() == 1 && kind.bytes().all(|b| b.is_ascii_lowercase()) => {}
             _ => return Err(Error::Malformed("line type is not one lowercase letter")),
@@ -288,7 +302,7 @@ fn attribute<'a>(
     found: &mut Attributes<'a>,
     name: &str,
     value: Option<&'a str>,
-    media_level: bool,
+    level: Level,
 ) -> Result<()> {
     match name {
         "ice-ufrag" => once(
@@ -324,7 +338,7 @@ fn attribute<'a>(
             }
             Ok(())
         }
-        "identity" if media_level => Err(Error::Identity("not at the session level")),
+        "identity" if level == Level::Media => Err(Error::Identity("not at the session level")),
         "identity" => once(&mut found.identity, identity(value)?, "identity"),
         _ => Ok(()),
     }
@@ -442,12 +456,10 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
     {
         return Err(Error::Identity("domain must be 1 to 256 bytes of text"));
     }
-    if inner.token.len() > MAX_TOKEN_BYTES || !is_compact_jws(&inner.token, false) {
+    if inner.token.len() > MAX_TOKEN_BYTES || !is_compact_jws(&inner.token) {
         return Err(Error::Identity("token is not a compact jws"));
     }
-    if inner.fingerprints.len() > MAX_FINGERPRINTS_BYTES
-        || !is_compact_jws(&inner.fingerprints, true)
-    {
+    if inner.fingerprints.len() > MAX_FINGERPRINTS_BYTES || !is_detached_jws(&inner.fingerprints) {
         return Err(Error::Identity("fingerprints is not a detached jws"));
     }
     Ok(Assertion {
@@ -456,25 +468,31 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
     })
 }
 
-/// Whether `text` is `header.payload.signature` in base64url, with an empty payload when
-/// `detached` and a present one otherwise. go-nethernet `identityData.Valid` only counts dots.
-fn is_compact_jws(text: &str, detached: bool) -> bool {
+/// Whether `text` is `header.payload.signature` in base64url with a payload.
+fn is_compact_jws(text: &str) -> bool {
+    jws_payload(text).is_some_and(|payload| !payload.is_empty())
+}
+
+/// Whether `text` is `header..signature` in base64url, a JWS without its payload.
+fn is_detached_jws(text: &str) -> bool {
+    jws_payload(text).is_some_and(str::is_empty)
+}
+
+/// The payload of `text` when it is `header.payload.signature` in base64url with a header and a
+/// signature. go-nethernet `identityData.Valid` only counts dots.
+fn jws_payload(text: &str) -> Option<&str> {
     let mut parts = text.split('.');
     let (Some(header), Some(payload), Some(signature), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())
     else {
-        return false;
+        return None;
     };
     let url = |s: &str| {
         s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     };
-    !header.is_empty()
-        && !signature.is_empty()
-        && payload.is_empty() == detached
-        && url(header)
-        && url(payload)
-        && url(signature)
+    (!header.is_empty() && !signature.is_empty() && url(header) && url(payload) && url(signature))
+        .then_some(payload)
 }
 
 /// Whether `b` is an ICE character (RFC 8839 `ice-char`).
@@ -498,7 +516,7 @@ fn decimal<T: FromStr>(text: &str) -> Option<T> {
     clippy::expect_used,
     reason = "invariant: the offer task advertises at least one candidate"
 )]
-pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
+pub(super) fn write_answer(answer: &Answer<'_>) -> String {
     let first = answer.addrs.first().expect("an answer has a candidate");
     let ip = first.ip().to_canonical();
     let family = if ip.is_ipv4() { "IP4" } else { "IP6" };
@@ -549,28 +567,16 @@ pub(crate) fn write_answer(answer: &Answer<'_>) -> String {
 }
 
 /// A fingerprint as the official server writes it: uppercase hex bytes separated by colons.
-pub(crate) fn fingerprint_text(bytes: &[u8; FINGERPRINT_BYTES]) -> String {
-    let mut out = String::with_capacity(FINGERPRINT_BYTES * 3 - 1);
-    for (i, &b) in bytes.iter().enumerate() {
-        if i > 0 {
-            out.push(':');
-        }
-        out.push(hex_digit(b >> 4));
-        out.push(hex_digit(b & 0x0f));
-    }
-    out
-}
-
-/// The uppercase hex digit of `nibble`.
-#[expect(clippy::expect_used, reason = "invariant: the callers pass a nibble")]
-fn hex_digit(nibble: u8) -> char {
-    char::from_digit(u32::from(nibble), 16)
-        .expect("a nibble is below 16")
-        .to_ascii_uppercase()
+pub(super) fn fingerprint_text(bytes: &[u8; FINGERPRINT_BYTES]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub(super) mod tests {
     use super::*;
 
     use std::net::{Ipv4Addr, SocketAddrV4};
@@ -579,9 +585,11 @@ pub(crate) mod tests {
 
     /// The candidate of `answer`.
     const ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 0, 2, 7), 19_133));
+    /// The candidate line of [`OFFER`].
+    const CANDIDATE: &str = "a=candidate:candidate:3775397255 1 udp 2130706431 172.25.96.1 63448 typ host generation 0 ufrag skFedTtcOXfRrcUS network-id 0 network-cost 0";
     /// A captured go-nethernet offer (offline, self-signed ES384 token). The
     /// candidate's `ufrag` extension differs from the capture; extensions are ignored.
-    pub(crate) const OFFER: &str = "v=0
+    pub(in crate::nethernet) const OFFER: &str = "v=0
 o=- 2327969700533983999 2 IN IP4 127.0.0.1
 s=-
 t=0 0
@@ -635,9 +643,6 @@ a=max-message-size:262144
         }
     }
 
-    /// The candidate line of [`OFFER`].
-    const CANDIDATE: &str = "a=candidate:candidate:3775397255 1 udp 2130706431 172.25.96.1 63448 typ host generation 0 ufrag skFedTtcOXfRrcUS network-id 0 network-cost 0";
-
     /// [`OFFER`] with one line replaced (the line must be there).
     fn offer_with(from: &str, to: &str) -> String {
         assert!(OFFER.contains(from), "{from}");
@@ -645,7 +650,7 @@ a=max-message-size:262144
     }
 
     /// The `a=identity` line of [`OFFER`].
-    pub(crate) fn identity_line() -> &'static str {
+    pub(in crate::nethernet) fn identity_line() -> &'static str {
         OFFER
             .lines()
             .find(|line| line.starts_with("a=identity:"))

@@ -68,7 +68,7 @@ const TLS_HANDSHAKE: u8 = 0x16;
 /// A signaling failure: a listener that cannot be opened, or a TLS certificate or key that
 /// cannot be loaded.
 #[derive(Debug)]
-pub(crate) enum Error {
+pub(super) enum Error {
     /// A listener cannot be opened.
     Bind {
         /// The address.
@@ -128,43 +128,43 @@ impl std::error::Error for Error {
         match self {
             Self::Bind { source, .. } | Self::Read { source, .. } => Some(source),
             Self::Runtime(source) => Some(source),
+            Self::NoAddress | Self::TooLarge { .. } => None,
             Self::Pem { source, .. } => Some(source),
             Self::Tls(source) => Some(source),
-            Self::NoAddress | Self::TooLarge { .. } => None,
         }
     }
 }
 
 /// A result with the module's [`enum@Error`].
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Socket settings for `spawn`.
 #[derive(Debug, Clone)]
-pub(crate) struct Settings {
+pub(super) struct Settings {
     /// IPv4 address to bind, if any.
-    pub(crate) v4: Option<SocketAddrV4>,
+    pub(super) v4: Option<SocketAddrV4>,
     /// IPv6 address to bind (IPv6 only), if any.
-    pub(crate) v6: Option<SocketAddrV6>,
+    pub(super) v6: Option<SocketAddrV6>,
     /// `Some`: every connection is HTTPS. `None`: plain HTTP.
-    pub(crate) tls: Option<Arc<rustls::ServerConfig>>,
+    pub(super) tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 /// An SDP offer from `POST /v1/join/{networkId}`, waiting for its reply.
-pub(crate) struct Offer {
+pub(super) struct Offer {
     /// The client's network id from the path.
-    pub(crate) network_id: u64,
+    pub(super) network_id: u64,
     /// The offer: non-empty UTF-8 of at most 64 KiB, otherwise unchecked.
-    pub(crate) sdp: String,
+    pub(super) sdp: String,
     /// The client's TCP address (IPv4-mapped IPv6 as IPv4).
-    pub(crate) peer: SocketAddr,
+    pub(super) peer: SocketAddr,
     /// The server's TCP address the client reached (IPv4-mapped IPv6 as IPv4).
-    pub(crate) local: SocketAddr,
+    pub(super) local: SocketAddr,
     /// The host of the request's `Host` header: the address the client was given. `None`
     /// without one, with more than one, or with one that is not an IP literal or a DNS name.
-    pub(crate) host: Option<Host>,
+    pub(super) host: Option<Host>,
     /// Where the answer goes. It is dropped when the answer is written or the request deadline
     /// passes.
-    pub(crate) reply: oneshot::Sender<Reply>,
+    pub(super) reply: oneshot::Sender<Reply>,
 }
 
 impl fmt::Debug for Offer {
@@ -182,7 +182,7 @@ impl fmt::Debug for Offer {
 
 /// The host part of a `Host` header (RFC 9110 7.2), its port left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Host {
+pub(super) enum Host {
     /// An IP literal.
     Ip(IpAddr),
     /// A DNS name: dot-separated labels of letters, digits and inner hyphens, at most
@@ -192,7 +192,7 @@ pub(crate) enum Host {
 
 /// The error code of a failed negotiation (go-nethernet `ErrorCode…`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Code {
+pub(super) enum Code {
     /// `FailedToCreateAnswer`: no answer can be made.
     Internal,
     /// `FailedToSetRemoteDescription`: the offer cannot be used. An empty or non-UTF-8 body
@@ -216,7 +216,7 @@ impl Code {
 
 /// The answer to an [`Offer`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Reply {
+pub(super) enum Reply {
     /// `200`, `application/sdp`, the answer SDP.
     Answer(String),
     /// `200`, `application/sdp`, the negotiation error code in decimal.
@@ -227,7 +227,7 @@ pub(crate) enum Reply {
 
 /// Controls the signaling task.
 #[derive(Debug)]
-pub(crate) struct Handle {
+pub(super) struct Handle {
     local_addrs: Vec<SocketAddr>,
     stop: oneshot::Sender<()>,
     task: JoinHandle<()>,
@@ -235,13 +235,13 @@ pub(crate) struct Handle {
 
 impl Handle {
     /// The bound addresses (IPv4 first).
-    pub(crate) fn local_addrs(&self) -> &[SocketAddr] {
+    pub(super) fn local_addrs(&self) -> &[SocketAddr] {
         &self.local_addrs
     }
 
     /// Stops accepting, aborts every open connection and waits for the tasks to end. Dropping
     /// the handle does the same without waiting.
-    pub(crate) async fn shutdown(self) {
+    pub(super) async fn shutdown(self) {
         if self.stop.send(()).is_err() {
             debug!("signaling task already stopped");
         }
@@ -494,53 +494,6 @@ impl Parser {
         }))
     }
 
-    /// Adds head bytes. Once the head is whole, parses it, sets the body state and returns
-    /// the bytes after it.
-    fn push_head<'a>(
-        &mut self,
-        scanned: usize,
-        data: &'a [u8],
-    ) -> Result<Option<&'a [u8]>, Status> {
-        let before = self.head.len();
-        let take = MAX_HEAD_BYTES.saturating_sub(before).min(data.len());
-        self.head
-            .extend_from_slice(data.get(..take).unwrap_or_default());
-        // CRLF CRLF may straddle the last push.
-        let from = scanned.saturating_sub(3);
-        let found = self
-            .head
-            .get(from..)
-            .and_then(|tail| tail.windows(4).position(|window| window == b"\r\n\r\n"));
-        let Some(end) = found.and_then(|at| at.checked_add(from + 4)) else {
-            if self.head.len() >= MAX_HEAD_BYTES {
-                return Err(Status::HeaderFieldsTooLarge);
-            }
-            self.state = State::Head {
-                scanned: self.head.len(),
-            };
-            return Ok(None);
-        };
-        // The terminator was not in the bytes scanned before, so it ends in the new ones.
-        let used = end.checked_sub(before).ok_or(Status::BadRequest)?;
-        let head = self.head.get(..end).ok_or(Status::BadRequest)?;
-        let (method, path, host, framing) = parse_head(head)?;
-        self.head = Vec::new();
-        self.method = method;
-        self.path = path;
-        self.host = host;
-        self.state = match framing {
-            Framing::Length(length) => {
-                self.body.reserve_exact(length);
-                State::Body { remaining: length }
-            }
-            Framing::Chunked => State::Chunked(Chunk::Size {
-                size: 0,
-                digits: false,
-            }),
-        };
-        Ok(Some(data.get(used..).unwrap_or_default()))
-    }
-
     /// Decodes chunked bytes. Returns the next state, or `None` at the end of the body.
     fn push_chunked(&mut self, mut chunk: Chunk, mut data: &[u8]) -> Result<Option<Chunk>, Status> {
         loop {
@@ -613,6 +566,53 @@ impl Parser {
             };
         }
     }
+
+    /// Adds head bytes. Once the head is whole, parses it, sets the body state and returns
+    /// the bytes after it.
+    fn push_head<'a>(
+        &mut self,
+        scanned: usize,
+        data: &'a [u8],
+    ) -> Result<Option<&'a [u8]>, Status> {
+        let before = self.head.len();
+        let take = MAX_HEAD_BYTES.saturating_sub(before).min(data.len());
+        self.head
+            .extend_from_slice(data.get(..take).unwrap_or_default());
+        // CRLF CRLF may straddle the last push.
+        let from = scanned.saturating_sub(3);
+        let found = self
+            .head
+            .get(from..)
+            .and_then(|tail| tail.windows(4).position(|window| window == b"\r\n\r\n"));
+        let Some(end) = found.and_then(|at| at.checked_add(from + 4)) else {
+            if self.head.len() >= MAX_HEAD_BYTES {
+                return Err(Status::HeaderFieldsTooLarge);
+            }
+            self.state = State::Head {
+                scanned: self.head.len(),
+            };
+            return Ok(None);
+        };
+        // The terminator was not in the bytes scanned before, so it ends in the new ones.
+        let used = end.checked_sub(before).ok_or(Status::BadRequest)?;
+        let head = self.head.get(..end).ok_or(Status::BadRequest)?;
+        let (method, path, host, framing) = parse_head(head)?;
+        self.head = Vec::new();
+        self.method = method;
+        self.path = path;
+        self.host = host;
+        self.state = match framing {
+            Framing::Length(length) => {
+                self.body.reserve_exact(length);
+                State::Body { remaining: length }
+            }
+            Framing::Chunked => State::Chunked(Chunk::Size {
+                size: 0,
+                digits: false,
+            }),
+        };
+        Ok(Some(data.get(used..).unwrap_or_default()))
+    }
 }
 
 impl Default for Parser {
@@ -639,7 +639,7 @@ enum Framing {
 
 /// Reads a PEM certificate chain (leaf first) and a PEM private key into a TLS configuration
 /// on the aws-lc-rs provider. Blocking: call it once at start on the blocking pool.
-pub(crate) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>> {
+pub(super) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>> {
     let pem_error = |path: &Path, item: &'static str| {
         let path = path.to_owned();
         move |source| Error::Pem { path, item, source }
@@ -687,7 +687,7 @@ fn read_pem(path: &Path) -> Result<Vec<u8>> {
 /// Binds the listeners on the current tokio runtime and serves them in tasks. `status` holds
 /// the whole `GET /v1/join` body; `offers` receives each offer (when it is full, the request
 /// gets `503`).
-pub(crate) fn spawn(
+pub(super) fn spawn(
     settings: Settings,
     status: watch::Receiver<Arc<[u8]>>,
     offers: mpsc::Sender<Offer>,
@@ -1164,15 +1164,15 @@ fn is_field_byte(byte: u8) -> bool {
 mod tests {
     use super::*;
 
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
     use tokio_rustls::TlsConnector;
 
     use crate::protocol::Rng;
     use crate::raknet::tests::{run, run_paused};
 
-    const WAIT: Duration = Duration::from_secs(10);
+    /// The `GET /v1/join` body the test servers start with.
     const STATUS: &[u8] = br#"{"name":"Anchor","protocol":1}"#;
+    /// The longest a test waits for the server under test.
+    const WAIT: Duration = Duration::from_secs(10);
 
     /// A server on an IPv4 localhost port with `offers` as its queue.
     fn server(

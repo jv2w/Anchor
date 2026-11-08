@@ -10,7 +10,7 @@ const MAX_SEGMENTS: usize = 256;
 
 /// A segment framing failure. Each one closes the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Error {
+pub(super) enum Error {
     /// A data channel message without the header byte.
     Empty,
     /// A segment with a header byte and no payload (go-nethernet requires at least 2 bytes).
@@ -50,7 +50,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// A result with the module's [`enum@Error`].
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Joins the segments of one reliable channel into whole messages.
 ///
@@ -58,7 +58,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// 255 costs nothing until its payloads arrive. After an error the peer closes; the state is not
 /// reused.
 #[derive(Debug)]
-pub(crate) struct Reassembler {
+pub(super) struct Reassembler {
     max_message_bytes: usize,
     /// Payloads of the message in progress.
     buffer: Vec<u8>,
@@ -68,7 +68,7 @@ pub(crate) struct Reassembler {
 
 impl Reassembler {
     /// A reassembler for messages of at most `max_message_bytes` bytes.
-    pub(crate) fn new(max_message_bytes: usize) -> Self {
+    pub(super) fn new(max_message_bytes: usize) -> Self {
         Self {
             max_message_bytes,
             buffer: Vec::new(),
@@ -78,14 +78,14 @@ impl Reassembler {
 
     /// The bytes of the message in progress.
     #[cfg(test)]
-    pub(crate) fn held_bytes(&self) -> usize {
+    pub(super) fn held_bytes(&self) -> usize {
         self.buffer.len()
     }
 
     /// Takes one data channel message; returns the whole message when this segment ends it. The
     /// first segment's allocation becomes the message, with its header byte shifted out, so a
     /// one-segment message gets no allocation of its own.
-    pub(crate) fn push(&mut self, mut segment: Vec<u8>) -> Result<Option<Vec<u8>>> {
+    pub(super) fn push(&mut self, mut segment: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (&count, payload) = segment.split_first().ok_or(Error::Empty)?;
         if payload.is_empty() {
             return Err(Error::EmptySegment);
@@ -126,21 +126,21 @@ impl Reassembler {
     }
 
     /// Sets the largest message the next segment may complete; the bytes already held stay.
-    pub(crate) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
+    pub(super) fn set_max_message_bytes(&mut self, max_message_bytes: usize) {
         self.max_message_bytes = max_message_bytes;
     }
 }
 
 /// The segments of one message, first to last; made by [`segments`].
 #[derive(Debug)]
-pub(crate) struct Segments<'a> {
+pub(super) struct Segments<'a> {
     chunks: Chunks<'a, u8>,
     next_header: u8,
 }
 
 impl Segments<'_> {
     /// The header of the next segment.
-    pub(crate) fn header(&self) -> u8 {
+    pub(super) fn header(&self) -> u8 {
         self.next_header
     }
 }
@@ -161,7 +161,7 @@ impl<'a> Iterator for Segments<'a> {
 ///
 /// An empty message yields no segments, as go-nethernet sends nothing for empty data; Anchor never
 /// sends an empty batch.
-pub(crate) fn segments(message: &[u8], max_payload: usize) -> Result<Segments<'_>> {
+pub(super) fn segments(message: &[u8], max_payload: usize) -> Result<Segments<'_>> {
     if max_payload == 0 {
         return Err(Error::ZeroPayload);
     }

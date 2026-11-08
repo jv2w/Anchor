@@ -27,7 +27,7 @@ const TOKEN_LIFETIME_SECONDS: i64 = 60;
 
 /// An identity failure: the key file at start, or an offer's assertion (signaling code 37).
 #[derive(Debug)]
-pub(crate) enum Error {
+pub(super) enum Error {
     /// The key file cannot be read or written.
     Io { path: PathBuf, source: io::Error },
     /// The key file is larger than [`MAX_KEY_FILE_BYTES`].
@@ -59,8 +59,6 @@ pub(crate) enum Error {
     },
     /// The named part uses a signature algorithm that is not accepted there.
     Algorithm(&'static str),
-    /// A fingerprint has characters outside the hash name and hex digest sets.
-    Fingerprint,
 }
 
 impl fmt::Display for Error {
@@ -91,7 +89,6 @@ impl fmt::Display for Error {
             Self::Token(_) => f.write_str("identity token rejected"),
             Self::Json { part, .. } => write!(f, "malformed {part} json"),
             Self::Algorithm(part) => write!(f, "{part} signature algorithm not accepted"),
-            Self::Fingerprint => f.write_str("fingerprint is not a hash name and a hex digest"),
         }
     }
 }
@@ -112,11 +109,11 @@ impl std::error::Error for Error {
 }
 
 /// A result with the module's [`enum@Error`].
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+pub(super) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The server's NetherNet identity: a P-384 key kept across restarts, so players confirm a
 /// new key only once.
-pub(crate) struct ServerIdentity {
+pub(super) struct ServerIdentity {
     key: ServerKey,
     /// The JWT header as the official server writes it: `{"alg":"ES384","x5u":"<base64 SPKI>"}` and a line feed.
     header: String,
@@ -125,41 +122,13 @@ pub(crate) struct ServerIdentity {
 }
 
 impl ServerIdentity {
-    /// An identity with a new key that no file keeps.
-    #[cfg(test)]
-    pub(crate) fn generate() -> Result<Self> {
-        Self::new(ServerKey::generate().map_err(Error::Key)?)
-    }
-
-    /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE_BYTES`] bytes), or
-    /// creates one there when the file does not exist. A file that cannot be read or parsed is
-    /// an error and is left untouched. Blocking: call it on the blocking pool at start.
-    pub(crate) fn load_or_create(path: &Path) -> Result<Self> {
-        let key = if let Some(der) = read_key_file(path)? {
-            ServerKey::from_pkcs8(&der).map_err(|source| Error::KeyFile {
-                path: path.to_owned(),
-                source,
-            })?
-        } else {
-            let key = ServerKey::generate().map_err(Error::Key)?;
-            let der = key.to_pkcs8().map_err(Error::Key)?;
-            // On Unix only the owner may read it.
-            fs::write_atomic(path, &der, Access::OwnerOnly).map_err(|source| Error::Io {
-                path: path.to_owned(),
-                source,
-            })?;
-            key
-        };
-        Self::new(key)
-    }
-
     /// The `a=identity` value of an answer whose `a=fingerprint` digest is `answer_fingerprint`
     /// (as written there), with the official server's bytes: padded standard base64 of
     /// `{"assertion":"{\"fingerprints\":\"<detached JWS>\",\"token\":\"<JWT>\"}","idp":{"domain":"self","protocol":"default"}}`.
     /// The JWT is issued at `now_unix` and expires 60 seconds later; its header and payload JSON
     /// end in a line feed, as the official server writes them.
-    pub(crate) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
-        let signed = fingerprint_payload(sdp::FINGERPRINT_ALGORITHM, answer_fingerprint)?;
+    pub(super) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
+        let signed = fingerprint_payload(sdp::FINGERPRINT_ALGORITHM, answer_fingerprint);
         let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECONDS);
         let claims = format!(
             "{{\"cpk\":{},\"exp\":{exp},\"iat\":{now_unix}}}\n",
@@ -196,6 +165,34 @@ impl ServerIdentity {
             source,
         })?;
         Ok(STD.encode(&json))
+    }
+
+    /// An identity with a new key that no file keeps.
+    #[cfg(test)]
+    pub(super) fn generate() -> Result<Self> {
+        Self::new(ServerKey::generate().map_err(Error::Key)?)
+    }
+
+    /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE_BYTES`] bytes), or
+    /// creates one there when the file does not exist. A file that cannot be read or parsed is
+    /// an error and is left untouched. Blocking: call it on the blocking pool at start.
+    pub(super) fn load_or_create(path: &Path) -> Result<Self> {
+        let key = if let Some(der) = read_key_file(path)? {
+            ServerKey::from_pkcs8(&der).map_err(|source| Error::KeyFile {
+                path: path.to_owned(),
+                source,
+            })?
+        } else {
+            let key = ServerKey::generate().map_err(Error::Key)?;
+            let der = key.to_pkcs8().map_err(Error::Key)?;
+            // On Unix only the owner may read it.
+            fs::write_atomic(path, &der, Access::OwnerOnly).map_err(|source| Error::Io {
+                path: path.to_owned(),
+                source,
+            })?;
+            key
+        };
+        Self::new(key)
     }
 
     fn new(key: ServerKey) -> Result<Self> {
@@ -276,7 +273,7 @@ struct Jwk {
 /// present, and `cpk` is base64 SPKI or a P-384 JWK object (the official server writes a JWK, go-nethernet
 /// base64). The fingerprint signature is a detached ES384 JWS by `cpk`. Rejecting an online
 /// offer that has no assertion is the caller's job.
-pub(crate) fn verify_offer(
+pub(super) fn verify_offer(
     assertion: &sdp::Assertion,
     fingerprint: &sdp::Fingerprint,
     mode: Mode<'_>,
@@ -290,7 +287,7 @@ pub(crate) fn verify_offer(
         }
         Mode::Offline => unverified_token_key(&assertion.token, now_unix)?,
     };
-    let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest)?;
+    let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest);
     verify_detached(&assertion.fingerprints, signed.as_bytes(), &key).map_err(|source| {
         Error::Crypto {
             part: "fingerprints",
@@ -330,20 +327,10 @@ fn unverified_token_key(token: &str, now: i64) -> Result<PublicKey> {
 }
 
 /// The JSON a fingerprint signature covers (go-nethernet `generateFingerprints`, one
-/// fingerprint). The values go in unescaped, so only a hash name of letters, digits and `-` and a
-/// digest of hex digits and `:` are accepted.
-fn fingerprint_payload(algorithm: &str, digest: &str) -> Result<String> {
-    let name = !algorithm.is_empty()
-        && algorithm
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
-    let hex = !digest.is_empty() && digest.bytes().all(|b| b.is_ascii_hexdigit() || b == b':');
-    if !name || !hex {
-        return Err(Error::Fingerprint);
-    }
-    Ok(format!(
-        "{{\"fingerprint\":[{{\"algorithm\":\"{algorithm}\",\"digest\":\"{digest}\"}}]}}"
-    ))
+/// fingerprint). The values go in unescaped: an offer's pass `sdp::parse_offer`, which accepts
+/// only the SHA-256 name and a hex digest, and the answer's is made by `sdp::fingerprint_text`.
+fn fingerprint_payload(algorithm: &str, digest: &str) -> String {
+    format!("{{\"fingerprint\":[{{\"algorithm\":\"{algorithm}\",\"digest\":\"{digest}\"}}]}}")
 }
 
 /// Reads at most [`MAX_KEY_FILE_BYTES`] bytes of the key file; `None` when it does not exist.
@@ -379,10 +366,12 @@ mod tests {
     /// Inside both captured tokens' lifetimes: the official server's iat 1790993459, exp 1790993519; go-nethernet
     /// exp 1790997059.
     const NOW: i64 = 1_790_993_469;
-    /// The `a=identity` value of a captured official server 1.26.52.3 answer.
-    const OFFICIAL_IDENTITY: &str = "eyJhc3NlcnRpb24iOiJ7XCJmaW5nZXJwcmludHNcIjpcImV5SmhiR2NpT2lKRlV6TTROQ0o5Li45N0M2d21LYXVlTnlIcVdHcU83ZXZuNVJnU09OZG54NFZLbDFCR0hRUzAwNzZoMm50akF2bXFlRjFiX1k2MXlnU2RpVjR4QnhoWThGcG5lNU5oMnlXRHZZNFBWX0l2UjFseXhtT2hKZW5HU2NzdmNIek5fSGR1VVlDTHZRT29rQ1wiLFwidG9rZW5cIjpcImV5SmhiR2NpT2lKRlV6TTROQ0lzSW5nMWRTSTZJazFJV1hkRlFWbElTMjlhU1hwcU1FTkJVVmxHU3pSRlJVRkRTVVJaWjBGRmVXRXZhbmh3U0VObVRWcGlhazVLUTJwVWJtTmFjREJ3T1c4MFpHZGpUMFphYVZoc2NrRmpOMDlXWjBnMk5rNDJZblpQU2toTGRFRkxVMFl3V1RBNFRqTlBjM3BQVERORFZrRTNRV1pSY3pscllreExSVm8zTkhsRmFHeEtObUZJVDFGc2RUaG9TMGhsUmpGSk9FOXdkMnhSTTNoMVUya3diVnBGUm5JM1Z6QWlmUW8uZXlKamNHc2lPbnNpWTNKMklqb2lVQzB6T0RRaUxDSnJkSGtpT2lKRlF5SXNJbmdpT2lKNVlWOXFlSEJJUTJaTldtSnFUa3BEYWxSdVkxcHdNSEE1YnpSa1oyTlBSbHBwV0d4eVFXTTNUMVpuU0RZMlRqWmlkazlLU0V0MFFVdFRSakJaTURoT0lpd2llU0k2SWpOUGMzcFBURE5EVmtFM1FXWlJjemxyWWt4TFJWbzNOSGxGYUd4S05tRklUMUZzZFRob1MwaGxSakZKT0U5d2QyeFJNM2gxVTJrd2JWcEZSbkkzVnpBaWZTd2laWGh3SWpveE56a3dPVGt6TlRFNUxDSnBZWFFpT2pFM09UQTVPVE0wTlRsOUNnLlBURFlTVVEwWXFfQmFZWS1IZGttM1c5TEU5aXBvTTJZbE1VNktDNUZqRkNmZ1hhbEsyV2k5elFhLUhVNzBqaUZ4WWFLd3MycW5rZ0dUTHQ2ckdVM3lXd0tkU1ZZLWt4ZmdXdDkxM0xYNFhLOHAzRVYwMnBoNzZnV2RyQjFEWkVZXCJ9IiwiaWRwIjp7ImRvbWFpbiI6InNlbGYiLCJwcm90b2NvbCI6ImRlZmF1bHQifX0=";
-    /// The `a=fingerprint` digest of the same answer.
+    /// The `a=fingerprint` digest of the captured answer that `OFFICIAL_IDENTITY` comes from.
     const OFFICIAL_FINGERPRINT: &str = "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9";
+    /// The `a=identity` value of a captured official server answer.
+    const OFFICIAL_IDENTITY: &str = "eyJhc3NlcnRpb24iOiJ7XCJmaW5nZXJwcmludHNcIjpcImV5SmhiR2NpT2lKRlV6TTROQ0o5Li45N0M2d21LYXVlTnlIcVdHcU83ZXZuNVJnU09OZG54NFZLbDFCR0hRUzAwNzZoMm50akF2bXFlRjFiX1k2MXlnU2RpVjR4QnhoWThGcG5lNU5oMnlXRHZZNFBWX0l2UjFseXhtT2hKZW5HU2NzdmNIek5fSGR1VVlDTHZRT29rQ1wiLFwidG9rZW5cIjpcImV5SmhiR2NpT2lKRlV6TTROQ0lzSW5nMWRTSTZJazFJV1hkRlFWbElTMjlhU1hwcU1FTkJVVmxHU3pSRlJVRkRTVVJaWjBGRmVXRXZhbmh3U0VObVRWcGlhazVLUTJwVWJtTmFjREJ3T1c4MFpHZGpUMFphYVZoc2NrRmpOMDlXWjBnMk5rNDJZblpQU2toTGRFRkxVMFl3V1RBNFRqTlBjM3BQVERORFZrRTNRV1pSY3pscllreExSVm8zTkhsRmFHeEtObUZJVDFGc2RUaG9TMGhsUmpGSk9FOXdkMnhSTTNoMVUya3diVnBGUm5JM1Z6QWlmUW8uZXlKamNHc2lPbnNpWTNKMklqb2lVQzB6T0RRaUxDSnJkSGtpT2lKRlF5SXNJbmdpT2lKNVlWOXFlSEJJUTJaTldtSnFUa3BEYWxSdVkxcHdNSEE1YnpSa1oyTlBSbHBwV0d4eVFXTTNUMVpuU0RZMlRqWmlkazlLU0V0MFFVdFRSakJaTURoT0lpd2llU0k2SWpOUGMzcFBURE5EVmtFM1FXWlJjemxyWWt4TFJWbzNOSGxGYUd4S05tRklUMUZzZFRob1MwaGxSakZKT0U5d2QyeFJNM2gxVTJrd2JWcEZSbkkzVnpBaWZTd2laWGh3SWpveE56a3dPVGt6TlRFNUxDSnBZWFFpT2pFM09UQTVPVE0wTlRsOUNnLlBURFlTVVEwWXFfQmFZWS1IZGttM1c5TEU5aXBvTTJZbE1VNktDNUZqRkNmZ1hhbEsyV2k5elFhLUhVNzBqaUZ4WWFLd3MycW5rZ0dUTHQ2ckdVM3lXd0tkU1ZZLWt4ZmdXdDkxM0xYNFhLOHAzRVYwMnBoNzZnV2RyQjFEWkVZXCJ9IiwiaWRwIjp7ImRvbWFpbiI6InNlbGYiLCJwcm90b2NvbCI6ImRlZmF1bHQifX0=";
+    /// The key of the test player.
+    static PLAYER: OnceLock<ServerKey> = OnceLock::new();
 
     /// The key file in the folder `dir`.
     fn key_file(dir: &TempDir) -> PathBuf {
@@ -594,10 +583,6 @@ mod tests {
             NOW + 60 + 61,
         );
         assert!(matches!(late, Err(Error::Token(login::Error::Expired))));
-        assert!(matches!(
-            identity.assertion("AB:\"CD", NOW),
-            Err(Error::Fingerprint)
-        ));
     }
 
     #[test]
@@ -629,8 +614,6 @@ mod tests {
         );
     }
 
-    static PLAYER: OnceLock<ServerKey> = OnceLock::new();
-
     fn player() -> &'static ServerKey {
         PLAYER.get_or_init(|| ServerKey::generate().unwrap())
     }
@@ -658,7 +641,7 @@ mod tests {
 
     /// An assertion with `token` and a detached signature by `key` over `fingerprint`.
     fn assertion(token: String, key: &ServerKey, fingerprint: &sdp::Fingerprint) -> sdp::Assertion {
-        let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest).unwrap();
+        let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest);
         sdp::Assertion {
             token,
             fingerprints: sign_detached(key, signed.as_bytes()).unwrap(),
@@ -671,7 +654,7 @@ mod tests {
         key: &ServerKey,
         fingerprint: &sdp::Fingerprint,
     ) -> String {
-        let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest).unwrap();
+        let signed = fingerprint_payload(&fingerprint.algorithm, &fingerprint.digest);
         let token = sign_jwt_bytes(key, header.as_bytes(), signed.as_bytes()).unwrap();
         let mut parts = token.split('.');
         let (h, _, s) = (parts.next().unwrap(), parts.next(), parts.next().unwrap());
@@ -798,9 +781,7 @@ mod tests {
                     sign_jwt_bytes(
                         player(),
                         br#"{"alg":"ES384"}"#,
-                        fingerprint_payload("sha-256", &fp.digest)
-                            .unwrap()
-                            .as_bytes(),
+                        fingerprint_payload("sha-256", &fp.digest).as_bytes(),
                     )
                     .unwrap(),
                 ),
@@ -1015,7 +996,7 @@ mod tests {
         let claims =
             json!({"cpk": {"crv": "P-384", "kty": "EC", "x": x, "y": y}, "exp": NOW + 60, "iat": NOW})
                 .to_string();
-        let signed = fingerprint_payload(&fp.algorithm, &fp.digest).unwrap();
+        let signed = fingerprint_payload(&fp.algorithm, &fp.digest);
         let fingerprints = sign_detached(player(), signed.as_bytes()).unwrap();
         let passed = fuzz(claims.as_bytes(), 3000, |mutated| {
             let token = format!(
