@@ -21,10 +21,10 @@ paths:
 # Storage rules
 
 ## Data folder
-- Store with redb. Keep `data/` to these entries: `worlds/<world>.redb` (one per persistent world), `players.redb`, `main.redb` (save turn, operators, bans, whitelist, user server data, deletion marks of deleted worlds), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
+- Store with redb. Keep `data/` to these entries: `worlds/<world>.redb` (one per persistent world), `players.redb`, `main.redb` (the last save's meta value, operators, bans, whitelist, user server data, deletion marks of deleted worlds), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
 - Never store a setting in a data file: settings always follow `anchor.toml` and the code. Never store the weather: the server starts clear, and a cycle or persistence is built with the API.
 - Keep the data of one block or one player in exactly one file.
-- Check every world name with `storage::is_world_file_name`: `build()`, `create_world`, the import, the export, and the start's listing of `data/worlds/`.
+- Check every world name with `storage::is_world_file_name`: `build()`, the `level-name` setting, `create_world`, the import, the export, and the start's listing of `data/worlds/`.
 
 ## Records
 - Store blocks only as Bedrock disk-palette NBT `{name, states, version}`, never as runtime IDs.
@@ -32,9 +32,9 @@ paths:
 - Make every decoder check that each palette index is inside its palette and that the value ends exactly where its record ends.
 
 ## Changing the format
-- Raise `storage::seal::FORMAT_VERSION` by exactly 1 for every change of the storage format, and describe the new layout in that constant's rustdoc. The input log's format number follows the same rule. Both started at 1.
+- Raise `storage::seal::FORMAT_VERSION` by exactly 1 for every change of the storage format, and describe the new layout in that constant's rustdoc.
 - Keep the number for a change under which every file of the format reads exactly as before: widening a read limit only (such as the entries a list may hold), or reading an optional key no file of the format holds (one Anchor never wrote in that format and the import never carries).
-- Before release, read only the current format. The record decoders (`storage::codec`) know the current layout alone, and a value of any other format is corrupt. Never add reading or migration of old formats. The input log (`tick::log`) has its own format number, raised for every change of the log's layout or of a checkpoint codec's layout (`fields!`, `variants!`, a hand-written `Codec`), and also reads only its current format.
+- Before release, read only the current format. The record decoders (`storage::codec`) know the current layout alone, and a value of any other format is corrupt. Never add reading or migration of old formats. The input log has its own format number, `tick::log::FORMAT`: raise it by exactly 1 for every change of the log's layout or of a checkpoint codec's layout (`fields!`, `variants!`, a hand-written `Codec`), describe the new layout in its rustdoc, and read only its current format.
 - Test every format change: a round trip of the new format, a value of another format refused as damage with its file unchanged, and no panic on broken values.
 
 ## Saving and committing
@@ -46,7 +46,7 @@ paths:
 - Commit no snapshot after a failed commit.
 - Make the main file's commit the one point a save is made at. In every players and world file a save writes, keep one redb persistent savepoint in the same write transaction as its data and meta, made before any data table opens, and delete the one before (`Storage::commit_with_savepoint`); the main file keeps none.
 - Do what cannot be undone (removing a world file, renaming or pruning a backup) only after the main file's commit of the save that holds it.
-- Put the deletion of a world into the main file's commit (a deletion mark, `Key::Deleted`), remove its file only after that commit, and make the next start finish a marked deletion before anything else (`save::finish_deletions`).
+- Put the deletion of a world into the main file's commit (a deletion mark, `Key::Deleted`), remove its file only after that commit, and make the next start finish a marked deletion as soon as it opens the main file, before it rolls any file back (`save::finish_deletions`).
 - When a world is made again under the name of a world whose deletion no commit holds yet, delete every value of the old world in the new world's first commit of that file (`Batch::clear`).
 - Make a clean shutdown (Ctrl+C, `stop`, and the like) commit the last tick boundary's snapshot to every file, finish any backup in progress, then delete each open file's savepoint and commit the normal-stop mark to it: zero duplication, zero loss.
 - Make the next start roll every file later than the main file back to the main file's last save (`storage::settle`): remove a file whose savepoint holds no save and no world record, and refuse the start, keeping the file as it is, when the file has no savepoint or its savepoint is later too. Keep the roll back idempotent.

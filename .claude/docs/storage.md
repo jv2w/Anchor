@@ -25,7 +25,7 @@ Every data file is a redb database. Every file has the same tables (`meta`, `wor
 
 | Table | Key | Value |
 |---|---|---|
-| `meta` | `meta` | The save turn the file last committed: engine tick u64, then the commit identity (a flag byte and a u64) |
+| `meta` | `meta` | The save the file last committed: engine tick u64, then the commit identity (a flag byte, then a u64 if the flag is set) |
 | `meta` | `closed` | The normal-stop mark (empty value) |
 | `meta` | `deleted:` and a world name | A deletion mark: the save the main file holds deleted that world (main file only) |
 | `worlds` | `world` | The world record: number u32, world time i64, spawn i32 x, y, z |
@@ -55,7 +55,7 @@ Every value is a 12-byte header and a body, little-endian.
 | 4 to 7 | Record length before compression, u32 |
 | 8 to 11 | CRC-32C over the key, the first 8 header bytes and the body |
 
-- The checksum covers the key, so a value moved under another key is caught, and the version bytes, so a newer value (a matching checksum, a larger version) is told from a damaged one.
+- The checksum covers the key, so a value moved under another key is caught, and the version bytes ("Format version").
 - A record holds at most `storage::seal::MAX_RECORD_BYTES` bytes before compression. The largest sub-chunk value takes about 0.92 MB with 4,096 vanilla states and about 9.4 MB with 4,096 custom states of the longest NBT; a whole column would take up to 24 times that, which is why the terrain is stored by sub-chunk. A record decoder may allocate `storage::seal::DECODE_BUDGET`.
 - Records under 64 bytes are stored as they are. Compression is libdeflate level 6: levels 9 and 12 are 1.2% and 4.1% smaller on a whole imported world, and both slower.
 - redb's reads do not verify its page checksums, so every value carries its own.
@@ -69,13 +69,13 @@ The checksum is checked before the version, so a flipped version byte is damage,
 ## Save cycle and commit
 
 1. Snapshot: at a tick boundary, the tick takes what changed since the last snapshot (the changed sub-chunks, which it shares with the live world, the extras lists, the world records, the player data, the changed `access` and `user` entries, the meta value) and queues it for the save thread.
-2. A snapshot is taken: every `save-interval-minutes`; on `Context::save` and `/save all`; on `Context::backup`, `backup` and `/check`; on an operator, ban or whitelist change; when more than 4,096 unloaded chunks or 4,096 departed players wait for a commit; when the input log asks for one (`architecture.md`); and at a clean shutdown. `/save-off` stops only the periodic one: the others bound memory or were asked for. While a snapshot is still being committed, the next waits for a later tick boundary; the final snapshot of a shutdown queues behind it.
-3. Commit (`save::commit`): the world files, then the players file, then the main file. A world file or the players file with nothing changed is not written; the main file is written by every commit, as it carries the save turn. A world record is written only when its time or spawn changed. The terrain and extras of the chunks are sealed and compressed on the CPU pool.
+2. A snapshot is taken: every `save-interval-minutes`; on `Context::save` and `/save all`; on `Context::backup`, `backup` and `/check`; on an operator, ban or whitelist change; when a persistent world unloads; when more than 4,096 unloaded chunks or 4,096 departed players wait for a commit; when the input log asks for one (`architecture.md`); and at a clean shutdown. `/save-off` stops only the periodic one: the others bound memory or were asked for. While a snapshot is still being committed, the next waits for a later tick boundary; the final snapshot of a shutdown queues behind it.
+3. Commit (`save::commit`): the world files, then the players file, then the main file. A world file or the players file with nothing changed is not written; the main file is written by every commit, as it carries the save's `meta` value. A world record is written only when its time or spawn changed. The terrain and extras of the chunks are sealed and compressed on the CPU pool.
 4. The commit's answer is an input of a later tick. Until it arrives the snapshot's data stays in memory, so a chunk unloaded and loaded again comes from memory, and a read from the disk always sees the newest commit.
 
 Leaving, chunk unloading and world unloading wait for the next snapshot so that no file holds another moment than the others.
 
-A failed commit drops redb's database, opens it again on the same file handle, which keeps redb's lock in between, and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log since the last commit is written to `data/crash/`, and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries stops the server the same way, without saving.
+A failed commit drops redb's database, opens it again on the same file handle, which keeps redb's lock in between, and tries again, up to 3 times (`storage::RETRIES`). If it still fails, the tick stops, every player is disconnected, the input log is written to `data/crash/` (`architecture.md`), and `Server::run` returns `Error::Storage`. No later snapshot is committed: it would write a state that lacks the failed changes. A chunk batch whose read still fails after the same retries stops the server the same way, without saving.
 
 The data-file errors `Error::DataDamaged`, `Error::DataNewerFormat` and `Error::Storage` carry the file in their `path` field. The place that knows the file adds it (`storage::Error::in_file`); a failure of no single file (the listing of `data/worlds/`, the save thread stopping) carries the data folder or the world folder.
 
@@ -105,17 +105,17 @@ A crash (a killed process, a power cut, a panic of the tick or the save thread):
 - A commit to one file is a redb transaction: it lands whole or not at all. The next open has redb recover the file.
 - The changes since the last commit are lost.
 - A crash between the files of one save leaves the files written before the main file at the new save. The next start, before it opens them, rolls each such file back to the savepoint its last commit kept (`storage::settle`), or removes it when that save made it, and logs it as a warning: every file then holds the main file's last save. A file that cannot be rolled back, whatever the cause (no savepoint, a savepoint that is later too, a removal or write that fails), refuses the start with its bytes as they were. Without a main file nothing is rolled back. An earlier file is normal: one that did not change, so a save did not write it.
-- The data of one block or one player is in one file, so it is never two within that file.
+- The data of one block or one player is in one file, so once every file holds one save, no item is in two states (two copies of a stack, or a block both broken and placed).
 - A new data folder (`data/`, `data/worlds/`, a backup folder, made by `fs::create_dir_all_durable`), a new data file, a world file's deletion, a backup's rename, and an atomic write (`fs::write_atomic`: the settings file, `auth.json`, `identity.key`) flush their folder afterwards (`fs::sync_parent`): on Unix, flushing a file does not make its name durable. Windows cannot flush a folder (opening one to flush it is refused), so nothing is flushed there; NTFS journals entry changes, so a crash leaves the old entry or the new one.
 - An atomic write removes a `<name>.tmp` a crash left and writes a new file: the old one keeps the mode it was made with, and whoever opened it then could read the new bytes. So `identity.key` is always 0600 on Unix.
-- When the tick thread panics, its request queue closes without `Finish` and the save thread commits none of the requests left. When the save thread panics, nothing more is committed. Either way the files get no normal-stop mark.
+- After a panic of the tick or the save thread nothing more is committed (`architecture.md`), so the files get no normal-stop mark.
 
 Why one savepoint per file: the pages it holds are freed when the next save deletes it, so a file grows by at most one save's changes; a normal stop deletes it.
 
 Limits:
 
 - What user callbacks did to outside systems (files, network) is not undone by a crash.
-- redb defects not fixed upstream (`dependencies.md`): a crafted file with matching checksums can cause a large allocation, and page damage made by hardware while the server runs makes a read panic, which stops the server without saving (the next start's check refuses the file).
+- The redb defects not fixed upstream (`dependencies.md`).
 - With `integrity-check = "never"`, a start runs no redb integrity check; damage shows only when a value is read.
 - On Windows, a file creation or rename just before a power cut can be lost.
 
@@ -131,7 +131,7 @@ A start does this for each file (`Storage::open`):
 
 Between opening the main file and the others, every players and world file later than the main file is rolled back (see "Clean shutdown and crash").
 
-Why the check must not write: redb's open writes the header, a repair commits, and the close commits the allocator state. The backend keeps those writes in memory, so the original bytes stay without a copy. The writes are small, the header and the allocator state: 24 KiB for a 96 KiB file and 52 KiB for a 368 MiB world, the same for a file a crash left. The backend keeps at most 16 MiB of writes, past which that file's start fails with an error; the allocator state grows with the file, so files hundreds of times larger than that world fit.
+Why the check must not write: redb's open, repair and close write the file (`dependencies.md`). The backend keeps those writes in memory, so the original bytes stay without a copy. The writes are small, the header and the allocator state: 24 KiB for a 96 KiB file and 52 KiB for a 368 MiB world, the same for a file a crash left. The backend keeps at most 16 MiB of writes, past which that file's start fails with an error; the allocator state grows with the file, so files hundreds of times larger than that world fit.
 
 What keeps the check cheap (the same check over the same pages): the backend reads the file 256 KiB at a time and keeps the 16 most recent blocks (4 MiB), and redb's page cache is off. redb's check reads page by page, mostly in file order: on a 368 MiB world this made 3,241 read calls instead of 185,770 and took 350 to 481 ms instead of 631 to 878 ms. Blocks of 64 KiB to 1 MiB, or fewer blocks, read more and were slower. A 64 MiB redb page cache was slower than none (545 to 630 ms against 333 to 517 ms): its evictions cost more than it spared. So checking a file takes 4 MiB and its writes, whatever the file's size.
 
@@ -139,11 +139,11 @@ A server start (`Server::run`) runs step 1 for the main file, the players file a
 
 Why a start needs no compaction: later commits reuse the pages copy-on-write freed, and only data that shrinks leaves free pages at the end of the file; deleting a world deletes its file.
 
-The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps, without redb's integrity check (never made while the server runs), when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a declared persistent world's file does not open at the start (the open writes, so it can fail after the check passed: a read-only file, a backup folder that cannot be written), the start is refused, as for the main and players files. If a world file does not open while the server runs, or a replay's world has no copy or its copy does not open, every chunk of that world is quarantined and nothing of it is saved.
+The files a start opens are the main file, the players file and the declared persistent worlds'. Another world file goes through the same steps, without redb's integrity check (never made while the server runs), when it is first opened. A start only reads the record of an undeclared world file; if a crash left that file for redb to repair, the start opens it through the same steps without a start backup, and it gets its backup when it is loaded. If a declared persistent world's file does not open at the start (the open writes, so it can fail after the check passed: a read-only file, a backup folder that cannot be written), the start is refused, as for the main and players files. A replay's world without a copy, or whose copy does not open, has every chunk quarantined.
 
 ### Start cost
 
-A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integrity-check = "always"`, a release build, the measurement `storage::tests::measure_data_folder_start` (its rustdoc tells how to run it). Warm means the files are in the OS cache. Cold means, on Windows, after an open with `FILE_FLAG_NO_BUFFERING` evicted them, and on WSL after `drop_caches` (not fully cold: Windows may cache the disk image). Other programs were building and writing to disk during the runs, so each value is the range of several runs.
+A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integrity-check = "always"`, a release build, the measurement `storage::tests::measure_data_folder_start` (its rustdoc tells how to run it). Warm means the files are in the OS cache. Cold means, on Windows, after an open with `FILE_FLAG_NO_BUFFERING` evicted them, and on WSL after `drop_caches` (not fully cold: Windows may cache the disk image). Each value is the range of several runs.
 
 | Stage | Windows warm | Windows cold | WSL ext4 warm | WSL ext4 cold |
 |---|---|---|---|---|
@@ -169,10 +169,10 @@ A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integ
 - Place and name: `data/backups/<file>/<unix seconds>[-n].redb`, a world's in `data/backups/worlds/<world>/`. A second backup in the same second takes `-n`, and after the clock went back a name keeps the newest second found, so name order is time order.
 - Each file keeps its `max-backups` newest backups (start and online backups counted together), so the disk holds up to that many backup copies of each file besides the one being made. Old backups are removed only once the new one is whole.
 - Every backup is written as `.tmp`, flushed and renamed, so a cut copy never counts as a backup and pushes out a good one. A start removes, after opening the file (under redb's lock), the `.tmp` files a cut run left. If it cannot, it logs an error and opens the file all the same; the next backup skips the name left.
-- Start backup: with `backups = true`, a start copies the first commit of each file it opened that existed before, as an online backup does. A file refused as damaged or of a newer format is never opened, so it has no start backup. The server takes players without waiting for it. A start backup that cannot begin is logged as an error and the file opens without it. A backup asked for while a start backup runs is not made. A clean stop finishes the start backup in progress; a crash leaves only its `.tmp`, which is never taken for a backup and which the next start removes before it makes its own start backup, and the earlier backups remain. It holds the same data as the closed file (the same save turn), in bytes redb wrote anew, which differ from the original's.
+- Start backup: with `backups = true`, a start copies the first commit of each file it opened that existed before, as an online backup does. A file refused as damaged or of a newer format is never opened, so it has no start backup. The server takes players without waiting for it. A start backup that cannot begin is logged as an error and the file opens without it. A backup asked for while a start backup runs is not made. A clean stop finishes the start backup in progress; a crash leaves only its `.tmp`, which is never taken for a backup and which the next start removes before it makes its own start backup, and the earlier backups remain. It holds the same data as the closed file (the same save), in bytes redb wrote anew, which differ from the original's.
 - Online backup (`Context::backup`, the `backup` command for operators): once the next snapshot is committed, the save thread copies every open file from one read transaction of that commit into `.tmp`, 8 MiB per step, serving other requests between steps. The step commits are not flushed; a whole copy ends with one durable commit, a close, a flush and the rename. On failure it removes the `.tmp`, logs an error, and the server runs on. A backup asked for while one is being made is not made.
 - With `backups = false` no start backup is made and `Context::backup` returns `false`.
-- To restore, the operator stops the server and copies the files of one backup turn into place together.
+- To restore, the operator stops the server and copies into place together the backups of every file that hold one save (the same `meta` value).
 
 ## Replay and data files
 
@@ -211,7 +211,7 @@ A data folder of 381 MB (main 56 KiB, players 84 KiB, one world 368 MiB), `integ
 Every start's settings come only from `anchor.toml` and the code (`ServerBuilder`, and `world::Options` for a world made while running). So a data file and the settings never hold different values with one winning, and a changed setting takes effect at the next start.
 
 - A setting changed through the API while running (server or world difficulty, game rules, `motd`, `max-players`, the whitelist switch, and the like) is back to the settings' value after a restart. The per-world time stop (`Context::stop_time`), which has no setting key, starts off.
-- With `level-seed` empty, a world's seed is the first 8 bytes of the SHA-256 of its name: the same at every start and different between worlds.
+- With `level-seed` empty, a world's seed is the first 8 bytes, little-endian, of the SHA-256 of its name in one letter case (`storage::world_name_key`): the same at every start and different between worlds.
 - A world file keeps only state: the number, time, spawn and chunks. The time goes on, and the day cycle continues from it.
 - The world spawn is state, not a setting: a spawn moved with `World::set_spawn` stays after a restart. The settings' `spawn` and `world::Options::with_spawn` place only a new world's first spawn, one without a record.
 - With `save-player-data = false`, no player data is saved.
