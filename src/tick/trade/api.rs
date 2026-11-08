@@ -42,7 +42,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// As [`Self::set_trade_offers`] for the list with `offer` added.
+    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
+    /// for an offer [`check_offers`] refuses or a list it would make too long or too large.
+    /// Nothing is changed then.
     pub fn add_trade_offer(&mut self, villager: Id, offer: &Offer) -> custom::Result<()> {
         let stored = to_stored(offer);
         change(self.state, villager, |o| o.add(stored))
@@ -62,8 +64,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// As [`Self::set_trade_offers`] for the list with the offer replaced, and
-    /// [`custom::Error::Offer`] when there is no offer at `index`.
+    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
+    /// for an offer [`check_offers`] refuses, a list it would make too large, or no offer at
+    /// `index`. Nothing is changed then.
     pub fn replace_trade_offer(
         &mut self,
         villager: Id,
@@ -158,7 +161,7 @@ pub fn check_offers(offers: &[Offer]) -> custom::Result<()> {
     new_offers(offers).map(drop)
 }
 
-/// Builds the stored offers of a new villager trading `offers` ([`check_offers`]).
+/// The stored offers of a new villager trading `offers` ([`check_offers`]).
 pub(in crate::tick) fn new_offers(offers: &[Offer]) -> custom::Result<Offers> {
     let mut stored = Offers::default();
     stored

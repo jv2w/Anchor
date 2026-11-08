@@ -55,8 +55,11 @@ const DEFAULT_TIER_XP: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 const DEMAND: &str = "demand";
 /// The first network ID of an offer; `CraftingData` is empty, so no crafting recipe takes one.
 pub(super) const FIRST_NET_ID: u32 = 1;
-/// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
-/// reader's budget to read back: half of one NBT root
+/// The most a villager's saved offers may take from the allocation budget of the reader that
+/// reads them back ([`Cost::alloc`](crate::nbt::Cost)): four times their bytes, as a stack's
+/// NBT may.
+const MAX_SAVED_ALLOC: usize = 4 * MAX_SAVED_BYTES;
+/// The most bytes a villager's saved offers take ([`Offers::to_nbt`]): half of one NBT root
 /// ([`MAX_ROOT_BYTES`](crate::nbt::MAX_ROOT_BYTES)), which the villager's entity and its
 /// `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of three stacks could take 36 MiB
 /// (`item::MAX_NBT_BYTES` each).
@@ -130,7 +133,7 @@ pub(in crate::tick) struct Offers {
 }
 
 impl Offers {
-    /// Reads the offers of a saved entity (its `Offers` compound). Offers Anchor cannot use are
+    /// The offers of a saved entity (its `Offers` compound). Offers Anchor cannot use are
     /// skipped with a warning and kept to be written back; a bad tier, xp or tier
     /// requirement list falls back to its default with a warning. Custom items are read
     /// through `custom`, the server's custom content.
@@ -427,13 +430,13 @@ impl Offers {
         self.first_net_id?.checked_add(index)
     }
 
-    /// Keeps a change of the offers if their saved form still fits [`MAX_SAVED_BYTES`] (and
-    /// reads back within four times that); otherwise `undo` puts the old offers back.
+    /// Keeps a change of the offers if their saved form still fits [`MAX_SAVED_BYTES`] and
+    /// [`MAX_SAVED_ALLOC`]; otherwise `undo` puts the old offers back.
     fn kept_if_saved(&mut self, undo: impl FnOnce(&mut Vec<StoredOffer>)) -> Result<()> {
         let mut w = Writer::new(Vec::new(), 0);
         let fits = w
             .nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
-            .is_ok_and(|c| c.alloc <= 4 * MAX_SAVED_BYTES);
+            .is_ok_and(|c| c.alloc <= MAX_SAVED_ALLOC);
         if !fits {
             undo(&mut self.list);
             return Err(Error::TooLarge);
@@ -516,7 +519,7 @@ pub(in crate::tick) struct StoredOffer {
 }
 
 impl StoredOffer {
-    /// Builds an offer of `sell` for `buy_a` (and `buy_b`, or empty) at most `max_uses` times,
+    /// An offer of `sell` for `buy_a` (and `buy_b`, or empty) at most `max_uses` times,
     /// with the defaults of [`Offer::new`](crate::custom::Offer::new) and exact payment damage.
     #[cfg(test)]
     pub(in crate::tick) fn new(buy_a: Stack, buy_b: Stack, sell: Stack, max_uses: u32) -> Self {
@@ -581,7 +584,7 @@ impl StoredOffer {
         self.max_uses.saturating_sub(self.uses)
     }
 
-    /// Reads the offer an offer compound holds, or why it cannot be used. The price is
+    /// The offer an offer compound holds, or why it cannot be used. The price is
     /// `buyCountA` (the actual count) when present, otherwise the item's `Count`. Custom items
     /// are read through `custom`.
     fn from_nbt(c: &Compound, custom: &Registry) -> Result<Self, &'static str> {
@@ -827,7 +830,7 @@ fn item_nbt(stack: &Stack, damage: Damage) -> Value {
     Value::Compound(c)
 }
 
-/// Reads a payment item with its price and damage rule: the count under `count_key` if present
+/// A payment item with its price and damage rule: the count under `count_key` if present
 /// (1 to the stack size), otherwise the item's own count.
 fn payment(
     c: &Compound,
@@ -857,7 +860,7 @@ fn payment(
     }
 }
 
-/// Reads the item under `key`: `None` if absent or empty air.
+/// The item under `key`: `None` if absent or empty air.
 fn item(c: &Compound, key: &str, custom: &Registry) -> Result<Option<Stack>, &'static str> {
     match c.get(key) {
         Some(Value::Compound(item)) => {
@@ -869,7 +872,7 @@ fn item(c: &Compound, key: &str, custom: &Registry) -> Result<Option<Stack>, &'s
     }
 }
 
-/// Reads a non-negative `TAG_Int` under `key`, if present.
+/// The non-negative `TAG_Int` under `key`, if present.
 fn counter(c: &Compound, key: &str) -> Result<Option<u32>, &'static str> {
     match c.get(key) {
         Some(Value::Int(v)) => u32::try_from(*v).map(Some).map_err(|_| "negative counter"),
@@ -878,7 +881,7 @@ fn counter(c: &Compound, key: &str) -> Result<Option<u32>, &'static str> {
     }
 }
 
-/// Reads a price multiplier under `key` (the default if absent).
+/// The price multiplier under `key` (the default if absent).
 fn float(c: &Compound, key: &str) -> Result<f32, &'static str> {
     match c.get(key) {
         Some(Value::Float(v)) => Ok(*v),
@@ -887,7 +890,7 @@ fn float(c: &Compound, key: &str) -> Result<f32, &'static str> {
     }
 }
 
-/// Reads the tier requirements of a `TierExpRequirements` list: exactly one compound per tier,
+/// The tier requirements of a `TierExpRequirements` list: exactly one compound per tier,
 /// the `i`-th holding only the int key `"i"`, as [`is_tier_xp`] takes them; `None`
 /// otherwise.
 fn tier_xp(value: &Value) -> Option<[u32; TRADE_TIERS]> {
@@ -940,7 +943,7 @@ pub(in crate::tick) mod tests {
         }
     }
 
-    /// Builds offers of the shapes the official server sends: a plain offer, one with a second
+    /// Offers of the shapes the official server sends: a plain offer, one with a second
     /// payment and a block item, an enchanted sale, a locked tier.
     pub(in crate::tick) fn sample() -> Offers {
         let mut offers = Offers::default();
