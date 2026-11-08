@@ -1,6 +1,6 @@
 //! The vanilla data packets of the spawn window that are the same for every server and player:
 //! the jigsaw structure data, the entity property definitions and the camera presets, built
-//! once at start from the committed data the official server 1.26.52 sends (P6).
+//! once at start from the committed data the official server sends (P6).
 
 use serde::Deserialize;
 
@@ -28,7 +28,7 @@ const ENTITY_PROPERTIES: &[u8] =
 const ENTITY_PROPERTY_TYPES: usize = 13;
 
 /// `jigsaw_structure_data.nbt` as network NBT (`cargo xtask dump`), sent as it
-/// is; the official server 1.26.52 sent that `StructureData` (P6 `bot worlddata`). Without it the
+/// is; the official server sent that `StructureData` (P6 `bot worlddata`). Without it the
 /// official client leaves the join with "disconnectionScreen.missingStructureData".
 const JIGSAW_STRUCTURE_DATA: &[u8] =
     include_bytes!("../../../xtask/data/reference/jigsaw_structure_data.dat");

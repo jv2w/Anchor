@@ -1,7 +1,7 @@
 //! Joining and spawning: the saved player data, the start-game packets, the chunk radius and the
 //! spawn status.
 //!
-//! The packet order and the values follow what the official server 1.26.52 sends (P6,
+//! The packet order and the values follow what the official server sends (P6,
 //! `xtask/data/p6/facts.md`); the packets it sends that Anchor does not send are listed in `xtask/data/p6/deferred.txt`. The
 //! player list is kept for everyone: a placed player gets the whole list in its window and is added
 //! to everyone else's, and a player who leaves is removed from the others' lists.
@@ -55,11 +55,11 @@ use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::{World, biome};
 
 /// What a player whose saved data is damaged sees.
-const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
+const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged: ask the server operator";
 /// The position the official server's `SetSpawnPosition` carries for a default spawn (P6).
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The entity types of `AvailableActorIdentifiers`: `entity_identifiers.dat`
-/// (8,971 bytes), sent as it is; the official server 1.26.52 sent the file byte for byte (P6).
+/// (8,971 bytes), sent as it is; the official server sent the file byte for byte (P6).
 const ENTITY_IDENTIFIERS: &[u8] =
     include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
 /// The join message, the yellow "joined the game" line: the official server sends a translated
@@ -100,7 +100,7 @@ const RESPAWN_SEARCH_Y: f64 = 32_768.0;
 const REWIND_HISTORY_SIZE: i32 = 40;
 /// The dimension the official server's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
-/// The block collision shapes the official server 1.26.52 sends in `VoxelShapes`:
+/// The block collision shapes the official server sends in `VoxelShapes`:
 /// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
 /// bytes) equal the official server's (P6).
 const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
@@ -130,7 +130,7 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
+    /// The batches built with the server's batch settings. Fails if a packet cannot be encoded
     /// or its batch is larger than `max-batch-bytes`.
     ///
     /// With the server's custom content: the custom items after the vanilla ones in the item
@@ -263,7 +263,7 @@ pub(super) struct Pending {
     /// `StartGame` and the item registry.
     start_game: bool,
     /// The answer to the chunk radius requests of the tick.
-    pub(super) radius: Option<RadiusAnswer>,
+    radius: Option<RadiusAnswer>,
     /// `PlayStatus(PlayerSpawn)`: the spawn chunks were sent.
     pub(super) spawn_status: bool,
     /// The player's creative inventory again: it was switched once the client asked for its
@@ -273,7 +273,7 @@ pub(super) struct Pending {
 
 /// The answer to a chunk radius request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) struct RadiusAnswer {
+struct RadiusAnswer {
     /// The granted radius.
     radius: u8,
     /// The first answer: the spawn position, the creative inventory and `CraftingData` go first.
@@ -294,7 +294,7 @@ struct Window {
 }
 
 impl Window {
-    /// Builds what the spawn windows of `marked` share; empty when none goes out this tick.
+    /// What the spawn windows of `marked` share; empty when none goes out this tick.
     fn new(state: &State, marked: &[Marked<'_>]) -> Self {
         let mut worlds = BTreeMap::new();
         for Marked { player: p, .. } in marked {
@@ -759,31 +759,6 @@ fn spawn_window(
     out.push(packet(attributes));
 }
 
-/// Builds a player's entry in the player list (P6): the skin and device the client
-/// sent at login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the
-/// server-verified one; the official server's value is not confirmed).
-fn list_entry(player: &Player) -> PlayerListEntry {
-    PlayerListEntry {
-        action_type: PlayerListAction::Add.into(),
-        uuid: player.identity.uuid,
-        entity_unique_id: super::entity::unique_id(player.runtime_id),
-        username: player.identity.name.clone(),
-        xuid: player
-            .identity
-            .xuid
-            .map_or_else(String::new, |x| x.to_string()),
-        playfab_id: player.identity.client.playfab_id.clone(),
-        platform_chat_id: String::new(),
-        // The official server sends the login's device.
-        build_platform: player.identity.device_os,
-        skin: Arc::clone(player.identity.skin.shared()),
-        teacher: false,
-        host: false,
-        sub_client: false,
-        player_colour: PLAYER_LIST_COLOUR,
-    }
-}
-
 /// Builds the `PlayerList` packets that list `players` in order: each of at most
 /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries and of at most `max_batch_bytes` in a batch. One
 /// entry alone always fits ([`MAX_LIST_ENTRY_BYTES`]).
@@ -821,6 +796,31 @@ fn announce(state: &mut State, player: &Player) {
         if gets_list_changes(p) {
             p.send_shared(Arc::clone(&packet));
         }
+    }
+}
+
+/// Builds a player's entry in the player list (P6): the skin and device the client
+/// sent at login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the
+/// server-verified one; the official server's value is not confirmed).
+fn list_entry(player: &Player) -> PlayerListEntry {
+    PlayerListEntry {
+        action_type: PlayerListAction::Add.into(),
+        uuid: player.identity.uuid,
+        entity_unique_id: super::entity::unique_id(player.runtime_id),
+        username: player.identity.name.clone(),
+        xuid: player
+            .identity
+            .xuid
+            .map_or_else(String::new, |x| x.to_string()),
+        playfab_id: player.identity.client.playfab_id.clone(),
+        platform_chat_id: String::new(),
+        // The official server sends the login's device.
+        build_platform: player.identity.device_os,
+        skin: Arc::clone(player.identity.skin.shared()),
+        teacher: false,
+        host: false,
+        sub_client: false,
+        player_colour: PLAYER_LIST_COLOUR,
     }
 }
 
@@ -1160,7 +1160,7 @@ pub(super) fn player_loaded(
     };
     if let Some(refusal) = since_login {
         let reason = refusal.to_message();
-        info!(session = session.get(), player = key.as_str(), %reason, "join rejected after loading");
+        info!(session = session.get(), player = %player.identity.name, %reason, "join rejected after loading");
         refuse_loaded(state, session, refusal.packet(), output);
         return;
     }

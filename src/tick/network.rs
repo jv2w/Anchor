@@ -128,7 +128,8 @@ impl Network {
     }
 
     /// Hands this tick's controls to the networking without waiting. The networking takes them
-    /// as they come; if it has fallen four ticks behind, the rest are dropped with a warning.
+    /// as they come; if it has fallen [`CONTROL_QUEUE_TICKS`](super::queue::CONTROL_QUEUE_TICKS)
+    /// ticks behind, the rest are dropped with a warning.
     pub(super) fn flush(&mut self) {
         let Some(link) = &self.link else {
             self.controls.clear();
