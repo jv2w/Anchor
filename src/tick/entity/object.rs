@@ -153,75 +153,95 @@ fn is_overlapping_painting(
         })
 }
 
-/// Whether a painting of `motive` facing `facing` fits from the block `pos` (without the overlap
-/// check of [`can_hang`]): each block it covers is not solid and has a solid block behind it. `None` when that cannot be told: no block fails, and one of them is not
-/// loaded or outside the world.
-pub(super) fn fits(
-    world: &World,
-    pos: BlockPos,
-    facing: Face,
-    motive: PaintingMotive,
-) -> Option<bool> {
+/// Whether a painting of `motive` hung at `pos` facing `facing` has a free block in front of a
+/// solid wall block for every block it covers (without the overlap check of [`can_hang`]), or
+/// `None` when no block fails but some block cannot be read.
+fn fits(world: &World, pos: BlockPos, facing: Face, motive: PaintingMotive) -> Option<bool> {
     if !is_horizontal(facing) {
         return Some(false);
     }
-    let (horizontal, vertical) = starts(motive);
-    let (cx, _, cz) = rotate_clockwise(facing).offset();
-    let (bx, _, bz) = facing.opposite().offset();
-    let start = pos.offset(cx * horizontal, -vertical, cz * horizontal)?;
-    let mut known = true;
-    for w in 0..i32::from(motive.width()) {
-        for h in 0..i32::from(motive.height()) {
-            // The painting runs counter-clockwise from its start.
-            let at = start.offset(-cx * w, h, -cz * w);
-            let block = at.and_then(|p| world.block(p));
-            let behind = at
-                .and_then(|p| p.offset(bx, 0, bz))
-                .and_then(|p| world.block(p));
-            match (block, behind) {
-                (Some(block), Some(behind)) => {
-                    if block.is_solid() || !behind.is_solid() {
+    let (clockwise_blocks, down_blocks) = starts(motive);
+    let (clockwise_x, _, clockwise_z) = rotate_clockwise(facing).offset();
+    let first = pos.offset(
+        clockwise_x * clockwise_blocks,
+        -down_blocks,
+        clockwise_z * clockwise_blocks,
+    )?;
+    let wall = facing.opposite();
+    let mut is_any_unread = false;
+    for across in 0..i32::from(motive.width()) {
+        for up in 0..i32::from(motive.height()) {
+            // The cells run counterclockwise from the most clockwise one.
+            let Some(cell) = first.offset(-clockwise_x * across, up, -clockwise_z * across) else {
+                is_any_unread = true;
+                continue;
+            };
+            let behind = cell.step(wall).and_then(|behind| world.block(behind));
+            match (world.block(cell), behind) {
+                (Some(front), Some(back)) => {
+                    if front.is_solid() || !back.is_solid() {
                         return Some(false);
                     }
                 }
-                _ => known = false,
+                _ => is_any_unread = true,
             }
         }
     }
-    known.then_some(true)
+    if is_any_unread { None } else { Some(true) }
 }
 
-/// The box of a painting of `motive` facing `facing` that hangs in the block `pos`.
+/// The box a painting of `motive` hung at `pos` facing `facing` takes up: 1/16 thick against the
+/// wall and covering every block it hangs over.
 pub(super) fn painting_box(pos: BlockPos, facing: Face, motive: PaintingMotive) -> Aabb {
-    let (horizontal, vertical) = starts(motive);
-    let (width, height) = (i32::from(motive.width()), i32::from(motive.height()));
-    let mut min = Vec3::ZERO;
-    let mut max = Vec3::new(1.0, 1.0, 1.0);
-    let mut extend = |face: Face, d: f64| match face {
-        Face::Down => min.y -= d,
-        Face::Up => max.y += d,
-        Face::North => min.z -= d,
-        Face::South => max.z += d,
-        Face::West => min.x -= d,
-        Face::East => max.x += d,
-    };
-    extend(facing, -PAINTING_TRIM);
-    extend(rotate_clockwise(facing), f64::from(horizontal));
-    extend(
-        rotate_clockwise(facing).opposite(),
-        f64::from(width - 1 - horizontal),
-    );
-    extend(Face::Down, f64::from(vertical));
-    extend(Face::Up, f64::from(height - 1 - vertical));
-    let at = pos.to_corner();
-    Aabb::new(min + at, max + at)
+    let (clockwise_blocks, down_blocks) = starts(motive);
+    let (facing_x, facing_y, facing_z) = facing.offset();
+    let (low_x, high_x) = wall_slab(facing_x);
+    let (low_y, high_y) = wall_slab(facing_y);
+    let (low_z, high_z) = wall_slab(facing_z);
+    let corner = pos.to_corner();
+    let clockwise = rotate_clockwise(facing);
+    Aabb::new(
+        corner + Vec3::new(low_x, low_y, low_z),
+        corner + Vec3::new(high_x, high_y, high_z),
+    )
+    .stretch(toward(clockwise, clockwise_blocks))
+    .stretch(toward(
+        clockwise.opposite(),
+        i32::from(motive.width()) - 1 - clockwise_blocks,
+    ))
+    .stretch(toward(Face::Down, down_blocks))
+    .stretch(toward(
+        Face::Up,
+        i32::from(motive.height()) - 1 - down_blocks,
+    ))
 }
 
-/// The blocks a motive reaches to the clockwise side and down from the block it hangs in:
-/// `ceil(size / 2) - 1`.
+/// The span of one block cell along an axis whose facing component is `component`, trimmed to the
+/// 1/16 against the wall on the facing axis.
+fn wall_slab(component: i32) -> (f64, f64) {
+    match component {
+        ..0 => (PAINTING_TRIM, 1.0),
+        0 => (0.0, 1.0),
+        1.. => (0.0, 1.0 - PAINTING_TRIM),
+    }
+}
+
+/// The vector of `blocks` blocks toward `face`.
+fn toward(face: Face, blocks: i32) -> Vec3 {
+    let (x, y, z) = face.offset();
+    Vec3::new(
+        f64::from(x * blocks),
+        f64::from(y * blocks),
+        f64::from(z * blocks),
+    )
+}
+
+/// The blocks a painting of `motive` reaches past its hanging block toward the clockwise side and
+/// downward, as (clockwise, down).
 fn starts(motive: PaintingMotive) -> (i32, i32) {
-    let start = |n: u8| (i32::from(n) + 1) / 2 - 1;
-    (start(motive.width()), start(motive.height()))
+    // Half the size rounded up, less the hanging block itself.
+    let reach = |size: u8| (i32::from(size) + 1) / 2 - 1;
+    (reach(motive.width()), reach(motive.height()))
 }
 
 /// Whether a painting can face `face`: north, south, west or east.

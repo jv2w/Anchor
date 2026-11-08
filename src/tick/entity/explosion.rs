@@ -47,8 +47,14 @@ use crate::save::WorldIndex;
 use crate::tick::{SessionId, dispatch, interact};
 use crate::world::{self, BlockPos, Entry, MAX_Y, MIN_Y, World};
 
+/// The share of a player's knockback that each level of Blast Protection removes.
+const BLAST_PROTECTION_REDUCTION: f64 = 0.15;
+/// The cost of a ray's step through any block, before the step length.
+const BLOCK_BASE_COST: f64 = 0.3;
 /// The size of an end crystal's explosion.
 const CRYSTAL_SIZE: f64 = 6.0;
+/// The damage per block of reach at full impact, before the base 1.
+const DAMAGE_PER_REACH: f64 = 8.0;
 /// Blocks the explosions of primed TNT and end crystals of one tick affect before the rest wait
 /// (each explosion runs whole, so a tick may end a little over it); also the most blocks, and the
 /// most ignitions, an explosion takes from its event's listeners.
@@ -57,15 +63,24 @@ pub(super) const MAX_BLOCKS_PER_TICK: usize = 8192;
 pub(super) const MAX_EXPLOSIONS_PER_TICK: usize = 64;
 /// How many explosions may run inside each other's custom block hooks; a deeper one does nothing.
 const MAX_NESTED_EXPLOSIONS: u8 = 8;
+/// The least size of an explosion that looks for blocks to break.
+const MIN_BREAKING_SIZE: f64 = 0.1;
 /// Rays per edge of the cube of rays.
 const RAYS: u32 = 16;
 /// The random stream of the rays' strengths and the fires.
 const RAYS_RANDOM: u64 = random::tag("explosion-rays");
+/// The part of a block's blast resistance that a ray's step through it costs, before the step
+/// length.
+const RESISTANCE_DIVISOR: f64 = 5.0;
 /// How far an entity may move in a tick (the speed bound of `physics::MAX_SPEED` per axis plus
 /// one): entities this near an explosion move again from their new state.
 const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
 /// The step along a ray, in blocks.
 const STEP: f64 = 0.3;
+/// The share of a step's length that every step of a ray costs.
+const STEP_DECAY: f64 = 0.75;
+/// The least and most strength of a ray, in thousandths of the size.
+const STRENGTH_PER_MILLE: (i32, i32) = (700, 1300);
 /// The size of a TNT explosion.
 const TNT_SIZE: f64 = 4.0;
 
@@ -201,8 +216,8 @@ impl Outcome {
     }
 }
 
-/// The ticking primed TNT `id`: the fuse burns down; at 0 it explodes if the tick's budget
-/// allows, else it waits.
+/// Burns down the fuse of the primed TNT `id`; at 0 it explodes if the tick's budget allows, else
+/// it waits.
 pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Hooks) {
     let burnt_out = with(state, id, |e| {
         let Kind::Tnt(t) = &mut e.kind else {
@@ -217,7 +232,7 @@ pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Ho
     blow_up(state, id, TNT_SIZE, budget, hooks);
 }
 
-/// The end crystal `id`, at 0 health, ends: a primed one explodes with size 6 at its position if
+/// Ends the end crystal `id`, at 0 health: a primed one explodes with size 6 at its position if
 /// the tick's budget allows (else it waits), then it goes; one the void killed just goes.
 pub(super) fn crystal_died(state: &mut State, id: Id, budget: &mut Budget, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
@@ -238,7 +253,7 @@ fn has_budget(budget: &Budget) -> bool {
     budget.explosions < MAX_EXPLOSIONS_PER_TICK && budget.blocks < MAX_BLOCKS_PER_TICK
 }
 
-/// The explosive entity `id` explodes with `size` and goes, counted in the tick's `budget`:
+/// Explodes the entity `id` with `size` and removes it, counted in the tick's `budget`:
 /// `EntityPreExplode` first, whose listeners may cancel it or change the radius, the fire chance
 /// and whether blocks break. It explodes where it is after the listeners: primed TNT half its
 /// height above its position, an end crystal at its position. A listener that takes it away
@@ -286,9 +301,9 @@ fn blow_up(state: &mut State, id: Id, size: f64, budget: &mut Budget, hooks: Hoo
     }
 }
 
-/// [`explode`] by `source` with the given hooks; returns the number of blocks it affected. An
-/// entity's, called by the entity tick, makes the entities near it move again from their new
-/// state.
+/// Explodes as [`explode`] does, by `source` with the given hooks, and returns the number of
+/// blocks it affected. An entity's explosion, called by the entity tick, makes the entities near
+/// it move again from their new state.
 ///
 /// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] once the blocks are
 /// known: cancelling stops it there (no block breaks, nothing is hurt), and the listeners' block
@@ -331,7 +346,7 @@ pub(super) fn explode_with(
             ],
         ),
     );
-    let (blocks, ignitions) = if size < 0.1 || !blast.breaks {
+    let (blocks, ignitions) = if size < MIN_BREAKING_SIZE || !blast.breaks {
         (Vec::new(), Vec::new())
     } else {
         affected(w, center, size, blast.fire_chance, &mut random)
@@ -418,8 +433,21 @@ fn set_fire(state: &mut State, world: WorldIndex, pos: BlockPos, flame: block::S
     }
 }
 
-/// The blocks the explosion destroys, in the order the rays find them, and those set on fire.
-/// Pure: reads the world only.
+/// The blocks the explosion's rays from `center` break and, of those, the blocks to try to set on
+/// fire.
+///
+/// Rays leave through the 1352 cells on the surface of a 16 by 16 by 16 grid, in x, then y, then
+/// z order. Each ray starts with `size` times a random 0.7 to 1.3 and walks in steps of [`STEP`]
+/// blocks, losing strength per step and per block it crosses. A ray ends at once in a chunk that
+/// is not loaded or in a state Anchor does not know, so a blast never reaches past the loaded
+/// edge. Steps outside the world height check no block. States with negative blast resistance,
+/// such as air, are never listed.
+///
+/// The broken list holds each position once, in the order rays first reached it. The fire list is
+/// a subset in the same order: each newly broken position draws one unit float when `fire_chance`
+/// is above 0 and is listed when the draw is at most `fire_chance`. The function reads only `w`
+/// and draws from `random` in a fixed order (one range per ray, then one unit per newly broken
+/// position of that ray), so its result is deterministic.
 fn affected(
     w: &World,
     center: Vec3,
@@ -427,61 +455,54 @@ fn affected(
     fire_chance: f64,
     random: &mut Random,
 ) -> (Vec<BlockPos>, Vec<BlockPos>) {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut blocks = Vec::new();
+    let last = RAYS - 1;
+    let component = |n: u32| f64::from(n) / f64::from(last) * 2.0 - 1.0;
+    let mut broken = Vec::new();
     let mut ignitions = Vec::new();
-    let last = f64::from(RAYS - 1);
+    let mut listed = std::collections::BTreeSet::new();
     for i in 0..RAYS {
         for j in 0..RAYS {
             for k in 0..RAYS {
-                let edge = |n: u32| n == 0 || n == RAYS - 1;
-                if !(edge(i) || edge(j) || edge(k)) {
+                let on_surface = [i, j, k].iter().any(|&n| n == 0 || n == last);
+                if !on_surface {
                     continue;
                 }
-                let shell = |n: u32| f64::from(n) / last * 2.0 - 1.0;
-                let (x, y, z) = (shell(i), shell(j), shell(k));
-                let length = (x * x + y * y + z * z).sqrt();
-                let shift = Vec3::new(x / length * STEP, y / length * STEP, z / length * STEP);
-                let mut pointer = center;
-                let mut force = size * (f64::from(random.range(700, 1300)) / 1000.0);
-                // A step is shorter than a block, so a ray stays in a cell for several steps. The
-                // cell is read, and tried for the list, only at the first: a straight ray never
-                // comes back to a cell it left, and it goes past that first step only with force
-                // left, so the cell was already tried there.
-                let mut cell: Option<(BlockPos, f64)> = None;
-                while force > 0.0 {
-                    let pos = BlockPos::containing(pointer);
-                    pointer += shift;
-                    if (MIN_Y..=MAX_Y).contains(&pos.y) {
-                        let repeat = cell.filter(|&(at, _)| at == pos);
-                        let resistance = if let Some((_, resistance)) = repeat {
-                            resistance
-                        } else {
-                            let resistance = match w.entry(pos) {
-                                Some(Entry::Known(block)) => block.break_info().blast_resistance(),
-                                // A state Anchor does not know, or a chunk that is not loaded:
-                                // the ray stops there, as physics walls such a cell.
-                                Some(Entry::Unknown(_)) | None => break,
-                            };
-                            cell = Some((pos, resistance));
-                            resistance
+                let (dx, dy, dz) = (component(i), component(j), component(k));
+                // Summed and divided by hand to keep the exact float order the result depends on.
+                let length = (dx * dx + dy * dy + dz * dz).sqrt();
+                let step = Vec3::new(dx / length * STEP, dy / length * STEP, dz / length * STEP);
+                let per_mille = random.range(STRENGTH_PER_MILLE.0, STRENGTH_PER_MILLE.1);
+                let mut strength = size * (f64::from(per_mille) / 1000.0);
+                let mut point = center;
+                let mut previous_cell = None;
+                while strength > 0.0 {
+                    let cell = BlockPos::containing(point);
+                    point += step;
+                    let entered = previous_cell != Some(cell);
+                    previous_cell = Some(cell);
+                    if (MIN_Y..=MAX_Y).contains(&cell.y) {
+                        let Some(state) = w.entry(cell).and_then(Entry::state) else {
+                            break;
                         };
+                        let resistance = state.break_info().blast_resistance();
                         if resistance >= 0.0 {
-                            force -= (resistance / 5.0 + 0.3) * STEP;
-                            if force > 0.0 && repeat.is_none() && seen.insert(pos) {
-                                blocks.push(pos);
+                            strength -= (resistance / RESISTANCE_DIVISOR + BLOCK_BASE_COST) * STEP;
+                            // A ray stays in one cell for several steps; only its first step
+                            // there may list it.
+                            if entered && strength > 0.0 && listed.insert(cell) {
+                                broken.push(cell);
                                 if fire_chance > 0.0 && random.unit() <= fire_chance {
-                                    ignitions.push(pos);
+                                    ignitions.push(cell);
                                 }
                             }
                         }
                     }
-                    force -= STEP * 0.75;
+                    strength -= STEP * STEP_DECAY;
                 }
             }
         }
     }
-    (blocks, ignitions)
+    (broken, ignitions)
 }
 
 /// Hurts and pushes the entities and players within twice the size of the center: damage by the
@@ -564,7 +585,8 @@ fn hit_entities(
         {
             let feet = survival::feet(p);
             let blast = survival::highest_armor_level(p, Enchantment::BlastProtection);
-            let force = base - math::min(base, base * f64::from(blast) * 0.15);
+            let force =
+                base - math::min(base, base * f64::from(blast) * BLAST_PROTECTION_REDUCTION);
             let knock = Knock {
                 x: feet.x - f.x,
                 z: feet.z - f.z,
@@ -579,7 +601,7 @@ fn hit_entities(
     }
 }
 
-/// An entity takes an explosion's `blow` with `knock`, then its `push`.
+/// Applies an explosion's `blow` with `knock` to the entity `id`, then its `push`.
 fn hit_entity(
     state: &mut State,
     id: Id,
@@ -629,13 +651,17 @@ fn impact(
     Some(((1.0 - distance) * exposure(w, center, bounds), direction))
 }
 
-/// The damage of an impact: `(int) (((impact² + impact) / 2) × 8 × size × 2 + 1)`.
+/// The damage of an impact (0 to 1) at a reach (twice the explosion size).
+///
+/// The damage is ⌊((i² + i) / 2) · 8 · reach + 1⌋ for impact `i`, so it is always at least 1.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "invariant: impact is 0 to 1 and reach at most 16, so the value fits"
 )]
 fn damage_of(impact: f64, reach: f64) -> f64 {
-    f64::from((f64::midpoint(impact * impact, impact) * 8.0 * reach + 1.0) as i32)
+    let raw = f64::midpoint(impact * impact, impact) * DAMAGE_PER_REACH * reach + 1.0;
+    // The value is at least 1, so truncation toward zero is the floor.
+    f64::from(raw as i32)
 }
 
 /// The share of points spread over `bounds` that a ray from `origin` reaches without a block in
@@ -684,6 +710,15 @@ mod tests {
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::tests::{Harness, TEST_HOOKS, calls, standing};
 
+    thread_local! {
+        /// Whether the explosion listeners of a test found the exploding entity.
+        static FOUND: std::cell::Cell<Vec<bool>> = const { std::cell::Cell::new(Vec::new()) };
+    }
+
+    /// Blocks destroyed by `tnt_in_stone_is_a_fixed_scene_…` (engine randomness: a change of
+    /// the rays or their random stream changes it).
+    const GOLDEN_STONE: usize = 26;
+
     /// Sets every block of the box `from..=to` to `name`.
     fn fill(h: &mut Harness, from: BlockPos, to: BlockPos, name: &str) {
         let state = named(name);
@@ -714,7 +749,7 @@ mod tests {
         out
     }
 
-    /// A size 4 explosion at `center` without a source, with the test hooks.
+    /// Explodes with size 4 at `center` without a source, with the test hooks.
     fn size_four(h: &mut Harness, center: Vec3) {
         let blast = Blast::new(4.0, false);
         explode_with(
@@ -812,10 +847,6 @@ mod tests {
         );
         assert_eq!(destroyed.len(), GOLDEN_STONE);
     }
-
-    /// Blocks destroyed by `tnt_in_stone_is_a_fixed_scene_…` (engine randomness: a change of
-    /// the rays or their random stream changes it).
-    const GOLDEN_STONE: usize = 26;
 
     #[test]
     fn a_box_of_mixed_blast_resistance_keeps_its_strong_walls() {
@@ -1145,11 +1176,6 @@ mod tests {
         );
         assert!(gone.contains(&BlockPos::new(1, -53, 0)), "a neighbour");
         assert_eq!(h.ground(), 0, "no drops");
-    }
-
-    thread_local! {
-        /// Whether the explosion listeners of a test found the exploding entity.
-        static FOUND: std::cell::Cell<Vec<bool>> = const { std::cell::Cell::new(Vec::new()) };
     }
 
     /// Records whether a listener found the exploding entity.
