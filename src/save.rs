@@ -46,7 +46,7 @@ use crate::storage::codec::{
 };
 use crate::storage::seal::{Crc32c, MAX_RECORD_BYTES, seal, seal_encoded, stored_checksum, unseal};
 use crate::storage::{
-    self, AccessKey, AccessKind, Batch, CHUNK_PREFIX, Checked, ChunkId, ChunkKey, ChunkKind,
+    self, AccessKey, AccessKind, Batch, CHUNK_PREFIX_BYTES, Checked, ChunkId, ChunkKey, ChunkKind,
     ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, StartBackup, Storage,
 };
 use crate::tick::{ChunkRules, EntityTypes, Segment};
@@ -477,10 +477,14 @@ impl Thread {
     /// Learns the worlds of a [`Request::Worlds`] as the save thread does (a replay's requests).
     /// A persistent world made under the name of one deleted since the last commit takes its
     /// file, which then stays, and the next commit of that file first deletes every value of the
-    /// deleted world. Returns the indexes of the worlds whose file did not open.
+    /// deleted world. One whose file did not open takes none: the deletion stays for the next
+    /// commit, which removes the file. Returns the indexes of the worlds whose file did not open.
     pub(crate) fn add_worlds(&mut self, worlds: &[NewWorld]) -> Vec<WorldIndex> {
         let unopened = add_worlds(&mut self.plans, &self.opener, worlds);
-        for world in worlds.iter().filter(|w| w.number.is_some()) {
+        for world in worlds
+            .iter()
+            .filter(|w| w.number.is_some() && !unopened.contains(&w.index))
+        {
             let key = storage::world_name_key(&world.name);
             let (made_again, deleted): (Vec<String>, Vec<String>) = self
                 .deleted
@@ -512,23 +516,6 @@ impl Thread {
     pub(crate) fn delete_worlds(&mut self, worlds: &[DeletedWorld]) {
         forget_worlds(&mut self.plans, worlds);
         self.deleted.extend(worlds.iter().map(|w| w.name.clone()));
-    }
-
-    /// The open file `name`: a server file's name ([`storage::MAIN_FILE`], ...) or a world's.
-    #[cfg(test)]
-    pub(crate) fn file_mut(&mut self, name: &str) -> &mut Storage {
-        let Files { main, players } = &mut self.files;
-        let file = match name {
-            storage::MAIN_FILE => main,
-            storage::PLAYERS_FILE => players,
-            _ => self
-                .plans
-                .iter_mut()
-                .find(|p| p.name == name)
-                .and_then(|p| p.file.as_mut())
-                .expect("an open world file"),
-        };
-        &mut file.storage
     }
 
     /// Loads chunks as the save thread does for a [`Request::Chunks`] (a replay's loads after its
@@ -620,6 +607,24 @@ impl Thread {
             .into_iter()
             .chain(self.plans.iter_mut().filter_map(|p| p.file.as_mut()))
     }
+
+    /// The open file `name` to change: a server file's name ([`storage::MAIN_FILE`], ...) or a
+    /// world's.
+    #[cfg(test)]
+    fn file_mut(&mut self, name: &str) -> &mut Storage {
+        let Files { main, players } = &mut self.files;
+        let file = match name {
+            storage::MAIN_FILE => main,
+            storage::PLAYERS_FILE => players,
+            _ => self
+                .plans
+                .iter_mut()
+                .find(|p| p.name == name)
+                .and_then(|p| p.file.as_mut())
+                .expect("an open world file"),
+        };
+        &mut file.storage
+    }
 }
 
 /// What a load does on the CPU pool to the chunks it decoded or generated.
@@ -636,12 +641,13 @@ enum Prepare<'a> {
 }
 
 /// The sub-chunk records of a chunk's terrain values, `None` for a sub-chunk without a value.
-pub(crate) type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
+type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
 
 /// What a commit does to a key: writes these sealed bytes, or with `None` removes its value.
-pub(crate) type Write = (Key, Option<Vec<u8>>);
+type Write = (Key, Option<Vec<u8>>);
 
-/// [`open_with`] a start backup and a check, as the tests open data files.
+/// Opens the data files as [`open_with`] does, with a start backup and a check, as the tests open
+/// them.
 #[cfg(test)]
 #[expect(
     clippy::panic_in_result_fn,
@@ -1157,6 +1163,12 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
         let bytes = key.to_bytes();
         let AccessKey { kind, name } = key;
         let ip = match kind {
+            AccessKind::Op | AccessKind::Ban | AccessKind::Whitelist => {
+                if permission::check_name(&name).is_err() || name.to_ascii_lowercase() != name {
+                    return Err(storage::Error::Malformed("access name"));
+                }
+                None
+            }
             AccessKind::IpBan => {
                 let ip: IpAddr = name
                     .parse()
@@ -1165,12 +1177,6 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
                     return Err(storage::Error::Malformed("banned ip address"));
                 }
                 Some(ip)
-            }
-            AccessKind::Op | AccessKind::Ban | AccessKind::Whitelist => {
-                if permission::check_name(&name).is_err() || name.to_ascii_lowercase() != name {
-                    return Err(storage::Error::Malformed("access name"));
-                }
-                None
             }
         };
         match kind {
@@ -1215,8 +1221,8 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
     Ok(data)
 }
 
-/// The save thread: answers requests in order until [`Request::Finish`], then marks every open
-/// file closed after a normal stop. If the tick drops its sender without `Finish` (it died), the
+/// Answers the requests of the save thread in order until [`Request::Finish`], then marks every
+/// open file closed after a normal stop. If the tick drops its sender without `Finish` (it died), the
 /// requests still queued are dropped and the files are closed as they are.
 /// Returns the error of a commit or a chunk read that failed after its retries, or of the final
 /// close. After such a failure no later snapshot is committed: it would write a state without the
@@ -1290,10 +1296,6 @@ pub(crate) fn run(
                 .into_iter()
                 .map(|world| Response::WorldOpenFailed { world })
                 .collect(),
-            Request::Discard { segments, chunks } => {
-                drop((segments, chunks));
-                continue;
-            }
             Request::DeleteWorlds(worlds) => {
                 thread.delete_worlds(&worlds);
                 continue;
@@ -1324,6 +1326,10 @@ pub(crate) fn run(
                         vec![Response::CommitFailed { start }]
                     }
                 }
+            }
+            Request::Discard { segments, chunks } => {
+                drop((segments, chunks));
+                continue;
             }
             Request::Finish => {
                 finished = true;
@@ -1401,8 +1407,8 @@ fn is_busy(thread: &mut Thread) -> bool {
     thread.check.is_some() || thread.files().any(|f| f.storage.is_backing_up())
 }
 
-/// The answers to `snapshot`, just committed, after starting the backups and the check it asked
-/// for.
+/// Starts the backups and the check the just committed `snapshot` asked for, and returns the
+/// answers to it.
 fn committed(thread: &mut Thread, snapshot: &Snapshot) -> Vec<Response> {
     let start = snapshot.start;
     if snapshot.backup {
@@ -1520,8 +1526,8 @@ fn backup_step(thread: &mut Thread) {
         return;
     };
     match file.storage.backup_step() {
-        Ok(None) => {}
         Ok(Some(path)) => info!(path = %path.display(), "backup made"),
+        Ok(None) => {}
         Err(e) => {
             error!(
                 path = %file.place.file.display(),
@@ -1534,13 +1540,8 @@ fn backup_step(thread: &mut Thread) {
 
 /// The first `chunks` key number above every stored world's `numbers`: a new persistent world's.
 /// An imported world's file holds it alone, with number 0.
-pub(crate) fn next_world_number(numbers: impl Iterator<Item = u32>) -> u32 {
+fn next_world_number(numbers: impl Iterator<Item = u32>) -> u32 {
     numbers.max().map_or(0, |n| n.saturating_add(1))
-}
-
-/// The place in the world list of the world at `index` ([`WorldIndex`]).
-pub(crate) fn place(index: WorldIndex) -> usize {
-    index % MAX_WORLDS
 }
 
 /// The meta value of the file's last commit (tick 0 and no commit identity for a new file).
@@ -1757,11 +1758,6 @@ pub(crate) fn read_values(
     for (part, sealed) in values {
         let key = ChunkKey { chunk, part: *part }.to_bytes();
         let read = match *part {
-            ChunkPart::SubChunk(index) => unseal::<SubChunkRecord>(&key, sealed).map(|r| {
-                if let Some(slot) = sub_chunks.get_mut(usize::from(index)) {
-                    *slot = Some(r);
-                }
-            }),
             ChunkPart::Extras(kind, page) => add_page(
                 &mut stored.extras,
                 &mut next_pages,
@@ -1770,10 +1766,20 @@ pub(crate) fn read_values(
                 &key,
                 sealed,
             ),
+            ChunkPart::SubChunk(index) => unseal::<SubChunkRecord>(&key, sealed).map(|r| {
+                if let Some(slot) = sub_chunks.get_mut(usize::from(index)) {
+                    *slot = Some(r);
+                }
+            }),
         };
         read.map_err(|e| (*part, e))?;
-        checksum.update(key.get(CHUNK_PREFIX..).unwrap_or_default());
-        checksum.update(&stored_checksum(sealed).to_le_bytes());
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a value that unsealed holds its header"
+        )]
+        let value_checksum = stored_checksum(sealed).expect("an unsealed value holds its header");
+        checksum.update(key.get(CHUNK_PREFIX_BYTES..).unwrap_or_default());
+        checksum.update(&value_checksum.to_le_bytes());
     }
     stored.checksum = checksum.finish();
     Ok((sub_chunks, stored))
@@ -1855,8 +1861,8 @@ fn read_player(
 /// the deletion marks of the worlds deleted before it, whose files go only after it
 /// ([`remove_world_files`]), or at the next start if a stop comes first ([`finish_deletions`]).
 /// A world file a world made again takes over loses every value of the deleted world in its first
-/// commit ([`Batch::clear`]). Files with nothing changed are not
-/// written. Every value is written in the current format. The worlds the snapshot deletes are
+/// commit ([`Batch::clear`]). A world or players file with nothing changed is not written; the
+/// main file is, as it holds the meta value. Every value is written in the current format. The worlds the snapshot deletes are
 /// forgotten and the worlds it brings learnt first, so their records are written too. Returns the
 /// indexes of the brought worlds whose file did not open.
 #[expect(
@@ -2407,6 +2413,11 @@ fn forget_worlds(plans: &mut [Plan], worlds: &[DeletedWorld]) {
     }
 }
 
+/// The place in the world list of the world at `index` ([`WorldIndex`]).
+pub(crate) fn place(index: WorldIndex) -> usize {
+    index % MAX_WORLDS
+}
+
 /// Removes the files of the worlds the main file's last save deleted (its deletion marks,
 /// [`Key::Deleted`]), which a stop right after that save's commit left, then the marks, in one
 /// commit of the main file: a start stopped in between finds the marks again and ends the same.
@@ -2503,7 +2514,7 @@ pub(crate) fn world_file_name(
 /// case, the first. Others are left out with a warning.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the data files open before the threads start"
+    reason = "off-tick: the save thread and the start list the world folder"
 )]
 fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
     let dir = data_dir.join(storage::WORLD_DIR);
@@ -2544,8 +2555,7 @@ fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error
     Ok(names)
 }
 
-/// Of the world file names `names`, the one whose name differs from `name` at most in letter
-/// case, if any.
+/// The world file name of `names` that differs from `name` at most in letter case, if any.
 fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
     let key = storage::world_name_key(name);
     names.iter().find(|n| storage::world_name_key(n) == key)
@@ -2562,88 +2572,6 @@ pub(crate) mod tests {
     use crate::protocol::{Rng, Writer};
     use crate::storage::codec::tests::{encode, random_compound};
     use crate::world::{Flat, Weather};
-
-    /// What a load of chunk `pos` of world `number` answers when the file holds exactly the
-    /// non-empty lists of `extras` and no terrain (for stand-ins of the save thread).
-    pub(crate) fn stored_as_read(number: u32, pos: ChunkPos, extras: ChunkExtras) -> Stored {
-        let mut checksum = Crc32c::new();
-        for kind in ChunkKind::EXTRAS {
-            for (key, sealed) in seal_pages(chunk_id(number, pos), kind, extras.get(kind)).unwrap()
-            {
-                checksum.update(key.to_bytes().get(CHUNK_PREFIX..).unwrap());
-                checksum.update(&stored_checksum(&sealed).to_le_bytes());
-            }
-        }
-        Stored {
-            extras,
-            checksum: checksum.finish(),
-            rules: ChunkRules::default(),
-        }
-    }
-
-    /// Commits `snapshot` to the world of [`plans`] in memory and loads `keys` from it as the
-    /// save thread does with the server's `custom` content and `entity_types`: the answers the
-    /// tick gets for them.
-    pub(crate) fn commit_and_load(
-        snapshot: &Snapshot,
-        keys: &[(WorldIndex, ChunkPos)],
-        custom: Arc<Registry>,
-        entity_types: Arc<EntityTypes>,
-    ) -> Vec<Response> {
-        use crate::storage::tests::{Disk, closed, memory};
-        let disk = Disk::default();
-        let pool = crate::runtime::cpu_pool(2).unwrap();
-        commit(&mut thread_on(memory(&disk)), &pool, snapshot).unwrap();
-        let mut thread = thread_on(closed(&disk));
-        thread.set_custom(custom, entity_types);
-        let answers = thread.load(&pool, keys).unwrap();
-        assert!(pool.shutdown());
-        answers
-    }
-
-    /// [`load_chunks`] for the tick, lit when `lighting`, without custom entity types: every
-    /// answer, in key order.
-    fn load_all(
-        plans: &mut [Plan],
-        pool: &Pool,
-        keys: &[(WorldIndex, ChunkPos)],
-        lighting: bool,
-        custom: &Registry,
-    ) -> Result<Vec<Response>, storage::Error> {
-        let entity_types = EntityTypes::default();
-        let prepare = Prepare::Tick {
-            lighting,
-            entity_types: &entity_types,
-        };
-        let mut answers = Vec::new();
-        load_chunks(plans, pool, keys, custom, prepare, |a| {
-            answers.push(a);
-            true
-        })?;
-        Ok(answers)
-    }
-
-    /// Random extras: each kind empty or a few random compounds.
-    fn random_extras(rng: &mut Rng) -> ChunkExtras {
-        let mut extras = ChunkExtras::default();
-        for kind in ChunkKind::EXTRAS {
-            if rng.below(4) != 0 {
-                *extras.get_mut(kind) = (0..=rng.below(5))
-                    .map(|_| random_compound(rng, 3))
-                    .collect();
-            }
-        }
-        extras
-    }
-
-    /// The little-endian NBT bytes of a list, for byte comparisons.
-    fn nbt_bytes(list: &[Compound]) -> Vec<u8> {
-        let mut w = Writer::new(Vec::new(), 0);
-        for c in list {
-            w.nbt(c, nbt::Encoding::LittleEndian).unwrap();
-        }
-        w.into_inner()
-    }
 
     /// A per-test folder under the system temp folder, removed on drop.
     pub(crate) struct TempDir(pub(crate) PathBuf);
@@ -2666,17 +2594,42 @@ pub(crate) mod tests {
         }
     }
 
-    /// The names of the files (not folders) in `dir`, in name order.
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn data_files(dir: &std::path::Path) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap())
-            .filter(|e| e.file_type().unwrap().is_file())
-            .map(|e| e.file_name().into_string().unwrap())
-            .collect();
-        names.sort_unstable();
-        names
+    fn stone() -> State {
+        State::find("minecraft:stone", &[]).unwrap()
+    }
+
+    /// A flat chunk with a stone block at local (1, -60, 2).
+    fn changed_chunk(pos: ChunkPos) -> Chunk {
+        let mut chunk = Chunk::generate(&Flat, 5, pos);
+        chunk.set_block(1, -60, 2, stone()).unwrap();
+        chunk
+    }
+
+    #[test]
+    fn a_chunk_and_its_unknown_states_survive_the_record_round_trip() {
+        let chunk = changed_chunk(ChunkPos::new(3, -2));
+        let mut record = to_record(&chunk);
+        let future = nbt::Compound::from([
+            (
+                "name".to_owned(),
+                Value::String("minecraft:future_block".to_owned()),
+            ),
+            ("version".to_owned(), Value::Int(99)),
+        ]);
+        record.sub_chunks[0].layers[0].palette[0] = future.clone();
+        let read = to_chunk(record.clone(), &Registry::default()).unwrap();
+        assert_eq!(read.block(1, -60, 2), Some(stone()));
+        assert_eq!(read.unknown(), [future]);
+        assert_eq!(
+            to_record(&read),
+            record,
+            "the unknown state is written back as it was read"
+        );
+        assert_eq!(
+            read.block(0, -64, 0),
+            None,
+            "an unknown state reads as none"
+        );
     }
 
     pub(crate) fn specs() -> Vec<WorldSpec> {
@@ -2696,45 +2649,6 @@ pub(crate) mod tests {
                 spawn: None,
             },
         ]
-    }
-
-    fn stone() -> State {
-        State::find("minecraft:stone", &[]).unwrap()
-    }
-
-    /// World 0 of [`specs`] after some play: spawn and time moved, time stopped, hard, thunder.
-    fn stopped_hard_world() -> World {
-        let mut world = World::new("world", Kind::Persistent, 5, BlockPos::new(4, -60, 4));
-        world.set_time(1_234_567);
-        world.set_time_stopped(true);
-        world.set_difficulty(Some(Difficulty::Hard));
-        world.set_weather(Weather::Thunder);
-        world
-    }
-
-    /// Asserts that `world` has the settings of its spec, whatever a run changed: the time
-    /// running, no difficulty of its own, clear.
-    fn assert_settings_of_spec(world: &World) {
-        assert!(!world.is_time_stopped());
-        assert_eq!(world.difficulty(), None);
-        assert_eq!(world.weather(), Weather::Clear);
-    }
-
-    /// A flat chunk with a stone block at local (1, -60, 2).
-    fn changed_chunk(pos: ChunkPos) -> Chunk {
-        let mut chunk = Chunk::generate(&Flat, 5, pos);
-        chunk.set_block(1, -60, 2, stone()).unwrap();
-        chunk
-    }
-
-    /// Runs the save thread on `dir` and answers `requests` in order, ended like a stopping tick
-    /// ends them; returns the answers and the thread's result.
-    fn serve(
-        dir: &TempDir,
-        mut requests: Vec<Request>,
-    ) -> (Vec<Response>, u64, Result<(), storage::Error>) {
-        requests.push(Request::Finish);
-        serve_exactly(dir, requests)
     }
 
     /// Runs the save thread on `dir` with `requests` queued and the tick gone.
@@ -2771,33 +2685,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_chunk_and_its_unknown_states_survive_the_record_round_trip() {
-        let chunk = changed_chunk(ChunkPos::new(3, -2));
-        let mut record = to_record(&chunk);
-        let future = nbt::Compound::from([
-            (
-                "name".to_owned(),
-                Value::String("minecraft:future_block".to_owned()),
-            ),
-            ("version".to_owned(), Value::Int(99)),
-        ]);
-        record.sub_chunks[0].layers[0].palette[0] = future.clone();
-        let read = to_chunk(record.clone(), &Registry::default()).unwrap();
-        assert_eq!(read.block(1, -60, 2), Some(stone()));
-        assert_eq!(read.unknown(), [future]);
-        assert_eq!(
-            to_record(&read),
-            record,
-            "the unknown state is written back as it was read"
-        );
-        assert_eq!(
-            read.block(0, -64, 0),
-            None,
-            "an unknown state reads as none"
-        );
-    }
-
-    #[test]
     fn a_commit_still_queued_when_the_tick_dies_is_not_written() {
         let dir = TempDir::new("no-finish");
         let snapshot = Snapshot {
@@ -2810,6 +2697,74 @@ pub(crate) mod tests {
         result.unwrap();
         assert!(answers.is_empty(), "{answers:?}");
         assert_eq!(open(&dir.0, specs()).unwrap().tick, 0);
+    }
+
+    /// Random extras: each kind empty or a few random compounds.
+    fn random_extras(rng: &mut Rng) -> ChunkExtras {
+        let mut extras = ChunkExtras::default();
+        for kind in ChunkKind::EXTRAS {
+            if rng.below(4) != 0 {
+                *extras.get_mut(kind) = (0..=rng.below(5))
+                    .map(|_| random_compound(rng, 3))
+                    .collect();
+            }
+        }
+        extras
+    }
+
+    /// World 0 of [`specs`] after some play: spawn and time moved, time stopped, hard, thunder.
+    fn stopped_hard_world() -> World {
+        let mut world = World::new("world", Kind::Persistent, 5, BlockPos::new(4, -60, 4));
+        world.set_time(1_234_567);
+        world.set_time_stopped(true);
+        world.set_difficulty(Some(Difficulty::Hard));
+        world.set_weather(Weather::Thunder);
+        world
+    }
+
+    /// Runs the save thread on `dir` and answers `requests` in order, ended like a stopping tick
+    /// ends them; returns the answers and the thread's result.
+    fn serve(
+        dir: &TempDir,
+        mut requests: Vec<Request>,
+    ) -> (Vec<Response>, u64, Result<(), storage::Error>) {
+        requests.push(Request::Finish);
+        serve_exactly(dir, requests)
+    }
+
+    /// Asserts that `world` has the settings of its spec, whatever a run changed: the time
+    /// running, no difficulty of its own, clear.
+    fn assert_settings_of_spec(world: &World) {
+        assert!(!world.is_time_stopped());
+        assert_eq!(world.difficulty(), None);
+        assert_eq!(world.weather(), Weather::Clear);
+    }
+
+    /// The little-endian NBT bytes of a list, for byte comparisons.
+    fn nbt_bytes(list: &[Compound]) -> Vec<u8> {
+        let mut w = Writer::new(Vec::new(), 0);
+        for c in list {
+            w.nbt(c, nbt::Encoding::LittleEndian).unwrap();
+        }
+        w.into_inner()
+    }
+
+    /// What a load of chunk `pos` of world `number` answers when the file holds exactly the
+    /// non-empty lists of `extras` and no terrain (for stand-ins of the save thread).
+    pub(crate) fn stored_as_read(number: u32, pos: ChunkPos, extras: ChunkExtras) -> Stored {
+        let mut checksum = Crc32c::new();
+        for kind in ChunkKind::EXTRAS {
+            for (key, sealed) in seal_pages(chunk_id(number, pos), kind, extras.get(kind)).unwrap()
+            {
+                checksum.update(key.to_bytes().get(CHUNK_PREFIX_BYTES..).unwrap());
+                checksum.update(&stored_checksum(&sealed).unwrap().to_le_bytes());
+            }
+        }
+        Stored {
+            extras,
+            rules: ChunkRules::default(),
+            checksum: checksum.finish(),
+        }
     }
 
     #[test]
@@ -3003,13 +2958,6 @@ pub(crate) mod tests {
         }
     }
 
-    fn access_key(kind: AccessKind, name: &str) -> AccessKey {
-        AccessKey {
-            kind,
-            name: name.to_owned(),
-        }
-    }
-
     #[test]
     fn a_world_record_is_written_once_its_time_or_spawn_changes() {
         let values = WorldValues {
@@ -3039,6 +2987,13 @@ pub(crate) mod tests {
                 spawn: BlockPos::new(-7, 70, 8),
             })
         );
+    }
+
+    fn access_key(kind: AccessKind, name: &str) -> AccessKey {
+        AccessKey {
+            kind,
+            name: name.to_owned(),
+        }
     }
 
     #[test]
@@ -3580,6 +3535,26 @@ pub(crate) mod tests {
         }
     }
 
+    /// Commits `snapshot` to the world of [`plans`] in memory and loads `keys` from it as the
+    /// save thread does with the server's `custom` content and `entity_types`: the answers the
+    /// tick gets for them.
+    pub(crate) fn commit_and_load(
+        snapshot: &Snapshot,
+        keys: &[(WorldIndex, ChunkPos)],
+        custom: Arc<Registry>,
+        entity_types: Arc<EntityTypes>,
+    ) -> Vec<Response> {
+        use crate::storage::tests::{Disk, closed, memory};
+        let disk = Disk::default();
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        commit(&mut thread_on(memory(&disk)), &pool, snapshot).unwrap();
+        let mut thread = thread_on(closed(&disk));
+        thread.set_custom(custom, entity_types);
+        let answers = thread.load(&pool, keys).unwrap();
+        assert!(pool.shutdown());
+        answers
+    }
+
     /// A sign's saved NBT with both sides at the text limit (1000 bytes and three newlines a
     /// side), about 2.2 KB.
     fn max_text_sign(i: i32) -> Compound {
@@ -3705,6 +3680,28 @@ pub(crate) mod tests {
             panic!("unexpected answers {answers:?}");
         };
         assert_eq!(to_record(read), record, "the chunk reads back as it was");
+    }
+
+    /// [`load_chunks`] for the tick, lit when `lighting`, without custom entity types: every
+    /// answer, in key order.
+    fn load_all(
+        plans: &mut [Plan],
+        pool: &Pool,
+        keys: &[(WorldIndex, ChunkPos)],
+        lighting: bool,
+        custom: &Registry,
+    ) -> Result<Vec<Response>, storage::Error> {
+        let entity_types = EntityTypes::default();
+        let prepare = Prepare::Tick {
+            lighting,
+            entity_types: &entity_types,
+        };
+        let mut answers = Vec::new();
+        load_chunks(plans, pool, keys, custom, prepare, |a| {
+            answers.push(a);
+            true
+        })?;
+        Ok(answers)
     }
 
     /// A saved custom block loads as its state on the CPU pool, and the chunk arrives lit with
@@ -4113,6 +4110,19 @@ pub(crate) mod tests {
         drop(open(&dir.0, specs_with_lobby()).unwrap());
     }
 
+    /// The names of the files (not folders) in `dir`, in name order.
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn data_files(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .filter(|e| e.file_type().unwrap().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
     /// A normal stop commits the last snapshot to every file it changes, the main file last, and
     /// marks every file closed: nothing is doubled or lost between the files.
     #[test]
@@ -4178,6 +4188,85 @@ pub(crate) mod tests {
             ),
             "{answers:?}"
         );
+    }
+
+    /// A snapshot committed twice leaves every file with the values one commit of it leaves:
+    /// saves write absolute values.
+    #[test]
+    fn a_snapshot_committed_twice_leaves_the_values_of_one_commit() {
+        use crate::storage::tests::{Disk, memory};
+        let pos = ChunkPos::new(2, 2);
+        let mut rng = Rng(0x5a7e_0002);
+        let player = PlayerKey::offline("Steve");
+        let access = access_key(AccessKind::Op, "steve");
+        let snapshot = Snapshot {
+            start: 40,
+            identity: 3,
+            chunks: vec![(0, pos, changed_chunk(pos))],
+            players: vec![(
+                player.clone(),
+                PlayerData {
+                    world: "world".to_owned(),
+                    position: [0.5, -59.0, 0.5],
+                    extra: random_compound(&mut rng, 4),
+                },
+            )],
+            extras: vec![(
+                0,
+                pos,
+                ChunkKind::BlockEntities,
+                vec![random_compound(&mut rng, 3)],
+            )],
+            worlds: vec![(
+                0,
+                WorldValues {
+                    time: 600,
+                    spawn: BlockPos::new(3, -60, 3),
+                },
+            )],
+            access: vec![(access.clone(), AccessWrite::Mark)],
+            user: vec![("round".to_owned(), b"3".to_vec())],
+            ..Snapshot::default()
+        };
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let values = |commits: usize| {
+            let mut thread = thread_on(memory(&Disk::default()));
+            for _ in 0..commits {
+                thread.commit(&pool, &snapshot).unwrap();
+            }
+            let chunk: Vec<_> = thread
+                .file_mut("world")
+                .read_chunks(&[chunk_id(0, pos)])
+                .unwrap()
+                .into_iter()
+                .map(Result::unwrap)
+                .collect();
+            let files = [
+                ("world", vec![Key::World, Key::Meta]),
+                (
+                    storage::PLAYERS_FILE,
+                    vec![Key::Player(player.clone()), Key::Meta],
+                ),
+                (
+                    storage::MAIN_FILE,
+                    vec![
+                        Key::Access(access.clone()),
+                        Key::User("round".to_owned()),
+                        Key::Meta,
+                    ],
+                ),
+            ];
+            let keyed: Vec<Option<Vec<u8>>> = files
+                .iter()
+                .flat_map(|(file, keys)| thread.file_mut(file).read(keys).unwrap())
+                .map(Result::unwrap)
+                .collect();
+            (chunk, keyed)
+        };
+        let once = values(1);
+        assert!(once.1.iter().all(Option::is_some), "{once:?}");
+        assert_eq!(values(2), once);
+        assert!(pool.shutdown());
     }
 
     /// A save that stopped between its files (a kill after the world files' and the players
@@ -4311,10 +4400,6 @@ pub(crate) mod tests {
     #[cfg(windows)]
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    #[expect(
-        clippy::permissions_set_readonly_false,
-        reason = "off-tick: the test fixture runs on Windows only, where the flag is not a mode"
-    )]
     fn a_start_that_cannot_roll_back_a_world_file_is_refused() {
         let dir = TempDir::new("save-split-stuck");
         let pos = ChunkPos::new(1, 1);
@@ -4348,24 +4433,14 @@ pub(crate) mod tests {
             assert!(pool.shutdown());
         }
         let lobby = Place::world(&dir.0, "lobby").file;
-        let mut permissions = std::fs::metadata(&lobby).unwrap().permissions();
-        permissions.set_readonly(true);
-        std::fs::set_permissions(&lobby, permissions.clone()).unwrap();
+        let writable = std::fs::metadata(&lobby).unwrap().permissions();
+        let mut read_only = writable.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(&lobby, read_only).unwrap();
         let opened = open(&dir.0, specs());
-        permissions.set_readonly(false);
-        std::fs::set_permissions(&lobby, permissions).unwrap();
+        std::fs::set_permissions(&lobby, writable).unwrap();
         assert!(opened.is_err(), "the later file would be served");
         assert!(lobby.exists());
-    }
-
-    /// What a load of the player `key` answers from the data folder of `dir`.
-    fn saved_player(dir: &TempDir, key: &PlayerKey) -> PlayerLoad {
-        let (mut answers, _, result) = serve(dir, vec![Request::Player(key.clone())]);
-        result.unwrap();
-        let Some(Response::Player { data, .. }) = answers.pop() else {
-            panic!("{answers:?}");
-        };
-        data
     }
 
     /// Saves the players `keys` with the same data in one commit to the data folder of `dir`, and
@@ -4387,6 +4462,16 @@ pub(crate) mod tests {
         };
         let (_, _, result) = serve(dir, vec![Request::Commit(Box::new(snapshot))]);
         result.unwrap();
+        data
+    }
+
+    /// What a load of the player `key` answers from the data folder of `dir`.
+    fn saved_player(dir: &TempDir, key: &PlayerKey) -> PlayerLoad {
+        let (mut answers, _, result) = serve(dir, vec![Request::Player(key.clone())]);
+        result.unwrap();
+        let Some(Response::Player { data, .. }) = answers.pop() else {
+            panic!("{answers:?}");
+        };
         data
     }
 
@@ -5009,5 +5094,51 @@ pub(crate) mod tests {
             .unwrap()
             .is_some();
         assert!(!marked, "the mark of a deletion that did not happen stays");
+    }
+
+    /// A world made again under the name of one deleted since the last commit, whose file does
+    /// not open, takes no file: the next commit holds the deletion and the file goes after it, so
+    /// the next start does not bring the deleted world back.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_world_made_again_whose_file_does_not_open_keeps_the_deletion() {
+        let dir = TempDir::new("delete-made-again-unopened");
+        let mut thread = open(&dir.0, specs_with_lobby()).unwrap().thread;
+        thread.delete_worlds(&[DeletedWorld {
+            name: "lobby".to_owned(),
+            index: Some(2),
+        }]);
+        let lobby = Place::world(&dir.0, "lobby");
+        // Another open of the file keeps it in use, on every system and for every user.
+        let in_use = Storage::open(&lobby, Start::checked(StartBackup::Skip)).unwrap();
+        let unopened = thread.add_worlds(&[NewWorld {
+            index: 2,
+            name: "lobby".to_owned(),
+            number: Some(2),
+            seed: 0,
+            generator: Arc::new(Flat),
+        }]);
+        assert_eq!(unopened, [2]);
+        drop(in_use);
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        thread
+            .commit(
+                &pool,
+                &Snapshot {
+                    start: 6,
+                    ..Snapshot::default()
+                },
+            )
+            .unwrap();
+        assert!(pool.shutdown());
+        let mark = Key::Deleted("lobby".to_owned());
+        let marked = thread.file_mut(storage::MAIN_FILE).read(&[mark]).unwrap()[0]
+            .as_ref()
+            .unwrap()
+            .is_some();
+        assert!(
+            marked || !lobby.file.exists(),
+            "the deleted world's file stays without its deletion mark"
+        );
     }
 }

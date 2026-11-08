@@ -72,6 +72,9 @@ impl Drop for Temp {
     }
 }
 
+/// An entry of a table of a data file as redb reads it.
+type Entry = <redb::Range<'static, &'static [u8], &'static [u8]> as Iterator>::Item;
+
 /// A table of a data file as an online backup copies it (or a check reads it): its name and the
 /// entries left.
 pub(super) type Source = (
@@ -88,7 +91,7 @@ pub(super) type Source = (
 /// main file's commit of the save it copies (or at start, after the roll back to that save), so
 /// its rename and the pruning after it come after that commit too. Dropped before it is whole, it
 /// removes its temporary file.
-pub(crate) struct Online {
+pub(super) struct Online {
     // Dropped in this order: the source's read transaction, the copy, then its file, which
     // Windows cannot remove while it is open.
     /// The tables left to copy, the next last.
@@ -104,13 +107,13 @@ pub(crate) struct Online {
 }
 
 impl Online {
-    /// Starts a backup of `source`'s last commit into a new backup in `dir`, which keeps the
+    /// A backup of `source`'s last commit into a new backup in `dir`, which keeps the
     /// `max_backups` newest once it is whole.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread starts an online backup"
     )]
-    pub(crate) fn begin(source: &Database, dir: &Path, max_backups: usize) -> Result<Self> {
+    pub(super) fn begin(source: &Database, dir: &Path, max_backups: usize) -> Result<Self> {
         crate::fs::create_dir_all_durable(dir).map_err(Error::Io)?;
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
@@ -130,18 +133,18 @@ impl Online {
     }
 
     /// Whether every table is copied: [`finish`](Self::finish) is left.
-    pub(crate) fn is_copied(&self) -> bool {
+    pub(super) fn is_copied(&self) -> bool {
         self.tables.is_empty()
     }
 
-    /// Copies the next step and commits it, without flushing it to disk: entries while the step
-    /// stays within [`STEP_BYTES`] (a larger value is a step alone). Each step is its own commit,
-    /// so no step writes more than its own entries, and none waits for the disk to sync.
+    /// Copies the next step ([`add_to_step`] says which entries it holds) and commits it, without
+    /// flushing it to disk. Each step is its own commit, so no step writes more than its own
+    /// entries, and none waits for the disk to sync.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread copies a step of an online backup"
     )]
-    pub(crate) fn step(&mut self) -> Result<()> {
+    pub(super) fn step(&mut self) -> Result<()> {
         let mut txn = self.db.begin_write().map_err(Error::database)?;
         txn.set_durability(Durability::None)
             .map_err(Error::database)?;
@@ -152,15 +155,12 @@ impl Online {
                 .open_table(TableDefinition::<&[u8], &[u8]>::new(name))
                 .map_err(Error::database)?;
             while let Some(entry) = entries.peek() {
-                let size = match entry {
-                    Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
-                    Err(_) => 0,
-                };
-                if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
+                let Some(taken) = add_to_step(bytes, entry) else {
                     drop(target);
                     txn.commit().map_err(Error::database)?;
                     return Ok(());
-                }
+                };
+                bytes = taken;
                 if let Some(entry) = entries.next() {
                     let (key, value) = entry.map_err(Error::database)?;
                     drop(
@@ -169,7 +169,6 @@ impl Online {
                             .map_err(Error::database)?,
                     );
                 }
-                bytes = bytes.saturating_add(size);
             }
             drop(target);
             self.tables.pop();
@@ -190,7 +189,7 @@ impl Online {
         clippy::disallowed_methods,
         reason = "off-tick: the save thread finishes an online backup"
     )]
-    pub(crate) fn finish(self) -> Result<PathBuf> {
+    pub(super) fn finish(self) -> Result<PathBuf> {
         let Self {
             tables: _,
             db,
@@ -211,7 +210,7 @@ impl Online {
             .and_then(|file| file.sync_all())
             .map_err(Error::Io)?;
         temp.rename(&path)?;
-        if let Err(e) = prune(&dir, &path, max_backups) {
+        if let Err(e) = prune(&dir, max_backups) {
             warn!(
                 path = %dir.display(),
                 error = &e as &(dyn std::error::Error + 'static),
@@ -225,8 +224,8 @@ impl Online {
 impl std::fmt::Debug for Online {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Online")
-            .field("path", &self.path)
             .field("tables_left", &self.tables.len())
+            .field("path", &self.path)
             .finish_non_exhaustive()
     }
 }
@@ -304,20 +303,18 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     )))
 }
 
-/// Removes all but the `max_backups` newest backups in `dir`, never `newest` (the backup just
-/// made). Other files are left alone.
+/// Removes all but the `max_backups` newest backups in `dir`. The backup just made sorts last and
+/// `max_backups` is at least 1, so it stays. Other files are left alone.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread prunes backups after an online backup"
 )]
-fn prune(dir: &Path, newest: &Path, max_backups: usize) -> Result<()> {
+fn prune(dir: &Path, max_backups: usize) -> Result<()> {
     let mut backups = backups(dir)?;
     backups.sort_unstable();
     let old = backups.len().saturating_sub(max_backups);
     for (_, path) in backups.iter().take(old) {
-        if path != newest {
-            std::fs::remove_file(path).map_err(Error::Io)?;
-        }
+        std::fs::remove_file(path).map_err(Error::Io)?;
     }
     Ok(())
 }
@@ -344,7 +341,7 @@ pub(super) fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
 }
 
 /// The (seconds, n) a backup name sorts by, or `None` for any other name.
-pub(crate) fn order(name: &str) -> Option<(u64, u32)> {
+pub(super) fn order(name: &str) -> Option<(u64, u32)> {
     let stem = name.strip_suffix(SUFFIX)?;
     match stem.split_once('-') {
         Some((secs, n)) => Some((number(secs)?, number(n).filter(|&n| n != 0)?)),
@@ -402,9 +399,28 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     Ok(tables)
 }
 
+/// Adds `entry` to a step that holds `bytes` of keys and values: the step's bytes with it, or
+/// `None` when the step ends before it. A step holds entries while it stays within
+/// [`STEP_BYTES`]; a larger value is a step alone. An entry that failed to read counts as no bytes.
+pub(super) fn add_to_step(bytes: usize, entry: &Entry) -> Option<usize> {
+    let size = match entry {
+        Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
+        Err(_) => 0,
+    };
+    let total = bytes.saturating_add(size);
+    (bytes == 0 || total <= STEP_BYTES).then_some(total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    thread_local! {
+        /// The syncs of online backup files this thread made ([`Counted`]).
+        static SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        /// The times this thread made an online backup's file longer ([`Counted`]).
+        static GROWTHS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
 
     #[test]
     fn only_backup_names_have_an_order() {
@@ -460,13 +476,6 @@ mod tests {
         let name = path.file_name().unwrap().to_str().unwrap();
         assert_eq!(name, "99999999999-5.redb");
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    thread_local! {
-        /// The syncs of online backup files this thread made ([`Counted`]).
-        static SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-        /// The times this thread made an online backup's file longer ([`Counted`]).
-        static GROWTHS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     }
 
     /// An online backup's file backend that counts its syncs and growths on this thread.

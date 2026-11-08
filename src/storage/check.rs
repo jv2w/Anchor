@@ -13,9 +13,9 @@
 //! opens is the file checked, and no other process opens it in between.
 //!
 //! `/check` reads every value of one read transaction of the open file, in steps of at most
-//! [`STEP_BYTES`] between the save thread's other work, and checks it against its seal (header
-//! and checksum, [`seal::verify`]). It reads every page that holds a value and finds what redb
-//! reports damaged on the way.
+//! [`backup::STEP_BYTES`] between the save thread's other work, and checks it against its seal
+//! (header and checksum, [`seal::verify`]). It reads every page that holds a value and finds what
+//! redb reports damaged on the way.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -27,7 +27,7 @@ use redb::backends::FileBackend;
 use redb::{BackendError, Builder, Database, StorageBackend};
 use tracing::{debug, warn};
 
-use super::backup::{self, STEP_BYTES, Source};
+use super::backup::{self, Source};
 use super::{Error, Result, check_format, check_integrity, is_closed_normally, seal};
 use crate::config::IntegrityCheck;
 
@@ -568,7 +568,7 @@ impl Checked {
 }
 
 /// A check being made: the tables left of one read transaction, and what it found so far.
-pub(crate) struct Check {
+pub(super) struct Check {
     /// The tables left to read, the next last.
     tables: Vec<Source>,
     values: u64,
@@ -580,8 +580,8 @@ pub(crate) struct Check {
 }
 
 impl Check {
-    /// Starts a check of `source`'s last commit.
-    pub(crate) fn begin(source: &Database) -> Result<Self> {
+    /// A check of `source`'s last commit.
+    pub(super) fn begin(source: &Database) -> Result<Self> {
         Ok(Self {
             tables: backup::tables(source)?,
             values: 0,
@@ -591,22 +591,16 @@ impl Check {
         })
     }
 
-    /// Reads and checks the next step: values while the step stays within [`STEP_BYTES`] (a
-    /// larger value is a step alone). Returns what the check found once every table is read.
-    /// Damage redb reports while reading a table ends that table, which is counted as one damaged
-    /// value; any other read failure ends the check.
-    pub(crate) fn step(&mut self) -> Option<Checked> {
+    /// Reads and checks the next step ([`backup::add_to_step`] says which values it holds).
+    /// Returns what the check found once every table is read. Damage redb reports while reading a
+    /// table ends that table, which is counted as one damaged value; any other read failure ends
+    /// the check.
+    pub(super) fn step(&mut self) -> Option<Checked> {
         let mut bytes = 0_usize;
         while let Some((name, entries)) = self.tables.last_mut() {
             while let Some(entry) = entries.peek() {
-                let size = match entry {
-                    Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
-                    Err(_) => 0,
-                };
-                if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
-                    return None;
-                }
-                bytes = bytes.saturating_add(size);
+                // `None` ends the step before this entry.
+                bytes = backup::add_to_step(bytes, entry)?;
                 let (fault, table_ends) = match entries.next() {
                     Some(Ok((key, value))) => {
                         self.values = self.values.saturating_add(1);
@@ -640,7 +634,7 @@ impl Check {
 
     /// Ends the check early because of `why`, letting go of its read transaction; the next
     /// [`step`](Self::step) reports it.
-    pub(crate) fn stop(&mut self, why: String) {
+    pub(super) fn stop(&mut self, why: String) {
         self.tables.clear();
         self.failure.get_or_insert(why);
     }
@@ -755,7 +749,7 @@ pub(super) mod tests {
 
     thread_local! {
         /// The most bytes of writes one [`Overlay`] on this thread kept.
-        pub(crate) static WRITTEN_PEAK: Cell<usize> = const { Cell::new(0) };
+        pub(in crate::storage) static WRITTEN_PEAK: Cell<usize> = const { Cell::new(0) };
     }
 
     /// The table the tests fill.
@@ -810,6 +804,7 @@ pub(super) mod tests {
         txn.delete_table(TABLE).unwrap();
         txn.commit().unwrap();
         drop(db);
+        // Not assert_eq!: a failure would print the whole file.
         assert!(
             std::fs::read(&path).unwrap() == bytes,
             "the file was written"
@@ -819,6 +814,7 @@ pub(super) mod tests {
         let n = u16::try_from(MAX_WRITTEN_BYTES >> 16).unwrap();
         assert!(insert(&db, 16, n).is_err());
         drop(db);
+        // Not assert_eq!: a failure would print the whole file.
         assert!(
             std::fs::read(&path).unwrap() == bytes,
             "the file was written"

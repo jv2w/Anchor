@@ -30,9 +30,9 @@ pub(crate) const MAX_BLOCK_ENTITY_ENTRIES: usize =
 /// a chunk column. Entities are bounded by the world's entity cap long before.
 pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
 /// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
-pub(crate) const MAX_LAYERS: usize = 2;
+const MAX_LAYERS: usize = 2;
 /// Longest name a record holds (a player's world, a ban's reason and source).
-pub(crate) const MAX_NAME_BYTES: usize = 256;
+const MAX_NAME_BYTES: usize = 256;
 /// Most pages a list takes: the page number of a key is a u16.
 const MAX_PAGES: usize = 1 << 16;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
@@ -44,8 +44,9 @@ pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD_BYTES - (2 + MAX_NAM
 /// place in the chunk, or a second at a place): every entry of a list an import writes.
 pub(crate) const MAX_RAW_BLOCK_ENTITIES: usize = MAX_EXTRA_ENTRIES;
 /// Most spills (the items of broken containers waiting to drop) a chunk's block entity list
-/// holds; beyond it new spills are lost with an error (a chunk would need this many containers
-/// broken while its world is at the entity limit).
+/// holds; beyond it new stacks join the free slots of the waiting spills, and a break or an
+/// explosion that would need more room than those hold is refused before it changes anything (a
+/// chunk would need this many containers broken while its world is at the entity limit).
 pub(crate) const MAX_SPILLS: usize = 1024;
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
 pub(crate) const SUB_CHUNKS: usize = 24;
@@ -251,7 +252,7 @@ impl Record for PlayerRecord {
 pub(crate) struct ExtraRecord<'a>(pub(crate) Cow<'a, [Compound]>);
 
 impl ExtraRecord<'_> {
-    /// Returns the encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
+    /// The encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
     /// `max` bytes and read back within the [`DECODE_BUDGET`] of a record's reader: entries are
     /// added to a page until the next would not fit either. An entry is at most an NBT root
     /// ([`MAX_ROOT_BYTES`]) and a quarter of the budget (an error otherwise), so with `max` at
@@ -395,7 +396,7 @@ pub(crate) struct Meta {
 
 #[cfg(test)]
 impl Meta {
-    /// Returns the meta value of `tick` without a commit identity.
+    /// The meta value of `tick` without a commit identity.
     pub(crate) fn at(tick: u64) -> Self {
         Self {
             tick,
@@ -586,7 +587,7 @@ fn close_page(page: &mut Vec<u8>, count: u32, pages: &mut Vec<Vec<u8>>) {
     pages.push(std::mem::take(page));
 }
 
-/// Returns the error of a position component that is not finite.
+/// The error of a position component that is not finite.
 fn not_finite() -> Error {
     Error::InvalidValue {
         field: "player position",
@@ -642,7 +643,7 @@ pub(crate) mod tests {
         R::decode(&mut Reader::new(bytes, DECODE_BUDGET, 0))
     }
 
-    /// Returns a random compound of a few kinds of tags, nested up to `depth`.
+    /// A random compound of a few kinds of tags, nested up to `depth`.
     pub(crate) fn random_compound(rng: &mut Rng, depth: usize) -> Compound {
         let mut c = Compound::new();
         for i in 0..rng.below(6) {
@@ -670,7 +671,7 @@ pub(crate) mod tests {
         c
     }
 
-    /// Returns the Bedrock disk palette entry of the block `name` with `states`.
+    /// The Bedrock disk palette entry of the block `name` with `states`.
     pub(crate) fn block(name: &str, states: &[(&str, Value)]) -> Compound {
         let states = states
             .iter()
@@ -700,21 +701,12 @@ pub(crate) mod tests {
         words
     }
 
-    /// Returns the narrowest width that indexes `len` palette entries.
+    /// The narrowest width that indexes `len` palette entries.
     pub(crate) fn width(len: usize) -> u8 {
         WIDTHS.into_iter().find(|&b| len <= 1 << b).unwrap()
     }
 
-    /// Returns the biomes of a sub-chunk that is the biome `id` everywhere.
-    fn uniform_biomes(id: u32) -> Biomes {
-        Biomes {
-            bits: 0,
-            words: Vec::new(),
-            palette: vec![id],
-        }
-    }
-
-    /// Returns a random chunk: random sub-chunks are air, others have one or two layers of random width
+    /// A random chunk: random sub-chunks are air, others have one or two layers of random width
     /// and palette, and the biomes vary.
     pub(crate) fn random_chunk(rng: &mut Rng) -> ChunkRecord {
         let sub_chunks: Vec<SubChunkRecord> = (0..SUB_CHUNKS)
@@ -763,7 +755,52 @@ pub(crate) mod tests {
         }
     }
 
-    /// Returns a chunk shaped like generated terrain: bedrock, deepslate and stone with ore and rock
+    /// The block at height `y` of a terrain column whose surface is at `h`.
+    fn terrain_block(y: i32, h: i32, pocket: Option<&'static str>, plant: u16) -> &'static str {
+        if y == -64 {
+            "minecraft:bedrock"
+        } else if y < h - 3 {
+            match pocket {
+                Some(kind) => kind,
+                None if y < 0 => "minecraft:deepslate",
+                None => "minecraft:stone",
+            }
+        } else if y < h {
+            "minecraft:dirt"
+        } else if y == h && h >= 62 {
+            "minecraft:grass_block"
+        } else if y == h {
+            "minecraft:sand"
+        } else if y <= 62 {
+            "minecraft:water"
+        } else if y == h + 1 && plant == 1 {
+            "minecraft:short_grass"
+        } else if y == h + 1 && plant == 2 {
+            "minecraft:poppy"
+        } else {
+            "minecraft:air"
+        }
+    }
+
+    /// The disk palette entry of the terrain block `name`.
+    fn terrain_state(name: &str) -> Compound {
+        match name {
+            "minecraft:deepslate" => block(name, &[("pillar_axis", Value::String("y".to_owned()))]),
+            "minecraft:water" => block(name, &[("liquid_depth", Value::Int(0))]),
+            _ => block(name, &[]),
+        }
+    }
+
+    /// The biomes of a sub-chunk that is the biome `id` everywhere.
+    fn uniform_biomes(id: u32) -> Biomes {
+        Biomes {
+            bits: 0,
+            words: Vec::new(),
+            palette: vec![id],
+        }
+    }
+
+    /// A chunk shaped like generated terrain: bedrock, deepslate and stone with ore and rock
     /// pockets, dirt and grass on a sloped surface near y 64, water up to y 62, plants, then air.
     /// Biomes change across the surface sub-chunks.
     pub(crate) fn terrain_chunk(rng: &mut Rng) -> ChunkRecord {
@@ -857,43 +894,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// Returns the block at height `y` of a terrain column whose surface is at `h`.
-    fn terrain_block(y: i32, h: i32, pocket: Option<&'static str>, plant: u16) -> &'static str {
-        if y == -64 {
-            "minecraft:bedrock"
-        } else if y < h - 3 {
-            match pocket {
-                Some(kind) => kind,
-                None if y < 0 => "minecraft:deepslate",
-                None => "minecraft:stone",
-            }
-        } else if y < h {
-            "minecraft:dirt"
-        } else if y == h && h >= 62 {
-            "minecraft:grass_block"
-        } else if y == h {
-            "minecraft:sand"
-        } else if y <= 62 {
-            "minecraft:water"
-        } else if y == h + 1 && plant == 1 {
-            "minecraft:short_grass"
-        } else if y == h + 1 && plant == 2 {
-            "minecraft:poppy"
-        } else {
-            "minecraft:air"
-        }
-    }
-
-    /// Returns the disk palette entry of the terrain block `name`.
-    fn terrain_state(name: &str) -> Compound {
-        match name {
-            "minecraft:deepslate" => block(name, &[("pillar_axis", Value::String("y".to_owned()))]),
-            "minecraft:water" => block(name, &[("liquid_depth", Value::Int(0))]),
-            _ => block(name, &[]),
-        }
-    }
-
-    /// Returns a chunk without blocks, all plains.
+    /// A chunk without blocks, all plains.
     pub(crate) fn empty_chunk() -> ChunkRecord {
         let sub_chunks: Vec<SubChunkRecord> = (0..SUB_CHUNKS)
             .map(|_| SubChunkRecord {

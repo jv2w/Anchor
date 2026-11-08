@@ -4,8 +4,10 @@
 //! world (its record and chunks). The save thread
 //! (`save`) commits one snapshot to each file that changed, the main file last.
 //!
-//! Only the save thread, the world import before the server runs, a replay
-//! ([`Storage::open_replica`]) and the world export ([`Snapshot`]) use this module; every call
+//! While the server runs only the save thread uses this module. Before it, the start checks and
+//! opens the files on the calling thread and on the CPU pool (`save::check_all`); the world import,
+//! a replay ([`Storage::open_replica`]), the world export ([`Snapshot`]) and
+//! `Server::delete_player_data` (with no server) use it too. Every call
 //! blocks on file I/O. Tables map raw keys
 //! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]: the save it last committed; in
 //! the main file also the deletion marks of the worlds that save deleted, [`Key::Deleted`]),
@@ -78,7 +80,7 @@ pub(crate) const BACKUP_DIR: &str = "backups";
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
 /// The bytes a chunk's keys start with ([`ChunkId`]); the rest tell its [`ChunkPart`].
-pub(crate) const CHUNK_PREFIX: usize = 12;
+pub(crate) const CHUNK_PREFIX_BYTES: usize = 12;
 /// The table of a world's chunk values.
 const CHUNKS: Table = TableDefinition::new("chunks");
 /// The mark of a normal stop, in the `meta` table with an empty value: the last commit of
@@ -99,7 +101,7 @@ pub(crate) const MAIN_FILE: &str = "main";
 const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
 /// Most bytes of a `chunks` key after the chunk's prefix: the kind byte and the page number of a
 /// later extras page.
-const MAX_CHUNK_SUFFIX: usize = 3;
+const MAX_CHUNK_SUFFIX_BYTES: usize = 3;
 /// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
 /// name on Linux and the 255 UTF-16 units on Windows.
 pub(crate) const MAX_FILE_NAME: usize = 250;
@@ -117,7 +119,11 @@ const PLAYERS: Table = TableDefinition::new("players");
 /// The file of the players' data.
 pub(crate) const PLAYERS_FILE: &str = "players";
 /// Failed commits retried before [`Storage::commit`] gives up.
-pub(crate) const RETRIES: usize = 3;
+const RETRIES: usize = 3;
+/// The most bytes before the dot of a Windows 8.3 short name.
+const SHORT_NAME_BASE_BYTES: usize = 8;
+/// The most bytes after the dot of a Windows 8.3 short name.
+const SHORT_NAME_EXTENSION_BYTES: usize = 3;
 /// The sign bit of a chunk coordinate, flipped in the key so that keys sort by coordinate.
 const SIGN_BIT: u32 = 0x8000_0000;
 /// The bits of a sub-chunk value's kind byte that hold the sub-chunk's index.
@@ -225,18 +231,6 @@ pub(crate) enum Error {
 }
 
 impl Error {
-    /// `self` as a failure in the data file at `path`; an error that already names its file keeps
-    /// that one.
-    pub(crate) fn in_file(self, path: &Path) -> Self {
-        match self {
-            Self::File { .. } => self,
-            source => Self::File {
-                path: path.to_path_buf(),
-                source: Box::new(source),
-            },
-        }
-    }
-
     /// A redb failure of any kind, as [`Error::Database`]; [`Error::is_damage`] tells corruption
     /// apart.
     pub(crate) fn database(e: impl Into<redb::Error>) -> Self {
@@ -250,14 +244,26 @@ impl Error {
             Self::File { source, .. } => source.is_damage(),
             _ => matches!(
                 self,
-                Self::DamagedFile(_)
+                Self::Database(redb::Error::Corrupted(_))
+                    | Self::DamagedFile(_)
                     | Self::Checksum
                     | Self::Malformed(_)
                     | Self::Compression(_)
                     | Self::Record(_)
-                    | Self::Database(redb::Error::Corrupted(_))
                     | Self::NoRollback
             ),
+        }
+    }
+
+    /// `self` as a failure in the data file at `path`; an error that already names its file keeps
+    /// that one.
+    pub(crate) fn in_file(self, path: &Path) -> Self {
+        match self {
+            Self::File { .. } => self,
+            source => Self::File {
+                path: path.to_path_buf(),
+                source: Box::new(source),
+            },
         }
     }
 
@@ -382,7 +388,7 @@ impl ChunkId {
     /// The chunk whose prefix `key` starts with; `None` for a key shorter than a prefix.
     fn from_key(key: &[u8]) -> Option<Self> {
         let [w0, w1, w2, w3, x0, x1, x2, x3, z0, z1, z2, z3] =
-            *key.first_chunk::<CHUNK_PREFIX>()?;
+            *key.first_chunk::<CHUNK_PREFIX_BYTES>()?;
         let unflip = |c: [u8; 4]| (u32::from_be_bytes(c) ^ SIGN_BIT).cast_signed();
         Some(Self {
             world: u32::from_be_bytes([w0, w1, w2, w3]),
@@ -393,7 +399,7 @@ impl ChunkId {
 
     /// 12 bytes: world, x and z big-endian with the sign bit flipped (so keys sort by
     /// coordinate).
-    fn prefix(self) -> [u8; CHUNK_PREFIX] {
+    fn prefix(self) -> [u8; CHUNK_PREFIX_BYTES] {
         let flip = |c: i32| (c.cast_unsigned() ^ SIGN_BIT).to_be_bytes();
         let [w0, w1, w2, w3] = self.world.to_be_bytes();
         let [x0, x1, x2, x3] = flip(self.x);
@@ -418,7 +424,7 @@ pub(crate) enum ChunkPart {
 
 impl ChunkPart {
     /// The part these key bytes after the chunk's prefix name; a key no Anchor writes is damage.
-    pub(crate) fn from_suffix(bytes: &[u8]) -> Result<Self> {
+    fn from_suffix(bytes: &[u8]) -> Result<Self> {
         let kind = |k: u8| match k {
             1 => Some(ChunkKind::BlockEntities),
             2 => Some(ChunkKind::Entities),
@@ -455,7 +461,7 @@ pub(crate) struct ChunkKey {
 impl ChunkKey {
     /// 13 or 15 bytes: the chunk's prefix, the kind byte, and the page of a later extras page.
     pub(crate) fn to_bytes(self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(CHUNK_PREFIX + MAX_CHUNK_SUFFIX);
+        let mut out = Vec::with_capacity(CHUNK_PREFIX_BYTES + MAX_CHUNK_SUFFIX_BYTES);
         out.extend_from_slice(&self.chunk.prefix());
         match self.part {
             ChunkPart::Extras(kind, page) => {
@@ -699,7 +705,7 @@ impl Source {
     /// commit here.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread opens the data file"
+        reason = "off-tick: the start and the save thread open the data file"
     )]
     fn open(&self) -> Result<Database> {
         let mut builder = Builder::new();
@@ -720,10 +726,10 @@ impl Source {
 /// Whether [`Storage::open`] backs up the file it opened (`backups`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StartBackup {
-    /// Begin an online backup of the start's first commit ([`Storage::begin_backup`]). A file that
+    /// An online backup of the start's first commit ([`Storage::begin_backup`]). A file that
     /// existed before has one; a new one has nothing to back up.
     Make,
-    /// Make none (`backups = false`).
+    /// No backup (`backups = false`).
     Skip,
 }
 
@@ -1262,8 +1268,9 @@ impl Replica {
                 values
                     .into_iter()
                     .map(|(key, value)| {
-                        let part =
-                            ChunkPart::from_suffix(key.get(CHUNK_PREFIX..).unwrap_or_default())?;
+                        let part = ChunkPart::from_suffix(
+                            key.get(CHUNK_PREFIX_BYTES..).unwrap_or_default(),
+                        )?;
                         Ok((part, value))
                     })
                     .collect(),
@@ -1537,7 +1544,8 @@ fn read_chunk(table: &ReadOnlyTable<&'static [u8], &'static [u8]>, chunk: ChunkI
         .map_err(Error::database)?
     {
         let (key, value) = entry.map_err(Error::database)?;
-        let part = ChunkPart::from_suffix(key.value().get(CHUNK_PREFIX..).unwrap_or_default())?;
+        let part =
+            ChunkPart::from_suffix(key.value().get(CHUNK_PREFIX_BYTES..).unwrap_or_default())?;
         values.push((part, value.value().to_vec()));
     }
     Ok(values)
@@ -1549,7 +1557,7 @@ fn chunk_range(chunk: ChunkId) -> (Vec<u8>, Vec<u8>) {
     let mut first = prefix.to_vec();
     first.push(0);
     let mut last = prefix.to_vec();
-    last.extend_from_slice(&[0xff; MAX_CHUNK_SUFFIX]);
+    last.extend_from_slice(&[0xff; MAX_CHUNK_SUFFIX_BYTES]);
     (first, last)
 }
 
@@ -1557,7 +1565,7 @@ fn chunk_range(chunk: ChunkId) -> (Vec<u8>, Vec<u8>) {
 /// repaired (which was damaged).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread checks the data file at start"
+    reason = "off-tick: the start checks the data file on the calling thread and on the CPU pool"
 )]
 fn check_integrity(db: &mut Database) -> Result<()> {
     #[cfg(test)]
@@ -1577,7 +1585,7 @@ fn check_integrity(db: &mut Database) -> Result<()> {
 /// value's format) or its meta value is damaged.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the meta value of a data file at start"
+    reason = "off-tick: the start and the save thread read a data file's meta value before opening it"
 )]
 fn check_format(db: &Database) -> Result<()> {
     let txn = db.begin_read().map_err(Error::database)?;
@@ -1622,7 +1630,7 @@ pub(crate) fn check_settled(file: &Path, main: &Path) -> Result<()> {
 /// left for redb to repair) has none: the start then checks it, and the check meets the fault.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the data file's mark once, before opening it"
+    reason = "off-tick: the start reads the data file's mark once, before opening it"
 )]
 pub(crate) fn is_closed_normally(world: &Path) -> bool {
     let Ok(db) = open_read_only(world) else {
@@ -1779,7 +1787,7 @@ pub(crate) fn is_later(meta: &Meta, saved: &Meta) -> bool {
 /// of a normal stop ([`CLOSED_KEY`]).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread writes the data file at start"
+    reason = "off-tick: the start and the save thread write the data file as it opens"
 )]
 fn begin_run(db: &Database) -> Result<()> {
     let txn = begin_write(db)?;
@@ -1969,7 +1977,9 @@ fn open_read(
 /// (`data/worlds/<name>.redb`), by the rule of
 /// [`world::Error::InvalidName`](crate::world::Error::InvalidName) with the length limit
 /// [`MAX_FILE_NAME`]. Names that differ only in letter case name one file on Windows, so they
-/// are one world on every system ([`world_name_key`]).
+/// are one world on every system ([`world_name_key`]). A name of the form of a Windows 8.3
+/// short name ([`is_short_name_form`]) is refused: Windows takes it for the alias of another file
+/// or folder, such as the backup folder of another world.
 pub(crate) fn is_world_file_name(name: &str) -> bool {
     if name.is_empty()
         || name.len() > MAX_FILE_NAME
@@ -1978,6 +1988,7 @@ pub(crate) fn is_world_file_name(name: &str) -> bool {
         || name
             .chars()
             .any(|c| c.is_control() || FORBIDDEN.contains(&c))
+        || is_short_name_form(name)
     {
         return false;
     }
@@ -2001,6 +2012,19 @@ pub(crate) fn is_world_file_name(name: &str) -> bool {
             }),
     };
     !device
+}
+
+/// Whether `name` has the form of a Windows 8.3 short name: at most 8 bytes, then at most one
+/// dot and 3 bytes, with `~` and a digit before the dot (`LONGWO~1`, `x~12.txt`).
+fn is_short_name_form(name: &str) -> bool {
+    let (base, extension) = name.split_once('.').unwrap_or((name, ""));
+    base.len() <= SHORT_NAME_BASE_BYTES
+        && extension.len() <= SHORT_NAME_EXTENSION_BYTES
+        && !extension.contains('.')
+        && base
+            .as_bytes()
+            .windows(2)
+            .any(|pair| matches!(pair, [b'~', digit] if digit.is_ascii_digit()))
 }
 
 /// What world names that name one file have in common: the name in one letter case.
@@ -2187,6 +2211,10 @@ pub(crate) mod tests {
         }
     }
 
+    fn injected() -> io::Error {
+        io::Error::other("injected fault")
+    }
+
     #[derive(Debug)]
     pub(crate) struct Backend(Disk);
 
@@ -2246,10 +2274,6 @@ pub(crate) mod tests {
         }
     }
 
-    fn injected() -> io::Error {
-        io::Error::other("injected fault")
-    }
-
     pub(crate) fn memory(disk: &Disk) -> Storage {
         Storage::start(Source::Memory(disk.clone())).unwrap()
     }
@@ -2265,16 +2289,6 @@ pub(crate) mod tests {
             source: Source::Memory(disk.clone()),
             replica: None,
         }
-    }
-
-    /// Every stored value under `keys`, which must all unseal.
-    fn contents(storage: &mut Storage, keys: &[Key]) -> BTreeMap<Key, Vec<u8>> {
-        let values = storage.read(keys).unwrap();
-        keys.iter()
-            .zip(values)
-            .filter_map(|(key, value)| Some((key.clone(), value.unwrap()?)))
-            .inspect(|(key, sealed)| check_value(key, sealed))
-            .collect()
     }
 
     fn check_value(key: &Key, sealed: &[u8]) {
@@ -2294,6 +2308,16 @@ pub(crate) mod tests {
             Key::User(_) => drop(unseal::<UserRecord<'_>>(&bytes, sealed).unwrap()),
             Key::Access(_) | Key::Deleted(_) => drop(unseal::<Mark>(&bytes, sealed).unwrap()),
         }
+    }
+
+    /// Every stored value under `keys`, which must all unseal.
+    fn contents(storage: &mut Storage, keys: &[Key]) -> BTreeMap<Key, Vec<u8>> {
+        let values = storage.read(keys).unwrap();
+        keys.iter()
+            .zip(values)
+            .filter_map(|(key, value)| Some((key.clone(), value.unwrap()?)))
+            .inspect(|(key, sealed)| check_value(key, sealed))
+            .collect()
     }
 
     fn chunk(x: i32, z: i32) -> ChunkId {
@@ -2319,6 +2343,20 @@ pub(crate) mod tests {
             1 => ChunkPart::Extras(ChunkKind::Entities, u16::try_from(rng.below(2)).unwrap()),
             _ => ChunkPart::SubChunk(u8::try_from(rng.below(3)).unwrap()),
         }
+    }
+
+    /// One of four `access` keys: an operator, a ban, a whitelist entry and an IP ban.
+    fn access_key(n: usize) -> Key {
+        let (kind, name) = match n {
+            0 => (AccessKind::Op, "steve"),
+            1 => (AccessKind::Ban, "alex"),
+            2 => (AccessKind::Whitelist, "steve"),
+            _ => (AccessKind::IpBan, "10.0.0.1"),
+        };
+        Key::Access(AccessKey {
+            kind,
+            name: name.to_owned(),
+        })
     }
 
     /// Applies a random batch to `model` and returns it: puts and deletes over a few chunks'
@@ -2406,20 +2444,6 @@ pub(crate) mod tests {
         batch
     }
 
-    /// One of four `access` keys: an operator, a ban, a whitelist entry and an IP ban.
-    fn access_key(n: usize) -> Key {
-        let (kind, name) = match n {
-            0 => (AccessKind::Op, "steve"),
-            1 => (AccessKind::Ban, "alex"),
-            2 => (AccessKind::Whitelist, "steve"),
-            _ => (AccessKind::IpBan, "10.0.0.1"),
-        };
-        Key::Access(AccessKey {
-            kind,
-            name: name.to_owned(),
-        })
-    }
-
     fn all_keys() -> Vec<Key> {
         let parts = (0..3).map(ChunkPart::SubChunk).chain(
             ChunkKind::EXTRAS
@@ -2490,7 +2514,7 @@ pub(crate) mod tests {
         let mut keys = Vec::new();
         for (part, suffix) in parts {
             let key = ChunkKey { chunk: id, part }.to_bytes();
-            assert_eq!(key[CHUNK_PREFIX..], suffix, "{part:?}");
+            assert_eq!(key[CHUNK_PREFIX_BYTES..], suffix, "{part:?}");
             assert_eq!(ChunkPart::from_suffix(&suffix).unwrap(), part);
             keys.push(key);
         }
@@ -2512,6 +2536,35 @@ pub(crate) mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    /// A one-byte stand-in value telling the parts of a test apart.
+    fn part_byte(part: ChunkPart) -> u8 {
+        ChunkKey {
+            chunk: chunk(0, 0),
+            part,
+        }
+        .to_bytes()[CHUNK_PREFIX_BYTES..]
+            .iter()
+            .fold(0, |a, &b| a ^ b)
+    }
+
+    /// Writes `key` with a one-byte value straight into the `chunks` table, bypassing the key
+    /// types (a file another program wrote).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test writes the file"
+    )]
+    fn raw_put(disk: &Disk, key: &[u8]) {
+        let db = Source::Memory(disk.clone()).open().unwrap();
+        let txn = db.begin_write().unwrap();
+        drop(
+            txn.open_table(CHUNKS)
+                .unwrap()
+                .insert(key, &[1_u8][..])
+                .unwrap(),
+        );
+        txn.commit().unwrap();
     }
 
     /// A chunk's values come back in key order, every part of it and nothing of its neighbours;
@@ -2541,7 +2594,7 @@ pub(crate) mod tests {
             part: ChunkPart::SubChunk(0),
         }
         .to_bytes();
-        odd[CHUNK_PREFIX] = 9;
+        odd[CHUNK_PREFIX_BYTES] = 9;
         storage.commit(&batch).unwrap();
         drop(storage);
         raw_put(&disk, &odd);
@@ -2580,35 +2633,6 @@ pub(crate) mod tests {
             parts_of(1),
             without(&[ChunkPart::Extras(ChunkKind::BlockEntities, 0)])
         );
-    }
-
-    /// A one-byte stand-in value telling the parts of a test apart.
-    fn part_byte(part: ChunkPart) -> u8 {
-        ChunkKey {
-            chunk: chunk(0, 0),
-            part,
-        }
-        .to_bytes()[CHUNK_PREFIX..]
-            .iter()
-            .fold(0, |a, &b| a ^ b)
-    }
-
-    /// Writes `key` with a one-byte value straight into the `chunks` table, bypassing the key
-    /// types (a file another program wrote).
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: a test writes the file"
-    )]
-    fn raw_put(disk: &Disk, key: &[u8]) {
-        let db = Source::Memory(disk.clone()).open().unwrap();
-        let txn = db.begin_write().unwrap();
-        drop(
-            txn.open_table(CHUNKS)
-                .unwrap()
-                .insert(key, &[1_u8][..])
-                .unwrap(),
-        );
-        txn.commit().unwrap();
     }
 
     #[test]
@@ -2841,9 +2865,16 @@ pub(crate) mod tests {
             Self(dir)
         }
 
-        /// The data file the tests open.
-        fn place(&self) -> Place {
-            Place::data(&self.0, MAIN_FILE)
+        /// Backup names, oldest first.
+        fn backups(&self) -> Vec<String> {
+            let Ok(entries) = std::fs::read_dir(self.place().backups) else {
+                return Vec::new();
+            };
+            let mut names: Vec<String> = entries
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort_by_key(|name| backup::order(name).unwrap());
+            names
         }
 
         fn world(&self) -> Vec<u8> {
@@ -2855,20 +2886,13 @@ pub(crate) mod tests {
             std::fs::metadata(self.place().file).unwrap().len()
         }
 
-        fn set_world(&self, bytes: &[u8]) {
-            std::fs::write(self.place().file, bytes).unwrap();
+        /// The data file the tests open.
+        fn place(&self) -> Place {
+            Place::data(&self.0, MAIN_FILE)
         }
 
-        /// Backup names, oldest first.
-        fn backups(&self) -> Vec<String> {
-            let Ok(entries) = std::fs::read_dir(self.place().backups) else {
-                return Vec::new();
-            };
-            let mut names: Vec<String> = entries
-                .map(|e| e.unwrap().file_name().into_string().unwrap())
-                .collect();
-            names.sort_by_key(|name| backup::order(name).unwrap());
-            names
+        fn set_world(&self, bytes: &[u8]) {
+            std::fs::write(self.place().file, bytes).unwrap();
         }
     }
 
@@ -3046,6 +3070,22 @@ pub(crate) mod tests {
         storage.close().unwrap();
     }
 
+    /// A batch of server data values of `mib` MiB of random bytes in all, which do not compress,
+    /// 16 KiB each, and a meta tick: an online backup copies them in several steps.
+    fn large_batch(rng: &mut Rng, mib: usize, tick: u64) -> Batch {
+        let mut batch = Batch::default();
+        for n in 0..mib * 64 {
+            let key = Key::User(format!("large-{n}"));
+            let bytes: Vec<u8> = (0..2 << 10)
+                .flat_map(|_| rng.next().to_le_bytes())
+                .collect();
+            let sealed = seal(&key.to_bytes(), &UserRecord(bytes.into())).unwrap();
+            batch.put(key, sealed);
+        }
+        batch.put(Key::Meta, seal(META_KEY, &Meta::at(tick)).unwrap());
+        batch
+    }
+
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_start_and_a_stop_never_compact_the_file() {
@@ -3069,29 +3109,6 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(len(&world), closed);
         }
-    }
-
-    #[test]
-    fn a_damaged_file_is_refused_and_left_as_it_was() {
-        for start in [StartBackup::Make, StartBackup::Skip] {
-            refuses_a_damaged_file(start);
-        }
-    }
-
-    fn refuses_a_damaged_file(start: StartBackup) {
-        let dir = TempDir::new("damaged");
-        let bytes = damage_a_closed_file(&dir);
-        let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
-        assert!(e.is_damage(), "{e:?}");
-        assert!(dir.world().eq(&bytes), "the file is left as it was");
-        assert!(dir.backups().is_empty(), "a refused file has no backup");
-        // A second try finds the same file and refuses it the same way.
-        assert!(
-            Storage::open(&dir.place(), Start::checked(start))
-                .unwrap_err()
-                .is_damage()
-        );
-        assert!(dir.world().eq(&bytes), "the file is unchanged");
     }
 
     /// Flips a bit in the middle of `sealed`'s body wherever `bytes` holds it; returns how often.
@@ -3133,6 +3150,41 @@ pub(crate) mod tests {
         bytes
     }
 
+    fn refuses_a_damaged_file(start: StartBackup) {
+        let dir = TempDir::new("damaged");
+        let bytes = damage_a_closed_file(&dir);
+        let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
+        assert!(e.is_damage(), "{e:?}");
+        assert!(dir.world().eq(&bytes), "the file is left as it was");
+        assert!(dir.backups().is_empty(), "a refused file has no backup");
+        // A second try finds the same file and refuses it the same way.
+        assert!(
+            Storage::open(&dir.place(), Start::checked(start))
+                .unwrap_err()
+                .is_damage()
+        );
+        assert!(dir.world().eq(&bytes), "the file is unchanged");
+    }
+
+    #[test]
+    fn a_damaged_file_is_refused_and_left_as_it_was() {
+        for start in [StartBackup::Make, StartBackup::Skip] {
+            refuses_a_damaged_file(start);
+        }
+    }
+
+    /// The sealed value `batch` puts under `key`.
+    fn batch_value(batch: &Batch, key: &Key) -> Vec<u8> {
+        batch
+            .writes
+            .iter()
+            .find_map(|write| match write {
+                Write::Put(k, value) if k == key => Some(value.clone()),
+                _ => None,
+            })
+            .unwrap()
+    }
+
     /// A file a killed process left (redb recovers it at its next open) passes the start's check
     /// without a byte of it written, in little memory, and starts; with a damaged value it is
     /// refused and left as it was.
@@ -3168,18 +3220,6 @@ pub(crate) mod tests {
         assert!(e.is_damage(), "{e:?}");
         assert!(dir.world().eq(&damaged), "the file is left as it was");
         assert_eq!(dir.backups().len(), 1, "a refused file gets no backup");
-    }
-
-    /// The sealed value `batch` puts under `key`.
-    fn batch_value(batch: &Batch, key: &Key) -> Vec<u8> {
-        batch
-            .writes
-            .iter()
-            .find_map(|write| match write {
-                Write::Put(k, value) if k == key => Some(value.clone()),
-                _ => None,
-            })
-            .unwrap()
     }
 
     #[test]
@@ -3297,13 +3337,6 @@ pub(crate) mod tests {
         open_read_only(&place.file).unwrap();
     }
 
-    #[test]
-    fn a_file_that_is_not_redb_is_refused_and_keeps_the_older_backups() {
-        for start in [StartBackup::Make, StartBackup::Skip] {
-            refuses_a_file_that_is_not_redb(start);
-        }
-    }
-
     fn refuses_a_file_that_is_not_redb(start: StartBackup) {
         let dir = TempDir::new(&format!("not-redb-{start:?}"));
         let max_backups = Start::checked(StartBackup::Make).max_backups;
@@ -3328,18 +3361,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// A file of a newer format is refused with every byte as it was, by every start, also one
-    /// that does not check the file.
     #[test]
-    fn a_newer_format_is_refused_and_left_as_it_was() {
-        use IntegrityCheck::{AfterUncleanShutdown, Always, Never};
-        for backup in [StartBackup::Make, StartBackup::Skip] {
-            for check in [Always, AfterUncleanShutdown, Never] {
-                refuses_a_newer_format(Start {
-                    check,
-                    ..Start::checked(backup)
-                });
-            }
+    fn a_file_that_is_not_redb_is_refused_and_keeps_the_older_backups() {
+        for start in [StartBackup::Make, StartBackup::Skip] {
+            refuses_a_file_that_is_not_redb(start);
         }
     }
 
@@ -3365,6 +3390,21 @@ pub(crate) mod tests {
         );
         assert!(dir.world().eq(&bytes), "{start:?}: the file is unchanged");
         assert!(dir.backups().is_empty(), "{start:?}");
+    }
+
+    /// A file of a newer format is refused with every byte as it was, by every start, also one
+    /// that does not check the file.
+    #[test]
+    fn a_newer_format_is_refused_and_left_as_it_was() {
+        use IntegrityCheck::{AfterUncleanShutdown, Always, Never};
+        for backup in [StartBackup::Make, StartBackup::Skip] {
+            for check in [Always, AfterUncleanShutdown, Never] {
+                refuses_a_newer_format(Start {
+                    check,
+                    ..Start::checked(backup)
+                });
+            }
+        }
     }
 
     /// The persistent savepoints of the open `storage`'s file.
@@ -3429,6 +3469,54 @@ pub(crate) mod tests {
         let mut storage = start_whole(&dir, Start::checked(StartBackup::Skip));
         assert_eq!(savepoints(&mut storage), 0);
         storage.close().unwrap();
+    }
+
+    /// The values of a file by key.
+    type Values = BTreeMap<Key, Vec<u8>>;
+
+    /// A file on a disk of its own committed once with a savepoint at meta tick 1, its values
+    /// then and after the next save, and that save's batch, at meta tick 2: the same for the
+    /// same `seed`.
+    fn saved_once(seed: u64) -> (Disk, Storage, Values, Values, Batch) {
+        let mut rng = Rng(seed);
+        let disk = Disk::default();
+        let mut storage = memory(&disk);
+        let mut model = BTreeMap::new();
+        commit_saved(&mut storage, &mut rng, &mut model, 1);
+        let before = model.clone();
+        let batch = random_batch(&mut rng, &mut model, 2);
+        (disk, storage, before, model, batch)
+    }
+
+    /// A savepoint commit whose first try lands and then fails (its last sync, after redb wrote
+    /// the new header) is not written again by the retry: the file holds the batch, and its one
+    /// savepoint still holds the file as it was before the save.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test rolls the file back"
+    )]
+    fn a_retry_after_a_landed_savepoint_commit_keeps_the_savepoint_of_before() {
+        let seed = 0x5e77_0004;
+        let (disk, mut storage, _, _, batch) = saved_once(seed);
+        disk.arm(Fault::None);
+        storage.commit_with_savepoint(&batch).unwrap();
+        // The commit's last sync comes after its header is written.
+        let syncs = disk.0.lock().unwrap().calls[Call::Sync as usize];
+        let (disk, mut storage, before, after, batch) = saved_once(seed);
+        disk.arm(Fault::Once {
+            call: Call::Sync,
+            at: syncs,
+        });
+        storage.commit_with_savepoint(&batch).unwrap();
+        assert_eq!(disk.failed(), 1);
+        assert_eq!(contents(&mut storage, &all_keys()), after);
+        assert_eq!(savepoints(&mut storage), 1);
+        let (txn, _) = roll_back(storage.database().unwrap(), &Meta::at(1))
+            .unwrap()
+            .expect("the file is later than the save before");
+        txn.commit().unwrap();
+        assert_eq!(contents(&mut storage, &all_keys()), before);
     }
 
     /// A file a save made, later than the main file, is removed; one that is not later is kept as
@@ -3581,6 +3669,18 @@ pub(crate) mod tests {
         );
     }
 
+    /// A name in the form of a Windows short name (`~` and a digit) is no world name, as it can
+    /// name another world's file or backup folder there; a `~` without a digit after it is.
+    #[test]
+    fn a_short_name_form_is_no_world_name() {
+        for bad in ["LONGWO~1", "a~1", "x~12.txt"] {
+            assert!(!is_world_file_name(bad), "{bad:?}");
+        }
+        for good in ["a~b", "a~", "arena~1_final", "a.b~1"] {
+            assert!(is_world_file_name(good), "{good}");
+        }
+    }
+
     #[test]
     fn errors_are_damage_only_for_damage() {
         assert!(Error::Checksum.is_damage());
@@ -3663,22 +3763,6 @@ pub(crate) mod tests {
                 (name, entries)
             })
             .collect()
-    }
-
-    /// A batch of server data values of `mib` MiB of random bytes in all, which do not compress,
-    /// 16 KiB each, and a meta tick: an online backup copies them in several steps.
-    fn large_batch(rng: &mut Rng, mib: usize, tick: u64) -> Batch {
-        let mut batch = Batch::default();
-        for n in 0..mib * 64 {
-            let key = Key::User(format!("large-{n}"));
-            let bytes: Vec<u8> = (0..2 << 10)
-                .flat_map(|_| rng.next().to_le_bytes())
-                .collect();
-            let sealed = seal(&key.to_bytes(), &UserRecord(bytes.into())).unwrap();
-            batch.put(key, sealed);
-        }
-        batch.put(Key::Meta, seal(META_KEY, &Meta::at(tick)).unwrap());
-        batch
     }
 
     /// The names in `dir`.

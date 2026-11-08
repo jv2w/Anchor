@@ -15,6 +15,8 @@ use crate::protocol::compression::zlib::{self, Framing};
 use crate::protocol::compression::{Compression, Compressor};
 use crate::protocol::{Reader, Writer};
 
+/// The header position of the checksum field, which runs to the end of the header.
+const CHECKSUM_OFFSET: usize = 8;
 /// Bytes a record decoder may allocate: four times the record, for palette NBT. Extras pages
 /// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
 /// bounded so that it does (`item::MAX_NBT_BYTES`).
@@ -40,12 +42,14 @@ const HEADER_BYTES: usize = 12;
 /// whole column would take up to 24 times that, which is why the terrain is stored by
 /// sub-chunk. Extras lists are split into pages of at most this.
 pub(crate) const MAX_RECORD_BYTES: usize = 16 << 20;
+/// The header position of the method byte.
+const METHOD_OFFSET: usize = 2;
 /// The method byte of a record stored as it is.
 const METHOD_STORED: u8 = 0;
 /// The method byte of a record compressed with raw DEFLATE.
 const METHOD_DEFLATE: u8 = 2;
 /// Records shorter than this are stored: compression cannot pay for itself.
-const MIN_COMPRESSED: usize = 64;
+const MIN_COMPRESSED_BYTES: usize = 64;
 /// `TABLES[k][b]` is the CRC of byte `b` followed by `k` zero bytes.
 static TABLES: [[u32; 256]; 8] = crc_tables();
 
@@ -59,6 +63,11 @@ impl Crc32c {
     /// A CRC of no bytes yet.
     pub(crate) fn new() -> Self {
         Self(!0)
+    }
+
+    /// The CRC of the bytes added.
+    pub(crate) fn finish(&self) -> u32 {
+        !self.0
     }
 
     /// Adds `bytes`.
@@ -86,11 +95,6 @@ impl Crc32c {
         }
         self.0 = crc;
     }
-
-    /// The CRC of the bytes added.
-    pub(crate) fn finish(&self) -> u32 {
-        !self.0
-    }
 }
 
 /// Encodes `record` and seals it under `key` (the key's bytes).
@@ -113,18 +117,18 @@ pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     out.extend_from_slice(&[METHOD_STORED, 0]);
     out.extend_from_slice(&raw_len.to_le_bytes());
     out.extend_from_slice(&[0; 4]);
-    if record.len() >= MIN_COMPRESSED {
+    if record.len() >= MIN_COMPRESSED_BYTES {
         Compressor::new(Compression::Zlib, DEFLATE_LEVEL).compress(record, &mut out);
     }
     let compressed = out.len() - HEADER_BYTES;
     if compressed == 0 || compressed >= record.len() {
         out.truncate(HEADER_BYTES);
         out.extend_from_slice(record);
-    } else if let Some(method) = out.get_mut(2) {
+    } else if let Some(method) = out.get_mut(METHOD_OFFSET) {
         *method = METHOD_DEFLATE;
     }
     let crc = checksum(key, &out);
-    if let Some(field) = out.get_mut(8..HEADER_BYTES) {
+    if let Some(field) = out.get_mut(CHECKSUM_OFFSET..HEADER_BYTES) {
         field.copy_from_slice(&crc.to_le_bytes());
     }
     Ok(out)
@@ -137,13 +141,13 @@ pub(crate) fn unseal<R: Record>(key: &[u8], sealed: &[u8]) -> Result<R> {
     R::decode(&mut r).map_err(Error::Record)
 }
 
-/// The checksum field of a sealed value, read without checking it; 0 if the value is shorter
-/// than its header. After [`unseal`] succeeded it identifies the stored bytes.
-pub(crate) fn stored_checksum(sealed: &[u8]) -> u32 {
+/// The checksum field of a sealed value, read without checking it; `None` if the value is
+/// shorter than its header. After [`unseal`] succeeded it identifies the stored bytes.
+pub(crate) fn stored_checksum(sealed: &[u8]) -> Option<u32> {
     sealed
-        .get(8..HEADER_BYTES)
+        .get(CHECKSUM_OFFSET..HEADER_BYTES)
         .and_then(|b| b.try_into().ok())
-        .map_or(0, u32::from_le_bytes)
+        .map(u32::from_le_bytes)
 }
 
 /// Checks a sealed value as [`unseal`] does, without decompressing or decoding its record: its
@@ -215,7 +219,7 @@ fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
 fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
     let mut crc = Crc32c::new();
     crc.update(key);
-    crc.update(sealed.get(..8).unwrap_or_default());
+    crc.update(sealed.get(..CHECKSUM_OFFSET).unwrap_or_default());
     crc.update(sealed.get(HEADER_BYTES..).unwrap_or_default());
     crc.finish()
 }
@@ -291,14 +295,6 @@ mod tests {
         !crc
     }
 
-    /// Replaces the checksum of a sealed value so that changed bytes reach the later checks.
-    fn reseal(key: &[u8], sealed: &mut [u8]) {
-        let crc = checksum(key, sealed);
-        if sealed.len() >= HEADER_BYTES {
-            sealed[8..HEADER_BYTES].copy_from_slice(&crc.to_le_bytes());
-        }
-    }
-
     #[test]
     fn crc32c_matches_its_definition() {
         assert_eq!(crc(b"123456789"), 0xe306_9283);
@@ -321,7 +317,7 @@ mod tests {
         let mut rng = Rng(21);
         let chunk = terrain_chunk(&mut rng);
         let sealed = seal(KEY, &chunk).unwrap();
-        assert_eq!(sealed[2], METHOD_DEFLATE);
+        assert_eq!(sealed[METHOD_OFFSET], METHOD_DEFLATE);
         assert!(sealed.len() < encode(&chunk).len() / 4);
         assert_eq!(unseal::<ChunkRecord>(KEY, &sealed).unwrap(), chunk);
         let chunk = random_chunk(&mut rng);
@@ -331,13 +327,16 @@ mod tests {
         );
         let meta = Meta::at(77);
         let sealed = seal(b"meta", &meta).unwrap();
-        assert_eq!((sealed[2], sealed.len()), (METHOD_STORED, HEADER_BYTES + 9));
+        assert_eq!(
+            (sealed[METHOD_OFFSET], sealed.len()),
+            (METHOD_STORED, HEADER_BYTES + 9)
+        );
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
         assert_eq!(sealed[..2], FORMAT_VERSION.to_le_bytes());
         // The checksum field is what the seal wrote.
         let sealed = seal(KEY, &chunk).unwrap();
-        assert_eq!(stored_checksum(&sealed), checksum(KEY, &sealed));
-        assert_eq!(stored_checksum(&sealed[..5]), 0);
+        assert_eq!(stored_checksum(&sealed), Some(checksum(KEY, &sealed)));
+        assert_eq!(stored_checksum(&sealed[..5]), None);
     }
 
     #[test]
@@ -349,6 +348,14 @@ mod tests {
             unseal::<ChunkRecord>(&other, &sealed),
             Err(Error::Checksum)
         ));
+    }
+
+    /// Replaces the checksum of a sealed value so that changed bytes reach the later checks.
+    fn reseal(key: &[u8], sealed: &mut [u8]) {
+        let crc = checksum(key, sealed);
+        if sealed.len() >= HEADER_BYTES {
+            sealed[CHECKSUM_OFFSET..HEADER_BYTES].copy_from_slice(&crc.to_le_bytes());
+        }
     }
 
     #[test]
