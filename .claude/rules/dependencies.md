@@ -49,7 +49,7 @@ paths:
 - Fix only the defective part. Never add features or polish.
 - Every fix has a reproduction test that fails on the published crate.
 - Record each fix and its reason in the vendor-copy section of `.claude/docs/dependencies.md`, and mark it in the code with an `Anchor` comment.
-- Start each copy from the pinned crates.io release. A copy differs from it only in its fixes, the `path` lines to other copies, and an upstream license file the published crate lacks.
+- Start each copy from the pinned crates.io release. A copy differs from it only in its fixes (with the upstream test expectations they contradict), the `path` lines to other copies, an upstream license file the published crate lacks, and `.gitignore` lines that would keep a published file out of git.
 - Depend on a copy by `path`, never by `[patch]`. Never make a copy a workspace member (`exclude = ["vendor"]`).
 - When an upstream release fixes a defect, drop that fix from the copy. When no fix remains, delete the copy and return to the release.
 - Review each new upstream release with the distrust procedure before moving to it.
@@ -58,7 +58,7 @@ paths:
 - Delete the str0m-proto, str0m-aws-lc-rs, and is copies together with the str0m copy.
 
 ## Build settings
-- The repository's build settings hold only what shortens build time with the same result.
+- The repository's build settings hold only what shortens build time with the same result. The one exception is release `overflow-checks` on Anchor's own crates (safety: an overflow fails a release test instead of wrapping silently).
 - Never use dependency `opt-level = 1` or sccache.
 
 ## Copyright
