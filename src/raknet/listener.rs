@@ -3,7 +3,7 @@
 //! connected messages. The driver feeds it datagrams and time and it answers through a `Sink`.
 
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -34,7 +34,8 @@ const MAX_CLOSING: usize = MAX_PRE_LOGIN;
 /// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
 const MAX_PING_IPS: usize = 4096;
 /// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
-const MAX_PONG_DATA_BYTES: usize = MAX_MTU as usize - UDP_HEADER_BYTES - 35;
+const MAX_PONG_DATA_BYTES: usize =
+    MAX_MTU as usize - UDP_HEADER_BYTES - wire::UNCONNECTED_PONG_FIXED_BYTES;
 /// How long a ping rate entry lasts without pings before it is dropped.
 const PING_IDLE: Duration = Duration::from_secs(60);
 /// How often a connected ping goes out, keeping both ends' idle timers fed (go-raknet).
@@ -55,8 +56,8 @@ pub(super) struct Listener {
     /// The key of the connection cookies; `None` asks for none (`raknet-cookies = false`).
     cookie_key: Option<CookieKey>,
     conns: BTreeMap<SocketAddr, Conn>,
-    /// The closing connections, oldest first.
-    closing: VecDeque<SocketAddr>,
+    /// The closing connections by their close deadline, oldest first.
+    closing: BTreeSet<(Duration, SocketAddr)>,
     next_id: u64,
     pre_login: usize,
     pre_login_per_ip: BTreeMap<u128, usize>,
@@ -75,7 +76,7 @@ impl Listener {
             pong,
             cookie_key,
             conns: BTreeMap::new(),
-            closing: VecDeque::new(),
+            closing: BTreeSet::new(),
             next_id: 0,
             pre_login: 0,
             pre_login_per_ip: BTreeMap::new(),
@@ -100,10 +101,10 @@ impl Listener {
             && conn.id == id
             && conn.state == State::Open
         {
-            conn.begin_closing(now);
-            self.closing.push_back(addr);
+            let deadline = conn.begin_closing(now);
+            self.closing.insert((deadline, addr));
             while self.closing.len() > MAX_CLOSING
-                && let Some(oldest) = self.closing.pop_front()
+                && let Some((_, oldest)) = self.closing.pop_first()
             {
                 self.remove(oldest, Close::Done, sink);
             }
@@ -174,7 +175,7 @@ impl Listener {
             .send(wire::ID_GAME, message)
             .and_then(|()| conn.peer.flush(now, &mut |data| sink.transmit(addr, data)));
         if let Err(error) = sent {
-            self.remove(addr, error.into(), sink);
+            self.remove(addr, Close::Failed(error), sink);
         }
     }
 
@@ -190,8 +191,8 @@ impl Listener {
             match conn.state {
                 State::Handshake => doomed.push((addr, Close::Shutdown)),
                 State::Open => {
-                    conn.begin_closing(now);
-                    self.closing.push_back(addr);
+                    let deadline = conn.begin_closing(now);
+                    self.closing.insert((deadline, addr));
                 }
                 State::Closing { .. } => {}
             }
@@ -234,46 +235,6 @@ impl Listener {
             IpAddr::V4(ip) => key.cookie(&[&epoch, &[4], &ip.octets(), &port]),
             IpAddr::V6(ip) => key.cookie(&[&epoch, &[6], &ip.octets(), &port]),
         })
-    }
-
-    fn remove(&mut self, addr: SocketAddr, reason: Close, sink: &mut impl Sink) {
-        let Some(mut conn) = self.conns.remove(&addr) else {
-            return;
-        };
-        if !matches!(reason, Close::Remote) {
-            let mut transmit = |data: &[u8]| sink.transmit(addr, data);
-            if let Err(error) =
-                conn.peer
-                    .send_now(wire::ID_DISCONNECT_NOTIFICATION, &[], &mut transmit)
-            {
-                debug!(
-                    %addr,
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "raknet disconnect notification not sent"
-                );
-            }
-        }
-        if conn.pre_login {
-            self.release(conn.ip);
-        }
-        if matches!(conn.state, State::Closing { .. }) {
-            self.closing.retain(|&closing| closing != addr);
-        }
-        if conn.state != State::Handshake {
-            sink.close(conn.id, reason.leave_reason());
-        }
-        debug!(%addr, id = conn.id, %reason, "raknet connection closed");
-    }
-
-    fn release(&mut self, ip: u128) {
-        self.pre_login = self.pre_login.saturating_sub(1);
-        if let Entry::Occupied(mut entry) = self.pre_login_per_ip.entry(ip) {
-            let count = entry.get_mut();
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                entry.remove();
-            }
-        }
     }
 
     fn offline(
@@ -324,6 +285,61 @@ impl Listener {
         }
         sink.transmit(from, &self.buf);
         Ok(())
+    }
+
+    fn allow_ping(&mut self, now: Duration, ip: u128) -> bool {
+        let tracked = self.pings.len();
+        match self.pings.entry(ip) {
+            Entry::Occupied(mut entry) => entry.get_mut().take(1, PING_RATE, now),
+            Entry::Vacant(entry) => {
+                if tracked >= MAX_PING_IPS {
+                    return false;
+                }
+                entry
+                    .insert(Bucket::full(PING_RATE, now))
+                    .take(1, PING_RATE, now)
+            }
+        }
+    }
+
+    fn remove(&mut self, addr: SocketAddr, reason: Close, sink: &mut impl Sink) {
+        let Some(mut conn) = self.conns.remove(&addr) else {
+            return;
+        };
+        if !matches!(reason, Close::Remote) {
+            let mut transmit = |data: &[u8]| sink.transmit(addr, data);
+            if let Err(error) =
+                conn.peer
+                    .send_now(wire::ID_DISCONNECT_NOTIFICATION, &[], &mut transmit)
+            {
+                debug!(
+                    %addr,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "raknet disconnect notification not sent"
+                );
+            }
+        }
+        if conn.pre_login {
+            self.release(conn.ip);
+        }
+        if let State::Closing { deadline } = conn.state {
+            self.closing.remove(&(deadline, addr));
+        }
+        if conn.state != State::Handshake {
+            sink.close(conn.id, reason.leave_reason());
+        }
+        debug!(%addr, connection = conn.id, %reason, "raknet connection closed");
+    }
+
+    fn release(&mut self, ip: u128) {
+        self.pre_login = self.pre_login.saturating_sub(1);
+        if let Entry::Occupied(mut entry) = self.pre_login_per_ip.entry(ip) {
+            let count = entry.get_mut();
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                entry.remove();
+            }
+        }
     }
 
     fn request_2(
@@ -396,6 +412,7 @@ impl Listener {
                 peer,
                 limits,
                 state: State::Handshake,
+                requested: false,
                 pre_login: true,
                 created: now,
                 next_ping: now.saturating_add(PING_INTERVAL),
@@ -411,21 +428,6 @@ impl Listener {
         self.buf.clear();
         wire::open_connection_reply_2(&mut self.buf, self.config.guid, to, mtu);
         sink.transmit(to, &self.buf);
-    }
-
-    fn allow_ping(&mut self, now: Duration, ip: u128) -> bool {
-        let tracked = self.pings.len();
-        match self.pings.entry(ip) {
-            Entry::Occupied(mut entry) => entry.get_mut().take(1, PING_RATE, now),
-            Entry::Vacant(entry) => {
-                if tracked >= MAX_PING_IPS {
-                    return false;
-                }
-                entry
-                    .insert(Bucket::full(PING_RATE, now))
-                    .take(1, PING_RATE, now)
-            }
-        }
     }
 }
 
@@ -466,19 +468,22 @@ struct Conn {
     /// handshake is done, [`Limits::to_pre_login`] until the login).
     limits: Limits,
     state: State,
+    /// Whether the client's `ConnectionRequest` was answered.
+    requested: bool,
     pre_login: bool,
     created: Duration,
     next_ping: Duration,
 }
 
 impl Conn {
-    /// Starts the graceful close. Its game data is dropped, so it holds no more received bytes
-    /// than a connection in the handshake; what it queued to send stays until delivered.
-    fn begin_closing(&mut self, now: Duration) {
-        self.state = State::Closing {
-            deadline: now.saturating_add(CLOSE_TIMEOUT),
-        };
+    /// Starts the graceful close and returns its deadline. Its game data is dropped, so it holds
+    /// no more received bytes than a connection in the handshake; what it queued to send stays
+    /// until delivered.
+    fn begin_closing(&mut self, now: Duration) -> Duration {
+        let deadline = now.saturating_add(CLOSE_TIMEOUT);
+        self.state = State::Closing { deadline };
         self.peer.shrink_receive(self.limits.to_handshake());
+        deadline
     }
 
     fn receive(
@@ -491,12 +496,27 @@ impl Conn {
     ) -> Result<(), Close> {
         messages.clear();
         self.peer
-            .receive(now, data, messages, &mut |data| sink.transmit(addr, data))?;
+            .receive(now, data, messages, &mut |data| sink.transmit(addr, data))
+            .map_err(Close::Failed)?;
+        let mut pong = None;
         for message in messages.drain(..) {
-            self.handle(now, addr, message, sink)?;
+            self.handle(now, addr, message, &mut pong, sink)?;
+        }
+        // One pong per datagram, to its last ping: a pong per ping would let one datagram of
+        // pings draw hundreds of datagrams back, to a spoofed source too.
+        if let Some(ping_time) = pong {
+            let mut reply = Vec::with_capacity(16);
+            reply.extend_from_slice(&ping_time.to_be_bytes());
+            reply.extend_from_slice(&millis(now).to_be_bytes());
+            self.peer
+                .send_now(wire::ID_CONNECTED_PONG, &reply, &mut |data| {
+                    sink.transmit(addr, data);
+                })
+                .map_err(Close::Failed)?;
         }
         self.peer
-            .flush(now, &mut |data| sink.transmit(addr, data))?;
+            .flush(now, &mut |data| sink.transmit(addr, data))
+            .map_err(Close::Failed)?;
         Ok(())
     }
 
@@ -505,34 +525,30 @@ impl Conn {
         now: Duration,
         addr: SocketAddr,
         message: Message,
+        pong: &mut Option<u64>,
         sink: &mut impl Sink,
     ) -> Result<(), Close> {
         match message.id {
             wire::ID_GAME => match self.state {
                 State::Open => {
                     if !sink.deliver(self.id, message.body) {
-                        return Err(Error::Limit("inbound queue").into());
+                        return Err(Close::Failed(Error::Limit("inbound queue")));
                     }
                 }
                 State::Closing { .. } => {}
                 State::Handshake => {
-                    return Err(Error::Malformed("game data before the handshake").into());
+                    return Err(Close::Failed(Error::Malformed(
+                        "game data before the handshake",
+                    )));
                 }
             },
             wire::ID_CONNECTED_PING => {
-                let ping_time = Cursor::new(&message.body).u64()?;
-                let mut reply = Vec::with_capacity(16);
-                reply.extend_from_slice(&ping_time.to_be_bytes());
-                reply.extend_from_slice(&millis(now).to_be_bytes());
-                self.peer
-                    .send_now(wire::ID_CONNECTED_PONG, &reply, &mut |data| {
-                        sink.transmit(addr, data);
-                    })?;
+                *pong = Some(Cursor::new(&message.body).u64().map_err(Close::Failed)?);
             }
             wire::ID_CONNECTED_PONG => {
                 let mut cur = Cursor::new(&message.body);
-                let sent = cur.u64()?;
-                cur.u64()?;
+                let sent = cur.u64().map_err(Close::Failed)?;
+                cur.u64().map_err(Close::Failed)?;
                 // The pong echoes the time of the ping it answers (RakNet's ping measure); one
                 // from the future is the client's own invention and measures nothing.
                 if self.state == State::Open
@@ -541,26 +557,43 @@ impl Conn {
                     sink.ping(self.id, Duration::from_millis(rtt));
                 }
             }
-            wire::ID_DETECT_LOST_CONNECTIONS => self.ping(now, addr, sink)?,
+            // The next update pings, so a datagram of these draws one ping.
+            wire::ID_DETECT_LOST_CONNECTIONS => self.next_ping = now,
             wire::ID_CONNECTION_REQUEST if self.state == State::Handshake => {
                 let mut cur = Cursor::new(&message.body);
-                cur.u64()?;
-                let time = cur.u64()?;
-                cur.u8()?;
-                let accepted = wire::connection_request_accepted(addr, time, millis(now));
-                self.peer
-                    .send(wire::ID_CONNECTION_REQUEST_ACCEPTED, accepted)?;
+                cur.u64().map_err(Close::Failed)?;
+                let time = cur.u64().map_err(Close::Failed)?;
+                cur.u8().map_err(Close::Failed)?;
+                // go-raknet sends the request once, reliably, and the answer is reliable too, so
+                // a second request needs nothing; answering each would queue an answer per frame.
+                if !self.requested {
+                    self.requested = true;
+                    let accepted = wire::connection_request_accepted(addr, time, millis(now));
+                    self.peer
+                        .send(wire::ID_CONNECTION_REQUEST_ACCEPTED, accepted)
+                        .map_err(Close::Failed)?;
+                }
             }
             wire::ID_NEW_INCOMING_CONNECTION if self.state == State::Handshake => {
                 if !sink.accept(self.id, addr) {
                     return Err(Close::Rejected);
                 }
                 self.state = State::Open;
-                self.peer.set_limits(self.limits.to_pre_login()?);
-                debug!(%addr, id = self.id, mtu = self.peer.mtu(), "raknet connection opened");
+                self.peer
+                    .set_limits(self.limits.to_pre_login().map_err(Close::Failed)?);
+                debug!(
+                    %addr,
+                    connection = self.id,
+                    mtu = self.peer.mtu(),
+                    "raknet connection opened"
+                );
             }
             wire::ID_DISCONNECT_NOTIFICATION => return Err(Close::Remote),
-            _ => return Err(Error::Malformed("unexpected connected message").into()),
+            _ => {
+                return Err(Close::Failed(Error::Malformed(
+                    "unexpected connected message",
+                )));
+            }
         }
         Ok(())
     }
@@ -585,12 +618,12 @@ impl Conn {
             return Err(Close::Timeout);
         }
         if now >= self.next_ping {
-            self.ping(now, addr, sink)?;
+            self.ping(now, addr, sink).map_err(Close::Failed)?;
         }
         self.peer.update(now);
         let mut transmit = |data: &[u8]| sink.transmit(addr, data);
-        self.peer.flush_acks(&mut transmit);
-        self.peer.flush(now, &mut transmit)?;
+        self.peer.flush_acks(&mut transmit).map_err(Close::Failed)?;
+        self.peer.flush(now, &mut transmit).map_err(Close::Failed)?;
         if self.state == State::Open {
             sink.undelivered(self.id, self.peer.unsent());
         }
@@ -656,14 +689,8 @@ impl fmt::Display for Close {
             Self::Done => f.write_str("closed"),
             Self::Rejected => f.write_str("not taken by the session layer"),
             Self::Shutdown => f.write_str("server shutting down"),
-            Self::Failed(error) => error.fmt(f),
+            Self::Failed(error) => write!(f, "{error}"),
         }
-    }
-}
-
-impl From<Error> for Close {
-    fn from(error: Error) -> Self {
-        Self::Failed(error)
     }
 }
 
@@ -808,6 +835,20 @@ pub(super) mod tests {
             }
         }
 
+        pub(in crate::raknet) fn disconnected(&self) -> bool {
+            self.messages
+                .iter()
+                .any(|message| message.id == wire::ID_DISCONNECT_NOTIFICATION)
+        }
+
+        pub(in crate::raknet) fn game(&self) -> Vec<&[u8]> {
+            self.messages
+                .iter()
+                .filter(|message| message.id == wire::ID_GAME)
+                .map(|message| message.body.as_slice())
+                .collect()
+        }
+
         pub(in crate::raknet) fn ping(time: u64) -> Vec<u8> {
             let mut data = vec![wire::ID_UNCONNECTED_PING];
             data.extend_from_slice(&time.to_be_bytes());
@@ -823,37 +864,6 @@ pub(super) mod tests {
             data.push(protocol);
             data.resize(usize::from(mtu) - UDP_HEADER_BYTES, 0);
             data
-        }
-
-        /// `OpenConnectionRequest2` as go-raknet's `MarshalBinary` writes it: with a `cookie` when
-        /// the server has security, followed by a zero byte, and without one when it has none.
-        fn request_2(mtu: u16, guid: u64, cookie: Option<u32>) -> Vec<u8> {
-            let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_2];
-            data.extend_from_slice(&wire::MAGIC);
-            if let Some(cookie) = cookie {
-                data.extend_from_slice(&cookie.to_be_bytes());
-                data.push(0);
-            }
-            wire::put_address(&mut data, SocketAddr::from(([127, 0, 0, 1], 19_132)));
-            data.extend_from_slice(&mtu.to_be_bytes());
-            data.extend_from_slice(&guid.to_be_bytes());
-            data
-        }
-
-        /// The cookie and the MTU of an `OpenConnectionReply1` (go-raknet `UnmarshalBinary`).
-        fn reply_1(data: &[u8]) -> (Option<u32>, u16) {
-            let u16_at = |at: usize| u16::from_be_bytes(data[at..at + 2].try_into().unwrap());
-            if data[25] == 0 {
-                (None, u16_at(26))
-            } else {
-                let cookie = u32::from_be_bytes(data[26..30].try_into().unwrap());
-                (Some(cookie), u16_at(30))
-            }
-        }
-
-        pub(in crate::raknet) fn start(&mut self) {
-            self.outbox
-                .push(Self::request_1(self.mtu, wire::PROTOCOL_VERSION));
         }
 
         /// Handles one datagram from the server.
@@ -907,62 +917,45 @@ pub(super) mod tests {
             peer.flush(now, &mut |d| outbox.push(d.to_vec())).unwrap();
         }
 
+        pub(in crate::raknet) fn start(&mut self) {
+            self.outbox
+                .push(Self::request_1(self.mtu, wire::PROTOCOL_VERSION));
+        }
+
         pub(in crate::raknet) fn update(&mut self, now: Duration) {
             let Self { peer, outbox, .. } = self;
             if let Some(peer) = peer {
                 peer.update(now);
-                peer.flush_acks(&mut |d| outbox.push(d.to_vec()));
+                peer.flush_acks(&mut |d| outbox.push(d.to_vec())).unwrap();
                 peer.flush(now, &mut |d| outbox.push(d.to_vec())).unwrap();
             }
         }
 
-        pub(in crate::raknet) fn game(&self) -> Vec<&[u8]> {
-            self.messages
-                .iter()
-                .filter(|message| message.id == wire::ID_GAME)
-                .map(|message| message.body.as_slice())
-                .collect()
-        }
-
-        pub(in crate::raknet) fn disconnected(&self) -> bool {
-            self.messages
-                .iter()
-                .any(|message| message.id == wire::ID_DISCONNECT_NOTIFICATION)
-        }
-    }
-
-    /// Passes datagrams both ways over a perfect link until both sides are quiet.
-    fn pump(listener: &mut Listener, sink: &mut Recorder, client: &mut Client, now: Duration) {
-        for _ in 0..64 {
-            let outgoing = std::mem::take(&mut client.outbox);
-            let incoming = sink.take(client.addr);
-            if outgoing.is_empty() && incoming.is_empty() {
-                return;
-            }
-            for data in outgoing {
-                listener.receive(now, client.addr, &data, sink);
-            }
-            for data in incoming {
-                client.handle(now, &data);
+        /// The cookie and the MTU of an `OpenConnectionReply1` (go-raknet `UnmarshalBinary`).
+        fn reply_1(data: &[u8]) -> (Option<u32>, u16) {
+            let u16_at = |at: usize| u16::from_be_bytes(data[at..at + 2].try_into().unwrap());
+            if data[25] == 0 {
+                (None, u16_at(26))
+            } else {
+                let cookie = u32::from_be_bytes(data[26..30].try_into().unwrap());
+                (Some(cookie), u16_at(30))
             }
         }
-        panic!("the link never went quiet");
-    }
 
-    /// Connects `client` and returns its connection ID.
-    fn connect(
-        listener: &mut Listener,
-        sink: &mut Recorder,
-        client: &mut Client,
-        now: Duration,
-    ) -> u64 {
-        client.start();
-        pump(listener, sink, client, now);
-        assert_eq!(
-            listener.conns.get(&client.addr).map(|c| c.state),
-            Some(State::Open)
-        );
-        *sink.accepted.last().unwrap()
+        /// `OpenConnectionRequest2` as go-raknet's `MarshalBinary` writes it: with a `cookie` when
+        /// the server has security, followed by a zero byte, and without one when it has none.
+        fn request_2(mtu: u16, guid: u64, cookie: Option<u32>) -> Vec<u8> {
+            let mut data = vec![wire::ID_OPEN_CONNECTION_REQUEST_2];
+            data.extend_from_slice(&wire::MAGIC);
+            if let Some(cookie) = cookie {
+                data.extend_from_slice(&cookie.to_be_bytes());
+                data.push(0);
+            }
+            wire::put_address(&mut data, SocketAddr::from(([127, 0, 0, 1], 19_132)));
+            data.extend_from_slice(&mtu.to_be_bytes());
+            data.extend_from_slice(&guid.to_be_bytes());
+            data
+        }
     }
 
     fn offline_reply(listener: &mut Listener, from: SocketAddr, data: &[u8]) -> Vec<Vec<u8>> {
@@ -1150,6 +1143,40 @@ pub(super) mod tests {
         assert_eq!(sink.take(from).len(), 2);
         assert_eq!(listener.conns.len(), 1);
         assert_eq!(listener.pre_login, 1);
+    }
+
+    /// Passes datagrams both ways over a perfect link until both sides are quiet.
+    fn pump(listener: &mut Listener, sink: &mut Recorder, client: &mut Client, now: Duration) {
+        for _ in 0..64 {
+            let outgoing = std::mem::take(&mut client.outbox);
+            let incoming = sink.take(client.addr);
+            if outgoing.is_empty() && incoming.is_empty() {
+                return;
+            }
+            for data in outgoing {
+                listener.receive(now, client.addr, &data, sink);
+            }
+            for data in incoming {
+                client.handle(now, &data);
+            }
+        }
+        panic!("the link never went quiet");
+    }
+
+    /// Connects `client` and returns its connection ID.
+    fn connect(
+        listener: &mut Listener,
+        sink: &mut Recorder,
+        client: &mut Client,
+        now: Duration,
+    ) -> u64 {
+        client.start();
+        pump(listener, sink, client, now);
+        assert_eq!(
+            listener.conns.get(&client.addr).map(|c| c.state),
+            Some(State::Open)
+        );
+        *sink.accepted.last().unwrap()
     }
 
     #[test]
@@ -1432,6 +1459,62 @@ pub(super) mod tests {
         assert_eq!(pong.id, wire::ID_CONNECTED_PONG);
         assert_eq!(pong.body[..8], 77_u64.to_be_bytes());
         assert_eq!(pong.body[8..], millis(T).to_be_bytes());
+    }
+
+    /// A `ConnectionRequest` sent again is answered once: the answers would otherwise pile up in
+    /// the send queue, one per frame.
+    #[test]
+    fn a_repeated_connection_request_is_answered_once() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let from = addr(1, 1);
+        listener.receive(
+            T,
+            from,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
+        let mut request = vec![wire::ID_CONNECTION_REQUEST];
+        request.extend_from_slice(&9_u64.to_be_bytes());
+        request.extend_from_slice(&1234_u64.to_be_bytes());
+        request.push(0);
+        let frame = (header(Reliability::Unreliable), request.as_slice());
+        listener.receive(T, from, &datagram(0, &[frame]), &mut sink);
+        let once = listener.conns[&from].peer.unsent();
+        listener.receive(T, from, &datagram(1, &[frame; 50]), &mut sink);
+        assert_eq!(listener.conns[&from].peer.unsent(), once);
+    }
+
+    /// A datagram full of connected pings and lost connection checks draws one pong, to its last
+    /// ping, and nothing for the checks until the next update.
+    #[test]
+    fn a_datagram_of_pings_draws_one_reply() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let from = addr(1, 1);
+        listener.receive(
+            T,
+            from,
+            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &mut sink,
+        );
+        sink.take(from);
+        let frame = header(Reliability::Unreliable);
+        let pings: Vec<Vec<u8>> = (0..60_u64)
+            .map(|time| {
+                let mut ping = vec![wire::ID_CONNECTED_PING];
+                ping.extend_from_slice(&time.to_be_bytes());
+                ping
+            })
+            .collect();
+        let mut frames: Vec<(Header, &[u8])> =
+            pings.iter().map(|ping| (frame, ping.as_slice())).collect();
+        frames.extend([(frame, &[wire::ID_DETECT_LOST_CONNECTIONS][..]); 60]);
+        listener.receive(T, from, &datagram(0, &frames), &mut sink);
+        let replies = sink.take(from);
+        assert_eq!(replies.len(), 1);
+        let pong = [&[wire::ID_CONNECTED_PONG][..], &59_u64.to_be_bytes()].concat();
+        assert!(replies[0].windows(pong.len()).any(|window| window == pong));
     }
 
     /// The server's connected ping and its pong to the client's ping go out at once, even while
@@ -1770,18 +1853,6 @@ pub(super) mod tests {
     }
 
     impl Link {
-        fn carry(&mut self, now: Duration, to_server: bool, data: &[u8]) {
-            // 10 % lost, 5 % duplicated, 0 to 40 ms of delay (which reorders).
-            if self.rng.below(100) < 10 {
-                return;
-            }
-            let copies = if self.rng.below(100) < 5 { 2 } else { 1 };
-            for _ in 0..copies {
-                let delay = Duration::from_millis(u64::try_from(self.rng.below(41)).unwrap());
-                self.flying.push((now + delay, to_server, data.to_vec()));
-            }
-        }
-
         fn arrived(&mut self, now: Duration) -> Vec<(bool, Vec<u8>)> {
             let (due, rest) = std::mem::take(&mut self.flying)
                 .into_iter()
@@ -1792,6 +1863,18 @@ pub(super) mod tests {
             due.into_iter()
                 .map(|(_, to_server, data)| (to_server, data))
                 .collect()
+        }
+
+        fn carry(&mut self, now: Duration, to_server: bool, data: &[u8]) {
+            // 10 % lost, 5 % duplicated, 0 to 40 ms of delay (which reorders).
+            if self.rng.below(100) < 10 {
+                return;
+            }
+            let copies = if self.rng.below(100) < 5 { 2 } else { 1 };
+            for _ in 0..copies {
+                let delay = Duration::from_millis(u64::try_from(self.rng.below(41)).unwrap());
+                self.flying.push((now + delay, to_server, data.to_vec()));
+            }
         }
     }
 
@@ -1916,7 +1999,7 @@ pub(super) mod tests {
         let mut seeds = std::mem::take(&mut client.outbox);
         let peer = client.peer.as_mut().unwrap();
         let mut acks = Vec::new();
-        peer.flush_acks(&mut |d| acks.push(d.to_vec()));
+        peer.flush_acks(&mut |d| acks.push(d.to_vec())).unwrap();
         seeds.extend(acks);
         let mut nak = vec![FLAG_DATAGRAM | wire::FLAG_NAK, 0, 1, 0];
         wire::put_u24(&mut nak, 0);

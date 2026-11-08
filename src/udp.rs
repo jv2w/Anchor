@@ -26,7 +26,7 @@ const RECV_BATCH: usize = 256;
 /// one is seen.
 pub(crate) const RECV_BUFFER_BYTES: usize = 2048;
 const _: () = assert!(RECV_BUFFER_BYTES > raknet::MAX_DATAGRAM_BYTES);
-const _: () = assert!(RECV_BUFFER_BYTES > nethernet::MAX_DATAGRAM);
+const _: () = assert!(RECV_BUFFER_BYTES > nethernet::MAX_DATAGRAM_BYTES);
 /// Kernel socket buffers: a burst from go-raknet's dialer, which has no congestion control,
 /// is several MiB. Linux caps this at `net.core.rmem_max` without an error.
 const SOCKET_BUFFER_BYTES: usize = 4 * 1024 * 1024;
@@ -130,8 +130,8 @@ impl Handle {
         &self.local_addrs
     }
 
-    /// Stops accepting on both transports, closes every connection (each gets up to 5 s to
-    /// deliver what it queued) and waits for the task to end. Dropping the handle does the same
+    /// Stops accepting on both transports, closes every connection (each gets its transport's
+    /// close time to deliver what it queued) and waits for the task to end. Dropping the handle does the same
     /// without waiting.
     pub(crate) async fn shutdown(self) {
         if self.stop.send(()).is_err() {
@@ -225,15 +225,15 @@ pub(crate) fn bind(addr: SocketAddr) -> Result<(UdpSocket, SocketAddr)> {
     open(addr).map_err(|source| Error::Bind { addr, source })
 }
 
-/// The UDP socket on `addr` as an operator reads it: protocol, address, the settings that decide
-/// it and its use.
+/// The text an operator reads for the UDP socket on `addr`: protocol, address, the settings that
+/// decide it and its use.
 pub(crate) fn socket_text(addr: SocketAddr) -> String {
     let settings = if addr.is_ipv6() {
         "server-port, enable-ipv6"
     } else {
         "server-port"
     };
-    format!("UDP {addr} ({settings}, RakNet and NetherNet)")
+    format!("UDP {addr} ({settings}, game data and server list pings)")
 }
 
 /// Spawns the task that runs both drivers on `sockets`, on the current tokio runtime; without

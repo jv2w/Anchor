@@ -195,6 +195,12 @@ impl Driver {
         }
     }
 
+    fn send(&mut self, command: Outbound) {
+        let now = self.now();
+        self.listener
+            .send(now, command.addr, command.id, command.message, &mut self.io);
+    }
+
     /// Applies the flags read by [`collect_signals`](Self::collect_signals) and runs the
     /// listener's timers.
     fn update(&mut self) {
@@ -214,12 +220,6 @@ impl Driver {
         self.listener.update(now, &mut self.io);
     }
 
-    fn send(&mut self, command: Outbound) {
-        let now = self.now();
-        self.listener
-            .send(now, command.addr, command.id, command.message, &mut self.io);
-    }
-
     fn refresh_pong(&mut self) {
         if self.pong.has_changed().unwrap_or(false) {
             let pong = Arc::clone(&self.pong.borrow_and_update());
@@ -232,7 +232,7 @@ impl Driver {
 /// the cookie key.
 #[derive(Debug)]
 pub(crate) struct Settings {
-    /// Largest MTU to negotiate (`max-mtu-size`, at least 400).
+    /// Largest MTU to negotiate (`max-mtu-size`).
     pub(crate) max_mtu: u16,
     /// Largest game message in bytes, without the 0xfe byte.
     pub(crate) max_message_bytes: usize,
@@ -449,13 +449,6 @@ impl Inbox {
         (inbox, receiver)
     }
 
-    /// Raises the byte budget from the pre-login size to the full one, once the session logged
-    /// in.
-    pub(crate) fn raise_to_login_budget(&mut self) {
-        self.budget
-            .add_permits(std::mem::take(&mut self.login_extra_bytes));
-    }
-
     /// Passes a message to the session; `false` when its queue or byte budget is full. A message
     /// for a session that has ended is dropped: closing now would drop the packets the session
     /// queued last (a kick's Disconnect), so its close flag closes the connection instead.
@@ -474,6 +467,13 @@ impl Inbox {
             Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => true,
             Err(mpsc::error::TrySendError::Full(_)) => false,
         }
+    }
+
+    /// Raises the byte budget from the pre-login size to the full one, once the session logged
+    /// in.
+    pub(crate) fn raise_to_login_budget(&mut self) {
+        self.budget
+            .add_permits(std::mem::take(&mut self.login_extra_bytes));
     }
 }
 
@@ -524,6 +524,9 @@ pub(crate) mod tests {
     use super::listener::tests::{Client, GUID, MAX_MESSAGE};
     use crate::udp::{self, RECV_BUFFER_BYTES, UPDATE_INTERVAL};
 
+    /// EAFNOSUPPORT on Linux, WSAEAFNOSUPPORT on Windows; std gives it no `ErrorKind`.
+    const NO_ADDRESS_FAMILY: i32 = if cfg!(windows) { 10_047 } else { 97 };
+    /// How long a test waits for the network before it fails.
     const WAIT: Duration = Duration::from_secs(10);
 
     fn settings() -> Settings {
@@ -570,12 +573,6 @@ pub(crate) mod tests {
             clock::now().saturating_duration_since(self.start)
         }
 
-        async fn flush(&mut self) {
-            for data in std::mem::take(&mut self.client.outbox) {
-                self.socket.send_to(&data, self.server).await.unwrap();
-            }
-        }
-
         /// Exchanges datagrams until `done` holds.
         async fn until(&mut self, mut done: impl FnMut(&Client) -> bool) {
             let mut buf = vec![0; RECV_BUFFER_BYTES];
@@ -595,6 +592,12 @@ pub(crate) mod tests {
                 }
             }
             self.flush().await;
+        }
+
+        async fn flush(&mut self) {
+            for data in std::mem::take(&mut self.client.outbox) {
+                self.socket.send_to(&data, self.server).await.unwrap();
+            }
         }
     }
 
@@ -760,9 +763,6 @@ pub(crate) mod tests {
             handle.shutdown().await;
         });
     }
-
-    /// EAFNOSUPPORT on Linux, WSAEAFNOSUPPORT on Windows; std gives it no `ErrorKind`.
-    const NO_ADDRESS_FAMILY: i32 = if cfg!(windows) { 10_047 } else { 97 };
 
     /// Whether the host has the IPv6 loopback `::1`: a kernel without IPv6 refuses the address
     /// family, one with IPv6 off on loopback refuses the address, and any other error fails the

@@ -66,7 +66,8 @@ pub(super) const MAGIC: [u8; 16] = [
     0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
 ];
 /// The largest frame header: flags, length, message, sequence and order indices, channel, split.
-pub(super) const MAX_FRAME_HEADER_BYTES: usize = 3 + 3 + 3 + 4 + SPLIT_HEADER_BYTES;
+pub(super) const MAX_FRAME_HEADER_BYTES: usize =
+    Header::encoded_len(Reliability::ReliableSequenced, true);
 /// The RakNet protocol version Minecraft speaks (go-raknet `protocolVersion`).
 pub(super) const PROTOCOL_VERSION: u8 = 11;
 /// Split count, split ID and split index of a fragment.
@@ -79,6 +80,8 @@ const U24_HALF: u32 = 0x0080_0000;
 pub(super) const U24_MASK: u32 = 0x00ff_ffff;
 /// IP and UDP header bytes that an MTU includes. RakNet and go-raknet count 28 for IPv6 too.
 pub(super) const UDP_HEADER_BYTES: usize = 28;
+/// The bytes of `UnconnectedPong` besides its data: ID, ping time, GUID, magic and data length.
+pub(super) const UNCONNECTED_PONG_FIXED_BYTES: usize = 1 + 8 + 8 + MAGIC.len() + 2;
 /// The address go-raknet writes for an unset system address (`putAddr` of a zero `AddrPort`).
 const UNSET_ADDRESS: [u8; 7] = [4, 0xff, 0xff, 0xff, 0xff, 0, 0];
 
@@ -118,6 +121,15 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    pub(super) fn take(&mut self, len: usize) -> Result<&'a [u8]> {
+        let (taken, rest) = self
+            .rest
+            .split_at_checked(len)
+            .ok_or(Error::Malformed("truncated packet"))?;
+        self.rest = rest;
+        Ok(taken)
+    }
+
     pub(super) fn u16(&mut self) -> Result<u16> {
         Ok(u16::from_be_bytes(self.array()?))
     }
@@ -148,15 +160,6 @@ impl<'a> Cursor<'a> {
         self.rest = rest;
         Ok(*taken)
     }
-
-    pub(super) fn take(&mut self, len: usize) -> Result<&'a [u8]> {
-        let (taken, rest) = self
-            .rest
-            .split_at_checked(len)
-            .ok_or(Error::Malformed("truncated packet"))?;
-        self.rest = rest;
-        Ok(taken)
-    }
 }
 
 /// How RakNet promises to deliver a frame. Wire values 5 to 7 (the "with ACK receipt" forms) are
@@ -172,19 +175,19 @@ pub(super) enum Reliability {
 
 impl Reliability {
     /// Whether a frame carries an order index and channel.
-    pub(super) fn has_order(self) -> bool {
-        self.is_sequenced() || self == Self::ReliableOrdered
+    pub(super) const fn has_order(self) -> bool {
+        self.is_sequenced() || matches!(self, Self::ReliableOrdered)
     }
 
     /// Whether a frame carries a message index and is resent until acknowledged.
-    pub(super) fn is_reliable(self) -> bool {
+    pub(super) const fn is_reliable(self) -> bool {
         matches!(
             self,
             Self::Reliable | Self::ReliableOrdered | Self::ReliableSequenced
         )
     }
 
-    pub(super) fn is_sequenced(self) -> bool {
+    pub(super) const fn is_sequenced(self) -> bool {
         matches!(self, Self::UnreliableSequenced | Self::ReliableSequenced)
     }
 
@@ -230,7 +233,7 @@ pub(super) struct Header {
 
 impl Header {
     /// The header bytes of a frame with `reliability`, split or not.
-    pub(super) fn encoded_len(reliability: Reliability, split: bool) -> usize {
+    pub(super) const fn encoded_len(reliability: Reliability, split: bool) -> usize {
         let mut len = 3;
         if reliability.is_reliable() {
             len += 3;
@@ -422,7 +425,7 @@ pub(super) fn put_ranges(
     flag: u8,
     ranges: &[(u32, u32)],
     max_len: usize,
-) -> usize {
+) -> Result<usize> {
     buf.push(flag | FLAG_DATAGRAM);
     let count_at = buf.len();
     buf.extend_from_slice(&[0, 0]);
@@ -442,10 +445,11 @@ pub(super) fn put_ranges(
         }
         written = written.saturating_add(1);
     }
-    if let Some(count) = buf.get_mut(count_at..count_at + 2) {
-        count.copy_from_slice(&written.to_be_bytes());
-    }
-    usize::from(written)
+    let Some(count) = buf.get_mut(count_at..count_at + 2) else {
+        return Err(Error::Invariant("acknowledgement count outside its buffer"));
+    };
+    count.copy_from_slice(&written.to_be_bytes());
+    Ok(usize::from(written))
 }
 
 /// Reads the records of an ACK or NAK (after its flags byte) and passes each inclusive range on.
@@ -482,10 +486,7 @@ pub(super) fn u24_ahead(index: u32, base: u32) -> Option<u32> {
 }
 
 /// The low 24 bits of `value`.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "invariant: the value is masked to 24 bits first"
-)]
 pub(super) fn low24(value: u64) -> u32 {
-    (value & u64::from(U24_MASK)) as u32
+    let [a, b, c, ..] = value.to_le_bytes();
+    u32::from_le_bytes([a, b, c, 0])
 }

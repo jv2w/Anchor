@@ -208,8 +208,8 @@ impl Peer {
     }
 
     /// Sends the pending ACKs.
-    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) {
-        self.flush_ranges(FLAG_ACK, transmit);
+    pub(super) fn flush_acks(&mut self, transmit: &mut impl FnMut(&[u8])) -> Result<()> {
+        self.flush_ranges(FLAG_ACK, transmit)
     }
 
     /// Handles one connected packet (data datagram, ACK or NAK) and appends the messages it
@@ -258,9 +258,9 @@ impl Peer {
             let (header, body) = Header::read(&mut cur)?;
             self.frame(header, body, out)?;
         }
-        self.flush_ranges(FLAG_NAK, transmit);
+        self.flush_ranges(FLAG_NAK, transmit)?;
         if self.acks.len() >= ACK_BATCH {
-            self.flush_ranges(FLAG_ACK, transmit);
+            self.flush_ranges(FLAG_ACK, transmit)?;
         }
         Ok(())
     }
@@ -404,22 +404,54 @@ impl Peer {
             .map(|low| (low, low.saturating_add(u64::from(len)))))
     }
 
-    /// Ends the handling of an ACK or NAK whose ranges gave `result`. A malformed one is dropped
-    /// and does not count as heard: nothing authenticates a datagram, so anyone who knows the
-    /// client's address could send one to close its connection or keep it from timing out.
-    fn heard_ranges(&mut self, now: Duration, result: Result<()>) -> Result<()> {
-        if let Err(Error::Malformed(what)) = result {
-            trace!(what, "raknet malformed acknowledgement dropped");
+    fn acknowledge(&mut self, now: Duration, first: u32, last: u32) -> Result<()> {
+        let Some((mut low, high)) = self.sent_range(first, last)? else {
             return Ok(());
+        };
+        // `range` panics on an empty range, so the bound is checked first.
+        while low <= high
+            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
+        {
+            low = seq.saturating_add(1);
+            let Some(sent) = self.in_flight.remove(&seq) else {
+                return Err(Error::Invariant("acknowledged datagram missing"));
+            };
+            self.rtt.sample(now.saturating_sub(sent.at));
+            for frame in &sent.frames {
+                self.unsent = self.unsent.saturating_sub(frame.cost());
+            }
+            if self.cwnd < self.ssthresh {
+                self.cwnd += 1;
+            } else {
+                self.acked += 1;
+                if self.acked >= self.cwnd {
+                    self.acked = 0;
+                    self.cwnd += 1;
+                }
+            }
+            self.cwnd = self.cwnd.min(MAX_CWND);
         }
-        self.hear(now);
-        result
+        Ok(())
     }
 
-    /// Counts the datagram just accepted as proof the peer is alive, for the idle timeout.
-    fn hear(&mut self, now: Duration) {
-        self.last_received = now;
-        self.received_any = true;
+    fn flush_ranges(&mut self, flag: u8, transmit: &mut impl FnMut(&[u8])) -> Result<()> {
+        let max = self.max_datagram();
+        let ranges = if flag == FLAG_ACK {
+            &mut self.acks
+        } else {
+            &mut self.naks
+        };
+        let mut rest = ranges.as_slice();
+        while !rest.is_empty() {
+            self.buf.clear();
+            let written = wire::put_ranges(&mut self.buf, flag, rest, max)?;
+            rest = rest
+                .get(written..)
+                .ok_or(Error::Invariant("more ranges written than pending"))?;
+            transmit(&self.buf);
+        }
+        ranges.clear();
+        Ok(())
     }
 
     fn frame(&mut self, header: Header, body: &[u8], out: &mut Vec<Message>) -> Result<()> {
@@ -440,6 +472,122 @@ impl Peer {
             (header, message)
         };
         self.order(header, message, out)
+    }
+
+    /// Ends the handling of an ACK or NAK whose ranges gave `result`. A malformed one is dropped
+    /// and does not count as heard: nothing authenticates a datagram, so anyone who knows the
+    /// client's address could send one to close its connection or keep it from timing out.
+    fn heard_ranges(&mut self, now: Duration, result: Result<()>) -> Result<()> {
+        if let Err(error @ Error::Malformed(_)) = result {
+            trace!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "raknet malformed acknowledgement dropped"
+            );
+            return Ok(());
+        }
+        self.hear(now);
+        result
+    }
+
+    /// Counts the datagram just accepted as proof the peer is alive, for the idle timeout.
+    fn hear(&mut self, now: Duration) {
+        self.last_received = now;
+        self.received_any = true;
+    }
+
+    fn negative(&mut self, first: u32, last: u32) -> Result<()> {
+        let Some((mut low, high)) = self.sent_range(first, last)? else {
+            return Ok(());
+        };
+        // `range` panics on an empty range, so the bound is checked first.
+        while low <= high
+            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
+        {
+            low = seq.saturating_add(1);
+            let Some(sent) = self.in_flight.remove(&seq) else {
+                return Err(Error::Invariant("negatively acknowledged datagram missing"));
+            };
+            self.resend.extend(sent.frames);
+            self.lost(seq);
+        }
+        Ok(())
+    }
+
+    /// Shrinks the window to 3/4 once per round trip of losses. Halving (Reno) kept the window
+    /// near 50 datagrams against go-raknet, whose 100 ms ACK interval makes additive growth slow:
+    /// a largest message took 30 s on loopback, 6 to 14 s with 3/4 (CUBIC uses 0.7).
+    fn lost(&mut self, seq: u64) {
+        if seq >= self.recovery {
+            self.ssthresh = (self.cwnd * 3 / 4).max(MIN_CWND);
+            self.cwnd = self.ssthresh;
+            self.recovery = self.next_seq;
+        }
+    }
+
+    fn order(&mut self, header: Header, message: Message, out: &mut Vec<Message>) -> Result<()> {
+        if !header.reliability.has_order() {
+            out.push(message);
+            return Ok(());
+        }
+        let channel = self
+            .channels
+            .get_mut(usize::from(header.channel))
+            .ok_or(Error::Malformed("ordering channel"))?;
+        if header.reliability.is_sequenced() {
+            // Sequenced frames belong to the current order index; older or stale ones drop.
+            if header.order_index == channel.next
+                && wire::u24_ahead(header.sequence_index, channel.sequence).is_some()
+            {
+                channel.sequence = header.sequence_index.wrapping_add(1) & U24_MASK;
+                out.push(message);
+            }
+            return Ok(());
+        }
+        let Some(ahead) = wire::u24_ahead(header.order_index, channel.next) else {
+            return Ok(());
+        };
+        if ahead >= ORDER_WINDOW {
+            return Err(Error::Limit("ordering window"));
+        }
+        if ahead > 0 {
+            if let Entry::Vacant(entry) = channel.waiting.entry(header.order_index) {
+                let held = self
+                    .held
+                    .saturating_add(message.body.len())
+                    .saturating_add(PART_COST_BYTES);
+                if held > self.limits.held {
+                    return Err(Error::Limit("held bytes"));
+                }
+                self.held = held;
+                entry.insert(message);
+            }
+            return Ok(());
+        }
+        out.push(message);
+        loop {
+            channel.next = channel.next.wrapping_add(1) & U24_MASK;
+            channel.sequence = 0;
+            let Some(message) = channel.waiting.remove(&channel.next) else {
+                return Ok(());
+            };
+            self.held = self
+                .held
+                .saturating_sub(message.body.len().saturating_add(PART_COST_BYTES));
+            out.push(message);
+        }
+    }
+
+    fn pop_fitting(&mut self, room: usize) -> Option<OutFrame> {
+        if let Some(frame) = self.resend.front() {
+            return (frame.encoded_len() <= room)
+                .then(|| self.resend.pop_front())
+                .flatten();
+        }
+        self.queue
+            .front()
+            .is_some_and(|frame| frame.encoded_len() <= room)
+            .then(|| self.queue.pop_front())
+            .flatten()
     }
 
     fn reassemble(
@@ -508,147 +656,6 @@ impl Peer {
             body.extend_from_slice(&part);
         }
         Ok(Some((assembly.header, Message { id, body })))
-    }
-
-    fn order(&mut self, header: Header, message: Message, out: &mut Vec<Message>) -> Result<()> {
-        if !header.reliability.has_order() {
-            out.push(message);
-            return Ok(());
-        }
-        let channel = self
-            .channels
-            .get_mut(usize::from(header.channel))
-            .ok_or(Error::Malformed("ordering channel"))?;
-        if header.reliability.is_sequenced() {
-            // Sequenced frames belong to the current order index; older or stale ones drop.
-            if header.order_index == channel.next
-                && wire::u24_ahead(header.sequence_index, channel.sequence).is_some()
-            {
-                channel.sequence = header.sequence_index.wrapping_add(1) & U24_MASK;
-                out.push(message);
-            }
-            return Ok(());
-        }
-        let Some(ahead) = wire::u24_ahead(header.order_index, channel.next) else {
-            return Ok(());
-        };
-        if ahead >= ORDER_WINDOW {
-            return Err(Error::Limit("ordering window"));
-        }
-        if ahead > 0 {
-            if let Entry::Vacant(entry) = channel.waiting.entry(header.order_index) {
-                let held = self
-                    .held
-                    .saturating_add(message.body.len())
-                    .saturating_add(PART_COST_BYTES);
-                if held > self.limits.held {
-                    return Err(Error::Limit("held bytes"));
-                }
-                self.held = held;
-                entry.insert(message);
-            }
-            return Ok(());
-        }
-        out.push(message);
-        loop {
-            channel.next = channel.next.wrapping_add(1) & U24_MASK;
-            channel.sequence = 0;
-            let Some(message) = channel.waiting.remove(&channel.next) else {
-                return Ok(());
-            };
-            self.held = self
-                .held
-                .saturating_sub(message.body.len().saturating_add(PART_COST_BYTES));
-            out.push(message);
-        }
-    }
-
-    fn acknowledge(&mut self, now: Duration, first: u32, last: u32) -> Result<()> {
-        let Some((mut low, high)) = self.sent_range(first, last)? else {
-            return Ok(());
-        };
-        // `range` panics on an empty range, so the bound is checked first.
-        while low <= high
-            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
-        {
-            low = seq.saturating_add(1);
-            let Some(sent) = self.in_flight.remove(&seq) else {
-                break;
-            };
-            self.rtt.sample(now.saturating_sub(sent.at));
-            for frame in &sent.frames {
-                self.unsent = self.unsent.saturating_sub(frame.cost());
-            }
-            if self.cwnd < self.ssthresh {
-                self.cwnd += 1;
-            } else {
-                self.acked += 1;
-                if self.acked >= self.cwnd {
-                    self.acked = 0;
-                    self.cwnd += 1;
-                }
-            }
-            self.cwnd = self.cwnd.min(MAX_CWND);
-        }
-        Ok(())
-    }
-
-    fn negative(&mut self, first: u32, last: u32) -> Result<()> {
-        let Some((mut low, high)) = self.sent_range(first, last)? else {
-            return Ok(());
-        };
-        // `range` panics on an empty range, so the bound is checked first.
-        while low <= high
-            && let Some(seq) = self.in_flight.range(low..=high).next().map(|(&seq, _)| seq)
-        {
-            low = seq.saturating_add(1);
-            if let Some(sent) = self.in_flight.remove(&seq) {
-                self.resend.extend(sent.frames);
-                self.lost(seq);
-            }
-        }
-        Ok(())
-    }
-
-    /// Shrinks the window to 3/4 once per round trip of losses. Halving (Reno) kept the window
-    /// near 50 datagrams against go-raknet, whose 100 ms ACK interval makes additive growth slow:
-    /// a largest message took 30 s on loopback, 6 to 14 s with 3/4 (CUBIC uses 0.7).
-    fn lost(&mut self, seq: u64) {
-        if seq >= self.recovery {
-            self.ssthresh = (self.cwnd * 3 / 4).max(MIN_CWND);
-            self.cwnd = self.ssthresh;
-            self.recovery = self.next_seq;
-        }
-    }
-
-    fn pop_fitting(&mut self, room: usize) -> Option<OutFrame> {
-        if let Some(frame) = self.resend.front() {
-            return (frame.encoded_len() <= room)
-                .then(|| self.resend.pop_front())
-                .flatten();
-        }
-        self.queue
-            .front()
-            .is_some_and(|frame| frame.encoded_len() <= room)
-            .then(|| self.queue.pop_front())
-            .flatten()
-    }
-
-    fn flush_ranges(&mut self, flag: u8, transmit: &mut impl FnMut(&[u8])) {
-        let max = self.max_datagram();
-        let ranges = if flag == FLAG_ACK {
-            &mut self.acks
-        } else {
-            &mut self.naks
-        };
-        let mut rest = ranges.as_slice();
-        while !rest.is_empty() {
-            self.buf.clear();
-            let written = wire::put_ranges(&mut self.buf, flag, rest, max);
-            rest = rest.get(written..).unwrap_or_default();
-            transmit(&self.buf);
-        }
-        ranges.clear();
     }
 }
 
@@ -998,62 +1005,13 @@ fn push_index(ranges: &mut Vec<(u32, u32)>, index: u32) {
 pub(super) mod tests {
     use super::*;
 
-    const T0: Duration = Duration::ZERO;
+    /// A message limit of about 19 MiB, as large as the default settings give.
+    const DEFAULT_MESSAGE: usize = 19_573_468;
     /// A small message limit: 1001 bytes with the ID, 3 fragments, and held bytes for two such
     /// messages besides a full send window.
     const SMALL: usize = 1000;
-    /// A message limit of about 19 MiB, as large as the default settings give.
-    const DEFAULT_MESSAGE: usize = 19_573_468;
-
-    pub(in crate::raknet) fn header(reliability: Reliability) -> Header {
-        Header {
-            reliability,
-            message_index: 0,
-            sequence_index: 0,
-            order_index: 0,
-            channel: 0,
-            split: None,
-        }
-    }
-
-    /// A data datagram with sequence number `seq` holding `frames`.
-    pub(in crate::raknet) fn datagram(seq: u32, frames: &[(Header, &[u8])]) -> Vec<u8> {
-        let mut buf = vec![FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS];
-        wire::put_u24(&mut buf, seq);
-        for (header, body) in frames {
-            header
-                .write(&mut buf, u16::try_from(body.len()).unwrap())
-                .unwrap();
-            buf.extend_from_slice(body);
-        }
-        buf
-    }
-
-    fn peer(max_message_bytes: usize) -> Peer {
-        Peer::new(T0, MAX_MTU, Limits::new(max_message_bytes).unwrap()).unwrap()
-    }
-
-    fn receive(peer: &mut Peer, data: &[u8]) -> Result<Vec<Message>> {
-        let mut out = Vec::new();
-        peer.receive(T0, data, &mut out, &mut |_| {})?;
-        Ok(out)
-    }
-
-    fn fragment(message_index: u32, id: u16, count: u32, index: u32) -> Header {
-        Header {
-            message_index,
-            split: Some(Split { count, id, index }),
-            ..header(Reliability::ReliableOrdered)
-        }
-    }
-
-    fn ordered(message_index: u32, order_index: u32) -> Header {
-        Header {
-            message_index,
-            order_index,
-            ..header(Reliability::ReliableOrdered)
-        }
-    }
+    /// The time the tests start at.
+    const T0: Duration = Duration::ZERO;
 
     #[test]
     fn limits_follow_the_message_size() {
@@ -1080,6 +1038,48 @@ pub(super) mod tests {
         assert!(Peer::new(T0, MIN_MTU - 1, limits).is_err());
         assert!(Peer::new(T0, MAX_MTU + 1, limits).is_err());
         assert!(Peer::new(T0, MIN_MTU, limits).is_ok());
+    }
+
+    /// A data datagram with sequence number `seq` holding `frames`.
+    pub(in crate::raknet) fn datagram(seq: u32, frames: &[(Header, &[u8])]) -> Vec<u8> {
+        let mut buf = vec![FLAG_DATAGRAM | FLAG_NEEDS_B_AND_AS];
+        wire::put_u24(&mut buf, seq);
+        for (header, body) in frames {
+            header
+                .write(&mut buf, u16::try_from(body.len()).unwrap())
+                .unwrap();
+            buf.extend_from_slice(body);
+        }
+        buf
+    }
+
+    fn peer(max_message_bytes: usize) -> Peer {
+        Peer::new(T0, MAX_MTU, Limits::new(max_message_bytes).unwrap()).unwrap()
+    }
+
+    fn receive(peer: &mut Peer, data: &[u8]) -> Result<Vec<Message>> {
+        let mut out = Vec::new();
+        peer.receive(T0, data, &mut out, &mut |_| {})?;
+        Ok(out)
+    }
+
+    pub(in crate::raknet) fn header(reliability: Reliability) -> Header {
+        Header {
+            reliability,
+            message_index: 0,
+            sequence_index: 0,
+            order_index: 0,
+            channel: 0,
+            split: None,
+        }
+    }
+
+    fn fragment(message_index: u32, id: u16, count: u32, index: u32) -> Header {
+        Header {
+            message_index,
+            split: Some(Split { count, id, index }),
+            ..header(Reliability::ReliableOrdered)
+        }
     }
 
     #[test]
@@ -1308,6 +1308,14 @@ pub(super) mod tests {
         }
         assert!(peer.assemblies.is_empty());
         assert_eq!(peer.held, 0);
+    }
+
+    fn ordered(message_index: u32, order_index: u32) -> Header {
+        Header {
+            message_index,
+            order_index,
+            ..header(Reliability::ReliableOrdered)
+        }
     }
 
     #[test]
@@ -1597,7 +1605,7 @@ pub(super) mod tests {
         wire::put_u24(&mut nak, 1);
         wire::put_u24(&mut nak, 2);
         assert_eq!(sent, [nak]);
-        peer.flush_acks(&mut |d| sent.push(d.to_vec()));
+        peer.flush_acks(&mut |d| sent.push(d.to_vec())).unwrap();
         let mut ack = vec![FLAG_DATAGRAM | FLAG_ACK, 0, 2, 1];
         wire::put_u24(&mut ack, 0);
         ack.push(1);
@@ -1780,7 +1788,9 @@ pub(super) mod tests {
                 sender
                     .flush(now, &mut |d| to_receiver.push(d.to_vec()))
                     .unwrap();
-                receiver.flush_acks(&mut |d| to_sender.push(d.to_vec()));
+                receiver
+                    .flush_acks(&mut |d| to_sender.push(d.to_vec()))
+                    .unwrap();
             }
             let at = now + delay(now);
             flying.extend(to_receiver.into_iter().map(|data| (at, true, data)));
