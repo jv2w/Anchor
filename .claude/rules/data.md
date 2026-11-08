@@ -48,12 +48,13 @@ paths:
 - Correct the ominous banner to the official server's value, in the one place every dumped item passes (`corrected_meta` in `xtask/src/gen/data.rs`).
 - Where an item name has exactly one dump block item and `item_blocks.json` gives it one vanilla creative state, send the block item with that vanilla state. The item still places the dump state.
 - Count creative item network IDs from 1, as the official server does.
+- Correct the effect colours that differ from the official server's in the one table `OFFICIAL_COLOURS` (`xtask/src/gen/effects.rs`).
 
 ## Reference list
 - Reference list sources A and B hold exactly the same block states (name, property names, types and values, version) and items (name, runtime ID, version, component flag); `xtask/go/reference` fails on any difference.
 - Use the reference list's block network IDs. Use the hash function only for custom blocks.
 - Use only the biome definitions without chunk generation data.
-- Dump states that map to one Bedrock state may differ only in data the block entity holds (a bed's colour, a banner's colour), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
+- Dump states that map to one Bedrock state may differ only in data the state does not hold (a bed's or banner's colour, which the block entity holds; a cauldron's fill, which Anchor does not keep), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
 - Use the official server's light dampening only for states the dump has no type for.
 - Never use the official server's `isSolid`. Solidity comes from collision boxes.
 - Never send the data-driven block definitions the official server puts in StartGame.
@@ -100,7 +101,7 @@ paths:
   2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/dump-php/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
   3. The dump source's dependencies: in `.cache/dump`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/dump/vendor`.
   4. The official server: download the zip for the OS, check its SHA-256, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
-  5. Perl: on Windows, download the Strawberry Perl portable zip, check its SHA-256, and unpack it into `.cache/tools/strawberry-perl-5.42.3.1/`. On Linux, install the system packages `.claude/docs/testing.md` lists.
+  5. Perl: on Windows, download the Strawberry Perl portable zip, check its SHA-256, and unpack it into the folder of the `.cache/` table. On Linux, install the system packages `.claude/docs/testing.md` lists.
   6. The str0m captures: `cargo xtask vendor-test str0m` downloads them.
   7. Confirm that `cargo xtask dump --check` passes.
 
