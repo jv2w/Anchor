@@ -7,8 +7,8 @@
  *     php upgrade.php <upgrade dir> <1.12.0.bin> <1.9.0.bin> <reference blocks.json>
  *
  * It builds the dump source's own upgrader (BlockStateUpgrader, BlockIdMetaUpgrader, BlockDataUpgrader) from
- * the schemas the dump copied into `<upgrade dir>/blocks` (BedrockBlockUpgradeSchema 5.4.1), not
- * from the 5.2.0 copy in the dump source's vendor folder (its legacy ID
+ * the schemas the dump copied into `<upgrade dir>/blocks`, not
+ * from the older copy in the dump source's vendor folder (its legacy ID
  * map class reads only that copy, so its file must equal `<upgrade dir>/block_legacy_id_map.json`),
  * and writes what it gives into `<upgrade dir>/golden/`:
  * - legacy.jsonl: every legacy terrain value, numeric ID 0..255 and meta 0..15, through

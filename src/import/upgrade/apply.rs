@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 /// A property value in a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Tag<'a> {
+pub(super) enum Tag<'a> {
     Byte(u8),
     Int(i32),
     String(&'a str),
@@ -15,7 +15,7 @@ pub(crate) enum Tag<'a> {
 
 impl Tag<'_> {
     /// The tag as a value a state holds.
-    pub(crate) fn to_value(self) -> Value {
+    pub(super) fn to_value(self) -> Value {
         match self {
             Self::Byte(b) => Value::Byte(b),
             Self::Int(i) => Value::Int(i),
@@ -36,18 +36,18 @@ impl Tag<'_> {
 
 /// A property value of a state being upgraded. Bedrock states hold only these three tag types.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Value {
+pub(super) enum Value {
     Byte(u8),
     Int(i32),
     String(String),
 }
 
 /// The properties of a state, by name.
-pub(crate) type States = BTreeMap<String, Value>;
+pub(super) type States = BTreeMap<String, Value>;
 
 /// The tag type a flattened property must have for the flattening to apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub(super) enum Kind {
     Byte,
     Int,
     String,
@@ -55,18 +55,18 @@ pub(crate) enum Kind {
 
 /// A property folded into the block name.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Flatten<'a> {
-    pub(crate) prefix: &'a str,
-    pub(crate) property: &'a str,
-    pub(crate) suffix: &'a str,
-    pub(crate) kind: Kind,
+pub(super) struct Flatten<'a> {
+    pub(super) prefix: &'a str,
+    pub(super) property: &'a str,
+    pub(super) suffix: &'a str,
+    pub(super) kind: Kind,
     /// Values whose name part differs from their text, sorted by value.
-    pub(crate) remaps: &'a [(&'a str, &'a str)],
+    pub(super) remaps: &'a [(&'a str, &'a str)],
 }
 
 /// The name a matching remapped state gets.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum NewName<'a> {
+pub(super) enum NewName<'a> {
     Name(&'a str),
     Flatten(Flatten<'a>),
 }
@@ -74,40 +74,40 @@ pub(crate) enum NewName<'a> {
 /// A state rule: a state that has every `old`
 /// property becomes `new_name` with `new` and the `copied` properties it has.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Remap<'a> {
-    pub(crate) old: &'a [(&'a str, Tag<'a>)],
-    pub(crate) new_name: NewName<'a>,
-    pub(crate) new: &'a [(&'a str, Tag<'a>)],
-    pub(crate) copied: &'a [&'a str],
+pub(super) struct Remap<'a> {
+    pub(super) old: &'a [(&'a str, Tag<'a>)],
+    pub(super) new_name: NewName<'a>,
+    pub(super) new: &'a [(&'a str, Tag<'a>)],
+    pub(super) copied: &'a [&'a str],
 }
 
 /// Every rule of one schema for one old block name. All of them use the old name and the old
 /// property names, as the schema format says.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Rules<'a> {
-    pub(crate) renamed: Option<&'a str>,
-    pub(crate) flattened: Option<Flatten<'a>>,
+pub(super) struct Rules<'a> {
+    pub(super) renamed: Option<&'a str>,
+    pub(super) flattened: Option<Flatten<'a>>,
     /// Sorted by property.
-    pub(crate) added: &'a [(&'a str, Tag<'a>)],
-    pub(crate) removed: &'a [&'a str],
+    pub(super) added: &'a [(&'a str, Tag<'a>)],
+    pub(super) removed: &'a [&'a str],
     /// Sorted by old property; order does not matter, the generator rejects a rename to a
     /// renamed property.
-    pub(crate) renamed_properties: &'a [(&'a str, &'a str)],
+    pub(super) renamed_properties: &'a [(&'a str, &'a str)],
     /// Sorted by property; each property's (old, new) pairs in schema order, the first match
     /// winning.
-    pub(crate) remapped_values: &'a [(&'a str, &'a [(Tag<'a>, Tag<'a>)])],
+    pub(super) remapped_values: &'a [(&'a str, &'a [(Tag<'a>, Tag<'a>)])],
     /// In schema order, most specific first: the first match wins.
-    pub(crate) remapped_states: &'a [Remap<'a>],
+    pub(super) remapped_states: &'a [Remap<'a>],
 }
 
 /// One schema file.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Schema<'a> {
+pub(super) struct Schema<'a> {
     /// The block state version it upgrades to: (major << 24) | (minor << 16) | (patch << 8) |
     /// revision.
-    pub(crate) version: i32,
+    pub(super) version: i32,
     /// The rules by old block name, sorted by name.
-    pub(crate) blocks: &'a [(&'a str, Rules<'a>)],
+    pub(super) blocks: &'a [(&'a str, Rules<'a>)],
 }
 
 impl<'a> Schema<'a> {
@@ -119,18 +119,17 @@ impl<'a> Schema<'a> {
 
 /// Upgrades a state of block state version `version` through `schemas`, which are sorted by
 /// (version, id). Schemas of a version above the state's apply. Of the schemas
-/// of the state's own version, the first introduced that version, so the state has it already;
-/// the others, written by releases that kept the version, apply, since the version does not say
-/// which of them did. The first one applies too: from 0321 on every schema writes
-/// 1.21.60.33, so 0321 runs again on current states and turns `red_mushroom_block` 10 and 15 into
-/// `mushroom_stem`.
+/// of the state's own version, the first introduced that version, so the state has it already
+/// and it is skipped (from 0321 on every schema writes 1.21.60.33, and running 0321 again turns
+/// `red_mushroom_block` 10 and 15 into `mushroom_stem`); the others, written by releases that
+/// kept the version, apply, since the version does not say which of them did.
 ///
 /// A state of a version above the newest schema's is upgraded as one of the newest version: a
 /// 1.21 game wrote 18,186,752 (1.21.130) in a real world for states
 /// without the properties the 1.26 schemas of version 1.21.60.33 add (fence connections, stair
 /// corners), which the official server 1.26.52 still numbers 1.21.60.33. Those schemas only add properties that
 /// are missing and rename old names, so they leave a state that has them as it is.
-pub(crate) fn upgrade(
+pub(super) fn upgrade(
     schemas: &[Schema<'_>],
     version: i32,
     name: &mut String,

@@ -2,12 +2,8 @@
 //! schemas from their pinned checkouts into `xtask/data/upgrade/`, converts the legacy block table
 //! `id_meta_to_nbt/1.12.0.bin` into typed JSON lines, records the SHA-256 of every source file,
 //! and runs the dump source's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
-//! import's tests compare with.
-//!
-//! The block schemas are opencollab-incubator/BedrockBlockUpgradeSchema 5.4.1, not the 5.2.0
-//! the dump source's composer pins (it lacks the changes from 1.26.30 on). The item schemas are
-//! opencollab-incubator/BedrockItemUpgradeSchema 1.19.0, newer than its 1.17.0: it adds the
-//! 1.26.50 rename (`photo` to `photo_item`) and the 1.26.60 frostbite spawn egg.
+//! import's tests compare with. Why the schema versions differ from the dump source's is in
+//! `data.md`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,9 +23,9 @@ pub(super) const BLOCKS: (&str, &str) = (
     "1077ee640ed39f60266f7a7c8ab331ef76d7931e",
 );
 /// The folder of the golden files inside [`OUT`].
-pub(crate) const GOLDEN: &str = "golden";
+const GOLDEN: &str = "golden";
 /// The golden files, written by `xtask/php/upgrade.php`.
-pub(crate) const GOLDEN_FILES: [&str; 3] = ["legacy.jsonl", "states.jsonl", "reference.jsonl"];
+const GOLDEN_FILES: [&str; 3] = ["legacy.jsonl", "states.jsonl", "reference.jsonl"];
 /// The SHA-256 initial hash value (FIPS 180-4 5.3.3).
 const H0: [u32; 8] = [
     0x6a09_e667,

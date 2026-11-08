@@ -30,6 +30,51 @@ struct ItemSchema {
     remapped: &'static [(&'static str, &'static [(u16, &'static str)])],
 }
 
+/// Upgrades, in place, every block state and item stack in a block entity's or entity's NBT, at
+/// any depth (inside item tags too), and returns how many compounds changed. A block state is a
+/// compound of `name` and `states` with an optional `version` and a foreign data version key, or of `name`
+/// and `val`, as [`state`] reads it (a falling block's, a flower pot's plant, an item's `Block`);
+/// an item stack is a compound with a byte `Count` and a string `Name` or a short legacy `id`
+/// ([`item`]). What cannot be upgraded stays as it was.
+pub(crate) fn nbt(compound: &mut Compound) -> u64 {
+    // Compounds still to visit; the walk keeps its stack on the heap (NBT nests up to
+    // `crate::nbt::MAX_DEPTH` deep).
+    let mut stack: Vec<&mut Compound> = vec![compound];
+    let mut changed = 0_u64;
+    while let Some(c) = stack.pop() {
+        if is_state_shape(c) {
+            if let Some(upgraded) = state(c)
+                && upgraded != *c
+            {
+                *c = upgraded;
+                changed += 1;
+            }
+            continue;
+        }
+        if item(c) {
+            changed += 1;
+        }
+        for value in c.values_mut() {
+            match value {
+                Value::Compound(child) => stack.push(child),
+                Value::List(List::Compound(list)) => stack.extend(list.iter_mut()),
+                Value::List(List::List(lists)) => {
+                    let mut nested: Vec<&mut List> = lists.iter_mut().collect();
+                    while let Some(list) = nested.pop() {
+                        match list {
+                            List::Compound(list) => stack.extend(list.iter_mut()),
+                            List::List(inner) => nested.extend(inner.iter_mut()),
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    changed
+}
+
 /// A disk palette entry upgraded to the protocol version:
 /// `{name, states, version}`. A modern entry is `{name, states}` with an optional `version` (0
 /// without one), an optional foreign data version key (dropped) and nothing else, its
@@ -72,78 +117,6 @@ pub(crate) fn legacy(id: u16, meta: u8) -> Option<Compound> {
     let name = find_copied(&table::BLOCK_IDS, i16::try_from(id).ok()?)?;
     let (name, states) = legacy_name(name, meta)?;
     Some(to_nbt(name.to_owned(), states))
-}
-
-/// The upgraded state of a legacy string ID and meta in the 1.12.0 table.
-fn legacy_name(id: &str, meta: u8) -> Option<(&'static str, States)> {
-    let metas = find(&table::LEGACY, id)?;
-    let index = find_copied(metas, meta)?;
-    let (name, properties) = table::LEGACY_STATES.get(usize::from(*index))?;
-    let states = properties
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), v.to_value()))
-        .collect();
-    Some((name, states))
-}
-
-/// A state as `{name, states, version}`.
-fn to_nbt(name: String, states: States) -> Compound {
-    let states = states
-        .into_iter()
-        .map(|(k, v)| {
-            let v = match v {
-                apply::Value::Byte(b) => Value::Byte(b),
-                apply::Value::Int(i) => Value::Int(i),
-                apply::Value::String(s) => Value::String(s),
-            };
-            (k, v)
-        })
-        .collect();
-    palette_entry(name, states)
-}
-
-/// Upgrades, in place, every block state and item stack in a block entity's or entity's NBT, at
-/// any depth (inside item tags too), and returns how many compounds changed. A block state is a
-/// compound of `name` and `states` with an optional `version` and a foreign data version key, or of `name`
-/// and `val`, as [`state`] reads it (a falling block's, a flower pot's plant, an item's `Block`);
-/// an item stack is a compound with a byte `Count` and a string `Name` or a short legacy `id`
-/// ([`item`]). What cannot be upgraded stays as it was.
-pub(crate) fn nbt(compound: &mut Compound) -> u64 {
-    // Compounds still to visit; the walk keeps its stack on the heap (NBT nests 512 deep).
-    let mut stack: Vec<&mut Compound> = vec![compound];
-    let mut changed = 0_u64;
-    while let Some(c) = stack.pop() {
-        if is_state_shape(c) {
-            if let Some(upgraded) = state(c)
-                && upgraded != *c
-            {
-                *c = upgraded;
-                changed += 1;
-            }
-            continue;
-        }
-        if item(c) {
-            changed += 1;
-        }
-        for value in c.values_mut() {
-            match value {
-                Value::Compound(child) => stack.push(child),
-                Value::List(List::Compound(list)) => stack.extend(list.iter_mut()),
-                Value::List(List::List(lists)) => {
-                    let mut nested: Vec<&mut List> = lists.iter_mut().collect();
-                    while let Some(list) = nested.pop() {
-                        match list {
-                            List::Compound(list) => stack.extend(list.iter_mut()),
-                            List::List(inner) => nested.extend(inner.iter_mut()),
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    changed
 }
 
 /// Whether a compound has the shape of a block state [`state`] reads.
@@ -255,13 +228,41 @@ fn item_id_meta(id: &str, meta: i16) -> (String, i16) {
     (id, meta)
 }
 
-/// Finds `key` in a slice sorted by its first field.
+/// The upgraded state of a legacy string ID and meta in the 1.12.0 table.
+fn legacy_name(id: &str, meta: u8) -> Option<(&'static str, States)> {
+    let metas = find(&table::LEGACY, id)?;
+    let index = find_copied(metas, meta)?;
+    let (name, properties) = table::LEGACY_STATES.get(usize::from(*index))?;
+    let states = properties
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), v.to_value()))
+        .collect();
+    Some((name, states))
+}
+
+/// A state as `{name, states, version}`.
+fn to_nbt(name: String, states: States) -> Compound {
+    let states = states
+        .into_iter()
+        .map(|(k, v)| {
+            let v = match v {
+                apply::Value::Byte(b) => Value::Byte(b),
+                apply::Value::Int(i) => Value::Int(i),
+                apply::Value::String(s) => Value::String(s),
+            };
+            (k, v)
+        })
+        .collect();
+    palette_entry(name, states)
+}
+
+/// The value of `key` in a slice sorted by its first field.
 fn find<'a, K: Ord + ?Sized, T>(list: &'a [(&K, T)], key: &K) -> Option<&'a T> {
     let i = list.binary_search_by(|(k, _)| (*k).cmp(key)).ok()?;
     list.get(i).map(|(_, v)| v)
 }
 
-/// Like [`find`] for a slice keyed by value.
+/// The value of `key` in a slice sorted by its first field, keyed by value ([`find`]).
 fn find_copied<K: Ord + Copy, T>(list: &[(K, T)], key: K) -> Option<&T> {
     let i = list.binary_search_by(|(k, _)| k.cmp(&key)).ok()?;
     list.get(i).map(|(_, v)| v)
