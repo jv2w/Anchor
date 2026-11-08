@@ -35,6 +35,9 @@ use crate::tick::{
     Context, InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, step,
 };
 
+/// The block position the tests place their blocks at, next to the spawn.
+const AT: BlockPos = BlockPos::new(3, -60, 3);
+
 /// The container of the player's combined hotbar and inventory slots.
 const COMBINED: u8 = C::CombinedHotBarAndInventory as u8;
 
@@ -455,6 +458,11 @@ pub(super) fn block_item(kind: blk::Kind) -> Type {
     }
 }
 
+/// A stack of `count` sticks.
+pub(super) fn sticks(count: u8) -> Stack {
+    Stack::new(item(it::Kind::Stick), count)
+}
+
 pub(super) fn ok(r: &ItemStackResponse) -> bool {
     r.status == ItemStackResponseStatus::Ok as u8
 }
@@ -500,6 +508,41 @@ fn crafting_lists(w: &World) -> Vec<CraftingData> {
         }
     }
     lists
+}
+
+/// Every slot and stack network ID of a player.
+type PlayerSnapshot = (
+    Slots<MAIN>,
+    Slots<ARMOR>,
+    Slots<1>,
+    Slots<1>,
+    Slots<ENDER>,
+    Option<Window>,
+    Vec<Stack>,
+    i32,
+);
+
+/// Every slot and stack network ID of every player and container, to see that nothing changed.
+fn snapshot(state: &State) -> (Vec<PlayerSnapshot>, Vec<Stack>, usize) {
+    let players = state
+        .players
+        .values()
+        .map(|p| {
+            let inv = &p.inventory;
+            (
+                inv.main.clone(),
+                inv.armor.clone(),
+                inv.offhand.clone(),
+                inv.cursor.clone(),
+                inv.ender.clone(),
+                inv.window.clone(),
+                inv.pending.clone(),
+                inv.next_id,
+            )
+        })
+        .collect();
+    let blocks = state.rules.block_entities.all_items().cloned().collect();
+    (players, blocks, dropped().len())
 }
 
 #[test]
@@ -617,6 +660,12 @@ fn stack_network_ids_and_responses_follow_the_official_server() {
 /// What tells the items of the totals apart: the type, the damage and the extra data.
 type TotalKey = (Option<Type>, u16, String);
 
+/// The key of `s` in the totals.
+fn total_key(s: &Stack) -> TotalKey {
+    let extra = s.extra().map(|e| format!("{e:?}")).unwrap_or_default();
+    (s.item(), s.damage(), extra)
+}
+
 /// Everything players, containers, waiting lists and dropped items hold, by item.
 pub(super) fn totals(state: &State) -> BTreeMap<TotalKey, u64> {
     let mut out: BTreeMap<_, u64> = BTreeMap::new();
@@ -653,47 +702,6 @@ pub(super) fn totals(state: &State) -> BTreeMap<TotalKey, u64> {
         add(&s);
     }
     out
-}
-
-/// The key of `s` in the totals.
-fn total_key(s: &Stack) -> TotalKey {
-    let extra = s.extra().map(|e| format!("{e:?}")).unwrap_or_default();
-    (s.item(), s.damage(), extra)
-}
-
-/// Every slot and stack network ID of a player.
-type PlayerSnapshot = (
-    Slots<MAIN>,
-    Slots<ARMOR>,
-    Slots<1>,
-    Slots<1>,
-    Slots<ENDER>,
-    Option<Window>,
-    Vec<Stack>,
-    i32,
-);
-
-/// Every slot and stack network ID of every player and container, to see that nothing changed.
-fn snapshot(state: &State) -> (Vec<PlayerSnapshot>, Vec<Stack>, usize) {
-    let players = state
-        .players
-        .values()
-        .map(|p| {
-            let inv = &p.inventory;
-            (
-                inv.main.clone(),
-                inv.armor.clone(),
-                inv.offhand.clone(),
-                inv.cursor.clone(),
-                inv.ender.clone(),
-                inv.window.clone(),
-                inv.pending.clone(),
-                inv.next_id,
-            )
-        })
-        .collect();
-    let blocks = state.rules.block_entities.all_items().cloned().collect();
-    (players, blocks, dropped().len())
 }
 
 /// No slot holds more than its stack size, and a slot is empty exactly when its ID is 0.
@@ -989,6 +997,40 @@ fn stock(w: &mut World, s: SessionId) {
     }
 }
 
+/// Opens a menu of kind `k` for `s` in the model test: its handler counts the click, puts a copy
+/// of the player's cursor into the clicked slot (the menu's items are the server's: the copy
+/// makes no item), and closes the menu on every seventh slot.
+fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
+    let kind = [
+        crate::menu::Kind::Chest,
+        crate::menu::Kind::DoubleChest,
+        crate::menu::Kind::Hopper,
+    ][k as usize];
+    let menu = crate::menu::Menu::new(kind).item(1, Stack::new(item(it::Kind::Stick), 3));
+    let opened = Context {
+        state: &mut w.state,
+    }
+    .open_menu(crate::player::Id::new(s), menu, |cx, player, input| {
+        let click = match input {
+            crate::menu::Input::Click(click) => click,
+            crate::menu::Input::Close(_) => return crate::menu::Response::Keep,
+            crate::menu::Input::Change(_) => panic!("no slot is editable: {input:?}"),
+        };
+        MENU_CLICKS.set(MENU_CLICKS.get() + 1);
+        cx.set_menu_item(player, click.slot(), click.cursor().clone())
+            .expect("the cursor's stack fits a slot");
+        if click.slot() % 7 == 0 {
+            crate::menu::Response::Close
+        } else {
+            crate::menu::Response::Keep
+        }
+    });
+    assert!(
+        matches!(opened, Ok(_) | Err(crate::menu::Error::Busy)),
+        "{opened:?}"
+    );
+}
+
 /// One run of the model test: `count` random requests of two players around shared containers.
 #[expect(
     clippy::too_many_lines,
@@ -1000,7 +1042,7 @@ fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>
     let listening = listeners.is_some();
     let mut w = World::with_listeners(mode, listeners.unwrap_or_default());
     let players = [w.join(1), w.join(2)];
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.double_chest(chest);
     let barrel = BlockPos::new(-3, -60, 3);
     w.place_block(barrel, blk::Kind::Barrel.default_state());
@@ -1115,40 +1157,6 @@ fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>
     assert!(drops > 100, "{drops} drops");
     let clicks = MENU_CLICKS.take();
     assert!(clicks > 20, "{clicks} menu clicks");
-}
-
-/// Opens a menu of kind `k` for `s` in the model test: its handler counts the click, puts a copy
-/// of the player's cursor into the clicked slot (the menu's items are the server's: the copy
-/// makes no item), and closes the menu on every seventh slot.
-fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
-    let kind = [
-        crate::menu::Kind::Chest,
-        crate::menu::Kind::DoubleChest,
-        crate::menu::Kind::Hopper,
-    ][k as usize];
-    let menu = crate::menu::Menu::new(kind).item(1, Stack::new(item(it::Kind::Stick), 3));
-    let opened = Context {
-        state: &mut w.state,
-    }
-    .open_menu(crate::player::Id::new(s), menu, |cx, player, input| {
-        let click = match input {
-            crate::menu::Input::Click(click) => click,
-            crate::menu::Input::Close(_) => return crate::menu::Response::Keep,
-            crate::menu::Input::Change(_) => panic!("no slot is editable: {input:?}"),
-        };
-        MENU_CLICKS.set(MENU_CLICKS.get() + 1);
-        cx.set_menu_item(player, click.slot(), click.cursor().clone())
-            .expect("the cursor's stack fits a slot");
-        if click.slot() % 7 == 0 {
-            crate::menu::Response::Close
-        } else {
-            crate::menu::Response::Keep
-        }
-    });
-    assert!(
-        matches!(opened, Ok(_) | Err(crate::menu::Error::Busy)),
-        "{opened:?}"
-    );
 }
 
 #[test]
@@ -1532,7 +1540,7 @@ fn the_inventory_round_trips_through_the_player_extra_byte_for_byte() {
 #[test]
 fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
     let mut w = World::new(GameMode::Survival);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.double_chest(chest);
     let start = w.state.rules.block_entities.sizes();
     for n in 0..100_u64 {
@@ -1579,7 +1587,7 @@ fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
 #[test]
 fn every_viewer_of_a_chest_sees_its_changes() {
     let mut w = World::new(GameMode::Survival);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.double_chest(chest);
     let a = w.join(1);
     let b = w.join(2);
@@ -1640,7 +1648,7 @@ fn chest_like_blocks_sound_when_the_first_viewer_opens_and_the_last_closes() {
     ];
     for (kind, open, close) in cases {
         let mut w = World::new(GameMode::Survival);
-        let pos = BlockPos::new(3, -60, 3);
+        let pos = AT;
         w.place_block(pos, kind.default_state());
         let a = w.join(1);
         let b = w.join(2);
@@ -1661,7 +1669,7 @@ fn chest_like_blocks_sound_when_the_first_viewer_opens_and_the_last_closes() {
 #[test]
 fn a_double_chest_sounds_once_at_its_left_half() {
     let mut w = World::new(GameMode::Survival);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.double_chest(chest);
     let a = w.join(1);
     w.sent(a);
@@ -1691,7 +1699,7 @@ fn a_double_chest_sounds_once_at_its_left_half() {
 fn a_broken_chest_spills_its_items_and_waits_while_the_world_is_full() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     w.place_block(chest, blk::Kind::Chest.default_state());
     w.give(s, Stack::new(item(it::Kind::Stick), 64));
     w.give(s, Stack::new(block_item(blk::Kind::Cobblestone), 64));
@@ -1727,7 +1735,7 @@ fn a_broken_chest_spills_its_items_and_waits_while_the_world_is_full() {
 fn a_shulker_box_keeps_its_items_in_its_item() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     let shulker = blk::State::all()
         .find(|b| b.is(blk::Class::ShulkerBox))
         .unwrap();
@@ -1766,7 +1774,7 @@ fn a_shulker_box_keeps_its_items_in_its_item() {
 fn window_ids_count_from_two_and_a_new_window_waits_for_the_close() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let barrel = BlockPos::new(3, -60, 3);
+    let barrel = AT;
     w.place_block(barrel, blk::Kind::Barrel.default_state());
     w.open_inventory(s);
     assert_eq!(w.inv(s).window.as_ref().unwrap().id, 2);
@@ -1831,7 +1839,7 @@ fn hotbar_selection_and_pick_block_select_or_take_the_picked_item() {
             .iter()
             .any(|p| matches!(p, Packet::MobEquipment(m) if m.hot_bar_slot == 4))
     );
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     w.place_block(pos, blk::Kind::Cobblestone.default_state());
     let pick = BlockPickRequest {
         position: [3, -60, 3],
@@ -1900,7 +1908,7 @@ fn a_slot_outside_the_hotbar_is_answered_once_a_tick_with_the_last_selection() {
 fn block_picks_past_the_tick_limit_do_nothing_until_the_next_tick() {
     let mut w = World::new(GameMode::Creative);
     let s = w.join(1);
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     let shulker = blk::State::all()
         .find(|b| b.is(blk::Class::ShulkerBox))
         .unwrap();
@@ -2025,7 +2033,7 @@ fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
 fn placing_over_a_stale_shulker_entity_drops_its_items() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let pos = BlockPos::new(3, -60, 3);
+    let pos = AT;
     let shulker = blk::State::all()
         .find(|b| b.is(blk::Class::ShulkerBox))
         .unwrap();
@@ -2062,7 +2070,7 @@ fn an_open_listener_that_opens_a_menu_keeps_the_menu_in_place_of_the_window() {
     );
     let mut w = World::with_listeners(GameMode::Survival, listeners);
     let s = w.join(1);
-    let barrel = BlockPos::new(3, -60, 3);
+    let barrel = AT;
     w.place_block(barrel, blk::Kind::Barrel.default_state());
     w.open_block(s, barrel);
     assert!(matches!(
@@ -2098,7 +2106,7 @@ fn a_menu_opens_nothing_for_a_player_out_of_reach_of_its_blocks() {
 fn a_container_window_closes_once_its_block_is_replaced() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
-    let barrel = BlockPos::new(3, -60, 3);
+    let barrel = AT;
     w.place_block(barrel, blk::Kind::Barrel.default_state());
     w.open_block(s, barrel);
     assert!(w.inv(s).window.is_some());
@@ -2208,7 +2216,7 @@ fn breaking_a_container_drops_its_contents_once() {
     let stick = Stack::new(item(it::Kind::Stick), 1);
     for kind in [blk::Kind::Chest, blk::Kind::Barrel] {
         let mut w = World::new(GameMode::Survival);
-        let pos = BlockPos::new(3, -60, 3);
+        let pos = AT;
         w.place_block(pos, kind.default_state());
         let slots = {
             let e = w.state.rules.block_entities.get_mut(0, pos).unwrap();
@@ -2235,7 +2243,7 @@ fn breaking_a_container_drops_its_contents_once() {
 #[test]
 fn container_block_entities_survive_chunk_unload_and_reload_unchanged() {
     let mut w = World::new(GameMode::Survival);
-    let chest = BlockPos::new(3, -60, 3);
+    let chest = AT;
     let barrel = BlockPos::new(4, -60, 3);
     w.place_block(chest, blk::Kind::Chest.default_state());
     w.place_block(barrel, blk::Kind::Barrel.default_state());
@@ -2274,7 +2282,7 @@ fn beds_and_banners_keep_their_item_data() {
     let named_meta =
         |name: &str, meta: u16| Type::from_name(name, meta, None, &Compound::new()).unwrap();
     let blue_bed = Stack::new(named_meta("minecraft:bed", 11), 1);
-    let bed = BlockPos::new(3, -60, 3);
+    let bed = AT;
     place_with(
         &mut w,
         bed,

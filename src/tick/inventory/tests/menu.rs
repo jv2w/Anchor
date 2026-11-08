@@ -1,6 +1,8 @@
 //! Tests of fake blocks and menu windows.
 //!
-//! They cover who is sent what and when, the bounds, and that a menu never moves an item.
+//! They cover who is sent what and when, the bounds, that a menu without editable slots never
+//! moves an item, and that editable and lending menus move items like a chest and keep each one
+//! once.
 
 use std::cell::Cell;
 
@@ -13,8 +15,6 @@ use crate::tick::tests::{blocks_set, input, leave, packet};
 use crate::tick::view::MAX_FAKE_BLOCKS;
 use crate::tick::{Context, Phase, entity, survival};
 
-/// The block position the tests place their blocks at, next to the spawn.
-const AT: BlockPos = BlockPos::new(3, -60, 3);
 /// The player's slot the handler of the store test writes with each change.
 /// A box keeps a menu's items this way.
 const STORE_SLOT: u8 = 0;
@@ -711,13 +711,8 @@ fn described(change: &m::Change) -> Vec<(bool, u8, Stack, Stack)> {
         .collect()
 }
 
-/// A stack of `count` sticks.
-fn sticks(count: u8) -> Stack {
-    Stack::new(item(it::Kind::Stick), count)
-}
-
 /// The totals key of `kind` without damage or extra data.
-fn plain(kind: it::Kind) -> (Option<Type>, u16, String) {
+fn plain(kind: it::Kind) -> TotalKey {
     (Some(item(kind)), 0, String::new())
 }
 

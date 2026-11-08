@@ -19,11 +19,6 @@ use crate::tick::tests::leave;
 use crate::tick::{Context, block_entity, entity, survival, trade};
 use crate::world;
 
-/// The position of the blocks the tests place, next to the spawn.
-const AT: BlockPos = BlockPos::new(3, -60, 3);
-/// The request container of the main inventory and the hotbar together.
-const COMBINED: C = C::CombinedHotBarAndInventory;
-
 thread_local! {
     /// What the listeners of a test saw, in order.
     static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
@@ -63,17 +58,16 @@ fn world_with(listeners: Listeners, stacks: &[Stack]) -> (World, SessionId) {
 
 /// Moves `count` from main slot `from` into request slot `to`.
 fn put(w: &mut World, s: SessionId, from: u8, count: u8, to: (C, u8)) {
-    let id = w.id(s, COMBINED, from);
+    let id = w.id(s, C::CombinedHotBarAndInventory, from);
     let r = w.request(
         s,
-        vec![place(count, at(COMBINED, from, id), at(to.0, to.1, 0))],
+        vec![place(
+            count,
+            at(C::CombinedHotBarAndInventory, from, id),
+            at(to.0, to.1, 0),
+        )],
     );
     assert!(ok(&r), "{r:?}");
-}
-
-/// A stack of `count` sticks.
-fn sticks(count: u8) -> Stack {
-    Stack::new(item(it::Kind::Stick), count)
 }
 
 // api: InventoryTransactionEvent
@@ -100,8 +94,15 @@ fn a_request_is_one_transaction_with_its_slot_changes_and_monitors_see_it_applie
     });
     let (mut w, s) = world_with(l, &[sticks(10)]);
     w.open_inventory(s);
-    let id = w.id(s, COMBINED, 0);
-    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 2, 0))]);
+    let id = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            3,
+            at(C::CombinedHotBarAndInventory, 0, id),
+            at(C::CombinedHotBarAndInventory, 2, 0),
+        )],
+    );
     assert!(ok(&r));
     assert_eq!(
         logged(),
@@ -148,12 +149,16 @@ fn a_cancelled_transaction_changes_nothing_and_resends_the_inventory() {
     );
     w.open_inventory(s);
     let snap = snapshot(&w.state);
-    let id = w.id(s, COMBINED, 0);
+    let id = w.id(s, C::CombinedHotBarAndInventory, 0);
     let packets = send(
         &mut w,
         s,
         -1,
-        vec![place(3, at(COMBINED, 0, id), at(COMBINED, 2, 0))],
+        vec![place(
+            3,
+            at(C::CombinedHotBarAndInventory, 0, id),
+            at(C::CombinedHotBarAndInventory, 2, 0),
+        )],
     );
     assert!(!accepted(&packets));
     assert!(
@@ -177,8 +182,15 @@ fn a_listener_that_moves_a_slot_the_request_reads_refuses_it() {
     );
     w.open_inventory(s);
     let before = totals(&w.state);
-    let id = w.id(s, COMBINED, 0);
-    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 3, 0))]);
+    let id = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            3,
+            at(C::CombinedHotBarAndInventory, 0, id),
+            at(C::CombinedHotBarAndInventory, 3, 0),
+        )],
+    );
     assert!(!ok(&r), "slot 0 holds coal now");
     assert_eq!(totals(&w.state), before);
     assert_eq!(w.inv(s).main.stack(0), &Stack::new(item(it::Kind::Coal), 5));
@@ -191,8 +203,15 @@ fn a_listener_that_moves_a_slot_the_request_reads_refuses_it() {
         &[sticks(10), Stack::new(item(it::Kind::Coal), 5)],
     );
     w.open_inventory(s);
-    let id = w.id(s, COMBINED, 0);
-    let r = w.request(s, vec![place(3, at(COMBINED, 0, id), at(COMBINED, 3, 0))]);
+    let id = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            3,
+            at(C::CombinedHotBarAndInventory, 0, id),
+            at(C::CombinedHotBarAndInventory, 3, 0),
+        )],
+    );
     assert!(ok(&r));
     assert_eq!(w.inv(s).main.stack(3), &sticks(3));
 }
@@ -268,6 +287,14 @@ fn villager(w: &mut World) -> crate::entity::Id {
     id
 }
 
+/// The network ID of the offer the player's open trade window shows.
+fn offer_net_id(w: &World, s: SessionId) -> u32 {
+    (1..)
+        .take(1 << 21)
+        .find(|id| trade::offer(&w.state, s, *id).is_some())
+        .unwrap()
+}
+
 #[test]
 fn trading_raises_trade_open_and_trade_and_cancelling_keeps_the_payment() {
     let mut l =
@@ -289,17 +316,22 @@ fn trading_raises_trade_open_and_trade_and_cancelling_keeps_the_payment() {
     let v = villager(&mut w);
     assert!(trade::open(&mut w.state, s, v));
     put(&mut w, s, 0, 10, (C::TradeTwoIngredientOne, 4));
-    let net = (1..)
-        .take(1 << 21)
-        .find(|id| trade::offer(&w.state, s, *id).is_some())
-        .unwrap();
+    let net = offer_net_id(&w, s);
     let trade_times = |w: &mut World, times: u8| {
         let pay = w.id(s, C::TradeTwoIngredientOne, 4);
         let id = w.next_id(s);
         let actions = vec![
             craft(net, times),
             consume(2 * times, at(C::TradeTwoIngredientOne, 4, pay)),
-            place(times, created(id), at(COMBINED, 5, w.id(s, COMBINED, 5))),
+            place(
+                times,
+                created(id),
+                at(
+                    C::CombinedHotBarAndInventory,
+                    5,
+                    w.id(s, C::CombinedHotBarAndInventory, 5),
+                ),
+            ),
         ];
         w.request_as(s, id, actions)
     };
@@ -338,22 +370,28 @@ fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
     );
     let v = villager(&mut w);
     assert!(trade::open(&mut w.state, s, v));
-    let net = (1..)
-        .take(1 << 21)
-        .find(|id| trade::offer(&w.state, s, *id).is_some())
-        .unwrap();
+    let net = offer_net_id(&w, s);
     let bread = |n| Stack::new(item(it::Kind::Bread), n);
-    let to_bread =
-        |w: &World, n: u8, id: i32| place(n, created(id), at(COMBINED, 5, w.id(s, COMBINED, 5)));
+    let to_bread = |w: &World, n: u8, id: i32| {
+        place(
+            n,
+            created(id),
+            at(
+                C::CombinedHotBarAndInventory,
+                5,
+                w.id(s, C::CombinedHotBarAndInventory, 5),
+            ),
+        )
+    };
 
     let id = w.next_id(s);
-    let apples = w.id(s, COMBINED, 0);
+    let apples = w.id(s, C::CombinedHotBarAndInventory, 0);
     let paid = w.request_as(
         s,
         id,
         vec![
             auto(net, 2),
-            consume(4, at(COMBINED, 0, apples)),
+            consume(4, at(C::CombinedHotBarAndInventory, 0, apples)),
             to_bread(&w, 2, id),
         ],
     );
@@ -363,11 +401,14 @@ fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
 
     put(&mut w, s, 0, 1, (C::TradeTwoIngredientOne, 4));
     let id = w.next_id(s);
-    let (apples, slot) = (w.id(s, COMBINED, 0), w.id(s, C::TradeTwoIngredientOne, 4));
+    let (apples, slot) = (
+        w.id(s, C::CombinedHotBarAndInventory, 0),
+        w.id(s, C::TradeTwoIngredientOne, 4),
+    );
     let mixed = vec![
         auto(net, 1),
         consume(1, at(C::TradeTwoIngredientOne, 4, slot)),
-        consume(1, at(COMBINED, 0, apples)),
+        consume(1, at(C::CombinedHotBarAndInventory, 0, apples)),
         to_bread(&w, 1, id),
     ];
     assert!(ok(&w.request_as(s, id, mixed)));
@@ -376,10 +417,10 @@ fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
 
     let before = totals(&w.state);
     let id = w.next_id(s);
-    let apples = w.id(s, COMBINED, 0);
+    let apples = w.id(s, C::CombinedHotBarAndInventory, 0);
     let overpaid = vec![
         auto(net, 1),
-        consume(3, at(COMBINED, 0, apples)),
+        consume(3, at(C::CombinedHotBarAndInventory, 0, apples)),
         to_bread(&w, 1, id),
     ];
     assert!(
@@ -387,6 +428,48 @@ fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
         "one trade takes two apples"
     );
     assert_eq!(totals(&w.state), before);
+}
+
+/// A trade request sent twice with one request ID trades once.
+#[test]
+fn the_same_trade_request_twice_trades_once() {
+    let run = |twice: bool| {
+        let (mut w, s) = world_with(
+            Listeners::default(),
+            &[Stack::new(item(it::Kind::Apple), 10)],
+        );
+        let v = villager(&mut w);
+        assert!(trade::open(&mut w.state, s, v));
+        put(&mut w, s, 0, 2, (C::TradeTwoIngredientOne, 4));
+        let id = w.next_id(s);
+        let actions = vec![
+            craft(offer_net_id(&w, s), 1),
+            consume(
+                2,
+                at(
+                    C::TradeTwoIngredientOne,
+                    4,
+                    w.id(s, C::TradeTwoIngredientOne, 4),
+                ),
+            ),
+            place(
+                1,
+                created(id),
+                at(
+                    C::CombinedHotBarAndInventory,
+                    5,
+                    w.id(s, C::CombinedHotBarAndInventory, 5),
+                ),
+            ),
+        ];
+        assert!(ok(&w.request_as(s, id, actions.clone())));
+        if twice {
+            assert!(!ok(&w.request_as(s, id, actions)));
+        }
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
 }
 
 /// Unpairing or pairing chests through the API closes the windows on them without an event.

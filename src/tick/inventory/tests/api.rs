@@ -11,17 +11,9 @@ use crate::inventory::{Error, Kind};
 use crate::tick::{Context, Shared, entity, extra, save, spawn};
 use crate::world;
 
-/// The block position the tests place their blocks at, next to the spawn.
-const AT: BlockPos = BlockPos::new(3, -60, 3);
-
 thread_local! {
     /// How many events the listeners of a test heard.
     static HEARD: Cell<u32> = const { Cell::new(0) };
-}
-
-/// A stack of `count` sticks.
-fn sticks(count: u8) -> Stack {
-    Stack::new(item(it::Kind::Stick), count)
 }
 
 /// A stack of `count` coal.
