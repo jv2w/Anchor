@@ -16,7 +16,7 @@
 //!
 //! [`ServerBuilder::player_data`]: anchor::ServerBuilder::player_data
 
-use std::fmt::Display;
+use std::error::Error;
 
 use anchor::command::{self, Command, Output, Sender};
 use anchor::display::{Scoreboard, Slot};
@@ -33,25 +33,6 @@ use anchor::{Config, Context, Server};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-/// Who may use `/kit`: everyone.
-const KIT: Permission = Permission::new("pvp.kit", Default::True);
-/// Who uses `/kit` without waiting: operators.
-const NO_COOLDOWN: Permission = Permission::new("pvp.kit.nocooldown", Default::Op);
-/// Ticks between two `/kit` refills (20 ticks a second).
-const KIT_COOLDOWN_TICKS: u64 = 30 * 20;
-/// How long a hit still earns the kill, in ticks.
-const KILL_CREDIT_TICKS: u64 = 10 * 20;
-/// The kill streak that gets announced.
-const STREAK: u32 = 3;
-
-/// What `/kit` refills: item and count.
-const REFILL: [(item::Kind, u8); 3] = [
-    (item::Kind::Arrow, 16),
-    (item::Kind::GoldenApple, 2),
-    (item::Kind::Steak, 8),
-];
-/// What every life starts with besides the refill.
-const WEAPONS: [item::Kind; 2] = [item::Kind::IronSword, item::Kind::Bow];
 /// The armor, helmet to boots (the order of the armor slots).
 const ARMOR: [item::Kind; 4] = [
     item::Kind::IronHelmet,
@@ -59,6 +40,28 @@ const ARMOR: [item::Kind; 4] = [
     item::Kind::IronLeggings,
     item::Kind::IronBoots,
 ];
+/// How long a hit still earns the kill, in ticks.
+const KILL_CREDIT_TICKS: u64 = 10 * TICKS_PER_SECOND;
+/// Who may use `/kit`: everyone.
+const KIT: Permission = Permission::new("pvp.kit", Default::True);
+/// Seconds between two `/kit` refills.
+const KIT_COOLDOWN_SECS: u64 = 30;
+/// Ticks between two `/kit` refills.
+const KIT_COOLDOWN_TICKS: u64 = KIT_COOLDOWN_SECS * TICKS_PER_SECOND;
+/// Who uses `/kit` without waiting: operators.
+const NO_COOLDOWN: Permission = Permission::new("pvp.kit.nocooldown", Default::Op);
+/// What `/kit` refills: item and count.
+const REFILL: [(item::Kind, u8); 3] = [
+    (item::Kind::Arrow, 16),
+    (item::Kind::GoldenApple, 2),
+    (item::Kind::Steak, 8),
+];
+/// The kill streak that gets announced.
+const STREAK: u32 = 3;
+/// One second, in ticks, for the tick counts here.
+const TICKS_PER_SECOND: u64 = Context::TICKS_PER_SECOND as u64;
+/// What every life starts with besides the refill.
+const WEAPONS: [item::Kind; 2] = [item::Kind::IronSword, item::Kind::Bow];
 
 /// A player's record, saved with the player.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -78,7 +81,7 @@ struct Life {
     kit_ready: u64,
 }
 
-fn main() -> Result<(), anchor::Error> {
+fn main() -> anchor::Result<()> {
     Server::builder()
         .config(Config::default().load("anchor.toml")?)
         .player_data::<Stats>("pvp:stats")
@@ -112,7 +115,7 @@ fn kit_command() -> Command {
                 .extension_mut::<Life>()
                 .ok_or_else(|| command::Error::failed("You have not joined yet"))?;
             if waits && now < life.kit_ready {
-                let seconds = (life.kit_ready - now).div_ceil(20);
+                let seconds = (life.kit_ready - now).div_ceil(TICKS_PER_SECOND);
                 return Err(command::Error::failed(format!(
                     "You can use /kit again in {seconds}s"
                 )));
@@ -123,42 +126,13 @@ fn kit_command() -> Command {
         })
 }
 
-/// A stack of `count` items of `kind`.
-fn stack(kind: item::Kind, count: u8) -> Stack {
-    Stack::new(kind.default_type(), count)
-}
-
-/// Puts the refill items into the main inventory; what does not fit is not given.
-fn refill(player: &mut Player) {
-    let mut main = player.inventory_mut(Kind::Main);
-    for (kind, count) in REFILL {
-        let _left = main.add(&stack(kind, count));
-    }
-}
-
-/// Empties the inventory and gives the whole kit.
-fn reset_kit(player: &mut Player) {
-    let mut main = player.inventory_mut(Kind::Main);
-    main.clear_all();
-    for kind in WEAPONS {
-        let _left = main.add(&stack(kind, 1));
-    }
-    let mut armor = player.inventory_mut(Kind::Armor);
-    for (slot, kind) in ARMOR.into_iter().enumerate() {
-        // The four armor slots exist and take one item each.
-        let _set = armor.set(slot, stack(kind, 1));
-    }
-    refill(player);
-}
-
 fn on_join(event: &mut PlayerJoin, cx: &mut Context<'_>) {
     if let Some(player) = cx.player_mut(event.player()) {
         event.set_join_message(format!("§a+ {}", player.name()));
         or_log(player.insert_extension(Life::default()));
         reset_kit(player);
         or_log(player.send(Message::Raw(format!(
-            "Welcome! /kit refills your arrows and food every {} seconds",
-            KIT_COOLDOWN_TICKS / 20
+            "Welcome! /kit refills your arrows and food every {KIT_COOLDOWN_SECS} seconds"
         ))));
     }
     refresh_boards(cx, None);
@@ -277,10 +251,41 @@ fn refresh_boards(cx: &mut Context<'_>, leaving: Option<player::Id>) {
     }
 }
 
+/// Empties the inventory and gives the whole kit.
+fn reset_kit(player: &mut Player) {
+    let mut main = player.inventory_mut(Kind::Main);
+    main.clear_all();
+    for kind in WEAPONS {
+        let _left = main.add(&stack(kind, 1));
+    }
+    let mut armor = player.inventory_mut(Kind::Armor);
+    for (slot, kind) in ARMOR.into_iter().enumerate() {
+        // The four armor slots exist and take one item each.
+        let _set = armor.set(slot, stack(kind, 1));
+    }
+    refill(player);
+}
+
+/// Puts the refill items into the main inventory; what does not fit is not given.
+fn refill(player: &mut Player) {
+    let mut main = player.inventory_mut(Kind::Main);
+    for (kind, count) in REFILL {
+        let _left = main.add(&stack(kind, count));
+    }
+}
+
+/// A stack of `count` items of `kind`.
+fn stack(kind: item::Kind, count: u8) -> Stack {
+    Stack::new(kind.default_type(), count)
+}
+
 /// Logs a call that could not be done for one player (it left, or has not spawned yet); the
 /// server goes on for the others.
-fn or_log<T, E: Display>(result: Result<T, E>) {
+fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
-        debug!(%error, "skipped for one player");
+        debug!(
+            error = &error as &(dyn Error + 'static),
+            "skipped for one player"
+        );
     }
 }

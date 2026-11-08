@@ -24,7 +24,8 @@
 //! [`ServerBuilder::every`]: anchor::ServerBuilder::every
 //! [`ServerBuilder::on_receive`]: anchor::ServerBuilder::on_receive
 
-use std::fmt::{Display, Write};
+use std::error::Error;
+use std::fmt::Write;
 use std::num::NonZeroU32;
 
 use anchor::display::{BossBar, Colour};
@@ -38,20 +39,22 @@ use tracing::debug;
 
 /// The arena world's name.
 const ARENA: &str = "arena";
-/// Players the lobby needs before a countdown starts. One lets a single player try it.
-const MIN_PLAYERS: usize = 1;
-/// Seconds of the lobby countdown.
-const COUNTDOWN_SECS: u8 = 5;
-/// Seconds of a round.
-const ROUND_SECS: u8 = 10;
 /// The block players stand on when a round starts: on the grass of the flat arena.
 const ARENA_CENTRE: BlockPos = BlockPos::new(16, -60, 16);
 /// Blocks break only this far (in x and z) from the arena centre.
 const ARENA_RADIUS: u32 = 12;
+/// Seconds of the lobby countdown.
+const COUNTDOWN_SECS: u8 = 5;
+/// Seconds from the end-of-round answer to the trip back to the lobby.
+const LOBBY_DELAY_SECS: u32 = 3;
 /// Ticks from the end-of-round answer to the trip back to the lobby.
-const LOBBY_DELAY_TICKS: u32 = 3 * 20;
-/// One second: 20 ticks.
-const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
+const LOBBY_DELAY_TICKS: u32 = LOBBY_DELAY_SECS * Context::TICKS_PER_SECOND;
+/// Players the lobby needs before a countdown starts. One lets a single player try it.
+const MIN_PLAYERS: usize = 1;
+/// Seconds of a round.
+const ROUND_SECS: u8 = 10;
+/// One second, in ticks.
+const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
 
 /// What a player did in the current round. A player extension: not saved.
 #[derive(Debug, Clone, Copy, Default)]
@@ -79,61 +82,7 @@ struct Game {
     round: u32,
 }
 
-fn main() -> Result<(), anchor::Error> {
-    let mut game = Game {
-        phase: Phase::Waiting,
-        round: 0,
-    };
-    Server::builder()
-        .config(Config::default().load("anchor.toml")?)
-        .world(ARENA, Kind::Temporary, Flat)
-        .every(SECOND, move |cx| game.second(cx))
-        .on(Priority::Normal, on_join)
-        .on(Priority::Normal, protect_blocks)
-        .on_receive(|cx, player, _packet| {
-            if let Some(tally) = cx
-                .player_mut(player)
-                .and_then(|p| p.extension_mut::<Tally>())
-            {
-                tally.packets = tally.packets.saturating_add(1);
-            }
-            // Keep the packet: Anchor handles it as usual.
-            true
-        })
-        .build()?
-        .run()
-}
-
 impl Game {
-    /// Ends the round: a form for every player, and a summary made off the tick.
-    fn end_round(&self, cx: &mut Context<'_>, playing: &[player::Id]) {
-        let mut tallies = Vec::with_capacity(playing.len());
-        for &id in playing {
-            cx.remove_boss_bar(id);
-            if let Some(player) = cx.player(id) {
-                let tally = player.extension::<Tally>().copied().unwrap_or_default();
-                tallies.push((player.name().to_owned(), tally));
-            }
-            let form = Modal::new(
-                "Round over",
-                "GG! Play another round?",
-                "Play again",
-                "Leave",
-            );
-            or_log(cx.send_form(id, form, |cx, id, answer| after_round(cx, id, &answer)));
-        }
-        let round = self.round;
-        // The work gets its inputs by value and cannot touch the game; the result comes back to
-        // the tick, which shows it.
-        or_log(cx.spawn_blocking(
-            move || summary(round, tallies),
-            |cx, result| match result {
-                Ok(text) => or_log(cx.broadcast(Message::Raw(text))),
-                Err(error) => debug!(%error, "no round summary"),
-            },
-        ));
-    }
-
     /// One step of the game loop.
     fn second(&mut self, cx: &mut Context<'_>) {
         let Some(arena) = cx.world_named(ARENA).map(World::id) else {
@@ -198,49 +147,67 @@ impl Game {
         }
         Phase::Countdown(left - 1)
     }
-}
 
-/// The round's summary, best first. It stands for work too slow for the tick, such as a
-/// database write or a web request.
-fn summary(round: u32, mut tallies: Vec<(String, Tally)>) -> String {
-    tallies.sort_by(|a, b| b.1.blocks.cmp(&a.1.blocks).then_with(|| a.0.cmp(&b.0)));
-    let mut text = format!("Round {round} summary:");
-    for (name, tally) in &tallies {
-        // Writing to a String cannot fail.
-        let _written = write!(
-            text,
-            " {name} broke {} blocks and sent {} packets.",
-            tally.blocks, tally.packets
-        );
+    /// Ends the round: a form for every player, and a summary made off the tick.
+    fn end_round(&self, cx: &mut Context<'_>, playing: &[player::Id]) {
+        let mut tallies = Vec::with_capacity(playing.len());
+        for &id in playing {
+            cx.remove_boss_bar(id);
+            if let Some(player) = cx.player(id) {
+                let tally = player.extension::<Tally>().copied().unwrap_or_default();
+                tallies.push((player.name().to_owned(), tally));
+            }
+            let form = Modal::new(
+                "Round over",
+                "GG! Play another round?",
+                "Play again",
+                "Leave",
+            );
+            or_log(cx.send_form(id, form, |cx, id, answer| after_round(cx, id, &answer)));
+        }
+        let round = self.round;
+        // The work gets its inputs by value and cannot touch the game; the result comes back to
+        // the tick, which shows it.
+        or_log(cx.spawn_blocking(
+            move || summary(round, tallies),
+            |cx, result| match result {
+                Ok(text) => or_log(cx.broadcast(Message::Raw(text))),
+                Err(error) => debug!(error = &error as &(dyn Error + 'static), "no round summary"),
+            },
+        ));
     }
-    text
 }
 
-/// The answer to the end-of-round form.
-fn after_round(cx: &mut Context<'_>, id: player::Id, answer: &Response) {
-    let Some(player) = cx.player_mut(id) else {
-        return;
+fn main() -> anchor::Result<()> {
+    let mut game = Game {
+        phase: Phase::Waiting,
+        round: 0,
     };
-    if *answer == Response::Modal(false) {
-        or_log(player.kick("Thanks for playing!"));
-        return;
-    }
-    or_log(player.send(Message::Raw(format!(
-        "Back to the lobby in {} seconds",
-        LOBBY_DELAY_TICKS / SECOND.get()
-    ))));
-    or_log(cx.schedule(LOBBY_DELAY_TICKS, move |cx| {
-        let lobby = cx.default_world();
-        let (world, spawn) = (lobby.id(), lobby.spawn());
-        or_log(cx.teleport(id, world, feet(spawn)));
-    }));
+    Server::builder()
+        .config(Config::default().load("anchor.toml")?)
+        .world(ARENA, Kind::Temporary, Flat)
+        .every(SECOND, move |cx| game.second(cx))
+        .on(Priority::Normal, on_join)
+        .on(Priority::Normal, protect_blocks)
+        .on_receive(|cx, player, _packet| {
+            if let Some(tally) = cx
+                .player_mut(player)
+                .and_then(|p| p.extension_mut::<Tally>())
+            {
+                tally.packets = tally.packets.saturating_add(1);
+            }
+            // Keep the packet: Anchor handles it as usual.
+            true
+        })
+        .build()?
+        .run()
 }
 
 fn on_join(event: &mut PlayerJoin, cx: &mut Context<'_>) {
     if let Some(player) = cx.player_mut(event.player()) {
         or_log(player.insert_extension(Tally::default()));
         or_log(player.send(Message::Raw(
-            "Welcome! The next round starts when the lobby is full".to_owned(),
+            "Welcome! The next round starts when enough players are in the lobby".to_owned(),
         )));
     }
 }
@@ -266,6 +233,41 @@ fn protect_blocks(event: &mut BlockBreak, cx: &mut Context<'_>) {
     }
 }
 
+/// The answer to the end-of-round form.
+fn after_round(cx: &mut Context<'_>, id: player::Id, answer: &Response) {
+    let Some(player) = cx.player_mut(id) else {
+        return;
+    };
+    if *answer == Response::Modal(false) {
+        or_log(player.kick("Thanks for playing!"));
+        return;
+    }
+    or_log(player.send(Message::Raw(format!(
+        "Back to the lobby in {LOBBY_DELAY_SECS} seconds"
+    ))));
+    or_log(cx.schedule(LOBBY_DELAY_TICKS, move |cx| {
+        let lobby = cx.default_world();
+        let (world, spawn) = (lobby.id(), lobby.spawn());
+        or_log(cx.teleport(id, world, feet(spawn)));
+    }));
+}
+
+/// The round's summary, best first. It stands for work too slow for the tick, such as a
+/// database write or a web request.
+fn summary(round: u32, mut tallies: Vec<(String, Tally)>) -> String {
+    tallies.sort_by(|a, b| b.1.blocks.cmp(&a.1.blocks).then_with(|| a.0.cmp(&b.0)));
+    let mut text = format!("Round {round} summary:");
+    for (name, tally) in &tallies {
+        // Writing to a String cannot fail.
+        let _written = write!(
+            text,
+            " {name} broke {} blocks and sent {} packets.",
+            tally.blocks, tally.packets
+        );
+    }
+    text
+}
+
 /// A title with a subtitle, at the client's timing.
 fn title(text: &str, subtitle: &str) -> Message {
     Message::Title {
@@ -286,8 +288,11 @@ fn feet(pos: BlockPos) -> Vec3 {
 
 /// Logs a call that could not be done for one player (it left, or has not spawned yet); the
 /// game goes on for the others.
-fn or_log<T, E: Display>(result: Result<T, E>) {
+fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
-        debug!(%error, "skipped for one player");
+        debug!(
+            error = &error as &(dyn Error + 'static),
+            "skipped for one player"
+        );
     }
 }

@@ -27,7 +27,7 @@
 //! [`ServerBuilder::command`]: anchor::ServerBuilder::command
 //! [`ServerBuilder::on`]: anchor::ServerBuilder::on
 
-use std::fmt::Display;
+use std::error::Error;
 use std::num::NonZeroU32;
 
 use anchor::command::{self, Command, Output, Sender};
@@ -49,20 +49,20 @@ use tracing::debug;
 const ARENA: &str = "arena";
 /// Where players land in the arena: on the grass of the flat world.
 const ARENA_START: BlockPos = BlockPos::new(8, -60, 8);
+/// One second, in ticks.
+const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
 /// What the shop sells: menu slot, item and count.
 const SHOP: [(usize, item::Kind, u8); 3] = [
     (11, item::Kind::DiamondSword, 1),
     (13, item::Kind::Bow, 1),
     (15, item::Kind::GoldenApple, 4),
 ];
-/// One second: 20 ticks.
-const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
 
 /// Marks a player the lobby has welcomed. A player extension: not saved.
 #[derive(Debug)]
 struct Welcomed;
 
-fn main() -> Result<(), anchor::Error> {
+fn main() -> anchor::Result<()> {
     Server::builder()
         .config(Config::default().load("anchor.toml")?)
         .world(ARENA, world::Kind::Persistent, Flat)
@@ -225,8 +225,11 @@ fn feet(pos: BlockPos) -> Vec3 {
 
 /// Logs a call that could not be done for one player (it left, or has not spawned yet); the
 /// lobby goes on for the others.
-fn or_log<T, E: Display>(result: Result<T, E>) {
+fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
-        debug!(%error, "skipped for one player");
+        debug!(
+            error = &error as &(dyn Error + 'static),
+            "skipped for one player"
+        );
     }
 }
