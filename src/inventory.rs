@@ -32,6 +32,7 @@ pub(crate) const MAX_STACK: u8 = 64;
 
 /// One of a player's inventories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Kind {
     /// The 36 main slots: the hotbar from 0 to 8, then the 27 above it.
     #[doc(alias = "PlayerInventory")]
@@ -72,8 +73,6 @@ pub enum Error {
     NoPlayer,
     /// No alternative creative inventory has the name.
     NoCreativeInventory,
-    /// The stack holds more than the slot takes.
-    TooMany,
     /// The player holds as many stacks outside its slots (cursor, window, a closing menu's while
     /// its handler hears the close) as can be given back when its window closes, so the cursor
     /// takes no new stack.
@@ -92,7 +91,6 @@ impl fmt::Display for Error {
             Self::NoSlot => f.write_str("no such slot"),
             Self::NoPlayer => f.write_str("no such player"),
             Self::NoCreativeInventory => f.write_str("no such creative inventory"),
-            Self::TooMany => f.write_str("more items than the slot takes"),
             Self::Full => f.write_str("too many stacks held outside the slots"),
             Self::TooLong => f.write_str("more stacks than slots"),
             Self::NotAccepted => f.write_str("the slot does not take the stack"),
@@ -243,14 +241,6 @@ impl<'a> Inventory<'a> {
         self.max
     }
 
-    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
-    pub(crate) fn of_shulker_box(self) -> Self {
-        Self {
-            shulker_box: true,
-            ..self
-        }
-    }
-
     /// Where `stack` goes: onto the stacks it stacks with that have room, in slot order, then
     /// into empty slots. The slots to write, each with the stack it then holds, and what does not
     /// fit: what [`Editor::add`] writes and returns.
@@ -314,6 +304,14 @@ impl<'a> Inventory<'a> {
     #[doc(alias = "DoubleChestInventory::getSize")]
     pub fn size(&self) -> usize {
         self.halves[0].len() + self.halves[1].len()
+    }
+
+    /// The same slots as a shulker box's, which take only what [`Stack::can_enter_shulker_box`].
+    pub(crate) fn of_shulker_box(self) -> Self {
+        Self {
+            shulker_box: true,
+            ..self
+        }
     }
 
     /// The most items of `stack` one slot of this inventory holds.

@@ -137,7 +137,7 @@ impl Menu {
         self
     }
 
-    /// The menu with `stack` in `slot`. A slot past the end makes the open fail
+    /// Adds `stack` to the menu in `slot`. A slot past the end makes the open fail
     /// ([`Error::NoSlot`]).
     #[must_use]
     pub fn item(mut self, slot: usize, stack: Stack) -> Self {
@@ -162,11 +162,10 @@ impl Menu {
     ///
     /// The cursor's stack, as the inventory API reads it, holds the lent items
     /// ([`Context::menu_lent`] says how many), but the player's saved data does not: a commit
-    /// holds them in what the handler keeps only. A handler that keeps them in the players' file
-    /// (another player's data) commits with the player, so a crash neither loses nor doubles
-    /// them; in another file (the server's data, a block's items), a crash between the two
-    /// files' commits is a mismatch the next start reports (`.claude/docs/storage.md`). On a
-    /// close, they stay the handler's ([`Close::lent`]), whether it hears of the close or not.
+    /// holds them in what the handler keeps only. A handler that keeps them in saved data (a
+    /// player's, the server's, a block's items) neither loses nor doubles them: one save commits
+    /// all files together, and after a crash the next start settles the files to the same save
+    /// (`.claude/docs/storage.md`). On a close, they stay the handler's ([`Close::lent`]), whether it hears of the close or not.
     ///
     /// [`Context::menu_lent`]: crate::Context::menu_lent
     #[must_use]
@@ -175,7 +174,7 @@ impl Menu {
         self
     }
 
-    /// The menu with `title` shown above its slots (at most 1,024 bytes, checked on open).
+    /// The same menu with `title` shown above its slots (at most 1,024 bytes, checked on open).
     #[must_use]
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
@@ -225,6 +224,7 @@ pub enum SlotAction {
 
 /// What a menu's handler hears of.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Input {
     /// A click on a slot that is not editable.
     Click(Click),

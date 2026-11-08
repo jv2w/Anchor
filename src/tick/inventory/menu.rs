@@ -55,8 +55,7 @@ const BEHIND_VERTICAL: f64 = 2.8;
 /// A menu closes when its player's eyes are farther than this from its block's center (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
-/// blocks and their data when the window opens. The delay the official client needs is not
-/// verified.
+/// blocks and their data when the window opens.
 const OPEN_DELAY_TICKS: u64 = 2;
 
 /// What runs when the player clicks a menu slot or changes its editable slots, and when the menu
@@ -202,14 +201,14 @@ impl Context<'_> {
     /// # Errors
     ///
     /// Opens nothing with:
-    /// [`Error::NoSlot`] for a menu with a slot past its end.
-    /// [`Error::TitleTooLong`] for a title over 1,024 bytes.
     /// [`Error::Offline`] if the player is not in the game or its client has no view yet.
     /// [`Error::Busy`] if it waits with so many stacks for room that a window's items could not
     /// go back, or this tick's changes of what it is shown leave no room for the menu's blocks.
-    /// [`Error::Exhausted`] if it was given 2^32 menus already, as menu IDs do not wrap.
     /// [`Error::OutsideWorld`] if the menu's blocks cannot stand within 8 blocks of its eyes,
     /// the world's height being in the way.
+    /// [`Error::NoSlot`] for a menu with a slot past its end.
+    /// [`Error::TitleTooLong`] for a title over 1,024 bytes.
+    /// [`Error::Exhausted`] if it was given 2^32 menus already, as menu IDs do not wrap.
     #[doc(alias = "Player::setCurrentWindow")]
     pub fn open_menu(
         &mut self,
@@ -261,8 +260,8 @@ impl Context<'_> {
     ///
     /// Changes nothing with:
     /// [`Error::Offline`] if the player has left.
-    /// [`Error::NotOpen`] if the player has no menu open.
     /// [`Error::NoSlot`] if the menu has no such slot.
+    /// [`Error::NotOpen`] if the player has no menu open.
     pub fn set_menu_item(&mut self, player: player::Id, slot: usize, stack: Stack) -> Result<()> {
         let p = self
             .state
@@ -328,7 +327,6 @@ fn place(
         behind.z,
     );
     match kind {
-        Kind::Hopper => ((pos, block::Kind::Hopper.default_state()), None),
         Kind::Chest => ((pos, block::Kind::Chest.default_state()), None),
         Kind::DoubleChest => {
             let chest = block::Kind::Chest.default_state();
@@ -343,6 +341,7 @@ fn place(
             };
             ((pos, chest), Some((pair, chest)))
         }
+        Kind::Hopper => ((pos, block::Kind::Hopper.default_state()), None),
     }
 }
 
@@ -350,8 +349,8 @@ fn place(
 /// double chest's pair.
 fn block_data(kind: Kind, title: &str, first: BlockPos, second: Option<BlockPos>) -> Vec<Packet> {
     let id = match kind {
-        Kind::Hopper => "Hopper",
         Kind::Chest | Kind::DoubleChest => "Chest",
+        Kind::Hopper => "Hopper",
     };
     let mut out = Vec::with_capacity(2);
     let pairs = std::iter::once((first, second)).chain(second.map(|pos| (pos, Some(first))));
@@ -433,7 +432,7 @@ fn is_far(eye: Vec3, pos: BlockPos) -> bool {
     eye.distance_squared(pos.to_center()) > MAX_DISTANCE_SQUARED
 }
 
-/// A closed menu window: the blocks the menu stood on show again, with their block entity's data,
+/// Ends a closed menu window: the blocks the menu stood on show again, with their block entity's data,
 /// and its handler goes (one that is running, whose own call closed it, goes when it returns).
 /// Unless a direct call closed it (`raise`), the handler hears the close first with `cursor`, the
 /// stack taken off the player's cursor, of which `lent` items are lent, and whether the player
@@ -473,8 +472,8 @@ pub(super) fn closed(
         by_player: notice == Notice::Skip,
     });
     match handler(&mut Context { state }, player::Id::new(session), close) {
-        Response::Refuse => Stack::EMPTY,
         Response::Keep | Response::Close => own,
+        Response::Refuse => Stack::EMPTY,
     }
 }
 

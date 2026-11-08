@@ -216,10 +216,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// - [`Error::NoCreativeInventory`] for a name no alternative has.
-    /// - [`Error::NoPlayer`] for a player who has left.
-    ///
-    /// Both change nothing.
+    /// Changes nothing with:
+    /// [`Error::NoPlayer`] for a player who has left.
+    /// [`Error::NoCreativeInventory`] for a name no alternative has.
     #[doc(alias = "Player::setCreativeInventory")]
     pub fn set_creative_inventory(
         &mut self,
@@ -293,19 +292,15 @@ impl Editor<'_> {
     /// # Errors
     ///
     /// Changes nothing with:
-    /// [`Error::TooLong`] for more stacks than slots.
-    /// [`Error::TooMany`] for a stack over what a slot takes.
-    /// [`Error::NotAccepted`] for a stack a slot does not take.
     /// [`Error::Full`] for more stacks than the cursor may hold.
+    /// [`Error::TooLong`] for more stacks than slots.
+    /// [`Error::NotAccepted`] for a stack a slot does not take.
     #[doc(alias = "Inventory::setContents")]
     #[doc(alias = "BaseInventory::setContents")]
     pub fn set_contents(&mut self, stacks: &[Stack]) -> Result<()> {
         let view = self.view();
         if stacks.len() > view.size() {
             return Err(Error::TooLong);
-        }
-        if stacks.iter().any(|s| s.count() > view.max_stack_size()) {
-            return Err(Error::TooMany);
         }
         if stacks.iter().any(|s| view.refuses(s)) {
             return Err(Error::NotAccepted);
@@ -368,7 +363,6 @@ impl Editor<'_> {
     /// [`Error::NoSlot`] for a slot the inventory does not have.
     /// [`Error::Full`] for a new stack on the cursor when it holds as many stacks as can be given
     /// back.
-    /// [`Error::TooMany`] for a stack over what a container block's slot takes.
     /// [`Error::NotAccepted`] for a stack a shulker box does not take.
     #[doc(alias = "Inventory::setItem")]
     #[doc(alias = "BaseInventory::setItem")]
@@ -481,9 +475,6 @@ fn own_slot(inv: &Slots, kind: Kind, slot: usize, stack: &Stack) -> Result<Optio
 
 /// Writes window slot `slot` of a container block.
 fn put_block(b: &mut BlockSlots<'_>, slot: usize, stack: Stack) -> Result<()> {
-    if stack.count() > MAX_STACK {
-        return Err(Error::TooMany);
-    }
     let blocks = &b.state.rules.block_entities;
     let first = blocks.get(b.world, b.pos).map_or(0, |e| e.items.len());
     let (pos, index) = match slot.checked_sub(first) {

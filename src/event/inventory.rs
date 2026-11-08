@@ -53,6 +53,7 @@ cancellable! {
 
 /// A window a player opens or closes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Window {
     /// The player's own inventory.
     Own,
@@ -124,6 +125,7 @@ getters!(SlotChange {
 /// Unlike [`inventory::Kind`](crate::inventory::Kind), which names only the player's own
 /// inventories, it also names the open container block and the open window's own slots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Inventory {
     /// One of the player's own inventories (the inventory API's names).
     Player(Kind),
