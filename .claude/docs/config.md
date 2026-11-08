@@ -23,7 +23,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 - `UnknownWorld`: a `[worlds.<name>]` table that names no declared world (`level-name` or `ServerBuilder::world`). Only `build` checks this.
 - `Invalid`: a value of the wrong type or form.
 - `Range`: a whole number outside its range, with the key, the value, the minimum, and the maximum.
-- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` that the codec accepts but that is below one player list entry (the table's minimum) is `Invalid`.
+- `Batch`: a `compression-threshold`, `compression-level`, or `max-batch-bytes` that `batch::Settings::new` rejects, with the key and the cause. A number that does not fit the field's type is `Range` instead. A `max-batch-bytes` that the codec accepts but that is below one player list entry (the minimum in the `max-batch-bytes` row below) is `Invalid`.
 - `hardcore = true` requires `difficulty = "hard"` (`Invalid`).
 - A `level-name` that cannot be a world file name is `Invalid`, naming `general.level-name`.
 - An IPv6 `public-ip` with `enable-ipv6 = false` is `Invalid`, naming `general.public-ip`.
@@ -76,7 +76,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `backups` | bool | | Whether the data files are copied to `data/backups` at start and by the `backup` command (`storage.md`) |
 | `max-backups` | integer | 1 to 1000 | The backups kept of each data file (`storage.md`) |
 | `shutdown-message` | string | at most 1024 bytes | Message players see when the server stops |
-| `resource-packs` | array of strings | non-empty paths; a relative path is relative to `data/packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version: raise the manifest version when a pack changes |
+| `resource-packs` | array of strings | non-empty paths; a relative path is relative to `data/packs` | Resource pack files (`.mcpack`, `.zip`). Earlier entries override later ones. An encrypted pack needs its key in `<file>.key` next to it. Players keep a downloaded pack by its uuid and version, so a changed pack reaches them only with a higher manifest version |
 | `force-resources` | bool | | Whether players must accept the resource packs to join |
 | `log-level` | string | `off`, `error`, `warn`, `info`, `debug`, `trace` | Detail of Anchor's console log; `off` writes no console log |
 
@@ -91,7 +91,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `enable-encryption` | bool | | Whether RakNet game traffic is encrypted. With `false`, anyone between a player and the server can read and change it, login included, so `false` is only for a trusted network. NetherNet traffic is always encrypted by its own transport |
 | `transport` | string | `all`, `nethernet`, `raknet` | Transports that accept players. `nethernet`: a RakNet client gets no reply to its connection request, and the UDP port still answers server list pings. `raknet`: no NetherNet code runs (no TCP signaling listener, no `data/identity.key`), every UDP datagram goes to RakNet, and the NetherNet keys (`public-ip`, `nethernet-tls-cert`, `nethernet-tls-key`) are checked but unused |
 | `raknet-cookies` | bool | | Whether a RakNet client must send back a connection cookie before it gets a connection; what the cookie is, what each value does, and the reason for the default are in `network.md` |
-| `max-mtu-size` | integer | 576 to 1492 | Largest RakNet packet in bytes; lower it behind tunnels or VPNs. go-raknet's dialer probes 1492, 1200, and 576 |
+| `max-mtu-size` | integer | 576 to 1492 | Largest RakNet packet in bytes; tunnels and VPNs need a lower value. go-raknet's dialer probes 1492, 1200, and 576 |
 | `nethernet-tls-cert` | string | empty or a path | PEM certificate chain for HTTPS signaling. Empty is plain HTTP, and players confirm the server key on first join. A file that cannot be read or used stops the start (`anchor::Error::TlsCertificate`) |
 | `nethernet-tls-key` | string | empty or a path | PEM private key for HTTPS signaling |
 | `network-threads` | string or integer | `"auto"` or 1 to 65535 | Threads for network work. `auto` is max(2, ⌊L/4⌋), L being the logical CPU count |
@@ -99,7 +99,7 @@ Every key of `anchor.toml` with its type, range, and meaning, and how the file i
 | `chunks-per-tick` | integer | 1 to 256 | Chunks sent to each player per tick. 0 would never send a chunk; 256 sends the largest view in about 3 seconds |
 | `spawn-radius` | integer | 1 to 64 | Chunk radius sent before a player spawns; the effective value is min(value, `view-distance`) and, before a player spawns, the radius that player asks for |
 | `tick-radius` | integer | 1 to 64 | Chunk radius around players where custom blocks get random ticks and entities are ticked; the effective value is min(value, `view-distance`) |
-| `slow-empty-worlds` | bool | | Whether a world without players runs only one tick in every 100. Each world's ticks are offset by its place among the worlds, so empty worlds do not all run on one tick |
+| `slow-empty-worlds` | bool | | Whether a world without players runs its world rules only on one tick in every 100: world `w` on the ticks `t` where (t + w) % 100 = 0, so empty worlds do not all run on one tick |
 | `lighting` | string | `dynamic`, `on-load`, `fixed` | How the server calculates light. `dynamic` calculates it and follows block changes; `on-load` calculates it when a chunk loads but not after block changes; `fixed` calculates nothing and gives every position block light 0 and sky light `fixed-light-level` |
 | `fixed-light-level` | integer | 0 to 15 | Sky light everywhere when `lighting = "fixed"` |
 | `item-pickup-interval` | integer | 1 to 20 | Ticks between checks for items a player can pick up |
