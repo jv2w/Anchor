@@ -10,16 +10,14 @@
 //!
 //! Items that cannot be dropped when a container breaks (the world's entity limit) wait in the
 //! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks. A chunk keeps
-//! [`MAX_SPILLS`] spills of [`SPILL_SLOTS`] stacks each; an action that would need room past
-//! that is refused before it changes anything ([`can_hold`]).
+//! [`MAX_SPILLS`] spills of [`MAX_SPILL_STACKS`] stacks each; an action that would need room
+//! past that is refused before it changes anything ([`can_hold`]).
 //!
 //! `ChestPair` sits between the steps of pairing two chests; after a listener the step is checked
 //! again on the block as the listener left it.
 
 mod api;
 mod decor;
-
-pub(super) use decor::Plant;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::ops::Bound;
@@ -43,13 +41,11 @@ use crate::storage::codec::{MAX_RAW_BLOCK_ENTITIES, MAX_SPILLS};
 use crate::world::{BlockPos, ChunkPos};
 
 /// The most spilled stacks dropped per tick, over every world.
-const SPILL_DROPS_PER_TICK: usize = 64;
+const MAX_SPILL_DROPS_PER_TICK: usize = 64;
+/// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
+const MAX_SPILL_STACKS: usize = 2 * CHEST_SLOTS;
 /// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
 pub(crate) const SPILL_ID: &str = "AnchorSpill";
-/// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
-const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
-/// The spills one destruction makes at most: its container's items and its drops.
-const SPILLS_PER_DESTRUCTION: usize = 2;
 
 /// The block entities of the loaded chunks.
 #[derive(Debug, Default)]
@@ -174,14 +170,6 @@ impl BlockEntities {
             .unwrap_or_default()
     }
 
-    /// Whether the loaded chunk of `pos` can keep `stacks` more waiting stacks from one
-    /// destruction ([`spills_take`]).
-    fn has_spill_room(&self, world: WorldIndex, pos: BlockPos, stacks: usize) -> bool {
-        self.chunks
-            .get(&(world, pos.chunk()))
-            .is_some_and(|c| spills_take(&c.spills, SPILLS_PER_DESTRUCTION, stacks))
-    }
-
     /// Appends to `out` the client form of the block entities in sub-chunk `index` (0 is the
     /// lowest) of a loaded chunk, as network little-endian NBT roots one after another: what a
     /// sub-chunk answer carries after the blocks. Nothing when there are none. `pos` is within
@@ -236,7 +224,8 @@ impl BlockEntities {
         }
     }
 
-    /// `session` opened a window on the block at `pos`; returns the number of viewers.
+    /// Records that `session` opened a window on the block at `pos`; returns the number of
+    /// viewers.
     pub(super) fn add_viewer(
         &mut self,
         world: WorldIndex,
@@ -255,7 +244,7 @@ impl BlockEntities {
     pub(super) fn fill_spills(&mut self, world: WorldIndex, pos: BlockPos, stack: &Stack) {
         let spill = Spill {
             pos,
-            items: vec![stack.clone(); SPILL_SLOTS],
+            items: vec![stack.clone(); MAX_SPILL_STACKS],
         };
         let key = (world, pos.chunk());
         self.chunks.get_mut(&key).unwrap().spills = vec![spill; MAX_SPILLS];
@@ -284,9 +273,9 @@ impl BlockEntities {
         self.load(key, parsed.expect("the list is not damaged"));
     }
 
-    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its block entities
-    /// enter the store, and the chunk is saved again if reading removed any. A chest paired with
-    /// one that is not paired back is unpaired ([`Self::unpair_orphans`]).
+    /// Takes in a chunk's saved list, which arrived ([`mod@super::rules`]) read off the tick: its
+    /// block entities enter the store, and the chunk is saved again if reading removed any. A
+    /// chest paired with one that is not paired back is unpaired ([`Self::unpair_orphans`]).
     pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
         let Parsed { chunk, removed } = parsed;
         if chunk.spills.is_empty() {
@@ -303,7 +292,7 @@ impl BlockEntities {
         self.unpair_orphans(key);
     }
 
-    /// `session` closed its window on the block at `pos`; returns the number left.
+    /// Records that `session` closed its window on the block at `pos`; returns the number left.
     pub(super) fn remove_viewer(
         &mut self,
         world: WorldIndex,
@@ -338,7 +327,7 @@ impl BlockEntities {
         self.spilling.insert(key);
     }
 
-    /// The lists of the chunks that changed since the last call, for a save snapshot.
+    /// Takes the lists of the chunks that changed since the last call, for a save snapshot.
     pub(super) fn take_changed(&mut self) -> Vec<(Key, Vec<Compound>)> {
         let changed = std::mem::take(&mut self.changed);
         changed
@@ -347,11 +336,20 @@ impl BlockEntities {
             .collect()
     }
 
-    /// A chunk leaves: drops its state; its list if it changed since [`Self::take_changed`].
+    /// Drops the state of a chunk that leaves; gives its list if it changed since
+    /// [`Self::take_changed`].
     pub(super) fn unload(&mut self, key: Key) -> Option<Vec<Compound>> {
         self.spilling.remove(&key);
         let chunk = self.chunks.remove(&key)?;
         self.changed.remove(&key).then(|| chunk.write())
+    }
+
+    /// Whether the loaded chunk of `pos` can keep `stacks` more waiting stacks from one
+    /// destruction ([`spills_take`]).
+    fn has_spill_room(&self, world: WorldIndex, pos: BlockPos, stacks: usize) -> bool {
+        self.chunks
+            .get(&(world, pos.chunk()))
+            .is_some_and(|c| spills_take(&c.spills, stacks))
     }
 
     /// Whether the chest at `at`, paired with `partner`, has a partner that is loaded and does
@@ -528,9 +526,9 @@ impl Chunk {
                 crate::tick::rules::reads::add(|r| r.clones += 1);
                 chunk.raw.push(nbt.clone());
             } else if spill {
-                let mut items = vec![Stack::EMPTY; SPILL_SLOTS];
+                let mut items = vec![Stack::EMPTY; MAX_SPILL_STACKS];
                 if let Some(Value::List(List::Compound(list))) = nbt.get("Items") {
-                    read_items(&mut items, list, pos, custom);
+                    read_items(list, pos, custom, &mut items);
                 }
                 items.retain(|s| !s.is_empty());
                 if !items.is_empty() {
@@ -631,12 +629,12 @@ impl Parsed {
     /// `block_of` gives the chunk's block at a position of it (`None` for one not known) and
     /// `custom` is the server's custom content (saved custom items read back through it).
     ///
-    /// A block entity whose block does not take it (an older Anchor, a world edited outside) is
-    /// removed with a warning; what it held waits as a spill and drops in the next ticks, so no
-    /// item is lost. With the chunk's spills full it is kept as it is. A shulker box's stacks its
-    /// slots do not take (an Anchor before the limit saved them) wait as a spill too, so the box
-    /// with its items is always one stack ([`spill_unfit`]); with no room for them they stay in
-    /// the box.
+    /// A block entity whose block does not take it (a list written outside Anchor) is removed
+    /// with a warning; what it held waits as a spill and drops in the next ticks, so no item is
+    /// lost. With the chunk's spills full it is kept as it is. A shulker box's stacks its slots
+    /// do not take (a list written outside Anchor, or with stacks a slot does not take) wait as
+    /// a spill too, so the box with its items is always one stack ([`spill_unfit`]); with no
+    /// room for them they stay in the box.
     ///
     /// `None` for a damaged list: one keeping more raw entries than a chunk may ([`Chunk::read`]).
     pub(super) fn read(
@@ -677,7 +675,7 @@ impl Parsed {
         }
         for (pos, entity) in &mut chunk.entities {
             // With no room for them, the stacks stay in the box.
-            if !spills_take(&chunk.spills, 1, entity.unfit_count()) {
+            if !spills_take(&chunk.spills, entity.unfit_count()) {
                 continue;
             }
             let unfit = entity.take_unfit();
@@ -749,29 +747,6 @@ impl BlockEntity {
         nbt
     }
 
-    /// A new block entity of `kind` with its slots empty.
-    fn new(kind: Kind) -> Self {
-        let slots = kind.slots();
-        Self {
-            kind,
-            items: vec![Stack::EMPTY; slots],
-            name: None,
-            rest: Compound::new(),
-        }
-    }
-
-    #[cfg(test)]
-    fn hash_into(&self, h: &mut super::Fnv, pos: BlockPos) {
-        let Self {
-            kind: _,
-            items: _,
-            name: _,
-            rest: _,
-        } = self;
-        // The saved form holds every field.
-        super::extra::hash_nbt(h, &self.write(pos));
-    }
-
     /// Reads a saved compound at `pos` (its `x`, `y`, `z`, already checked).
     fn read(mut nbt: Compound, pos: BlockPos, custom: &Registry) -> Self {
         #[cfg(test)]
@@ -808,7 +783,7 @@ impl BlockEntity {
         if kind.has_item_list()
             && let Some(Value::List(List::Compound(list))) = nbt.remove("Items")
         {
-            read_items(&mut items, &list, pos, custom);
+            read_items(&list, pos, custom, &mut items);
         }
         let mut entity = Self {
             kind,
@@ -816,9 +791,8 @@ impl BlockEntity {
             name: None,
             rest: Compound::new(),
         };
-        // A name over the limit (only an Anchor before the limit saved one), or on a kind without
-        // one, stays as saved and is not shown, so every name is one a stack may carry
-        // ([`with_block_data`]).
+        // A name over the limit, or on a kind without one, stays as saved and is not shown, so
+        // every name is one a stack may carry ([`with_block_data`]).
         if entity.kind.is_nameable()
             && let Some(Value::String(name)) = nbt.get("CustomName")
             && !name.is_empty()
@@ -852,6 +826,40 @@ impl BlockEntity {
         }
         entity.rest = nbt;
         entity
+    }
+
+    /// A new block entity of `kind` with its slots empty.
+    fn new(kind: Kind) -> Self {
+        let slots = kind.slots();
+        Self {
+            kind,
+            items: vec![Stack::EMPTY; slots],
+            name: None,
+            rest: Compound::new(),
+        }
+    }
+
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv, pos: BlockPos) {
+        let Self {
+            kind: _,
+            items: _,
+            name: _,
+            rest: _,
+        } = self;
+        // The saved form holds every field.
+        super::extra::hash_nbt(h, &self.write(pos));
+    }
+
+    /// The number of stacks [`Self::take_unfit`] would take.
+    fn unfit_count(&self) -> usize {
+        if !matches!(self.kind, Kind::ShulkerBox { .. }) {
+            return 0;
+        }
+        self.items
+            .iter()
+            .filter(|s| !s.can_enter_shulker_box())
+            .count()
     }
 
     /// The saved compound at `pos`.
@@ -899,19 +907,8 @@ impl BlockEntity {
         }
     }
 
-    /// The number of stacks [`Self::take_unfit`] would take.
-    fn unfit_count(&self) -> usize {
-        if !matches!(self.kind, Kind::ShulkerBox { .. }) {
-            return 0;
-        }
-        self.items
-            .iter()
-            .filter(|s| !s.can_enter_shulker_box())
-            .count()
-    }
-
     /// Takes the stacks a shulker box's slots do not take ([`Stack::can_enter_shulker_box`]) out of
-    /// it: what a box item made by a developer held, or an Anchor before the limit saved. None for
+    /// it: what a box item made by a developer held, or a list written outside Anchor. None for
     /// other kinds.
     fn take_unfit(&mut self) -> Vec<Stack> {
         if !matches!(self.kind, Kind::ShulkerBox { .. }) {
@@ -1063,8 +1060,8 @@ enum Form {
     Client,
 }
 
-/// The block at `pos` was placed by `session` (or by the world when `None`) from `item` against
-/// `face` (the clicked face): creates its block entity if the block has one.
+/// Creates the block entity of the block at `pos`, if the block has one, after `session` (or the
+/// world when `None`) placed it from `item` against `face` (the clicked face).
 ///
 /// The new entity takes the item's custom name if its kind has one and the data its item carries:
 /// a shulker box's items and the face it opens toward, a bed's colour, a banner's colour and
@@ -1085,11 +1082,47 @@ pub(super) fn placed(
     }
 }
 
-/// A block without its block entity takes one ([`block_changed`]), or a window opens on a
-/// container block, or an editor on a sign, without it (a block a generator made): creates an
-/// empty one. Clients are not sent it: the client makes a block's block entity with the block,
-/// and the official server sends no `BlockActorData` when a window opens; a chest that pairs
-/// sends both halves as on placing.
+/// Handles the change of the block at `pos` (the world's change feed): removes a block entity the
+/// new block does not take (the type registers another kind, or none) and drops everything it
+/// held: its slots and a shulker box's items; a new block that takes one and has none gets an
+/// empty one, as [`missing`] makes it. A sign's text or a banner's patterns go with their block
+/// entity, and the old block entity stays readable until this runs, in the tick's block change
+/// phase after the change.
+///
+/// Breaking ([`interact::destroy_deferring_hooks`]) and placing ([`placed`]) do their block entities
+/// themselves; this catches every other change: a task's or a command's `World::set_block`, an
+/// explosion, a generator's blocks. A block entity of a kind Anchor does not type
+/// ([`Kind::Other`]) belongs to blocks Anchor cannot tell, so it goes only when its block becomes
+/// air.
+pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
+    let Some(block) = block_at(state, world, pos) else {
+        return;
+    };
+    match state.rules.block_entities.get(world, pos) {
+        Some(entity) if fits(&entity.kind, block) => {}
+        Some(_) if !can_hold(state, world, pos, stacks_held(state, world, pos)) => {
+            // Its items have nowhere to wait: the entity stays as it is, as one read from a
+            // chunk does.
+            warn!(
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                "a block entity does not belong to its block; kept, its items have no room to drop"
+            );
+        }
+        Some(_) => {
+            discard(state, world, pos);
+            missing(state, world, pos);
+        }
+        None => missing(state, world, pos),
+    }
+}
+
+/// Creates an empty block entity at `pos` for a block without one: a block that takes one
+/// ([`block_changed`]), or a container block with a window opening on it, or a sign with an editor
+/// opening on it, without it (a block a generator made). Clients are not sent it: the client
+/// makes a block's block entity with the block, and the official server sends no `BlockActorData`
+/// when a window opens; a chest that pairs sends both halves as on placing.
 pub(super) fn missing(state: &mut State, world: WorldIndex, pos: BlockPos) {
     create(state, world, pos, None, &Stack::EMPTY, Face::Up);
 }
@@ -1128,7 +1161,7 @@ fn create(
             if let Some(Value::List(List::Compound(items))) =
                 tag.as_ref().and_then(|t| t.get("Items"))
             {
-                read_items(&mut entity.items, items, pos, &state.custom);
+                read_items(items, pos, &state.custom, &mut entity.items);
             }
             unfit = entity.take_unfit();
         }
@@ -1268,42 +1301,6 @@ fn chests_pair(state: &State, world: WorldIndex, pos: BlockPos, other: BlockPos)
         && cardinal(other_block) == Some(facing)
 }
 
-/// The block at `pos` changed (the world's change feed): a block entity the new block does not
-/// take is removed (the type registers another kind, or none) and everything it held drops: its
-/// slots and a shulker box's items; a new block that takes one and has none gets an empty one,
-/// as [`missing`] makes it. A sign's text or a banner's patterns go with their block entity, and
-/// the old block entity stays readable until this runs, in the tick's block change phase after
-/// the change.
-///
-/// Breaking ([`interact::destroy_deferring_hooks`]) and placing ([`placed`]) do their block entities
-/// themselves; this catches every other change: a task's or a command's `World::set_block`, an
-/// explosion, a generator's blocks. A block entity of a kind Anchor does not type
-/// ([`Kind::Other`]) belongs to blocks Anchor cannot tell, so it goes only when its block becomes
-/// air.
-pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let Some(block) = block_at(state, world, pos) else {
-        return;
-    };
-    match state.rules.block_entities.get(world, pos) {
-        Some(entity) if fits(&entity.kind, block) => {}
-        Some(_) if !can_hold(state, world, pos, stacks_held(state, world, pos)) => {
-            // Its items have nowhere to wait: the entity stays as it is, as one read from a
-            // chunk does.
-            warn!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                "a block entity does not belong to its block; kept, its items have no room to drop"
-            );
-        }
-        Some(_) => {
-            discard(state, world, pos);
-            missing(state, world, pos);
-        }
-        None => missing(state, world, pos),
-    }
-}
-
 /// Whether `block` has a block entity.
 pub(super) fn takes_entity(block: block::State) -> bool {
     Kind::of(block).is_some()
@@ -1340,14 +1337,14 @@ fn discard(state: &mut State, world: WorldIndex, pos: BlockPos) {
     drop_all(state, world, pos.to_center(), contents);
 }
 
-/// The block at `pos` is gone (broken, replaced, exploded): removes its block entity, closes the
-/// windows on it (without an event: the block is gone, and a listener could open it again) and
-/// drops what it held as items.
+/// Removes the block entity of the block at `pos`, which is gone (broken, replaced, exploded),
+/// closes the windows on it (without an event: the block is gone, and a listener could open it
+/// again) and drops what it held as items.
 ///
-/// A shulker box keeps its contents: they leave in the dropped box's NBT, which the breaking
-/// code takes from [`with_block_data`] before calling this. A paired chest's other half becomes
-/// a single chest. Items that cannot be dropped now (the world's entity limit) wait as a spill in
-/// the chunk and drop on later ticks.
+/// A shulker box keeps the contents that fit it: they leave in the dropped box's NBT, which the
+/// breaking code takes from [`with_block_data`] before calling this; the others drop. A paired
+/// chest's other half becomes a single chest. Items that cannot be dropped now (the world's
+/// entity limit) wait as a spill in the chunk and drop on later ticks.
 pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
     let Some(entity) = state.rules.block_entities.get(world, pos) else {
         return;
@@ -1369,10 +1366,11 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
         }
         mark_spawn(state, world, other);
     }
+    let mut items = entity.items;
     if matches!(entity.kind, Kind::ShulkerBox { .. }) {
-        return;
+        items.retain(|s| !s.can_enter_shulker_box());
     }
-    drop_all(state, world, pos.to_center(), entity.items);
+    drop_all(state, world, pos.to_center(), items);
 }
 
 /// The sessions with a window open on the block at `pos`; a double chest window covers both
@@ -1452,8 +1450,8 @@ pub(super) fn own_item(state: &State, world: WorldIndex, pos: BlockPos) -> Optio
 }
 
 /// `stack` (the item form of the block at `pos`, without extra data) with the block entity's
-/// data an item keeps: a shulker box's items and custom name, a container's custom name. The
-/// stack unchanged for other blocks.
+/// data an item keeps: a shulker box's items that fit it ([`Stack::can_enter_shulker_box`]) and
+/// custom name, a container's custom name. The stack unchanged for other blocks.
 pub(super) fn with_block_data(
     state: &State,
     world: WorldIndex,
@@ -1467,9 +1465,23 @@ pub(super) fn with_block_data(
         return stack;
     };
     let mut tag = stack.tag().unwrap_or_default();
-    if matches!(entity.kind, Kind::ShulkerBox { .. }) && entity.items.iter().any(|s| !s.is_empty())
-    {
-        tag.insert("Items".to_owned(), write_items(&entity.items));
+    if matches!(entity.kind, Kind::ShulkerBox { .. }) {
+        // A loaded box keeps the stacks it does not take while its chunk has no room to spill
+        // them ([`Parsed::read`]); they drop on their own when it goes ([`removed`]).
+        let fitting: Vec<Stack> = entity
+            .items
+            .iter()
+            .map(|s| {
+                if s.can_enter_shulker_box() {
+                    s.clone()
+                } else {
+                    Stack::EMPTY
+                }
+            })
+            .collect();
+        if fitting.iter().any(|s| !s.is_empty()) {
+            tag.insert("Items".to_owned(), write_items(&fitting));
+        }
     }
     if let Some(name) = &entity.name {
         let display = Compound::from([("Name".to_owned(), Value::String(name.clone()))]);
@@ -1477,9 +1489,9 @@ pub(super) fn with_block_data(
     }
     #[expect(
         clippy::expect_used,
-        reason = "invariant: a block entity's name is at most block_entity::MAX_NAME_BYTES and a shulker \
-                  box holds only stacks that fit it (every write, placing and loading check), so \
-                  27 of them with the name are one stack (item::MAX_NBT_BYTES)"
+        reason = "invariant: a block entity's name is at most block_entity::MAX_NAME_BYTES and \
+                  only the stacks that fit a shulker box are taken, so 27 of them with the name \
+                  are one stack (item::MAX_NBT_BYTES)"
     )]
     Stack::from_parts(item, stack.count(), stack.meta(), Some(tag))
         .expect("a block's item with its block entity's data is within the stack limits")
@@ -1517,15 +1529,17 @@ pub(super) fn set_slot(
     Ok(true)
 }
 
-/// One tick of block entities: spilled items of broken containers drop when the world has room,
-/// at most [`SPILL_DROPS_PER_TICK`] stacks a tick, in chunk order.
+/// Runs one tick of block entities: spilled items of broken containers drop when the world has
+/// room, at most [`MAX_SPILL_DROPS_PER_TICK`] stacks a tick, in chunk order.
 pub(super) fn tick(state: &mut State) {
-    let mut budget = SPILL_DROPS_PER_TICK;
+    let mut budget = MAX_SPILL_DROPS_PER_TICK;
     // The world at its entity cap this tick: its other chunks wait too, other worlds' do not.
     let mut full = None;
     // In order, without a copy of the set: each step finds the next chunk after the last.
     let mut next = state.rules.block_entities.spilling.first().copied();
-    while let Some(key) = next {
+    while let Some(key) = next
+        && budget > 0
+    {
         next = state
             .rules
             .block_entities
@@ -1534,6 +1548,15 @@ pub(super) fn tick(state: &mut State) {
             .next()
             .copied();
         if full == Some(key.0) {
+            // The rest of the full world's chunks wait: go on at the next world.
+            let last = (key.0, ChunkPos::new(i32::MAX, i32::MAX));
+            next = state
+                .rules
+                .block_entities
+                .spilling
+                .range((Bound::Excluded(last), Bound::Unbounded))
+                .next()
+                .copied();
             continue;
         }
         let entities = &mut state.rules.block_entities;
@@ -1659,9 +1682,10 @@ pub(super) fn send_marked(state: &mut State) {
 }
 
 /// Reads an `Items` list into `slots` by `Slot` (custom items through `custom`). An entry of an
-/// unknown item ([`inventory::read_saved_stack`]) or in no slot is dropped, and gone from the
-/// chunk's next save: the log says where it was and which item it was.
-fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &Registry) {
+/// unknown item ([`inventory::read_saved_stack`]), in no slot, or in a slot an earlier entry
+/// took is dropped, and gone from the chunk's next save: the log says where it was and which
+/// item it was.
+fn read_items(items: &[Compound], pos: BlockPos, custom: &Registry, slots: &mut [Stack]) {
     for entry in items {
         let slot = match entry.get("Slot") {
             Some(Value::Byte(s)) => usize::from(*s),
@@ -1682,6 +1706,17 @@ fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &R
             );
             continue;
         };
+        if !target.is_empty() {
+            warn!(
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                slot,
+                item,
+                "a container item is in a taken slot; it is dropped and gone from the next save"
+            );
+            continue;
+        }
         #[cfg(test)]
         crate::tick::rules::reads::add(|r| r.stacks += 1);
         if let Some(stack) = inventory::read_saved_stack(
@@ -1720,22 +1755,26 @@ fn saved_pos(nbt: &Compound, key: Key) -> Option<BlockPos> {
 }
 
 /// Keeps `items`, the stacks of a broken container or a loaded shulker box at `pos` that wait to
-/// drop, in `spills`: as a spill of their own, or with the spills full in the slots the waiting
-/// spills have free (dropped where those wait), so the list stays within what it holds. What
-/// finds no slot, past [`MAX_SPILLS`] times [`SPILL_SLOTS`] stacks in one chunk, is lost with an
-/// error; the callers that can choose check [`spills_take`] first.
+/// drop, in `spills`: as spills of their own of at most [`MAX_SPILL_STACKS`] stacks each (what a
+/// saved spill takes) while [`MAX_SPILLS`] allows, then in the slots the waiting spills have free
+/// (dropped where those wait), so the list stays within what it holds. What finds no slot,
+/// past [`MAX_SPILLS`] times [`MAX_SPILL_STACKS`] stacks in one chunk, is lost with an error; the
+/// callers that can choose check [`spills_take`] first.
 fn spill_unfit(spills: &mut Vec<Spill>, pos: BlockPos, mut items: Vec<Stack>) {
-    if spills.len() < MAX_SPILLS {
+    while !items.is_empty() && spills.len() < MAX_SPILLS {
+        let rest = items.split_off(MAX_SPILL_STACKS.min(items.len()));
         spills.push(Spill { pos, items });
-        return;
+        items = rest;
     }
     for spill in spills.iter_mut() {
-        // A spill made at run time may hold more stacks than a saved one takes.
-        let free = SPILL_SLOTS.saturating_sub(spill.items.len());
-        spill.items.extend(items.drain(..free.min(items.len())));
         if items.is_empty() {
             return;
         }
+        let free = MAX_SPILL_STACKS.saturating_sub(spill.items.len());
+        spill.items.extend(items.drain(..free.min(items.len())));
+    }
+    if items.is_empty() {
+        return;
     }
     error!(
         x = pos.x,
@@ -1746,14 +1785,15 @@ fn spill_unfit(spills: &mut Vec<Spill>, pos: BlockPos, mut items: Vec<Stack>) {
     );
 }
 
-/// Whether `calls` calls of [`spill_unfit`] that keep `stacks` stacks in all lose none: each can
-/// push a spill of its own while [`MAX_SPILLS`] allows, else the stacks fit the free slots.
-fn spills_take(spills: &[Spill], calls: usize, stacks: usize) -> bool {
+/// Whether calls of [`spill_unfit`] that keep `stacks` stacks in all lose none: the new spills
+/// [`MAX_SPILLS`] allows and the free slots of the waiting ones take them.
+fn spills_take(spills: &[Spill], stacks: usize) -> bool {
     let free: usize = spills
         .iter()
-        .map(|s| SPILL_SLOTS.saturating_sub(s.items.len()))
+        .map(|s| MAX_SPILL_STACKS.saturating_sub(s.items.len()))
         .sum();
-    spills.len() + calls <= MAX_SPILLS || free >= stacks
+    let new = MAX_SPILLS.saturating_sub(spills.len()) * MAX_SPILL_STACKS;
+    free + new >= stacks
 }
 
 /// The `SkullType` byte of a mob head block, by its name ([`decor::SKULL_TYPES`]); a skeleton
@@ -1922,7 +1962,7 @@ pub(in crate::tick) mod tests {
         assert!(again.take_changed().is_empty());
     }
 
-    /// A saved shulker box holding a stack its slots do not take (an Anchor before the limit)
+    /// A saved shulker box holding a stack its slots do not take (a list written outside Anchor)
     /// loads without it: the stack waits as a spill, a name over the limit stays as saved and is
     /// not shown, and the chunk is saved again that way.
     #[test]
@@ -2050,7 +2090,9 @@ pub(in crate::tick) mod tests {
     }
 
     /// With every slot of the chunk's spills full, the stacks a loaded shulker box's slots do not
-    /// take stay in the box, as a new spill is past [`MAX_SPILLS`]: no item is lost.
+    /// take stay in the box, as a new spill is past [`MAX_SPILLS`]: no item is lost. The box's
+    /// item takes only the stacks that fit, so it stays one stack however large the others are,
+    /// and the others drop on their own when the box goes.
     #[test]
     fn a_loaded_shulker_box_keeps_what_no_spill_slot_takes() {
         let (mut state, key) = server();
@@ -2062,17 +2104,18 @@ pub(in crate::tick) mod tests {
         let stick = Stack::new(ItemKind::Stick.default_type(), 5);
         let big = stick
             .with_extra(Some(item::Extra {
-                nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![1; 4 << 10]))]),
+                nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![1; 60 << 10]))]),
                 ..item::Extra::default()
             }))
             .unwrap();
         let mut entity = BlockEntity::new(Kind::ShulkerBox { facing: 1 });
         entity.items[0] = stick.clone();
-        entity.items[1] = big;
+        entity.items[1] = big.clone();
+        entity.items[2] = big;
         let mut list = vec![entity.write(pos)];
         let spill = Spill {
             pos,
-            items: vec![stick; SPILL_SLOTS],
+            items: vec![stick; MAX_SPILL_STACKS],
         };
         let spills = Chunk {
             spills: vec![spill; MAX_SPILLS],
@@ -2093,7 +2136,23 @@ pub(in crate::tick) mod tests {
         );
         assert_eq!(blocks.chunks[&key].spills.len(), MAX_SPILLS);
         let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
-        assert_eq!(count, 5 * (SPILL_SLOTS * MAX_SPILLS + 2));
+        assert_eq!(count, 5 * (MAX_SPILL_STACKS * MAX_SPILLS + 3));
+        let block::ItemForm::Item(box_item) = shulker.item() else {
+            panic!("a shulker box item");
+        };
+        let broken = with_block_data(&state, 0, pos, Stack::new(box_item, 1));
+        let Some(Value::List(List::Compound(kept))) = broken.tag().unwrap().get("Items").cloned()
+        else {
+            panic!("the box item holds its items");
+        };
+        assert_eq!(kept.len(), 1, "only the stick that fits");
+        let before = state.rules.entities.count(0);
+        removed(&mut state, 0, pos);
+        assert_eq!(
+            state.rules.entities.count(0),
+            before + 2,
+            "the large stacks drop"
+        );
     }
 
     /// A list keeping more raw entries than a chunk may is damaged; saved spills past the most a
@@ -2185,6 +2244,13 @@ pub(in crate::tick) mod tests {
         assert_eq!((again.entities.len(), again.raw.len()), (1, 0));
     }
 
+    /// The client bytes of sub-chunk `index` of the chunk at `key`.
+    fn client_bytes(store: &BlockEntities, key: Key, index: usize) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        store.write_client_bytes(key.0, key.1, index, &mut bytes);
+        bytes
+    }
+
     #[test]
     fn clients_get_the_client_keys_of_typed_block_entities_and_other_ones_as_saved() {
         let key = (0, ChunkPos::new(0, 0));
@@ -2267,13 +2333,6 @@ pub(in crate::tick) mod tests {
             );
         }
         assert!(client_bytes(&store, key, 0).is_empty());
-    }
-
-    /// The client bytes of sub-chunk `index` of the chunk at `key`.
-    fn client_bytes(store: &BlockEntities, key: Key, index: usize) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        store.write_client_bytes(key.0, key.1, index, &mut bytes);
-        bytes
     }
 
     /// A saved block entity that fits its saved form but not the network form is left out of
@@ -2605,15 +2664,6 @@ pub(in crate::tick) mod tests {
         assert_eq!(committed(&list), list);
     }
 
-    /// Loads the (empty) block entities of the chunk at `key`.
-    fn load_chunk(state: &mut State, key: Key) {
-        let world = &state.worlds[key.0];
-        state
-            .rules
-            .block_entities
-            .load_list(key, &[], world, &Registry::default());
-    }
-
     fn food(name: &str, count: u8) -> Stack {
         Stack::new(
             item::Type::from_name(name, 0, None, &Compound::new()).unwrap(),
@@ -2684,6 +2734,15 @@ pub(in crate::tick) mod tests {
         }
     }
 
+    /// Loads the (empty) block entities of the chunk at `key`.
+    fn load_chunk(state: &mut State, key: Key) {
+        let world = &state.worlds[key.0];
+        state
+            .rules
+            .block_entities
+            .load_list(key, &[], world, &Registry::default());
+    }
+
     /// A block a generator or a task set that takes a block entity gets an empty one in the
     /// change phase, with its slots empty: a chest, a sign, an ender chest.
     #[test]
@@ -2727,6 +2786,39 @@ pub(in crate::tick) mod tests {
         blocks.spill(0, pos, vec![stick; 5]);
         let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
         assert_eq!(count, MAX_SPILLS + 5);
+    }
+
+    /// More stacks than a saved spill takes wait as several spills, so all of them read back.
+    #[test]
+    fn a_spill_of_more_stacks_than_a_saved_spill_takes_reads_back_whole() {
+        let (mut state, key) = server();
+        load_chunk(&mut state, key);
+        let pos = state.worlds[0].spawn();
+        let stacks = 300;
+        let blocks = &mut state.rules.block_entities;
+        blocks.spill(0, pos, vec![food("minecraft:stick", 1); stacks]);
+        let list = blocks.unload(key).expect("the chunk changed");
+        blocks.load_list(key, &list, &state.worlds[0], &Registry::default());
+        let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
+        assert_eq!(count, stacks);
+    }
+
+    /// Of two saved stacks in one slot of a container, the first takes the slot and the second
+    /// is dropped as an entry in no slot is.
+    #[test]
+    fn the_first_of_two_saved_stacks_in_one_slot_takes_it() {
+        let pos = BlockPos::new(1, 2, 3);
+        let first = Stack::new(ItemKind::Stick.default_type(), 5);
+        let second = Stack::new(ItemKind::Stick.default_type(), 7);
+        let mut nbt = chest_entity(&[(0, first.clone())], None).write(pos);
+        let Some(Value::List(List::Compound(items))) = nbt.get_mut("Items") else {
+            panic!("a chest with items");
+        };
+        let mut again = second.to_nbt();
+        again.insert("Slot".to_owned(), Value::Byte(0));
+        items.push(again);
+        let chest = BlockEntity::read(nbt, pos, &Registry::default());
+        assert_eq!(chest.items[0], first);
     }
 
     /// A world at its entity cap keeps its spills waiting; another world's still drop.

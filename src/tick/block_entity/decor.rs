@@ -8,16 +8,14 @@ use tracing::warn;
 
 use super::Form;
 use crate::block;
-use crate::block_entity::{DyeColour, SignText};
+use crate::block_entity::{DyeColour, MAX_PATTERNS, SignText};
 use crate::nbt::{Compound, List, Value};
 use crate::tick::interact::{props, sign};
 
 /// The colour of a bed whose colour is missing or unknown: red.
-pub(in crate::tick) const DEFAULT_BED_COLOUR: u8 = 14;
-/// The most patterns a banner keeps; more in saved data are left out.
-pub(in crate::tick) const MAX_PATTERNS: usize = 16;
+pub(super) const DEFAULT_BED_COLOUR: u8 = 14;
 /// The mob head blocks by their `SkullType` byte.
-pub(in crate::tick) const SKULL_TYPES: [&str; 7] = [
+pub(super) const SKULL_TYPES: [&str; 7] = [
     "minecraft:skeleton_skull",
     "minecraft:wither_skeleton_skull",
     "minecraft:zombie_head",
@@ -34,12 +32,12 @@ pub(in crate::tick) struct Sign {
     pub(in crate::tick) back: SignText,
     pub(in crate::tick) waxed: bool,
     /// A hanging sign (block entity `HangingSign`).
-    pub(in crate::tick) hanging: bool,
+    pub(super) hanging: bool,
 }
 
 impl Sign {
     /// Reads the front and back compounds, or the 1.2 `Text` blob.
-    pub(in crate::tick) fn read(nbt: &mut Compound, hanging: bool) -> Self {
+    pub(super) fn read(nbt: &mut Compound, hanging: bool) -> Self {
         let front = match take_compound(nbt, sign::FRONT) {
             Some(side) => SignText::read(side),
             None => match nbt.remove(sign::TEXT) {
@@ -73,13 +71,13 @@ impl Sign {
     }
 
     /// The client keys: the saved ones and nobody editing.
-    pub(in crate::tick) fn spawn(&self, nbt: &mut Compound) {
+    pub(super) fn spawn(&self, nbt: &mut Compound) {
         self.write(nbt);
         nbt.insert("LockedForEditingBy".to_owned(), Value::Long(-1));
     }
 
     /// The saved keys.
-    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+    pub(super) fn write(&self, nbt: &mut Compound) {
         nbt.insert(sign::FRONT.to_owned(), self.front.write());
         nbt.insert(sign::BACK.to_owned(), self.back.write());
         nbt.insert("IsWaxed".to_owned(), Value::Byte(u8::from(self.waxed)));
@@ -89,16 +87,16 @@ impl Sign {
 /// A banner: base colour and patterns by the inverted dye colour IDs (black 0 … white 15).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(in crate::tick) struct Banner {
-    pub(in crate::tick) base: i32,
+    pub(super) base: i32,
     /// Pattern ID (`bo`, `cre`…) and colour, at most [`MAX_PATTERNS`].
-    pub(in crate::tick) patterns: Vec<(String, i32)>,
+    pub(super) patterns: Vec<(String, i32)>,
     /// 0 normal, 1 ominous.
-    pub(in crate::tick) ty: i32,
+    pub(super) ty: i32,
 }
 
 impl Banner {
     /// Reads the saved keys.
-    pub(in crate::tick) fn read(nbt: &mut Compound) -> Self {
+    pub(super) fn read(nbt: &mut Compound) -> Self {
         let base = take_int(nbt, "Base")
             .filter(|b| DyeColour::from_banner_id(*b).is_some())
             .unwrap_or(0);
@@ -111,7 +109,7 @@ impl Banner {
     }
 
     /// The saved and client keys.
-    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+    pub(super) fn write(&self, nbt: &mut Compound) {
         nbt.insert("Base".to_owned(), Value::Int(self.base));
         nbt.insert("Patterns".to_owned(), patterns_value(&self.patterns));
         nbt.insert("Type".to_owned(), Value::Int(self.ty));
@@ -168,7 +166,7 @@ impl SignText {
 
 /// A banner's `Patterns` list: entries with a pattern ID, at most [`MAX_PATTERNS`]. An ID Anchor
 /// does not know stays, as clients may know it; a missing colour is black, 0.
-pub(in crate::tick) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
+pub(super) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
     let mut out = Vec::with_capacity(list.len().min(MAX_PATTERNS));
     for entry in list {
         let Some(Value::String(id)) = entry.get("Pattern") else {
@@ -188,7 +186,7 @@ pub(in crate::tick) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
 }
 
 /// A `Patterns` list.
-pub(in crate::tick) fn patterns_value(patterns: &[(String, i32)]) -> Value {
+pub(super) fn patterns_value(patterns: &[(String, i32)]) -> Value {
     Value::List(List::Compound(
         patterns
             .iter()
@@ -204,7 +202,7 @@ pub(in crate::tick) fn patterns_value(patterns: &[(String, i32)]) -> Value {
 
 /// A flower pot's plant (`PlantBlock`, a block state compound); `None` for none or air. A state
 /// Anchor does not know stays as it came.
-pub(in crate::tick) fn read_plant(nbt: &mut Compound) -> Option<Plant> {
+pub(super) fn read_plant(nbt: &mut Compound) -> Option<Plant> {
     let plant = take_compound(nbt, "PlantBlock")?;
     if let Some(state) = crate::save::find_state(&plant) {
         return (state != block::AIR).then_some(Plant::Known(state));
@@ -223,7 +221,7 @@ pub(super) fn write_plant(plant: Option<&Plant>, form: Form, nbt: &mut Compound)
 }
 
 /// A mob head: the type and the rotation as degrees, or the legacy `Rot`.
-pub(in crate::tick) fn read_skull(nbt: &mut Compound) -> (u8, u8) {
+pub(super) fn read_skull(nbt: &mut Compound) -> (u8, u8) {
     let skull = take_byte(nbt, "SkullType")
         .filter(|t| usize::from(*t) < SKULL_TYPES.len())
         .unwrap_or(0);
@@ -238,7 +236,7 @@ pub(in crate::tick) fn read_skull(nbt: &mut Compound) -> (u8, u8) {
 }
 
 /// A mob head's keys.
-pub(in crate::tick) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) {
+pub(super) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) {
     nbt.insert("SkullType".to_owned(), Value::Byte(skull));
     nbt.insert(
         "Rotation".to_owned(),
@@ -247,7 +245,7 @@ pub(in crate::tick) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) 
 }
 
 /// A bed's colour (a missing or unknown colour is [`DEFAULT_BED_COLOUR`]).
-pub(in crate::tick) fn read_bed(nbt: &mut Compound) -> u8 {
+pub(super) fn read_bed(nbt: &mut Compound) -> u8 {
     take_byte(nbt, "color")
         .filter(|c| DyeColour::from_id(*c).is_some())
         .unwrap_or(DEFAULT_BED_COLOUR)

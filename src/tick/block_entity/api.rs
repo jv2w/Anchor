@@ -8,10 +8,11 @@
 //! chunk get once at the end of the tick. Writes raise no events: a direct API call never
 //! re-enters the listeners.
 
-use super::{BlockEntity, Kind, Plant, block_at, chests_pair, decor, mark_spawn};
+use super::{BlockEntity, Kind, block_at, chests_pair, decor, mark_spawn};
 use crate::block::{self, Face, TypeTag};
 use crate::block_entity::{
-    self, BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, Mut, Result, Side, SignText,
+    self, BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, MAX_PATTERNS, Mut, Result,
+    Side, SignText,
 };
 use crate::tick::interact::props;
 use crate::tick::{Context, State, inventory};
@@ -20,7 +21,7 @@ use crate::world::{self, BlockPos, ChunkPos};
 impl Context<'_> {
     /// The block entity at `pos` in `world` to read; `None` if its chunk is not loaded or the
     /// block has none (a block [`World::set_block`](crate::world::World::set_block) placed gets
-    /// its block entity in the tick's next block update phase).
+    /// its block entity in the tick's next block change phase).
     #[doc(alias = "World::getTile")]
     #[doc(alias = "World::getTileAt")]
     #[doc(alias = "Chunk::getTile")]
@@ -164,7 +165,7 @@ impl<'a> block_entity::BlockEntity<'a> {
     pub fn potted_plant(&self) -> Option<block::State> {
         match self.kind()? {
             Kind::FlowerPot {
-                plant: Some(Plant::Known(plant)),
+                plant: Some(decor::Plant::Known(plant)),
             } => Some(*plant),
             _ => None,
         }
@@ -284,16 +285,16 @@ impl Mut<'_> {
     }
 
     /// Replaces every pattern layer of a banner, even those Anchor does not know, bottom first
-    /// (at most 16).
+    /// (at most [`MAX_PATTERNS`]).
     ///
     /// # Errors
     ///
-    /// [`Error::TooLong`] for more than 16 layers.
     /// [`Error::WrongKind`] for a block entity that is not a banner.
+    /// [`Error::TooLong`] for more than [`MAX_PATTERNS`] layers.
     #[doc(alias = "BaseBanner::setPatterns")]
     #[doc(alias = "block\\tile\\Banner::setPatterns")]
     pub fn set_banner_patterns(&mut self, patterns: &[BannerLayer]) -> Result<()> {
-        if patterns.len() > decor::MAX_PATTERNS {
+        if patterns.len() > MAX_PATTERNS {
             return Err(Error::TooLong);
         }
         self.edit(|e| match &mut e.kind {
@@ -347,8 +348,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooLong`] for a name longer than [`MAX_NAME_BYTES`].
     /// [`Error::WrongKind`] for a block entity that is not a container.
+    /// [`Error::TooLong`] for a name longer than [`MAX_NAME_BYTES`].
     #[doc(alias = "Nameable::setName")]
     #[doc(alias = "NameableTrait::setName")]
     pub fn set_name(&mut self, name: Option<&str>) -> Result<()> {
@@ -369,8 +370,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Invalid`] for a block the pot does not take.
     /// [`Error::WrongKind`] for a block entity that is not a flower pot.
+    /// [`Error::Invalid`] for a block the pot does not take.
     #[doc(alias = "block\\FlowerPot::setPlant")]
     #[doc(alias = "block\\tile\\FlowerPot::setPlant")]
     pub fn set_potted_plant(&mut self, plant: Option<block::State>) -> Result<()> {
@@ -379,7 +380,7 @@ impl Mut<'_> {
         }
         self.edit(|e| match &mut e.kind {
             Kind::FlowerPot { plant: p } => {
-                *p = plant.map(Plant::Known);
+                *p = plant.map(decor::Plant::Known);
                 Some(Ok(()))
             }
             _ => None,
@@ -445,8 +446,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Invalid`] for a rotation above 15.
     /// [`Error::WrongKind`] for a block entity that is not a mob head.
+    /// [`Error::Invalid`] for a rotation above 15.
     #[doc(alias = "block\\MobHead::setRotation")]
     #[doc(alias = "block\\tile\\MobHead::setRotation")]
     pub fn set_skull_rotation(&mut self, rotation: u8) -> Result<()> {
@@ -468,8 +469,8 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Invalid`] for a single chest, or an other half whose chunk is not loaded.
     /// [`Error::WrongKind`] for a block entity that is not a chest.
+    /// [`Error::Invalid`] for a single chest, or an other half whose chunk is not loaded.
     #[doc(alias = "block\\tile\\Chest::unpair")]
     pub fn unpair(&mut self) -> Result<()> {
         let (world, pos) = (self.world, self.pos);
@@ -531,9 +532,6 @@ impl Mut<'_> {
 
 #[cfg(test)]
 mod tests {
-    //! Each write changes the block entity, reaches the players who see it as `BlockActorData`
-    //! and is in the chunk's saved form.
-
     use super::*;
 
     use tokio::sync::mpsc::Receiver;
@@ -553,7 +551,9 @@ mod tests {
     /// The world the tests use.
     const WORLD: world::Id = world::Id::DEFAULT;
 
-    /// A flat world with one player who sees the spawn chunks.
+    /// A flat world with one player who sees the spawn chunks. Each write is checked to change the
+    /// block entity, reach the players who see it as `BlockActorData` and be in the chunk's saved
+    /// form.
     struct Harness {
         state: State,
         pool: Pool,
@@ -680,7 +680,7 @@ mod tests {
     }
 
     // api: World::setBlock
-    /// A block with a block entity that a task sets gets an empty one in the tick's block update
+    /// A block with a block entity that a task sets gets an empty one in the tick's block change
     /// phase, as a placed one does, without packets: its text and slots can be set; a block that
     /// replaces it with another kind's swaps it, and air takes it away.
     #[test]
@@ -984,13 +984,6 @@ mod tests {
         );
     }
 
-    fn item(name: &str, meta: u16) -> Stack {
-        Stack::new(
-            item::Type::from_name(name, meta, None, &Compound::new()).unwrap(),
-            1,
-        )
-    }
-
     // api: block\FlowerPot::getPlant, block\tile\FlowerPot::getPlant, block\FlowerPot::setPlant,
     // api: block\tile\FlowerPot::setPlant
     #[test]
@@ -1051,6 +1044,13 @@ mod tests {
         }
         assert_eq!(h.state.rules.block_entities.count(0), 3);
         assert_eq!(h.state.rules.block_entities.count(1), 0);
+    }
+
+    fn item(name: &str, meta: u16) -> Stack {
+        Stack::new(
+            item::Type::from_name(name, meta, None, &Compound::new()).unwrap(),
+            1,
+        )
     }
 
     /// A renamed item's name goes to the block entity only for the kinds that have one, the kinds

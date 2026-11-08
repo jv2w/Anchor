@@ -28,6 +28,8 @@ use crate::world::BlockPos;
 pub(crate) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
 /// The longest custom name of a container, in bytes.
 pub const MAX_NAME_BYTES: usize = 1024;
+/// The most patterns a banner holds.
+pub const MAX_PATTERNS: usize = 16;
 /// The most text bytes a sign side holds, all lines together: the limit on players' edits, and
 /// one bound for the API too.
 pub const MAX_SIGN_TEXT_BYTES: usize = 1000;
@@ -36,8 +38,8 @@ pub const SIGN_LINES: usize = 4;
 
 /// A block entity to read ([`Context::block_entity`](crate::Context)): its position, its block
 /// and the data of its kind.
-#[derive(Clone, Copy)]
 #[doc(alias = "Tile")]
+#[derive(Clone, Copy)]
 pub struct BlockEntity<'a> {
     pub(crate) state: &'a State,
     pub(crate) world: WorldIndex,
@@ -79,7 +81,7 @@ pub enum Error {
     /// pot, chests that are not side by side).
     Invalid,
     /// The text or the list is longer than its limit ([`MAX_SIGN_TEXT_BYTES`],
-    /// [`MAX_NAME_BYTES`], a banner's 16 patterns).
+    /// [`MAX_NAME_BYTES`], [`MAX_PATTERNS`]).
     TooLong,
 }
 
@@ -120,21 +122,6 @@ pub struct SignText {
 }
 
 impl SignText {
-    /// Text of four lines in `colour`.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Invalid`] for a line that holds a newline.
-    /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
-    pub fn new(lines: [String; SIGN_LINES], colour: Rgba, glowing: bool) -> Result<Self> {
-        check_lines(lines.iter().map(String::as_str))?;
-        Ok(Self {
-            lines,
-            colour: to_argb(colour),
-            glowing,
-        })
-    }
-
     /// Text from lines joined by newlines (lines past the fourth are left out, missing ones are
     /// empty).
     ///
@@ -148,6 +135,21 @@ impl SignText {
             line.clone_into(slot);
         }
         Self::new(lines, colour, glowing)
+    }
+
+    /// Text of four lines in `colour`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a line that holds a newline.
+    /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
+    pub fn new(lines: [String; SIGN_LINES], colour: Rgba, glowing: bool) -> Result<Self> {
+        check_lines(lines.iter().map(String::as_str))?;
+        Ok(Self {
+            lines,
+            colour: to_argb(colour),
+            glowing,
+        })
     }
 
     /// The text colour.
@@ -226,6 +228,18 @@ pub enum DyeColour {
 }
 
 impl DyeColour {
+    /// The colour of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
+    pub(crate) fn from_banner_id(id: i32) -> Option<Self> {
+        u8::try_from(15_i32.checked_sub(id)?)
+            .ok()
+            .and_then(Self::from_id)
+    }
+
+    /// The colour of a Bedrock dye ID, or `None`.
+    pub(crate) fn from_id(id: u8) -> Option<Self> {
+        Self::all().get(usize::from(id)).copied()
+    }
+
     /// Every colour, by ID.
     pub fn all() -> &'static [Self] {
         &[
@@ -246,18 +260,6 @@ impl DyeColour {
             Self::Red,
             Self::Black,
         ]
-    }
-
-    /// The colour of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
-    pub(crate) fn from_banner_id(id: i32) -> Option<Self> {
-        u8::try_from(15_i32.checked_sub(id)?)
-            .ok()
-            .and_then(Self::from_id)
-    }
-
-    /// The colour of a Bedrock dye ID, or `None`.
-    pub(crate) fn from_id(id: u8) -> Option<Self> {
-        Self::all().get(usize::from(id)).copied()
     }
 
     /// The banner ID of the colour.
