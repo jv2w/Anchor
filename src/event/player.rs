@@ -307,11 +307,13 @@ cancellable! {
         #[doc(alias = "PlayerDropItemEvent::isCancelled")];
 }
 
-/// Raised when a player joins while the same player is already online: the same XUID with Xbox
-/// sign-in on, otherwise the same name ignoring ASCII case.
+/// Raised when a player joins, after its [`PlayerLogin`] and the resource packs, while the same
+/// player is already online: the same XUID with Xbox sign-in on, otherwise the same name
+/// ignoring ASCII case.
 ///
-/// If no listener cancels it, the connecting player goes on to [`PlayerLogin`]; once admitted,
-/// the existing player is disconnected and the connecting one joins, and if refused, it is
+/// If no listener cancels it, the connecting player is checked for a refusal that applies only
+/// since its login (the slot the existing player would free counts as free); once admitted, the
+/// existing player is disconnected and the connecting one joins, and if refused, it is
 /// disconnected and the existing player stays. If the event is cancelled, the connecting player
 /// is disconnected at once. A player this event disconnects sees
 /// [`kick_screen_message`](Self::kick_screen_message), or
@@ -1058,12 +1060,14 @@ cancellable! {
         #[doc(alias = "PlayerKickEvent::isCancelled")];
 }
 
-/// Raised when a player has logged in, before the player joins: Anchor has already set the kick
-/// flags that apply (server full, not white-listed, banned). The player joins when no flag is set
-/// after the listeners; otherwise the player is refused with the first flag's message. When the
-/// same player is still online ([`PlayerDuplicateLogin`] not cancelled), it is online during this
-/// event, its slot does not count toward a full server, and it is disconnected only if this
-/// player is admitted.
+/// Raised when a player has logged in, before its client gets the resource packs: Anchor has
+/// already set the kick flags that apply (server full, not white-listed, banned). The player
+/// goes on to the resource packs and the join when no flag is set after the listeners; otherwise
+/// the player is refused with the first flag's message, having downloaded nothing. When the same
+/// player is online, its slot does not count toward a full server; [`PlayerDuplicateLogin`]
+/// decides at the join. At the join, a refusal that applies only since this event (the server
+/// filled, a ban or a whitelist change) refuses the player too, unless a listener cleared its
+/// flag here.
 #[doc(alias = "PlayerPreLoginEvent")]
 #[doc(alias = "PlayerLoginEvent")]
 #[derive(Debug)]

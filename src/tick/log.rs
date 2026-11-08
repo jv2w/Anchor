@@ -99,7 +99,7 @@ const CRASH_DIR: &str = "crash";
 const CRC_BYTES: usize = 4;
 /// The written format's version: the layout of the log and of the checkpoints it holds, which
 /// every rule module's checkpoint codec decides. [`InputLog::decode`] reads no other.
-const FORMAT: u32 = 4;
+const FORMAT: u32 = 5;
 /// The outcome byte of a job result that has its JSON; other values are
 /// [`JobError::code`](crate::task::JobError::code)s.
 const JOB_DONE: u8 = 0;
@@ -115,6 +115,8 @@ const KIND_CONSOLE: u8 = 3;
 const KIND_JOB: u8 = 4;
 /// The tag of a measure input.
 const KIND_MEASURE: u8 = 5;
+/// The tag of a login input.
+const KIND_LOGIN: u8 = 6;
 /// The tag of a leave because the client closed the connection.
 const LEAVE_LEFT: u8 = 0;
 /// The tag of a leave because the connection closed otherwise.
@@ -630,6 +632,7 @@ impl InputLog {
         chain.u64(session.get());
         chain.u64(seq);
         match kind {
+            EntryKind::Login(_) => chain.raw(&[KIND_LOGIN]),
             EntryKind::Join(_) => chain.raw(&[KIND_JOIN]),
             EntryKind::Packet(packet) => {
                 chain.raw(&[KIND_PACKET]);
@@ -877,6 +880,8 @@ pub(crate) struct Entry {
 /// What an input was.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EntryKind {
+    /// A login the tick admits or refuses ([`InputKind::Login`](super::queue::InputKind::Login)).
+    Login(Identity),
     Join(Identity),
     Packet(Packet),
     Leave(LeaveReason),
@@ -1122,26 +1127,8 @@ impl<'a> Read<'a> {
             let session = SessionId::new(self.u64()?);
             let seq = self.u64()?;
             let kind = match self.u8()? {
-                KIND_JOIN => {
-                    let name = String::from_utf8(self.bytes()?.to_vec())
-                        .map_err(|_| Error::Format("name"))?;
-                    let has_xuid = self.flag("xuid flag")?;
-                    let xuid = self.u64()?;
-                    let uuid: [u8; 16] = self.array()?;
-                    let device_os = self.i32()?;
-                    let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
-                    let address = self.address()?;
-                    let client = self.client()?;
-                    EntryKind::Join(Identity {
-                        skin,
-                        device_os,
-                        address,
-                        client,
-                        name,
-                        xuid: has_xuid.then_some(xuid),
-                        uuid: protocol::Uuid::from_bytes(uuid),
-                    })
-                }
+                KIND_LOGIN => EntryKind::Login(self.identity()?),
+                KIND_JOIN => EntryKind::Join(self.identity()?),
                 KIND_PACKET => {
                     let id = self.u32()?;
                     let payload = self.bytes()?;
@@ -1219,6 +1206,27 @@ impl<'a> Read<'a> {
                 .map(Err)
                 .ok_or(Error::Format("job outcome")),
         }
+    }
+
+    /// The player of a login or a join.
+    fn identity(&mut self) -> Result<Identity> {
+        let name = String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("name"))?;
+        let has_xuid = self.flag("xuid flag")?;
+        let xuid = self.u64()?;
+        let uuid: [u8; 16] = self.array()?;
+        let device_os = self.i32()?;
+        let skin = read_skin(self.bytes()?).map_err(Error::Packet)?;
+        let address = self.address()?;
+        let client = self.client()?;
+        Ok(Identity {
+            skin,
+            device_os,
+            address,
+            client,
+            name,
+            xuid: has_xuid.then_some(xuid),
+            uuid: protocol::Uuid::from_bytes(uuid),
+        })
     }
 
     /// What a join tells of the client.
@@ -1387,26 +1395,13 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
         out.extend_from_slice(&entry.session.get().to_le_bytes());
         out.extend_from_slice(&entry.seq.to_le_bytes());
         match &entry.kind {
+            EntryKind::Login(identity) => {
+                out.push(KIND_LOGIN);
+                put_identity(out, identity)?;
+            }
             EntryKind::Join(identity) => {
                 out.push(KIND_JOIN);
-                put_bytes(out, identity.name.as_bytes())?;
-                out.push(u8::from(identity.xuid.is_some()));
-                out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
-                out.extend_from_slice(identity.uuid.as_bytes());
-                out.extend_from_slice(&identity.device_os.to_le_bytes());
-                put_bytes(out, &skin_bytes(&identity.skin).map_err(Error::Packet)?)?;
-                match identity.address {
-                    Some(IpAddr::V4(a)) => {
-                        out.push(ADDRESS_V4);
-                        out.extend_from_slice(&a.octets());
-                    }
-                    Some(IpAddr::V6(a)) => {
-                        out.push(ADDRESS_V6);
-                        out.extend_from_slice(&a.octets());
-                    }
-                    None => out.push(ADDRESS_NONE),
-                }
-                put_client(out, &identity.client)?;
+                put_identity(out, identity)?;
             }
             EntryKind::Packet(packet) => {
                 out.push(KIND_PACKET);
@@ -1464,6 +1459,28 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
         put_answer(out, answer)?;
     }
     Ok(())
+}
+
+/// Appends the player of a login or a join.
+fn put_identity(out: &mut Vec<u8>, identity: &Identity) -> Result<()> {
+    put_bytes(out, identity.name.as_bytes())?;
+    out.push(u8::from(identity.xuid.is_some()));
+    out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
+    out.extend_from_slice(identity.uuid.as_bytes());
+    out.extend_from_slice(&identity.device_os.to_le_bytes());
+    put_bytes(out, &skin_bytes(&identity.skin).map_err(Error::Packet)?)?;
+    match identity.address {
+        Some(IpAddr::V4(a)) => {
+            out.push(ADDRESS_V4);
+            out.extend_from_slice(&a.octets());
+        }
+        Some(IpAddr::V6(a)) => {
+            out.push(ADDRESS_V6);
+            out.extend_from_slice(&a.octets());
+        }
+        None => out.push(ADDRESS_NONE),
+    }
+    put_client(out, &identity.client)
 }
 
 /// Appends what a join tells of the client.
@@ -1899,7 +1916,7 @@ mod tests {
     }
 
     #[test]
-    fn client_data_and_measures_survive_the_written_log() {
+    fn logins_joins_client_data_and_measures_survive_the_written_log() {
         let client = Client {
             locale: "en_GB".to_owned(),
             input_mode: crate::protocol::consts::InputMode::GamePad,
@@ -1924,9 +1941,11 @@ mod tests {
         };
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Join(identity(client)), 0);
+        let login = EntryKind::Login(identity(client.clone()));
+        log.record(SessionId::new(1), 0, login, 0);
+        log.record(SessionId::new(1), 1, EntryKind::Join(identity(client)), 0);
         for (session, seq, measure) in [
-            (SessionId::new(1), 1, Measure::Ping(37)),
+            (SessionId::new(1), 2, Measure::Ping(37)),
             (
                 SessionId::NETWORK,
                 0,

@@ -397,7 +397,18 @@ pub(crate) struct Input {
 /// What a session reports to the tick.
 #[derive(Debug, Clone)]
 pub(crate) enum InputKind {
-    /// The session finished the resource pack sequence and wants to play.
+    /// The session verified the login and asks whether the player may join: the tick answers
+    /// [`Outbound::Admitted`] or closes the session before it offers the resource packs, so a
+    /// refused player downloads none of them.
+    Login {
+        /// The verified player.
+        identity: Identity,
+        /// Where the tick answers (from [`outbound_queue`]); the session hands the same queue
+        /// over again with its [`Join`](Self::Join).
+        outbound: mpsc::Sender<Outbound>,
+    },
+    /// The session's login was admitted, the client finished the resource pack sequence and
+    /// wants to play.
     Join {
         /// The verified player.
         identity: Identity,
@@ -562,6 +573,9 @@ pub(crate) enum Message {
 /// A message from the tick to one session.
 #[derive(Debug)]
 pub(crate) enum Outbound {
+    /// The tick admitted the session's [`InputKind::Login`]: the session offers the resource
+    /// packs.
+    Admitted,
     /// Messages to send, in order.
     Send(Vec<Message>),
     /// The last packet to send (a `Disconnect`, a `Transfer` or a failed `PlayStatus`) before
@@ -748,9 +762,9 @@ impl InputReceiver {
 ///
 /// The queue holds a [`MAX_SESSION_INPUTS`] share for every session that can hold one at once
 /// and the results of every job, so no session or job ever finds it full. Connection sessions
-/// hold a share from their join until the tick takes their leave ([`InputSender::connection`]):
-/// `max_players` online and as many whose join the tick has not applied yet or that it turned
-/// away and whose leave it has not taken.
+/// hold a share from their login until the tick takes their leave ([`InputSender::connection`]):
+/// `max_players` online and as many between their login and their join (the sessions waiting
+/// to join are as many at most) or that the tick turned away and whose leave it has not taken.
 pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
     let connections = usize::try_from(max_players)
         .unwrap_or(usize::MAX)
@@ -767,7 +781,8 @@ pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
     (sender, InputReceiver(rx))
 }
 
-/// Makes a session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
+/// Makes a session's outbound queue; the sender goes to the tick in [`InputKind::Login`] and
+/// [`InputKind::Join`].
 pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbound>) {
     mpsc::channel(OUTBOUND_CAPACITY)
 }

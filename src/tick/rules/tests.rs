@@ -23,17 +23,17 @@ const CHESTS: i32 = 8;
 const DISK: ChunkPos = ChunkPos::new(40, 40);
 /// The outcome of the fixture in each of the [`RUNS`] (state hash, rules hash, client bytes,
 /// changed lists). The state and rules hashes also hash the command soft enums, the skin budget,
-/// whether the run has started, an NPC's held item, the offline player holds and the worlds'
-/// ages.
+/// whether the run has started, an NPC's held item, the offline player holds, the worlds' ages
+/// and the logins waiting to join.
 const EXPECTED_OUTCOME: [[u64; 4]; 2] = [
     [
-        0x370a_4fae_6888_89cc,
+        0x7cfa_45d3_fff2_dacc,
         0x3940_4dc6_a003_819d,
         0xc4d0_b7b4_ec98_80fa,
         0xb713_398d_58c8_d5e5,
     ],
     [
-        0x70d0_e919_ca97_518f,
+        0x052c_be7f_487e_e28f,
         0xce78_5002_959b_6c8a,
         0xc4d0_b7b4_ec98_80fa,
         0x8529_4a2b_6280_7bf4,

@@ -218,6 +218,7 @@
 - `cargo xtask p6 anchor snappy`처럼 한 압축만 돌리면 NetworkSettings를 zlib 공식 서버 캡처와 비교하는 문제가 있다. 두 압축을 함께 돌린다.
 
 ## 실제 클라이언트로만 확인
+- 화이트리스트에 없는 플레이어: Disconnect(Reason 45 NotAllowed, Message "")에 클라이언트가 자기 언어의 "이 서버에 초대받지 않았습니다" 문구를 보이는지, 리소스 팩 내려받기 화면 없이 바로 끊기는지. 공식 서버는 `allow-list=true`와 `online-mode=false`로는 시작을 거부하므로 P6로 볼 수 없다.
 - 공식 클라이언트가 보내는 InventoryTransaction LegacyRequestID·LegacySetItemSlots 모양(공식 서버 재동기화의 원인일 수 있음).
 - 공식 클라이언트 CommandRequest의 Version 값.
 - 별칭 enum 순서, 플레이어별 `CommandName` enum이 명령 자동 완성에 맞게 보이는지.

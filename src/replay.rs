@@ -268,12 +268,21 @@ impl Replayer {
         Ok(End::Completed)
     }
 
-    /// The logged inputs of tick `t` as the sessions gave them; a join gets a new outbound queue.
+    /// The logged inputs of tick `t` as the sessions gave them; a login and a join get a new
+    /// outbound queue.
     fn inputs(&mut self, t: &tick::LoggedTick) -> Vec<Input> {
         t.inputs
             .iter()
             .map(|e| {
                 let kind = match &e.kind {
+                    EntryKind::Login(identity) => {
+                        let (tx, rx) = outbound_queue();
+                        self.receivers.insert(e.session, rx);
+                        InputKind::Login {
+                            identity: identity.clone(),
+                            outbound: tx,
+                        }
+                    }
                     EntryKind::Join(identity) => {
                         let (tx, rx) = outbound_queue();
                         self.receivers.insert(e.session, rx);

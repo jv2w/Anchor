@@ -137,6 +137,10 @@ pub(crate) struct State {
     saving: save::Saving,
     /// Each player waiting for its saved data, by storage key.
     loading: BTreeMap<StoredPlayer, spawn::Loading>,
+    /// Which of Anchor's refusals a [`PlayerLogin`](crate::event::PlayerLogin) listener let
+    /// through, by session, for each admitted login with one let through, from the login until
+    /// the join or the leave ([`spawn::login`]).
+    logins: BTreeMap<SessionId, [bool; 3]>,
     /// The session of each joined player by runtime ID (players are entities to each other).
     /// Derived from `players`, so it changes only where `players` does.
     runtime_ids: BTreeMap<u64, SessionId>,
@@ -225,6 +229,7 @@ impl State {
             chunks: view::Chunks::default(),
             saving,
             loading: BTreeMap::new(),
+            logins: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
             rules: rules::Rules {
                 custom: std::sync::Arc::clone(&custom),
@@ -297,6 +302,7 @@ impl State {
             chunks,
             saving,
             loading,
+            logins,
             runtime_ids: _,
             rules,
             clock,
@@ -472,6 +478,13 @@ impl State {
             h.bytes(key.as_str().as_bytes());
             l.hash_into(&mut h);
         }
+        h.usize(logins.len());
+        for (session, let_through) in logins {
+            h.u64(session.get());
+            for t in let_through {
+                h.u64(u64::from(*t));
+            }
+        }
         rules.hash_into(&mut h);
         clock.hash_into(&mut h);
         trades.hash_into(&mut h);
@@ -609,8 +622,9 @@ impl State {
 
     /// The player of `session`, if any, leaves for `reason` without a message to the client:
     /// [`player::quit`] with the official server's left line, then it is forgotten and its
-    /// outbound queue closes.
+    /// outbound queue closes. An admitted login that had not joined yet is forgotten too.
     fn leave(&mut self, session: SessionId, reason: QuitReason) {
+        self.logins.remove(&session);
         let reason_text = reason.to_string();
         player::quit(self, session, reason, player::LEFT.to_owned());
         if let Some(p) = self.remove(session) {
@@ -990,6 +1004,8 @@ enum Pace {
 /// What one tick sends, delivered after the step.
 #[derive(Debug, Default)]
 pub(crate) struct Output {
+    /// Where the tick tells the sessions whose login it admitted ([`Outbound::Admitted`]).
+    admits: Vec<mpsc::Sender<Outbound>>,
     /// Messages per session from the output phase, in session order.
     packets: Vec<(SessionId, Vec<Message>)>,
     /// Final packets for sessions the tick has already forgotten, each after the messages that
@@ -1010,7 +1026,11 @@ pub(crate) struct Output {
 impl Output {
     #[cfg(test)]
     fn is_empty(&self) -> bool {
-        self.packets.is_empty() && self.closes.is_empty()
+        self.admits.is_empty() && self.packets.is_empty() && self.closes.is_empty()
+    }
+
+    fn admit(&mut self, outbound: mpsc::Sender<Outbound>) {
+        self.admits.push(outbound);
     }
 
     fn close(&mut self, outbound: mpsc::Sender<Outbound>, packet: Packet) {
@@ -1261,6 +1281,16 @@ fn step_marked(
     for input in inputs.drain(..) {
         let (session, seq) = (input.session, input.seq);
         let entry = match input.kind {
+            InputKind::Login { identity, outbound } => {
+                let entry = log.record(
+                    session,
+                    seq,
+                    EntryKind::Login(identity.clone()),
+                    identity.size(),
+                );
+                spawn::login(state, session, &identity, outbound, output);
+                entry
+            }
             InputKind::Join { identity, outbound } => {
                 let entry = log.record(
                     session,
@@ -1288,8 +1318,8 @@ fn step_marked(
             InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
         };
         match &*entry {
-            // A join applied above: its outbound queue is not part of the log.
-            EntryKind::Join(_) => {}
+            // A login or a join applied above: its outbound queue is not part of the log.
+            EntryKind::Login(_) | EntryKind::Join(_) => {}
             EntryKind::Packet(packet) => {
                 if let Some(packet) = hook::receive(state, session, packet) {
                     apply_packet(state, session, &packet);
@@ -1502,6 +1532,13 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
 /// Sends `output` to the sessions. A session whose queue is full or closed is [`dropped`]; the
 /// tick never waits.
 fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
+    for outbound in output.admits.drain(..) {
+        // The answer is the first message of a new queue, so only a session already gone (whose
+        // leave the tick takes later) can miss it.
+        if outbound.try_send(Outbound::Admitted).is_err() {
+            debug!("could not tell a session its login was admitted");
+        }
+    }
     for (session, packets) in output.packets.drain(..) {
         let Some(player) = state.players.get(&session) else {
             continue;
@@ -1798,7 +1835,7 @@ mod tests {
         output.answers = answer(state, requests);
     }
 
-    fn identity(n: u64) -> Identity {
+    pub(super) fn identity(n: u64) -> Identity {
         Identity {
             name: format!("player{n}"),
             xuid: Some(2_535_000_000 + n),
@@ -2049,6 +2086,7 @@ mod tests {
             crate::protocol::batch::Decoder::new(crate::protocol::batch::Settings::default());
         while let Ok(out) = rx.try_recv() {
             match out {
+                Outbound::Admitted => {}
                 Outbound::Send(messages) => {
                     for m in messages {
                         match m {
@@ -2170,10 +2208,19 @@ mod tests {
         }
     }
 
-    /// The callbacks the listeners of a join defer run right after that join, before the next
+    fn log_in_as(session: u64, seq: u64, identity: Identity) -> (Input, mpsc::Receiver<Outbound>) {
+        let (tx, rx) = outbound_queue();
+        let kind = InputKind::Login {
+            identity,
+            outbound: tx,
+        };
+        (input(session, seq, kind), rx)
+    }
+
+    /// The callbacks the listeners of a login defer run right after that login, before the next
     /// session's input.
     #[test]
-    fn a_join_s_deferred_callbacks_run_before_the_next_input() {
+    fn a_login_s_deferred_callbacks_run_before_the_next_input() {
         let (tx, mut seen) = mpsc::channel(8);
         let mut listeners = Listeners::default();
         listeners.push(
@@ -2186,8 +2233,8 @@ mod tests {
                     .unwrap();
             },
         );
-        let (a, _rx1) = join(1, 0);
-        let (b, _rx2) = join(2, 0);
+        let (a, _rx1) = log_in_as(1, 0, identity(1));
+        let (b, _rx2) = log_in_as(2, 0, identity(2));
         run_ticks_with(settings(|_| {}), listeners, vec![vec![a, b]]);
         let order: Vec<String> = std::iter::from_fn(|| seen.try_recv().ok()).collect();
         assert_eq!(
@@ -2919,7 +2966,7 @@ mod tests {
         assert_eq!(sessions(&state), [1]);
         assert!(state.index_matches_players());
         assert!(!rx1.is_closed(), "the existing player stays");
-        assert_eq!(kicked(&mut rx2).1, "disconnectionScreen.notAllowed");
+        assert_eq!(kicked(&mut rx2), (45, String::new()));
     }
 
     /// A second login a `PlayerLogin` listener refuses does not disconnect the player already
@@ -2934,9 +2981,10 @@ mod tests {
                 e.set_kick_flag(KickFlag::Listener, "one Alex is enough", None);
             }
         });
-        let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
-        let (b, mut rx2) = join_as(2, 0, person("Alex", Some(5)));
-        let state = run_ticks_with(settings(|_| {}), listeners, vec![vec![a], vec![b]]);
+        let (login, _rx1) = log_in_as(1, 0, person("Alex", Some(5)));
+        let (a, _rx1) = join_as(1, 1, person("Alex", Some(5)));
+        let (b, mut rx2) = log_in_as(2, 0, person("Alex", Some(5)));
+        let state = run_ticks_with(settings(|_| {}), listeners, vec![vec![login, a], vec![b]]);
         assert_eq!(sessions(&state), [1]);
         assert_eq!(kicked(&mut rx2).1, "one Alex is enough");
     }
@@ -3475,6 +3523,14 @@ mod tests {
                 .iter()
                 .map(|e| {
                     let kind = match &e.kind {
+                        EntryKind::Login(identity) => {
+                            let (tx, rx) = outbound_queue();
+                            receivers.insert(e.session, rx);
+                            InputKind::Login {
+                                identity: identity.clone(),
+                                outbound: tx,
+                            }
+                        }
                         EntryKind::Join(identity) => {
                             let (tx, rx) = outbound_queue();
                             receivers.insert(e.session, rx);

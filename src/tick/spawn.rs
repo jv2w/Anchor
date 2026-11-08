@@ -865,15 +865,46 @@ fn shared_list(entries: Vec<PlayerListEntry>) -> Arc<SharedPacket> {
     })))
 }
 
-/// Registers the player of `session`, or rejects it when the server is full. A second join of
-/// the same session changes nothing. Returns the load of the player's saved data, if the tick
-/// does not hold it; the player waits in [`Phase::Loading`] until it arrives.
+/// Admits or refuses the verified login of `session` before its client gets anything of the
+/// resource packs: [`PlayerLogin`] decides ([`decide_login`]), and an admitted session is told
+/// so through `outbound` and offers the packs, a refused one gets its last packet. Which of
+/// Anchor's refusals a listener let through is kept for the join ([`State::logins`]).
+pub(super) fn login(
+    state: &mut State,
+    session: SessionId,
+    identity: &Identity,
+    outbound: mpsc::Sender<Outbound>,
+    output: &mut Output,
+) {
+    let (admitted, event) = decide_login(state, identity);
+    match admitted {
+        Err(Refused { reason, packet }) => {
+            info!(session = session.get(), player = %identity.name, %reason, "login rejected");
+            output.close(outbound, packet);
+        }
+        Ok(let_through) => {
+            if let_through.contains(&true) {
+                state.logins.insert(session, let_through);
+            }
+            output.admit(outbound);
+        }
+    }
+    if let Some(e) = &event {
+        dispatch::watch(state, e);
+    }
+}
+
+/// Registers the player of `session`, whose login was admitted, or rejects it when a refusal its
+/// login did not let through applies now (the server filled, the whitelist or a ban changed
+/// while the client downloaded the packs). A second join of the same session changes nothing.
+/// Returns the load of the player's saved data, if the tick does not hold it; the player waits
+/// in [`Phase::Loading`] until it arrives.
 ///
 /// When the same player is already online, [`PlayerDuplicateLogin`] decides which of the two is
 /// disconnected. Cancelled, the connecting player goes at once. Otherwise the connecting player
-/// is checked first ([`login`], where the slot it would take over is free, so a full server still
-/// lets a player take over its own place), and the existing player is disconnected only once the
-/// connecting one is admitted: a login that is refused leaves the existing player online.
+/// is checked first (where the slot it would take over is free, so a full server still lets a
+/// player take over its own place), and the existing player is disconnected only once the
+/// connecting one is admitted: a join that is refused leaves the existing player online.
 pub(super) fn join(
     state: &mut State,
     session: SessionId,
@@ -885,6 +916,8 @@ pub(super) fn join(
         debug!(session = session.get(), "duplicate join ignored");
         return None;
     }
+    // Absent when the login let nothing through.
+    let let_through = state.logins.remove(&session).unwrap_or_default();
     let key = PlayerKey::of(&identity);
     let mut replaced = None;
     let mut duplicate = None;
@@ -908,31 +941,38 @@ pub(super) fn join(
         replaced = Some((existing, outcome.reason, packet));
         duplicate = event;
     }
-    let (admitted, event) = login(state, &identity);
-    let request = match admitted {
-        Err(Refused { reason, packet }) => {
-            info!(session = session.get(), player = %identity.name, %reason, "join rejected");
-            output.close(outbound, packet);
-            None
+    let request = if let Some(refusal) = refusal_since_login(state, &identity, let_through) {
+        let reason = refusal.to_message();
+        info!(session = session.get(), player = %identity.name, %reason, "join rejected");
+        output.close(outbound, refusal.packet());
+        None
+    } else {
+        if let Some((existing, reason, packet)) = replaced {
+            replace(state, existing, session, &reason, packet, output);
         }
-        Ok(let_through) => {
-            if let Some((existing, reason, packet)) = replaced {
-                replace(state, existing, session, &reason, packet, output);
-            }
-            let loading = Loading {
-                session,
-                let_through,
-            };
-            enter(state, loading, identity, key, outbound, output)
-        }
+        let loading = Loading {
+            session,
+            let_through,
+        };
+        enter(state, loading, identity, key, outbound, output)
     };
     if let Some(e) = &duplicate {
         dispatch::watch(state, e);
     }
-    if let Some(e) = &event {
-        dispatch::watch(state, e);
-    }
     request
+}
+
+/// The first of Anchor's refusals ([`command::refusals`]) of `identity` now that its login did
+/// not let through (`let_through`, in their order).
+fn refusal_since_login(
+    state: &State,
+    identity: &Identity,
+    let_through: [bool; 3],
+) -> Option<Refusal> {
+    command::refusals(state, identity)
+        .into_iter()
+        .zip(let_through)
+        .find_map(|(refusal, let_through)| refusal.filter(|_| !let_through))
 }
 
 /// Disconnects the player of `existing`, whom the admitted login of `by` replaces, with `packet`.
@@ -1101,12 +1141,9 @@ pub(super) fn player_loaded(
         return;
     }
     // Asked while the player is in the table, which the slot count reads. A full server is not
-    // asked again: the player holds its slot since the login.
-    let [_, whitelist, ban] = command::refusals(state, &player.identity);
-    let [_, whitelist_let_through, ban_let_through] = let_through;
-    let since_login = whitelist
-        .filter(|_| !whitelist_let_through)
-        .or(ban.filter(|_| !ban_let_through));
+    // asked again: the player holds its slot since the join.
+    let [_, whitelist, ban] = let_through;
+    let since_login = refusal_since_login(state, &player.identity, [true, whitelist, ban]);
     let data = match data {
         PlayerLoad::Found(data) => Some(data),
         PlayerLoad::Absent => None,
@@ -1179,14 +1216,14 @@ fn duplicate_login(
     (identity, outcome, Some(watched))
 }
 
-/// Decides whether `identity` may join (Anchor raises the event here, in
-/// the tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
-/// event's kick flags, listeners may clear them or set others, and the first flag left refuses
-/// the player with its screen message. Without listeners the first refusal decides
+/// Decides whether `identity` may join (Anchor raises the event here, in the tick, before the
+/// session offers the resource packs): Anchor's refusals ([`command::refusals`]) are the event's
+/// kick flags, listeners may clear them or set others, and the first flag left refuses the
+/// player with its screen message. Without listeners the first refusal decides
 /// ([`command::admit`]) and no event is built. Returns which of Anchor's refusals an admitted
-/// login let through (listeners cleared them; [`Loading`]) or the refusal, and the event for the
-/// monitors, who see it after the join is applied.
-fn login(
+/// login let through (listeners cleared them; [`State::logins`]) or the refusal, and the event
+/// for the monitors, who see it after the login is decided.
+fn decide_login(
     state: &mut State,
     identity: &Identity,
 ) -> (Result<[bool; 3], Refused>, Option<PlayerLogin>) {
@@ -1559,7 +1596,8 @@ mod tests {
         use crate::tick::queue::{Identity, Outbound};
         use crate::tick::spawn::JOINED_KEY;
         use crate::tick::tests::{
-            initialised, input, join, new_state, radius, received, settings, tick,
+            identity as numbered, initialised, input, join, leave, new_state, radius, received,
+            settings, tick,
         };
         use crate::tick::{Context, InputKind, Output, Phase, SessionId, State};
 
@@ -1596,14 +1634,30 @@ mod tests {
             tick(state, &mut { inputs }, &mut Output::default());
         }
 
-        /// Joins session `s`, opens a view of radius 2 and confirms the spawn; its queue.
+        /// The login and the join of session `s` as `identity`, as its session sends them, with
+        /// one queue for both.
+        fn log_in_and_join(
+            s: u64,
+            identity: Identity,
+        ) -> (Vec<crate::tick::queue::Input>, mpsc::Receiver<Outbound>) {
+            let (outbound, rx) = crate::tick::queue::outbound_queue();
+            let login = InputKind::Login {
+                identity: identity.clone(),
+                outbound: outbound.clone(),
+            };
+            let join = InputKind::Join { identity, outbound };
+            (vec![input(s, 0, login), input(s, 1, join)], rx)
+        }
+
+        /// Logs session `s` in and joins it, opens a view of radius 2 and confirms the spawn;
+        /// its queue.
         fn spawn(state: &mut State, s: u64) -> mpsc::Receiver<Outbound> {
-            let (j, rx) = join(s, 0);
+            let (mut entry, rx) = log_in_and_join(s, numbered(s));
             let mut output = Output::default();
-            tick(state, &mut vec![j], &mut output);
-            tick(state, &mut vec![radius(s, 1, 2)], &mut output);
+            tick(state, &mut entry, &mut output);
+            tick(state, &mut vec![radius(s, 2, 2)], &mut output);
             let runtime_id = state.players[&SessionId::new(s)].runtime_id;
-            tick(state, &mut vec![initialised(s, 2, runtime_id)], &mut output);
+            tick(state, &mut vec![initialised(s, 3, runtime_id)], &mut output);
             rx
         }
 
@@ -1619,12 +1673,12 @@ mod tests {
             }
         }
 
-        fn join_as(
+        fn log_in_as(
             s: u64,
             identity: Identity,
         ) -> (crate::tick::queue::Input, mpsc::Receiver<Outbound>) {
             let (outbound, rx) = crate::tick::queue::outbound_queue();
-            (input(s, 0, InputKind::Join { identity, outbound }), rx)
+            (input(s, 0, InputKind::Login { identity, outbound }), rx)
         }
 
         fn flags(e: &PlayerLogin) -> String {
@@ -1650,8 +1704,8 @@ mod tests {
                 .ban(BanEntry::new("Banned"))
                 .unwrap();
             let address = Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7)));
-            let (j, mut rx) = join_as(2, identity("Banned", address));
-            run(&mut state, vec![j]);
+            let (login, mut rx) = log_in_as(2, identity("Banned", address));
+            run(&mut state, vec![login]);
             // Clearing the full flag does not let in a player the ban refuses.
             assert_eq!(
                 logged(),
@@ -1666,8 +1720,8 @@ mod tests {
             assert_eq!(d.message, "This server has banned you");
             assert_eq!(state.players.len(), 1);
             Context { state: &mut state }.unban("banned");
-            let (j, mut rx) = join_as(3, identity("Banned", address));
-            run(&mut state, vec![j]);
+            let (entry, mut rx) = log_in_and_join(3, identity("Banned", address));
+            run(&mut state, entry);
             assert_eq!(logged(), ["Banned Some(192.0.2.7) 0 [ServerFull]"]);
             assert!(
                 received(&mut rx).1.is_none(),
@@ -1685,8 +1739,8 @@ mod tests {
             let mut state = state(|_| {}, on(listener));
             let mut who = identity("Ported", Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7))));
             who.client.port = 19_133;
-            let (j, _rx) = join_as(1, who);
-            run(&mut state, vec![j]);
+            let (login, _rx) = log_in_as(1, who);
+            run(&mut state, vec![login]);
             assert_eq!(logged(), ["Some(192.0.2.7) 19133"]);
         }
 
@@ -1699,8 +1753,8 @@ mod tests {
             ] {
                 let mut state = state(|c| c.general.max_players = 1, listeners);
                 let _first = spawn(&mut state, 1);
-                let (j, mut rx) = join(2, 0);
-                run(&mut state, vec![j]);
+                let (login, mut rx) = log_in_as(2, numbered(2));
+                run(&mut state, vec![login]);
                 let Some(Packet::PlayStatus(s)) = received(&mut rx).1 else {
                     panic!("a full server answers with PlayStatus");
                 };
@@ -1723,8 +1777,8 @@ mod tests {
             };
             let mut refused = state(|_| {}, on(refuse));
             let mut idle = state(|_| {}, on(refuse));
-            let (j, mut rx) = join(1, 0);
-            run(&mut refused, vec![j]);
+            let (login, mut rx) = log_in_as(1, numbered(1));
+            run(&mut refused, vec![login]);
             run(&mut idle, Vec::new());
             assert_eq!(refused.hash(), idle.hash());
             let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
@@ -1742,8 +1796,8 @@ mod tests {
                     .unwrap();
             };
             let mut state = state(|_| {}, on(ban));
-            let (j, mut rx) = join(1, 0);
-            run(&mut state, vec![j]);
+            let (login, mut rx) = log_in_as(1, numbered(1));
+            run(&mut state, vec![login]);
             let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
                 panic!("a refused join ends with a Disconnect");
             };
@@ -1751,16 +1805,17 @@ mod tests {
             assert!(state.players.is_empty());
         }
 
-        /// Joins session 1 as `name` on `state`, which loads saved player data: the player waits
-        /// for its data, whose answer `output` holds for the next tick. Returns its queue.
+        /// Logs session 1 in and joins it as `name` on `state`, which loads saved player data:
+        /// the player waits for its data, whose answer `output` holds for the next tick. Returns
+        /// its queue.
         fn join_loading(
             state: &mut State,
             name: &str,
             output: &mut Output,
         ) -> mpsc::Receiver<Outbound> {
             state.saving.players = true;
-            let (j, rx) = join_as(1, identity(name, None));
-            tick(state, &mut vec![j], output);
+            let (mut entry, rx) = log_in_and_join(1, identity(name, None));
+            tick(state, &mut entry, output);
             assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Loading);
             rx
         }
@@ -1770,10 +1825,8 @@ mod tests {
         /// arrives.
         #[test]
         fn a_ban_or_whitelist_change_while_the_data_loads_refuses_the_join() {
-            for (banned, message) in [
-                (true, "This server has banned you"),
-                (false, "disconnectionScreen.notAllowed"),
-            ] {
+            // The whitelist sends no message: the client shows its own text.
+            for (banned, message) in [(true, "This server has banned you"), (false, "")] {
                 let mut state = state(|_| {}, Listeners::default());
                 let mut output = Output::default();
                 let mut rx = join_loading(&mut state, "Loader", &mut output);
@@ -1785,11 +1838,11 @@ mod tests {
                 }
                 tick(&mut state, &mut Vec::new(), &mut output);
                 let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
-                    panic!("{message}: the loaded player is refused with a Disconnect");
+                    panic!("banned {banned}: the loaded player is refused with a Disconnect");
                 };
                 assert_eq!(d.message, message);
-                assert!(state.players.is_empty(), "{message}");
-                assert!(state.loading.is_empty(), "{message}");
+                assert!(state.players.is_empty(), "banned {banned}");
+                assert!(state.loading.is_empty(), "banned {banned}");
             }
         }
 
@@ -1808,9 +1861,119 @@ mod tests {
             assert!(received(&mut rx).1.is_none(), "the player stays");
         }
 
+        /// Takes the tick's answer to a login from `rx`: whether it was admitted, and the last
+        /// packet if the session was closed.
+        fn answer(rx: &mut mpsc::Receiver<Outbound>) -> (bool, Option<Packet>) {
+            let (mut admitted, mut close) = (false, None);
+            while let Ok(out) = rx.try_recv() {
+                match out {
+                    Outbound::Admitted => admitted = true,
+                    Outbound::Send(_) => panic!("a login gets no packets"),
+                    Outbound::Close(packet) => close = Some(packet),
+                }
+            }
+            (admitted, close)
+        }
+
+        /// A login the whitelist or a ban keeps out is closed at once, before its session offers
+        /// the resource packs: the whitelist with no message, so that the client shows its own
+        /// text in the player's language; nothing of it stays.
+        #[test]
+        fn a_login_the_whitelist_or_a_ban_keeps_out_is_closed_before_the_packs() {
+            for (banned, message) in [(false, ""), (true, "This server has banned you")] {
+                let mut state = state(|_| {}, Listeners::default());
+                let mut cx = Context { state: &mut state };
+                if banned {
+                    cx.ban(BanEntry::new("player1")).unwrap();
+                } else {
+                    cx.set_whitelist_enabled(true);
+                }
+                let (login, mut rx) = log_in_as(1, numbered(1));
+                run(&mut state, vec![login]);
+                let (admitted, close) = answer(&mut rx);
+                assert!(!admitted, "banned {banned}");
+                let Some(Packet::Disconnect(d)) = close else {
+                    panic!("banned {banned}: a refused login ends with a Disconnect");
+                };
+                assert_eq!((d.reason, d.message.as_str()), (45, message));
+                assert!(state.players.is_empty() && state.logins.is_empty());
+            }
+        }
+
+        /// An admitted login is told so and holds nothing until the join; a whitelist change or
+        /// a ban made while its client downloads the packs refuses the join, as it would have
+        /// refused the login.
+        #[test]
+        fn a_whitelist_change_or_a_ban_after_the_login_refuses_the_join() {
+            for (banned, message) in [(false, ""), (true, "This server has banned you")] {
+                let mut state = state(|_| {}, Listeners::default());
+                let (mut entry, mut rx) = log_in_and_join(1, numbered(1));
+                let join = entry.pop().unwrap();
+                run(&mut state, entry);
+                assert_eq!(answer(&mut rx), (true, None), "banned {banned}");
+                assert!(state.players.is_empty() && state.logins.is_empty());
+                let mut cx = Context { state: &mut state };
+                if banned {
+                    cx.ban(BanEntry::new("player1")).unwrap();
+                } else {
+                    cx.set_whitelist_enabled(true);
+                }
+                run(&mut state, vec![join]);
+                let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
+                    panic!("banned {banned}: a refused join ends with a Disconnect");
+                };
+                assert_eq!((d.reason, d.message.as_str()), (45, message));
+                assert!(state.players.is_empty(), "banned {banned}");
+            }
+        }
+
+        /// A server that filled while an admitted client downloaded the packs refuses its join
+        /// as full.
+        #[test]
+        fn a_server_full_since_the_login_refuses_the_join() {
+            let mut state = state(|c| c.general.max_players = 1, Listeners::default());
+            let (mut entry, mut rx) = log_in_and_join(2, numbered(2));
+            let join = entry.pop().unwrap();
+            run(&mut state, entry);
+            let _first = spawn(&mut state, 1);
+            run(&mut state, vec![join]);
+            assert!(matches!(
+                received(&mut rx).1,
+                Some(Packet::PlayStatus(s))
+                    if s.status
+                        == i32::from(crate::protocol::consts::PlayStatus::LoginFailedServerFull)
+            ));
+            assert_eq!(state.players.len(), 1);
+        }
+
+        /// A refusal a login listener cleared is kept until the join, which it lets in, and is
+        /// forgotten there or when the session leaves before joining.
+        #[test]
+        fn a_refusal_a_login_listener_cleared_holds_until_the_join_or_the_leave() {
+            let let_in = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                e.clear_kick_flag(KickFlag::ServerWhitelisted);
+            };
+            let mut state = state(|_| {}, on(let_in));
+            Context { state: &mut state }.set_whitelist_enabled(true);
+            let (mut entry, mut rx) = log_in_and_join(1, numbered(1));
+            let join = entry.pop().unwrap();
+            run(&mut state, entry);
+            assert_eq!(answer(&mut rx), (true, None));
+            assert_eq!(state.logins.len(), 1);
+            run(&mut state, vec![join]);
+            assert!(state.logins.is_empty());
+            assert_eq!(state.players[&SessionId::new(1)].phase, Phase::Joined);
+            assert!(received(&mut rx).1.is_none(), "the player stays");
+            let (login, _rx2) = log_in_as(2, numbered(2));
+            run(&mut state, vec![login]);
+            assert_eq!(state.logins.len(), 1);
+            run(&mut state, vec![leave(2, 1)]);
+            assert!(state.logins.is_empty());
+        }
+
         // api: PlayerPreLoginEvent
         #[test]
-        fn login_monitors_see_the_joined_player() {
+        fn login_monitors_see_the_login_before_the_player_joins() {
             let mut listeners = Listeners::default();
             listeners.push_monitor(|e: &PlayerLogin, cx: &Context<'_>| {
                 log(format!(
@@ -1821,9 +1984,9 @@ mod tests {
                 ));
             });
             let mut state = state(|_| {}, listeners);
-            let (j, _rx) = join(1, 0);
-            run(&mut state, vec![j]);
-            assert_eq!(logged(), ["player1 true 1"]);
+            let (login, _rx) = log_in_as(1, numbered(1));
+            run(&mut state, vec![login]);
+            assert_eq!(logged(), ["player1 true 0"]);
         }
 
         /// Takes the texts in what `rx` was sent: (type, message, parameters).
@@ -1904,6 +2067,14 @@ mod tests {
             }
         }
 
+        fn join_as(
+            s: u64,
+            identity: Identity,
+        ) -> (crate::tick::queue::Input, mpsc::Receiver<Outbound>) {
+            let (outbound, rx) = crate::tick::queue::outbound_queue();
+            (input(s, 0, InputKind::Join { identity, outbound }), rx)
+        }
+
         // api: PlayerDuplicateLoginEvent
         #[test]
         fn duplicate_login_monitors_see_the_outcome_applied() {
@@ -1976,7 +2147,7 @@ mod tests {
                 e.set_kick_flag(KickFlag::Listener, "x".repeat(MAX_TEXT_BYTES + 1), None);
             });
             let mut state = state(|_| {}, listeners);
-            let (a, mut rx) = join_as(1, identity("Alex", None));
+            let (a, mut rx) = log_in_as(1, identity("Alex", None));
             run(&mut state, vec![a]);
             let (_, close, _) = received(&mut rx);
             let Some(Packet::Disconnect(d)) = close else {

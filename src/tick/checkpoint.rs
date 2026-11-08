@@ -1152,6 +1152,7 @@ impl State {
             chunks,
             saving,
             loading,
+            logins,
             runtime_ids: _,
             rules,
             clock,
@@ -1194,6 +1195,7 @@ impl State {
         chunks.checkpoint(&mut w);
         saving.encode(&mut w);
         loading.encode(&mut w);
+        logins.encode(&mut w);
         rules.checkpoint(&mut w);
         clock.encode(&mut w);
         trades.encode(&mut w);
@@ -1335,6 +1337,7 @@ impl State {
         self.chunks.index_views(&self.players);
         self.saving = Codec::decode(&mut r)?;
         self.loading = Codec::decode(&mut r)?;
+        self.logins = Codec::decode(&mut r)?;
         self.rules.restore(&mut r)?;
         self.clock = Codec::decode(&mut r)?;
         self.trades = Codec::decode(&mut r)?;

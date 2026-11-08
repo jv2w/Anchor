@@ -489,24 +489,29 @@ pub(crate) enum Refusal {
 
 impl Refusal {
     /// The last packet the refused session gets: [`queue::server_full`] for a full server,
-    /// otherwise a `Disconnect` with the message.
+    /// otherwise a `Disconnect` with the reason `NotAllowed`. A whitelist refusal carries no
+    /// message, so the client shows its own text for that reason in the player's language: the
+    /// client shows a message as it is and translates no key in it.
     pub(crate) fn packet(&self) -> Packet {
-        match self {
-            Self::Full => queue::server_full(),
-            _ => Packet::Disconnect(Disconnect {
-                reason: i32::from(DisconnectReason::NotAllowed),
-                hide_disconnection_screen: false,
-                message: self.to_message(),
-                filtered_message: String::new(),
-            }),
-        }
+        let message = match self {
+            Self::Full => return queue::server_full(),
+            Self::NotWhitelisted => String::new(),
+            Self::Banned(_) | Self::IpBanned(_) => self.to_message(),
+        };
+        Packet::Disconnect(Disconnect {
+            reason: i32::from(DisconnectReason::NotAllowed),
+            hide_disconnection_screen: false,
+            message,
+            filtered_message: String::new(),
+        })
     }
 
-    /// What the refused player sees: the client's text where it has one, Anchor's otherwise.
+    /// The reason for the log and the `PlayerLogin` kick flag, and the text a player the
+    /// refusal kicks out of the game sees.
     pub(crate) fn to_message(&self) -> String {
         match self {
             Self::Full => "disconnectionScreen.serverFull".to_owned(),
-            Self::NotWhitelisted => "disconnectionScreen.notAllowed".to_owned(),
+            Self::NotWhitelisted => "This server's whitelist does not have you".to_owned(),
             Self::Banned(reason) if reason.is_empty() => "This server has banned you".to_owned(),
             Self::IpBanned(reason) if reason.is_empty() => {
                 "This server has banned your address".to_owned()

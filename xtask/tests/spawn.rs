@@ -1105,3 +1105,26 @@ fn the_bot_downloads_the_resource_packs_over_both_transports() {
     }
     server.stop();
 }
+
+/// A player the whitelist keeps out is refused before the server offers its resource packs,
+/// with `NotAllowed` and no message, so that the client shows its own text.
+#[test]
+fn a_player_the_whitelist_keeps_out_gets_none_of_the_resource_packs() {
+    let dir = data_dir("whitelist-packs");
+    let file = dir.join("a.zip");
+    write(
+        &file,
+        &pack_bytes("2b7e4c1d-9a35-4f86-b0c2-5d1e8f3a6c47", 200_000),
+    );
+    let mut config = config(Compression::Snappy);
+    config.general.resource_packs = vec![file];
+    config.general.white_list = true;
+    let server = Running::start("whitelist-packs", config, &dir);
+    let lines = play(&server, "rejected", "whitelist-packs", &[]);
+    let refused = result(&lines);
+    assert_eq!(refused["resource_packs_info_index"], -1, "{refused}");
+    assert_eq!(refused["login_success_index"], -1, "{refused}");
+    assert_eq!(refused["disconnect_reason"], 45, "{refused}");
+    assert_eq!(refused["disconnect_message"], "", "{refused}");
+    server.stop();
+}

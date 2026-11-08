@@ -3369,7 +3369,7 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\Command` | implemented | src/command.rs:86 `Command` | tests/server.rs::a_server_builds_with_a_command_of_the_users |  |
 | `command\Command::__construct` | merged | src/command.rs:85 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\Command::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:812 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\Command::broadcastCommandMessage` | implemented | src/tick/command.rs:817 `broadcast_command_message` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\Command::execute` | merged | src/command.rs:85 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\Command::getAliases` | implemented | src/command.rs:114 `aliases` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
 | `command\Command::getDescription` | implemented | src/command.rs:120 `description` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
@@ -3387,52 +3387,52 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\Command::setPermissionMessage` | skipped |  |  | a refused sender gets the client's `commands.generic.error.permissions` text, as the official server sends it; a handler that wants its own text checks `Context::has_permission` and fails with it |
 | `command\Command::setPermissions` | implemented | src/command.rs:189 `permission` | src/tick/command/builtin/tests.rs::available_commands_list_the_builtins_a_player_may_use_with_typed_overloads |  |
 | `command\Command::setUsage` | implemented | src/command.rs:200 `with_usage` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules |  |
-| `command\Command::testPermission` | merged | src/tick/command.rs:591 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
-| `command\Command::testPermissionSilent` | implemented | src/tick/command.rs:591 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `command\Command::testPermission` | merged | src/tick/command.rs:596 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Command::testPermissionSilent` |
+| `command\Command::testPermissionSilent` | implemented | src/tick/command.rs:596 `can_use` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\Command::unregister` | skipped |  |  | commands are fixed at `build()` |
 | `command\CommandExecutor` | merged | src/command.rs:85 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
 | `command\CommandExecutor::onCommand` | merged | src/command.rs:85 `Command` | src/tick/command/tests.rs::registration_keeps_user_commands_first_and_checks_the_rules | into `ClosureCommand` |
-| `command\CommandMap` | merged | src/tick/command.rs:527 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `CommandMap::register` |
+| `command\CommandMap` | merged | src/tick/command.rs:532 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `CommandMap::register` |
 | `command\CommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `command\CommandMap::dispatch` | implemented | src/tick/command.rs:891 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `command\CommandMap::getCommand` | implemented | src/tick/command.rs:599 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\CommandMap::register` | implemented | src/tick/command.rs:527 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\CommandMap::registerAll` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\CommandMap::dispatch` | implemented | src/tick/command.rs:896 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `command\CommandMap::getCommand` | implemented | src/tick/command.rs:604 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\CommandMap::register` | implemented | src/tick/command.rs:532 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\CommandMap::registerAll` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\CommandSender` | implemented | src/command.rs:482 `Sender` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `command\CommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `command\CommandSender::getName` | implemented | src/tick/command.rs:750 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\CommandSender::getName` | implemented | src/tick/command.rs:755 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\CommandSender::getScreenLineHeight` | merged | src/tick/player.rs:216 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::getScreenLineHeight` |
 | `command\CommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:954 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `command\CommandSender::sendMessage` | implemented | src/tick/command.rs:959 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `command\CommandSender::setScreenLineHeight` | merged | src/tick/player.rs:399 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session | into `Player::setScreenLineHeight` |
-| `command\SimpleCommandMap` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::__construct` | skipped |  |  | the command table is built by `ServerBuilder::command` |
 | `command\SimpleCommandMap::clearCommands` | skipped |  |  | commands are fixed at `build()` |
-| `command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:892 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
-| `command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:600 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:611 `commands` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\SimpleCommandMap::register` | implemented | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap::dispatch` | implemented | src/tick/command.rs:897 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `command\SimpleCommandMap::getCommand` | implemented | src/tick/command.rs:605 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\SimpleCommandMap::getCommands` | implemented | src/tick/command.rs:616 `commands` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\SimpleCommandMap::register` | implemented | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\SimpleCommandMap::registerAll` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\SimpleCommandMap::registerServerAliases` | skipped |  |  | the API's config file command aliases: aliases are given in code (`Command::alias`) |
-| `command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:570 `without_command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
-| `command\defaults\BanCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\SimpleCommandMap::unregister` | implemented | src/tick/command.rs:575 `without_command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `command\defaults\BanCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanIpCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\BanListCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ClearCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\DefaultGamemodeCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\DefaultGamemodeCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\DefaultGamemodeCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\DeopCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\DeopCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\DeopCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\DeopCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\DifficultyCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\DifficultyCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\DifficultyCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
@@ -3445,54 +3445,54 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\defaults\EnchantCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\EnchantCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\EnchantCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\GamemodeCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GamemodeCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GamemodeCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GamemodeCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\GarbageCollectorCommand` | skipped |  |  | PHP garbage collector control |
 | `command\defaults\GarbageCollectorCommand::__construct` | skipped |  |  | PHP garbage collector control |
 | `command\defaults\GarbageCollectorCommand::execute` | skipped |  |  | PHP garbage collector control |
-| `command\defaults\GiveCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\GiveCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\HelpCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\HelpCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\HelpCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\KickCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\KickCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\KillCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\ListCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KickCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KickCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KickCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\KillCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\ListCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\MeCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\MeCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\MeCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\OpCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\OpCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\OpCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\OpCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\OpCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\PardonIpCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\ParticleCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\ParticleCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\ParticleCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\PluginsCommand` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `command\defaults\PluginsCommand::__construct` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `command\defaults\PluginsCommand::execute` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `command\defaults\SaveCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOffCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\SaveOnCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\SayCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\SayCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\SayCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
@@ -3505,15 +3505,15 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\defaults\SpawnpointCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\SpawnpointCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\SpawnpointCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\StatusCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\StopCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StatusCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StatusCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StatusCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\StopCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\TeleportCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\TellCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\TellCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\TellCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
@@ -3529,20 +3529,20 @@ implemented 24, differs 0, merged 82, skipped 74, blank 0 (of 180 rows)
 | `command\defaults\TransferServerCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\TransferServerCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\TransferServerCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\defaults\VanillaCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
-| `command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:528 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\VanillaCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\VersionCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand::__construct` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
+| `command\defaults\WhitelistCommand::execute` | merged | src/tick/command.rs:533 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::register` |
 | `command\defaults\XpCommand` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\XpCommand::__construct` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
 | `command\defaults\XpCommand::execute` | skipped |  |  | no built-in command: a server registers its own with `ServerBuilder::command` |
-| `command\utils\CommandException` | merged | src/tick/command.rs:891 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `command\utils\CommandException` | merged | src/tick/command.rs:896 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 | `command\utils\CommandStringHelper` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
 | `command\utils\CommandStringHelper::parseQuoteAware` | skipped |  |  | command line parsing is the engine's; handlers get typed `Args` |
-| `command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:891 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
+| `command\utils\InvalidCommandSyntaxException` | merged | src/tick/command.rs:896 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output | into `CommandMap::dispatch` |
 
 ## `console`
 
@@ -3552,18 +3552,18 @@ implemented 3, differs 0, merged 5, skipped 20, blank 0 (of 28 rows)
 |---|---|---|---|---|
 | `console\ConsoleCommandSender` | implemented | src/command.rs:488 `Console` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::console_lines_run_in_the_tick_and_replay_from_the_input_log |  |
 | `console\ConsoleCommandSender::__construct` | skipped |  |  | the console sender is `command::Sender`'s console case |
-| `console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `console\ConsoleCommandSender::addAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `console\ConsoleCommandSender::getEffectivePermissions` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `console\ConsoleCommandSender::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:751 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `console\ConsoleCommandSender::getName` | implemented | src/tick/command.rs:756 `sender_name` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `console\ConsoleCommandSender::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
 | `console\ConsoleCommandSender::getScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `console\ConsoleCommandSender::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:694 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `console\ConsoleCommandSender::hasPermission` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `console\ConsoleCommandSender::isPermissionSet` | merged | src/tick/command.rs:699 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `console\ConsoleCommandSender::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:955 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
+| `console\ConsoleCommandSender::removeAttachment` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `console\ConsoleCommandSender::sendMessage` | implemented | src/tick/command.rs:960 `send_to` | src/tick/command/builtin/tests.rs::senders_have_names_get_messages_and_operators_get_copies |  |
 | `console\ConsoleCommandSender::setBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
 | `console\ConsoleCommandSender::setScreenLineHeight` | skipped |  |  | the console's output goes to the log, which pages nothing |
 | `console\ConsoleCommandSender::unsetBasePermission` | skipped |  |  | the console counts as an operator: its permissions are the operators' defaults |
@@ -5097,12 +5097,12 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `event\Cancellable` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\Cancellable::isCancelled` | implemented | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait` | merged | src/event/player.rs:379 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `CancellableTrait::cancel` |
-| `event\CancellableTrait::cancel` | implemented | src/event/player.rs:379 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait::isCancelled` | implemented | src/event/player.rs:358 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\CancellableTrait::uncancel` | implemented | src/event/player.rs:400 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\Cancellable` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\Cancellable::isCancelled` | implemented | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait` | merged | src/event/player.rs:381 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `CancellableTrait::cancel` |
+| `event\CancellableTrait::cancel` | implemented | src/event/player.rs:381 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait::isCancelled` | implemented | src/event/player.rs:360 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\CancellableTrait::uncancel` | implemented | src/event/player.rs:402 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
 | `event\Event` | implemented | src/event.rs:483 `Event` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `event\Event::call` | skipped |  |  | only the rule code raises events; direct API calls raise none |
 | `event\Event::getEventName` | skipped |  |  | an event is its Rust type |
@@ -5151,7 +5151,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockBurnEvent::cancel` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `event\block\BlockBurnEvent::getCausingBlock` | skipped |  |  | fire is out of scope: blocks do not burn |
-| `event\block\BlockBurnEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockBurnEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockBurnEvent::uncancel` | skipped |  |  | fire is out of scope: blocks do not burn |
 | `event\block\BlockDeathEvent` | skipped |  |  | block rule code: blocks do not die by themselves |
 | `event\block\BlockEvent` | merged | src/event/block.rs:37 `block` | src/event/block.rs::block_break_reads_and_changes_its_fields | into `BlockEvent::getBlock` |
@@ -5164,7 +5164,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockExplodeEvent::getIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::getPosition` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::getYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
-| `event\block\BlockExplodeEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockExplodeEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockExplodeEvent::setAffectedBlocks` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::setIgnitions` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockExplodeEvent::setYield` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
@@ -5202,7 +5202,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockPreExplodeEvent::getPlayer` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::getRadius` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::isBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
-| `event\block\BlockPreExplodeEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockPreExplodeEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockPreExplodeEvent::isIncendiary` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::setBlockBreaking` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
 | `event\block\BlockPreExplodeEvent::setFireChance` | skipped |  |  | block rule code: a block explosion starts from a lit TNT or a bed, which Anchor does not run; code explosions raise `EntityExplode` |
@@ -5216,12 +5216,12 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BlockTeleportEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\block\BlockTeleportEvent::cancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::getTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
-| `event\block\BlockTeleportEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockTeleportEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockTeleportEvent::setTo` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockTeleportEvent::uncancel` | skipped |  |  | block rule code: no dragon egg moves by itself |
 | `event\block\BlockUpdateEvent` | skipped |  |  | block rule code: Anchor runs no block updates |
 | `event\block\BlockUpdateEvent::cancel` | skipped |  |  | block rule code: Anchor runs no block updates |
-| `event\block\BlockUpdateEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BlockUpdateEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BlockUpdateEvent::uncancel` | skipped |  |  | block rule code: Anchor runs no block updates |
 | `event\block\BrewItemEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5231,7 +5231,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BrewItemEvent::getRecipe` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::getResult` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::getSlot` | skipped |  |  | brewing stand rule code: the stand is removed |
-| `event\block\BrewItemEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BrewItemEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BrewItemEvent::setResult` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewItemEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent` | skipped |  |  | brewing stand rule code: the stand is removed |
@@ -5239,7 +5239,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\BrewingFuelUseEvent::cancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::getBrewingStand` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::getFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
-| `event\block\BrewingFuelUseEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\BrewingFuelUseEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\BrewingFuelUseEvent::setFuelTime` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\BrewingFuelUseEvent::uncancel` | skipped |  |  | brewing stand rule code: the stand is removed |
 | `event\block\CampfireCookEvent` | skipped |  |  | campfire rule code: a campfire cooks nothing |
@@ -5249,7 +5249,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\CampfireCookEvent::getInput` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::getResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::getSlot` | skipped |  |  | campfire rule code: a campfire cooks nothing |
-| `event\block\CampfireCookEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\CampfireCookEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\CampfireCookEvent::setResult` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\CampfireCookEvent::uncancel` | skipped |  |  | campfire rule code: a campfire cooks nothing |
 | `event\block\ChestPairEvent` | implemented | src/event/block.rs:106 `ChestPair` | src/event/block.rs::chest_pair_names_both_halves<br>src/tick/inventory/tests/events.rs::chest_pair_names_the_halves_and_cancelling_keeps_them_single |  |
@@ -5264,12 +5264,12 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\FarmlandHydrationChangeEvent::cancel` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::getNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::getOldHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
-| `event\block\FarmlandHydrationChangeEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\FarmlandHydrationChangeEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\FarmlandHydrationChangeEvent::setNewHydration` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\FarmlandHydrationChangeEvent::uncancel` | skipped |  |  | block rule code: farmland does not dry or wet |
 | `event\block\LeavesDecayEvent` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\LeavesDecayEvent::cancel` | skipped |  |  | block rule code: leaves do not decay |
-| `event\block\LeavesDecayEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\LeavesDecayEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\LeavesDecayEvent::uncancel` | skipped |  |  | block rule code: leaves do not decay |
 | `event\block\PressurePlateUpdateEvent` | skipped |  |  | redstone |
 | `event\block\PressurePlateUpdateEvent::__construct` | skipped |  |  | redstone |
@@ -5290,7 +5290,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\block\StructureGrowEvent::cancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::getPlayer` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\block\StructureGrowEvent::getTransaction` | skipped |  |  | block rule code: saplings do not grow by themselves |
-| `event\block\StructureGrowEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\block\StructureGrowEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\block\StructureGrowEvent::uncancel` | skipped |  |  | block rule code: saplings do not grow by themselves |
 | `event\entity\AreaEffectCloudApplyEvent` | implemented | src/event/entity.rs:28 `AreaEffectCloudApply` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected<br>src/tick/entity/tests/events.rs::a_cancelled_cloud_application_gives_no_effects |  |
 | `event\entity\AreaEffectCloudApplyEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5396,7 +5396,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\entity\EntityFrostWalkerEvent::getLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::getRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::getTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
-| `event\entity\EntityFrostWalkerEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\entity\EntityFrostWalkerEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\entity\EntityFrostWalkerEvent::setLiquid` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::setRadius` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
 | `event\entity\EntityFrostWalkerEvent::setTargetBlock` | skipped |  |  | the frost walker enchantment changes blocks, which only players, the API and code explosions do |
@@ -5463,7 +5463,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\entity\EntityTrampleFarmlandEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\entity\EntityTrampleFarmlandEvent::cancel` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\EntityTrampleFarmlandEvent::getBlock` | skipped |  |  | block rule code: farmland is not trampled |
-| `event\entity\EntityTrampleFarmlandEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\entity\EntityTrampleFarmlandEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\entity\EntityTrampleFarmlandEvent::uncancel` | skipped |  |  | block rule code: farmland is not trampled |
 | `event\entity\ItemDespawnEvent` | implemented | src/event/entity.rs:978 `ItemDespawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::a_cancelled_item_despawn_gives_the_whole_time_again |  |
 | `event\entity\ItemDespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5505,7 +5505,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\CraftItemEvent::getRecipe` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::getRepetitions` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\CraftItemEvent::getTransaction` | skipped |  |  | crafting is removed: crafting requests are refused |
-| `event\inventory\CraftItemEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\CraftItemEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\CraftItemEvent::uncancel` | skipped |  |  | crafting is removed: crafting requests are refused |
 | `event\inventory\FurnaceBurnEvent` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5514,7 +5514,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\FurnaceBurnEvent::getFuel` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::isBurning` | skipped |  |  | furnace rule code: furnaces are removed |
-| `event\inventory\FurnaceBurnEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\FurnaceBurnEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\FurnaceBurnEvent::setBurnTime` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::setBurning` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceBurnEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
@@ -5524,7 +5524,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\inventory\FurnaceSmeltEvent::getFurnace` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::getResult` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::getSource` | skipped |  |  | furnace rule code: furnaces are removed |
-| `event\inventory\FurnaceSmeltEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\inventory\FurnaceSmeltEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\inventory\FurnaceSmeltEvent::setResult` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\FurnaceSmeltEvent::uncancel` | skipped |  |  | furnace rule code: furnaces are removed |
 | `event\inventory\InventoryCloseEvent` | implemented | src/event/inventory.rs:12 `InventoryClose` | src/event/inventory.rs::inventory_open_and_close_name_the_window<br>src/tick/interact/tests/events.rs::breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total<br>src/tick/inventory/tests/events.rs::windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed<br>src/tick/inventory/tests/events.rs::a_menu_a_close_listener_opens_stays_open_in_place_of_the_closed_window<br>src/tick/survival/wiring.rs::a_menu_a_close_listener_opens_does_not_follow_a_teleport_to_another_world |  |
@@ -5550,7 +5550,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerBedEnterEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerBedEnterEvent::cancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedEnterEvent::getBed` | skipped |  |  | sleeping is removed: a bed click does nothing |
-| `event\player\PlayerBedEnterEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerBedEnterEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerBedEnterEvent::uncancel` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedLeaveEvent` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `event\player\PlayerBedLeaveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5570,7 +5570,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerBucketEvent::getBlockFace` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::getBucket` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::getItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
-| `event\player\PlayerBucketEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerBucketEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerBucketEvent::setItem` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketEvent::uncancel` | skipped |  |  | bucket use is removed: buckets do not change blocks |
 | `event\player\PlayerBucketFillEvent` | skipped |  |  | bucket use is removed: buckets do not change blocks |
@@ -5625,11 +5625,11 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerDeathEvent::setDeathScreenMessage` | implemented | src/event/player.rs:266 `set_death_screen_message` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `event\player\PlayerDeathEvent::setKeepInventory` | implemented | src/event/player.rs:269 `set_keep_inventory` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
 | `event\player\PlayerDeathEvent::setKeepXp` | implemented | src/event/player.rs:272 `set_keep_xp` | src/event/player.rs::death_drops_messages_and_keeping_can_change |  |
-| `event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:1021 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
-| `event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:1021 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:1033 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:1043 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:1047 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait` | merged | src/event/player.rs:1023 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason | into `PlayerDisconnectEventTrait::getDisconnectReason` |
+| `event\player\PlayerDisconnectEventTrait::getDisconnectReason` | implemented | src/event/player.rs:1023 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::getDisconnectScreenMessage` | implemented | src/event/player.rs:1035 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::setDisconnectReason` | implemented | src/event/player.rs:1045 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerDisconnectEventTrait::setDisconnectScreenMessage` | implemented | src/event/player.rs:1049 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
 | `event\player\PlayerDisplayNameChangeEvent` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `event\player\PlayerDisplayNameChangeEvent::__construct` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
 | `event\player\PlayerDisplayNameChangeEvent::getNewName` | skipped |  |  | only direct API calls change display names, and direct calls raise no events |
@@ -5640,106 +5640,106 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerDropItemEvent::getItem` | implemented | src/event/player.rs:299 `item` | src/event/player.rs::drop_item_names_the_item |  |
 | `event\player\PlayerDropItemEvent::isCancelled` | implemented | src/event/player.rs:307 `Raised` | src/event/player.rs::drop_item_names_the_item |  |
 | `event\player\PlayerDropItemEvent::uncancel` | implemented | src/event/player.rs:306 `Raised` | src/event/player.rs::drop_item_names_the_item |  |
-| `event\player\PlayerDuplicateLoginEvent` | implemented | src/event/player.rs:319 `PlayerDuplicateLogin` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::duplicate_login_monitors_see_the_outcome_applied |  |
+| `event\player\PlayerDuplicateLoginEvent` | implemented | src/event/player.rs:321 `PlayerDuplicateLogin` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::duplicate_login_monitors_see_the_outcome_applied |  |
 | `event\player\PlayerDuplicateLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerDuplicateLoginEvent::cancel` | implemented | src/event/player.rs:378 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getConnectingSession` | implemented | src/event/player.rs:345 `connecting` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:366 `kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:372 `kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::getExistingSession` | implemented | src/event/player.rs:351 `existing` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::isCancelled` | implemented | src/event/player.rs:357 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerDuplicateLoginEvent::setDisconnectReason` | implemented | src/event/player.rs:386 `set_kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
-| `event\player\PlayerDuplicateLoginEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:393 `set_kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::a_duplicate_login_message_is_cut_to_the_text_limit |  |
-| `event\player\PlayerDuplicateLoginEvent::uncancel` | implemented | src/event/player.rs:399 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
-| `event\player\PlayerEditBookEvent` | implemented | src/event/player.rs:441 `PlayerEditBook` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerDuplicateLoginEvent::cancel` | implemented | src/event/player.rs:380 `cancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getConnectingSession` | implemented | src/event/player.rs:347 `connecting` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:368 `kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:374 `kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::getExistingSession` | implemented | src/event/player.rs:353 `existing` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::isCancelled` | implemented | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerDuplicateLoginEvent::setDisconnectReason` | implemented | src/event/player.rs:388 `set_kick_reason` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
+| `event\player\PlayerDuplicateLoginEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:395 `set_kick_screen_message` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason<br>src/tick/spawn.rs::a_duplicate_login_message_is_cut_to_the_text_limit |  |
+| `event\player\PlayerDuplicateLoginEvent::uncancel` | implemented | src/event/player.rs:401 `uncancel` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason |  |
+| `event\player\PlayerEditBookEvent` | implemented | src/event/player.rs:443 `PlayerEditBook` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
 | `event\player\PlayerEditBookEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:491 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEditBookEvent::getAction` | implemented | src/event/player.rs:456 `action` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getModifiedPages` | implemented | src/event/player.rs:465 `modified_pages` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getNewBook` | implemented | src/event/player.rs:462 `new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::getOldBook` | implemented | src/event/player.rs:459 `old_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:493 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEditBookEvent::setNewBook` | implemented | src/event/player.rs:472 `set_new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
-| `event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:492 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
-| `event\player\PlayerEmoteEvent` | implemented | src/event/player.rs:517 `PlayerEmote` | src/event/player.rs::emote_can_change<br>src/tick/survival/wiring.rs::emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow |  |
+| `event\player\PlayerEditBookEvent::cancel` | implemented | src/event/player.rs:493 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEditBookEvent::getAction` | implemented | src/event/player.rs:458 `action` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getModifiedPages` | implemented | src/event/player.rs:467 `modified_pages` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getNewBook` | implemented | src/event/player.rs:464 `new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::getOldBook` | implemented | src/event/player.rs:461 `old_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::isCancelled` | implemented | src/event/player.rs:495 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEditBookEvent::setNewBook` | implemented | src/event/player.rs:474 `set_new_book` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::an_edit_book_listener_sees_the_edit_and_may_replace_the_new_book |  |
+| `event\player\PlayerEditBookEvent::uncancel` | implemented | src/event/player.rs:494 `What` | src/event/player.rs::edit_book_takes_only_books<br>src/tick/interact/tests/book.rs::a_cancelled_edit_keeps_the_book_and_a_listener_that_takes_it_cancels_the_edit |  |
+| `event\player\PlayerEmoteEvent` | implemented | src/event/player.rs:519 `PlayerEmote` | src/event/player.rs::emote_can_change<br>src/tick/survival/wiring.rs::emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow |  |
 | `event\player\PlayerEmoteEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:542 `Raised` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::getEmoteId` | implemented | src/event/player.rs:529 `emote_id` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:544 `Raised` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:536 `set_emote_id` | src/event/player.rs::emote_can_change |  |
-| `event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:543 `Raised` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::cancel` | implemented | src/event/player.rs:544 `Raised` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::getEmoteId` | implemented | src/event/player.rs:531 `emote_id` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::isCancelled` | implemented | src/event/player.rs:546 `Raised` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::setEmoteId` | implemented | src/event/player.rs:538 `set_emote_id` | src/event/player.rs::emote_can_change |  |
+| `event\player\PlayerEmoteEvent::uncancel` | implemented | src/event/player.rs:545 `Raised` | src/event/player.rs::emote_can_change |  |
 | `event\player\PlayerEnchantingOptionsRequestEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerEnchantingOptionsRequestEvent::cancel` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::getInventory` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::getOptions` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerEnchantingOptionsRequestEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerEnchantingOptionsRequestEvent::setOptions` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerEnchantingOptionsRequestEvent::uncancel` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:554 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
+| `event\player\PlayerEntityInteractEvent` | implemented | src/event/player.rs:556 `PlayerEntityInteract` | src/event/player.rs::entity_interact_names_the_entity<br>src/tick/interact/tests/events.rs::an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade |  |
 | `event\player\PlayerEntityInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:576 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::getClickPosition` | implemented | src/event/player.rs:570 `click_position` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::getEntity` | implemented | src/event/player.rs:567 `entity` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:578 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:577 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
-| `event\player\PlayerEntityPickEvent` | implemented | src/event/player.rs:584 `PlayerEntityPick` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::creative_players_get_the_entity_item_and_others_only_select_one_they_carry<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityInteractEvent::cancel` | implemented | src/event/player.rs:578 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::getClickPosition` | implemented | src/event/player.rs:572 `click_position` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::getEntity` | implemented | src/event/player.rs:569 `entity` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::isCancelled` | implemented | src/event/player.rs:580 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityInteractEvent::uncancel` | implemented | src/event/player.rs:579 `Raised` | src/event/player.rs::entity_interact_names_the_entity |  |
+| `event\player\PlayerEntityPickEvent` | implemented | src/event/player.rs:586 `PlayerEntityPick` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::creative_players_get_the_entity_item_and_others_only_select_one_they_carry<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
 | `event\player\PlayerEntityPickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:606 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::getEntity` | implemented | src/event/player.rs:597 `entity` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::getResultItem` | implemented | src/event/player.rs:600 `result_item` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:608 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:607 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
-| `event\player\PlayerEvent` | merged | src/event/player.rs:978 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
-| `event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:978 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerExhaustEvent` | implemented | src/event/player.rs:612 `PlayerExhaust` | src/event/player.rs::exhaust_amount_can_change<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/survival/wiring.rs::exhaust_listeners_change_or_cancel_the_exhaustion |  |
+| `event\player\PlayerEntityPickEvent::cancel` | implemented | src/event/player.rs:608 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::getEntity` | implemented | src/event/player.rs:599 `entity` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::getResultItem` | implemented | src/event/player.rs:602 `result_item` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::isCancelled` | implemented | src/event/player.rs:610 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEntityPickEvent::uncancel` | implemented | src/event/player.rs:609 `Raised` | src/event/player.rs::entity_pick_names_the_entity_and_its_item<br>src/tick/entity/pick.rs::an_entity_pick_listener_sees_the_pick_and_may_cancel_it |  |
+| `event\player\PlayerEvent` | merged | src/event/player.rs:980 `player` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerEvent::getPlayer` |
+| `event\player\PlayerEvent::getPlayer` | implemented | src/event/player.rs:980 `player` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerExhaustEvent` | implemented | src/event/player.rs:614 `PlayerExhaust` | src/event/player.rs::exhaust_amount_can_change<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/survival/wiring.rs::exhaust_listeners_change_or_cancel_the_exhaustion |  |
 | `event\player\PlayerExhaustEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:643 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getAmount` | implemented | src/event/player.rs:626 `amount` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getCause` | implemented | src/event/player.rs:629 `cause` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::getPlayer` | implemented | src/event/player.rs:623 `player` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:645 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::setAmount` | implemented | src/event/player.rs:635 `set_amount` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:644 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
-| `event\player\PlayerExperienceChangeEvent` | implemented | src/event/player.rs:684 `PlayerXpChange` | src/event/player.rs::xp_change_keeps_progress_in_range<br>src/tick/survival/wiring.rs::xp_listeners_choose_the_level_or_cancel_the_gain |  |
+| `event\player\PlayerExhaustEvent::cancel` | implemented | src/event/player.rs:645 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getAmount` | implemented | src/event/player.rs:628 `amount` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getCause` | implemented | src/event/player.rs:631 `cause` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::getPlayer` | implemented | src/event/player.rs:625 `player` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::isCancelled` | implemented | src/event/player.rs:647 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::setAmount` | implemented | src/event/player.rs:637 `set_amount` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExhaustEvent::uncancel` | implemented | src/event/player.rs:646 `Why` | src/event/player.rs::exhaust_amount_can_change |  |
+| `event\player\PlayerExperienceChangeEvent` | implemented | src/event/player.rs:686 `PlayerXpChange` | src/event/player.rs::xp_change_keeps_progress_in_range<br>src/tick/survival/wiring.rs::xp_listeners_choose_the_level_or_cancel_the_gain |  |
 | `event\player\PlayerExperienceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:733 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getNewLevel` | implemented | src/event/player.rs:705 `new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getNewProgress` | implemented | src/event/player.rs:708 `new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getOldLevel` | implemented | src/event/player.rs:699 `old_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::getOldProgress` | implemented | src/event/player.rs:702 `old_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:735 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::setNewLevel` | implemented | src/event/player.rs:714 `set_new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::setNewProgress` | implemented | src/event/player.rs:721 `set_new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:734 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
-| `event\player\PlayerGameModeChangeEvent` | implemented | src/event/player.rs:739 `PlayerGameModeChange` | src/event/player.rs::game_mode_change_names_the_new_mode<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
+| `event\player\PlayerExperienceChangeEvent::cancel` | implemented | src/event/player.rs:735 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getNewLevel` | implemented | src/event/player.rs:707 `new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getNewProgress` | implemented | src/event/player.rs:710 `new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getOldLevel` | implemented | src/event/player.rs:701 `old_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::getOldProgress` | implemented | src/event/player.rs:704 `old_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::isCancelled` | implemented | src/event/player.rs:737 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::setNewLevel` | implemented | src/event/player.rs:716 `set_new_level` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::setNewProgress` | implemented | src/event/player.rs:723 `set_new_progress` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerExperienceChangeEvent::uncancel` | implemented | src/event/player.rs:736 `Raised` | src/event/player.rs::xp_change_keeps_progress_in_range |  |
+| `event\player\PlayerGameModeChangeEvent` | implemented | src/event/player.rs:741 `PlayerGameModeChange` | src/event/player.rs::game_mode_change_names_the_new_mode<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
 | `event\player\PlayerGameModeChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:757 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::getNewGamemode` | implemented | src/event/player.rs:751 `new_game_mode` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:759 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:758 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
-| `event\player\PlayerInteractEvent` | implemented | src/event/player.rs:773 `PlayerInteract` | src/event/player.rs::interact_can_stop_the_item_or_the_block<br>src/tick/interact/tests/events.rs::a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting<br>src/tick/interact/tests/events.rs::a_cancelled_right_click_uses_neither_the_block_nor_the_item<br>src/tick/interact/tests/events.rs::a_cancelled_left_click_starts_no_breaking<br>src/tick/interact/tests/events.rs::the_click_event_is_raised_for_a_click_on_a_removed_block<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items |  |
+| `event\player\PlayerGameModeChangeEvent::cancel` | implemented | src/event/player.rs:759 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::getNewGamemode` | implemented | src/event/player.rs:753 `new_game_mode` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::isCancelled` | implemented | src/event/player.rs:761 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerGameModeChangeEvent::uncancel` | implemented | src/event/player.rs:760 `Raised` | src/event/player.rs::game_mode_change_names_the_new_mode |  |
+| `event\player\PlayerInteractEvent` | implemented | src/event/player.rs:775 `PlayerInteract` | src/event/player.rs::interact_can_stop_the_item_or_the_block<br>src/tick/interact/tests/events.rs::a_right_click_listener_sees_the_click_and_may_keep_the_block_from_reacting<br>src/tick/interact/tests/events.rs::a_cancelled_right_click_uses_neither_the_block_nor_the_item<br>src/tick/interact/tests/events.rs::a_cancelled_left_click_starts_no_breaking<br>src/tick/interact/tests/events.rs::the_click_event_is_raised_for_a_click_on_a_removed_block<br>src/tick/interact/tests/events.rs::listeners_that_meddle_at_random_neither_make_nor_lose_items |  |
 | `event\player\PlayerInteractEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:854 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getAction` | implemented | src/event/player.rs:811 `action` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getBlock` | implemented | src/event/player.rs:799 `block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getFace` | implemented | src/event/player.rs:802 `face` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getItem` | implemented | src/event/player.rs:805 `item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::getTouchVector` | implemented | src/event/player.rs:808 `touch_vector` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:856 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::setUseBlock` | implemented | src/event/player.rs:848 `set_use_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::setUseItem` | implemented | src/event/player.rs:845 `set_use_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:855 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::useBlock` | implemented | src/event/player.rs:828 `uses_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerInteractEvent::useItem` | implemented | src/event/player.rs:837 `uses_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
-| `event\player\PlayerItemConsumeEvent` | implemented | src/event/player.rs:872 `PlayerItemConsume` | src/event/player.rs::item_consume_residue_can_change<br>src/tick/survival/wiring.rs::consume_listeners_cancel_the_meal_or_replace_its_residue |  |
+| `event\player\PlayerInteractEvent::cancel` | implemented | src/event/player.rs:856 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getAction` | implemented | src/event/player.rs:813 `action` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getBlock` | implemented | src/event/player.rs:801 `block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getFace` | implemented | src/event/player.rs:804 `face` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getItem` | implemented | src/event/player.rs:807 `item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::getTouchVector` | implemented | src/event/player.rs:810 `touch_vector` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::isCancelled` | implemented | src/event/player.rs:858 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::setUseBlock` | implemented | src/event/player.rs:850 `set_use_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::setUseItem` | implemented | src/event/player.rs:847 `set_use_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::uncancel` | implemented | src/event/player.rs:857 `How` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::useBlock` | implemented | src/event/player.rs:830 `uses_block` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerInteractEvent::useItem` | implemented | src/event/player.rs:839 `uses_item` | src/event/player.rs::interact_can_stop_the_item_or_the_block |  |
+| `event\player\PlayerItemConsumeEvent` | implemented | src/event/player.rs:874 `PlayerItemConsume` | src/event/player.rs::item_consume_residue_can_change<br>src/tick/survival/wiring.rs::consume_listeners_cancel_the_meal_or_replace_its_residue |  |
 | `event\player\PlayerItemConsumeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:904 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::getItem` | implemented | src/event/player.rs:885 `item` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::getResidue` | implemented | src/event/player.rs:888 `residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:906 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:896 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
-| `event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:905 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::cancel` | implemented | src/event/player.rs:906 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::getItem` | implemented | src/event/player.rs:887 `item` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::getResidue` | implemented | src/event/player.rs:890 `residue` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::isCancelled` | implemented | src/event/player.rs:908 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::setResidue` | implemented | src/event/player.rs:898 `set_residue` | src/event/player.rs::item_consume_residue_can_change |  |
+| `event\player\PlayerItemConsumeEvent::uncancel` | implemented | src/event/player.rs:907 `Raised` | src/event/player.rs::item_consume_residue_can_change |  |
 | `event\player\PlayerItemEnchantEvent` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerItemEnchantEvent::cancel` | skipped |  |  | the enchanting table is removed |
@@ -5748,85 +5748,85 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerItemEnchantEvent::getOption` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::getOutputItem` | skipped |  |  | the enchanting table is removed |
 | `event\player\PlayerItemEnchantEvent::getTransaction` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerItemEnchantEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerItemEnchantEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerItemEnchantEvent::uncancel` | skipped |  |  | the enchanting table is removed |
-| `event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:910 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
+| `event\player\PlayerItemHeldEvent` | implemented | src/event/player.rs:912 `PlayerItemHeld` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/inventory/tests/events.rs::hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot |  |
 | `event\player\PlayerItemHeldEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:932 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::getItem` | implemented | src/event/player.rs:923 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::getSlot` | implemented | src/event/player.rs:926 `slot` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:934 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:933 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:941 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in_hand |  |
+| `event\player\PlayerItemHeldEvent::cancel` | implemented | src/event/player.rs:934 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::getItem` | implemented | src/event/player.rs:925 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::getSlot` | implemented | src/event/player.rs:928 `slot` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::isCancelled` | implemented | src/event/player.rs:936 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemHeldEvent::uncancel` | implemented | src/event/player.rs:935 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent` | implemented | src/event/player.rs:943 `PlayerItemUse` | src/event/player.rs::item_held_and_use_name_the_item<br>src/tick/interact/tests/events.rs::a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction<br>src/tick/interact/tests/events.rs::an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in_hand |  |
 | `event\player\PlayerItemUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:963 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:957 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:954 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:965 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:964 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
-| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:969 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_the_official_server_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
+| `event\player\PlayerItemUseEvent::cancel` | implemented | src/event/player.rs:965 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::getDirectionVector` | implemented | src/event/player.rs:959 `direction_vector` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::getItem` | implemented | src/event/player.rs:956 `item` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::isCancelled` | implemented | src/event/player.rs:967 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerItemUseEvent::uncancel` | implemented | src/event/player.rs:966 `Raised` | src/event/player.rs::item_held_and_use_name_the_item |  |
+| `event\player\PlayerJoinEvent` | implemented | src/event/player.rs:971 `PlayerJoin` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_join_message_goes_to_the_others_as_the_official_server_sends_it<br>src/tick/spawn.rs::join_listeners_change_or_clear_the_message |  |
 | `event\player\PlayerJoinEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:982 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:988 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerJumpEvent` | implemented | src/event/player.rs:993 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerJoinEvent::getJoinMessage` | implemented | src/event/player.rs:984 `join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerJoinEvent::setJoinMessage` | implemented | src/event/player.rs:990 `set_join_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerJumpEvent` | implemented | src/event/player.rs:995 `PlayerJump` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerJumpEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerKickEvent` | implemented | src/event/player.rs:1006 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `event\player\PlayerKickEvent` | implemented | src/event/player.rs:1008 `PlayerKick` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `event\player\PlayerKickEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1056 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:1020 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1032 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:1026 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1058 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:1042 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:1046 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:1050 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1057 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
-| `event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1068 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
+| `event\player\PlayerKickEvent::cancel` | implemented | src/event/player.rs:1058 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getDisconnectReason` | implemented | src/event/player.rs:1022 `kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1034 `kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::getQuitMessage` | implemented | src/event/player.rs:1028 `quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::isCancelled` | implemented | src/event/player.rs:1060 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setDisconnectReason` | implemented | src/event/player.rs:1044 `set_kick_reason` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setDisconnectScreenMessage` | implemented | src/event/player.rs:1048 `set_kick_screen_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::setQuitMessage` | implemented | src/event/player.rs:1052 `set_quit_message` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerKickEvent::uncancel` | implemented | src/event/player.rs:1059 `Raised` | src/event/player.rs::kick_screen_message_falls_back_to_the_reason |  |
+| `event\player\PlayerLoginEvent` | implemented | src/event/player.rs:1072 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join |  |
 | `event\player\PlayerLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1166 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
-| `event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1089 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
-| `event\player\PlayerLoginEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
-| `event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1166 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
-| `event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1153 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
-| `event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1269 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerLoginEvent::cancel` | merged | src/event/player.rs:1170 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
+| `event\player\PlayerLoginEvent::getKickMessage` | merged | src/event/player.rs:1093 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::getFinalDisconnectScreenMessage` |
+| `event\player\PlayerLoginEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerLoginEvent::setKickMessage` | merged | src/event/player.rs:1170 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit | into `PlayerPreLoginEvent::setKickFlag` |
+| `event\player\PlayerLoginEvent::uncancel` | merged | src/event/player.rs:1157 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag | into `PlayerPreLoginEvent::clearAllKickFlags` |
+| `event\player\PlayerMissSwingEvent` | implemented | src/event/player.rs:1273 `PlayerMissSwing` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerMissSwingEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1283 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1285 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1284 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1294 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
+| `event\player\PlayerMissSwingEvent::cancel` | implemented | src/event/player.rs:1287 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMissSwingEvent::isCancelled` | implemented | src/event/player.rs:1289 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMissSwingEvent::uncancel` | implemented | src/event/player.rs:1288 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent` | implemented | src/event/player.rs:1298 `PlayerMove` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::move_listeners_send_the_player_back_or_elsewhere |  |
 | `event\player\PlayerMoveEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1328 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1307 `origin` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1310 `target` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1330 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1318 `set_target` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::a_move_sent_past_the_world_border_sends_the_player_back |  |
-| `event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1329 `Raised` | src/event/player.rs::move_target_can_change |  |
-| `event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1339 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerMoveEvent::cancel` | implemented | src/event/player.rs:1332 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::getFrom` | implemented | src/event/player.rs:1311 `origin` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::getTo` | implemented | src/event/player.rs:1314 `target` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::isCancelled` | implemented | src/event/player.rs:1334 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerMoveEvent::setTo` | implemented | src/event/player.rs:1322 `set_target` | src/event/player.rs::move_target_can_change<br>src/tick/survival/wiring.rs::a_move_sent_past_the_world_border_sends_the_player_back |  |
+| `event\player\PlayerMoveEvent::uncancel` | implemented | src/event/player.rs:1333 `Raised` | src/event/player.rs::move_target_can_change |  |
+| `event\player\PlayerPostChunkSendEvent` | implemented | src/event/player.rs:1343 `PlayerPostChunkSend` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
 | `event\player\PlayerPostChunkSendEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1350 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1351 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
-| `event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1067 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_joined_player |  |
+| `event\player\PlayerPostChunkSendEvent::getChunkX` | implemented | src/event/player.rs:1354 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerPostChunkSendEvent::getChunkZ` | implemented | src/event/player.rs:1355 `chunk` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/view.rs::post_chunk_send_names_each_chunk_sent_once_and_comes_after_it |  |
+| `event\player\PlayerPreLoginEvent` | implemented | src/event/player.rs:1071 `PlayerLogin` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::login_listeners_get_every_refusal_and_decide_the_join<br>src/tick/spawn.rs::anchors_own_refusal_left_set_ends_as_without_listeners<br>src/tick/spawn.rs::a_plugin_kick_flag_refuses_the_join_and_changes_nothing<br>src/tick/spawn.rs::a_login_listener_that_bans_the_player_refuses_it<br>src/tick/spawn.rs::login_monitors_see_the_login_before_the_player_joins |  |
 | `event\player\PlayerPreLoginEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1153 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1159 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1134 `kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1140 `kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1079 `final_kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1089 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1106 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1124 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1099 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
-| `event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1147 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
-| `event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1112 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::clearAllKickFlags` | implemented | src/event/player.rs:1157 `clear_all_kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::clearKickFlag` | implemented | src/event/player.rs:1163 `clear_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getDisconnectReason` | implemented | src/event/player.rs:1138 `kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getDisconnectScreenMessage` | implemented | src/event/player.rs:1144 `kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getFinalDisconnectReason` | implemented | src/event/player.rs:1083 `final_kick_reason` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getFinalDisconnectScreenMessage` | implemented | src/event/player.rs:1093 `final_kick_screen_message` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getIp` | implemented | src/event/player.rs:1110 `ip` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `event\player\PlayerPreLoginEvent::getKickFlags` | implemented | src/event/player.rs:1128 `kick_flags` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getPlayerInfo` | implemented | src/event/player.rs:1103 `info` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::getPort` | implemented | src/event/player.rs:1151 `port` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::the_login_event_has_the_address_and_port_the_client_connected_from |  |
+| `event\player\PlayerPreLoginEvent::isAllowed` | implemented | src/event/player.rs:1116 `is_allowed` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `event\player\PlayerPreLoginEvent::isAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1118 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
+| `event\player\PlayerPreLoginEvent::isKickFlagSet` | implemented | src/event/player.rs:1122 `is_kick_flag_set` | src/event/player.rs::login_refuses_with_the_first_kick_flag |  |
 | `event\player\PlayerPreLoginEvent::setAuthRequired` | skipped |  |  | Xbox sign-in is checked by the session before the tick, from `xbox-auth`; a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`) |
-| `event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1166 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit |  |
-| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1362 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_the_translated_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
+| `event\player\PlayerPreLoginEvent::setKickFlag` | implemented | src/event/player.rs:1170 `set_kick_flag` | src/event/player.rs::login_refuses_with_the_first_kick_flag<br>src/tick/spawn.rs::a_login_refusal_message_is_cut_to_the_text_limit |  |
+| `event\player\PlayerQuitEvent` | implemented | src/event/player.rs:1366 `PlayerQuit` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/player.rs::the_others_see_the_translated_left_line_unless_a_listener_changes_it<br>src/tick/player.rs::a_quit_listener_s_teleport_and_kill_are_saved_with_the_quitting_player<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
 | `event\player\PlayerQuitEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1376 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1380 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
-| `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1386 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1380 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
+| `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1384 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
+| `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1390 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:501 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
@@ -5841,59 +5841,59 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerRespawnAnchorUseEvent::cancel` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::getAction` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::getBlock` | skipped |  |  | a respawn anchor click is removed |
-| `event\player\PlayerRespawnAnchorUseEvent::isCancelled` | merged | src/event/player.rs:359 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
+| `event\player\PlayerRespawnAnchorUseEvent::isCancelled` | merged | src/event/player.rs:361 `is_cancelled` | src/event/player.rs::the_outcome_uses_the_screen_message_before_the_reason | into `Cancellable::isCancelled` |
 | `event\player\PlayerRespawnAnchorUseEvent::setAction` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::uncancel` | skipped |  |  | a respawn anchor click is removed |
-| `event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1437 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::respawn_monitors_see_the_place_used_not_an_ignored_one |  |
+| `event\player\PlayerRespawnEvent` | implemented | src/event/player.rs:1441 `PlayerRespawn` | src/event/player.rs::respawn_position_can_change<br>src/tick/survival/wiring.rs::respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator<br>src/tick/survival/wiring.rs::respawn_monitors_see_the_place_used_not_an_ignored_one |  |
 | `event\player\PlayerRespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1451 `position` | src/event/player.rs::respawn_position_can_change |  |
-| `event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1461 `set_position` | src/event/player.rs::respawn_position_can_change |  |
-| `event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1472 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerRespawnEvent::getRespawnPosition` | implemented | src/event/player.rs:1455 `position` | src/event/player.rs::respawn_position_can_change |  |
+| `event\player\PlayerRespawnEvent::setRespawnPosition` | implemented | src/event/player.rs:1465 `set_position` | src/event/player.rs::respawn_position_can_change |  |
+| `event\player\PlayerToggleFlightEvent` | implemented | src/event/player.rs:1476 `PlayerToggleFlight` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleFlightEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1495 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1497 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1487 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1496 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1501 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleFlightEvent::cancel` | implemented | src/event/player.rs:1499 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::isCancelled` | implemented | src/event/player.rs:1501 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::isFlying` | implemented | src/event/player.rs:1491 `is_flying` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleFlightEvent::uncancel` | implemented | src/event/player.rs:1500 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent` | implemented | src/event/player.rs:1505 `PlayerToggleGlide` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleGlideEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1524 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1526 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1516 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1525 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1530 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleGlideEvent::cancel` | implemented | src/event/player.rs:1528 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::isCancelled` | implemented | src/event/player.rs:1530 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::isGliding` | implemented | src/event/player.rs:1520 `is_gliding` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleGlideEvent::uncancel` | implemented | src/event/player.rs:1529 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent` | implemented | src/event/player.rs:1534 `PlayerToggleSneak` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSneakEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1561 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1563 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1547 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1553 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1562 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1567 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleSneakEvent::cancel` | implemented | src/event/player.rs:1565 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isCancelled` | implemented | src/event/player.rs:1567 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isSneakPressed` | implemented | src/event/player.rs:1551 `is_sneak_pressed` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::isSneaking` | implemented | src/event/player.rs:1557 `is_sneaking` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSneakEvent::uncancel` | implemented | src/event/player.rs:1566 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent` | implemented | src/event/player.rs:1571 `PlayerToggleSprint` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSprintEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1590 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1592 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1582 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1591 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1596 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
+| `event\player\PlayerToggleSprintEvent::cancel` | implemented | src/event/player.rs:1594 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::isCancelled` | implemented | src/event/player.rs:1596 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::isSprinting` | implemented | src/event/player.rs:1586 `is_sprinting` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSprintEvent::uncancel` | implemented | src/event/player.rs:1595 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent` | implemented | src/event/player.rs:1600 `PlayerToggleSwim` | src/event/player.rs::toggles_name_the_new_state<br>src/tick/survival/wiring.rs::toggles_ask_their_events_and_a_refused_one_resends_the_data |  |
 | `event\player\PlayerToggleSwimEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1619 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1621 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1611 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1620 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
-| `event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1627 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
+| `event\player\PlayerToggleSwimEvent::cancel` | implemented | src/event/player.rs:1623 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::isCancelled` | implemented | src/event/player.rs:1625 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::isSwimming` | implemented | src/event/player.rs:1615 `is_swimming` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerToggleSwimEvent::uncancel` | implemented | src/event/player.rs:1624 `Raised` | src/event/player.rs::toggles_name_the_new_state |  |
+| `event\player\PlayerTransferEvent` | implemented | src/event/player.rs:1631 `PlayerTransfer` | src/event/player.rs::transfer_target_can_change<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
 | `event\player\PlayerTransferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1665 `Raised` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1641 `address` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1647 `message` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1644 `port` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1667 `Raised` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1653 `set_address` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1659 `set_message` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1656 `set_port` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1666 `Raised` | src/event/player.rs::transfer_target_can_change |  |
-| `event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1671 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
+| `event\player\PlayerTransferEvent::cancel` | implemented | src/event/player.rs:1669 `Raised` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getAddress` | implemented | src/event/player.rs:1645 `address` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getMessage` | implemented | src/event/player.rs:1651 `message` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::getPort` | implemented | src/event/player.rs:1648 `port` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::isCancelled` | implemented | src/event/player.rs:1671 `Raised` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setAddress` | implemented | src/event/player.rs:1657 `set_address` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setMessage` | implemented | src/event/player.rs:1663 `set_message` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::setPort` | implemented | src/event/player.rs:1660 `set_port` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerTransferEvent::uncancel` | implemented | src/event/player.rs:1670 `Raised` | src/event/player.rs::transfer_target_can_change |  |
+| `event\player\PlayerViewDistanceChangeEvent` | implemented | src/event/player.rs:1675 `PlayerViewDistanceChange` | src/event/player.rs::chunk_send_and_view_distance_name_their_values<br>src/tick/spawn.rs::a_view_distance_change_is_raised_once_per_change |  |
 | `event\player\PlayerViewDistanceChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1686 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
-| `event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1683 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `event\player\PlayerViewDistanceChangeEvent::getNewDistance` | implemented | src/event/player.rs:1690 `new_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
+| `event\player\PlayerViewDistanceChangeEvent::getOldDistance` | implemented | src/event/player.rs:1687 `old_distance` | src/event/player.rs::chunk_send_and_view_distance_name_their_values |  |
 | `event\plugin\PluginDisableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `event\plugin\PluginEnableEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `event\plugin\PluginEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -7506,7 +7506,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `network\mcpe\NetworkSession::getPing` | differs | src/tick/player.rs:175 `ping` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | the session reports the transport's round trip time (the RakNet connected ping, on NetherNet the ICE consent check) to the tick every 5 seconds when it changed, as a logged input; `None` until one was measured |
 | `network\mcpe\NetworkSession::getPlayer` | skipped |  |  | the session is the player: `Context::player` |
-| `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
+| `network\mcpe\NetworkSession::getPlayerInfo` | merged | src/event/player.rs:1254 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `network\mcpe\NetworkSession::getPort` | implemented | src/tick/player.rs:192 `port` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `network\mcpe\NetworkSession::getTypeConverter` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::handleAckReceipt` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7538,7 +7538,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:372 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:951 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:965 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8132,7 +8132,7 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
 | `permission\BanEntry` | implemented | src/permission.rs:114 `BanEntry` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanEntry::__construct` | merged | src/tick/command.rs:793 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `permission\BanEntry::__construct` | merged | src/tick/command.rs:798 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `permission\BanEntry::fromString` | skipped |  |  | the API'sbanned-players.txt line format: bans live in redb |
 | `permission\BanEntry::getCreated` | implemented | src/permission.rs:170 `created` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::getExpires` | implemented | src/permission.rs:176 `expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
@@ -8145,53 +8145,53 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\BanEntry::setExpires` | implemented | src/permission.rs:226 `with_expires` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::setReason` | implemented | src/permission.rs:234 `with_reason` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
 | `permission\BanEntry::setSource` | implemented | src/permission.rs:242 `with_source` | src/permission.rs::ban_entries_keep_their_fields_and_expire_at_their_tick |  |
-| `permission\BanList` | merged | src/tick/command.rs:793 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
+| `permission\BanList` | merged | src/tick/command.rs:798 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot | into `BanList::addBan` |
 | `permission\BanList::__construct` | skipped |  |  | bans live in redb and commit with the world |
-| `permission\BanList::add` | implemented | src/tick/command.rs:794 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::addBan` | implemented | src/tick/command.rs:793 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::getEntries` | implemented | src/tick/command.rs:583 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::getEntry` | implemented | src/tick/command.rs:677 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `permission\BanList::isBanned` | implemented | src/tick/command.rs:665 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::add` | implemented | src/tick/command.rs:799 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::addBan` | implemented | src/tick/command.rs:798 `ban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::getEntries` | implemented | src/tick/command.rs:588 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::getEntry` | implemented | src/tick/command.rs:682 `ban_entry` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::isBanned` | implemented | src/tick/command.rs:670 `is_banned` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::isEnabled` | skipped |  |  | bans always apply: nothing in the API turns a ban list off either |
 | `permission\BanList::load` | skipped |  |  | bans live in redb and commit with the world |
-| `permission\BanList::remove` | implemented | src/tick/command.rs:1116 `unban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `permission\BanList::remove` | implemented | src/tick/command.rs:1121 `unban` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `permission\BanList::removeExpired` | skipped |  |  | ended bans never apply, and `Context::ban` drops them |
 | `permission\BanList::save` | skipped |  |  | bans live in redb and commit with the world |
 | `permission\BanList::setEnabled` | skipped |  |  | bans always apply: nothing in the API turns a ban list off either |
 | `permission\DefaultPermissionNames` | implemented | src/permission.rs:297 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
 | `permission\DefaultPermissions` | merged | src/permission.rs:297 `BROADCAST_ADMIN` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor | into `DefaultPermissionNames` |
 | `permission\DefaultPermissions::registerCorePermissions` | skipped |  |  | the default permissions are registered by `build()` |
-| `permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:539 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `PermissionManager::addPermission` |
-| `permission\Permissible` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\Permissible::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\DefaultPermissions::registerPermission` | merged | src/tick/command.rs:544 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `PermissionManager::addPermission` |
+| `permission\Permissible` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\Permissible::addAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\Permissible::getEffectivePermissions` | implemented | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\Permissible::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\Permissible::hasPermission` | implemented | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:694 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\Permissible::hasPermission` | implemented | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\Permissible::isPermissionSet` | implemented | src/tick/command.rs:699 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `permission\Permissible::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\Permissible::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleBase` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\Permissible::removeAttachment` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleBase` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
 | `permission\PermissibleBase::__construct` | skipped |  |  | permission holders are players and the console (`command::Sender`) |
 | `permission\PermissibleBase::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissibleBase::addAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleBase::getEffectivePermissions` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissibleBase::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:694 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `permission\PermissibleBase::hasPermission` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleBase::isPermissionSet` | merged | src/tick/command.rs:699 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `permission\PermissibleBase::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissibleBase::removeAttachment` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleBase::setBasePermission` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleBase::unsetBasePermission` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleDelegateTrait` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleDelegateTrait::addAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleDelegateTrait::getEffectivePermissions` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissibleDelegateTrait::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:646 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
-| `permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:694 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
+| `permission\PermissibleDelegateTrait::hasPermission` | merged | src/tick/command.rs:651 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::hasPermission` |
+| `permission\PermissibleDelegateTrait::isPermissionSet` | merged | src/tick/command.rs:699 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `Permissible::isPermissionSet` |
 | `permission\PermissibleDelegateTrait::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
-| `permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleDelegateTrait::removeAttachment` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissibleDelegateTrait::setBasePermission` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissibleDelegateTrait::unsetBasePermission` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `permission\Permission` | implemented | src/permission.rs:39 `Permission` | src/permission.rs::builtin_names_are_unique_and_start_with_anchor |  |
 | `permission\Permission::__construct` | implemented | src/permission.rs:47 `new` | src/permission.rs::defaults_parse_their_spellings_and_decide_by_operator_status |  |
 | `permission\Permission::addChild` | skipped |  |  | permissions are fixed at `build()` |
@@ -8202,29 +8202,29 @@ implemented 32, differs 0, merged 33, skipped 37, blank 0 (of 102 rows)
 | `permission\Permission::recalculatePermissibles` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::removeChild` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\Permission::setDescription` | skipped |  |  | a permission is a name and a default, fixed at `build()` |
-| `permission\PermissionAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:828 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
-| `permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:730 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\PermissionAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::__construct` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::clearPermissions` | implemented | src/tick/command.rs:833 `clear_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `permission\PermissionAttachment::getPermissions` | implemented | src/tick/command.rs:735 `permission_grants` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `permission\PermissionAttachment::getPlugin` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `permission\PermissionAttachment::getSubscribers` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
-| `permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
-| `permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachment::setPermission` | implemented | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\PermissionAttachment::setPermissions` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `permission\PermissionAttachment::unsetPermission` | implemented | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `permission\PermissionAttachment::unsetPermissions` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `permission\PermissionAttachmentInfo` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachmentInfo::__construct` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
 | `permission\PermissionAttachmentInfo::getAttachment` | skipped |  |  | grants are entries of a per-player table, not attachment objects |
 | `permission\PermissionAttachmentInfo::getGroupPermissionInfo` | skipped |  |  | no permission groups or child permissions |
-| `permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:619 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
-| `permission\PermissionManager` | merged | src/tick/command.rs:539 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `PermissionManager::addPermission` |
-| `permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:539 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `permission\PermissionAttachmentInfo::getPermission` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionAttachmentInfo::getValue` | merged | src/tick/command.rs:624 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them | into `Permissible::getEffectivePermissions` |
+| `permission\PermissionManager` | merged | src/tick/command.rs:544 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `PermissionManager::addPermission` |
+| `permission\PermissionManager::addPermission` | implemented | src/tick/command.rs:544 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
 | `permission\PermissionManager::clearPermissions` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\PermissionManager::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:724 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `permission\PermissionManager::getPermission` | implemented | src/tick/command.rs:729 `permission` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
 | `permission\PermissionManager::getPermissionSubscriptions` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
-| `permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:744 `permissions` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
+| `permission\PermissionManager::getPermissions` | implemented | src/tick/command.rs:749 `permissions` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build |  |
 | `permission\PermissionManager::removePermission` | skipped |  |  | permissions are fixed at `build()` |
 | `permission\PermissionManager::subscribeToPermission` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
 | `permission\PermissionManager::unsubscribeFromAllPermissions` | skipped |  |  | permission subscriptions are the API's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders |
@@ -8269,11 +8269,11 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::getName` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects with a name and play history: operator, ban and whitelist calls take names, and a saved player's inventories and data are `player::Offline`; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `player\Player` | implemented | src/tick.rs:872 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `player\Player` | implemented | src/tick.rs:886 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `player\Player::addAttachment` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `player\Player::addAttachment` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1564 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:18 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
 | `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4232 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
@@ -8307,7 +8307,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:329 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::getDisplayName` | implemented | src/tick/player.rs:77 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
-| `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:620 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
+| `player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:625 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `player\Player::getFirstPlayed` | differs | src/tick/player.rs:87 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
 | `player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:381 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::getGamemode` | implemented | src/tick/survival/api.rs:555 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8316,12 +8316,12 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1520 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `player\Player::getLastPlayed` | differs | src/tick/player.rs:153 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
-| `player\Player::getLeaveMessage` | merged | src/event/player.rs:1376 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
+| `player\Player::getLeaveMessage` | merged | src/event/player.rs:1380 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
 | `player\Player::getLocale` | implemented | src/tick/player.rs:160 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `player\Player::getName` | implemented | src/tick/player.rs:167 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::getNetworkSession` | skipped |  |  | protocol internals: `Player::send_packet` sends packets |
 | `player\Player::getPermissionRecalculationCallbacks` | skipped |  |  | permissions are fixed at `build()` |
-| `player\Player::getPlayerInfo` | merged | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
+| `player\Player::getPlayerInfo` | merged | src/event/player.rs:1254 `name` | src/event/player.rs::player_info_reads_the_identity | into `PlayerInfo::getUsername` |
 | `player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
 | `player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:216 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
@@ -8337,7 +8337,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:399 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:411 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1488 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `player\Player::hasPermission` | implemented | src/tick/command.rs:647 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `player\Player::hasPermission` | implemented | src/tick/command.rs:652 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:108 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:649 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
@@ -8350,7 +8350,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::isCreative` | implemented | src/tick/survival/api.rs:459 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isFlying` | implemented | src/tick/survival/api.rs:465 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::isOnline` | implemented | src/tick/player.rs:145 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
-| `player\Player::isPermissionSet` | implemented | src/tick/command.rs:695 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `player\Player::isPermissionSet` | implemented | src/tick/command.rs:700 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `player\Player::isSleeping` | skipped |  |  | sleeping is removed: a bed click does nothing |
 | `player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:524 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `player\Player::isSpectator` | implemented | src/tick/survival/api.rs:536 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
@@ -8373,7 +8373,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::pickEntity` | skipped |  |  | player rule code: listeners see PlayerEntityPick |
 | `player\Player::recalculatePermissions` | skipped |  |  | permission checks read the current table each time; nothing to recalculate |
 | `player\Player::releaseHeldItem` | merged | src/action/interact.rs:92 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events | into `Player::useHeldItem` |
-| `player\Player::removeAttachment` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `player\Player::removeAttachment` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:199 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `player\Player::removeTitles` | implemented | src/tick/player.rs:369 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:1104 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
@@ -8395,7 +8395,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::sendToastNotification` | implemented | src/tick/player.rs:372 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:932 `set_can_fly` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:877 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `player\Player::setBasePermission` | merged | src/tick/command.rs:1031 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
+| `player\Player::setBasePermission` | merged | src/tick/command.rs:1036 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:223 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:213 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
@@ -8424,7 +8424,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::toggleSprint` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::toggleSwim` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `player\Player::transfer` | implemented | src/action/survival.rs:226 `Transfer`<br>src/tick/player.rs:444 `transfer` | src/tick/player.rs::a_transfer_sends_the_address_and_leaves<br>src/tick/survival/wiring.rs::transfer_listeners_keep_the_player_or_send_it_elsewhere |  |
-| `player\Player::unsetBasePermission` | merged | src/tick/command.rs:1133 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
+| `player\Player::unsetBasePermission` | merged | src/tick/command.rs:1138 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `player\Player::useHeldItem` | implemented | src/action/interact.rs:92 `UseItem` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\PlayerDataLoadException` | skipped |  |  | a corrupt record keeps its original and reports through `Result` |
 | `player\PlayerDataProvider` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
@@ -8432,13 +8432,13 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\PlayerDataProvider::loadData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\PlayerDataProvider::saveData` | skipped |  |  | the API'splayer .dat files: Anchor keeps players in redb |
 | `player\PlayerDataSaveException` | skipped |  |  | player records commit with the world |
-| `player\PlayerInfo` | implemented | src/event/player.rs:1244 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo` | implemented | src/event/player.rs:1248 `PlayerInfo` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\PlayerInfo::__construct` | skipped |  |  | login makes it |
 | `player\PlayerInfo::getExtraData` | differs | src/tick/player.rs:52 `client_random_id`<br>src/tick/player.rs:58 `device_id`<br>src/tick/player.rs:64 `device_model`<br>src/tick/player.rs:70 `device_os`<br>src/tick/player.rs:95 `game_version`<br>src/tick/player.rs:125 `input_mode`<br>src/tick/player.rs:185 `playfab_id`<br>src/tick/player.rs:223 `self_signed_id`<br>src/tick/player.rs:230 `server_address` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same | typed getters on `Player` (`device_os`, `device_model`, `device_id`, `self_signed_id`, `client_random_id`, `playfab_id`, `game_version`, `input_mode`, `server_address`) instead of the raw login JSON, which is not kept |
 | `player\PlayerInfo::getLocale` | implemented | src/tick/player.rs:161 `locale` | src/tick/player.rs::the_login_values_and_the_ping_reach_the_player_and_replay_the_same |  |
 | `player\PlayerInfo::getSkin` | merged | src/tick/player.rs:236 `skin` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Human::getSkin` |
-| `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1250 `name` | src/event/player.rs::player_info_reads_the_identity |  |
-| `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1256 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo::getUsername` | implemented | src/event/player.rs:1254 `name` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\PlayerInfo::getUuid` | implemented | src/event/player.rs:1260 `uuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\SurvivalBlockBreakHandler` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\SurvivalBlockBreakHandler::__construct` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
 | `player\SurvivalBlockBreakHandler::__destruct` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
@@ -8455,9 +8455,9 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\UsedChunkStatus::getAll` | skipped |  |  | chunk sending is the engine's |
 | `player\UsedChunkStatus::id` | skipped |  |  | chunk sending is the engine's |
 | `player\UsedChunkStatus::name` | skipped |  |  | chunk sending is the engine's |
-| `player\XboxLivePlayerInfo` | merged | src/event/player.rs:1262 `xuid` | src/event/player.rs::player_info_reads_the_identity | into `XboxLivePlayerInfo::getXuid` |
+| `player\XboxLivePlayerInfo` | merged | src/event/player.rs:1266 `xuid` | src/event/player.rs::player_info_reads_the_identity | into `XboxLivePlayerInfo::getXuid` |
 | `player\XboxLivePlayerInfo::__construct` | skipped |  |  | login makes it |
-| `player\XboxLivePlayerInfo::getXuid` | implemented | src/event/player.rs:1262 `xuid` | src/event/player.rs::player_info_reads_the_identity |  |
+| `player\XboxLivePlayerInfo::getXuid` | implemented | src/event/player.rs:1266 `xuid` | src/event/player.rs::player_info_reads_the_identity |  |
 | `player\XboxLivePlayerInfo::withoutXboxData` | skipped |  |  | login makes it |
 | `player\chat\ChatFormatter` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
 | `player\chat\ChatFormatter::format` | skipped |  |  | the API'schat formatters: listeners change the format in PlayerChat |
@@ -8697,24 +8697,24 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::__serialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `Server::__unserialize` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `Server::addOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `Server::addOp` | implemented | src/tick/command.rs:906 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
-| `Server::addWhitelist` | implemented | src/tick/command.rs:772 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::addOp` | implemented | src/tick/command.rs:911 `op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
+| `Server::addWhitelist` | implemented | src/tick/command.rs:777 `add_to_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::broadcastMessage` | implemented | src/tick/task.rs:335 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastPopup` | implemented | src/tick/task.rs:337 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastTip` | implemented | src/tick/task.rs:336 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::broadcastTitle` | implemented | src/tick/task.rs:338 `broadcast` | src/tick/task.rs::broadcasts_reach_every_player_in_the_game_once |  |
 | `Server::crashDump` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
 | `Server::createPlayer` | skipped |  |  | players join through the login flow |
-| `Server::dispatchCommand` | implemented | src/tick/command.rs:890 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
+| `Server::dispatchCommand` | implemented | src/tick/command.rs:895 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::exceptionHandler` | skipped |  |  | the API'scrash dumps: Anchor keeps the input log instead |
-| `Server::forceShutdown` | merged | src/server.rs:798 `shutdown`<br>src/tick/command.rs:1107 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `Server::forceShutdown` | merged | src/server.rs:798 `shutdown`<br>src/tick/command.rs:1112 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `Server::getAllowedViewDistance` | merged | src/tick/task.rs:158 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::getAsyncPool` | merged | src/tick/task/job.rs:174 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `Server::getBroadcastChannelSubscribers` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::getCommandAliases` | skipped |  |  | the API's config file command aliases: aliases are given in code (`Command::alias`) |
-| `Server::getCommandMap` | merged | src/tick/command.rs:600 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::getCommand` |
+| `Server::getCommandMap` | merged | src/tick/command.rs:605 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::getCommand` |
 | `Server::getConfigGroup` | skipped |  |  | the API'sstring-keyed config file access: Anchor's settings are typed `Config` fields read at start |
 | `Server::getCraftingManager` | skipped |  |  | Anchor has no crafting: no recipes, no crafting grid, no furnace or brewing recipes |
 | `Server::getDataPath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
@@ -8722,7 +8722,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getFilePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `Server::getForceGamemode` | implemented | src/tick/task.rs:145 `is_game_mode_forced` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getGamemode` | implemented | src/tick/task.rs:138 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getIPBans` | implemented | src/tick/command.rs:653 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getIPBans` | implemented | src/tick/command.rs:658 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
 | `Server::getIp` | implemented | src/config.rs:598 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getIpV6` | implemented | src/config.rs:601 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
@@ -8733,13 +8733,13 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getMemoryManager` | skipped |  |  | PHP memory management |
 | `Server::getMotd` | implemented | src/tick/task.rs:77 `motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound<br>src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getName` | implemented | src/tick/task.rs:61 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getNameBans` | implemented | src/tick/command.rs:584 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getNameBans` | implemented | src/tick/command.rs:589 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getNetwork` | skipped |  |  | protocol internals |
 | `Server::getOfflinePlayer` | skipped |  |  | the API'soffline player object (a name and play history, or the online player): a saved player's inventories and data are held with `Context::hold_offline_player`; online players are `Context::players` |
 | `Server::getOfflinePlayerData` | implemented | src/tick/task/offline.rs:280 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot |  |
 | `Server::getOnlineMode` | implemented | src/config.rs:618 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getOnlinePlayers` | implemented | src/tick/task.rs:174 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_in_the_game |  |
-| `Server::getOps` | implemented | src/tick/command.rs:718 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `Server::getOps` | implemented | src/tick/command.rs:723 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `Server::getPlayerByPrefix` | implemented | src/tick/task.rs:207 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
 | `Server::getPlayerByRawUUID` | merged | src/tick/task.rs:226 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game | into `Server::getPlayerByUUID` |
 | `Server::getPlayerByUUID` | implemented | src/tick/task.rs:226 `player_by_uuid` | src/tick/task.rs::players_are_found_by_uuid_while_in_the_game |  |
@@ -8764,23 +8764,23 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getUpdater` | skipped |  |  | the API'supdate checker |
 | `Server::getVersion` | implemented | src/tick/task.rs:57 `GAME_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::getViewDistance` | implemented | src/tick/task.rs:158 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::getWhitelisted` | implemented | src/tick/command.rs:760 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::getWhitelisted` | implemented | src/tick/command.rs:765 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::getWorldManager` | merged | src/tick/world_api.rs:77 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `Server::hasOfflinePlayerData` | merged | src/tick/task/offline.rs:280 `hold_offline_player` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | into `Server::getOfflinePlayerData` |
-| `Server::hasWhitelist` | implemented | src/tick/command.rs:705 `is_whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::hasWhitelist` | implemented | src/tick/command.rs:710 `is_whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::isHardcore` | implemented | src/tick/task.rs:151 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
-| `Server::isOp` | implemented | src/tick/command.rs:688 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
+| `Server::isOp` | implemented | src/tick/command.rs:693 `is_op` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `Server::isRunning` | skipped |  |  | a `Context` exists only while the server runs |
-| `Server::isWhitelisted` | implemented | src/tick/command.rs:712 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::isWhitelisted` | implemented | src/tick/command.rs:717 `is_whitelisted` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow |
-| `Server::removeOp` | implemented | src/tick/command.rs:864 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
-| `Server::removeWhitelist` | implemented | src/tick/command.rs:918 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
+| `Server::removeOp` | implemented | src/tick/command.rs:869 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_the_official_server_sends |  |
+| `Server::removeWhitelist` | implemented | src/tick/command.rs:923 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `Server::requiresAuthentication` | implemented | src/config.rs:619 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:321 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `Server::sendUsage` | skipped |  |  | the API'susage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:164 `is_player_data_saved` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::shutdown` | implemented | src/server.rs:798 `shutdown`<br>src/tick/command.rs:1107 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `Server::shutdown` | implemented | src/server.rs:798 `shutdown`<br>src/tick/command.rs:1112 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `Server::subscribeToBroadcastChannel` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromBroadcastChannel` | skipped |  |  | the API'sbroadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -9426,7 +9426,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1715 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `world\World::dropItem` | implemented | src/tick/entity/api.rs:1692 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `world\World::getAdjacentChunks` | merged | src/world.rs:727 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
-| `world\World::getAutoSave` | merged | src/tick/command.rs:659 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::getAutoSave` |
+| `world\World::getAutoSave` | merged | src/tick/command.rs:664 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::getAutoSave` |
 | `world\World::getBiome` | implemented | src/world.rs:621 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getBiomeId` | implemented | src/world.rs:620 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::getBlock` | implemented | src/world.rs:630 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9513,7 +9513,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::save` | implemented | src/tick/task.rs:360 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `world\World::scheduleDelayedBlockUpdate` | skipped |  |  | block rule code: Anchor has no scheduled block updates |
-| `world\World::setAutoSave` | merged | src/tick/command.rs:972 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::setAutoSave` |
+| `world\World::setAutoSave` | merged | src/tick/command.rs:977 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request | into `WorldManager::setAutoSave` |
 | `world\World::setBiomeId` | implemented | src/world.rs:1071 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::setBlock` | implemented | src/world.rs:1108 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `world\World::setBlockAt` | implemented | src/world.rs:1107 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
@@ -9555,7 +9555,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
 | `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1622 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\WorldManager::generateWorld` | implemented | src/server.rs:683 `world`<br>src/tick/world_api/lifecycle.rs:430 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
-| `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:659 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
+| `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:664 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
 | `world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:238 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::getProviderManager` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
@@ -9565,7 +9565,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\WorldManager::isWorldGenerated` | implemented | src/tick/world_api/lifecycle.rs:383 `is_world_generated` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
 | `world\WorldManager::isWorldLoaded` | implemented | src/tick/world_api/lifecycle.rs:389 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
 | `world\WorldManager::loadWorld` | implemented | src/tick/world_api/lifecycle.rs:540 `load_world` | src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>src/tick/world_api/lifecycle/tests.rs::a_load_after_an_unload_in_the_same_call_keeps_the_world<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |
-| `world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:972 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
+| `world\WorldManager::setAutoSave` | implemented | src/tick/command.rs:977 `set_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
 | `world\WorldManager::setAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::setDefaultWorld` | implemented | src/tick/world_api/lifecycle.rs:575 `set_default_world` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\WorldManager::tick` | skipped |  |  | the tick loop ticks every world |

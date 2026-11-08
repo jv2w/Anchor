@@ -151,6 +151,10 @@ struct Session {
     deferred_bytes: usize,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
+    /// Where the tick sends to this session, from the login, which hands it to the tick, until
+    /// the join hands it over again; then only the tick holds it, so the queue closes when the
+    /// tick forgets the session.
+    join_outbound: Option<mpsc::Sender<Outbound>>,
     /// The places of this session's IP among the sessions waiting to join, from the accept task.
     ip_waiting: Arc<Semaphore>,
     /// The places among the sessions waiting to join, in the IP's and in all, held from login to
@@ -205,6 +209,7 @@ impl Session {
             deferred_bytes: 0,
             inputs: None,
             outbound: None,
+            join_outbound: None,
             ip_waiting,
             waiting: None,
             spawned: false,
@@ -292,6 +297,11 @@ impl Session {
                 // (`MAX_PENDING_BYTES`) or the spawn deadline, and the tick's queue fills only
                 // when this task falls behind.
                 outbound = next_outbound(self.outbound.as_mut()) => match outbound {
+                    Some(Outbound::Admitted) => {
+                        if let Err(e) = self.offer_packs().await {
+                            return End::Failed(e);
+                        }
+                    }
                     Some(Outbound::Send(messages)) => {
                         if let Err(e) = self.queue_messages(&messages).await {
                             return End::Failed(e);
@@ -309,9 +319,9 @@ impl Session {
                     return End::Timeout("login");
                 }
                 () = &mut spawn_deadline, if !self.spawned => return End::Timeout("spawn"),
-                _ = ping_report.tick(), if self.inputs.is_some() => self.report_ping(),
+                _ = ping_report.tick(), if self.stage == Stage::Joined => self.report_ping(),
                 // Joined sessions end when the stopping tick drops their outbound queue.
-                _ = shutdown.changed(), if self.inputs.is_none() => return End::Shutdown,
+                _ = shutdown.changed(), if self.stage != Stage::Joined => return End::Shutdown,
             }
             // A pack response or a batch sent up to the spawn status moved the deadline.
             if self.spawn_at != spawn_at {
@@ -505,7 +515,7 @@ impl Session {
         match (self.stage, packet) {
             (Stage::Login, Packet::Login(login)) => self.on_login(login).await,
             (Stage::Login, _) => Err(Error::Order("first packet is not Login")),
-            (Stage::Handshake, Packet::ClientToServerHandshake(_)) => self.login_success().await,
+            (Stage::Handshake, Packet::ClientToServerHandshake(_)) => self.log_in().await,
             (Stage::Packs, Packet::ResourcePackClientResponse(response)) => {
                 self.on_pack_response(&response).await
             }
@@ -514,7 +524,9 @@ impl Session {
                 .on_chunk_request(&self.shared.packs, &request)
                 .map_err(Error::Packs),
             // Chunks are sent without the blob cache, so the client's cache status needs no reply.
-            (Stage::Handshake | Stage::Packs, Packet::ClientCacheStatus(_)) => Ok(()),
+            (Stage::Handshake | Stage::Admission | Stage::Packs, Packet::ClientCacheStatus(_)) => {
+                Ok(())
+            }
             (
                 _,
                 Packet::RequestNetworkSettings(_)
@@ -632,7 +644,7 @@ impl Session {
         }
         if self.conn.can_encrypt() && !self.shared.encryption {
             // `enable-encryption = false`: no handshake, plain RakNet traffic.
-            return self.login_success().await;
+            return self.log_in().await;
         }
         let handshake =
             Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
@@ -650,9 +662,37 @@ impl Session {
         Ok(())
     }
 
-    /// Tells the client the login succeeded (after the handshake, or at once without
-    /// encryption) and offers it the resource packs.
-    async fn login_success(&mut self) -> Result<()> {
+    /// Hands the verified login to the tick (after the handshake, or at once without encryption),
+    /// which admits it ([`Outbound::Admitted`]) or refuses it ([`Outbound::Close`]) before the
+    /// client learns anything of the resource packs: a player the whitelist, a ban or a
+    /// `PlayerLogin` listener keeps out downloads none of them. While every connection share of
+    /// the tick queue is held, the player is turned away as from a full server.
+    async fn log_in(&mut self) -> Result<()> {
+        let identity = self
+            .identity
+            .clone()
+            .ok_or(Error::Order("handshake before login"))?;
+        let Some(mut inputs) = self.shared.inputs.connection(self.id) else {
+            self.send(&[queue::server_full()]).await?;
+            return Err(Error::Limit("sessions logged in at once"));
+        };
+        let (outbound, receiver) = queue::outbound_queue();
+        inputs
+            .try_send(InputKind::Login {
+                identity,
+                outbound: outbound.clone(),
+            })
+            .map_err(Error::Queue)?;
+        self.inputs = Some(inputs);
+        self.outbound = Some(receiver);
+        self.join_outbound = Some(outbound);
+        self.stage = Stage::Admission;
+        Ok(())
+    }
+
+    /// Tells the client the login succeeded, once the tick admitted it, and offers it the
+    /// resource packs.
+    async fn offer_packs(&mut self) -> Result<()> {
         self.stage = Stage::Packs;
         self.send(&[
             Packet::PlayStatus(PlayStatus {
@@ -676,7 +716,7 @@ impl Session {
                 }
                 self.send(&packets).await
             }
-            Reply::Join => self.join().await,
+            Reply::Join => self.join(),
             Reply::Refused => {
                 self.send(&[Packet::Disconnect(Disconnect {
                     reason: i32::from(consts::DisconnectReason::ResourcePackProblem),
@@ -700,19 +740,16 @@ impl Session {
         Ok(())
     }
 
-    /// Hands the player to the tick, then the packets that arrived before the join. While every
-    /// connection share of the tick queue is held, the player is turned away as from a full
-    /// server.
-    async fn join(&mut self) -> Result<()> {
+    /// Hands the player to the tick, then the packets that arrived before the join.
+    fn join(&mut self) -> Result<()> {
         let mut identity = self
             .identity
             .clone()
             .ok_or(Error::Order("join before login"))?;
         identity.client.join_time_ms = clock::unix_millis();
-        let (outbound, receiver) = queue::outbound_queue();
-        let Some(mut inputs) = self.shared.inputs.connection(self.id) else {
-            self.send(&[queue::server_full()]).await?;
-            return Err(Error::Limit("sessions joined at once"));
+        let (Some(inputs), Some(outbound)) = (self.inputs.as_mut(), self.join_outbound.take())
+        else {
+            return Err(Error::Order("join before the login was admitted"));
         };
         inputs
             .try_send(InputKind::Join { identity, outbound })
@@ -720,8 +757,6 @@ impl Session {
         debug!(session = self.id.get(), addr = %self.conn.addr(), "player joining");
         // The tick counts the player from here.
         self.waiting = None;
-        self.inputs = Some(inputs);
-        self.outbound = Some(receiver);
         self.stage = Stage::Joined;
         self.deferred_bytes = 0;
         while let Some((packet, size)) = self.deferred.pop_front() {
@@ -954,6 +989,8 @@ enum Stage {
     Login,
     /// Waiting for `ClientToServerHandshake`, on RakNet the first encrypted packet.
     Handshake,
+    /// Waiting for the tick to admit or refuse the login.
+    Admission,
     /// Waiting for the resource pack responses.
     Packs,
     /// Joined: packets go to the tick.
@@ -1096,7 +1133,7 @@ fn owned_body(body: &[u8]) -> Vec<u8> {
     owned
 }
 
-/// Waits for the next tick message, forever when the player has not joined.
+/// Waits for the next tick message, forever before the login is handed to the tick.
 async fn next_outbound(outbound: Option<&mut mpsc::Receiver<Outbound>>) -> Option<Outbound> {
     match outbound {
         Some(receiver) => receiver.recv().await,
@@ -1187,7 +1224,7 @@ mod tests {
     }
 
     /// Makes session `id` as any client gets it after the login and the resource packs: joined,
-    /// with its Join in the tick queue.
+    /// with its Login and Join in the tick queue.
     async fn joined(id: u64, shared: &Arc<Shared>) -> Session {
         let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
         joined_on(id, shared, conn).await
@@ -1198,7 +1235,8 @@ mod tests {
         let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared), ip_waiting());
         session.decoder = Some(batch::Decoder::new(shared.batch));
         session.identity = Some(identity(id));
-        session.join().await.unwrap();
+        session.log_in().await.unwrap();
+        session.join().unwrap();
         session
     }
 
@@ -1248,6 +1286,7 @@ mod tests {
                 Session::new(SessionId::new(0), conn, Arc::clone(&shared), ip_waiting());
             session.decoder = Some(batch::Decoder::new(shared.batch));
             session.identity = Some(identity(0));
+            session.log_in().await.unwrap();
             session.stage = Stage::Packs;
             let packet = || {
                 Packet::SetLocalPlayerAsInitialised(packet::SetLocalPlayerAsInitialised::default())
@@ -1260,7 +1299,7 @@ mod tests {
                 Err(Error::Limit(_))
             ));
             assert_eq!(session.deferred.len(), MAX_DEFERRED);
-            session.join().await.unwrap();
+            session.join().unwrap();
             assert!(session.deferred.is_empty());
             let mut packets = 0;
             while let Ok(input) = queue.try_recv() {
@@ -1647,6 +1686,86 @@ mod tests {
         });
     }
 
+    /// The session offers the resource packs only once the tick admitted the login: a login the
+    /// tick refuses gets its last packet and nothing of the packs, and an admitted one gets
+    /// `LoginSuccess` and the offer. A pack answer before the tick's answer breaks the sequence.
+    #[test]
+    fn the_packs_are_offered_only_after_the_tick_admits_the_login() {
+        for admitted in [false, true] {
+            let sent = crate::raknet::tests::run_paused(async {
+                let (inputs, mut queue) = input_queue(1);
+                let pack = crate::pack::tests::pack(UUID, "1.0.0", 1024);
+                let (shared, _stop) = sharing(
+                    inputs,
+                    Offer::new(vec![pack], Acceptance::Required).unwrap(),
+                );
+                let (conn, mut far) = crate::raknet::tests::linked_connection();
+                let mut session = Session::new(
+                    SessionId::new(0),
+                    Transport::Raknet(conn),
+                    Arc::clone(&shared),
+                    ip_waiting(),
+                );
+                session.encoder = Some(batch::Encoder::new(shared.batch));
+                session.identity = Some(identity(0));
+                session.log_in().await.unwrap();
+                let early = Packet::ResourcePackClientResponse(ResourcePackClientResponse {
+                    response: u32::from(consts::PackResponse::Completed),
+                    ..ResourcePackClientResponse::default()
+                });
+                assert!(matches!(
+                    session.on_packet(early, 3).await,
+                    Err(Error::Order(_))
+                ));
+                let Ok(Input {
+                    kind: InputKind::Login { outbound, .. },
+                    ..
+                }) = queue.try_recv()
+                else {
+                    panic!("the login is queued");
+                };
+                if admitted {
+                    outbound.send(Outbound::Admitted).await.unwrap();
+                } else {
+                    let refusal = Packet::Disconnect(Disconnect {
+                        reason: i32::from(consts::DisconnectReason::NotAllowed),
+                        ..Disconnect::default()
+                    });
+                    outbound.send(Outbound::Close(refusal)).await.unwrap();
+                }
+                drop(outbound);
+                let end = tokio::time::timeout(Duration::from_secs(1), session.serve()).await;
+                assert_eq!(matches!(end, Ok(End::Kicked)), !admitted, "{end:?}");
+                drop(session);
+                let mut decoder = batch::Decoder::new(shared.batch);
+                let mut sent = Vec::new();
+                while let Some(message) = far.sent().await {
+                    let mut payload = Vec::new();
+                    decoder.decode(&message, &mut payload).unwrap();
+                    let mut packets = Vec::new();
+                    batch::decode_packets(&payload, &shared.batch, &mut packets).unwrap();
+                    sent.extend(packets.into_iter().map(|(_, packet)| packet));
+                }
+                sent
+            });
+            if admitted {
+                assert!(
+                    matches!(
+                        sent.as_slice(),
+                        [Packet::PlayStatus(s), Packet::ResourcePacksInfo(_)]
+                            if s.status == i32::from(consts::PlayStatus::LoginSuccess)
+                    ),
+                    "{sent:?}"
+                );
+            } else {
+                assert!(
+                    matches!(sent.as_slice(), [Packet::Disconnect(d)] if d.message.is_empty()),
+                    "{sent:?}"
+                );
+            }
+        }
+    }
+
     /// Asking for packs moves the spawn deadline by the base only and each chunk sent by its
     /// allowance, so a client that asks and never downloads gains little.
     #[test]
@@ -1754,6 +1873,26 @@ mod tests {
         });
     }
 
+    /// Takes the Login and the Join next in `queue` and returns where the tick sends their
+    /// session.
+    fn joined_outbound(queue: &mut InputReceiver) -> mpsc::Sender<Outbound> {
+        let Ok(Input {
+            kind: InputKind::Login { .. },
+            ..
+        }) = queue.try_recv()
+        else {
+            panic!("the login is queued");
+        };
+        let Ok(Input {
+            kind: InputKind::Join { outbound, .. },
+            ..
+        }) = queue.try_recv()
+        else {
+            panic!("the join is queued");
+        };
+        outbound
+    }
+
     /// Before the spawn, each batch from the tick moves the spawn deadline by its time at the
     /// download floor rate (64 KiB/s): a client that must first receive 8 MiB (a player list of
     /// large skins) has 128 seconds more, and one sent nothing still times out after the 60.
@@ -1769,13 +1908,7 @@ mod tests {
                 let shared = shared(inputs);
                 let (conn, _far) = crate::raknet::tests::linked_connection();
                 let mut session = joined_on(0, &shared, Transport::Raknet(conn)).await;
-                let Ok(Input {
-                    kind: InputKind::Join { outbound, .. },
-                    ..
-                }) = queue.try_recv()
-                else {
-                    panic!("the join is queued");
-                };
+                let outbound = joined_outbound(&mut queue);
                 let messages = (0..packets)
                     .map(|_| {
                         Message::Packet(Packet::ResourcePackChunkData(
@@ -1798,18 +1931,6 @@ mod tests {
                 "timed out after {waited:?} with {packets} packets sent"
             );
         }
-    }
-
-    /// Takes the Join next in `queue` and returns where the tick sends its session.
-    fn joined_outbound(queue: &mut InputReceiver) -> mpsc::Sender<Outbound> {
-        let Ok(Input {
-            kind: InputKind::Join { outbound, .. },
-            ..
-        }) = queue.try_recv()
-        else {
-            panic!("the join is queued");
-        };
-        outbound
     }
 
     /// Makes `count` packets of a spawn window's player list, standing in for entries of large

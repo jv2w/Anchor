@@ -1341,6 +1341,14 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
                 .iter()
                 .map(|e| {
                     let kind = match &e.kind {
+                        EntryKind::Login(identity) => {
+                            let (outbound, rx) = outbound_queue();
+                            keep.push(rx);
+                            InputKind::Login {
+                                identity: identity.clone(),
+                                outbound,
+                            }
+                        }
                         EntryKind::Join(identity) => {
                             let (outbound, rx) = outbound_queue();
                             keep.push(rx);
@@ -1523,7 +1531,7 @@ fn joins_are_refused_in_priority_order_with_the_clients_or_anchors_messages() {
     );
     assert_eq!(
         Refusal::NotWhitelisted.to_message(),
-        "disconnectionScreen.notAllowed"
+        "This server's whitelist does not have you"
     );
     assert!(matches!(
         Refusal::Full.packet(),
@@ -1532,10 +1540,8 @@ fn joins_are_refused_in_priority_order_with_the_clients_or_anchors_messages() {
     let P::Disconnect(d) = Refusal::NotWhitelisted.packet() else {
         panic!();
     };
-    assert_eq!(
-        (d.reason, d.message.as_str()),
-        (45, "disconnectionScreen.notAllowed")
-    );
+    // No message: the client shows its own text for NotAllowed in the player's language.
+    assert_eq!((d.reason, d.message.as_str()), (45, ""));
 }
 
 #[test]

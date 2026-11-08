@@ -456,7 +456,10 @@ fn whitelist_actions_each_need_their_permission_and_kick_who_is_left_out() {
     assert!(Context { state: &mut state }.is_whitelist_enabled());
     // Player 1 is an operator and stays; player 2 is not listed.
     let (_, last) = chat(&mut state, &mut rx[1]);
-    assert_eq!(kicked_with(last), "disconnectionScreen.notAllowed");
+    assert_eq!(
+        kicked_with(last),
+        "This server's whitelist does not have you"
+    );
     assert!(state.players.contains_key(&SessionId::new(1)));
     assert_eq!(
         ok(&mut state, Sender::Console, "whitelist remove alex"),

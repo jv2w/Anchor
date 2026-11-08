@@ -1675,6 +1675,14 @@ fn replay(ticks: &[LoggedTick], pool: &Pool) -> Vec<u64> {
                 session: e.session,
                 seq: e.seq,
                 kind: match &e.kind {
+                    EntryKind::Login(identity) => {
+                        let (tx, rx) = outbound_queue();
+                        receivers.insert(e.session, rx);
+                        InputKind::Login {
+                            identity: identity.clone(),
+                            outbound: tx,
+                        }
+                    }
                     EntryKind::Join(identity) => {
                         let (tx, rx) = outbound_queue();
                         receivers.insert(e.session, rx);
