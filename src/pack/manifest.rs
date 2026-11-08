@@ -14,7 +14,7 @@ const LEVEL_DAT: &[u8] = b"level.dat";
 const MANIFEST: &[u8] = b"manifest.json";
 
 /// The largest `manifest.json` read; real ones are a few KiB.
-pub(super) const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
 /// The end of a level file's name below a folder.
 const NESTED_LEVEL_DAT: &[u8] = b"/level.dat";
@@ -129,7 +129,7 @@ pub(super) fn read(entries: &[Entry<'_>]) -> Result<Manifest> {
             limit: MAX_MANIFEST_BYTES,
         });
     }
-    let bytes = zip::read(entry).map_err(Error::Archive)?;
+    let bytes = zip::read(entry)?;
     let mut manifest = parse(&bytes)?;
     // gophertunnel: a `level.dat` anywhere makes the pack a world template.
     manifest.world_template = entries
@@ -147,9 +147,8 @@ fn is_backslash_manifest(entry: &Entry<'_>) -> bool {
 
 /// The manifest that the bytes of `manifest.json` hold.
 fn parse(bytes: &[u8]) -> Result<Manifest> {
-    let text = std::str::from_utf8(bytes).map_err(|e| Error::Manifest(Box::new(e)))?;
     let json: Json =
-        serde_json::from_str(&strip(text)).map_err(|e| Error::Manifest(Box::new(e)))?;
+        serde_json::from_slice(&strip(bytes)).map_err(|e| Error::Manifest(Box::new(e)))?;
     let uuid = json.header.uuid.parse().ok().ok_or(Error::Uuid)?;
     let version = json.header.version.canonical().ok_or(Error::Version)?;
     let has = |types: &[&str]| {
@@ -168,16 +167,10 @@ fn parse(bytes: &[u8]) -> Result<Manifest> {
     })
 }
 
-/// `text` without `//` and `/* */` comments and without commas before `}` or `]`, outside
+/// `bytes` without `//` and `/* */` comments and without commas before `}` or `]`, outside
 /// strings. Each removed byte becomes a space, and a
 /// removed line break stays, so a syntax error is reported where the file has it.
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: only ASCII bytes are replaced, between characters, so the rest is still \
-              UTF-8"
-)]
-fn strip(text: &str) -> String {
-    let bytes = text.as_bytes();
+fn strip(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     let mut string = false;
@@ -226,7 +219,7 @@ fn strip(text: &str) -> String {
         }
         i += 1;
     }
-    String::from_utf8(out).expect("the stripped manifest is UTF-8")
+    out
 }
 
 /// Whether a `*/` starts at `at`.
@@ -265,6 +258,7 @@ mod tests {
     use crate::pack::tests::UUID;
     use crate::pack::zip::tests::{File, archive};
 
+    /// A `resources` module entry of a manifest.
     const RESOURCES: &str = r#"{"type": "resources", "uuid": "x", "version": [1, 0, 0]}"#;
 
     fn manifest(text: &str) -> Result<Manifest> {
@@ -349,9 +343,9 @@ mod tests {
         );
         let m = manifest(&text).unwrap();
         assert_eq!(m.name, "a // b /* c */");
-        assert_eq!(strip(r#"["a,]", "\"", 1,]"#), r#"["a,]", "\"", 1 ]"#);
-        assert_eq!(strip("[1, // x\n]"), "[1      \n]");
-        assert_eq!(strip("/* never closed"), " ".repeat(15));
+        assert_eq!(strip(br#"["a,]", "\"", 1,]"#), br#"["a,]", "\"", 1 ]"#);
+        assert_eq!(strip(b"[1, // x\n]"), b"[1      \n]");
+        assert_eq!(strip(b"/* never closed"), b" ".repeat(15));
     }
 
     #[test]

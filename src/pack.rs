@@ -1,17 +1,18 @@
 //! Resource packs: the `.mcpack` and `.zip` files players download when they join.
 //!
-//! The packs come from the `resource-packs` setting (files relative to the pack folder
-//! `data/packs`, each with an optional `<file>.key` content key next to it) and from
+//! The packs come from the `resource-packs` setting (files, a relative path relative to the pack
+//! folder `data/packs`, each with an optional `<file>.key` content key next to it) and from
 //! [`ServerBuilder::resource_pack`]. They are read once at start, held in memory and offered in
-//! that order, the first on top of the stack. A pack file that cannot be read, or breaks a limit,
-//! stops the start with an error naming that file; a pack count over the limit, a total size over
-//! the limit and a repeated UUID stop it without a file name.
+//! that order, the first on top of the stack. A pack file or key file that cannot be read, a pack
+//! file that breaks a limit, and the pack file that takes the total size over the limit stop the
+//! start with an error naming that file; a pack count over the limit, a total size the packs
+//! given in code take over the limit, and a repeated UUID stop it without a file name.
 //!
 //! Limits: a pack is at most 256 MiB, at most 64 packs are offered, and they total at most
 //! 512 MiB (these bound the memory the packs take). A pack's `manifest.json` is at most 256 KiB.
 //!
 //! The manifest is the root `manifest.json`, else the shortest `.../manifest.json`; a pack with
-//! an old `pack_manifest.json` is refused. The JSON may hold comments and trailing commas.
+//! neither but a root `pack_manifest.json` (the old format) is refused as old. The JSON may hold comments and trailing commas.
 //! `format_version`, `header.name`, `header.uuid`,
 //! `header.version` and `modules` (each with `type`, `uuid` and `version`) are required. A version
 //! is three whole numbers, as an array or as `"x.y.z"` text (gophertunnel reads both).
@@ -86,7 +87,7 @@ impl Pack {
             .ok_or(Error::TooLarge {
                 limit: MAX_PACK_BYTES,
             })?;
-        let manifest = manifest::read(&zip::entries(&bytes).map_err(Error::Archive)?)?;
+        let manifest = manifest::read(&zip::entries(&bytes)?)?;
         Ok(Self {
             manifest,
             content_key: None,
@@ -106,7 +107,8 @@ impl Pack {
     ///
     /// [`Error::File`], naming `path`, with the cause: [`Error::Extension`] for another file
     /// name ending, [`Error::Read`] for a file that cannot be read, [`Error::Key`] for a key
-    /// that is not 32 bytes of text, and the errors of [`from_bytes`](Self::from_bytes).
+    /// that is not 32 bytes of text, [`Error::KeyFile`] for a key file that is there but cannot
+    /// be read, and the errors of [`from_bytes`](Self::from_bytes).
     #[doc(alias = "ZippedResourcePack::__construct")]
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -211,14 +213,17 @@ impl Pack {
         let pack = Self::from_bytes(read_file(path, MAX_PACK_BYTES)?)?;
         let mut key_path = path.as_os_str().to_owned();
         key_path.push(".key");
-        match read_file(Path::new(&key_path), MAX_KEY_FILE_BYTES) {
+        match crate::fs::read_bounded(Path::new(&key_path), MAX_KEY_FILE_BYTES) {
             Ok(key) => {
                 let key = String::from_utf8(key).map_err(|_| Error::Key)?;
                 pack.with_content_key(key.trim_end_matches(['\r', '\n']))
             }
-            Err(Error::Read(e)) if e.kind() == io::ErrorKind::NotFound => Ok(pack),
-            Err(Error::TooLarge { .. }) => Err(Error::Key),
-            Err(e) => Err(e),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(pack),
+            Err(e) if e.kind() == io::ErrorKind::FileTooLarge => Err(Error::Key),
+            Err(source) => Err(Error::KeyFile {
+                path: key_path.into(),
+                source,
+            }),
         }
     }
 }
@@ -417,7 +422,7 @@ pub enum Error {
     Archive(&'static str),
     /// The archive holds no `manifest.json`.
     ManifestMissing,
-    /// The archive holds a `pack_manifest.json`: the old pack format.
+    /// The archive holds no `manifest.json` but a root `pack_manifest.json`: the old pack format.
     OldFormat,
     /// `manifest.json` is larger than `limit` bytes.
     ManifestTooLarge {
@@ -432,6 +437,13 @@ pub enum Error {
     Version,
     /// The content key is not 32 bytes of text, or its key file is longer than a key.
     Key,
+    /// The key file at `path` is there but cannot be read.
+    KeyFile {
+        /// The key file.
+        path: PathBuf,
+        /// Why.
+        source: io::Error,
+    },
     /// More than `limit` packs.
     TooMany {
         /// The most packs.
@@ -469,6 +481,7 @@ impl fmt::Display for Error {
             Self::Uuid => f.write_str("invalid header uuid in manifest.json"),
             Self::Version => f.write_str("invalid header version in manifest.json"),
             Self::Key => f.write_str("the content key is not 32 bytes of text"),
+            Self::KeyFile { path, .. } => write!(f, "cannot read the key file {}", path.display()),
             Self::TooMany { limit } => write!(f, "more than {limit} resource packs"),
             Self::TotalTooLarge { limit } => {
                 write!(f, "the resource packs total more than {limit} bytes")
@@ -486,6 +499,7 @@ impl std::error::Error for Error {
         match self {
             Self::Read(e) => Some(e),
             Self::Manifest(e) => Some(e.as_ref()),
+            Self::KeyFile { source, .. } => Some(source),
             Self::File { source, .. } => Some(source.as_ref()),
             _ => None,
         }
@@ -546,8 +560,11 @@ fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::pack::zip::tests::{File, archive};
 
+    use crate::pack::zip::tests::{File, archive};
+    use crate::save::tests::TempDir;
+
+    /// The UUID of the test packs.
     pub(crate) const UUID: &str = "0ad9e0c3-2c63-4a43-9f5c-4c1d6c2e7a10";
 
     /// A pack archive with UUID `uuid`, version `version` and `extra` bytes of texture.
@@ -606,31 +623,6 @@ pub(crate) mod tests {
         ));
     }
 
-    /// A per-test folder under the system temp folder, removed on drop.
-    struct TempDir(PathBuf);
-
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("anchor-pack-{name}-{}", std::process::id()));
-            std::fs::remove_dir_all(&dir).unwrap_or(());
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn join(&self, name: &str) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TempDir {
-        #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap_or(());
-        }
-    }
-
     #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
     fn write(path: &Path, bytes: &[u8]) {
         std::fs::write(path, bytes).unwrap();
@@ -640,13 +632,13 @@ pub(crate) mod tests {
     // api: ResourcePackManager::getPackEncryptionKey, ResourcePackException
     #[test]
     fn a_pack_file_loads_with_its_key_file() {
-        let dir = TempDir::new("key");
-        let path = dir.join("a.mcpack");
+        let dir = TempDir::new("pack-key");
+        let path = dir.0.join("a.mcpack");
         write(&path, &pack_bytes(UUID, "1.0.0", 10));
         let pack = Pack::load(&path).unwrap();
         assert_eq!(pack.content_key(), None);
         let key = "0123456789abcdef0123456789abcdef";
-        write(&dir.join("a.mcpack.key"), format!("{key}\r\n").as_bytes());
+        write(&dir.0.join("a.mcpack.key"), format!("{key}\r\n").as_bytes());
         let pack = Pack::load(&path).unwrap();
         assert_eq!(pack.content_key(), Some(key));
         assert!(!format!("{pack:?}").contains(key), "the key is secret");
@@ -654,11 +646,11 @@ pub(crate) mod tests {
         assert!(!format!("{offer:?}").contains(key), "the key is secret");
         let pack = Pack::load(&path).unwrap();
 
-        write(&dir.join("a.mcpack.key"), b"short");
+        write(&dir.0.join("a.mcpack.key"), b"short");
         let error = Pack::load(&path).unwrap_err();
         assert!(matches!(&error, Error::File { source, .. } if matches!(**source, Error::Key)));
         assert!(error.to_string().contains("a.mcpack"));
-        write(&dir.join("a.mcpack.key"), &[b'k'; 100]);
+        write(&dir.0.join("a.mcpack.key"), &[b'k'; 100]);
         assert!(Pack::load(&path).is_err());
 
         assert!(matches!(
@@ -666,17 +658,35 @@ pub(crate) mod tests {
             Err(Error::Key)
         ));
 
-        let missing = Pack::load(dir.join("missing.zip")).unwrap_err();
+        let missing = Pack::load(dir.0.join("missing.zip")).unwrap_err();
         assert!(
             matches!(&missing, Error::File { source, .. } if matches!(**source, Error::Read(_)))
         );
-        let txt = dir.join("a.txt");
+        let txt = dir.0.join("a.txt");
         write(&txt, &pack_bytes(UUID, "1.0.0", 10));
         let wrong = Pack::load(&txt).unwrap_err();
         assert!(
             matches!(&wrong, Error::File { source, .. } if matches!(**source, Error::Extension))
         );
         assert!(std::error::Error::source(&wrong).is_some());
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
+    fn a_key_file_that_cannot_be_read_is_named() {
+        let dir = TempDir::new("pack-unreadable-key");
+        let path = dir.0.join("a.mcpack");
+        write(&path, &pack_bytes(UUID, "1.0.0", 10));
+        // A folder in the key file's place is there but cannot be read as a file.
+        std::fs::create_dir(dir.0.join("a.mcpack.key")).unwrap();
+        let error = Pack::load(&path).unwrap_err();
+        let mut text = error.to_string();
+        let mut source = std::error::Error::source(&error);
+        while let Some(cause) = source {
+            text = format!("{text}: {cause}");
+            source = cause.source();
+        }
+        assert!(text.contains("a.mcpack.key"), "{text}");
     }
 
     /// A pack with UUID `uuid`, version `version` and `extra` bytes of texture.
@@ -717,8 +727,8 @@ pub(crate) mod tests {
     fn packs_given_in_code_follow_the_configured_files() {
         let other = "11111111-2222-3333-4444-555555555555";
         let builder = crate::Server::builder().resource_pack(pack(UUID, "1.0.0", 1));
-        let dir = TempDir::new("order");
-        let file = dir.join("b.zip");
+        let dir = TempDir::new("pack-order");
+        let file = dir.0.join("b.zip");
         write(&file, &pack_bytes(other, "2.0.0", 1));
         let offer = Offer::load(
             std::slice::from_ref(&file),
@@ -729,7 +739,7 @@ pub(crate) mod tests {
         let order: Vec<String> = offer.packs().iter().map(|p| p.uuid().to_string()).collect();
         assert_eq!(order, [other, UUID]);
 
-        let missing = dir.join("missing.mcpack");
+        let missing = dir.0.join("missing.mcpack");
         let error = Offer::load(&[file, missing], Vec::new(), Acceptance::Optional).unwrap_err();
         assert!(error.to_string().contains("missing.mcpack"), "{error}");
     }
