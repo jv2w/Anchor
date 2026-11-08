@@ -144,7 +144,7 @@ impl Transfer {
         }
     }
 
-    /// `SendPacks`: the data info of each pack the client names.
+    /// Answers `SendPacks` with the data info of each pack the client names.
     fn on_send_packs(&mut self, offer: &Offer, names: &[String]) -> Result<Reply> {
         if self.requested {
             return Err(Error::Order("packs requested twice"));
@@ -259,6 +259,7 @@ mod tests {
     use crate::pack::tests::{UUID, pack};
     use crate::protocol::consts::ResourcePackType;
 
+    /// The UUID of the second, small pack of [`offer`].
     const OTHER: &str = "11111111-2222-3333-4444-555555555555";
 
     fn offer() -> Offer {

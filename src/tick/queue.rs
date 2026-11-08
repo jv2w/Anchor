@@ -22,6 +22,9 @@ use crate::task::MAX_JOBS;
 /// The same as [`SKIN_FIXED_BYTES`] for one animation: 2 image sizes (4 each), the data's length
 /// prefix and 2 varints (at most 5 each) and the frame count (4).
 const ANIMATION_FIXED_BYTES: usize = 27;
+/// The ticks of [`Control`]s, at [`MAX_CONTROLS_PER_TICK`] each, that the queue to the networking
+/// holds.
+pub(super) const CONTROL_QUEUE_TICKS: usize = 4;
 /// The sessions of the engine that queue inputs besides the connections: the console, the
 /// networking's reports and the process measures.
 const ENGINE_SESSIONS: usize = 3;
@@ -276,7 +279,7 @@ super::checkpoint::fields!(Client {
 pub(crate) struct Skin(Arc<protocol::Skin>);
 
 impl Skin {
-    /// Wraps a checked skin.
+    /// A skin that wraps a checked one.
     pub(crate) fn new(skin: Arc<protocol::Skin>) -> Self {
         Self(skin)
     }
@@ -284,6 +287,24 @@ impl Skin {
     /// The skin as the protocol carries it.
     pub(crate) fn get(&self) -> &protocol::Skin {
         &self.0
+    }
+
+    /// Whether a login accepts the skin, as an in-game change and the API do: image sizes that
+    /// match their data, finite animation frame counts not below 0, at most [`MAX_SKIN_BYTES`] in
+    /// all, and a geometry and a resource patch that are JSON nested at most
+    /// [`MAX_SKIN_JSON_DEPTH`] deep, as the protocol requires of both (an empty geometry is not
+    /// JSON: a skin without a custom geometry sends `{}`).
+    pub(crate) fn is_acceptable(&self) -> bool {
+        // The size first: it bounds the JSON the last checks read.
+        protocol::skin_validate(&self.0).is_none()
+            && self
+                .0
+                .animations
+                .iter()
+                .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
+            && self.size() <= MAX_SKIN_BYTES
+            && crypto::is_json_within_depth(&self.0.skin_geometry, MAX_SKIN_JSON_DEPTH)
+            && crypto::is_json_within_depth(&self.0.skin_resource_patch, MAX_SKIN_JSON_DEPTH)
     }
 
     /// The skin as the packets that carry it share it, without a copy.
@@ -331,24 +352,6 @@ impl Skin {
         .chain(pieces)
         .chain(tints)
         .fold(0_usize, usize::saturating_add)
-    }
-
-    /// Whether a login accepts the skin, as an in-game change and the API do: image sizes that
-    /// match their data, finite animation frame counts not below 0, at most [`MAX_SKIN_BYTES`] in
-    /// all, and a geometry and a resource patch that are JSON nested at most
-    /// [`MAX_SKIN_JSON_DEPTH`] deep, as the protocol requires of both (an empty geometry is not
-    /// JSON: a skin without a custom geometry sends `{}`).
-    pub(crate) fn is_acceptable(&self) -> bool {
-        // The size first: it bounds the JSON the last checks read.
-        protocol::skin_validate(&self.0).is_none()
-            && self
-                .0
-                .animations
-                .iter()
-                .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
-            && self.size() <= MAX_SKIN_BYTES
-            && crypto::is_json_within_depth(&self.0.skin_geometry, MAX_SKIN_JSON_DEPTH)
-            && crypto::is_json_within_depth(&self.0.skin_resource_patch, MAX_SKIN_JSON_DEPTH)
     }
 
     /// Hashes the skin by its protocol bytes (state hash).
@@ -514,7 +517,7 @@ pub(crate) struct SharedPacket {
 }
 
 impl SharedPacket {
-    /// Holds `packet` for the sessions that send it.
+    /// A packet held for the sessions that send it.
     pub(crate) fn new(packet: Packet) -> Self {
         Self {
             packet,
@@ -626,17 +629,6 @@ pub(crate) struct InputSender {
 }
 
 impl InputSender {
-    /// A sender that stamps the inputs of engine session `id` with its sequence numbers.
-    pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
-        SessionInputs {
-            session: id,
-            next_seq: 0,
-            queue: self.queue.clone(),
-            share: Arc::new(Semaphore::new(MAX_SESSION_INPUTS)),
-            connection: None,
-        }
-    }
-
     /// Takes one of the queue's connection shares for connection session `id` and returns the
     /// session's sender, which holds the share until the tick takes its leave; `None` while every
     /// share is held.
@@ -646,6 +638,17 @@ impl InputSender {
             connection: Some(connection),
             ..self.session(id)
         })
+    }
+
+    /// A sender that stamps the inputs of engine session `id` with its sequence numbers.
+    pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
+        SessionInputs {
+            session: id,
+            next_seq: 0,
+            queue: self.queue.clone(),
+            share: Arc::new(Semaphore::new(MAX_SESSION_INPUTS)),
+            connection: None,
+        }
     }
 
     /// Queues the result of job `id`, waiting for room so that the job's callback always runs.
@@ -678,6 +681,11 @@ pub(crate) struct SessionInputs {
 }
 
 impl SessionInputs {
+    /// Whether the tick has stopped: it drops its end of the queue then, and only then.
+    pub(crate) fn is_tick_stopped(&self) -> bool {
+        self.queue.is_closed()
+    }
+
     /// Queues `kind` without waiting. On [`Error::Full`] the session should disconnect; it may
     /// still call [`leave`](Self::leave).
     pub(crate) fn try_send(&mut self, kind: InputKind) -> Result<()> {
@@ -745,15 +753,15 @@ impl InputReceiver {
         self.0.len()
     }
 
-    /// Takes the next input, without waiting.
-    pub(crate) fn try_recv(&mut self) -> Result<Input, TryRecvError> {
-        self.0.try_recv().map(|queued| queued.input)
-    }
-
     /// Waits for the next input and takes it; `None` once every sender is gone.
     #[cfg(test)]
     pub(crate) async fn recv(&mut self) -> Option<Input> {
         self.0.recv().await.map(|queued| queued.input)
+    }
+
+    /// Takes the next input, without waiting.
+    pub(crate) fn try_recv(&mut self) -> Result<Input, TryRecvError> {
+        self.0.try_recv().map(|queued| queued.input)
     }
 }
 
@@ -787,10 +795,10 @@ pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbou
     mpsc::channel(OUTBOUND_CAPACITY)
 }
 
-/// Makes the queue of [`Control`]s from the tick to the networking: four ticks at the tick's
-/// bound.
+/// Makes the queue of [`Control`]s from the tick to the networking: [`CONTROL_QUEUE_TICKS`] ticks
+/// at the tick's bound.
 pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>) {
-    mpsc::channel(4 * MAX_CONTROLS_PER_TICK)
+    mpsc::channel(CONTROL_QUEUE_TICKS * MAX_CONTROLS_PER_TICK)
 }
 
 /// Builds the packet that turns a player away because the server is full: `PlayStatus` with

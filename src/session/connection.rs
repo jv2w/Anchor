@@ -60,12 +60,8 @@ const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
 /// Login or a skin of up to 4 MiB) would otherwise pin its size until the session ends.
 const MAX_KEPT_BUFFER_BYTES: usize = 2 * batch::SPLIT_BYTES;
 /// Undelivered bytes ([`Transport::undelivered`]) at most before the session hands the
-/// connection the next batch of the tick's output. It is above the most either transport keeps
-/// in flight (RakNet 2048 datagrams of 1492 bytes and their frame cost, about 3.1 MiB; NetherNet
-/// a 1 MiB SCTP buffer), so a healthy link always has bytes waiting to go, and low enough that
-/// one more batch of the default 16 MiB `max-batch-bytes` (at most 18.7 MiB compressed, plus
-/// about 4.7 MiB of RakNet frame cost at the smallest MTU) stays under the transports' 32 MiB
-/// caps.
+/// connection the next batch of the tick's output: above what either transport keeps in flight
+/// and low enough that one more batch stays under the transports' caps (`network.md`).
 const MAX_OUTPUT_UNDELIVERED_BYTES: usize = 4 * 1024 * 1024;
 /// Bytes of the tick's output at most waiting for delivery, all of it but the spawn windows'
 /// player lists ([`Pending::SpawnList`]): a link that falls this far behind ends, as the
@@ -141,7 +137,7 @@ struct Session {
     /// again every frame while the button is down, so its byte-for-byte copies are dropped
     /// before the packet budget for [`HELD_CLICK_REPEAT`]: the tick ignores an identical click
     /// within two ticks of the first, so it would have ignored most of them (where it would not,
-    /// `.claude/docs/network.md`). Any other use forwarded forgets it.
+    /// `network.md`). Any other use forwarded forgets it.
     held_click: Option<(Header, Vec<u8>, Duration)>,
     pre_auth_bytes: usize,
     /// The verified player, from the login on.
@@ -313,7 +309,13 @@ impl Session {
                         }
                         return End::Kicked;
                     }
-                    None => return End::TickStopped,
+                    // The tick closes its input queue before it drops the outbound queues of
+                    // the sessions it still holds; any other closed queue is one the running
+                    // tick forgot (it was full).
+                    None if self.inputs.as_ref().is_some_and(SessionInputs::is_tick_stopped) => {
+                        return End::TickStopped;
+                    }
+                    None => return End::Forgotten,
                 },
                 () = &mut login_deadline, if self.identity.is_none() => {
                     return End::Timeout("login");
@@ -335,6 +337,7 @@ impl Session {
 
     async fn finish(mut self, end: End) {
         match &end {
+            End::Timeout(stage) => debug!(session = self.id.get(), stage, "session timed out"),
             End::Failed(e) => {
                 debug!(
                     session = self.id.get(),
@@ -342,7 +345,6 @@ impl Session {
                     "session failed"
                 );
             }
-            End::Timeout(stage) => debug!(session = self.id.get(), stage, "session timed out"),
             _ => debug!(session = self.id.get(), ?end, "session ended"),
         }
         if let Some(identity) = &self.identity
@@ -361,7 +363,7 @@ impl Session {
             inputs.leave(reason).await;
         }
         // The tick tells the players it holds; these the server stopped before the tick did.
-        if matches!(end, End::Shutdown | End::TickStopped) && self.encoder.is_some() {
+        if matches!(end, End::TickStopped | End::Shutdown) && self.encoder.is_some() {
             let disconnect = Packet::Disconnect(Disconnect {
                 reason: i32::from(consts::DisconnectReason::Shutdown),
                 message: self.shared.shutdown_message.clone(),
@@ -724,7 +726,7 @@ impl Session {
                     ..Disconnect::default()
                 })])
                 .await?;
-                Err(Error::Order("resource packs refused"))
+                Err(Error::PacksRefused)
             }
         }
     }
@@ -886,15 +888,15 @@ impl Session {
         let same_run = |a: &Message, b: &Message| packet_of(a).is_some() && packet_of(b).is_some();
         for group in messages.chunk_by(same_run) {
             match group {
+                [Message::SharedPacket(packet)] => {
+                    let batches = self.shared_batches(packet).await?;
+                    self.queue_batches(batches);
+                }
                 [Message::SpawnList(packet)] => {
                     let batches = self.shared_batches(packet).await?;
                     self.pending.push_back(Pending::SpawnList(batches, 0));
                 }
                 [Message::Shared(batches)] => self.queue_batches(Arc::clone(batches)),
-                [Message::SharedPacket(packet)] => {
-                    let batches = self.shared_batches(packet).await?;
-                    self.queue_batches(batches);
-                }
                 run => {
                     self.queue_packets(run.iter().filter_map(packet_of))?;
                     // The marker follows the run's last batch, so the few packets after the
@@ -1021,6 +1023,8 @@ enum End {
     Kicked,
     /// The tick stopped.
     TickStopped,
+    /// The running tick forgot the session without a last packet (its outbound queue was full).
+    Forgotten,
     /// The server is stopping and the player had not joined.
     Shutdown,
     /// A deadline passed.
@@ -1047,6 +1051,8 @@ enum Error {
     Transport(transport::Error),
     Queue(queue::Error),
     Packs(packs::Error),
+    /// The client refused the resource packs.
+    PacksRefused,
 }
 
 impl fmt::Display for Error {
@@ -1064,6 +1070,7 @@ impl fmt::Display for Error {
             Self::Transport(_) => f.write_str("connection failed"),
             Self::Queue(_) => f.write_str("tick queue unavailable"),
             Self::Packs(_) => f.write_str("resource pack sequence failed"),
+            Self::PacksRefused => f.write_str("client refused the resource packs"),
         }
     }
 }
@@ -1071,7 +1078,11 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Order(_) | Self::Limit(_) | Self::Protocol(_) | Self::Binding => None,
+            Self::Order(_)
+            | Self::Limit(_)
+            | Self::Protocol(_)
+            | Self::Binding
+            | Self::PacksRefused => None,
             Self::Batch(e) | Self::Encode(e) => Some(e),
             Self::Packet(e) => Some(e),
             Self::Login(e) => Some(e),
@@ -1111,7 +1122,7 @@ fn bytes_of(batches: &SharedBatches) -> usize {
     batches.iter().map(Vec::len).sum()
 }
 
-/// Whether `transaction` is a right click held on a block (`facts.md`): a `ClickBlock` the
+/// Whether `transaction` is a right click held on a block (`xtask/data/p6/facts.md`): a `ClickBlock` the
 /// client's simulation tick sends, not a press.
 fn is_held_click(transaction: &packet::InventoryTransaction) -> bool {
     matches!(&transaction.transaction_data, InventoryTransactionData::UseItem(data)
@@ -1160,14 +1171,22 @@ mod tests {
 
     /// Batches of 1 MiB the tick sends in the tests below.
     const BATCH_BYTES: usize = 1024 * 1024;
+    /// The [`BATCH_BYTES`] batches of a spawn window's player list, more than
+    /// [`MAX_PENDING_BYTES`].
     const BATCHES: u8 = 40;
+    /// The sessions that use up their packet budget between two ticks.
     const FLOODERS: u64 = 80;
-    const MOST: i32 = 256;
-    const MOST_OUTPUT_TICKS: usize = 2000;
-    const MOST_STEPS: usize = 3000;
+    /// The top of `chunks-per-tick`: the chunks sent at once in sub-chunk request mode.
+    const MAX_CHUNKS_PER_TICK: i32 = 256;
+    /// Ticks of output at most before a link that delivers nothing has ended its session.
+    const MAX_OUTPUT_TICKS: usize = 2000;
+    /// [`STEP`]s at most before a session past its deadline has ended.
+    const MAX_STEPS: usize = 3000;
     /// 200 seconds, past the spawn deadline and the most the output may add to it.
-    const MOST_TICKS: usize = 4000;
-    const SMALL: usize = 2000;
+    const MAX_TICKS: usize = 4000;
+    /// The small shared packets queued behind output that waits.
+    const SMALL_PACKETS: usize = 2000;
+    /// How long the link waits between two deliveries in the paced tests.
     const STEP: Duration = Duration::from_millis(100);
     /// What the link delivers each [`STEP`] the session sends nothing: 640 KiB/s.
     const STEP_BYTES: usize = 64 * 1024;
@@ -1355,7 +1374,7 @@ mod tests {
             let shared = shared(inputs);
             let mut player = joined(0, &shared).await;
             let chunks = || {
-                (0..MOST)
+                (0..MAX_CHUNKS_PER_TICK)
                     .map(|x| {
                         Message::Packet(Packet::LevelChunk(packet::LevelChunk {
                             position: [x, 0],
@@ -1366,7 +1385,8 @@ mod tests {
                     .collect::<Vec<_>>()
             };
             let request = Packet::SubChunkRequest(packet::SubChunkRequest::default());
-            let requests_sent = std::iter::repeat_n(&request, usize::try_from(MOST).unwrap());
+            let requests_sent =
+                std::iter::repeat_n(&request, usize::try_from(MAX_CHUNKS_PER_TICK).unwrap());
             let mut requests = vec![0xff];
             batch::encode_packets(requests_sent, &mut Vec::new(), |payload| {
                 requests.extend_from_slice(payload);
@@ -1893,6 +1913,81 @@ mod tests {
         outbound
     }
 
+    /// A client that refuses the resource packs ends its session with that cause, not an
+    /// ordering failure.
+    #[test]
+    fn a_pack_refusal_ends_the_session_as_a_refusal() {
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(1);
+            let shared = shared(inputs);
+            let (conn, _far) = crate::raknet::tests::linked_connection();
+            let mut session = Session::new(
+                SessionId::new(0),
+                Transport::Raknet(conn),
+                Arc::clone(&shared),
+                ip_waiting(),
+            );
+            session.encoder = Some(batch::Encoder::new(shared.batch));
+            session.identity = Some(identity(0));
+            session.log_in().await.unwrap();
+            session.offer_packs().await.unwrap();
+            let refusal = Packet::ResourcePackClientResponse(ResourcePackClientResponse {
+                response: u32::from(consts::PackResponse::Refused),
+                ..ResourcePackClientResponse::default()
+            });
+            let ended = session.on_packet(refusal, 3).await;
+            assert_eq!(
+                ended.map_err(|e| e.to_string()),
+                Err("client refused the resource packs".to_owned())
+            );
+        });
+    }
+
+    /// A joined session the running tick forgets (its outbound queue was full) closes without
+    /// the shutdown message, which only a session whose tick stopped gets.
+    #[test]
+    fn only_a_stopped_tick_gives_a_joined_session_the_shutdown_message() {
+        for tick_stops in [false, true] {
+            let sent = crate::raknet::tests::run(async {
+                let (inputs, mut queue) = input_queue(1);
+                let shared = shared(inputs);
+                let (conn, mut far) = crate::raknet::tests::linked_connection();
+                let mut session = Session::new(
+                    SessionId::new(0),
+                    Transport::Raknet(conn),
+                    Arc::clone(&shared),
+                    ip_waiting(),
+                );
+                session.encoder = Some(batch::Encoder::new(shared.batch));
+                session.decoder = Some(batch::Decoder::new(shared.batch));
+                session.identity = Some(identity(0));
+                session.log_in().await.unwrap();
+                session.join().unwrap();
+                let outbound = joined_outbound(&mut queue);
+                let queue = (!tick_stops).then_some(queue);
+                drop(outbound);
+                let end = session.serve().await;
+                session.finish(end).await;
+                drop(queue);
+                let mut decoder = batch::Decoder::new(shared.batch);
+                let mut sent = Vec::new();
+                while let Some(message) = far.sent().await {
+                    let mut payload = Vec::new();
+                    decoder.decode(&message, &mut payload).unwrap();
+                    let mut packets = Vec::new();
+                    batch::decode_packets(&payload, &shared.batch, &mut packets).unwrap();
+                    sent.extend(packets.into_iter().map(|(_, packet)| packet));
+                }
+                sent
+            });
+            let shutdown = sent.iter().any(|packet| {
+                matches!(packet, Packet::Disconnect(d)
+                    if d.reason == i32::from(consts::DisconnectReason::Shutdown))
+            });
+            assert_eq!(shutdown, tick_stops, "{sent:?}");
+        }
+    }
+
     /// Before the spawn, each batch from the tick moves the spawn deadline by its time at the
     /// download floor rate (64 KiB/s): a client that must first receive 8 MiB (a player list of
     /// large skins) has 128 seconds more, and one sent nothing still times out after the 60.
@@ -1968,7 +2063,7 @@ mod tests {
             let ticks_sent = std::cell::Cell::new(0);
             let tick = async {
                 let mut ticks = tokio::time::interval(TICK);
-                for _ in 0..MOST_TICKS {
+                for _ in 0..MAX_TICKS {
                     ticks.tick().await;
                     let time = Message::Packet(Packet::SetTime(packet::SetTime::default()));
                     if let Err(e) = outbound.try_send(Outbound::Send(vec![time])) {
@@ -2001,7 +2096,7 @@ mod tests {
             };
             select! {
                 end = session.serve() => panic!("the session ended: {end:?}"),
-                () = tick => panic!("the batches took more than {MOST_TICKS} ticks"),
+                () = tick => panic!("the batches took more than {MAX_TICKS} ticks"),
                 () = link => {}
             }
             assert!(ticks_sent.get() > 1024, "{} ticks", ticks_sent.get());
@@ -2022,7 +2117,7 @@ mod tests {
             let outbound = joined_outbound(&mut queue);
             let tick = async {
                 let mut ticks = tokio::time::interval(TICK);
-                for _ in 0..MOST_OUTPUT_TICKS {
+                for _ in 0..MAX_OUTPUT_TICKS {
                     ticks.tick().await;
                     let chunk = Message::Packet(Packet::ResourcePackChunkData(
                         packet::ResourcePackChunkData {
@@ -2047,7 +2142,7 @@ mod tests {
             };
             let end = select! {
                 end = session.serve() => end,
-                () = tick => panic!("the session took {MOST_OUTPUT_TICKS} ticks of output"),
+                () = tick => panic!("the session took {MAX_OUTPUT_TICKS} ticks of output"),
                 () = link => panic!("the connection closed before the session ended"),
             };
             assert!(
@@ -2090,7 +2185,7 @@ mod tests {
             let start = tokio::time::Instant::now();
             let tick = async {
                 let mut steps = tokio::time::interval(STEP);
-                for _ in 0..MOST_STEPS {
+                for _ in 0..MAX_STEPS {
                     steps.tick().await;
                     let chunk = Message::Packet(Packet::ResourcePackChunkData(
                         packet::ResourcePackChunkData {
@@ -2105,7 +2200,7 @@ mod tests {
             let link = async { while far.sent().await.is_some() {} };
             let end = select! {
                 end = session.serve() => end,
-                () = tick => panic!("the session went on for {MOST_STEPS} steps"),
+                () = tick => panic!("the session went on for {MAX_STEPS} steps"),
                 () = link => panic!("the connection closed before the session ended"),
             };
             assert!(matches!(end, End::Timeout("spawn")), "{end:?}");
@@ -2142,7 +2237,7 @@ mod tests {
             let start = tokio::time::Instant::now();
             let tick = async {
                 let mut steps = tokio::time::interval(STEP);
-                for _ in 0..MOST_STEPS {
+                for _ in 0..MAX_STEPS {
                     steps.tick().await;
                     let message = Message::SharedPacket(Arc::clone(&broadcast));
                     outbound.send(Outbound::Send(vec![message])).await.unwrap();
@@ -2152,7 +2247,7 @@ mod tests {
             let link = async { while far.sent().await.is_some() {} };
             let end = select! {
                 end = session.serve() => end,
-                () = tick => panic!("the session went on for {MOST_STEPS} steps"),
+                () = tick => panic!("the session went on for {MAX_STEPS} steps"),
                 () = link => panic!("the connection closed before the session ended"),
             };
             assert!(matches!(end, End::Timeout("spawn")), "{end:?}");
@@ -2185,7 +2280,7 @@ mod tests {
             )));
             let tick = async {
                 let mut ticks = tokio::time::interval(TICK);
-                for _ in 0..MOST_TICKS {
+                for _ in 0..MAX_TICKS {
                     ticks.tick().await;
                     let message = Message::SharedPacket(Arc::clone(&skin));
                     if let Err(e) = outbound.try_send(Outbound::Send(vec![message])) {
@@ -2208,7 +2303,7 @@ mod tests {
             };
             let end = select! {
                 end = session.serve() => end,
-                () = tick => panic!("the session went on for {MOST_TICKS} ticks"),
+                () = tick => panic!("the session went on for {MAX_TICKS} ticks"),
                 () = link => panic!("the connection closed before the session ended"),
             };
             assert!(
@@ -2242,7 +2337,7 @@ mod tests {
                     ..packet::UpdateSoftEnum::default()
                 },
             )));
-            let small = (0..SMALL)
+            let small = (0..SMALL_PACKETS)
                 .map(|_| Message::SharedPacket(Arc::clone(&soft_enum)))
                 .collect();
             let large = (0..=MAX_PENDING_BYTES / BATCH_BYTES)

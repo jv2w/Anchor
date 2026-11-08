@@ -20,7 +20,7 @@ mod packs;
 mod transport;
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,6 +39,7 @@ use crate::error::{Error, Result};
 use crate::nethernet;
 use crate::pack::Offer;
 use crate::protocol::batch;
+use crate::protocol::compression::snappy;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
 use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, SessionInputs};
@@ -48,6 +49,8 @@ use transport::Transport;
 /// New connections waiting for the accept task, per transport; when full, the transport closes
 /// the newest.
 const ACCEPT_QUEUE: usize = 64;
+/// The compression header byte before a batch.
+const BATCH_HEADER_BYTES: usize = 1;
 /// Session events waiting for the accept task. A session sends at most two (logged in, ended)
 /// and only after taking a permit with `send().await`, so a full queue only delays it.
 const EVENT_QUEUE: usize = 256;
@@ -550,8 +553,8 @@ pub(crate) async fn start(
     };
     // The UDP task starts last: a pong then means that every listener is ready.
     let udp = udp::spawn(sockets, raknet, nethernet_driver);
-    for addr in udp.local_addrs() {
-        info!(%addr, "{}", udp_use(transport));
+    for &addr in udp.local_addrs() {
+        log_listening(addr, transport);
     }
 
     let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
@@ -613,16 +616,20 @@ fn socket_addresses(config: &Config) -> (SocketAddrV4, Option<SocketAddrV6>) {
     (v4, v6)
 }
 
-/// The start log's text for the UDP port under `transport`.
-fn udp_use(transport: Transports) -> &'static str {
+/// Logs at start what the UDP port at `addr` carries under `transport`.
+fn log_listening(addr: SocketAddr, transport: Transports) {
     match transport {
-        Transports::All => "listening for RakNet, NetherNet game data and server list pings on UDP",
-        Transports::Nethernet => {
+        Transports::All => {
+            info!(%addr, "listening for RakNet, NetherNet game data and server list pings on UDP");
+        }
+        Transports::Nethernet => info!(
+            %addr,
             "listening for NetherNet game data and server list pings on UDP (transport = nethernet)"
-        }
-        Transports::Raknet => {
+        ),
+        Transports::Raknet => info!(
+            %addr,
             "listening for RakNet and server list pings on UDP (transport = raknet)"
-        }
+        ),
     }
 }
 
@@ -667,8 +674,7 @@ fn raknet_settings(
 /// The largest game message a client may send, without transport framing: the
 /// reassembly bound (the worst Snappy expansion of the largest batch and its header byte).
 fn max_message_bytes(batch: &batch::Settings) -> usize {
-    let max = batch.max_batch_bytes();
-    max.saturating_add(max / 6).saturating_add(42)
+    snappy::max_compressed_len(batch.max_batch_bytes()).saturating_add(BATCH_HEADER_BYTES)
 }
 
 /// The most a session's output before its spawn status moves its spawn deadline: the
@@ -697,6 +703,18 @@ async fn accepted(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reassembly bound is the largest batch a client's encoder may send: the Snappy worst
+    /// case of the largest payload and the header byte.
+    #[test]
+    fn the_message_bound_is_the_largest_batch_an_encoder_sends() {
+        let batch = batch::Settings::default();
+        let max = batch.max_batch_bytes();
+        assert_eq!(
+            max_message_bytes(&batch),
+            snappy::max_compressed_len(max) + 1
+        );
+    }
 
     #[test]
     fn the_join_status_has_the_official_keys_in_order() {
