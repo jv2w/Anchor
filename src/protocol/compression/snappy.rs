@@ -11,15 +11,21 @@ use super::{Error, Result};
 /// The multiplier of the match table's hash.
 const HASH_MULTIPLIER: u32 = 0x1e35_a7bd;
 /// Bytes kept after the last match start so the 8-byte loads stay inside the block.
-const INPUT_MARGIN: usize = 16 - 1;
+const INPUT_MARGIN_BYTES: usize = 16 - 1;
 /// The encoder matches inside blocks of this size, so copy offsets fit in 16 bits.
-const MAX_BLOCK: usize = 1 << 16;
-/// A valid stream grows at most 64 bytes per 3-byte copy, under 22 times its size.
+const MAX_BLOCK_BYTES: usize = 1 << 16;
+/// The most times its own size a valid stream decodes to (`network.md`).
 const MAX_RATIO: usize = 22;
 /// The most entries of the encoder's match table.
 const MAX_TABLE: usize = 1 << 14;
 /// Smaller blocks are emitted as one literal.
-const MIN_NON_LITERAL_BLOCK: usize = 1 + 1 + INPUT_MARGIN;
+const MIN_NON_LITERAL_BLOCK_BYTES: usize = 1 + 1 + INPUT_MARGIN_BYTES;
+/// The tag of a literal element.
+const TAG_LITERAL: u8 = 0;
+/// The tag of a copy with a 1-byte offset.
+const TAG_COPY_1: u8 = 1;
+/// The tag of a copy with a 2-byte offset.
+const TAG_COPY_2: u8 = 2;
 
 /// Reusable encoder state: the match table.
 pub(crate) struct Encoder {
@@ -43,8 +49,8 @@ impl Encoder {
             len >>= 7;
         }
         out.push(len.to_le_bytes()[0]);
-        for block in input.chunks(MAX_BLOCK) {
-            if block.len() < MIN_NON_LITERAL_BLOCK {
+        for block in input.chunks(MAX_BLOCK_BYTES) {
+            if block.len() < MIN_NON_LITERAL_BLOCK_BYTES {
                 emit_literal(block, out);
             } else {
                 encode_block(&mut self.table, block, out);
@@ -58,7 +64,7 @@ pub(crate) fn max_compressed_len(input_len: usize) -> usize {
     input_len.saturating_add(input_len / 6).saturating_add(32)
 }
 
-/// Encodes one block of `MIN_NON_LITERAL_BLOCK..=MAX_BLOCK` bytes (Go `encodeBlock`).
+/// Encodes one block of `MIN_NON_LITERAL_BLOCK_BYTES..=MAX_BLOCK_BYTES` bytes (Go `encodeBlock`).
 #[expect(
     clippy::indexing_slicing,
     clippy::cast_possible_truncation,
@@ -75,7 +81,7 @@ fn encode_block(table: &mut [u16], src: &[u8], out: &mut Vec<u8>) {
     let table = &mut table[..table_size];
     table.fill(0);
 
-    let s_limit = src.len() - INPUT_MARGIN;
+    let s_limit = src.len() - INPUT_MARGIN_BYTES;
     let mut next_emit = 0;
     let mut s = 1;
     let mut next_hash = hash(load32(src, s), shift);
@@ -171,19 +177,19 @@ fn emit_literal(literal: &[u8], out: &mut Vec<u8>) {
 fn emit_copy(offset: usize, mut len: usize, out: &mut Vec<u8>) {
     let [o0, o1, ..] = offset.to_le_bytes();
     while len >= 68 {
-        out.extend_from_slice(&[(63 << 2) | 2, o0, o1]);
+        out.extend_from_slice(&[(63 << 2) | TAG_COPY_2, o0, o1]);
         len -= 64;
     }
     if len > 64 {
-        out.extend_from_slice(&[(59 << 2) | 2, o0, o1]);
+        out.extend_from_slice(&[(59 << 2) | TAG_COPY_2, o0, o1]);
         len -= 60;
     }
     if len >= 12 || offset >= 2048 {
         let [l, ..] = (len - 1).to_le_bytes();
-        out.extend_from_slice(&[(l << 2) | 2, o0, o1]);
+        out.extend_from_slice(&[(l << 2) | TAG_COPY_2, o0, o1]);
     } else {
         let [l, ..] = (len - 4).to_le_bytes();
-        out.extend_from_slice(&[(o1 << 5) | (l << 2) | 1, o0]);
+        out.extend_from_slice(&[(o1 << 5) | (l << 2) | TAG_COPY_1, o0]);
     }
 }
 
@@ -206,7 +212,7 @@ pub(crate) fn decompress(input: &[u8], limit: usize, out: &mut Vec<u8>) -> Resul
         }
         rest = tail;
         let (offset, len) = match tag & 3 {
-            0 => {
+            TAG_LITERAL => {
                 let n = usize::from(tag >> 2);
                 let len = if n < 60 {
                     n + 1
@@ -227,13 +233,13 @@ pub(crate) fn decompress(input: &[u8], limit: usize, out: &mut Vec<u8>) -> Resul
                 rest = tail;
                 continue;
             }
-            1 => {
+            TAG_COPY_1 => {
                 let (&low, tail) = rest.split_first().ok_or(Error::Truncated)?;
                 rest = tail;
                 let offset = (usize::from(tag & 0xe0) << 3) | usize::from(low);
                 (offset, 4 + usize::from((tag >> 2) & 7))
             }
-            2 => {
+            TAG_COPY_2 => {
                 let (bytes, tail) = rest.split_first_chunk().ok_or(Error::Truncated)?;
                 rest = tail;
                 (
@@ -241,6 +247,7 @@ pub(crate) fn decompress(input: &[u8], limit: usize, out: &mut Vec<u8>) -> Resul
                     1 + usize::from(tag >> 2),
                 )
             }
+            // The tag is 3: a copy with a 4-byte offset.
             _ => {
                 let (bytes, tail) = rest.split_first_chunk().ok_or(Error::Truncated)?;
                 rest = tail;

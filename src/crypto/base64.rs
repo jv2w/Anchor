@@ -68,6 +68,18 @@ impl Base64 {
         }
     }
 
+    fn push_group(self, [a, b, c]: [u8; 3], symbols: u32, out: &mut String) {
+        let group = u32::from_be_bytes([0, a, b, c]);
+        for i in 0..4 {
+            if i < symbols {
+                let [.., six] = (group >> (18 - 6 * i) & 0x3f).to_be_bytes();
+                out.push(char::from(self.symbol(six)));
+            } else if self.pad {
+                out.push('=');
+            }
+        }
+    }
+
     const fn symbol(self, value: u8) -> u8 {
         match value {
             0..=25 => b'A' + value,
@@ -77,19 +89,6 @@ impl Base64 {
             62 => b'+',
             _ if self.url => b'_',
             _ => b'/',
-        }
-    }
-
-    const fn value(self, symbol: u8) -> Option<u8> {
-        match symbol {
-            b'A'..=b'Z' => Some(symbol - b'A'),
-            b'a'..=b'z' => Some(symbol - b'a' + 26),
-            b'0'..=b'9' => Some(symbol - b'0' + 52),
-            b'-' if self.url => Some(62),
-            b'_' if self.url => Some(63),
-            b'+' if !self.url => Some(62),
-            b'/' if !self.url => Some(63),
-            _ => None,
         }
     }
 
@@ -111,18 +110,6 @@ impl Base64 {
             return Err(Error::Base64);
         }
         Ok(symbols)
-    }
-
-    fn push_group(self, [a, b, c]: [u8; 3], symbols: u32, out: &mut String) {
-        let group = u32::from_be_bytes([0, a, b, c]);
-        for i in 0..4 {
-            if i < symbols {
-                let [.., six] = (group >> (18 - 6 * i) & 0x3f).to_be_bytes();
-                out.push(char::from(self.symbol(six)));
-            } else if self.pad {
-                out.push('=');
-            }
-        }
     }
 
     /// Validates `symbols` and passes each decoded byte to `out`.
@@ -153,6 +140,19 @@ impl Base64 {
             }
         }
         Ok(())
+    }
+
+    const fn value(self, symbol: u8) -> Option<u8> {
+        match symbol {
+            b'A'..=b'Z' => Some(symbol - b'A'),
+            b'a'..=b'z' => Some(symbol - b'a' + 26),
+            b'0'..=b'9' => Some(symbol - b'0' + 52),
+            b'-' if self.url => Some(62),
+            b'_' if self.url => Some(63),
+            b'+' if !self.url => Some(62),
+            b'/' if !self.url => Some(63),
+            _ => None,
+        }
     }
 }
 

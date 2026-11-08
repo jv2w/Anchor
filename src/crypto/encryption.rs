@@ -4,7 +4,7 @@
 //! `key = SHA-256(salt || ECDH shared secret)` and run AES-256-CTR from IV `key[0..12] || 00 00 00 02`,
 //! one continuous stream per direction. Each packet (everything after the 0xfe byte) carries an
 //! 8-byte checksum, the start of `SHA-256(LE64(counter) || plaintext || key)`, with separate send
-//! and receive counters. gophertunnel's comment says CFB8; its code (and Bedrock) use CTR.
+//! and receive counters. Why CTR and not CFB8 is in `network.md`.
 
 use std::fmt;
 
@@ -220,10 +220,10 @@ mod tests {
     }
 
     /// The goldens in `testdata/encryption.json`.
-    /// They come from a throwaway Go module that requires the pinned gophertunnel: fixed P-384
-    /// keys (SHA-384 of a seed as the scalar), a fixed salt, the key from gophertunnel's
-    /// `encryptionKey` steps, and `packet.Encoder` batches with and without `EnableEncryption`
-    /// (the bytes after 0xfe). `plain` and `cipher` are hex.
+    /// They were made with the pinned gophertunnel: fixed P-384 keys (SHA-384 of a seed as the
+    /// scalar), a fixed salt, the key from gophertunnel's `encryptionKey` steps, and
+    /// `packet.Encoder` batches with and without `EnableEncryption` (the bytes after 0xfe).
+    /// `plain` and `cipher` are hex.
     #[derive(Deserialize)]
     struct Golden {
         server_pkcs8: String,

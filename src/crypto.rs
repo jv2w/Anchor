@@ -53,7 +53,7 @@ const P384_SPKI_PREFIX: [u8; 23] = [
 ];
 /// The RSA modulus sizes accepted for the multiplayer token: 2048 to 4096 bits.
 /// Microsoft signs with 2048-bit keys; larger moduli only cost verification time.
-const RSA_MODULUS_BITS: std::ops::RangeInclusive<usize> = 2048..=4096;
+const RSA_MODULUS_BITS_RANGE: std::ops::RangeInclusive<usize> = 2048..=4096;
 /// Bytes of a SHA-256 digest.
 const SHA256_BYTES: usize = 32;
 /// The first byte of an uncompressed SEC1 point.
@@ -233,7 +233,7 @@ impl RsaPublicKey {
     /// The key with modulus `n` and exponent `e`, both base64url without padding (RFC 7518).
     /// The modulus must be 2048 to 4096 bits and the exponent odd, at least 3 and at most 32 bits.
     pub(crate) fn from_jwk(n: &str, e: &str) -> Result<Self> {
-        let n = RAW_URL.decode(n, *RSA_MODULUS_BITS.end() / 8 + 1)?;
+        let n = RAW_URL.decode(n, *RSA_MODULUS_BITS_RANGE.end() / 8 + 1)?;
         let e = RAW_URL.decode(e, MAX_RSA_EXPONENT_DECODED_BYTES)?;
         let n = trim_leading_zeros(&n);
         let e = trim_leading_zeros(&e);
@@ -241,7 +241,10 @@ impl RsaPublicKey {
             .first()
             .map_or(0, |&top| n.len() * 8 - top.leading_zeros() as usize);
         let odd = e.last().is_some_and(|b| b & 1 == 1);
-        if !RSA_MODULUS_BITS.contains(&bits) || e.len() > MAX_RSA_EXPONENT_BYTES || !odd || e == [1]
+        if !RSA_MODULUS_BITS_RANGE.contains(&bits)
+            || e.len() > MAX_RSA_EXPONENT_BYTES
+            || !odd
+            || e == [1]
         {
             return Err(Error::Key);
         }
@@ -350,7 +353,6 @@ impl std::error::Error for Error {
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Fills `out` with cryptographically secure random bytes.
-/// This is the only randomness source in Anchor outside the engine's seeded generator.
 pub(crate) fn fill_random(out: &mut [u8]) -> Result<()> {
     #[expect(
         clippy::disallowed_methods,
@@ -508,7 +510,7 @@ mod tests {
 
     #[test]
     fn rsa_jwks_need_a_sane_modulus_and_exponent() {
-        // A key from the live Minecraft authorization JWKS (kid 472E53B5..., 2026-10-03).
+        // A key from the Minecraft authorization JWKS (kid 472E53B5...).
         let n = "-nr2A74AK1-AqrGPw5VCFpznoWDIH9AGinoFRsIdakvsauqblvC30ZkzUi6p1_4009aV_Wn1e4M-V98-Rpj1SEyK1EiQoj5DRMmye3an-3NfHKB8SoXl1TvQSYCYBkLN-TTz27aHYsL3eR3xFRvcmJ0Pr37BFlkf0x3aWp3zuH3-qTY08M5M39IY1mBR0k3DVB7MAeJ6dEcjeVclI3-Fc9-qr6qtG9m8PssWt_Q0jKr2RXPhvAPjd7UOYjjWVySR6sL7IoPUDO5ITElUI9XPpNCrUaP2Ig5ytfAgYqdAMAZsScDdSnJXuQ5gd2p8TkTGB3Y5vD9upnfrtQP8d7PmjQ";
         let key = RsaPublicKey::from_jwk(n, "AQAB").unwrap();
         assert!(key.verify_rs256(b"m", &[0; 256]).is_err());

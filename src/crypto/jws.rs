@@ -166,6 +166,9 @@ mod tests {
 
     use crate::protocol::fuzz;
 
+    /// The payload limit of the longest-token test.
+    const MAX_PAYLOAD: usize = 16 * 1024;
+
     #[test]
     fn detached_signatures_verify_only_over_their_payload() {
         let key = ServerKey::generate().unwrap();
@@ -250,8 +253,6 @@ mod tests {
             assert_eq!(parse(&token, 16).unwrap().header.alg, Algorithm::Other);
         }
     }
-
-    const MAX_PAYLOAD: usize = 16 * 1024;
 
     #[test]
     fn max_text_is_the_longest_token_parse_accepts() {

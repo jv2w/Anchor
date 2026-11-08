@@ -85,6 +85,16 @@ impl Settings {
         self.compression
     }
 
+    /// The allocation budget, in bytes, that decoding one batch payload shares.
+    pub(crate) fn decode_budget(&self) -> usize {
+        self.max_batch_bytes.saturating_mul(2)
+    }
+
+    /// The largest payload, in bytes, that a batch may carry.
+    pub fn max_batch_bytes(&self) -> usize {
+        self.max_batch_bytes
+    }
+
     /// The smallest payload length that is compressed.
     pub fn threshold(&self) -> u16 {
         self.threshold
@@ -93,16 +103,6 @@ impl Settings {
     /// The zlib compression level.
     pub fn zlib_level(&self) -> u8 {
         self.zlib_level
-    }
-
-    /// The largest payload, in bytes, that a batch may carry.
-    pub fn max_batch_bytes(&self) -> usize {
-        self.max_batch_bytes
-    }
-
-    /// The allocation budget, in bytes, that decoding one batch payload shares.
-    pub(crate) fn decode_budget(&self) -> usize {
-        self.max_batch_bytes.saturating_mul(2)
     }
 }
 
@@ -246,8 +246,7 @@ impl fmt::Debug for Decoder {
 /// and the target sub-client in bits 12 and 13. Sub-clients are split-screen players on one
 /// connection. Anchor writes the packet's ID and sub-client 0.
 ///
-/// Reading ignores bits above 13, like gophertunnel: only official clients show whether they set
-/// them, so Anchor accepts every case.
+/// Reading ignores bits above 13 (`protocol.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Header {
     /// The packet ID, at most 1023.

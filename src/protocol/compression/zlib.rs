@@ -8,7 +8,7 @@ use super::{Error, Result};
 /// The first inflate buffer is this many times the input, then it doubles up to the limit.
 const FIRST_RATIO: usize = 4;
 /// The least size of the first inflate buffer, in bytes.
-const MIN_FIRST_BUFFER: usize = 4096;
+const MIN_FIRST_BUFFER_BYTES: usize = 4096;
 
 /// Reusable compressor state at one level.
 pub(crate) struct Encoder(libdeflater::Compressor);
@@ -24,11 +24,6 @@ impl Encoder {
         let level =
             libdeflater::CompressionLvl::new(i32::from(level)).expect("zlib level is in 1..=9");
         Self(libdeflater::Compressor::new(level))
-    }
-
-    /// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
-    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
-        self.0.deflate_compress_bound(input_len)
     }
 
     /// Appends the raw DEFLATE encoding of `input` to `out`.
@@ -47,6 +42,11 @@ impl Encoder {
             .expect("output fits the bound");
         out.truncate(start + written);
     }
+
+    /// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
+        self.0.deflate_compress_bound(input_len)
+    }
 }
 
 /// Reusable inflate state.
@@ -61,8 +61,7 @@ impl Decoder {
     /// Replaces the contents of `out` with the inflated `input`.
     ///
     /// The buffer grows only up to `limit + 1` bytes; a stream that needs more is a size error.
-    /// Input left after the final block is ignored: only official clients show whether their
-    /// encoder leaves any in a batch, so Anchor accepts every case.
+    /// Input left after the final block is ignored (`network.md`).
     pub(crate) fn decompress(
         &mut self,
         input: &[u8],
@@ -109,7 +108,7 @@ impl Decoder {
         let first = input
             .len()
             .saturating_mul(FIRST_RATIO)
-            .max(MIN_FIRST_BUFFER)
+            .max(MIN_FIRST_BUFFER_BYTES)
             .min(cap);
         out.clear();
         out.resize(first, 0);

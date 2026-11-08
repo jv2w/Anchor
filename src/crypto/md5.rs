@@ -106,7 +106,8 @@ fn compress(state: &mut [u32; 4], block: &[u8; BLOCK_BYTES]) {
     for (word, bytes) in words.iter_mut().zip(block.as_chunks::<4>().0) {
         *word = u32::from_le_bytes(*bytes);
     }
-    // RFC 1321 names the registers A, B, C, D and the round function F with message index g.
+    // RFC 1321 section 3.4: `ra`..`rd` are the registers A, B, C, D; `mixed` is the auxiliary
+    // function F, G, H, or I of the round; `index` is the word index k of X[k]; `sine` is T[i].
     let [mut ra, mut rb, mut rc, mut rd] = *state;
     for (i, (&shift, &sine)) in SHIFTS.iter().zip(&SINES).enumerate() {
         let (mixed, index) = match i / 16 {

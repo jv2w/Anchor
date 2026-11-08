@@ -37,18 +37,18 @@ impl Compression {
         }
     }
 
+    /// The first byte of a batch body compressed with this algorithm: the low byte of its
+    /// network id (gophertunnel `packet.Encoder`).
+    pub(crate) const fn header(self) -> u8 {
+        self.network_id().to_le_bytes()[0]
+    }
+
     /// The id that `NetworkSettings` carries for this algorithm.
     pub const fn network_id(self) -> u16 {
         match self {
             Self::Zlib => ALGORITHM_FLATE,
             Self::Snappy => ALGORITHM_SNAPPY,
         }
-    }
-
-    /// The first byte of a batch body compressed with this algorithm: the low byte of its
-    /// network id (gophertunnel `packet.Encoder`).
-    pub(crate) const fn header(self) -> u8 {
-        self.network_id().to_le_bytes()[0]
     }
 }
 
@@ -115,14 +115,6 @@ impl Compressor {
         }
     }
 
-    /// The most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
-    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
-        match self {
-            Self::Zlib(encoder) => encoder.max_compressed_len(input_len),
-            Self::Snappy(_) => snappy::max_compressed_len(input_len),
-        }
-    }
-
     /// Appends the compressed `input` to `out`.
     ///
     /// The caller keeps `input` within `u32::MAX` bytes, the most a Snappy length prefix declares.
@@ -130,6 +122,14 @@ impl Compressor {
         match self {
             Self::Zlib(encoder) => encoder.compress(input, out),
             Self::Snappy(encoder) => encoder.compress(input, out),
+        }
+    }
+
+    /// The most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
+    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
+        match self {
+            Self::Zlib(encoder) => encoder.max_compressed_len(input_len),
+            Self::Snappy(_) => snappy::max_compressed_len(input_len),
         }
     }
 }
