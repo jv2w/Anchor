@@ -43,7 +43,7 @@ The final goal is **completeness**: a complete server library no player and no d
 
 ## 4. Architecture invariants
 1. Only the tick thread changes game state, exchanging data with other threads only through bounded queues. Parallel stages inside the tick are read-only. No independent per-region ticks.
-2. Network, codecs, compression, encryption, chunk generation and serialization, save preparation, and user async work run in parallel outside the tick; their results are next-tick input. Compute threads total at most max(logical CPUs, 5).
+2. Network, codecs, compression, encryption, chunk generation and serialization, save preparation, and user async work run in parallel outside the tick; their results are next-tick input. The one exception is the tick's output phase, which encodes sub-chunks and packets on the CPU pool: it is a read-only parallel stage whose result does not depend on the thread count (`.claude/docs/architecture.md`). Compute threads total at most max(logical CPUs, 5).
 3. No global mutable state, no singletons. Registration (events, commands, custom content) happens only in `ServerBuilder` and is frozen by `build()`. `run()` blocks until shutdown and creates the runtime and pools. Worlds alone are created, loaded, unloaded, and deleted at run time through the API.
 4. User callbacks run in the tick's serial stages (except send hooks, the StartGame hook, world generators, `spawn_blocking` bodies). Events never re-enter; direct API calls never fire events.
 5. A panic in a connection task disconnects only that connection. A panic in the tick or save thread writes the input log (`data/crash/`) and exits without a DB commit (no `catch_unwind`), so `panic = "unwind"` is required and `src/lib.rs` enforces it.
