@@ -8,8 +8,9 @@
 //! use anchor::Context;
 //! use anchor::form::{Button, Buttons, Custom, Image, Response, Value};
 //! use anchor::player;
+//! use tracing::debug;
 //!
-//! fn open_buttons(cx: &mut Context<'_>, player: player::Id) {
+//! fn open_buttons(cx: &mut Context<'_>, player: player::Id) -> anchor::form::Result<()> {
 //!     let buttons = Buttons::new("Lobby")
 //!         .with_content("Pick a game")
 //!         .button(
@@ -17,19 +18,26 @@
 //!                 .with_image(Image::Path("textures/items/iron_sword".to_owned())),
 //!         )
 //!         .button("Settings");
-//!     let sent = cx.send_form(player, buttons, |cx, player, response| {
+//!     cx.send_form(player, buttons, |cx, player, response| {
 //!         if response == Response::Buttons(1) {
-//!             let settings = Custom::new("Settings")
-//!                 .toggle("Music", true)
-//!                 .slider("Volume", 0.0, 100.0, 5.0, 50.0);
-//!             let _ = cx.send_form(player, settings, |_, _, response| {
-//!                 if let Response::Custom(values) = response {
-//!                     let _ = matches!(values.first(), Some(Value::Bool(true)));
-//!                 }
-//!             });
+//!             if let Err(error) = open_settings(cx, player) {
+//!                 debug!(%error, "settings not opened");
+//!             }
 //!         }
-//!     });
-//!     let _ = sent;
+//!     })
+//! }
+//!
+//! fn open_settings(cx: &mut Context<'_>, player: player::Id) -> anchor::form::Result<()> {
+//!     let settings = Custom::new("Settings")
+//!         .toggle("Music", true)
+//!         .slider("Volume", 0.0, 100.0, 5.0, 50.0);
+//!     cx.send_form(player, settings, |_, _, response| {
+//!         if let Response::Custom(values) = response {
+//!             if let [Value::Bool(music), Value::Number(volume)] = values.as_slice() {
+//!                 debug!(music, volume, "settings chosen");
+//!             }
+//!         }
+//!     })
 //! }
 //! ```
 //!
@@ -192,7 +200,7 @@ impl Buttons {
         self
     }
 
-    /// The button list with `content` as the text shown above the elements.
+    /// The same button list with `content` as the text shown above the elements.
     #[must_use]
     pub fn with_content(mut self, content: impl Into<String>) -> Self {
         self.content = content.into();
@@ -225,7 +233,7 @@ impl Button {
         }
     }
 
-    /// The button showing `image`.
+    /// The same button with `image` shown on it.
     #[must_use]
     pub fn with_image(mut self, image: Image) -> Self {
         self.image = Some(image);

@@ -18,6 +18,7 @@ use crate::player;
 use crate::protocol::consts::{BossEventOverlay, BossEventType, ScoreboardIdentity};
 use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObjective, SetScore};
 use crate::protocol::{BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN, ScoreboardEntry};
+use crate::tick::checkpoint;
 
 /// Colour codes that fill empty text lines, so that each is its own blank line.
 const BLANKS: [&str; 15] = [
@@ -72,7 +73,7 @@ impl Shown {
     }
 }
 
-crate::tick::checkpoint::fields!(Shown { boards, bar });
+checkpoint::fields!(Shown { boards, bar });
 
 /// A scoreboard as sent: its lines resolved to entries.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,10 +83,10 @@ struct Board {
     entries: Vec<Entry>,
 }
 
-crate::tick::checkpoint::fields!(Board {
+checkpoint::fields!(Board {
     title,
     sort,
-    entries
+    entries,
 });
 
 /// One line as sent.
@@ -96,7 +97,7 @@ struct Entry {
     score: i32,
 }
 
-crate::tick::checkpoint::fields!(Entry { id, who, score });
+checkpoint::fields!(Entry { id, who, score });
 
 /// The identity of an entry.
 #[derive(Debug, Clone, PartialEq)]
@@ -107,7 +108,7 @@ enum Who {
     Player(i64),
 }
 
-crate::tick::checkpoint::variants!(Who {
+checkpoint::variants!(Who {
     0 => Text(text),
     1 => Player(unique_id),
 });
@@ -156,8 +157,8 @@ impl Context<'_> {
     /// # Errors
     ///
     /// Changes nothing with:
-    /// [`Error::TooLong`] if the title is longer than 256 bytes.
-    /// [`Error::Offline`] if the player is not in the game, checked after the title.
+    /// [`Error::TooLong`] for a bar whose title is longer than 256 bytes.
+    /// [`Error::Offline`] for a player who is not in the game, checked after the title.
     pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
         if bar.title.len() > BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN {
             return Err(Error::TooLong);
@@ -200,7 +201,7 @@ impl Context<'_> {
     /// [`Error::TooLong`] for a title or a text longer than 1,024 bytes.
     /// [`Error::UnknownPlayer`] for a player line that names a player not in the game.
     /// [`Error::DuplicatePlayer`] for a player line that names a player named before.
-    /// [`Error::Offline`] if `player` is not in the game, checked after the scoreboard.
+    /// [`Error::Offline`] for a `player` who is not in the game, checked after the scoreboard.
     pub fn set_scoreboard(&mut self, player: player::Id, board: Scoreboard) -> Result<()> {
         let max = if board.slot == Slot::Sidebar {
             MAX_SIDEBAR_LINES
@@ -341,9 +342,9 @@ fn changed_entries<'a>(old: &'a Board, new: &'a Board) -> (Vec<&'a Entry>, Vec<&
 /// The `SetScore` entry of `objective` that adds or removes `e`.
 fn score_entry(objective: &str, e: &Entry, change: Change) -> ScoreboardEntry {
     let (identity, entity, name) = match (change, &e.who) {
-        (Change::Remove, _) => (ScoreboardIdentity::Remove, 0, String::new()),
         (Change::Add, Who::Text(t)) => (ScoreboardIdentity::FakePlayer, 0, t.clone()),
         (Change::Add, &Who::Player(u)) => (ScoreboardIdentity::Player, u, String::new()),
+        (Change::Remove, _) => (ScoreboardIdentity::Remove, 0, String::new()),
     };
     ScoreboardEntry {
         entry_id: e.id,

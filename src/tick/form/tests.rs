@@ -308,13 +308,18 @@ fn a_newer_form_queues_behind_the_open_one_and_each_is_closed_with_one_notice() 
 #[test]
 fn at_most_16_forms_wait_and_ids_never_wrap() {
     let (mut state, _rx) = server();
-    let _calls: Vec<Calls> = (0..16).map(|_| send(&mut state, 1, menu())).collect();
+    let _calls: Vec<Calls> = (0..MAX_PENDING)
+        .map(|_| send(&mut state, 1, menu()))
+        .collect();
     let (handler, _) = recorder();
     let full = Context { state: &mut state }.send_form(id(1), menu(), handler);
     assert_eq!(full, Err(Error::Full));
     run(&mut state, vec![answer(1, 1, 3, Some(b"0"), None)]);
     let _again = send(&mut state, 1, menu());
-    assert_eq!(*pending(&state, 1).last().unwrap(), 16);
+    assert_eq!(
+        *pending(&state, 1).last().unwrap(),
+        u32::try_from(MAX_PENDING).unwrap()
+    );
 
     assert!(
         !state.forms.players.contains_key(&SessionId::new(2)),
@@ -414,12 +419,23 @@ fn a_form_is_open_from_sending_until_it_is_answered_closed_or_closed_by_the_serv
 fn forms_sent_and_answered_repeatedly_leave_the_tables_as_they_started() {
     let (mut state, _rx) = server();
     assert_eq!(state.forms.counts(), (0, 0));
+    let max_pending = u32::try_from(MAX_PENDING).unwrap();
     for round in 0..100_u32 {
-        let _c: Vec<Calls> = (0..16).map(|_| send(&mut state, 1, menu())).collect();
+        let _c: Vec<Calls> = (0..MAX_PENDING)
+            .map(|_| send(&mut state, 1, menu()))
+            .collect();
         let _d = send(&mut state, 2, menu());
         let seq = u64::from(round) * 20;
-        let mut inputs: Vec<Input> = (0..16)
-            .map(|i| answer(1, seq + u64::from(i), round * 16 + i, Some(b"0"), None))
+        let mut inputs: Vec<Input> = (0..max_pending)
+            .map(|i| {
+                answer(
+                    1,
+                    seq + u64::from(i),
+                    round * max_pending + i,
+                    Some(b"0"),
+                    None,
+                )
+            })
             .collect();
         inputs.push(answer(2, seq, round, None, Some(0)));
         run(&mut state, inputs);
@@ -570,16 +586,22 @@ fn scoreboards_that_break_a_bound_are_refused() {
     let lines =
         |n: usize, slot| (0..n).fold(Scoreboard::new(slot, "t"), |b, i| b.line(i.to_string(), 0));
     assert_eq!(
-        cx.set_scoreboard(id(1), lines(16, Slot::Sidebar)),
+        cx.set_scoreboard(id(1), lines(MAX_SIDEBAR_LINES + 1, Slot::Sidebar)),
         Err(DisplayError::TooManyLines)
     );
-    assert!(cx.set_scoreboard(id(1), lines(15, Slot::Sidebar)).is_ok());
-    assert!(cx.set_scoreboard(id(1), lines(1024, Slot::List)).is_ok());
+    assert!(
+        cx.set_scoreboard(id(1), lines(MAX_SIDEBAR_LINES, Slot::Sidebar))
+            .is_ok()
+    );
+    assert!(
+        cx.set_scoreboard(id(1), lines(MAX_LINES, Slot::List))
+            .is_ok()
+    );
     assert_eq!(
-        cx.set_scoreboard(id(1), lines(1025, Slot::List)),
+        cx.set_scoreboard(id(1), lines(MAX_LINES + 1, Slot::List)),
         Err(DisplayError::TooManyLines)
     );
-    let long = "x".repeat(1025);
+    let long = "x".repeat(MAX_LABEL_BYTES + 1);
     assert_eq!(
         cx.set_scoreboard(id(1), Scoreboard::new(Slot::List, long.clone())),
         Err(DisplayError::TooLong)

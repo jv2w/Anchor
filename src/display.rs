@@ -9,15 +9,15 @@
 //! use anchor::display::{BossBar, Colour, Scoreboard, Slot};
 //! use anchor::player;
 //!
-//! fn show(cx:&mut Context<'_>, player: player::Id, online: i32) {
+//! fn show(cx: &mut Context<'_>, player: player::Id, online: i32) -> anchor::display::Result<()> {
 //!     let board = Scoreboard::new(Slot::Sidebar, "Lobby")
 //!         .line("Online:", 0)
 //!         .line(format!("{online} players"), 1);
-//!     let _ = cx.set_scoreboard(player, board);
+//!     cx.set_scoreboard(player, board)?;
 //!     let bar = BossBar::new("Next game")
 //!         .with_progress(0.5)
 //!         .with_colour(Colour::Blue);
-//!     let _ = cx.set_boss_bar(player, bar);
+//!     cx.set_boss_bar(player, bar)
 //! }
 //! ```
 
@@ -81,7 +81,7 @@ impl Scoreboard {
         self
     }
 
-    /// The scoreboard with its lines ordered by score as `sort` says.
+    /// The same scoreboard with its lines ordered by score as `sort` says.
     #[must_use]
     pub fn with_sort(mut self, sort: Sort) -> Self {
         self.sort = sort;
@@ -124,15 +124,15 @@ impl BossBar {
         }
     }
 
-    /// The bar in `colour`.
+    /// The same bar with `colour` as its colour.
     #[must_use]
     pub fn with_colour(mut self, colour: Colour) -> Self {
         self.colour = colour;
         self
     }
 
-    /// The bar filled to `progress`, from 0 (empty) to 1 (full); values outside are clamped and
-    /// NaN is 0.
+    /// The same bar filled to `progress`, from 0 (empty) to 1 (full); values outside are clamped
+    /// and NaN is 0.
     #[must_use]
     pub fn with_progress(mut self, progress: f32) -> Self {
         self.progress = if progress > 1.0 {

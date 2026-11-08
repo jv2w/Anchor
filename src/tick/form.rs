@@ -5,8 +5,8 @@
 //! the player. The answer (`ModalFormResponse`) removes it whether it fits or not, so a second
 //! answer to the same ID finds nothing; one that fits runs the handler in the tick's serial step,
 //! with the handler already out of the state. A form stays open on the client through a death, a
-//! world move and a newer form (they queue), so only the player's answer or leaving closes it,
-//! with one notice each.
+//! world move and a newer form (they queue), so only the player's answer, leaving, or the server's
+//! [`close_forms`](Context::close_forms) closes it, with one notice each for the first two.
 //!
 //! The form API is on [`Context`] rather than [`Player`]: the handler
 //! needs a `Context`, and the forms are kept in the state beside the players.
@@ -18,6 +18,7 @@ use std::fmt;
 
 use tracing::debug;
 
+use super::checkpoint::{self, Codec, Reader, Writer};
 use super::queue::SessionId;
 use super::{Context, Player, State};
 use crate::form::{self, Error, Form, MAX_PENDING, MAX_RESPONSE_BYTES, Response, Shape};
@@ -61,7 +62,7 @@ impl Forms {
     }
 }
 
-super::checkpoint::fields!(Forms { players });
+checkpoint::fields!(Forms { players });
 
 /// What one player has open.
 #[derive(Debug, Default)]
@@ -76,8 +77,8 @@ struct Open {
 
 /// A waiting form's handler is a closure: it has no checkpoint form, so a waiting form makes the
 /// checkpoint opaque, and reads back as none.
-impl super::checkpoint::Codec for Open {
-    fn encode(&self, w: &mut super::checkpoint::Writer) {
+impl Codec for Open {
+    fn encode(&self, w: &mut Writer) {
         let Self {
             next,
             pending,
@@ -88,8 +89,7 @@ impl super::checkpoint::Codec for Open {
         display.encode(w);
     }
 
-    fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
+    fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
         Ok(Self {
             next: Codec::decode(r)?,
             pending: BTreeMap::new(),
@@ -149,9 +149,9 @@ impl Context<'_> {
     ///
     /// Sends nothing with the first of these that holds:
     /// [`Error::Invalid`] for a form that breaks a rule of its builder or is too large.
-    /// [`Error::Offline`] if the player is not in the game.
-    /// [`Error::Full`] if the player has 16 forms waiting.
-    /// [`Error::Exhausted`] if the player was sent 2^32 forms already.
+    /// [`Error::Offline`] for a player who is not in the game.
+    /// [`Error::Full`] for a player who has 16 forms waiting.
+    /// [`Error::Exhausted`] for a player who was sent 2^32 forms already.
     #[doc(alias = "Player::sendForm")]
     #[doc(alias = "Form::handleResponse")]
     pub fn send_form(
@@ -211,7 +211,7 @@ pub(super) fn on_response(state: &mut State, session: SessionId, packet: &ModalF
         debug!(
             session = session.get(),
             form = id,
-            size = packet.response_data.as_ref().map_or(0, Vec::len),
+            len = packet.response_data.as_ref().map_or(0, Vec::len),
             "form answer that does not fit the form dropped"
         );
         return;
