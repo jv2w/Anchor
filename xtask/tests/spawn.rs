@@ -413,6 +413,22 @@ fn lock<T>(mutex: &std::sync::Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test runs the server on its own thread"
+)]
+fn spawn<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
+    std::thread::spawn(f)
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test waits between pings"
+)]
+fn pause() {
+    std::thread::sleep(Duration::from_millis(100));
+}
+
 /// The directory for this test binary's files.
 fn work_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join("p5")
@@ -456,6 +472,18 @@ fn play(server: &Running, scenario: &str, name: &str, extra: &[&str]) -> String 
         .output()
         .expect("the bot starts");
     passed(scenario, name, &output)
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn remove_file(path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => panic!("remove {}: {e}", path.display()),
+    }
 }
 
 /// Starts a bot scenario without waiting for it; [`finish`] collects it. The output of an earlier
@@ -734,6 +762,46 @@ fn a_login_with_another_key_than_the_offer_is_refused() {
     server.stop();
 }
 
+/// Sends one HTTP request to the signaling port and returns the status and body.
+#[expect(
+    clippy::disallowed_types,
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn http(port: u16, request: &str) -> (u16, String) {
+    let mut stream =
+        std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("connect to signaling");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .expect("set a read timeout");
+    stream
+        .write_all(request.as_bytes())
+        .expect("send the request");
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("read the response");
+    let status = response
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .expect("a status line");
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body.to_owned())
+        .unwrap_or_default();
+    (status, body)
+}
+
+fn post_offer(port: u16) -> (u16, String) {
+    let request = format!(
+        "POST /v1/join/1234 HTTP/1.1\r\nHost: x\r\nContent-Type: application/sdp\r\n\
+         Content-Length: {}\r\n\r\n{OFFER}",
+        OFFER.len()
+    );
+    http(port, &request)
+}
+
 #[test]
 fn one_ip_gets_four_nethernet_peers_before_login() {
     let server = Running::start(
@@ -813,6 +881,22 @@ fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_l
     server.stop();
 }
 
+fn wait_for(name: &str, text: &str) {
+    for _ in 0..300 {
+        if read(&out_file(name)).contains(text) {
+            return;
+        }
+        pause();
+    }
+    panic!("{name} never wrote {text}");
+}
+
+/// Waits until the bot writing `<name>.jsonl` has sent `SetLocalPlayerAsInitialised` (the bot
+/// flushes its output right after).
+fn wait_for_spawn(name: &str) {
+    wait_for(name, "\"name\":\"SetLocalPlayerAsInitialised\"");
+}
+
 #[test]
 fn a_duplicate_login_replaces_the_player_already_online() {
     let server = Running::start(
@@ -878,6 +962,12 @@ fn a_cancelled_duplicate_login_turns_the_new_player_away() {
     server.stop();
 }
 
+/// Waits until the stalling bot writing `<name>.jsonl` has received `ResourcePacksInfo` (it
+/// flushes its output then).
+fn wait_for_packs_info(name: &str) {
+    wait_for(name, "\"name\":\"ResourcePacksInfo\"");
+}
+
 #[test]
 fn sessions_past_login_but_not_joined_are_capped() {
     let mut config = config(Compression::Snappy);
@@ -918,96 +1008,6 @@ fn a_player_downloading_packs_gets_the_shutdown_message() {
     let lines = finish(bot, "stall", "packs-stop");
     let result = result(&lines);
     assert_eq!(result["disconnect_message"], "Back soon", "{result}");
-}
-
-/// Waits until the bot writing `<name>.jsonl` has sent `SetLocalPlayerAsInitialised` (the bot
-/// flushes its output right after).
-fn wait_for_spawn(name: &str) {
-    wait_for(name, "\"name\":\"SetLocalPlayerAsInitialised\"");
-}
-
-/// Waits until the stalling bot writing `<name>.jsonl` has received `ResourcePacksInfo` (it
-/// flushes its output then).
-fn wait_for_packs_info(name: &str) {
-    wait_for(name, "\"name\":\"ResourcePacksInfo\"");
-}
-
-fn wait_for(name: &str, text: &str) {
-    for _ in 0..300 {
-        if read(&out_file(name)).contains(text) {
-            return;
-        }
-        pause();
-    }
-    panic!("{name} never wrote {text}");
-}
-
-fn post_offer(port: u16) -> (u16, String) {
-    let request = format!(
-        "POST /v1/join/1234 HTTP/1.1\r\nHost: x\r\nContent-Type: application/sdp\r\n\
-         Content-Length: {}\r\n\r\n{OFFER}",
-        OFFER.len()
-    );
-    http(port, &request)
-}
-
-/// Sends one HTTP request to the signaling port and returns the status and body.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn http(port: u16, request: &str) -> (u16, String) {
-    let mut stream =
-        std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("connect to signaling");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
-        .expect("set a read timeout");
-    stream
-        .write_all(request.as_bytes())
-        .expect("send the request");
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .expect("read the response");
-    let status = response
-        .split(' ')
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .expect("a status line");
-    let body = response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body.to_owned())
-        .unwrap_or_default();
-    (status, body)
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test runs the server on its own thread"
-)]
-fn spawn<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
-    std::thread::spawn(f)
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn remove_file(path: &Path) {
-    match std::fs::remove_file(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => panic!("remove {}: {e}", path.display()),
-    }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test waits between pings"
-)]
-fn pause() {
-    std::thread::sleep(Duration::from_millis(100));
 }
 
 /// A stored (uncompressed) zip archive of `files`, the smallest a pack can be.
