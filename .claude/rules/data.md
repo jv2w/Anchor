@@ -36,12 +36,12 @@ paths:
 - Never write block, item, creative inventory, effect, or enchantment tables by hand. Commit what running or converting the pinned sources produces to `xtask/data/`, and generate the tables under `src/` from it with `cargo xtask gen`.
 - Take block and item kinds, states, and serialization from the dump (the sources table in `.claude/docs/data.md`).
 - Take version-specific numbers (block network IDs, item runtime IDs) from the reference list. Use the reference list only to check and number, never to define a block. Exception: the item component values clients receive (`use_duration`) also drive behavior.
-- Reference list source A is pinned to an unmerged pull request; move the pin to a release when one ships.
+- Move reference list source A's pin to a release when one ships.
 
 ## Dump and PHP scripts
-- `dump` writes the reference list (`xtask/go/reference`) before it runs the dump source, which reads every reference state.
+- Keep `dump` writing the reference list (`xtask/go/reference`) before it runs the dump source.
 - Run the PHP scripts (`xtask/php/`) with the dump PHP of the sources table, never plain PHP, with `.cache/dump` as the working directory.
-- PHP script output sorts every list and writes one entry per line, so the same checkout writes the same bytes.
+- Make PHP script output sort every list and write one entry per line, so the same checkout writes the same bytes.
 
 ## Dump source defects
 - Leave out of the creative inventory the empty enchanted books the dump source makes by dropping enchantments it does not know.
@@ -51,7 +51,7 @@ paths:
 - Correct the effect colours that differ from the official server's in the one table `OFFICIAL_COLOURS` (`xtask/src/gen/effects.rs`).
 
 ## Reference list
-- Reference list sources A and B hold exactly the same block states (name, property names, types and values, version) and items (name, runtime ID, version, component flag); `xtask/go/reference` fails on any difference.
+- Keep `xtask/go/reference` failing on any difference between reference list sources A and B in block states (name, property names, types and values, version) and items (name, runtime ID, version, component flag).
 - Use the reference list's block network IDs. Use the hash function only for custom blocks.
 - Use only the biome definitions without chunk generation data.
 - Dump states that map to one Bedrock state may differ only in data the state does not hold (a bed's or banner's colour, which the block entity holds; a cauldron's fill, which Anchor does not keep), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
@@ -90,17 +90,17 @@ paths:
 - Keep a legacy value the 1.12.0 table lacks as an unknown block: a numeric terrain value as `{id, val}`, a `{name, val}` palette entry as it came.
 - Treat a state whose version is above the newest schema's as a state of the newest version.
 - Keep `gen` checking that item schema IDs are lowercase, item schema metas are numbers, and every legacy ID map is one to one.
-- `dump` stores every copied schema file with LF line ends.
+- Make `dump` store every copied schema file with LF line ends.
 - Share the rule interpreter (`src/import/upgrade/apply.rs`) with `gen`, which includes it by path. Never copy it.
 - Share the network hash (`src/block/hash.rs`) with `dump`, which includes it by path. Never copy it.
 
 ## Rebuilding `.cache/`
-- Builds, tests, and `verify` run on committed data alone, except the dimpl copy's tests, which need Perl.
-- Rebuild `.cache/` from the repository root in this order. `<origin>` and the SHA-256 values are in the `.cache/` table of `.claude/docs/data.md`; `<commit>` and the official server version are in its sources table (bedrock-protocol-docs: `PROTOCOL_DOCS` in `xtask/src/dump.rs`).
+- Builds, tests, and `verify` run on committed data alone, except the dimpl copy's tests, which need Perl, and the tests that read reference list source B, which skip their check without `.cache/` (`.claude/docs/data.md`).
+- Rebuild `.cache/` from the repository root in this order. `<origin>` and the SHA-256 values are in the `.cache/` table of `.claude/docs/data.md`; `<commit>` and the official server version are in the constants its sources table names (bedrock-protocol-docs: `PROTOCOL_DOCS` in `xtask/src/dump.rs`).
   1. The six git checkouts, each: `git init .cache/<folder>`, `git -C .cache/<folder> remote add origin <origin>`, `git -C .cache/<folder> fetch --depth 1 origin <commit>`, `git -C .cache/<folder> checkout --detach FETCH_HEAD`.
   2. The dump PHP: download the release zip, check its SHA-256, and unpack it into `.cache/dump-php/` so that `bin/php/php.exe` and `bin/php/php.ini` are there.
   3. The dump source's dependencies: in `.cache/dump`, run composer with the dump PHP: `composer install --no-dev --ignore-platform-reqs`. This puts the dump source's `composer.lock` versions into `.cache/dump/vendor`.
-  4. The official server: download the zip for the OS, check its SHA-256, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
+  4. The official server: download the zip for the OS, check its SHA-256 where the `.cache/` table records one, and unpack it into `.cache/official/<version>/` (on Linux as `.claude/docs/testing.md` says).
   5. Perl: on Windows, download the Strawberry Perl portable zip, check its SHA-256, and unpack it into the folder of the `.cache/` table. On Linux, install the system packages `.claude/docs/testing.md` lists.
   6. The str0m captures: `cargo xtask vendor-test str0m` downloads them.
   7. Confirm that `cargo xtask dump --check` passes.

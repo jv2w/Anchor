@@ -8,17 +8,17 @@ The data is what the dump source's own registries hold when its dump PHP runs th
 
 | Source | Pin | License | Used for |
 |---|---|---|---|
-| The dump source | commit `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` (Bedrock 1.26.30 data) | LGPL-3.0 | Block and item kinds and data, the creative inventory, effect and enchantment tables |
+| The dump source | `DUMP_SOURCE` in `xtask/src/dump.rs` (Bedrock 1.26.30 data) | LGPL-3.0 | Block and item kinds and data, the creative inventory, effect and enchantment tables |
 | The dump source's data package | 6.7.0+bedrock-1.26.30 (the dump source's `composer.lock`) | CC0 | The data the dump source reads |
 | The dump PHP | the release in the `.cache/` table | PHP License | The PHP the dump scripts run with (development tool) |
-| Reference list source A | head `d86aefd9ff9b6a357d6dfadab2093af811545256` of an unmerged pull request (branch `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60) | MIT | Block states, items, a check of the vanilla creative states of block items |
-| Reference list source B | `293c848098cc636a2758937fb6610b8bed1f12c5` (26.60) | Apache-2.0 | Block network IDs, cross-checks, the vanilla creative states of block items, biomes, the official server's block physics, data sent at spawn and files sent as they are |
+| Reference list source A | `REFERENCE_SOURCE_A` in `xtask/src/dump.rs`: the head of an unmerged pull request (branch `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60) | MIT | Block states, items, a check of the vanilla creative states of block items |
+| Reference list source B | `REFERENCE_SOURCE` in `xtask/src/dump.rs` (26.60) | Apache-2.0 | Block network IDs, cross-checks, the vanilla creative states of block items, biomes, the official server's block physics, data sent at spawn and files sent as they are |
 | Protocol documents | `PROTOCOL_DOCS` in `xtask/src/dump.rs` | Minecraft EULA | Field length limits (numbers only) |
-| The schema source | `https://github.com/EndstoneMC/bedrock-protocol` v0.4.4, commit `0fb448a6a9940f197e199dcea488fc4129755d48` | MIT | Judging gophertunnel defects only (`protocol.md`) |
-| The codec library | `https://github.com/CloudburstMC/Protocol` branch `3.0`, codec `v2225`, commit `17a89ac156ff874fc8773e42a96bbc0635be9eed` | Apache-2.0 | Judging gophertunnel defects only (`protocol.md`) |
-| The block upgrade schemas | 5.4.1, `1077ee640ed39f60266f7a7c8ab331ef76d7931e` | CC0 | Old block state upgrades |
-| The item upgrade schemas | 1.19.0, `dfc12b388be886ba6980d9a3b67cb1b432b563e2` | CC0 | Old item name upgrades |
-| The official server (Mojang) | 1.26.60.6 (protocol 2225) | Minecraft EULA | Comparison runs, and the camera and aim assist presets (`camera.json`, captured from 1.26.52.3, protocol 2193) |
+| The schema source | v0.4.4, commit `0fb448a6a9940f197e199dcea488fc4129755d48` | MIT | Judging gophertunnel defects only (`protocol.md`) |
+| The codec library | branch `3.0`, codec `v2225`, commit `17a89ac156ff874fc8773e42a96bbc0635be9eed` | Apache-2.0 | Judging gophertunnel defects only (`protocol.md`) |
+| The block upgrade schemas | 5.4.1, `BLOCKS` in `xtask/src/dump/upgrade.rs` | CC0 | Old block state upgrades |
+| The item upgrade schemas | 1.19.0, `ITEMS` in `xtask/src/dump/upgrade.rs` | CC0 | Old item name upgrades |
+| The official server (Mojang) | `OFFICIAL_DIR` in `xtask/src/p6.rs` (protocol 2225) | Minecraft EULA | Comparison runs, and the camera and aim assist presets (`camera.json`, captured from 1.26.52.3, protocol 2193) |
 
 - `cargo xtask dump` first checks that the `HEAD` of each of its six checkouts is the pinned commit, and fails otherwise.
 - The block schemas are 5.4.1, not the 5.2.0 of the dump source's `composer.lock`: 5.2.0 lacks the changes from 1.26.30 on.
@@ -33,7 +33,7 @@ Before it starts, `dump` checks the pinned commits and that `.cache/dump/vendor`
 3. It copies source B's biome definitions, entity identifiers, and block shapes into `xtask/data/reference/`.
 4. It writes the field limits (`protocol_limits.json`) from Mojang's protocol schemas (`.claude/docs/protocol.md`).
 5. It copies the upgrade schemas into `xtask/data/upgrade/` and makes the goldens with the dump source's upgrader (see the upgrade section). It fails when `xtask/data/upgrade/{blocks,items}` holds a file the sources do not make.
-6. It writes `block_physics.json`: the official server's block physics for every reference state (see block physics). It fails on a state without physics.
+6. It writes `block_physics.json`: the official server's block physics for every reference state (see block physics).
 
 `--check` does the same into `target/xtask-dump/` and fails where a committed file differs. `verify` does not run `dump`: it needs the checkouts, the dump PHP, and Go, and its pinned inputs never change. `verify`'s `gen --check` checks the code made from the committed data instead.
 
