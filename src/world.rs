@@ -239,7 +239,9 @@ pub enum Error {
     /// `< > : " / \ | ? *` (so no path); ends in a dot or a space or starts with a space; or is a
     /// name Windows keeps for a device, in any letter case and with any extension (`CON`, `PRN`,
     /// `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a
-    /// superscript digit). Letter case is kept in the file name, but names that differ only in
+    /// superscript digit); or has the form of a Windows 8.3 short name (at most 8 bytes with `~`
+    /// and a digit, then at most one dot and 3 bytes, as `LONGWO~1`), which Windows can take as
+    /// another file's or folder's. Letter case is kept in the file name, but names that differ only in
     /// letter case are one world ([`WorldExists`](Self::WorldExists)), as Windows sees one file.
     InvalidName,
     /// A view value of the world's [`Options::settings`] is outside the range its
