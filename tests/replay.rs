@@ -5,6 +5,7 @@
 //!
 //! The test runs its own test binary as the server process (`replay_child`).
 
+// Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
 #[path = "support/local_config.rs"]
@@ -40,9 +41,17 @@ const FORK: Plan = Plan {
 const FORK_PANIC_AT: u64 = 200;
 /// The tick whose save a fork of a stopped world commits.
 const FORK_SAVE_AT: u64 = 160;
-/// The child's environment variable: `crash` saves and panics, `restart` runs a while and stops;
-/// without backups, `base` runs a while and stops and `fork` saves and panics later.
+/// The mode of a child without backups that runs a while and stops.
+const MODE_BASE: &str = "base";
+/// The mode of a child that saves and panics.
+const MODE_CRASH: &str = "crash";
+/// The child's environment variable naming its mode: [`MODE_CRASH`], [`MODE_RESTART`],
+/// [`MODE_BASE`] or [`MODE_FORK`].
 const MODE_ENV: &str = "ANCHOR_REPLAY_MODE";
+/// The mode of a child without backups that saves and panics later.
+const MODE_FORK: &str = "fork";
+/// The mode of a child that runs a while and stops.
+const MODE_RESTART: &str = "restart";
 /// The tick that panics.
 const PANIC_AT: u64 = 100;
 /// The tick whose save the crash log starts from.
@@ -64,8 +73,8 @@ fn backup_config(backups: bool) -> Config {
     config
 }
 
-/// What the task does at every tick, from the game state alone: a block a tick, a save and a
-/// panic as `plan` says; a run without a panic stops at [`STOP_AT`].
+/// Does what the task does at every tick, from the game state alone: sets a block a tick, saves
+/// and panics as `plan` says; a run without a panic stops at [`STOP_AT`].
 fn step(cx: &mut Context<'_>, plan: Plan) {
     let tick = cx.tick();
     let t = i32::try_from(tick % 32).unwrap();
@@ -109,10 +118,11 @@ fn replay_child() {
         ..CRASH
     };
     let (plan, backups) = match mode.as_str() {
-        "crash" => (CRASH, true),
-        "fork" => (FORK, false),
-        "base" => (stops, false),
-        _ => (stops, true),
+        MODE_CRASH => (CRASH, true),
+        MODE_FORK => (FORK, false),
+        MODE_BASE => (stops, false),
+        MODE_RESTART => (stops, true),
+        _ => panic!("unknown mode {mode}"),
     };
     let result = builder(Path::new(&data), plan, backups)
         .build()
@@ -207,7 +217,7 @@ fn crash_log(data: &Path) -> PathBuf {
 #[test]
 fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     let data = TempPath::new("replay");
-    child(&data.0, "crash");
+    child(&data.0, MODE_CRASH);
     let log = crash_log(&data.0);
     let before = read_all(&data.0);
 
@@ -222,7 +232,7 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     assert_eq!(read_all(&data.0), before, "a replay writes nothing");
 
     // A restart backs the data files up and commits on: the replay starts from the backups.
-    child(&data.0, "restart");
+    child(&data.0, MODE_RESTART);
     assert_ne!(
         read_all(&data.0),
         before,
@@ -237,10 +247,10 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
 fn a_crash_log_is_not_replayed_on_a_server_file_another_run_committed_at_its_tick() {
     let data = TempPath::new("replay-fork");
     // Data files stopped at some tick, without backups.
-    child(&data.0, "base");
+    child(&data.0, MODE_BASE);
     let base = read_all(&data.0);
     // Run A from there commits its save and panics; its commit never reached the disk.
-    child(&data.0, "fork");
+    child(&data.0, MODE_FORK);
     let log = data.0.join("a.log");
     rename(&crash_log(&data.0), &log);
     for (file, bytes) in data_files(&data.0).iter().zip(&base) {
@@ -248,7 +258,7 @@ fn a_crash_log_is_not_replayed_on_a_server_file_another_run_committed_at_its_tic
     }
     // Run B from the same state commits a save of its own at the same tick, from other inputs
     // (its measured tick times at least).
-    child(&data.0, "fork");
+    child(&data.0, MODE_FORK);
     let result = build(&data.0, FORK, false).replay(&log);
     assert!(
         matches!(result, Err(anchor::replay::Error::NoMatchingWorld)),

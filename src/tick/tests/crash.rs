@@ -25,30 +25,42 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::packet;
+use super::*;
 use crate::block::{Face, Kind as BlockKind};
 use crate::event::{Listeners, Priority, WorldSave};
 use crate::item::{Kind as ItemKind, Stack, Type};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
-use crate::protocol::packet::{Packet, RequestChunkRadius};
+use crate::protocol::packet::{ItemStackRequest as RequestPacket, Packet, RequestChunkRadius};
+use crate::protocol::{
+    FullContainerName, ItemStackRequest, Rng, StackRequestAction, StackRequestSlotInfo,
+    TakeStackRequestAction, TransferStackRequestAction,
+};
 use crate::storage::ChunkKind;
+use crate::tick::queue::Input;
 use crate::tick::task::crash::{
     CHILD_TICKS, Running, SESSION, fields, fresh, gold, path, remove, report, serve, spawn_child,
     stop_server,
 };
-use crate::tick::{Setup, State, Tasks, block_entity, entity, inventory, save, task};
+use crate::tick::{
+    InputLog, Output, Setup, State, Tasks, block_entity, boundary, deliver, entity, inventory,
+    save, task,
+};
 use crate::world::{BlockPos, ChunkPos};
 
-/// The child's environment variable naming the phase of the item cycle (the tick modulo 12, see
-/// [`step`]) its run commits once, after [`SETTLE`] ticks of moves; without it the run commits
-/// every third tick.
+/// The child's environment variable naming the phase of the item cycle (the tick modulo
+/// [`CYCLE_TICKS`], see [`step`]) its run commits once, after [`SETTLE`] ticks of moves; without
+/// it the run commits every third tick.
 const AIM_ENV: &str = "ANCHOR_ITEM_CRASH_AIM";
-/// The phases the aimed runs commit, by turns: items on the ground (2, 3), on the cursor (6, 9),
-/// in the slots and the chest only (0).
-const AIMS: [u64; 5] = [2, 3, 6, 9, 0];
+/// The phases the aimed runs commit, by turns: items on the ground, on the cursor, in the slots
+/// and the chest only (see [`step`] for what each phase of the cycle does).
+const AIMS: [u64; 5] = [2, 3, CURSOR_PHASE, 9, 0];
 /// The chest, in a spawn chunk (always loaded).
 const CHEST: BlockPos = BlockPos::new(4, -60, 4);
+/// The phase of the item cycle at which sticks go onto the cursor.
+const CURSOR_PHASE: u64 = 6;
+/// Ticks of one cycle of the item moves.
+const CYCLE_TICKS: u64 = 12;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_ITEM_CRASH_DATA";
 /// Where items are dropped: in a spawn chunk, far from the player at the spawn, so it never
@@ -58,12 +70,18 @@ const DROP: Vec3 = Vec3::new(12.5, -59.5, 12.5);
 const ITEMS: [(ItemKind, u64); 2] = [(ItemKind::Diamond, 100), (ItemKind::Stick, 200)];
 /// Kills, each followed by a restart that checks the file.
 const KILLS: u32 = 50;
-/// The child's environment variable: `run` keeps moving items, `check` only reports.
+/// The mode of a child that only reports what it started with.
+const MODE_CHECK: &str = "check";
+/// The child's environment variable naming its mode: [`MODE_RUN`] or [`MODE_CHECK`].
 const MODE_ENV: &str = "ANCHOR_ITEM_CRASH_MODE";
+/// The mode of a child that keeps moving items.
+const MODE_RUN: &str = "run";
 /// The player's name.
 const NAME: &str = "crasher";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-ITEMS";
+/// How long the parent waits for the next report line of the child.
+const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
 /// Ticks of moves before an aimed commit, so that items are in every place of the cycle.
 const SETTLE: u64 = 24;
 
@@ -251,12 +269,12 @@ fn take_ground(state: &mut State) -> Option<Vec<Stack>> {
     Some(stacks)
 }
 
-/// The item moves of one tick, by the tick: player → chest, chest → ground, player → ground,
-/// ground → chest or player, chest → player, then main slots → the cursor, held there for five
-/// ticks (several commits), and back.
+/// Makes the item moves of one tick, by the tick: player → chest, chest → ground, player →
+/// ground, ground → chest or player, chest → player, then main slots → the cursor, held there for
+/// five ticks (several commits), and back.
 fn step(state: &mut State, tick: u64) {
-    match tick % 12 {
-        6 => {
+    match tick % CYCLE_TICKS {
+        CURSOR_PHASE => {
             let sticks = take_player(state, 1, 3);
             let player = state.players.get_mut(&SESSION).expect("the player is in");
             inventory::set_cursor(player, Stack::new(item(1), sticks));
@@ -268,7 +286,7 @@ fn step(state: &mut State, tick: u64) {
     }
 }
 
-/// The moves between the player's slots, the chest and the ground (step `k`, 0 to 5).
+/// Makes the moves between the player's slots, the chest and the ground (step `k`, 0 to 5).
 fn moves(state: &mut State, k: u64, tick: u64) {
     match k {
         0 => {
@@ -309,7 +327,7 @@ fn moves(state: &mut State, k: u64, tick: u64) {
         }
         4 => {
             if let Some(stacks) = take_ground(state) {
-                let to_chest = (tick / 12).is_multiple_of(2);
+                let to_chest = (tick / CYCLE_TICKS).is_multiple_of(2);
                 for s in stacks {
                     if to_chest {
                         put_chest(state, s);
@@ -411,12 +429,12 @@ impl Mover {
             Some(phase) => {
                 let target = *self.target.get_or_insert_with(|| {
                     let settled = tick + SETTLE;
-                    settled + (phase + 12 - settled % 12) % 12
+                    settled + (phase + CYCLE_TICKS - settled % CYCLE_TICKS) % CYCLE_TICKS
                 });
                 tick == target
             }
             // Every third tick, and when items go onto the cursor.
-            None => tick.is_multiple_of(3) || tick % 12 == 6,
+            None => tick.is_multiple_of(3) || tick % CYCLE_TICKS == CURSOR_PHASE,
         };
         if save {
             cx.save();
@@ -501,7 +519,7 @@ fn item_crash_child() {
     };
     let (stop_tx, stop) = mpsc::channel(1);
     let mut mover = Mover {
-        moves: mode == "run",
+        moves: mode == MODE_RUN,
         aim: std::env::var(AIM_ENV).ok().map(|a| a.parse().unwrap()),
         target: None,
         stop: stop_tx,
@@ -569,7 +587,7 @@ fn record(line: &str, ticks: &mut BTreeMap<u64, Places>) {
 fn first_report(server: &mut Running, kill: u32) -> String {
     server
         .lines
-        .recv_timeout(Duration::from_secs(120))
+        .recv_timeout(REPORT_TIMEOUT)
         .unwrap_or_else(|_| {
             let status = server.child.try_wait().unwrap();
             panic!("kill {kill}: no report (exit {status:?}): a damaged file is refused at start")
@@ -588,7 +606,7 @@ fn kill_after_commit(
     while since_commit.is_none_or(|n| n < after) {
         let line = server
             .lines
-            .recv_timeout(Duration::from_secs(120))
+            .recv_timeout(REPORT_TIMEOUT)
             .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
         record(&line, ticks);
         if line == "committed" {
@@ -620,21 +638,14 @@ struct Found {
 
 #[test]
 fn forced_kills_never_duplicate_lose_or_split_items() {
-    // A fixed-seed generator for the kill moments (xorshift), in kill order.
-    let mut seed = 0x17e5_c0de_u64;
-    let afters: Vec<u64> = (0..KILLS)
-        .map(|_| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed % 30
-        })
-        .collect();
+    // A fixed-seed generator for the kill moments, in kill order.
+    let mut rng = Rng(0x17e5_c0de);
+    let afters: Vec<u64> = (0..KILLS).map(|_| rng.next() % 30).collect();
     // The kills run in two chains side by side, each on a server file of its own, at the moments
     // and aims one chain of all of them takes: the children tick in real time, so one chain
     // takes twice as long for the same kills.
     let half = KILLS / 2;
-    let chains = super::side_by_side(&[(0, half), (half, KILLS)], |&(first, end)| {
+    let chains = side_by_side(&[(0, half), (half, KILLS)], |&(first, end)| {
         chain(first, end, &afters)
     });
     let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
@@ -665,8 +676,8 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
     // The phase the last run committed, if it was aimed.
     let mut aimed = None;
     for kill in first..=end {
-        let mode = if kill == end { "check" } else { "run" };
-        let aim = (mode == "run" && kill.is_multiple_of(2))
+        let mode = if kill == end { MODE_CHECK } else { MODE_RUN };
+        let aim = (mode == MODE_RUN && kill.is_multiple_of(2))
             .then(|| AIMS[usize::try_from(kill / 2).unwrap() % AIMS.len()]);
         let mut server = start(&data, mode, aim);
         let line = first_report(&mut server, kill);
@@ -707,7 +718,7 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
             let tick = start - 1;
             if let Some(phase) = aimed {
                 assert_eq!(
-                    tick % 12,
+                    tick % CYCLE_TICKS,
                     phase,
                     "kill {kill}: not the aimed commit: {line}"
                 );
@@ -729,7 +740,7 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
             found.advanced += 1;
             last_start = start;
         }
-        if mode == "run" {
+        if mode == MODE_RUN {
             let after = afters[usize::try_from(kill).unwrap()];
             kill_after_commit(&mut server, kill, after, &mut ticks);
         }
@@ -748,28 +759,17 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
 /// saved data must, or a crash right after the commit loses them.
 #[test]
 fn a_commit_holds_the_items_on_a_cursor() {
-    use crate::protocol::packet::ItemStackRequest as RequestPacket;
-    use crate::protocol::{
-        FullContainerName, ItemStackRequest, StackRequestAction, StackRequestSlotInfo,
-        TakeStackRequestAction, TransferStackRequestAction,
-    };
-    use crate::tick::Output;
-    use crate::tick::queue::Input;
-    let mut state = super::new_state(super::settings(|_| {}), Listeners::default());
+    let mut state = new_state(settings(|_| {}), Listeners::default());
     state.saving.players = true;
     let mut output = Output::default();
-    let (j, mut rx) = super::join(1, 0);
-    super::tick(
-        &mut state,
-        &mut vec![j, super::radius(1, 1, 4)],
-        &mut output,
-    );
+    let (j, mut rx) = join(1, 0);
+    tick(&mut state, &mut vec![j, radius(1, 1, 4)], &mut output);
     for _ in 0..4 {
-        super::tick(&mut state, &mut Vec::new(), &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
     }
     let runtime_id = state.players[&SESSION].runtime_id;
-    let init: Input = super::initialised(1, 2, runtime_id);
-    super::tick(&mut state, &mut vec![init], &mut output);
+    let init: Input = initialised(1, 2, runtime_id);
+    tick(&mut state, &mut vec![init], &mut output);
     // A chest with five sticks, open.
     let at = BlockPos::new(2, -60, 1);
     state.worlds[0]
@@ -778,8 +778,8 @@ fn a_commit_holds_the_items_on_a_cursor() {
     block_entity::placed(&mut state, 0, at, None, &Stack::EMPTY, Face::Up);
     state.rules.block_entities.get_mut(0, at).unwrap().items[0] = Stack::new(item(1), 5);
     assert!(inventory::open_block(&mut state, SESSION, 0, at));
-    super::tick(&mut state, &mut Vec::new(), &mut output);
-    let packets = super::received(&mut rx).0;
+    tick(&mut state, &mut Vec::new(), &mut output);
+    let packets = received(&mut rx).0;
     let window = packets
         .iter()
         .find_map(|p| match p {
@@ -817,15 +817,15 @@ fn a_commit_holds_the_items_on_a_cursor() {
         filter_strings: Vec::new(),
         filter_cause: 0,
     };
-    let request = super::input(
+    let request = input(
         1,
         3,
         packet(Packet::ItemStackRequest(RequestPacket {
             requests: vec![take],
         })),
     );
-    super::tick(&mut state, &mut vec![request], &mut output);
-    let done = super::received(&mut rx).0.iter().any(
+    tick(&mut state, &mut vec![request], &mut output);
+    let done = received(&mut rx).0.iter().any(
         |p| matches!(p, Packet::ItemStackResponse(r) if r.responses.iter().all(|r| r.status == 0)),
     );
     assert!(done, "the take was done");
@@ -838,8 +838,7 @@ fn a_commit_holds_the_items_on_a_cursor() {
 }
 
 /// Takes a commit at the next tick boundary: the items its player data and block entities hold.
-fn commit_counts(state: &mut State, output: &mut crate::tick::Output) -> Counts {
-    use crate::tick::{InputLog, boundary, deliver};
+fn commit_counts(state: &mut State, output: &mut Output) -> Counts {
     state.saving.requested = true;
     let pool = crate::runtime::cpu_pool(1).unwrap();
     let mut log = InputLog::default();

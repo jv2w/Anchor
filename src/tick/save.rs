@@ -17,7 +17,7 @@ use tracing::{debug, error, warn};
 use super::extra::{self, Held};
 use super::log::InputLog;
 use super::view::Key;
-use super::{Context, Phase, Player, PlayerKey, SessionId, State, dispatch};
+use super::{Context, Phase, Player, PlayerKey, SessionId, State, checkpoint, dispatch};
 use crate::command::Sender;
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
@@ -42,6 +42,19 @@ pub(super) struct Unsaved {
 }
 
 impl Unsaved {
+    /// Writes the snapshot that holds it and its extras ([`Held::checkpoint`]); the checkpoint
+    /// keeps the terrain apart, shared until a crash log is written.
+    pub(super) fn checkpoint(&self, w: &mut checkpoint::Writer) {
+        use checkpoint::Codec;
+        let Self {
+            chunk: _,
+            extras,
+            snapshot,
+        } = self;
+        snapshot.encode(w);
+        extras.checkpoint(w);
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -60,30 +73,15 @@ impl Unsaved {
         }
         extras.hash_into(h);
     }
-}
-
-impl Unsaved {
-    /// Writes the snapshot that holds it and its extras ([`Held::checkpoint`]); the checkpoint
-    /// keeps the terrain apart, shared until a crash log is written.
-    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
-        let Self {
-            chunk: _,
-            extras,
-            snapshot,
-        } = self;
-        snapshot.encode(w);
-        extras.checkpoint(w);
-    }
 
     /// Reads what [`Self::checkpoint`] wrote, with the terrain the checkpoint kept and the lists
     /// the server file or the generator has for the chunk.
     pub(super) fn restore(
-        r: &mut super::checkpoint::Reader<'_>,
+        r: &mut checkpoint::Reader<'_>,
         chunk: Chunk,
         lists: Option<crate::save::ChunkExtras>,
-    ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
+    ) -> checkpoint::Result<Self> {
+        use checkpoint::Codec;
         Ok(Self {
             snapshot: Codec::decode(r)?,
             extras: Held::restore(r, lists)?,
@@ -100,6 +98,8 @@ pub(super) struct Offline {
     pub(super) snapshot: Option<u64>,
 }
 
+checkpoint::fields!(Offline { data, snapshot });
+
 /// When the next snapshot is due and what the snapshot in flight holds.
 #[derive(Debug)]
 pub(super) struct Saving {
@@ -113,7 +113,8 @@ pub(super) struct Saving {
     pub(super) backup: bool,
     /// `/check` asked for a check of the data files after the next save.
     check: bool,
-    /// Who asked for the check asked for or being made, until its result comes: one at a time.
+    /// The sender of the check that is asked for or being made, until its result comes; only one
+    /// check at a time.
     checker: Option<Sender>,
     /// The snapshot sent to the save thread and not answered yet.
     in_flight: Option<InFlight>,
@@ -123,22 +124,12 @@ pub(super) struct Saving {
     pub(super) players: bool,
 }
 
-/// What the snapshot in flight holds.
-#[derive(Debug)]
-struct InFlight {
-    start: u64,
-    chunks: BTreeSet<Key>,
-    players: BTreeSet<StoredPlayer>,
-    /// The persistent worlds, by index, whose state it holds.
-    worlds: BTreeSet<usize>,
-}
-
 impl Saving {
     /// Snapshots every `interval` ticks from `start`.
     pub(super) fn new(start: u64, interval: u64, players: bool) -> Self {
         Self {
-            interval: interval.max(1),
-            next_due: start.saturating_add(interval.max(1)),
+            interval,
+            next_due: start.saturating_add(interval),
             requested: false,
             backup: false,
             check: false,
@@ -229,7 +220,7 @@ impl Saving {
     }
 }
 
-super::checkpoint::fields!(Saving {
+checkpoint::fields!(Saving {
     interval,
     next_due,
     requested,
@@ -240,51 +231,28 @@ super::checkpoint::fields!(Saving {
     offline,
     players,
 });
-super::checkpoint::fields!(InFlight {
+
+/// What the snapshot in flight holds.
+#[derive(Debug)]
+struct InFlight {
+    start: u64,
+    chunks: BTreeSet<Key>,
+    players: BTreeSet<StoredPlayer>,
+    /// The persistent worlds, by index, whose state it holds.
+    worlds: BTreeSet<usize>,
+}
+
+checkpoint::fields!(InFlight {
     start,
     chunks,
     players,
     worlds,
 });
-super::checkpoint::fields!(Offline { data, snapshot });
-super::checkpoint::variants!(Sender {
+
+checkpoint::variants!(Sender {
     0 => Player(id),
     1 => Console,
 });
-
-/// The storage key of a player: the XUID in decimal, or `offline:` and the name in ASCII lowercase.
-pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
-    match key {
-        PlayerKey::Xuid(xuid) => StoredPlayer::xuid(*xuid),
-        PlayerKey::Name(name) => StoredPlayer::offline(name),
-    }
-}
-
-/// The data kept of a player: its world, position and extra ([`extra::player_saved`]), the
-/// user's data values included (`task::save_player`).
-#[expect(
-    clippy::expect_used,
-    reason = "invariant: a player is in a loaded world, which no other world replaces at its place"
-)]
-pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
-    PlayerData {
-        world: state
-            .worlds
-            .get(player.world)
-            .map(|w| w.name().to_owned())
-            .expect("a player's world is one of the worlds"),
-        position: [player.position.x, player.position.y, player.position.z],
-        extra: {
-            let mut extra = extra::player_saved(&player.extra);
-            super::inventory::save(&player.inventory, &mut extra);
-            super::survival::save(&player.survival, &mut extra);
-            let join_ms = player.identity.client.join_time_ms;
-            super::survival::save_played(player.presence.saved(join_ms, state.tick), &mut extra);
-            super::task::save_player(&state.data, &player.extra, &mut extra);
-            extra
-        },
-    }
-}
 
 /// Keeps the data of a leaving player in memory until a commit holds it. Leaving dates the
 /// play history (`lastPlayed`), so the data is newer than any snapshot taken before.
@@ -491,7 +459,7 @@ fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
             dispatch::call(state, &mut e);
             if e.cancelled {
                 debug!(
-                    player = e.record_key.as_str(),
+                    key = e.record_key.as_str(),
                     "a cancelled player data save is saved all the same"
                 );
             }
@@ -511,8 +479,42 @@ fn dirty_players(state: &State) -> impl Iterator<Item = (SessionId, &Player)> {
         .map(|(&session, p)| (session, p))
 }
 
-/// The snapshot taken before tick `start` is committed: the memory that held it for the commit
-/// is let go, and the input log learns of the commit (`InputLog::committed`).
+/// The storage key of a player: the XUID in decimal, or `offline:` and the name in ASCII lowercase.
+pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
+    match key {
+        PlayerKey::Xuid(xuid) => StoredPlayer::xuid(*xuid),
+        PlayerKey::Name(name) => StoredPlayer::offline(name),
+    }
+}
+
+/// The data kept of a player: its world, position and extra ([`extra::player_saved`]), the
+/// user's data values included (`task::save_player`).
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: a player is in a loaded world, which no other world replaces at its place"
+)]
+pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
+    PlayerData {
+        world: state
+            .worlds
+            .get(player.world)
+            .map(|w| w.name().to_owned())
+            .expect("a player's world is one of the worlds"),
+        position: [player.position.x, player.position.y, player.position.z],
+        extra: {
+            let mut extra = extra::player_saved(&player.extra);
+            super::inventory::save(&player.inventory, &mut extra);
+            super::survival::save(&player.survival, &mut extra);
+            let join_ms = player.identity.client.join_time_ms;
+            super::survival::save_played(player.presence.saved(join_ms, state.tick), &mut extra);
+            super::task::save_player(&state.data, &player.extra, &mut extra);
+            extra
+        },
+    }
+}
+
+/// Lets go of the memory that held the snapshot taken before tick `start`, now committed, and
+/// tells the input log of the commit (`InputLog::committed`).
 pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     let worlds = state
         .saving
@@ -585,7 +587,8 @@ pub(super) fn checked(state: &mut State, found: &Checked) {
     }
 }
 
-/// The snapshot taken before tick `start` could not be committed: the tick stops without saving.
+/// Logs that the snapshot taken before tick `start` could not be committed: the tick stops
+/// without saving.
 pub(super) fn failed(start: u64) {
     error!(
         start,
@@ -593,13 +596,14 @@ pub(super) fn failed(start: u64) {
     );
 }
 
-/// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
+/// Logs that a batch of chunks could not be read: the tick stops without saving, as for a failed
+/// commit.
 pub(super) fn load_failed() {
     error!("a world file could not be read; stopping without saving (the last save is kept)");
 }
 
-/// The file of the world at `index` did not open on the save thread: the world unloads, and
-/// loading it again tries its file again, so the failure shows to the program that loaded it.
+/// Unloads the world at `index`, whose file did not open on the save thread; loading it again
+/// tries its file again, so the failure shows to the program that loaded it.
 pub(super) fn world_open_failed(state: &mut State, index: WorldIndex) {
     // A world gone since the answer was sent (deleted, made temporary, or its place taken by
     // another world) has no file to try again.

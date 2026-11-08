@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::pool::Pool;
@@ -77,6 +77,7 @@ impl Replay {
 
 /// How a replay ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum End {
     /// Every logged tick applied.
     Completed,
@@ -105,8 +106,9 @@ pub enum Error {
     /// What the server registers (commands, custom content, listeners, tasks, data types,
     /// hooks) differs from what the run that wrote the log registered.
     RegistrationsDiffer,
-    /// No main data file (the file or a backup) holds the save of a segment of the log, or
-    /// another data file has no copy of that save or an earlier one.
+    /// No main data file (the file or a backup) holds the save of a segment of the log, or the
+    /// players file has no copy of that save or an earlier one. A world file with no such copy
+    /// is no error: that world's chunks are quarantined.
     NoMatchingWorld,
     /// The segments the data files hold have checkpoints that hold what cannot be replayed.
     Opaque {
@@ -247,16 +249,16 @@ impl Replayer {
                 }
                 for request in requests {
                     match request {
-                        Request::Commit(snapshot) => {
-                            self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
-                        }
-                        // The logged answers say which worlds did not open.
-                        Request::Worlds(worlds) => drop(self.disk.add_worlds(&worlds)),
-                        Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
                         Request::Chunks(_)
                         | Request::Player(_)
                         | Request::Discard { .. }
                         | Request::Finish => {}
+                        // The logged answers say which worlds did not open.
+                        Request::Worlds(worlds) => drop(self.disk.add_worlds(&worlds)),
+                        Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
+                        Request::Commit(snapshot) => {
+                            self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
+                        }
                     }
                 }
                 drop(self.own.take_discarded());
@@ -347,7 +349,6 @@ impl Replayer {
                     checksum,
                 } => {
                     let loaded = match origin {
-                        Origin::Damaged => Loaded::Damaged,
                         Origin::Disk | Origin::Generated => {
                             let l = loaded
                                 .remove(&(*world, *pos))
@@ -366,6 +367,7 @@ impl Replayer {
                             }
                             l
                         }
+                        Origin::Damaged => Loaded::Damaged,
                     };
                     Response::Chunk {
                         world: *world,
@@ -380,8 +382,8 @@ impl Replayer {
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
                 Answer::LoadFailed => Response::LoadFailed,
-                Answer::WorldOpenFailed(world) => Response::WorldOpenFailed { world: *world },
                 Answer::Checked(found) => Response::Checked(found.clone()),
+                Answer::WorldOpenFailed(world) => Response::WorldOpenFailed { world: *world },
             });
         }
         Ok(out)
@@ -622,7 +624,7 @@ fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
         match save::committed_meta(&file) {
             Ok(meta) => files.push((meta, file)),
             Err(e) => {
-                info!(
+                warn!(
                     path = %file.display(),
                     error = &e as &(dyn std::error::Error + 'static),
                     "data file left out of the replay"

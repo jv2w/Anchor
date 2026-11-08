@@ -7,6 +7,7 @@
 //! The test runs its own test binary as the server process (`shutdown_child`), writes to that
 //! child's standard input and, on Unix, sends it signals with `kill`.
 
+// Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
 #[path = "support/local_config.rs"]
@@ -40,11 +41,16 @@ const FILES: [&str; 3] = ["main.redb", "players.redb", "world.redb"];
 const MARKED: &str = "data file closed normally; its integrity is not checked";
 /// Where the marker goes: in the spawn chunk, always loaded.
 const MARKER: BlockPos = BlockPos::new(3, -60, 3);
-/// The child's environment variable: `place` puts the marker and waits for `stop`, `check`
-/// reports whether the marker is there and stops itself.
+/// The mode of a child that reports whether the marker is there and stops itself.
+const MODE_CHECK: &str = "check";
+/// The child's environment variable naming its mode: [`MODE_PLACE`] or [`MODE_CHECK`].
 const MODE_ENV: &str = "ANCHOR_SHUTDOWN_MODE";
+/// The mode of a child that puts the marker and waits for `stop`.
+const MODE_PLACE: &str = "place";
 /// The prefix of the child's report line.
 const REPORT: &str = "ANCHOR-SHUTDOWN";
+/// How long the parent waits for the child's report line.
+const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
@@ -88,7 +94,7 @@ fn shutdown_child() {
                 return;
             }
             reported = true;
-            if mode == "place" {
+            if mode == MODE_PLACE {
                 world.set_block(MARKER, gold()).unwrap();
                 println!("{REPORT} placed");
             } else {
@@ -114,17 +120,6 @@ struct Running {
 /// The command that runs the child test binary directly.
 fn child() -> Command {
     Command::new(std::env::current_exe().unwrap())
-}
-
-/// The command that runs the child test binary with SIGHUP ignored, as `nohup` starts a program.
-/// The shell's `exec` keeps the ignored disposition and the process ID.
-#[cfg(unix)]
-fn child_ignoring_hangup() -> Command {
-    let mut command = Command::new("sh");
-    command
-        .args(["-c", "trap '' HUP; exec \"$0\" \"$@\""])
-        .arg(std::env::current_exe().unwrap());
-    command
 }
 
 #[expect(
@@ -171,7 +166,7 @@ fn report(server: &mut Running) -> String {
     loop {
         let line = server
             .lines
-            .recv_timeout(Duration::from_secs(120))
+            .recv_timeout(REPORT_TIMEOUT)
             .unwrap_or_else(|_| {
                 let status = server.child.try_wait().unwrap();
                 panic!("no report from the child (exit {status:?})")
@@ -200,7 +195,7 @@ fn exists(path: &Path) -> bool {
 fn stop_saves_the_last_tick(name: &str, command: Command, stop: impl FnOnce(&mut Running)) {
     // The tests of this file run at once, each on a folder of its own.
     let data = TempPath::new(&format!("shutdown-{name}"));
-    let mut server = start(command, &data.0, "place");
+    let mut server = start(command, &data.0, MODE_PLACE);
     assert_eq!(report(&mut server), "placed");
     stop(&mut server);
     let status = server.child.wait().unwrap();
@@ -211,7 +206,7 @@ fn stop_saves_the_last_tick(name: &str, command: Command, stop: impl FnOnce(&mut
     );
 
     // Nothing saved the marker before the stop: only the final commit holds it.
-    let mut server = start(child(), &data.0, "check");
+    let mut server = start(child(), &data.0, MODE_CHECK);
     assert_eq!(report(&mut server), "gold=true");
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the check child exited with {status}");
@@ -261,6 +256,17 @@ fn sigterm_saves_the_last_tick_and_exits_cleanly() {
 #[cfg(unix)]
 fn sighup_saves_the_last_tick_and_exits_cleanly() {
     stop_saves_the_last_tick("sighup", child(), |server| signal(server, "HUP"));
+}
+
+/// The command that runs the child test binary with SIGHUP ignored, as `nohup` starts a program.
+/// The shell's `exec` keeps the ignored disposition and the process ID.
+#[cfg(unix)]
+fn child_ignoring_hangup() -> Command {
+    let mut command = Command::new("sh");
+    command
+        .args(["-c", "trap '' HUP; exec \"$0\" \"$@\""])
+        .arg(std::env::current_exe().unwrap());
+    command
 }
 
 /// A server started with SIGHUP ignored, as `nohup` starts it, keeps running through a SIGHUP

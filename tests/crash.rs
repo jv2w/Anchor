@@ -41,45 +41,68 @@ use local_config::local_config;
 use rng::Rng;
 use temp_path::TempPath;
 
+/// The y of the block's path and of the second world's spawn.
+const BLOCK_Y: i32 = -60;
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
-/// Ticks of one cycle of the second world: made at 0, unloaded at 8, deleted at 10.
+/// Ticks of one cycle of the second world: it is made at [`MAKE_PHASE`], unloaded at
+/// [`UNLOAD_PHASE`] and deleted at [`DELETE_PHASE`].
 const CYCLE: u64 = 12;
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_CRASH_DATA";
+/// The tick of a cycle at which the second world is deleted.
+const DELETE_PHASE: u64 = 10;
 /// The second world, which the server makes, unloads and deletes over and over.
 const EXTRA: &str = "extra";
 /// Kills, each followed by a restart that checks the file.
 const KILLS: u32 = 50;
-/// The child's environment variable: `run` keeps moving the block and cycling the second world,
-/// `check` only reports, `idle` only starts and waits to be killed.
+/// The tick of a cycle at which the second world is made.
+const MAKE_PHASE: u64 = 0;
+/// The lowest x and z of the block's path.
+const MIN_PATH_COORD: i32 = -16;
+/// The mode of a child that only reports what the commit holds.
+const MODE_CHECK: &str = "check";
+/// The child's environment variable naming its mode: [`MODE_RUN`], [`MODE_CHECK`] or
+/// [`MODE_IDLE`].
 const MODE_ENV: &str = "ANCHOR_CRASH_MODE";
+/// The mode of a child that only starts and waits to be killed.
+const MODE_IDLE: &str = "idle";
+/// The mode of a child that keeps moving the block and cycling the second world.
+const MODE_RUN: &str = "run";
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-CRASH";
+/// How long the parent waits for the next report or log line of the child.
+const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The start of the warning a start logs for a data file it rolled back to the main file's save.
 const ROLLED_BACK: &str = "data file rolled back";
 /// The block's path stays in the spawn chunks (3 × 3 around chunk 0, 0), always loaded.
 const SPAN: i32 = 48;
 /// The console log line that follows the start's file checks.
 const STARTED: &str = "server started";
+/// The tick of a cycle at which the second world is unloaded.
+const UNLOAD_PHASE: u64 = 8;
 
 /// Where the block is after the task of tick `tick` moved it: a walk over the spawn chunks that
 /// changes chunk often, so commits hold different chunks together.
 fn path(tick: u64) -> BlockPos {
     let t = i32::try_from(tick % 100_000).unwrap();
-    BlockPos::new((t * 7) % SPAN - 16, -60, (t * 11) % SPAN - 16)
+    BlockPos::new(
+        (t * 7) % SPAN + MIN_PATH_COORD,
+        BLOCK_Y,
+        (t * 11) % SPAN + MIN_PATH_COORD,
+    )
 }
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
 }
 
-/// Every gold block on the block's path, by scanning the spawn chunks at y -60.
+/// Every gold block on the block's path, by scanning the spawn chunks at [`BLOCK_Y`].
 fn golds(world: &World) -> Option<Vec<BlockPos>> {
     let mut found = Vec::new();
-    for x in -16..SPAN - 16 {
-        for z in -16..SPAN - 16 {
-            let at = BlockPos::new(x, -60, z);
+    for x in MIN_PATH_COORD..MIN_PATH_COORD + SPAN {
+        for z in MIN_PATH_COORD..MIN_PATH_COORD + SPAN {
+            let at = BlockPos::new(x, BLOCK_Y, z);
             if world.block(at)? == gold() {
                 found.push(at);
             }
@@ -189,9 +212,11 @@ impl Mover {
     fn cycle(&mut self, cx: &mut Context<'_>) {
         let tick = cx.tick();
         match (tick % CYCLE, self.extra) {
-            (0, None) => self.extra = Some(cx.create_world(EXTRA, &Options::new()).unwrap()),
-            (8, Some(id)) if cx.is_world_loaded(EXTRA) => cx.unload_world(id).unwrap(),
-            (10, Some(_)) if !cx.is_world_loaded(EXTRA) => {
+            (MAKE_PHASE, None) => {
+                self.extra = Some(cx.create_world(EXTRA, &Options::new()).unwrap());
+            }
+            (UNLOAD_PHASE, Some(id)) if cx.is_world_loaded(EXTRA) => cx.unload_world(id).unwrap(),
+            (DELETE_PHASE, Some(_)) if !cx.is_world_loaded(EXTRA) => {
                 cx.delete_world(EXTRA).unwrap();
                 self.extra = None;
                 self.extra_x = None;
@@ -202,7 +227,7 @@ impl Mover {
             && let Some(world) = cx.world_mut(id)
         {
             let x = i32::try_from(tick % 16).unwrap();
-            world.set_spawn(BlockPos::new(x, -60, 0)).unwrap();
+            world.set_spawn(BlockPos::new(x, BLOCK_Y, 0)).unwrap();
             self.extra_x = Some(x);
         }
     }
@@ -220,8 +245,8 @@ fn crash_child() {
         start: None,
         checked: false,
         at: None,
-        moves: mode == "run",
-        idle: mode == "idle",
+        moves: mode == MODE_RUN,
+        idle: mode == MODE_IDLE,
         extra: None,
         extra_x: None,
     };
@@ -296,13 +321,10 @@ fn start(data: &Path, mode: &str) -> Running {
 fn roll_backs(server: &mut Running) -> Vec<String> {
     let mut found = Vec::new();
     loop {
-        let line = server
-            .log
-            .recv_timeout(Duration::from_secs(120))
-            .unwrap_or_else(|_| {
-                let status = server.child.try_wait().unwrap();
-                panic!("the child did not log its start (exit {status:?})")
-            });
+        let line = server.log.recv_timeout(REPORT_TIMEOUT).unwrap_or_else(|_| {
+            let status = server.child.try_wait().unwrap();
+            panic!("the child did not log its start (exit {status:?})")
+        });
         if line.contains(STARTED) {
             return found;
         }
@@ -316,13 +338,10 @@ fn roll_backs(server: &mut Running) -> Vec<String> {
 /// started: during its start's roll back of the files a kill left, or soon after.
 fn kill_during_start(server: &mut Running, lines: usize) {
     for _ in 0..lines {
-        let line = server
-            .log
-            .recv_timeout(Duration::from_secs(120))
-            .unwrap_or_else(|_| {
-                let status = server.child.try_wait().unwrap();
-                panic!("the idle child did not log its start (exit {status:?})")
-            });
+        let line = server.log.recv_timeout(REPORT_TIMEOUT).unwrap_or_else(|_| {
+            let status = server.child.try_wait().unwrap();
+            panic!("the idle child did not log its start (exit {status:?})")
+        });
         if line.contains(STARTED) {
             break;
         }
@@ -342,7 +361,7 @@ fn field<'a>(line: &'a str, name: &str) -> Option<&'a str> {
 fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>, String) {
     let line = server
         .lines
-        .recv_timeout(Duration::from_secs(120))
+        .recv_timeout(REPORT_TIMEOUT)
         .unwrap_or_else(|_| {
             let status = server.child.try_wait().unwrap();
             panic!("no report from the child (exit {status:?}): a damaged file is refused at start")
@@ -369,25 +388,18 @@ fn record(line: &str, extras: &mut BTreeMap<u64, String>) {
 }
 
 #[test]
-#[expect(
-    clippy::print_stdout,
-    reason = "consistency: the test tells how often a restart rolled a file back"
-)]
 fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let folder = TempPath::new("crash");
     let data = folder.0.as_path();
     let mut rng = Rng(0x5eed_c0de);
     let mut placed = false;
-    let mut checked = 0;
     // Runs whose kill came after at least one commit: the start tick moved on.
     let (mut last_start, mut advanced) = (0, 0);
-    // Restarts that rolled a world file back to the main file's save.
-    let mut rolled_back = 0;
     // The second world's text after each tick a run reported; a later run's line for a tick
     // replaces an earlier one's, as a restart goes on from the commit.
     let mut extras: BTreeMap<u64, String> = BTreeMap::new();
     for kill in 0..=KILLS {
-        let mode = if kill == KILLS { "check" } else { "run" };
+        let mode = if kill == KILLS { MODE_CHECK } else { MODE_RUN };
         let mut server = start(data, mode);
         let (start_tick, golds, extra) = report(&mut server);
         let roll_backs = roll_backs(&mut server);
@@ -429,13 +441,11 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
             }),
             "kill {kill}: another file was rolled back (start {start_tick}): {roll_backs:?}"
         );
-        rolled_back += roll_backs.len();
-        checked += 1;
         if start_tick > last_start {
             advanced += 1;
             last_start = start_tick;
         }
-        if mode == "run" {
+        if mode == MODE_RUN {
             // The kill lands a random number of ticks after the run's first commit, counted by
             // the child's reports, however slow the machine is.
             let after = rng.below(30);
@@ -443,7 +453,7 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
             while since_commit.is_none_or(|ticks| ticks < after) {
                 let line = server
                     .lines
-                    .recv_timeout(Duration::from_secs(120))
+                    .recv_timeout(REPORT_TIMEOUT)
                     .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
                 record(&line, &mut extras);
                 if line == "committed" {
@@ -460,12 +470,10 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
         for line in &server.lines {
             record(&line, &mut extras);
         }
-        if mode == "run" && kill % 2 == 1 {
-            let mut interrupted = start(data, "idle");
+        if mode == MODE_RUN && kill % 2 == 1 {
+            let mut interrupted = start(data, MODE_IDLE);
             kill_during_start(&mut interrupted, rng.below(8));
         }
     }
-    assert_eq!(checked, KILLS + 1);
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    println!("restarts that rolled the world file back: {rolled_back} of {KILLS}");
 }
