@@ -14,7 +14,7 @@
 //! (length-prefixed key and value), 0 = delete (length-prefixed key). Record `i` has sequence
 //! number `sequence + i`.
 
-use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY, masked_crc};
+use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY, MAX_SEQUENCE, masked_crc};
 use crate::import::{Error, Result};
 
 /// A write batch header: sequence number and count.
@@ -117,6 +117,10 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
     let mut body = Bytes(body);
     let mut sequence = first;
     for _ in 0..count {
+        // An internal key's tag holds the sequence in 56 bits; a larger one would lose its top.
+        if sequence > MAX_SEQUENCE {
+            return Err(Error::Malformed("write batch sequence above 56 bits"));
+        }
         let kind = body.u8()?;
         let key = body.prefixed()?;
         if key.len() > MAX_KEY {
@@ -135,9 +139,8 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
             sequence,
             value,
         })?;
-        sequence = sequence
-            .checked_add(1)
-            .ok_or(Error::Malformed("write batch sequence overflows"))?;
+        // At most `MAX_SEQUENCE` here, so this cannot saturate.
+        sequence = sequence.saturating_add(1);
     }
     if !body.0.is_empty() {
         return Err(Error::Malformed("write batch longer than its count"));
@@ -150,6 +153,14 @@ pub(super) mod tests {
     use super::*;
 
     use crate::import::leveldb::tests::put_prefixed;
+
+    /// Appends one physical record.
+    pub(crate) fn physical(out: &mut Vec<u8>, kind: u8, payload: &[u8]) {
+        out.extend_from_slice(&masked_crc(&[&[kind], payload]).to_le_bytes());
+        out.extend_from_slice(&u16::try_from(payload.len()).unwrap().to_le_bytes());
+        out.push(kind);
+        out.extend_from_slice(payload);
+    }
 
     /// Writes `records` as a log, splitting them into fragments at block ends like LevelDB's
     /// `log::Writer`.
@@ -182,14 +193,6 @@ pub(super) mod tests {
             }
         }
         out
-    }
-
-    /// Appends one physical record.
-    pub(crate) fn physical(out: &mut Vec<u8>, kind: u8, payload: &[u8]) {
-        out.extend_from_slice(&masked_crc(&[&[kind], payload]).to_le_bytes());
-        out.extend_from_slice(&u16::try_from(payload.len()).unwrap().to_le_bytes());
-        out.push(kind);
-        out.extend_from_slice(payload);
     }
 
     /// A write batch of `writes` starting at `sequence`.
@@ -335,5 +338,21 @@ pub(super) mod tests {
         assert!(matches!(ok(&long_key), Err(Error::TooLarge { .. })));
         let overflow = encode_batch(u64::MAX, &[(b"a".to_vec(), None), (b"b".to_vec(), None)]);
         assert!(matches!(ok(&overflow), Err(Error::Malformed(_))));
+    }
+
+    /// A sequence number above 56 bits would lose its top bits in the internal key's tag, so a
+    /// newer write would sort below an older table value.
+    #[test]
+    fn sequences_above_56_bits_are_errors() {
+        let ok = |r: &[u8]| batch(r, |_| Ok(()));
+        let last = encode_batch(MAX_SEQUENCE, &[(b"a".to_vec(), None)]);
+        assert!(ok(&last).is_ok());
+        let above = encode_batch(MAX_SEQUENCE + 1, &[(b"a".to_vec(), None)]);
+        assert!(matches!(ok(&above), Err(Error::Malformed(_))));
+        let crossing = encode_batch(
+            MAX_SEQUENCE,
+            &[(b"a".to_vec(), None), (b"b".to_vec(), None)],
+        );
+        assert!(matches!(ok(&crossing), Err(Error::Malformed(_))));
     }
 }
