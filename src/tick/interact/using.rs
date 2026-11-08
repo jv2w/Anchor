@@ -9,6 +9,7 @@ use tracing::debug;
 
 use super::{Actor, Source, USE, adventure_allows, place, props, return_items, stream};
 use crate::block::{self, Class, Face, Kind, State as BlockState};
+use crate::block_entity::Side;
 use crate::config::GameMode;
 use crate::event::{
     BlockPlace, InteractAction, PlayerEntityInteract, PlayerInteract, PlayerItemUse,
@@ -40,22 +41,22 @@ enum Outcome {
 pub(super) struct Use {
     pub(super) actor: Actor,
     pub(super) pos: BlockPos,
-    pub(super) face: Face,
+    face: Face,
     /// Where on the face the click was, 0 to 1 on each axis.
-    pub(super) click: Vec3,
+    click: Vec3,
     /// The clicked block.
     pub(super) block: BlockState,
     /// The held item as the rules change it.
-    pub(super) item: Stack,
+    item: Stack,
     /// The sound the use plays once it is applied with the held item, so that a
     /// [`WorldSound`](crate::event::WorldSound) listener never sees it half done.
     sound: Option<(Vec3, Sound)>,
-    pub(super) rng: Random,
+    rng: Random,
     /// Whether user code (a custom block's hook) ran in the block's own use: a use that goes on to
     /// the item and placement checks the click again.
     ran_user_code: bool,
     /// Where the click comes from.
-    pub(super) source: Source,
+    source: Source,
 }
 
 impl Use {
@@ -72,33 +73,6 @@ impl Use {
     /// Takes one item.
     fn pop(&mut self) {
         self.item = self.item.with_count(self.item.count().saturating_sub(1));
-    }
-}
-
-/// Whether, after listeners ran, the player is still in the world of `actor`, not a
-/// spectator, and holds `held`, so that a use planned before them can go on (a listener that took
-/// the item or moved the player away cancels it).
-pub(super) fn still_holds(state: &State, actor: &Actor, held: &Stack) -> bool {
-    super::actor(state, actor.session).is_some_and(|a| {
-        a.world == actor.world
-            && a.mode != GameMode::Spectator
-            && state
-                .players
-                .get(&actor.session)
-                .is_some_and(|p| p.inventory.held().same(held))
-    })
-}
-
-/// Sets a block in a world (a missing world or chunk changes nothing).
-pub(super) fn set(state: &mut State, world: WorldIndex, pos: BlockPos, block: BlockState) {
-    if let Some(w) = state.worlds.get_mut(world)
-        && let Err(e) = w.set_block(pos, block)
-    {
-        debug!(
-            ?pos,
-            error = &e as &(dyn std::error::Error + 'static),
-            "block not set"
-        );
     }
 }
 
@@ -196,8 +170,26 @@ pub(super) fn use_item_on(
     done
 }
 
-/// Checks a right click: the clicked block (not air) and the one next to its face are loaded and
-/// in the world, and the player is not a spectator. The clicked block and the held item if so.
+/// The player of `actor` found again after user code ran in its click at `pos`, if it is in the
+/// same world, within reach, with the block it clicked (`clicked`) and the item it held (`held`)
+/// as they were.
+fn click_again(
+    state: &State,
+    actor: &Actor,
+    pos: BlockPos,
+    face: Face,
+    clicked: BlockState,
+    held: &Stack,
+) -> Option<Actor> {
+    super::actor(state, actor.session).filter(|a| {
+        a.world == actor.world
+            && a.can_interact(pos.to_center(), a.reach())
+            && right_click(state, a, pos, face).is_some_and(|(c, h)| c == clicked && h.same(held))
+    })
+}
+
+/// The clicked block and the held item of a right click; `None` unless the clicked block (not air)
+/// and the one next to its face are loaded and in the world, and the player is not a spectator.
 fn right_click(
     state: &State,
     actor: &Actor,
@@ -212,24 +204,6 @@ fn right_click(
     }
     let held = state.players.get(&actor.session)?.inventory.held().clone();
     Some((clicked, held))
-}
-
-/// Finds the player of `actor` again after user code ran in its click at `pos`: in the same
-/// world, within reach, with the block it clicked (`clicked`) and the item it held (`held`) as
-/// they were.
-fn click_again(
-    state: &State,
-    actor: &Actor,
-    pos: BlockPos,
-    face: Face,
-    clicked: BlockState,
-    held: &Stack,
-) -> Option<Actor> {
-    super::actor(state, actor.session).filter(|a| {
-        a.world == actor.world
-            && a.can_interact(pos.to_center(), a.reach())
-            && right_click(state, a, pos, face).is_some_and(|(c, h)| c == clicked && h.same(held))
-    })
 }
 
 /// Applies a use that worked: the held item, then its sound.
@@ -300,7 +274,7 @@ fn place_held(
         block_entity::placed(state, world, *p, Some(actor.session), held, face);
         // The placer writes the new sign.
         if s.is(Class::BaseSign) {
-            super::open_sign_editor(state, actor.session, world, *p, true);
+            super::open_sign_editor(state, actor.session, world, *p, Side::Front);
         }
         // A rail joins the rails next to it.
         if s.is(Class::BaseRail) {
@@ -330,7 +304,7 @@ fn place_held(
     true
 }
 
-/// Works out the blocks placing `held` against the face `face` of the block at `pos` sets, if
+/// The blocks that placing `held` against the face `face` of the block at `pos` sets, if
 /// adventure mode allows it and at least one block changes. The place is not checked: the game
 /// chose it.
 fn placement(
@@ -353,14 +327,18 @@ fn placement(
     changes.then_some(blocks)
 }
 
-/// Opens the window of the clicked block ([`inventory::open_block`]); a client tries once a tick
-/// at most ([`inventory::first_client_open_this_tick`]).
-fn open_window(state: &mut State, u: &Use) {
-    if u.source == Source::Client && !inventory::first_client_open_this_tick(state, u.actor.session)
-    {
-        return;
-    }
-    let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
+/// Whether, after listeners ran, the player is still in the world of `actor`, not a
+/// spectator, and holds `held`, so that a use planned before them can go on (a listener that took
+/// the item or moved the player away cancels it).
+fn still_holds(state: &State, actor: &Actor, held: &Stack) -> bool {
+    super::actor(state, actor.session).is_some_and(|a| {
+        a.world == actor.world
+            && a.mode != GameMode::Spectator
+            && state
+                .players
+                .get(&actor.session)
+                .is_some_and(|p| p.inventory.held().same(held))
+    })
 }
 
 /// Uses the clicked block: true when the block did something. A custom block has its own use;
@@ -397,6 +375,16 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
         }
     }
     false
+}
+
+/// Opens the window of the clicked block ([`inventory::open_block`]); a client tries once a tick
+/// at most ([`inventory::first_client_open_this_tick`]).
+fn open_window(state: &mut State, u: &Use) {
+    if u.source == Source::Client && !inventory::first_client_open_this_tick(state, u.actor.session)
+    {
+        return;
+    }
+    let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
 }
 
 /// Opens or closes both halves of a door.
@@ -438,9 +426,23 @@ fn fence_gate(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// Which side of a sign the player at `feet` faces, by the sign's facing direction: true for the
-/// front.
-pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
+/// Sets a block in a world (a missing world or chunk changes nothing).
+fn set(state: &mut State, world: WorldIndex, pos: BlockPos, block: BlockState) {
+    if let Some(w) = state.worlds.get_mut(world)
+        && let Err(e) = w.set_block(pos, block)
+    {
+        debug!(
+            x = pos.x,
+            y = pos.y,
+            z = pos.z,
+            error = &e as &(dyn std::error::Error + 'static),
+            "block not set"
+        );
+    }
+}
+
+/// The side of a sign the player at `feet` faces, by the sign's facing direction.
+pub(super) fn sign_side(block: BlockState, feet: Vec3, pos: BlockPos) -> Side {
     let facing = if let Some(rotation) = props::int(block, props::ROTATION)
         .filter(|_| props::facing(block).is_none() || block.is(Class::CeilingCenterHangingSign))
     {
@@ -452,7 +454,11 @@ pub(super) fn sign_front(block: BlockState, feet: Vec3, pos: BlockPos) -> bool {
         Vec3::new(f64::from(dx), 0.0, f64::from(dz))
     };
     let to_player = feet - pos.to_center();
-    facing.x * to_player.x + facing.z * to_player.z >= 0.0
+    if facing.x * to_player.x + facing.z * to_player.z >= 0.0 {
+        Side::Front
+    } else {
+        Side::Back
+    }
 }
 
 /// Makes the entity of an item that makes one, and uses one up (the entity rules). A spawn egg's

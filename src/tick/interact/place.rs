@@ -215,13 +215,14 @@ fn transaction(attempt: &Attempt<'_>) -> Option<Blocks> {
         if blocks.iter().any(|(p, _)| !(MIN_Y..=MAX_Y).contains(&p.y)) {
             return None;
         }
-        // The other cell of a two-block block goes into a replaceable block only; a big dripleaf's
-        // head below turns into its stem.
+        // The other cell of a two-block block goes into a loaded, replaceable block only (a bed's
+        // head can reach into the next chunk); a big dripleaf's head below turns into its stem.
         let blocked = blocks.iter().any(|(p, s)| {
-            let old = attempt.world.block_for_rules(Some(*p));
             *p != attempt.replace
-                && !old.can_be_replaced()
-                && !(old.is(Class::BaseBigDripleaf) && s.kind() == Kind::BigDripleafStem)
+                && attempt.world.block(*p).is_none_or(|old| {
+                    !old.can_be_replaced()
+                        && !(old.is(Class::BaseBigDripleaf) && s.kind() == Kind::BigDripleafStem)
+                })
         });
         if blocked {
             return None;

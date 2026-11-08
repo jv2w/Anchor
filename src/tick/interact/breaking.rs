@@ -1,4 +1,5 @@
-//! How long blocks take to break and what breaking costs a tool.
+//! How long blocks take to break, and how every item that wears (tools, weapons, armor, bows,
+//! tridents) loses durability.
 
 use super::drops::level;
 use crate::block::State;

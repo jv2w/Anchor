@@ -1,8 +1,8 @@
 //! Using a sign: the click opens its editor, and the block entity keeps the text.
 
 use super::open_sign_editor;
-use super::using::{Use, sign_front};
-use crate::block_entity::SIGN_LINES;
+use super::using::{Use, sign_side};
+use crate::block_entity::{SIGN_LINES, Side};
 use crate::save::WorldIndex;
 use crate::tick::State;
 use crate::tick::block_entity::{self, BlockEntity, Kind};
@@ -10,7 +10,7 @@ use crate::world::BlockPos;
 
 /// What a sign's block entity holds of its text: the lines of each side and whether it is waxed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SignText {
+pub(super) struct SignSides {
     /// The front side's lines.
     pub(super) front: [String; SIGN_LINES],
     /// The back side's lines.
@@ -28,14 +28,14 @@ pub(super) fn sign(state: &mut State, u: &Use) -> bool {
         Some(Kind::Sign(sign)) if sign.waxed
     );
     if !waxed {
-        let front = sign_front(u.block, u.actor.feet, u.pos);
-        open_sign_editor(state, u.actor.session, world, u.pos, front);
+        let side = sign_side(u.block, u.actor.feet, u.pos);
+        open_sign_editor(state, u.actor.session, world, u.pos, side);
     }
     true
 }
 
-/// Reads the text of the sign at `pos`; `None` without a sign block entity.
-pub(super) fn sign_text(state: &State, world: WorldIndex, pos: BlockPos) -> Option<SignText> {
+/// The text of both sides of the sign at `pos`; `None` without a sign block entity.
+pub(super) fn sign_sides(state: &State, world: WorldIndex, pos: BlockPos) -> Option<SignSides> {
     let BlockEntity {
         kind: Kind::Sign(sign),
         ..
@@ -43,7 +43,7 @@ pub(super) fn sign_text(state: &State, world: WorldIndex, pos: BlockPos) -> Opti
     else {
         return None;
     };
-    Some(SignText {
+    Some(SignSides {
         front: sign.front.lines.clone(),
         back: sign.back.lines.clone(),
         waxed: sign.waxed,
@@ -56,7 +56,7 @@ pub(super) fn write_sign(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
-    front: bool,
+    side: Side,
     lines: [String; SIGN_LINES],
 ) {
     let Some(BlockEntity {
@@ -66,16 +66,15 @@ pub(super) fn write_sign(
     else {
         return;
     };
-    let side = if front {
-        &mut sign.front
-    } else {
-        &mut sign.back
+    let text = match side {
+        Side::Front => &mut sign.front,
+        Side::Back => &mut sign.back,
     };
-    side.lines = lines;
+    text.lines = lines;
     block_entity::mark_spawn(state, world, pos);
 }
 
-/// Finds the block entity at `pos`.
+/// The block entity at `pos`.
 fn entity_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<&BlockEntity> {
     state.rules.block_entities.get(world, pos)
 }

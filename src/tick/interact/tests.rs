@@ -14,17 +14,14 @@ use crate::block::Kind;
 use crate::config::Config;
 use crate::event::Listeners;
 use crate::pool::Pool;
-use crate::protocol::consts::{InputFlag, UseItemAction};
-use crate::protocol::packet::{PlayerAuthInput, SetLocalPlayerAsInitialised};
-use crate::protocol::{
-    FlagSet, InputFlags, InventoryTransactionData, NormalTransactionData, PlayerBlockAction,
-    ReleaseItemTransactionData, UseItemTransactionData,
-};
+use crate::protocol::consts::InputFlag;
+use crate::protocol::packet::SetLocalPlayerAsInitialised;
+use crate::protocol::{FlagSet, InputFlags, NormalTransactionData, ReleaseItemTransactionData};
 use crate::save::palette_entry;
-use crate::tick::queue::{Input, InputKind, Message, Outbound, SessionId};
+use crate::tick::queue::{Input, InputKind, Message, Outbound};
 use crate::tick::survival::EYE_HEIGHT;
 use crate::tick::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
-use crate::tick::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
+use crate::tick::{InputLog, Output, boundary, deliver, step};
 use crate::world::Entry;
 
 /// Window opening clicks squeezed into one tick by a client that changes each click a little
@@ -40,20 +37,21 @@ const FEET: [f64; 3] = [0.5, -60.0, 0.5];
 /// The network ID of moss in the 1.26.60 reference list (the value the official server sends), a
 /// block without a dump type.
 const MOSS_BLOCK: u32 = 3_743_819_255;
+thread_local! {
+    /// What listeners and hooks ([`SEEN`]) and monitors ([`WATCHED`]) write down for the test to
+    /// read, as `Debug` text; they run on the test's thread, in its tick.
+    static NOTES: [Cell<Vec<String>>; 2] = const { [Cell::new(Vec::new()), Cell::new(Vec::new())] };
+}
+thread_local! {
+    /// A CPU pool per test thread; tests do not shut it down.
+    static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
+}
 /// The notes of listeners and hooks.
 const SEEN: usize = 0;
 /// Two blocks east of the feet, at foot level.
 const TARGET: BlockPos = BlockPos::new(2, -60, 0);
 /// The notes of monitors.
 const WATCHED: usize = 1;
-
-thread_local! {
-    /// A CPU pool per test thread; tests do not shut it down.
-    static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
-    /// What listeners and hooks ([`SEEN`]) and monitors ([`WATCHED`]) write down for the test to
-    /// read, as `Debug` text; they run on the test's thread, in its tick.
-    static NOTES: [Cell<Vec<String>>; 2] = const { [Cell::new(Vec::new()), Cell::new(Vec::new())] };
-}
 
 /// A server with one spawned player (session 1) and its outbound queue.
 struct Harness {
@@ -68,18 +66,6 @@ struct Harness {
 impl Harness {
     fn new(edit: impl FnOnce(&mut Config)) -> Self {
         Self::with(edit, Listeners::default())
-    }
-
-    fn block(&self, pos: BlockPos) -> block::State {
-        self.state.worlds[0].block(pos).unwrap()
-    }
-
-    fn held(&self) -> Stack {
-        self.player().inventory.held().clone()
-    }
-
-    fn player(&self) -> &Player {
-        self.state.players.get(&SessionId::new(1)).unwrap()
     }
 
     /// [`Harness::new`] with event listeners.
@@ -110,6 +96,18 @@ impl Harness {
         h.run(vec![stand]);
         h.packets();
         h
+    }
+
+    fn block(&self, pos: BlockPos) -> block::State {
+        self.state.worlds[0].block(pos).unwrap()
+    }
+
+    fn held(&self) -> Stack {
+        self.player().inventory.held().clone()
+    }
+
+    fn player(&self) -> &Player {
+        self.state.players.get(&SessionId::new(1)).unwrap()
     }
 
     /// Runs one tick with one auth input of `actions`.
@@ -460,7 +458,7 @@ fn breaking_stops_when_the_player_walks_away() {
     assert!(h.player().breaking.target.is_none());
 }
 
-/// A placement on top of the grass east of the player.
+/// Places `item` on top of the grass east of the player; the position it lands on.
 fn place_on_grass(h: &mut Harness, item: &Stack) -> BlockPos {
     let ground = BlockPos::new(2, -61, 0);
     let data = click(ground, Face::Up, item);
@@ -641,6 +639,31 @@ fn doors_place_and_break_as_two_blocks() {
     )]);
     assert_eq!(h.block(at), block::AIR);
     assert_eq!(h.block(top), block::AIR);
+}
+
+/// A bed whose head would go into a quarantined chunk is not placed, and its item is kept.
+#[test]
+fn a_bed_with_its_head_in_a_quarantined_chunk_is_not_placed() {
+    let mut h = Harness::new(|_| {});
+    h.state.worlds[0].quarantine(crate::world::ChunkPos::new(-1, 0));
+    let red = crate::item::Type::from_name("minecraft:bed", 14, None, &crate::nbt::Compound::new())
+        .unwrap();
+    let bed = Stack::new(red, 1);
+    h.hold(bed.clone());
+    // Looking west from x = 0.5, the head goes to x = -1.
+    h.yaw = 90.0;
+    let ground = BlockPos::new(0, -61, 1);
+    let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &bed)));
+    h.run(vec![input]);
+    assert_eq!(h.block(BlockPos::new(0, -60, 1)), block::AIR);
+    assert_eq!(h.held(), bed);
+}
+
+/// Clicks the west face of the block at [`TARGET`] with the held stack.
+fn use_on_target(h: &mut Harness) {
+    let held = h.held();
+    let input = h.auth(Vec::new(), Some(click(TARGET, Face::West, &held)));
+    h.run(vec![input]);
 }
 
 #[test]
@@ -915,25 +938,6 @@ fn destroying_for_each_cause_leaves_air_and_respects_the_entity_cap() {
     assert_eq!(h.block(TARGET), Kind::Stone.default_state());
 }
 
-/// Clicks the west face of the block at [`TARGET`] with the held stack.
-fn use_on_target(h: &mut Harness) {
-    let held = h.held();
-    let input = h.auth(Vec::new(), Some(click(TARGET, Face::West, &held)));
-    h.run(vec![input]);
-}
-
-/// Makes a stack of one item of the item name `name`.
-fn named(name: &str) -> Stack {
-    let t = crate::item::Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap();
-    Stack::new(t, 1)
-}
-
-/// Sets `block` at [`TARGET`] with its block entity, as placing it would.
-fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
-    h.set(TARGET, block);
-    crate::tick::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
-}
-
 #[test]
 fn sneaking_places_instead_of_opening() {
     let mut h = Harness::new(|_| {});
@@ -1010,6 +1014,12 @@ fn break_progress_does_not_carry_over_to_a_new_block() {
     )]);
     assert_eq!(h.block(TARGET), obsidian);
     assert!(updates(&h.packets()).contains(&TARGET), "resynced");
+}
+
+/// Sets `block` at [`TARGET`] with its block entity, as placing it would.
+fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
+    h.set(TARGET, block);
+    crate::tick::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
 }
 
 #[test]
@@ -1095,6 +1105,12 @@ fn sign_edit(h: &mut Harness, text: &str) {
         nbt_data: nbt,
     }));
     h.run(vec![edit]);
+}
+
+/// Makes a stack of one item of the item name `name`.
+fn named(name: &str) -> Stack {
+    let t = crate::item::Type::from_name(name, 0, None, &crate::nbt::Compound::new()).unwrap();
+    Stack::new(t, 1)
 }
 
 #[test]
@@ -1300,7 +1316,11 @@ fn breaking_counts_haste_and_the_blocks_own_break_time() {
         TARGET,
         Face::West,
     )]);
-    assert_eq!(h.block(TARGET), block::AIR, "Haste II breaks it sooner");
+    assert_eq!(
+        h.block(TARGET),
+        block::AIR,
+        "with Haste II it breaks sooner"
+    );
     assert!(!break_glass_after(3), "without Haste it takes longer");
     let mut h = Harness::new(|_| {});
     h.set(TARGET, Kind::OakLeaves.default_state());

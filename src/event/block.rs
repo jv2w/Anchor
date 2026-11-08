@@ -31,9 +31,9 @@ getters!(BlockBreak {
     world: world::Id,
     /// Where the block is.
     pos: BlockPos,
-    /// The block being broken, or `minecraft:info_update` for an inert block (one Anchor keeps as
-    /// it was saved but gives no behaviour). A left click on an inert block raises no
-    /// [`PlayerInteract`](crate::event::PlayerInteract).
+    /// The block being broken. A block state Anchor does not know raises no event, neither this
+    /// nor a left click's [`PlayerInteract`](crate::event::PlayerInteract); a known state
+    /// without a block type of its own comes as itself, under its own name.
     #[doc(alias = "BlockEvent::getBlock")]
     block: State,
     /// What the player breaks it with (empty for a bare hand).
@@ -45,7 +45,8 @@ getters!(BlockBreak {
     #[doc(alias = "BlockBreakEvent::getInstaBreak")]
     insta_break: bool,
     /// What the block drops. Starts as the block's own item: nothing for a block without an item
-    /// form and for an inert block.
+    /// form. A custom block starts with what its definition drops for the tool, and a player with
+    /// unlimited resources (creative) starts with nothing.
     #[doc(alias = "BlockBreakEvent::getDrops")]
     drops: &[Stack],
 });
@@ -169,8 +170,9 @@ getters!(SignChange {
 
 setters!(SignChange {
     /// Replaces the lines written, which go on as they are (only the player's text is cleaned).
-    /// They are checked again (no newline, at most 1,000 bytes in all); text that fails cancels
-    /// the change.
+    /// They are checked again (no newline, at most
+    /// [`MAX_SIGN_TEXT_BYTES`](crate::block_entity::MAX_SIGN_TEXT_BYTES) bytes in all); text that
+    /// fails cancels the change.
     #[doc(alias = "SignChangeEvent::setNewText")]
     set_new_text => new_text: [String; 4],
 });

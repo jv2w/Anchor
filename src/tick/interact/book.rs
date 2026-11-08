@@ -31,7 +31,7 @@ const MAX_PAGES: usize = 50;
 /// The most characters in a title.
 const MAX_TITLE_CHARS: usize = 16;
 /// The NBT key of a book's pages.
-pub(in crate::tick) const PAGES: &str = "pages";
+const PAGES: &str = "pages";
 /// The NBT key of a page's photo name.
 const PHOTO: &str = "photoname";
 /// The NBT key of a page's text.
@@ -102,7 +102,7 @@ pub(in crate::tick) fn on_book_edit(state: &mut State, session: SessionId, packe
     }
 }
 
-/// Finds the book and quill in main slot `slot` of a spawned, living `session`.
+/// The book and quill in main slot `slot` of a spawned, living `session`.
 fn writable(state: &State, session: SessionId, slot: u8) -> Option<&Stack> {
     state
         .players
@@ -113,9 +113,9 @@ fn writable(state: &State, session: SessionId, slot: u8) -> Option<&Stack> {
         .filter(|s| s.item().is_some_and(|t| t.is(item::Class::WritableBook)))
 }
 
-/// Works out what `packet` makes of the book `old`: the action, the new book and the pages it
-/// changed; `None` for an edit that is refused, or a book over the stack limits. Every check comes
-/// before the pages are copied, so a refused edit costs nothing like the book's size.
+/// What `packet` makes of the book `old`: the action, the new book and the pages it changed;
+/// `None` for an edit that is refused, or a book over the stack limits. Every check comes before
+/// the pages are copied, so a refused edit costs nothing like the book's size.
 fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>)> {
     let count = page_count(old);
     // The page count the edit may reach: it may shrink or stay, and grow up to `MAX_PAGES`.
@@ -186,7 +186,7 @@ fn limited(text: &str, max: usize) -> Option<String> {
     (cleaned.chars().count() <= max).then_some(cleaned)
 }
 
-/// Reads the pages of a book: compounds with `text` and `photoname`, or the Java form of strings;
+/// The pages of a book: compounds with `text` and `photoname`, or the Java form of strings;
 /// anything else is no pages.
 fn pages(book: &Stack) -> Vec<Page> {
     let text = |c: &Compound, key: &str| match c.get(key) {
@@ -206,29 +206,13 @@ fn pages(book: &Stack) -> Vec<Page> {
     }
 }
 
-/// Counts the [`pages`] of a book without copying them.
-pub(in crate::tick) fn page_count(book: &Stack) -> usize {
+/// The number of [`pages`] of a book, counted without copying them.
+fn page_count(book: &Stack) -> usize {
     match book.extra().and_then(|e| e.nbt.get(PAGES)) {
         Some(Value::List(List::Compound(list))) => list.len(),
         Some(Value::List(List::String(list))) => list.len(),
         _ => 0,
     }
-}
-
-/// The `pages` list of `pages`; `None` for none.
-fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
-    (!pages.is_empty()).then(|| {
-        let list = pages
-            .into_iter()
-            .map(|p| {
-                Compound::from([
-                    (TEXT.to_owned(), Value::String(p.text)),
-                    (PHOTO.to_owned(), Value::String(p.photo)),
-                ])
-            })
-            .collect();
-        Value::List(List::Compound(list))
-    })
 }
 
 /// The `book` with `pages` and its other data as it was; `None` over the stack limits. The
@@ -269,4 +253,20 @@ fn written(pages: Vec<Page>, author: String, title: String) -> Option<Stack> {
     Stack::new(item::Kind::WrittenBook.default_type(), 1)
         .with_extra(Some(extra))
         .ok()
+}
+
+/// The `pages` list of `pages`; `None` for none.
+fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
+    (!pages.is_empty()).then(|| {
+        let list = pages
+            .into_iter()
+            .map(|p| {
+                Compound::from([
+                    (TEXT.to_owned(), Value::String(p.text)),
+                    (PHOTO.to_owned(), Value::String(p.photo)),
+                ])
+            })
+            .collect();
+        Value::List(List::Compound(list))
+    })
 }

@@ -40,7 +40,7 @@ impl Context<'_> {
     }
 }
 
-/// Works out what a broken custom block drops: with a compatible tool its drops, or itself with
+/// What a broken custom block drops: with a compatible tool its drops, or itself with
 /// Silk Touch where its drops are not itself; nothing with an incompatible tool.
 pub(super) fn drops_of(state: &State, block: block::State, tool: &Stack) -> Vec<Stack> {
     let Some(def) = block.custom_block() else {

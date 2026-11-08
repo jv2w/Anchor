@@ -32,6 +32,8 @@ const NAMESPACE: &str = "minecraft:";
 const PILLAR_AXIS: &str = "pillar_axis";
 /// The property `portal_axis`: a nether portal's axis, without Y.
 const PORTAL_AXIS: &str = "portal_axis";
+/// The property `rail_direction`.
+pub(super) const RAIL_DIRECTION: &str = "rail_direction";
 /// The property `ground_sign_direction`: a rotation in sixteenths of a turn.
 pub(super) const ROTATION: &str = "ground_sign_direction";
 /// The values of a rotation: sixteenths of a turn.
@@ -92,13 +94,13 @@ pub(in crate::tick) enum Encoding {
 }
 
 /// The facing of a state (horizontal or any), whatever Bedrock property holds it.
-pub(in crate::tick) fn facing(state: State) -> Option<Face> {
+pub(super) fn facing(state: State) -> Option<Face> {
     let (name, encoding) = encoding(state)?;
     facing_in(state, name, encoding)
 }
 
 /// The state facing `face`; `None` if the state has no facing or cannot face that way.
-pub(in crate::tick) fn with_facing(state: State, face: Face) -> Option<State> {
+pub(super) fn with_facing(state: State, face: Face) -> Option<State> {
     let (name, encoding) = encoding(state)?;
     match state.value(name)? {
         PropertyValue::Int(_) => with_int(state, name, encode_int(encoding, face)?),
@@ -238,7 +240,7 @@ pub(super) fn with_axis(state: State, axis: Axis) -> Option<State> {
 
 /// The dead form of living coral, with its properties; `None` for dead coral or a block without
 /// a dead form.
-pub(in crate::tick) fn dead_coral(state: State) -> Option<State> {
+pub(super) fn dead_coral(state: State) -> Option<State> {
     if is_dead_coral(state) {
         return None;
     }
@@ -299,7 +301,7 @@ pub(in crate::tick) fn int(state: State, name: &str) -> Option<i32> {
 }
 
 /// The string property `name`.
-pub(in crate::tick) fn string(state: State, name: &str) -> Option<&'static str> {
+pub(super) fn string(state: State, name: &str) -> Option<&'static str> {
     match state.value(name)? {
         PropertyValue::String(v) => Some(v),
         PropertyValue::Byte(_) | PropertyValue::Int(_) => None,
@@ -307,13 +309,13 @@ pub(in crate::tick) fn string(state: State, name: &str) -> Option<&'static str> 
 }
 
 /// The state with the flag property `name` set to `value`.
-pub(in crate::tick) fn with_flag(state: State, name: &str, value: bool) -> Option<State> {
+pub(super) fn with_flag(state: State, name: &str, value: bool) -> Option<State> {
     with_int(state, name, i32::from(value))
 }
 
 /// The state with the integer or flag property `name` set to `value`, keeping its NBT type;
 /// `None` if the state has no such property or value.
-pub(in crate::tick) fn with_int(state: State, name: &str, value: i32) -> Option<State> {
+pub(super) fn with_int(state: State, name: &str, value: i32) -> Option<State> {
     let value = match state.value(name)? {
         PropertyValue::Byte(_) => PropertyValue::Byte(u8::try_from(value).ok()?),
         PropertyValue::Int(_) => PropertyValue::Int(value),
@@ -323,8 +325,20 @@ pub(in crate::tick) fn with_int(state: State, name: &str, value: i32) -> Option<
 }
 
 /// The state with the string property `name` set to `value`.
-pub(in crate::tick) fn with_string(state: State, name: &str, value: &str) -> Option<State> {
+pub(super) fn with_string(state: State, name: &str, value: &str) -> Option<State> {
     state.with(name, PropertyValue::String(value))
+}
+
+/// The double form of a single slab state, with its properties; `None` for a state that is no
+/// single slab. Bedrock names it `<name>_double_slab`, and puts `double_` in front of
+/// `cut_copper_slab` for copper.
+pub(super) fn double_slab(state: State) -> Option<State> {
+    let name = state.name();
+    let double = match name.strip_suffix(COPPER_SLAB_SUFFIX) {
+        Some(copper) => format!("{copper}double_{COPPER_SLAB_SUFFIX}"),
+        None => format!("{}{DOUBLE_SLAB_SUFFIX}", name.strip_suffix("_slab")?),
+    };
+    renamed(state, &double)
 }
 
 /// The state named `name` with exactly the properties of `state` (a dead coral, a double slab);
@@ -340,20 +354,8 @@ pub(in crate::tick) fn renamed(state: State, name: &str) -> Option<State> {
     State::find(name, buffer.get(..count)?)
 }
 
-/// The double form of a single slab state, with its properties; `None` for a state that is no
-/// single slab. Bedrock names it `<name>_double_slab`, and puts `double_` in front of
-/// `cut_copper_slab` for copper.
-pub(super) fn double_slab(state: State) -> Option<State> {
-    let name = state.name();
-    let double = match name.strip_suffix(COPPER_SLAB_SUFFIX) {
-        Some(copper) => format!("{copper}double_{COPPER_SLAB_SUFFIX}"),
-        None => format!("{}{DOUBLE_SLAB_SUFFIX}", name.strip_suffix("_slab")?),
-    };
-    renamed(state, &double)
-}
-
 /// Whether coral is dead: Bedrock names the dead forms `dead_<name>`.
-pub(in crate::tick) fn is_dead_coral(state: State) -> bool {
+fn is_dead_coral(state: State) -> bool {
     state
         .name()
         .strip_prefix(NAMESPACE)
@@ -367,7 +369,7 @@ pub(super) fn is_double_slab(state: State) -> bool {
 }
 
 /// The lowercase name of a face.
-pub(in crate::tick) const fn face_name(face: Face) -> &'static str {
+pub(super) const fn face_name(face: Face) -> &'static str {
     match face {
         Face::Down => "down",
         Face::Up => "up",
@@ -379,13 +381,13 @@ pub(in crate::tick) const fn face_name(face: Face) -> &'static str {
 }
 
 /// The face of a lowercase name.
-pub(in crate::tick) fn face_of(name: &str) -> Option<Face> {
+fn face_of(name: &str) -> Option<Face> {
     Face::all().iter().copied().find(|f| face_name(*f) == name)
 }
 
 /// The `multi_face_direction_bits` bit of a face: down 1, up 2, south 4, west 8, north 16, east
 /// 32.
-pub(in crate::tick) const fn multi_face_bit(face: Face) -> i32 {
+pub(super) const fn multi_face_bit(face: Face) -> i32 {
     match face {
         Face::Down => 0x01,
         Face::Up => 0x02,
@@ -397,7 +399,7 @@ pub(in crate::tick) const fn multi_face_bit(face: Face) -> i32 {
 }
 
 /// The `vine_direction_bits` bit of a side: south 1, west 2, north 4, east 8; `None` up and down.
-pub(in crate::tick) const fn vine_bit(face: Face) -> Option<i32> {
+pub(super) const fn vine_bit(face: Face) -> Option<i32> {
     match face {
         Face::Down | Face::Up => None,
         Face::North => Some(4),
@@ -421,7 +423,7 @@ pub(in crate::tick) const fn rotate_clockwise(face: Face) -> Face {
 
 /// The face a quarter turn counterclockwise from `face` seen from above: north goes west. Up and
 /// down stay.
-pub(in crate::tick) const fn rotate_counterclockwise(face: Face) -> Face {
+pub(super) const fn rotate_counterclockwise(face: Face) -> Face {
     match face {
         Face::Down | Face::Up => face,
         Face::North => Face::West,

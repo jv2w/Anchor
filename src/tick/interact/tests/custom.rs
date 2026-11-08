@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::Context as Ctx;
 use crate::custom::tests::{HELMET, ORE, RUBY, SWORD};
 use crate::custom::{Behaviour, Block, ItemRef, Offer, Property, Registry};
 use crate::item::Extra;
@@ -31,7 +30,7 @@ struct Switch;
 impl Behaviour for Switch {
     fn on_use(
         &self,
-        cx: &mut Ctx<'_>,
+        cx: &mut Context<'_>,
         _player: crate::player::Id,
         world: world::Id,
         pos: BlockPos,
@@ -44,7 +43,7 @@ impl Behaviour for Switch {
 
     fn on_place(
         &self,
-        cx: &mut Ctx<'_>,
+        cx: &mut Context<'_>,
         player: crate::player::Id,
         world: world::Id,
         pos: BlockPos,
@@ -63,7 +62,7 @@ impl Behaviour for Switch {
 
     fn on_break(
         &self,
-        cx: &mut Ctx<'_>,
+        cx: &mut Context<'_>,
         _player: Option<crate::player::Id>,
         world: world::Id,
         pos: BlockPos,
@@ -88,18 +87,18 @@ fn registry() -> Registry {
     r
 }
 
-/// A harness whose server has [`registry`].
-fn harness() -> (Harness, Arc<Registry>) {
-    harness_with(|_| {})
-}
-
-/// [`harness`] with the settings `edit` makes.
+/// A harness whose server has [`registry`], with the settings `edit` makes.
 fn harness_with(edit: impl FnOnce(&mut Config)) -> (Harness, Arc<Registry>) {
     let mut h = Harness::new(edit);
     let r = Arc::new(registry());
     h.state.custom = Arc::clone(&r);
     h.state.rules.custom = Arc::clone(&r);
     (h, r)
+}
+
+/// A harness whose server has [`registry`].
+fn harness() -> (Harness, Arc<Registry>) {
+    harness_with(|_| {})
 }
 
 #[test]
@@ -119,7 +118,7 @@ fn a_custom_helmet_goes_on_by_a_click_in_the_air() {
 #[test]
 fn a_saved_stack_reads_back_through_the_context_custom_ones_too() {
     let (mut h, r) = harness();
-    let cx = Ctx {
+    let cx = Context {
         state: &mut h.state,
     };
     let switch = r.resolve(ItemRef::CustomBlock(&SWITCH)).unwrap();
@@ -170,7 +169,7 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     let item = r
         .resolve(crate::custom::ItemRef::CustomBlock(&SWITCH))
         .unwrap();
-    let cx = Ctx {
+    let cx = Context {
         state: &mut h.state,
     };
     assert_eq!(
@@ -225,7 +224,7 @@ fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     );
 }
 
-/// The drops of the custom ore at the target with `tool`.
+/// Sets the custom ore at the target; the drops breaking it with `tool` plans.
 fn ore_drops(h: &mut Harness, tool: Stack) -> Vec<Stack> {
     let ore = h.state.custom.block_state(&ORE).unwrap();
     h.set(TARGET, ore);
@@ -274,7 +273,7 @@ fn a_villagers_offers_are_read_and_changed_as_typed_values() {
     let emerald = Stack::new(crate::item::Kind::Emerald.default_type(), 3);
     let bread = Stack::new(crate::item::Kind::Bread.default_type(), 6);
     let wheat = Stack::new(crate::item::Kind::Wheat.default_type(), 20);
-    let mut cx = Ctx {
+    let mut cx = Context {
         state: &mut h.state,
     };
     let id = cx
@@ -362,7 +361,7 @@ fn an_offer_list_check_refuses_what_spawning_a_villager_refuses() {
         vec![good.clone().with_price_multipliers(0.0, f32::NAN)],
         vec![good; crate::custom::MAX_OFFERS + 1],
     ];
-    let mut cx = Ctx {
+    let mut cx = Context {
         state: &mut h.state,
     };
     for offers in &lists {
@@ -541,7 +540,7 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
     let player = crate::player::Id::new(SessionId::new(1));
     // In the player's inventory, a chest, on the ground and in a villager's offers.
     place_with_entity(&mut h, TARGET, Kind::Chest.default_state());
-    let mut cx = Ctx {
+    let mut cx = Context {
         state: &mut h.state,
     };
     cx.player_mut(player)
@@ -583,7 +582,7 @@ fn custom_items_survive_a_save_and_a_restart_wherever_they_are_kept() {
     assert_eq!(main.item(4), Some(&ruby), "the inventory");
     let entities = &h.state.rules.block_entities;
     assert_eq!(entities.get(0, TARGET).unwrap().items[3], ruby, "the chest");
-    let cx = Ctx {
+    let cx = Context {
         state: &mut h.state,
     };
     let ground: Vec<Stack> = cx

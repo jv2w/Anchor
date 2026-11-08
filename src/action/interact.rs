@@ -1,9 +1,10 @@
 //! Actions of a player on blocks, items and entities: breaking, clicking and using.
 //!
 //! Each goes through the same rules and events as the player's own click; the rules live in the
-//! tick's interaction module. [`BreakBlock`], [`InteractEntity`] and [`UseItemOn`] need their
-//! target within reach: 7 blocks of the player's eyes (13 in creative) and in front of where the
-//! player looks, or nothing happens.
+//! tick's interaction module. [`BreakBlock`] and [`UseItemOn`] need their block within reach: 7
+//! blocks of the player's eyes (13 in creative) and in front of where the player looks, or nothing
+//! happens. [`InteractEntity`] needs its entity within 8 blocks of the eyes in every game mode,
+//! and in front of where the player looks too.
 
 use super::Action;
 use crate::block::Face;
@@ -13,8 +14,11 @@ use crate::{entity, player};
 
 /// A player's left click on the block at `pos` on `face`.
 ///
-/// `pos` is in the world the player is in when the action runs. The player starts breaking the
-/// block, after [`PlayerInteract`](crate::event::PlayerInteract).
+/// `pos` is in the world the player is in when the action runs. The block must be loaded and
+/// within 100 blocks of the player's feet, and the player must not be a spectator. After
+/// [`PlayerInteract`](crate::event::PlayerInteract) a survival or adventure player starts breaking
+/// the block; a creative player starts nothing, as a creative break arrives as a separate destroy
+/// request from the client.
 #[doc(alias = "Player::attackBlock")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttackBlock {

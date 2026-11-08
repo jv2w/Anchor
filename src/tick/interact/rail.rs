@@ -160,7 +160,7 @@ fn with_shape(state: State, links: [Link; 2]) -> Option<State> {
             None
         }
     })?;
-    props::with_int(state, "rail_direction", i32::try_from(direction).ok()?)
+    props::with_int(state, props::RAIL_DIRECTION, i32::try_from(direction).ok()?)
 }
 
 /// The rail's two connections, if it is a rail.
@@ -168,7 +168,7 @@ fn shape(state: State) -> Option<[Link; 2]> {
     if !state.is(Class::BaseRail) {
         return None;
     }
-    let direction = usize::try_from(props::int(state, "rail_direction")?).ok()?;
+    let direction = usize::try_from(props::int(state, props::RAIL_DIRECTION)?).ok()?;
     match direction.checked_sub(STRAIGHT.len()) {
         Some(curve) if curves(state) => CURVES.get(curve).copied(),
         Some(_) => None,
@@ -201,6 +201,14 @@ mod tests {
     use crate::block::Kind;
     use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
 
+    #[test]
+    fn every_rail_shape_round_trips() {
+        for s in State::all().filter(|s| s.is(Class::BaseRail)) {
+            let links = shape(s).unwrap();
+            assert_eq!(with_shape(s, links), Some(s), "{s:?}");
+        }
+    }
+
     fn world() -> World {
         let mut w = World::new("rails", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
         for x in -1..=0 {
@@ -218,21 +226,13 @@ mod tests {
     }
 
     fn rail(direction: i32) -> State {
-        props::with_int(Kind::Rail.default_state(), "rail_direction", direction).unwrap()
+        props::with_int(Kind::Rail.default_state(), props::RAIL_DIRECTION, direction).unwrap()
     }
 
     fn place(w: &mut World, pos: BlockPos, s: State) {
         w.set_block(pos, s).unwrap();
         for (p, s) in reconnect(w, pos) {
             w.set_block(p, s).unwrap();
-        }
-    }
-
-    #[test]
-    fn every_rail_shape_round_trips() {
-        for s in State::all().filter(|s| s.is(Class::BaseRail)) {
-            let links = shape(s).unwrap();
-            assert_eq!(with_shape(s, links), Some(s), "{s:?}");
         }
     }
 
@@ -244,17 +244,17 @@ mod tests {
         place(&mut w, at(0, 0), rail(0));
         place(&mut w, at(1, 0), rail(0));
         assert_eq!(
-            props::int(w.block_for_rules(Some(at(0, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(0, 0))), props::RAIL_DIRECTION),
             Some(1)
         );
         assert_eq!(
-            props::int(w.block_for_rules(Some(at(1, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(1, 0))), props::RAIL_DIRECTION),
             Some(1)
         );
         // A rail south of the east end makes a corner there (south-west: 7).
         place(&mut w, at(1, 1), rail(0));
         assert_eq!(
-            props::int(w.block_for_rules(Some(at(1, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(1, 0))), props::RAIL_DIRECTION),
             Some(7)
         );
         // A rail one block up to the west makes the west end ascend west (3).
@@ -262,7 +262,7 @@ mod tests {
             .unwrap();
         place(&mut w, BlockPos::new(-1, 2, 0), rail(0));
         assert_eq!(
-            props::int(w.block_for_rules(Some(at(0, 0))), "rail_direction"),
+            props::int(w.block_for_rules(Some(at(0, 0))), props::RAIL_DIRECTION),
             Some(3)
         );
     }

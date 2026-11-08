@@ -18,6 +18,24 @@ pub(in crate::tick) const FRONT: &str = "FrontText";
 /// The NBT key of a side's text.
 pub(in crate::tick) const TEXT: &str = "Text";
 
+/// The text a client wrote on both sides of a sign, cleaned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Edit {
+    /// The front side's lines.
+    pub(super) front: [String; SIGN_LINES],
+    /// The back side's lines.
+    pub(super) back: [String; SIGN_LINES],
+}
+
+/// Why an edit is refused (the packet is dropped).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refused {
+    /// A side or its text has the wrong tag type or is missing.
+    Malformed,
+    /// A side holds more than `MAX_SIGN_TEXT_BYTES` bytes of text.
+    TooLong,
+}
+
 impl Context<'_> {
     /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`:
     /// the player may then write that sign once, as after
@@ -38,28 +56,10 @@ impl Context<'_> {
             .and_then(|w| w.block(pos))
             .is_some_and(|b| b.is(Class::BaseSign));
         if sign {
-            super::open_sign_editor(self.state, session, world, pos, side == Side::Front);
+            super::open_sign_editor(self.state, session, world, pos, side);
         }
         sign
     }
-}
-
-/// The text a client wrote on both sides of a sign, cleaned.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Edit {
-    /// The front side's lines.
-    pub(super) front: [String; SIGN_LINES],
-    /// The back side's lines.
-    pub(super) back: [String; SIGN_LINES],
-}
-
-/// Why an edit is refused (the packet is dropped).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Refused {
-    /// A side or its text has the wrong tag type or is missing.
-    Malformed,
-    /// A side holds more than 1000 bytes of text.
-    TooLong,
 }
 
 /// Reads both sides of a sign edit.
@@ -100,8 +100,8 @@ pub(in crate::tick) fn clean(text: &str) -> String {
         .peekable();
     while let Some(c) = chars.next() {
         if c == '\u{1b}' {
-            // `\x1b[\(\][[0-9;\[\(]+[Bm]` is one class (`(`, `]`, `[`, digits, `;`): skip a whole
-            // sequence; a lone escape goes too.
+            // An escape, one or more of `(`, `]`, `[`, digits and `;`, then `B` or `m`, is
+            // dropped whole; a lone escape goes too.
             let mut lookahead = chars.clone();
             let mut body = 0;
             while lookahead
@@ -163,10 +163,10 @@ mod tests {
         assert_eq!(clean("a\u{1b}b"), "ab");
     }
 
-    /// The escape pattern `\x1b[\(\][[0-9;\[\(]+[Bm]` is one character class, and the private-use
-    /// characters go before it is matched.
+    /// Any mix of `(`, `]`, `[`, digits and `;` between an escape and its `B` or `m` makes one
+    /// sequence, and the private-use characters go before sequences are looked for.
     #[test]
-    fn cleaning_reads_the_escape_pattern_as_one_character_class() {
+    fn cleaning_reads_any_mix_of_sequence_characters_as_one_sequence() {
         assert_eq!(clean("a\u{1b}[mb"), "ab");
         assert_eq!(clean("a\u{1b}1mb"), "ab");
         assert_eq!(clean("a\u{1b}]]mb"), "ab");

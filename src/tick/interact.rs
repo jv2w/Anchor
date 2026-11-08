@@ -10,12 +10,12 @@
 //! User code that is no event of the action (a sound's or particle's listener, a custom block's
 //! hook) runs only once the action is applied, the held item and the drops included.
 
-pub(super) mod book;
+mod book;
 pub(super) mod breaking;
 mod custom;
 mod decor;
 pub(super) mod drops;
-pub(super) mod place;
+mod place;
 pub(super) mod props;
 mod rail;
 pub(super) mod sign;
@@ -29,12 +29,12 @@ use tracing::debug;
 use super::entity::Raise;
 use super::view::chunk_of;
 use super::{
-    Context, Phase, Player, SessionId, State, block_entity, dispatch, emit, entity, inventory,
-    survival, view,
+    Context, Phase, Player, SessionId, State, block_entity, checkpoint, dispatch, emit, entity,
+    inventory, survival, view,
 };
 use crate::action;
 use crate::block::{self, Class, Face};
-use crate::block_entity::check_lines;
+use crate::block_entity::{Side, check_lines};
 use crate::config::GameMode;
 use crate::event::{BlockBreak, ExhaustCause, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
@@ -148,10 +148,16 @@ impl Breaking {
         }
         match last_click {
             Some((tick, c)) => {
+                let Click {
+                    pos,
+                    face,
+                    at,
+                    player,
+                } = c;
                 h.u64(*tick);
-                h.block_pos(c.pos);
-                h.u64(c.face.cast_unsigned().into());
-                for v in c.at.iter().chain(&c.player) {
+                h.block_pos(*pos);
+                h.u64(face.cast_unsigned().into());
+                for v in at.iter().chain(player) {
                     h.u64(u64::from(*v));
                 }
             }
@@ -211,7 +217,7 @@ impl Breaking {
     }
 }
 
-super::checkpoint::fields!(Breaking {
+checkpoint::fields!(Breaking {
     target,
     last_attacked,
     last_click,
@@ -241,7 +247,7 @@ struct Target {
     fx: u32,
 }
 
-super::checkpoint::fields!(Target {
+checkpoint::fields!(Target {
     world,
     pos,
     face,
@@ -264,7 +270,7 @@ struct Click {
     player: [u32; 3],
 }
 
-super::checkpoint::fields!(Click {
+checkpoint::fields!(Click {
     pos,
     face,
     at,
@@ -280,7 +286,7 @@ struct Press {
     raised: bool,
 }
 
-super::checkpoint::fields!(Press { last, raised });
+checkpoint::fields!(Press { last, raised });
 
 /// Where a right click on a block comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -316,8 +322,26 @@ pub(super) enum Destroy {
 enum Timing {
     /// The client's break: the server's own progress must have reached it.
     Counted,
-    /// A break the API asks for ([`action::BreakBlock`]): now, raising no `InventoryClose`.
+    /// A break the API asks for ([`action::BreakBlock`]): now.
     Instant,
+}
+
+/// Whether the blocks a destruction removed show their break particles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BreakParticles {
+    /// The break particles of each block play.
+    Shown,
+    /// None play: an explosion's blocks, or the run of the deferred hooks.
+    Hidden,
+}
+
+/// How long a block takes to break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BreakLength {
+    /// It breaks at once.
+    AtOnce,
+    /// It takes time.
+    Lasting,
 }
 
 /// The player as the interaction rules see it.
@@ -385,53 +409,9 @@ struct Destruction {
     items: Vec<Stack>,
 }
 
-/// Finds the interacting player of `session`, once spawned and while alive; its rotation and
-/// sneaking are the survival rules' (they read `PlayerAuthInput` before interaction does).
-fn actor(state: &State, session: SessionId) -> Option<Actor> {
-    let player = state.players.get(&session)?;
-    if !can_act(player) {
-        return None;
-    }
-    Some(Actor {
-        session,
-        world: player.world,
-        eye: player.position,
-        feet: survival::feet(player),
-        yaw: survival::rotation(player).0,
-        look: survival::look_direction(player),
-        mode: survival::game_mode(state, player),
-        sneaking: survival::is_sneaking(player),
-        sneak_pressed: survival::is_sneak_pressed(player),
-    })
-}
-
-/// Whether `player` may act on blocks and items: spawned and alive.
-fn can_act(player: &Player) -> bool {
-    player.phase == Phase::Spawned && survival::is_alive(player)
-}
-
-/// A block position of a packet.
-fn block_pos(p: [i32; 3]) -> BlockPos {
-    BlockPos::new(p[0], p[1], p[2])
-}
-
-/// Opens the engine random stream of `purpose` at `pos` this tick.
-fn stream(state: &State, world: WorldIndex, purpose: u64, pos: BlockPos) -> Random {
-    let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
-    let key = random::key(
-        purpose,
-        &[
-            u64::try_from(world).unwrap_or(u64::MAX),
-            u64::from(pos.x.cast_unsigned()),
-            u64::from(pos.y.cast_unsigned()),
-            u64::from(pos.z.cast_unsigned()),
-        ],
-    );
-    Random::new(seed, state.tick, key)
-}
-
-/// Applies `PlayerAuthInput`'s block actions (breaking) and item interaction (using an item on a
-/// block).
+/// Applies a `PlayerAuthInput`: one tick of breaking in progress, then its item interaction (using
+/// an item on a block), then its block actions (breaking), which come after the item interaction
+/// in the packet.
 pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &PlayerAuthInput) {
     if !state.players.get(&session).is_some_and(can_act) {
         return;
@@ -444,6 +424,11 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     if let Some(actions) = &packet.block_actions {
         block_actions(state, session, actions);
     }
+}
+
+/// Whether `player` may act on blocks and items: spawned and alive.
+fn can_act(player: &Player) -> bool {
+    player.phase == Phase::Spawned && survival::is_alive(player)
 }
 
 /// Applies an `InventoryTransaction`: use item (on a block or in the air), use item on entity
@@ -479,6 +464,26 @@ pub(super) fn on_inventory_transaction(
         InventoryTransactionData::Normal(_) => legacy_drop(state, session, &packet.actions),
         InventoryTransactionData::Mismatch(_) => {}
     }
+}
+
+/// The interacting player of `session`, once spawned and while alive; its rotation and sneaking
+/// are the survival rules' (they read `PlayerAuthInput` before interaction does).
+fn actor(state: &State, session: SessionId) -> Option<Actor> {
+    let player = state.players.get(&session)?;
+    if !can_act(player) {
+        return None;
+    }
+    Some(Actor {
+        session,
+        world: player.world,
+        eye: player.position,
+        feet: survival::feet(player),
+        yaw: survival::rotation(player).0,
+        look: survival::look_direction(player),
+        mode: survival::game_mode(state, player),
+        sneaking: survival::is_sneaking(player),
+        sneak_pressed: survival::is_sneak_pressed(player),
+    })
 }
 
 /// Drops by the Q key: the drop is two actions, the world's drop slot with the count and the main
@@ -557,10 +562,10 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
         return;
     };
     // One side changes at a time, the front first; a side the client sent unchanged is no edit.
-    let (front, mut lines) = if edit.front != old.front {
-        (true, edit.front)
+    let (side, mut lines) = if edit.front != old.front {
+        (Side::Front, edit.front)
     } else if edit.back != old.back {
-        (false, edit.back)
+        (Side::Back, edit.back)
     } else {
         // The writer keeps its raw text, which cleaning changed.
         resync(state, session, [pos]);
@@ -569,10 +574,9 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
     let mut event = None;
     if dispatch::heard::<crate::event::SignChange>(state) {
         let world = crate::world::Id::of(actor.world);
-        let old_text = if front {
-            old.front.clone()
-        } else {
-            old.back.clone()
+        let old_text = match side {
+            Side::Front => old.front.clone(),
+            Side::Back => old.back.clone(),
         };
         let mut e = crate::event::SignChange {
             player: crate::player::Id::new(session),
@@ -581,11 +585,7 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
             block,
             old_text,
             new_text: std::mem::take(&mut lines),
-            side: if front {
-                crate::block_entity::Side::Front
-            } else {
-                crate::block_entity::Side::Back
-            },
+            side,
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -604,13 +604,18 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
         lines.clone_from(&e.new_text);
         event = Some(e);
     }
-    decor::write_sign(state, actor.world, pos, front, lines);
+    decor::write_sign(state, actor.world, pos, side, lines);
     if let Some(p) = state.players.get_mut(&session) {
         p.breaking.sign_editor = None;
     }
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
+}
+
+/// A block position of a packet.
+fn block_pos(p: [i32; 3]) -> BlockPos {
+    BlockPos::new(p[0], p[1], p[2])
 }
 
 /// Whether `actor` may write the sign `block` at `pos` now (it is the sign's editor and the sign
@@ -620,7 +625,7 @@ fn sign_edit_check(
     actor: &Actor,
     pos: BlockPos,
     block: block::State,
-) -> Option<decor::SignText> {
+) -> Option<decor::SignSides> {
     let editor = state
         .players
         .get(&actor.session)
@@ -629,7 +634,7 @@ fn sign_edit_check(
     if !editor || !here {
         return None;
     }
-    decor::sign_text(state, actor.world, pos).filter(|s| !s.waxed)
+    decor::sign_sides(state, actor.world, pos).filter(|s| !s.waxed)
 }
 
 /// Destroys the block at `pos` for `cause`: sets air, removes its block entity, spawns the drops,
@@ -641,7 +646,10 @@ pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause
         Destroy::Player { session, .. } => Some(*session),
         Destroy::Explosion { .. } => None,
     };
-    let particles = !matches!(cause, Destroy::Explosion { .. });
+    let particles = match &cause {
+        Destroy::Player { .. } => BreakParticles::Shown,
+        Destroy::Explosion { .. } => BreakParticles::Hidden,
+    };
     let Some(affected) = destroy_deferring_hooks(state, world, pos, cause) else {
         return false;
     };
@@ -670,7 +678,7 @@ pub(super) fn destroy_deferring_hooks(
 
 /// Runs the `on_break` hooks of the custom blocks a deferred destruction removed.
 pub(super) fn run_break_hooks(state: &mut State, world: WorldIndex, affected: Affected) {
-    destroyed(state, world, None, affected, false);
+    destroyed(state, world, None, affected, BreakParticles::Hidden);
 }
 
 /// Runs one tick of breaking in progress (cracking progress, creative and survival timing): each
@@ -783,7 +791,7 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
     let Some(actor) = actor(state, session) else {
         return;
     };
-    if pos.to_center().distance_squared(actor.feet) >= MAX_ACTION_DISTANCE_SQUARED {
+    if pos.to_center().distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED {
         return;
     }
     let around = |at: BlockPos| Face::all().iter().filter_map(move |&f| at.step(f));
@@ -794,8 +802,8 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
     resync(state, session, around(pos).chain(beside).chain(clicked));
 }
 
-/// Reads the conditions of the player's breaking now: on the ground, flying and under water as
-/// the survival rules track them, Aqua Affinity on the helmet, Haste and Mining Fatigue.
+/// The conditions of the player's breaking now: on the ground, flying and under water as the
+/// survival rules track them, Aqua Affinity on the helmet, Haste and Mining Fatigue.
 fn conditions(state: &State, player: &Player) -> breaking::Conditions {
     let helmet = player.inventory.armor().get(item::ArmorSlot::Head.index());
     let level = |l: u32| u8::try_from(l).unwrap_or(u8::MAX);
@@ -865,8 +873,8 @@ fn block_actions(state: &mut State, session: SessionId, actions: &[PlayerBlockAc
     }
 }
 
-/// Reads a block action the server takes: its action, position and face (`Down` for an action
-/// that needs none); `None` for another action, or an invalid face where one is needed.
+/// The block action the server takes: its action, position and face (`Down` for an action that
+/// needs none); `None` for another action, or an invalid face where one is needed.
 fn accepted(a: &PlayerBlockAction) -> Option<(PlayerAction, BlockPos, Face)> {
     let action = PlayerAction::try_from(a.action).ok()?;
     let face = Face::from_index(a.face);
@@ -963,18 +971,17 @@ pub(super) fn stop_breaking(state: &mut State, session: SessionId) {
     else {
         return;
     };
+    stop_cracking(state, target.world, target.pos);
+}
+
+/// Tells the viewers of the block at `pos` to stop drawing its cracks, if its chunk is loaded.
+fn stop_cracking(state: &mut State, world: WorldIndex, pos: BlockPos) {
     let loaded = state
         .worlds
-        .get(target.world)
-        .is_some_and(|w| w.is_chunk_loaded(target.pos.chunk()));
+        .get(world)
+        .is_some_and(|w| w.is_chunk_loaded(pos.chunk()));
     if loaded {
-        level_event(
-            state,
-            target.world,
-            target.pos.to_corner(),
-            Event::StopBlockCracking,
-            0,
-        );
+        level_event(state, world, pos.to_corner(), Event::StopBlockCracking, 0);
     }
 }
 
@@ -1043,8 +1050,8 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
     done
 }
 
-/// Checks a left click: the block is near (100 blocks) and loaded, and the player is not a
-/// spectator. The block if so.
+/// The block a left click hits: it is near (100 blocks) and loaded, and the player is not a
+/// spectator; `None` otherwise.
 fn left_click(state: &State, actor: &Actor, pos: BlockPos) -> Option<block::State> {
     if pos.to_center().distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED
         || actor.mode == GameMode::Spectator
@@ -1107,41 +1114,11 @@ fn attack(
     true
 }
 
-/// Whether the player's breaking of `pos` is done: the block breaks at once, or the counted
-/// progress (with one tick of tolerance) on a block of the same kind reaches the whole (a state
-/// change of the block made by code keeps it).
-fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -> bool {
-    let Some(player) = state.players.get(&session) else {
-        return false;
-    };
-    let Some(block) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
-    if block.break_info().breaks_instantly() || speed(state, player, block) >= 1.0 {
-        return true;
-    }
-    player.breaking.target.as_ref().is_some_and(|t| {
-        t.world == actor.world
-            && t.pos == pos
-            && is_same_block(t.block, block)
-            && t.progress + t.speed >= 1.0 - 1e-9
-    })
-}
-
-/// Whether `a` and `b` are the same block in any state (breaking goes on through a state change
-/// made by code); states without a dump type are the same block when their names are.
-fn is_same_block(a: block::State, b: block::State) -> bool {
-    a.kind() == b.kind() && (a.kind() != block::Kind::InfoUpdate || a.name() == b.name())
-}
-
 /// Breaks the block at `pos` that the client says it broke. False (the caller resyncs) when the
 /// player cannot reach it, has not broken it long enough (unless `break-time-check = false`), or
 /// the world refuses ([`BlockBreak`]).
 fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Timing) -> bool {
-    match timing {
-        Timing::Counted => inventory::close_window(state, session),
-        Timing::Instant => inventory::close_window_without_event(state, session),
-    }
+    inventory::close_window(state, session);
     let Some(mut actor) = actor(state, session) else {
         return false;
     };
@@ -1207,6 +1184,33 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     true
 }
 
+/// Whether the player's breaking of `pos` is done: the block breaks at once, or the counted
+/// progress (with one tick of tolerance) on a block of the same kind reaches the whole (a state
+/// change of the block made by code keeps it).
+fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -> bool {
+    let Some(player) = state.players.get(&session) else {
+        return false;
+    };
+    let Some(block) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
+        return false;
+    };
+    if block.break_info().breaks_instantly() || speed(state, player, block) >= 1.0 {
+        return true;
+    }
+    player.breaking.target.as_ref().is_some_and(|t| {
+        t.world == actor.world
+            && t.pos == pos
+            && is_same_block(t.block, block)
+            && t.progress + t.speed >= 1.0 - 1e-9
+    })
+}
+
+/// Whether `a` and `b` are the same block in any state (breaking goes on through a state change
+/// made by code); states without a dump type are the same block when their names are.
+fn is_same_block(a: block::State, b: block::State) -> bool {
+    a.kind() == b.kind() && (a.kind() != block::Kind::InfoUpdate || a.name() == b.name())
+}
+
 /// Ends a break whose time is checked: the breaking stops, then the break `plan` (`None` when
 /// the checks refused it) is applied and the player gets hungrier, then the break effect plays
 /// and the custom blocks' `on_break` runs. A refused break stops the cracking the viewers see.
@@ -1226,22 +1230,22 @@ fn finish_break(
     let Some(affected) = plan.and_then(|plan| use_break_on(state, actor, pos, tool, plan)) else {
         // The break handler stays gone; the client starts again.
         if target.is_some() {
-            level_event(
-                state,
-                actor.world,
-                pos.to_corner(),
-                Event::StopBlockCracking,
-                0,
-            );
+            stop_cracking(state, actor.world, pos);
         }
         return false;
     };
     survival::exhaust_by(state, session, BREAK_EXHAUSTION, ExhaustCause::Mining);
-    destroyed(state, actor.world, Some(session), affected, true);
+    destroyed(
+        state,
+        actor.world,
+        Some(session),
+        affected,
+        BreakParticles::Shown,
+    );
     true
 }
 
-/// Works out a player's break: not air and [`player_may_break`], and the drops the break gives.
+/// A player's break worked out: not air and [`player_may_break`], and the drops the break gives.
 fn break_plan(state: &State, actor: &Actor, pos: BlockPos, tool: &Stack) -> Option<BreakPlan> {
     let target = state.worlds.get(actor.world)?.block(pos)?;
     if target == block::AIR || !player_may_break(actor, tool, target.name(), target.break_info()) {
@@ -1310,8 +1314,28 @@ fn wear_after_break(
     info: block::BreakInfo,
 ) {
     let mut rng = stream(state, actor.world, USE, pos);
-    let worn = tool_after_break(&state.settings, tool, info.breaks_instantly(), &mut rng);
+    let length = if info.breaks_instantly() {
+        BreakLength::AtOnce
+    } else {
+        BreakLength::Lasting
+    };
+    let worn = tool_after_break(&state.settings, tool, length, &mut rng);
     return_items(state, actor.session, tool, worn);
+}
+
+/// Opens the engine random stream of `purpose` at `pos` this tick.
+fn stream(state: &State, world: WorldIndex, purpose: u64, pos: BlockPos) -> Random {
+    let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
+    let key = random::key(
+        purpose,
+        &[
+            u64::try_from(world).unwrap_or(u64::MAX),
+            u64::from(pos.x.cast_unsigned()),
+            u64::from(pos.y.cast_unsigned()),
+            u64::from(pos.z.cast_unsigned()),
+        ],
+    );
+    Random::new(seed, state.tick, key)
 }
 
 /// The tool after breaking a block that breaks at once or not: pickaxes, axes, shovels and hoes
@@ -1320,7 +1344,7 @@ fn wear_after_break(
 fn tool_after_break(
     settings: &super::Settings,
     tool: &Stack,
-    instant: bool,
+    length: BreakLength,
     rng: &mut Random,
 ) -> Stack {
     let Some(item) = tool.item() else {
@@ -1332,7 +1356,7 @@ fn tool_after_break(
         || item.is(item::Class::Hoe);
     let amount = if item.is(item::Class::Shears) {
         1
-    } else if instant {
+    } else if length == BreakLength::AtOnce {
         0
     } else if item.is(item::Class::Sword) || item.is(item::Class::Trident) {
         2
@@ -1389,7 +1413,7 @@ fn return_items(state: &mut State, session: SessionId, old: &Stack, new: Stack) 
     }
 }
 
-/// Finds the other half of the bed `bed` at `pos`: the head lies one block along the bed's facing
+/// The other half of the bed `bed` at `pos`: the head lies one block along the bed's facing
 /// from the foot; `None` unless a bed half of the other kind facing the same way is there.
 fn bed_other_half(
     world: &crate::world::World,
@@ -1406,7 +1430,7 @@ fn bed_other_half(
     .then_some((other, state))
 }
 
-/// Finds the blocks a break takes together: both halves of a bed, door, double plant or small
+/// The blocks a break takes together: both halves of a bed, door, double plant or small
 /// dripleaf.
 fn affected_blocks(world: &crate::world::World, pos: BlockPos, block: block::State) -> Affected {
     let other = |pos: Option<BlockPos>| pos.and_then(|p| world.block(p).map(|s| (p, s)));
@@ -1426,8 +1450,8 @@ fn affected_blocks(world: &crate::world::World, pos: BlockPos, block: block::Sta
     [Some((pos, block)), second]
 }
 
-/// Works out the destruction of the block at `pos` for `cause`; `None` if the position is not
-/// loaded or already air.
+/// The destruction of the block at `pos` for `cause`, worked out before anything changes; `None`
+/// if the position is not loaded or already air.
 fn plan_destruction(
     state: &State,
     world: WorldIndex,
@@ -1467,7 +1491,7 @@ fn plan_destruction(
 /// changed; their effects and hooks are [`destroyed`]'s.
 #[expect(
     clippy::expect_used,
-    reason = "invariant: the blocks were just read from loaded chunks, and no user code ran since"
+    reason = "invariant: the blocks were just read from loaded chunks, and after a listener (the break event, a window close) the destruction is planned again, so a changed world already returned"
 )]
 fn apply_destruction(
     state: &mut State,
@@ -1543,16 +1567,17 @@ fn apply_destruction(
 }
 
 /// Shows the blocks a destruction removed and runs their custom blocks' `on_break` (by
-/// `breaker`, the player who broke them): first the break particles of each when `particles`,
-/// then the hooks. It runs once the destruction and everything it costs the player are applied.
+/// `breaker`, the player who broke them): first the break particles of each when `particles` are
+/// shown, then the hooks. It runs once the destruction and everything it costs the player are
+/// applied.
 fn destroyed(
     state: &mut State,
     world: WorldIndex,
     breaker: Option<SessionId>,
     affected: Affected,
-    particles: bool,
+    particles: BreakParticles,
 ) {
-    if particles {
+    if particles == BreakParticles::Shown {
         for (p, s) in affected.into_iter().flatten() {
             emit::particle(state, world, p.to_center(), Particle::BlockBreak(s));
         }
@@ -1564,7 +1589,7 @@ fn destroyed(
     }
 }
 
-/// Works out the drops of a destruction: the broken block's own item, once for the blocks that go
+/// The drops of a destruction: the broken block's own item, once for the blocks that go
 /// together (a custom block drops what its definition says). Only players with finite resources
 /// get drops; an explosion drops with chance `1 / size` per group.
 fn drops_of(
@@ -1745,14 +1770,14 @@ fn stop_using(state: &mut State, session: SessionId) {
     }
 }
 
-/// Opens the editor of the sign at `pos` for the player. A sign set by code gets its empty block
-/// entity now, so that its edit has a sign to go to.
+/// Opens the editor of the `side` of the sign at `pos` for the player. A sign set by code gets
+/// its empty block entity now, so that its edit has a sign to go to.
 fn open_sign_editor(
     state: &mut State,
     session: SessionId,
     world: WorldIndex,
     pos: BlockPos,
-    front: bool,
+    side: Side,
 ) {
     if state.rules.block_entities.get(world, pos).is_none() {
         block_entity::missing(state, world, pos);
@@ -1761,7 +1786,7 @@ fn open_sign_editor(
         player.breaking.sign_editor = Some((world, pos));
         player.send_packet(Packet::OpenSign(OpenSign {
             position: [pos.x, pos.y, pos.z],
-            front_side: front,
+            front_side: side == Side::Front,
         }));
     }
 }

@@ -5,14 +5,12 @@
 use super::*;
 use crate::block::PropertyValue;
 use crate::event::{
-    BlockBreak, BlockPlace, InteractAction, InventoryClose, Listeners, PlayerEntityInteract,
-    PlayerInteract, PlayerItemUse, Priority, SignChange,
+    BlockPlace, InventoryClose, PlayerEntityInteract, PlayerItemUse, Priority, SignChange,
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
-use crate::protocol::consts::{InventoryActionSource, WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY};
-use crate::protocol::{InventoryAction, UseItemOnEntityTransactionData};
-use crate::tick::Context;
+use crate::protocol::UseItemOnEntityTransactionData;
+use crate::protocol::consts::{WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY};
 
 /// The block beside the target, at foot level.
 const BESIDE: BlockPos = BlockPos::new(2, -60, 1);
@@ -57,25 +55,6 @@ fn listen<E: crate::event::Event>(
     l
 }
 
-/// A listener that cancels `E`, counted in [`cancels`].
-fn cancel<E: crate::event::Event>(cancel: fn(&mut E)) -> Listeners {
-    listen(move |e: &mut E, _: &mut Context<'_>| {
-        CANCELS.with(|c| c.set(c.get() + 1));
-        cancel(e);
-    })
-}
-
-/// How many times a [`cancel`] listener ran since the last call.
-fn cancels() -> u32 {
-    CANCELS.with(|c| c.replace(0))
-}
-
-/// The player's hand, changed from a listener.
-fn set_hand(cx: &mut Context<'_>, stack: Stack) {
-    let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
-    inventory::set_held(player, stack);
-}
-
 /// Takes every entity out of the chunks around the spawn: the count of `item` on the ground and
 /// the xp of the orbs.
 fn ground(h: &mut Harness, item: crate::item::Type) -> (u32, u32) {
@@ -101,67 +80,6 @@ fn ground(h: &mut Harness, item: crate::item::Type) -> (u32, u32) {
 
 fn dandelion() -> block::State {
     Kind::Dandelion.default_state()
-}
-
-/// A right click on `face` of `pos` with the held item.
-fn use_on(h: &mut Harness, pos: BlockPos, face: Face) {
-    let held = h.held();
-    let input = h.auth(Vec::new(), Some(click(pos, face, &held)));
-    h.run(vec![input]);
-}
-
-/// The same right click, but claiming an item the player does not hold, so the rules refuse it
-/// after the repeat filter noted it: the twin of a cancelled click.
-fn refused_use_on(h: &mut Harness, pos: BlockPos, face: Face) {
-    let wrong = click(pos, face, &block_item(Kind::Stone, 7));
-    let input = h.auth(Vec::new(), Some(wrong));
-    h.run(vec![input]);
-}
-
-/// Only the held press tells a cancelled right click from its [`refused_use_on`] twin: the
-/// cancelled one raised its event, so its press has one. Checks that and forgets it.
-fn forget_press(h: &mut Harness, refused: bool) {
-    let press = &mut h.player_mut().breaking.press;
-    assert_eq!(press.raised, !refused);
-    press.raised = false;
-}
-
-/// A click in the air with the held item.
-fn use_in_air(h: &mut Harness) {
-    let held = h.held();
-    let input = h.auth(Vec::new(), Some(air(&held)));
-    h.run(vec![input]);
-}
-
-/// A client's predicted change of `slot` in its own window `window` from `old` to `new`, as a
-/// use item transaction carries it.
-fn predicted(window: u32, slot: u8, old: &Stack, new: &Stack) -> InventoryAction {
-    InventoryAction {
-        source_type: InventoryActionSource::Container.into(),
-        window_id: Some(i8::try_from(window).unwrap()),
-        source_flags: None,
-        inventory_slot: u32::from(slot),
-        old_item: old.to_instance(0),
-        new_item: new.to_instance(0),
-    }
-}
-
-/// The counts `packets` give main slot `slot`, from whole inventory contents and single slots.
-fn main_counts(packets: &[Packet], slot: u8) -> Vec<u16> {
-    packets
-        .iter()
-        .filter_map(|p| match p {
-            Packet::InventoryContent(c) if c.window_id == WINDOW_ID_INVENTORY => {
-                c.content.get(usize::from(slot)).map(|i| i.stack.count)
-            }
-            Packet::InventorySlot(s)
-                if s.window_id == WINDOW_ID_INVENTORY && s.slot == u32::from(slot) =>
-            {
-                Some(s.new_item.stack.count)
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 // api: BlockBreakEvent
@@ -228,6 +146,19 @@ fn a_block_break_listener_sees_the_break_and_sets_its_drops() {
     );
 }
 
+/// A listener that cancels `E`, counted in [`cancels`].
+fn cancel<E: crate::event::Event>(cancel: fn(&mut E)) -> Listeners {
+    listen(move |e: &mut E, _: &mut Context<'_>| {
+        CANCELS.with(|c| c.set(c.get() + 1));
+        cancel(e);
+    })
+}
+
+/// How many times a [`cancel`] listener ran since the last call.
+fn cancels() -> u32 {
+    CANCELS.with(|c| c.replace(0))
+}
+
 // api: BlockBreakEvent
 #[test]
 fn a_cancelled_break_changes_nothing_and_resyncs_the_block() {
@@ -267,7 +198,7 @@ fn a_block_break_listener_sees_a_block_without_a_dump_type_as_itself_and_can_kee
             }
         });
         let mut h = Harness::with(creative, listener);
-        let moss = super::without_dump_type("minecraft:moss_block");
+        let moss = without_dump_type("minecraft:moss_block");
         h.set(TARGET, moss);
         h.act(vec![action(
             PlayerAction::PredictDestroyBlock,
@@ -284,14 +215,17 @@ fn a_block_break_listener_sees_a_block_without_a_dump_type_as_itself_and_can_kee
     };
     let (now, kept, sent, (apples, _)) = run(true);
     assert_eq!(now, kept);
-    assert!(
-        super::sets(&sent, TARGET, super::MOSS_BLOCK),
-        "resent as itself"
-    );
+    assert!(sets(&sent, TARGET, MOSS_BLOCK), "resent as itself");
     assert_eq!(apples, 0);
     let (now, _, _, (apples, _)) = run(false);
     assert_eq!(now, Some(block::AIR));
     assert_eq!(apples, 1);
+}
+
+/// Changes the player's hand to `stack`, from a listener.
+fn set_hand(cx: &mut Context<'_>, stack: Stack) {
+    let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
+    inventory::set_held(player, stack);
 }
 
 // api: BlockBreakEvent
@@ -340,6 +274,13 @@ fn a_break_before_its_time_raises_no_block_break() {
     assert_eq!(h.block(TARGET), full_box);
 }
 
+/// Right-clicks `face` of `pos` with the held item.
+fn use_on(h: &mut Harness, pos: BlockPos, face: Face) {
+    let held = h.held();
+    let input = h.auth(Vec::new(), Some(click(pos, face, &held)));
+    h.run(vec![input]);
+}
+
 // api: BlockPlaceEvent
 #[test]
 fn a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door() {
@@ -385,6 +326,22 @@ fn a_block_place_listener_sees_every_block_and_the_monitor_the_placed_door() {
     assert_eq!(notes(WATCHED), [dbg((true, 1))]);
 }
 
+/// Right-clicks like [`use_on`], but claims an item the player does not hold, so the rules refuse
+/// it after the repeat filter noted it: the twin of a cancelled click.
+fn refused_use_on(h: &mut Harness, pos: BlockPos, face: Face) {
+    let wrong = click(pos, face, &block_item(Kind::Stone, 7));
+    let input = h.auth(Vec::new(), Some(wrong));
+    h.run(vec![input]);
+}
+
+/// Asserts the held press and forgets it. Only the held press tells a cancelled right click from
+/// its [`refused_use_on`] twin: the cancelled one raised its event, so its press has one.
+fn forget_press(h: &mut Harness, refused: bool) {
+    let press = &mut h.player_mut().breaking.press;
+    assert_eq!(press.raised, !refused);
+    press.raised = false;
+}
+
 // api: BlockPlaceEvent
 #[test]
 fn a_cancelled_placement_changes_nothing_and_resyncs() {
@@ -411,6 +368,37 @@ fn a_cancelled_placement_changes_nothing_and_resyncs() {
     assert_eq!((block, held), (block::AIR, block_item(Kind::OakPlanks, 5)));
     assert!(sent.contains(&TARGET), "{sent:?}");
     assert_eq!(cancelled, twin);
+}
+
+/// A client's predicted change of `slot` in its own window `window` from `old` to `new`, as a
+/// use item transaction carries it.
+fn predicted(window: u32, slot: u8, old: &Stack, new: &Stack) -> InventoryAction {
+    InventoryAction {
+        source_type: InventoryActionSource::Container.into(),
+        window_id: Some(i8::try_from(window).unwrap()),
+        source_flags: None,
+        inventory_slot: u32::from(slot),
+        old_item: old.to_instance(0),
+        new_item: new.to_instance(0),
+    }
+}
+
+/// The counts `packets` give main slot `slot`, from whole inventory contents and single slots.
+fn main_counts(packets: &[Packet], slot: u8) -> Vec<u16> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::InventoryContent(c) if c.window_id == WINDOW_ID_INVENTORY => {
+                c.content.get(usize::from(slot)).map(|i| i.stack.count)
+            }
+            Packet::InventorySlot(s)
+                if s.window_id == WINDOW_ID_INVENTORY && s.slot == u32::from(slot) =>
+            {
+                Some(s.new_item.stack.count)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 // api: BlockPlaceEvent
@@ -589,7 +577,7 @@ fn a_listener_that_fills_the_place_or_takes_the_item_cancels_the_placement() {
     }
 }
 
-/// A closed oak door at [`TARGET`], both halves.
+/// Sets a closed oak door at [`TARGET`], both halves.
 fn door_at_target(h: &mut Harness) {
     let door = Kind::OakDoor.default_state();
     h.set(TARGET, door);
@@ -675,7 +663,7 @@ fn a_cancelled_right_click_uses_neither_the_block_nor_the_item() {
     assert_eq!(cancelled, run(Listeners::default(), true));
 }
 
-/// A right click on the top of the ground block at `x`, claiming to hold `held`, by `trigger`.
+/// Right-clicks the top of the ground block at `x`, claiming to hold `held`, by `trigger`.
 fn ground_click(h: &mut Harness, x: i32, trigger: TriggerType, held: &Stack) {
     let data = UseItemTransactionData {
         trigger_type: trigger.into(),
@@ -683,6 +671,17 @@ fn ground_click(h: &mut Harness, x: i32, trigger: TriggerType, held: &Stack) {
     };
     let input = h.auth(Vec::new(), Some(data));
     h.run(vec![input]);
+}
+
+/// Does `action` through [`Context::perform`] and runs it.
+fn perform(h: &mut Harness, a: impl crate::action::Action) {
+    Context {
+        state: &mut h.state,
+    }
+    .perform(a)
+    .unwrap();
+    let mut runs = 0;
+    crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
 #[test]
@@ -750,6 +749,13 @@ fn a_cancelled_left_click_starts_no_breaking() {
         cancelled,
         run(Listeners::default(), PlayerAction::CrackBreak)
     );
+}
+
+/// Clicks in the air with the held item.
+fn use_in_air(h: &mut Harness) {
+    let held = h.held();
+    let input = h.auth(Vec::new(), Some(air(&held)));
+    h.run(vec![input]);
 }
 
 /// Starting to eat asks the item use listeners, and a cancel keeps the player from eating;
@@ -827,7 +833,7 @@ fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armor_in
 
 /// The front lines of the sign at [`TARGET`].
 fn front_lines(h: &Harness) -> Vec<String> {
-    decor::sign_text(&h.state, 0, TARGET)
+    decor::sign_sides(&h.state, 0, TARGET)
         .unwrap()
         .front
         .to_vec()
@@ -902,7 +908,7 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
     assert_eq!(cancels(), 1);
 }
 
-/// A villager NPC two blocks south of the player: its entity ID and runtime ID.
+/// Spawns a villager NPC two blocks south of the player; its entity ID and runtime ID.
 fn villager(h: &mut Harness) -> (crate::entity::Id, u64) {
     let apple = Stack::new(ItemKind::Apple.default_type(), 2);
     let bread = Stack::new(ItemKind::Bread.default_type(), 1);
@@ -944,7 +950,7 @@ fn entity_click(h: &mut Harness, runtime_id: u64, at: [f32; 3]) -> Input {
     )))
 }
 
-/// The player right-clicks the entity `runtime_id` at `at`.
+/// Right-clicks the entity `runtime_id` at `at`.
 fn use_on_entity(h: &mut Harness, runtime_id: u64, at: [f32; 3]) {
     let input = entity_click(h, runtime_id, at);
     h.run(vec![input]);
@@ -1027,17 +1033,6 @@ fn the_click_event_is_raised_for_a_click_on_a_removed_block() {
     );
     assert_eq!(h.block(TARGET), lever);
     assert!(updates(&h.packets()).contains(&TARGET), "resent");
-}
-
-/// Does `action` through [`Context::perform`] and runs it.
-fn perform(h: &mut Harness, a: impl crate::action::Action) {
-    Context {
-        state: &mut h.state,
-    }
-    .perform(a)
-    .unwrap();
-    let mut runs = 0;
-    crate::tick::dispatch::run_deferred(&mut h.state, &mut runs);
 }
 
 // api: Player::attackBlock
@@ -1593,6 +1588,25 @@ fn a_quiet_explosion_closes_windows_without_inventory_close() {
     }
 }
 
+/// The break action closes the player's open window with [`InventoryClose`], as the player's own
+/// break does.
+#[test]
+fn the_break_action_closes_the_window_with_inventory_close() {
+    let l = listen(|_: &mut InventoryClose, _: &mut Context<'_>| {
+        note(SEEN, "closed");
+    });
+    let mut h = Harness::with(|_| {}, l);
+    set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
+    h.set(BESIDE, Kind::Dirt.default_state());
+    h.run(Vec::new());
+    use_on(&mut h, TARGET, Face::West);
+    assert!(h.player().window().is_some(), "the chest is open");
+    perform(&mut h, action::BreakBlock::new(me(), BESIDE));
+    assert_eq!(h.block(BESIDE), block::AIR);
+    assert!(h.player().window().is_none());
+    assert_eq!(notes(SEEN), [dbg("closed")]);
+}
+
 // api: PlayerExhaustEvent, Player::breakBlock
 #[test]
 fn mining_raises_player_exhaust_with_the_mining_cause() {
@@ -1613,7 +1627,7 @@ fn mining_raises_player_exhaust_with_the_mining_cause() {
     assert!(seen.contains(&mining), "{seen:?}");
 }
 
-/// The trapdoor east of the player.
+/// Sets the trapdoor east of the player.
 fn trapdoor(h: &mut Harness) {
     h.set(TARGET, Kind::OakTrapdoor.default_state());
 }
@@ -1628,7 +1642,7 @@ fn door_sounds(packets: &[Packet]) -> usize {
         .count()
 }
 
-/// The halves of the iron door at [`TARGET`]: the lower, then the upper.
+/// Sets an iron door at [`TARGET`]; its halves, the lower then the upper.
 fn iron_door(h: &mut Harness) -> [BlockPos; 2] {
     let lower = Kind::IronDoor.default_state();
     let upper = props::with_flag(lower, "upper_block_bit", true).unwrap();

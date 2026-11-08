@@ -2,14 +2,13 @@
 //! the book in the slot out.
 
 use super::*;
-use crate::event::{BookAction as Edit, Listeners, PlayerEditBook, Priority};
+use crate::event::{BookAction as Edit, PlayerEditBook, Priority};
 use crate::item::Kind as ItemKind;
 use crate::nbt::{List, Value};
 use crate::protocol::consts::BookAction;
 use crate::protocol::packet::BookEdit;
-use crate::tick::Context;
 
-/// A book and quill in the player's hand; its slot.
+/// Puts a book and quill in the player's hand; its slot.
 fn quill(h: &mut Harness) -> i32 {
     h.hold(stack(ItemKind::WritableBook));
     i32::from(h.player().inventory.held_slot())
