@@ -85,12 +85,12 @@ paths:
 - Keep every cryptographic primitive of Anchor's code (ES384, RS256, ECDH P-384, SHA-256, HMAC-SHA256, AES-256-CTR, randomness), base64, and the JWS compact form in the `crypto` module.
 
 ## Compression
-- Check `compression-threshold`, `compression-level`, and `max-batch-bytes` in one place, `batch::Settings::new`.
+- Check the ranges of `compression-threshold`, `compression-level`, and `max-batch-bytes` in one place, `batch::Settings::new`; a bound that relates `max-batch-bytes` to another value is the configuration's (`config.md`).
 - Never accept a compression threshold of 0.
 - Server sends use the threshold announced in NetworkSettings.
 - Accept only standard Snappy elements, never the S2 extension.
 - Apply the decompression limit `max-batch-bytes` to zlib, Snappy, and uncompressed batches alike, before and after login. Never lower it before login.
-- Snappy checks, before allocating, that the declared length is within the limit and within 22 times the input. zlib inflates into a buffer that grows only up to the limit.
+- Snappy checks, before allocating, that the declared length is within the limit and within `MAX_RATIO` (`src/protocol/compression/snappy.rs`) times the input. zlib inflates into a buffer that grows only up to the limit.
 - Encode and compress broadcasts and the start-game packets every player gets the same (`tick::Shared`: ItemRegistry, CreativeContent, CraftingData, and the rest) once, and share the result. Build the shared batches at the start of `run()`.
 - Record the report of Snappy crashes on devices without AVX2 in the `Compression` rustdoc.
 
