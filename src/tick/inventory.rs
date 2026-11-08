@@ -45,7 +45,7 @@ use tracing::warn;
 
 use super::checkpoint::{self, Codec, Reader, Writer};
 use super::entity::Raise;
-use super::{Phase, Player, SessionId, State, block_entity, dispatch, survival, trade};
+use super::{Phase, Player, SessionId, State, block_entity, dispatch, interact, survival, trade};
 use crate::block::{self, Class, ItemForm};
 use crate::data::{MAX_PLAYER_TYPES, MAX_PLAYER_VALUE_BYTES};
 use crate::event::{
@@ -69,6 +69,8 @@ use crate::save::WorldIndex;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::world::BlockPos;
 
+/// The packets that announce a window: its `ContainerOpen` and its content.
+const ANNOUNCE_PACKETS: usize = 2;
 /// Armor slots: helmet, chestplate, leggings, boots.
 const ARMOR: usize = crate::inventory::Kind::Armor.size();
 /// Slots of the armor window the client takes (the fifth is a mount's body slot).
@@ -84,7 +86,7 @@ const CONTAINER_TYPE_NONE: u8 = 247;
 /// A double chest: both halves as one run.
 const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
 /// Where a player drops items, below its eyes: the tick keeps the eye position, so the drop
-/// point is [`DROP_HEIGHT`] above the feet, 0.32 below the eyes.
+/// point is [`DROP_HEIGHT`] above the feet, this far below the eyes.
 const DROP_BELOW_EYE: f64 = 0.32;
 /// How high above the feet a player drops an item.
 const DROP_HEIGHT: f64 = 1.3;
@@ -99,17 +101,17 @@ const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
 pub(super) const INVENTORY_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_INVENTORY);
 /// The key of the saved armor list in the saved player data (Bedrock player NBT: armor in
 /// order).
-pub(super) const KEY_ARMOR: &str = "Armor";
+const KEY_ARMOR: &str = "Armor";
 /// The key of the saved ender chest list (slots by `Slot` 0–26).
-pub(super) const KEY_ENDER_CHEST: &str = "EnderChestInventory";
+const KEY_ENDER_CHEST: &str = "EnderChestInventory";
 /// The key of the saved main slots list (slots by `Slot` 0–35).
-pub(super) const KEY_INVENTORY: &str = "Inventory";
+const KEY_INVENTORY: &str = "Inventory";
 /// The key of a saved stack's item name.
 const KEY_NAME: &str = "Name";
 /// The key of the saved off hand list.
-pub(super) const KEY_OFFHAND: &str = "Offhand";
+const KEY_OFFHAND: &str = "Offhand";
 /// The key of Anchor's saved waiting stacks ([`save`]).
-pub(super) const KEY_PENDING: &str = "PendingItems";
+const KEY_PENDING: &str = "PendingItems";
 /// The key of the selected hotbar slot in the saved player data.
 const KEY_SELECTED_SLOT: &str = "SelectedInventorySlot";
 /// The key of a saved stack's slot in a list by `Slot`.
@@ -149,11 +151,13 @@ const _: () = assert!(
 );
 /// The off hand window ID as the byte `MobEquipment` and `PlayerHotBar` carry.
 pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
+/// The `InventoryContent` packets of the player's own windows ([`own_windows`]).
+const OWN_WINDOW_PACKETS: usize = 4;
 /// A shulker box.
 const SHULKER_BOX: [Part; 1] = [block_part(ContainerId::ShulkerBox, 0, CHEST_SLOTS)];
 /// Ticks before anyone picks up a thrown item.
 const THROW_PICKUP_DELAY_TICKS: i16 = 40;
-/// The speed of a thrown item along the look (direction × 0.4).
+/// The speed of a thrown item along the look.
 const THROW_SPEED: f64 = 0.4;
 /// A trade: payments 4 and 5 (containers 47 and 48; P6).
 const TRADE: [Part; TRADE_PAYMENTS] = [
@@ -161,15 +165,19 @@ const TRADE: [Part; TRADE_PAYMENTS] = [
         ContainerId::TradeTwoIngredientOne,
         UI_TRADE,
         1,
-        Store::Ui(0),
+        Store::Ui(TRADE_PAYMENT_A),
     ),
     part(
         ContainerId::TradeTwoIngredientTwo,
         UI_TRADE + 1,
         1,
-        Store::Ui(1),
+        Store::Ui(TRADE_PAYMENT_B),
     ),
 ];
+/// The window's own slot of a trade's first payment.
+pub(super) const TRADE_PAYMENT_A: u8 = 0;
+/// The window's own slot of a trade's second payment.
+pub(super) const TRADE_PAYMENT_B: u8 = 1;
 /// The payment slots of a trade window.
 const TRADE_PAYMENTS: usize = 2;
 /// The UI slot of the created output (container 60).
@@ -267,10 +275,10 @@ impl Inventory {
             // a refused repeat leaves the state it would have had (idempotence).
             budget: _,
             resent: _,
-            picks: _,
-            client_opened: _,
             // Cleared by the end of every tick.
             held_unanswered: _,
+            picks: _,
+            client_opened: _,
             pending,
             menu,
             next_menu,
@@ -357,9 +365,9 @@ impl Inventory {
 
     /// The first empty main slot.
     fn first_empty(&self) -> Option<u8> {
-        (0_u8..)
-            .zip(&self.main.stacks)
-            .find_map(|(i, s)| s.is_empty().then_some(i))
+        self.main_view()
+            .first_empty()
+            .and_then(|i| u8::try_from(i).ok())
     }
 
     /// The player's slot `r` (not a block container slot).
@@ -720,7 +728,7 @@ checkpoint::fields!(Slot { stack, id });
 /// The stack network ID of a slot as one player's client knows it, and the request that last
 /// changed the slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) struct StackId {
+struct StackId {
     /// 0 for an empty slot.
     net: i32,
     request: Option<i32>,
@@ -976,29 +984,6 @@ const fn byte(n: usize) -> u8 {
     b
 }
 
-/// Reads a saved stack through `custom`, or `None` for an unknown item. The warning names whose
-/// item it was (`owner`, with its place) and says the next save does not write the item back, so
-/// an item whose custom definition was renamed or removed is lost for good.
-pub(super) fn read_saved_stack(
-    nbt: &Compound,
-    custom: &crate::custom::Registry,
-    owner: impl fmt::Display,
-) -> Option<Stack> {
-    let stack = Stack::from_nbt_with(nbt, custom);
-    if stack.is_none() {
-        let item = match nbt.get(KEY_NAME) {
-            Some(Value::String(name)) => name.as_str(),
-            _ => "",
-        };
-        warn!(
-            %owner,
-            item,
-            "a saved item is unknown; the next save drops it for good (register it if it is a custom item)"
-        );
-    }
-    stack
-}
-
 /// Reads the player's inventory keys from its saved extra (empty for a new player).
 ///
 /// Keys (Bedrock player NBT): [`KEY_INVENTORY`] (main slots by `Slot` 0–35), [`KEY_ARMOR`] (4
@@ -1079,6 +1064,29 @@ pub(super) fn load(
     assign(&ender.stacks, &mut ender.ids);
 }
 
+/// The stack a saved item holds, read through `custom`, or `None` for an unknown item. The warning
+/// names whose item it was (`owner`, with its place) and says the next save does not write the
+/// item back, so an item whose custom definition was renamed or removed is lost for good.
+pub(super) fn read_saved_stack(
+    nbt: &Compound,
+    custom: &crate::custom::Registry,
+    owner: impl fmt::Display,
+) -> Option<Stack> {
+    let stack = Stack::from_nbt_with(nbt, custom);
+    if stack.is_none() {
+        let item = match nbt.get(KEY_NAME) {
+            Some(Value::String(name)) => name.as_str(),
+            _ => "",
+        };
+        warn!(
+            %owner,
+            item,
+            "a saved item is unknown; the next save drops it for good (register it if it is a custom item)"
+        );
+    }
+    stack
+}
+
 /// Writes the player's inventory keys into the extra to save (the keys of [`load`]).
 ///
 /// `PendingItems` holds the stacks waiting for room and then everything the player holds outside
@@ -1147,8 +1155,8 @@ pub(super) fn spawn_packets(player: &Player, out: &mut Vec<Packet>) {
     out.push(hotbar_packet(player.inventory.held));
 }
 
-/// The client selected a hotbar slot (`MobEquipment`): the off hand window is ignored; a slot
-/// outside the hotbar is answered with the selected one at the end of the tick
+/// Handles `MobEquipment`, the client selecting a hotbar slot: the off hand window is ignored; a
+/// slot outside the hotbar is answered with the selected one at the end of the tick
 /// ([`answer_held`]).
 pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &MobEquipment) {
     let heard = dispatch::heard::<PlayerItemHeld>(state);
@@ -1216,9 +1224,9 @@ pub(super) fn has_unanswered_hold(player: &Player) -> bool {
     player.inventory.held_unanswered
 }
 
-/// The client closed a window: the window's items go back and the close is acknowledged with
-/// type 247 (P6). Window -1 means the latest window. If it acknowledges a close the server
-/// started, the window waiting for it opens now.
+/// Handles `ContainerClose`, the client closing a window: the window's items go back and the close
+/// is acknowledged with type 247 (P6). Window -1 means the latest window. If it acknowledges a
+/// close the server started, the window waiting for it opens now.
 pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: &ContainerClose) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -1250,8 +1258,8 @@ pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: 
     }
 }
 
-/// `Interact`: the client opened its own inventory (`OpenInventory` on itself). Other actions
-/// belong to other modules or are ignored.
+/// Handles `Interact`: the client opened its own inventory (`OpenInventory` on itself). Other
+/// actions belong to other modules or are ignored.
 pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Interact) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -1266,9 +1274,9 @@ pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Intera
     });
 }
 
-/// Creative pick block: puts the block's item (with its block entity data when asked) in the
-/// player's hand ([`equip_or_add`]). Players with finite resources only select or swap items they
-/// have. At most [`MAX_PICKS_PER_TICK`] picks a tick are handled.
+/// Handles `BlockPickRequest`, the creative pick block: puts the block's item (with its block
+/// entity data when asked) in the player's hand ([`equip_or_add`]). Players with finite resources
+/// only select or swap items they have. At most [`MAX_PICKS_PER_TICK`] picks a tick are handled.
 pub(super) fn on_block_pick_request(
     state: &mut State,
     session: SessionId,
@@ -1361,14 +1369,12 @@ fn pick(
     let world = player.world;
     let finite = survival::has_finite_resources(survival::game_mode(state, player));
     let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
-    let picked = match block.item() {
-        ItemForm::Item(item) if data == PickData::WithBlockEntity => {
-            block_entity::with_block_data(state, world, pos, Stack::new(item, 1))
+    let own = interact::drops::own_item(state, world, pos, block)?;
+    let picked = match (block.item(), data) {
+        (ItemForm::Item(_), PickData::WithBlockEntity) => {
+            block_entity::with_block_data(state, world, pos, own)
         }
-        ItemForm::Item(item) => Stack::new(item, 1),
-        // A bed's or banner's item is its block entity's.
-        ItemForm::BlockEntity => block_entity::own_item(state, world, pos)?,
-        ItemForm::None => return None,
+        _ => own,
     };
     if finite && player.inventory.first(&picked).is_none() {
         return None;
@@ -1392,13 +1398,6 @@ fn select(player: &mut Player, slot: u8) {
 fn hold(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     hand_changed(player);
-}
-
-/// Notes that what the player holds in its hand changed (the selection or the stack): the
-/// player's data is to be saved and the item in use stops.
-fn hand_changed(player: &mut Player) {
-    player.data_dirty = true;
-    survival::stop_using_item(player);
 }
 
 /// Swaps two main slots outside a request.
@@ -1548,22 +1547,6 @@ fn give_pending(player: &mut Player) {
     }
 }
 
-/// Puts `stack` into the player's inventory where it fits and tells the client; returns what did
-/// not fit.
-pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
-    let (left, changed) = player.inventory.add(stack);
-    if !changed.is_empty() {
-        player.data_dirty = true;
-    }
-    for i in changed {
-        if let Some(slot) = player.inventory.main.get(i) {
-            let item = slot.stack.to_instance(slot.id.net);
-            player.send_packet(slot_packet(WINDOW_ID_INVENTORY, u32::from(i), item));
-        }
-    }
-    left
-}
-
 /// Empties everything the player carries (death without `keepInventory`) and returns it: the
 /// main slots, armor, off hand, cursor, the open window's own slots and the stacks waiting for
 /// room. None of the cursor's items is lent: a death closes the window first, and only a request
@@ -1583,7 +1566,7 @@ pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
         }
     }
     out.append(&mut inv.pending);
-    let mut packets = Vec::with_capacity(4);
+    let mut packets = Vec::with_capacity(OWN_WINDOW_PACKETS);
     own_windows(&player.inventory, &mut packets);
     for p in packets {
         player.send_packet(p);
@@ -1676,7 +1659,6 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
                 kind: Container::Chest,
             })
         }
-        WindowKind::Ender { .. } if opaque_beside(pos, block::Face::Up) => None,
         WindowKind::Container {
             kind: Container::ShulkerBox,
             ..
@@ -1691,6 +1673,7 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
                 .unwrap_or(block::Face::Up);
             (!solid_beside(pos, face)).then_some(kind)
         }
+        WindowKind::Ender { .. } if opaque_beside(pos, block::Face::Up) => None,
         _ => Some(kind),
     }
 }
@@ -1930,7 +1913,7 @@ fn announce(state: &mut State, session: SessionId) {
             request: None,
         })
         .collect();
-    let mut packets = Vec::with_capacity(4);
+    let mut packets = Vec::with_capacity(ANNOUNCE_PACKETS);
     let at = match (kind, kind.blocks()) {
         (WindowKind::Menu { pos, .. }, _) | (_, [Some((_, pos)), _]) => [pos.x, pos.y, pos.z],
         _ => {
@@ -1965,7 +1948,8 @@ pub(super) fn close_window(state: &mut State, session: SessionId) {
     close(state, session, Notice::Send);
 }
 
-/// [`close_window`] for a direct API call, which raises no `InventoryClose`.
+/// Closes the window as [`close_window`] does, for a direct API call, which raises no
+/// `InventoryClose`.
 pub(super) fn close_window_without_event(state: &mut State, session: SessionId) {
     close_now(state, session, Notice::Send, Raise::Quiet);
 }
@@ -2132,10 +2116,27 @@ fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
     }
 }
 
-/// The player of `session` throws `stack` (the Q key, a request's drop, an item returned to a
-/// full inventory): it leaves [`DROP_HEIGHT`] above the feet along the look × 0.4, can be picked
-/// up after 40 ticks and has the player as its thrower, and the viewers see the arm swing. False
-/// if the world has no room. Tests stand in for the entity module.
+/// Puts `stack` into the player's inventory where it fits and tells the client; returns what did
+/// not fit.
+pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
+    let (left, changed) = player.inventory.add(stack);
+    if !changed.is_empty() {
+        player.data_dirty = true;
+    }
+    for i in changed {
+        if let Some(slot) = player.inventory.main.get(i) {
+            let item = slot.stack.to_instance(slot.id.net);
+            player.send_packet(slot_packet(WINDOW_ID_INVENTORY, u32::from(i), item));
+        }
+    }
+    left
+}
+
+/// Throws `stack` for the player of `session` (the Q key, a request's drop, an item returned to a
+/// full inventory): it leaves [`DROP_HEIGHT`] above the feet along the look at [`THROW_SPEED`],
+/// can be picked up after [`THROW_PICKUP_DELAY_TICKS`] and has the player as its thrower, and the
+/// viewers see the arm swing. False if the world has no room. Tests stand in for the entity
+/// module.
 pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
@@ -2198,11 +2199,11 @@ pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
     }
 }
 
-/// After a client's item click: if any of the player's own slots (main, armor, off hand) the
-/// client predicted holds another stack than the prediction, [`resend_all`]. The client changed
-/// those slots as it sent the click and keeps them until told otherwise, so a refused click would
-/// leave it a count that fails the held item check of every later click. A right prediction sends
-/// nothing.
+/// Sends everything again ([`resend_all`]) after a client's item click if any of the player's own
+/// slots (main, armor, off hand) the client predicted holds another stack than the prediction.
+/// The client changed those slots as it sent the click and keeps them until told otherwise, so a
+/// refused click would leave it a count that fails the held item check of every later click. A
+/// right prediction sends nothing.
 pub(super) fn resend_mispredicted(
     state: &mut State,
     session: SessionId,
@@ -2261,7 +2262,7 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
         return;
     }
     player.inventory.resent = Some(tick);
-    let mut packets = Vec::with_capacity(5);
+    let mut packets = Vec::with_capacity(OWN_WINDOW_PACKETS + 1);
     own_windows(&player.inventory, &mut packets);
     if let Some(window) = &player.inventory.window
         && window.id != 0
@@ -2327,7 +2328,7 @@ fn window_content(
     blocks: &block_entity::BlockEntities,
 ) -> Option<Vec<ItemInstance>> {
     match window.kind {
-        WindowKind::Ender { .. } => Some(inv.ender.instances().collect()),
+        WindowKind::Own | WindowKind::Trade { .. } => None,
         kind @ WindowKind::Container { .. } => Some(
             block_stacks(kind, blocks)
                 .iter()
@@ -2335,6 +2336,7 @@ fn window_content(
                 .map(|(s, id)| s.to_instance(id.net))
                 .collect(),
         ),
+        WindowKind::Ender { .. } => Some(inv.ender.instances().collect()),
         WindowKind::Menu { .. } => Some(
             inv.menu
                 .as_ref()
@@ -2344,7 +2346,6 @@ fn window_content(
                 .map(|(s, id)| s.to_instance(id.net))
                 .collect(),
         ),
-        WindowKind::Own | WindowKind::Trade { .. } => None,
     }
 }
 
@@ -2390,11 +2391,16 @@ fn set_own(player: &mut Player, r: SlotRef, stack: Stack) {
     }
 }
 
+/// Notes that what the player holds in its hand changed (the selection or the stack): the
+/// player's data is to be saved and the item in use stops.
+fn hand_changed(player: &mut Player) {
+    player.data_dirty = true;
+    survival::stop_using_item(player);
+}
+
 /// Sends a player slot as it is now.
 fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
     match r {
-        // The client may ignore `InventorySlot` for the off hand.
-        SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
         // The client keeps its own stack network ID for an armor slot told the item it already
         // shows (armor worn by a click it predicted), and a request naming that ID fails; the slot
         // emptied first makes it take the new one.
@@ -2406,6 +2412,8 @@ fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
             }
             player.send_packet(slot_packet(WINDOW_ID_ARMOUR, slot, item));
         }
+        // The client may ignore `InventorySlot` for the off hand.
+        SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
         SlotRef::Ender(i) => {
             if let Some(window) = &player.inventory.window
                 && window.id != 0
@@ -2431,11 +2439,11 @@ fn client_slot(inv: &Inventory, r: SlotRef) -> Option<(u32, u32)> {
         SlotRef::Armor(i) => (WINDOW_ID_ARMOUR, u32::from(i)),
         SlotRef::Offhand => (WINDOW_ID_OFF_HAND, 0),
         SlotRef::Cursor => (WINDOW_ID_UI, 0),
+        SlotRef::Ender(_) | SlotRef::Block(_) | SlotRef::Menu(_) => return None,
         SlotRef::Ui(i) => (
             WINDOW_ID_UI,
             u32::from(inv.window.as_ref()?.kind.ui_slot(i)?),
         ),
-        SlotRef::Ender(_) | SlotRef::Block(_) | SlotRef::Menu(_) => return None,
     })
 }
 

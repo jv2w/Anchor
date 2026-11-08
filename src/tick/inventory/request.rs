@@ -44,7 +44,7 @@ use crate::tick::{Phase, Player, SessionId, State, block_entity, survival};
 /// payment slots, besides its craft and take actions.
 pub(super) const MAX_ACTIONS: usize = 60;
 /// The most requests a player has handled per tick; more are refused.
-pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
+const MAX_REQUESTS_PER_TICK: u16 = 80;
 
 /// One request applied on a scratch copy of the slots it touches.
 pub(super) struct Exec<'a> {
@@ -264,6 +264,15 @@ impl<'a> Exec<'a> {
                 self.consumed.push(consumed);
                 Ok(())
             }
+            StackRequestAction::MineBlock(a) => {
+                // Durability is the server's; the slot is only named in the response.
+                let slot = u8::try_from(a.hotbar_slot)
+                    .ok()
+                    .filter(|s| *s < HOTBAR)
+                    .ok_or(Error::NoSlot)?;
+                self.touch(ContainerId::HotBar as u8, slot);
+                Ok(())
+            }
             StackRequestAction::CraftCreative(a) => {
                 if !self.creative {
                     return Err(Error::NotCreative);
@@ -281,15 +290,6 @@ impl<'a> Exec<'a> {
                 }))
             }
             StackRequestAction::CraftResultsDeprecated(_) => Ok(()),
-            StackRequestAction::MineBlock(a) => {
-                // Durability is the server's; the slot is only named in the response.
-                let slot = u8::try_from(a.hotbar_slot)
-                    .ok()
-                    .filter(|s| *s < HOTBAR)
-                    .ok_or(Error::NoSlot)?;
-                self.touch(ContainerId::HotBar as u8, slot);
-                Ok(())
-            }
             other => station::action(self, other),
         }
     }
@@ -327,7 +327,7 @@ impl<'a> Exec<'a> {
         Ok((Some(r), taken))
     }
 
-    /// `Swap`: exchanges two slots; their stacks keep their IDs.
+    /// Handles `Swap`: exchanges two slots; their stacks keep their IDs.
     fn swap(&mut self, a: &StackRequestSlotInfo, b: &StackRequestSlotInfo) -> Result<()> {
         let ra = self.resolve(a)?;
         let rb = self.resolve(b)?;
@@ -357,7 +357,7 @@ impl<'a> Exec<'a> {
         Ok(())
     }
 
-    /// `Take` and `Place`: moves `count` items.
+    /// Handles `Take` and `Place`: moves `count` items.
     fn transfer(&mut self, a: &TransferStackRequestAction) -> Result<()> {
         let count = a.count;
         if count == 0 {
@@ -544,7 +544,7 @@ impl Made {
 
 /// What a request does once every check passed.
 #[derive(Debug)]
-pub(super) struct Plan {
+struct Plan {
     writes: Vec<(SlotRef, Slot)>,
     /// The stacks of `writes`' slots before the request, when the plan describes its slots.
     before: Vec<Stack>,
@@ -684,7 +684,7 @@ impl Inventory {
     }
 }
 
-/// An item stack request, sent alone or inside `PlayerAuthInput`.
+/// Handles an item stack request, sent alone or inside `PlayerAuthInput`.
 pub(in crate::tick) fn on_item_stack_request(
     state: &mut State,
     session: SessionId,
@@ -804,8 +804,8 @@ fn run(
     Ok(())
 }
 
-/// Checks a request again on the game as the callbacks left it: refused unless it still does
-/// exactly what `plan` does, with `changed` if it checks but does otherwise.
+/// The plan of a request checked again on the game as the callbacks left it: refused unless it
+/// still does exactly what `plan` does, with `changed` if it checks but does otherwise.
 fn check_again(
     state: &State,
     session: SessionId,
@@ -822,7 +822,7 @@ fn check_again(
     }
 }
 
-/// Checks a request on the game as it is now; describes the plan as `describe` says.
+/// The plan of a request checked on the game as it is now, described as `describe` says.
 fn check(
     state: &State,
     session: SessionId,
@@ -1046,6 +1046,8 @@ fn response(
     touched: &[(u8, u8)],
 ) -> ItemStackResponse {
     let mut containers: Vec<StackResponseContainerInfo> = Vec::new();
+    // Where each container ID is in `containers`.
+    let mut index_of: BTreeMap<u8, usize> = BTreeMap::new();
     for &(container, slot) in touched {
         if container == ContainerId::CreatedOutput as u8 {
             continue;
@@ -1079,18 +1081,20 @@ fn response(
             filtered_custom_name: None,
             durability_correction: durability,
         };
-        match containers
-            .iter_mut()
-            .find(|c| c.container.container_id == container)
+        if let Some(c) = index_of
+            .get(&container)
+            .and_then(|&at| containers.get_mut(at))
         {
-            Some(c) => c.slot_info.push(info),
-            None => containers.push(StackResponseContainerInfo {
+            c.slot_info.push(info);
+        } else {
+            index_of.insert(container, containers.len());
+            containers.push(StackResponseContainerInfo {
                 container: FullContainerName {
                     container_id: container,
                     dynamic_container_id: None,
                 },
                 slot_info: vec![info],
-            }),
+            });
         }
     }
     ItemStackResponse {

@@ -7,20 +7,24 @@
 //! inventory). Every other craft action is refused.
 //!
 //! A trade puts the offer's sale into the created output; what it does outside the slots (a
-//! counted trade) is a [`Traded`] the commit applies ([`apply`]). What the checks need from
-//! outside the inventory (the trade offers) is read before the request runs ([`outside`]).
+//! counted trade) is a [`Traded`] the commit applies ([`apply`]). What the request needs from
+//! outside the inventory (the trade offers, the creative items) is read before it runs
+//! ([`outside`]).
+
+use std::collections::BTreeMap;
 
 use super::request::{Created, Error, Exec, Made, Result};
-use super::{SlotRef, WindowKind};
+use super::{SlotRef, TRADE_PAYMENT_A, TRADE_PAYMENT_B, WindowKind};
 use crate::item::Stack;
 use crate::protocol::{ItemStackRequest, StackRequestAction};
 use crate::tick::{SessionId, State, trade};
 
-/// What a request's trade window needs from outside the inventory.
+/// What a request needs from outside the inventory: the trade window's offers and the creative
+/// items.
 #[derive(Debug, Default)]
 pub(super) struct Outside {
     /// The trade offers the request's `CraftRecipe` and `CraftRecipeAuto` actions name.
-    offers: Vec<(u32, trade::Offer)>,
+    offers: BTreeMap<u32, trade::Offer>,
     /// The server's custom content: its creative items.
     pub(super) custom: std::sync::Arc<crate::custom::Registry>,
     /// The player's creative inventory, by its index in the custom content.
@@ -53,7 +57,7 @@ pub(super) struct Traded {
     times: u32,
 }
 
-/// What the trade window needs for `request` of `session`, read before the request runs.
+/// What `request` of `session` needs from outside the inventory, read before the request runs.
 /// The executor sees only the inventory.
 pub(super) fn outside(state: &State, session: SessionId, request: &ItemStackRequest) -> Outside {
     let Some(player) = state.players.get(&session) else {
@@ -75,7 +79,7 @@ pub(super) fn outside(state: &State, session: SessionId, request: &ItemStackRequ
             .filter_map(|id| Some((id, trade::offer(state, session, id)?)))
             .collect()
     } else {
-        Vec::new()
+        BTreeMap::new()
     };
     Outside {
         offers,
@@ -116,10 +120,10 @@ fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) 
     let offer = exec
         .outside
         .offers
-        .iter()
-        .find_map(|(id, o)| (*id == net_id).then(|| o.clone()))
+        .get(&net_id)
+        .cloned()
         .ok_or(Error::Offer)?;
-    // At most the offer's uses left, capped at 256 by trading; the action's count is a byte.
+    // At most the offer's uses left, capped at `trade::MAX_REPEAT`; the action's count is a byte.
     if times == 0
         || u32::from(times) > offer.max_times
         || offer.sell.is_empty()
@@ -167,15 +171,16 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
     let b = u32::from(offer.buy_b.count()) * times;
     let ok = match payments {
         Payments::Slots => {
-            has_consumed_only_from(exec, &[0, 1])
+            has_consumed_only_from(exec, &[TRADE_PAYMENT_A, TRADE_PAYMENT_B])
                 && is_exact(
                     exec,
-                    0,
+                    TRADE_PAYMENT_A,
                     u32::from(offer.buy_a.count()) * times,
                     pays(&offer.buy_a, offer.damage_a),
                 )
-                && (b == 0 || is_exact(exec, 1, b, pays(&offer.buy_b, offer.damage_b)))
-                && (b != 0 || taken_from(exec, 1, |_| true).0 == 0)
+                && (b == 0
+                    || is_exact(exec, TRADE_PAYMENT_B, b, pays(&offer.buy_b, offer.damage_b)))
+                && (b != 0 || taken_from(exec, TRADE_PAYMENT_B, |_| true).0 == 0)
         }
         Payments::Anywhere => is_paid_anywhere(exec, &offer, times),
     };
@@ -232,7 +237,10 @@ fn is_paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
     );
     let (mut only_a, mut only_b, mut either) = (0_u32, 0_u32, 0_u32);
     for (r, stack) in &exec.consumed {
-        if !matches!(r, Some(SlotRef::Ui(0 | 1) | SlotRef::Main(_))) {
+        if !matches!(
+            r,
+            Some(SlotRef::Main(_) | SlotRef::Ui(TRADE_PAYMENT_A | TRADE_PAYMENT_B))
+        ) {
             return false;
         }
         let count = u32::from(stack.count());
