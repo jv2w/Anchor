@@ -86,7 +86,7 @@ paths:
 - Write only a new folder. Never touch an existing one: write everything into `<folder>.tmp`, flush it, then rename it. On failure, remove the temporary folder.
 - Write block palettes and block entities as their stored NBT. Never upgrade or normalize them.
 - Leave out stored values that are not in Bedrock form (entities, spills) and count them in the report.
-- Refuse a data folder whose players or world file is later than its main file (`storage::check_settled`).
+- Refuse a world file later than its main file (`storage::check_settled`).
 - Make the same world file give the same bytes whatever the thread count.
 
 Background and details: `.claude/docs/storage.md`.
