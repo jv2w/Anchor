@@ -461,8 +461,8 @@ pub(in crate::tick) fn serve(
     let (inputs, input_queue) = input_queue(1);
     let (done, _done_rx) = oneshot::channel();
     let (crash, _crash_rx) = oneshot::channel();
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let (requests, request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+    let (responder, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
     let save_pool = Arc::clone(&pool);
     let thread = opened.thread;
     let save_thread = crate::runtime::spawn_save(move || {

@@ -1,4 +1,4 @@
-//! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
+//! Tick tests of custom content: a custom block placed, used and broken with its behavior hooks
 //! and drops, a villager's offers read, changed and checked as typed values, custom items kept
 //! through a save and a restart, a custom item that breaks nothing in creative mode, and a custom
 //! helmet worn by a click in the air.
@@ -7,16 +7,16 @@ use std::sync::Arc;
 
 use super::*;
 use crate::custom::tests::{HELMET, ORE, RUBY, SWORD};
-use crate::custom::{Behaviour, Block, ItemRef, Offer, Property, Registry};
+use crate::custom::{Behavior, Block, ItemRef, Offer, Property, Registry};
 use crate::item::Extra;
 use crate::save::{Request, Response};
 use crate::world;
 
-/// A custom block with a `lit` property that its behaviour toggles.
+/// A custom block with a `lit` property that its behavior toggles.
 static SWITCH: Block = Block::new("test:switch", "test_switch")
     .with_properties(&[Property::bool("lit")])
     .with_hardness(0.0)
-    .with_behaviour(&Switch);
+    .with_behavior(&Switch);
 
 /// The block above `pos`.
 fn above(pos: BlockPos) -> BlockPos {
@@ -27,7 +27,7 @@ fn above(pos: BlockPos) -> BlockPos {
 /// dirt when broken. Placed, it notes the placer's held count; broken, the world's entities.
 struct Switch;
 
-impl Behaviour for Switch {
+impl Behavior for Switch {
     fn on_use(
         &self,
         cx: &mut Context<'_>,
@@ -161,10 +161,10 @@ fn a_creative_player_breaks_nothing_with_an_item_made_so() {
     }
 }
 
-/// A custom block is placed, used and broken through its behaviour, whose hooks run once their
+/// A custom block is placed, used and broken through its behavior, whose hooks run once their
 /// action is applied: `on_place` after the item was used, `on_break` after the drop fell.
 #[test]
-fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
+fn a_custom_block_is_placed_used_and_broken_through_its_behavior() {
     let (mut h, r) = harness();
     let item = r
         .resolve(crate::custom::ItemRef::CustomBlock(&SWITCH))
@@ -403,8 +403,8 @@ impl Disk {
             return Vec::new();
         }
         let opened = crate::save::open(&self.0.0, Self::specs()).unwrap();
-        let (tx, rx) = tokio::sync::mpsc::channel(crate::save::REQUEST_CAPACITY);
-        let (answer, mut answers) = tokio::sync::mpsc::channel(crate::save::RESPONSE_CAPACITY);
+        let (tx, rx) = tokio::sync::mpsc::channel(crate::save::MAX_REQUESTS);
+        let (answer, mut answers) = tokio::sync::mpsc::channel(crate::save::MAX_RESPONSES);
         let mut thread = opened.thread;
         thread.set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
         let handle = crate::runtime::spawn_save(move || {

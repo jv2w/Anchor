@@ -64,7 +64,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`action::Error::Full`] while 4,096 callbacks wait; nothing is queued.
+    /// [`action::Error::Full`] for a call while 4,096 callbacks wait; nothing is queued.
     pub fn defer(
         &mut self,
         callback: impl FnOnce(&mut Context<'_>) + Send + 'static,
@@ -84,7 +84,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`action::Error::Full`] while 4,096 callbacks wait; nothing is queued.
+    /// [`action::Error::Full`] for a call while 4,096 callbacks wait; nothing is queued.
     pub fn perform(&mut self, action: impl Action) -> action::Result<()> {
         self.defer(move |cx| action::Sealed::perform(action, cx))
     }

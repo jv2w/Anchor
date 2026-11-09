@@ -61,7 +61,7 @@ impl Decoder {
     /// Replaces the contents of `out` with the inflated `input`.
     ///
     /// The buffer grows only up to `limit + 1` bytes; a stream that needs more is a size error.
-    /// Input left after the final block is ignored (`network.md`).
+    /// Input left after the final block is ignored (`.claude/docs/network.md`).
     pub(crate) fn decompress(
         &mut self,
         input: &[u8],

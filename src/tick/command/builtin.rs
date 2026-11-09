@@ -249,7 +249,7 @@ fn player_name(cx: &Context<'_>, id: player::Id) -> String {
     name_of(cx, Sender::Player(id))
 }
 
-/// Finds the sender's name ([`Context::sender_name`]); empty for a player who has left.
+/// The sender's name ([`Context::sender_name`]); empty for a player who has left.
 fn name_of(cx: &Context<'_>, sender: Sender) -> String {
     cx.sender_name(sender).unwrap_or_default().to_owned()
 }
@@ -321,7 +321,7 @@ fn require(cx: &Context<'_>, sender: Sender, permission: Permission, command: &s
     }
 }
 
-/// Returns `value` if it is from `min` to `max`, otherwise fails naming the bound it passes.
+/// `value` if it is from `min` to `max`, otherwise an error naming the bound it passes.
 fn bounded(value: i32, min: i32, max: i32) -> Result<i32> {
     if value > max {
         return Err(NUM_TOO_BIG.error(&[&value.to_string(), &max.to_string()]));

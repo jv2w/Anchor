@@ -55,7 +55,8 @@ impl<F: Flag> FlagSet<F> {
     ///
     /// # Errors
     ///
-    /// [`Error::UnknownEnum`] like [`Self::from_words`].
+    /// [`Error::UnknownEnum`] (the value is the bit position) for a set bit that is no flag of the
+    /// group.
     pub fn from_bitset(bitset: &Bitset) -> Result<Self> {
         let mut set = Self::new();
         for i in (0..bitset.len()).filter(|&i| bitset.get(i)) {

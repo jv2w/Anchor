@@ -45,19 +45,19 @@ pub(crate) const LEVELS: usize = 7;
 /// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
 const MASK_DELTA: u32 = 0xa282_ead8;
 /// The longest `CURRENT` file, in bytes.
-const MAX_CURRENT: u64 = 256;
+const MAX_CURRENT_BYTES: u64 = 256;
 /// The most files a database folder may hold.
 const MAX_FILES: usize = 65_536;
 /// Decompressed blocks one scan may hold at once.
-const MAX_HELD: usize = 256 << 20;
+const MAX_HELD_BYTES: usize = 256 << 20;
 /// The longest user key.
-const MAX_KEY: usize = 1024;
+const MAX_KEY_BYTES: usize = 1024;
 /// The most bytes of the live logs together.
 const MAX_LOG_BYTES: u64 = 64 << 20;
 /// The most distinct keys the live logs may hold together.
 const MAX_LOG_KEYS: usize = 1 << 20;
 /// The most bytes of the `MANIFEST` file.
-const MAX_MANIFEST: u64 = 64 << 20;
+const MAX_MANIFEST_BYTES: u64 = 64 << 20;
 /// The largest sequence number: 56 bits.
 const MAX_SEQUENCE: u64 = (1 << 56) - 1;
 /// The sequence and kind after the user key in an internal key.
@@ -98,9 +98,9 @@ impl Db {
     /// Opens the database in `files`.
     pub(crate) fn from_files(files: Files) -> Result<Self> {
         let listing = files.list()?;
-        let current = files.read("CURRENT", MAX_CURRENT)?;
+        let current = files.read("CURRENT", MAX_CURRENT_BYTES)?;
         let manifest = parse_current(&current).map_err(|e| files.fault("CURRENT", e))?;
-        let edits = files.read(manifest, MAX_MANIFEST)?;
+        let edits = files.read(manifest, MAX_MANIFEST_BYTES)?;
         let version = replay(&edits).map_err(|e| files.fault(manifest, e))?;
         let manifest = manifest.to_owned();
         let in_manifest = |e| files.fault(&manifest, e);
@@ -747,10 +747,10 @@ fn apply(version: &mut Version, record: &[u8]) -> Result<()> {
     };
     let internal = |bytes: &mut Bytes<'_>| -> Result<Vec<u8>> {
         let key = bytes.prefixed()?;
-        if key.len() > MAX_KEY + TAG {
+        if key.len() > MAX_KEY_BYTES + TAG {
             return Err(Error::TooLarge {
                 what: "bytes in a user key",
-                limit: MAX_KEY as u64,
+                limit: MAX_KEY_BYTES as u64,
             });
         }
         table::check_internal(key)?;
@@ -839,12 +839,12 @@ fn read_logs(files: &Files, logs: &[(u64, String, u64)]) -> Result<Vec<Logged>> 
         .collect())
 }
 
-/// Fails once a scan holds more than [`MAX_HELD`] bytes of blocks.
+/// Fails once a scan holds more than [`MAX_HELD_BYTES`] bytes of blocks.
 fn check_held(held: usize) -> Result<()> {
-    if held > MAX_HELD {
+    if held > MAX_HELD_BYTES {
         return Err(Error::TooLarge {
             what: "bytes of blocks held by one scan",
-            limit: MAX_HELD as u64,
+            limit: MAX_HELD_BYTES as u64,
         });
     }
     Ok(())

@@ -173,8 +173,8 @@ fn crash(dir: &Path, plan: Plan) -> (PathBuf, Hashes) {
     let (_stop_tx, stop) = mpsc::channel(1);
     let (done, _done_rx) = oneshot::channel();
     let (crashed, mut crash_log) = oneshot::channel();
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let (requests, request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+    let (responder, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
     let save_pool = Arc::clone(&pool);
     let thread = opened.thread;
     let save_thread = crate::runtime::spawn_save(move || {
@@ -470,8 +470,8 @@ fn held_commit(dir: &Path, plan: Plan, ticks: u64, held: u64) -> (PathBuf, Hashe
     let opened = crate::save::open(dir, specs()).unwrap();
     let pool = crate::runtime::cpu_pool(2).unwrap();
     let save_pool = Arc::new(crate::runtime::cpu_pool(1).unwrap());
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, mut responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let (requests, request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+    let (responder, mut responses) = mpsc::channel(crate::save::MAX_RESPONSES);
     let thread = opened.thread;
     let worker = Arc::clone(&save_pool);
     let save_thread = crate::runtime::spawn_save(move || {
@@ -765,8 +765,8 @@ fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
     let opened = crate::save::open(dir, specs()).unwrap();
     let pool = crate::runtime::cpu_pool(2).unwrap();
     let save_pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-    let (responder, mut responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let (requests, request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+    let (responder, mut responses) = mpsc::channel(crate::save::MAX_RESPONSES);
     let thread = opened.thread;
     let worker = Arc::clone(&save_pool);
     let save_thread = crate::runtime::spawn_save(move || {

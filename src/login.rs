@@ -26,7 +26,7 @@ use crate::protocol::{self, ConnectionRequest, Uuid};
 /// The `AuthenticationType` of a guest login.
 const GUEST_AUTHENTICATION: u8 = 1;
 /// The clock skew allowed on `exp`, `nbf` and `iat`, in seconds (go-jose's default).
-const LEEWAY_SECONDS: i64 = 60;
+const LEEWAY_SECS: i64 = 60;
 /// The most audience entries read from a token.
 const MAX_AUDIENCES: usize = 16;
 /// The largest chain JSON (certificate chain and token), in bytes.
@@ -36,7 +36,7 @@ const MAX_CHAIN_JSON_BYTES: usize = 64 * 1024;
 /// The most chain links read.
 const MAX_CHAIN_LINKS: usize = 8;
 /// The largest magnitude of a fractional time claim, in seconds, which a float holds exactly.
-const MAX_TIME_SECONDS: f64 = 9.0e15;
+const MAX_TIME_SECS: f64 = 9.0e15;
 /// The largest decoded payload of an identity JWT (the token or a chain link), in bytes.
 /// Real ones are about 2 KiB.
 pub(crate) const MAX_TOKEN_PAYLOAD_BYTES: usize = 16 * 1024;
@@ -220,7 +220,7 @@ impl<'de> Deserialize<'de> for NumericDate {
 
             fn visit_f64<E: de::Error>(self, v: f64) -> Result<NumericDate, E> {
                 // Truncation toward zero is the intent; the range check rejects NaN and infinity.
-                if (-MAX_TIME_SECONDS..=MAX_TIME_SECONDS).contains(&v) {
+                if (-MAX_TIME_SECS..=MAX_TIME_SECS).contains(&v) {
                     #[expect(
                         clippy::cast_possible_truncation,
                         reason = "consistency: go-jose truncates fractional times the same way"
@@ -507,7 +507,7 @@ fn legacy_chain(chain: &[String], now: i64) -> Result<(Identity, PublicKey)> {
 }
 
 /// Checks `exp`, `nbf` and `iat` against `now`.
-/// It allows [`LEEWAY_SECONDS`] of skew (go-jose `ValidateWithLeeway`).
+/// It allows [`LEEWAY_SECS`] of skew (go-jose `ValidateWithLeeway`).
 pub(crate) fn check_times(
     exp: Option<NumericDate>,
     nbf: Option<NumericDate>,
@@ -515,17 +515,17 @@ pub(crate) fn check_times(
     now: i64,
 ) -> Result<()> {
     if let Some(NumericDate(nbf)) = nbf
-        && now.saturating_add(LEEWAY_SECONDS) < nbf
+        && now.saturating_add(LEEWAY_SECS) < nbf
     {
         return Err(Error::NotYetValid);
     }
     if let Some(NumericDate(exp)) = exp
-        && now.saturating_sub(LEEWAY_SECONDS) > exp
+        && now.saturating_sub(LEEWAY_SECS) > exp
     {
         return Err(Error::Expired);
     }
     if let Some(NumericDate(iat)) = iat
-        && now.saturating_add(LEEWAY_SECONDS) < iat
+        && now.saturating_add(LEEWAY_SECS) < iat
     {
         return Err(Error::IssuedInFuture);
     }

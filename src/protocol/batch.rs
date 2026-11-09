@@ -246,7 +246,7 @@ impl fmt::Debug for Decoder {
 /// and the target sub-client in bits 12 and 13. Sub-clients are split-screen players on one
 /// connection. Anchor writes the packet's ID and sub-client 0.
 ///
-/// Reading ignores bits above 13 (`protocol.md`).
+/// Reading ignores bits above 13 (`.claude/docs/protocol.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Header {
     /// The packet ID, at most 1023.
@@ -454,8 +454,9 @@ fn decode_into(payload: &[u8], settings: &Settings, out: &mut Vec<(Header, Packe
 ///
 /// # Errors
 ///
-/// [`Error::Packet`] for a length or header that does not end, an empty packet, and, as
-/// [`protocol::Error::Size`], a length over the bytes left or more than `MAX_PACKETS` packets.
+/// [`Error::Packet`] for a length or header that does not end, an empty packet, a length over
+/// the bytes left or more than `MAX_PACKETS` packets (the last two with the cause
+/// [`protocol::Error::Size`]).
 pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
     let mut packets = Packets {
         rest: payload,

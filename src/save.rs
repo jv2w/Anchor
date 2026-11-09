@@ -57,10 +57,10 @@ use crate::world::{
 
 /// Requests the save thread's queue holds. The tick sends at most one load batch per tick and
 /// one snapshot at a time, so it fills only if the thread falls far behind.
-pub(crate) const REQUEST_CAPACITY: usize = 64;
+pub(crate) const MAX_REQUESTS: usize = 64;
 /// Answers the tick's queue holds: every chunk load in flight and the player loads and commit
 /// answers on top, so the save thread never waits on a full queue in normal running.
-pub(crate) const RESPONSE_CAPACITY: usize = 2048;
+pub(crate) const MAX_RESPONSES: usize = 2048;
 
 /// A world of the server: its place in the tick's world list ([`list_index`]; the default world is
 /// 0) plus [`MAX_WORLDS`] for each world that held the place before it this run, so a world that
@@ -1854,7 +1854,7 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
         Ok(None) => PlayerLoad::Absent,
         Err(e) => {
             error!(
-                player = key.as_str(),
+                key = key.as_str(),
                 error = &e as &(dyn std::error::Error + 'static),
                 "player data unreadable; the join is refused and the record kept as saved, until \
                  the stopped server deletes it with `Server::delete_player_data`"
@@ -2693,8 +2693,8 @@ pub(crate) mod tests {
     ) -> (Vec<Response>, u64, Result<(), storage::Error>) {
         let opened = open(&dir.0, specs()).unwrap();
         let tick = opened.tick;
-        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-        let (answer, mut answers) = mpsc::channel(RESPONSE_CAPACITY);
+        let (tx, rx) = mpsc::channel(MAX_REQUESTS);
+        let (answer, mut answers) = mpsc::channel(MAX_RESPONSES);
         for request in requests {
             tx.blocking_send(request).unwrap();
         }
@@ -3436,8 +3436,8 @@ pub(crate) mod tests {
         let dir = TempDir::new("check");
         let pos = ChunkPos::new(2, 2);
         let opened = open(&dir.0, specs()).unwrap();
-        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-        let (answer, mut answers) = mpsc::channel(RESPONSE_CAPACITY);
+        let (tx, rx) = mpsc::channel(MAX_REQUESTS);
+        let (answer, mut answers) = mpsc::channel(MAX_RESPONSES);
         let thread = opened.thread;
         let handle = crate::runtime::spawn_save(move || {
             let pool = crate::runtime::cpu_pool(2).unwrap();
@@ -4401,8 +4401,8 @@ pub(crate) mod tests {
         let dir = TempDir::new("snapshot-world-unopened");
         let thread = open(&dir.0, specs()).unwrap().thread;
         std::fs::write(Place::world(&dir.0, "lobby").file, b"not a redb file").unwrap();
-        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-        let (answer, mut answers) = mpsc::channel(RESPONSE_CAPACITY);
+        let (tx, rx) = mpsc::channel(MAX_REQUESTS);
+        let (answer, mut answers) = mpsc::channel(MAX_RESPONSES);
         tx.blocking_send(Request::Commit(Box::new(Snapshot {
             start: 5,
             new_worlds: vec![NewWorld {
@@ -4785,8 +4785,8 @@ pub(crate) mod tests {
         for i in 1..MAX_WORLDS {
             std::fs::write(worlds.join(format!("w{i:04}.{}", storage::EXTENSION)), b"").unwrap();
         }
-        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-        let (answer, _answers) = mpsc::channel(RESPONSE_CAPACITY);
+        let (tx, rx) = mpsc::channel(MAX_REQUESTS);
+        let (answer, _answers) = mpsc::channel(MAX_RESPONSES);
         tx.try_send(Request::Worlds(vec![NewWorld {
             index: 2,
             name: "extra".to_owned(),
@@ -4898,8 +4898,8 @@ pub(crate) mod tests {
             }])
         };
         let serve_lobby = |requests: Vec<Request>| {
-            let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
-            let (answer, _answers) = mpsc::channel(RESPONSE_CAPACITY);
+            let (tx, rx) = mpsc::channel(MAX_REQUESTS);
+            let (answer, _answers) = mpsc::channel(MAX_RESPONSES);
             for request in requests {
                 tx.try_send(request).unwrap();
             }

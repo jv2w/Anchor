@@ -102,15 +102,14 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use tracing::{debug, warn};
 
+use super::checkpoint::{self, Codec};
 use super::interact::breaking::damage as worn;
 use super::interact::drops::level as level_of;
 use super::interact::level_event;
 use super::survival::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::view::{Key, View, chunk_of};
 use super::world_api::Worlds;
-use super::{
-    Phase, Player, SessionId, State, block_entity, checkpoint, dispatch, inventory, survival,
-};
+use super::{Phase, Player, SessionId, State, block_entity, dispatch, inventory, survival};
 use crate::block::{self, Class};
 use crate::config::GameMode;
 use crate::entity::Id;
@@ -198,6 +197,8 @@ const MAX_REMOVALS_PER_TICK: usize = 512;
 /// takes; the rest wait (a view entering a chunk full of items, or a crowd teleported together,
 /// fills in over ticks instead of overflowing the outbox).
 const MAX_SPAWNS_PER_PLAYER: u32 = 512;
+/// The highest roll of a zombie's chance at a rare drop; rolls run from 0.
+const MAX_ZOMBIE_RARE_DROP_ROLL: i32 = 199;
 /// Ticks between an item's merge checks.
 const MERGE_CHECK_PERIOD_TICKS: i32 = 2;
 /// How far around an item's box it looks for stacks to merge with.
@@ -206,7 +207,7 @@ const MERGE_REACH: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 const MOTION_CHANGE_SQUARED: f64 = 0.0025;
 /// Ticks between an orb's searches for a player.
 const ORB_LOOK_PERIOD_TICKS: u8 = 20;
-/// The motion an orb gains per tick towards the player it follows, at the player's side.
+/// The motion an orb gains per tick toward the player it follows, at the player's side.
 const ORB_PULL_STRENGTH: f64 = 0.2;
 /// The orb sizes a drop of xp splits into, largest first.
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
@@ -231,8 +232,6 @@ const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 pub(super) const VOID_DAMAGE: f64 = 10.0;
 /// At or below this feet height the void hurts: 16 under the lowest block.
 pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
-/// The highest roll of a zombie's chance at a rare drop; rolls run from 0.
-const ZOMBIE_RARE_DROP_MAX_ROLL: i32 = 199;
 /// The rolls that win a zombie a rare drop: the lowest ones (5 of 200).
 const ZOMBIE_RARE_DROP_WINNING_ROLLS: i32 = 5;
 /// The xp a zombie drops.
@@ -1012,7 +1011,6 @@ impl Entities {
     /// Writes every field but the custom types and the xp setting, which are fixed at
     /// start.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
         let Self {
             slots,
             free,
@@ -1318,7 +1316,6 @@ impl Entities {
         &mut self,
         r: &mut super::checkpoint::Reader<'_>,
     ) -> super::checkpoint::Result<()> {
-        use super::checkpoint::Codec;
         *self = Self {
             slots: Codec::decode(r)?,
             free: Codec::decode(r)?,
@@ -2490,7 +2487,7 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
         Stack::new(kind.default_type(), u8::try_from(count).unwrap_or(0))
     };
     let mut drops = vec![one(crate::item::Kind::RottenFlesh, r.range(0, 2))];
-    if r.range(0, ZOMBIE_RARE_DROP_MAX_ROLL) < ZOMBIE_RARE_DROP_WINNING_ROLLS {
+    if r.range(0, MAX_ZOMBIE_RARE_DROP_ROLL) < ZOMBIE_RARE_DROP_WINNING_ROLLS {
         let rare = [
             crate::item::Kind::IronIngot,
             crate::item::Kind::Carrot,
@@ -3298,9 +3295,9 @@ pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: 
     )
 }
 
-/// [`drop_item`] with a given motion (`None`: a random one), pickup delay in ticks and thrower
-/// (the name of the player who throws it, saved with it; empty for none), for items a player
-/// throws (its look direction × 0.4, delay 40).
+/// Drops `stack` as [`drop_item`] does, with a given motion (`None`: a random one), pickup delay
+/// in ticks and thrower (the name of the player who throws it, saved with it; empty for none),
+/// for items a player throws (its look direction × 0.4, delay 40).
 pub(super) fn drop_item_with(
     state: &mut State,
     world: WorldIndex,
@@ -3323,7 +3320,7 @@ pub(super) fn drop_item_with(
         .is_some()
 }
 
-/// [`drop_item_with`] for a stack that is not empty, giving the new entity.
+/// Drops a stack that is not empty as [`drop_item_with`] does, giving the new entity.
 fn drop_stack(
     state: &mut State,
     world: WorldIndex,
@@ -3371,7 +3368,7 @@ pub(super) fn drop_xp(state: &mut State, world: WorldIndex, pos: Vec3, amount: u
     drop_orbs(state, world, pos, amount);
 }
 
-/// [`drop_xp`], returning the points dropped (fewer at the world's entity limit).
+/// Drops xp as [`drop_xp`] does, returning the points dropped (fewer at the world's entity limit).
 pub(super) fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u32 {
     if !state.settings.has_orbs() {
         return 0;

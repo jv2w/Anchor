@@ -10,7 +10,7 @@
 //! side does not send is air), must have the same network ID.
 //!
 //! Anchor keeps a block the dump does not have as an unknown block. It sends the stored state when
-//! the client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
+//! the client knows it (an inert block, with no server behavior) and `info_update` otherwise: a
 //! block the official server sends where Anchor sends `info_update`, or a different state where
 //! Anchor sends the stored one (the official server updates some blocks after loading), is an
 //! intended difference when its name is listed in `xtask/data/p6/intended.txt` as
@@ -264,7 +264,7 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
             continue;
         }
         let fields = field(&value, "fields");
-        let centre = field(fields, "Position");
+        let center = field(fields, "Position");
         for entry in field(fields, "SubChunkEntries")
             .as_array()
             .into_iter()
@@ -282,7 +282,7 @@ fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
             let mut position = [0_i64; 3];
             for (k, slot) in position.iter_mut().enumerate() {
                 let (Some(c), Some(o)) = (
-                    centre.get(k).and_then(Value::as_i64),
+                    center.get(k).and_then(Value::as_i64),
                     offset.get(k).and_then(Value::as_i64),
                 ) else {
                     return Err(at("a position is not numbers"));
@@ -504,7 +504,7 @@ fn compare(
 
 /// Why the difference between the official server's layers `a` and Anchor's `b` at one block is
 /// intended, if it is: Anchor sends a block of an intended name as it was stored, with no server
-/// behaviour, and the official server may have changed it after loading the world (a bubble
+/// behavior, and the official server may have changed it after loading the world (a bubble
 /// column over no soul sand turns to water, a trial spawner wakes up); or Anchor sends `unknown`
 /// (`info_update`) for a block whose name is intended, or for a waterlogged block the official
 /// server sends as its water.
@@ -538,7 +538,7 @@ mod tests {
     /// A version 8 payload with one layer of a single block, network ID 2.
     const STONE_PAYLOAD: &str = r#""CAEBBA==""#;
 
-    /// A `SubChunk` packet line holding one entry at the centre.
+    /// A `SubChunk` packet line holding one entry at the center.
     fn world_line(result: u8, payload: &str) -> String {
         format!(
             r#"{{"name":"SubChunk","fields":{{"Position":[0,0,0],"SubChunkEntries":[{{"Offset":[0,0,0],"Result":{result},"RawPayload":{payload}}}]}}}}"#

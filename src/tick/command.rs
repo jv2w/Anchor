@@ -48,7 +48,7 @@ use access::Access;
 
 /// The client's `[sender: message]` text of a copy of a command result for operators.
 const ADMIN_KEY: &str = "chat.type.admin";
-/// The prefix of a copy of a command result for operators: grey italics, as the client shows
+/// The prefix of a copy of a command result for operators: gray italics, as the client shows
 /// its own `chat.type.admin` lines.
 const ADMIN_PREFIX: &str = "§7§o";
 /// What the console is called in messages.
@@ -494,7 +494,7 @@ impl Refusal {
     /// The last packet the refused session gets: [`queue::server_full`] for a full server,
     /// otherwise a `Disconnect` with the reason `NotAllowed`. A whitelist refusal carries no
     /// message, so the client shows its own text for that reason; whether the client translates
-    /// a key sent as the message is unconfirmed (`network.md`).
+    /// a key sent as the message is unconfirmed (`.claude/docs/network.md`).
     pub(crate) fn packet(&self) -> Packet {
         let message = match self {
             Self::Full => return queue::server_full(),
@@ -814,7 +814,7 @@ impl Context<'_> {
 
     /// Shows what `sender`'s command did, `message`, to every other online player with
     /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as the client's `[sender: message]`
-    /// (`chat.type.admin`) in grey italics, and logs it when a player sent the command (the
+    /// (`chat.type.admin`) in gray italics, and logs it when a player sent the command (the
     /// console logs its own results). The sender itself sees what its handler returns. Nothing
     /// during a [`Self::run_command`].
     ///
@@ -893,7 +893,7 @@ impl Context<'_> {
     /// [`Error::TooLong`] for a line over 2,048 bytes or 512 characters.
     /// [`Error::UnclosedQuote`] for a quote that is not closed.
     /// [`Error::Unknown`] for a line without a command name or with one no command has.
-    /// [`Error::Permission`] if `sender` lacks the command's permission.
+    /// [`Error::Permission`] for a `sender` that lacks the command's permission.
     /// [`Error::Syntax`] for a line that fits none of the command's overloads.
     /// [`Error::PlayerNotFound`] for a player name no online player has.
     /// [`Error::NoTargets`] for a target selector that matched nobody playing.
@@ -998,8 +998,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
-    /// in one tick; nothing is changed.
+    /// [`task::Error::NetworkBusy`](crate::task::Error::NetworkBusy)
+    /// for more than 256 network changes in one tick; nothing is changed.
     pub fn set_default_game_mode(&mut self, mode: GameMode) -> crate::task::Result<()> {
         if !self.state.network.control(queue::Control::GameMode(mode)) {
             return Err(crate::task::Error::NetworkBusy);
@@ -1015,8 +1015,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Hardcore`](crate::world::Error::Hardcore) for another difficulty on a hardcore
-    /// server, changing nothing.
+    /// [`world::Error::Hardcore`](crate::world::Error::Hardcore) for another difficulty on a
+    /// hardcore server; nothing is changed.
     pub fn set_difficulty(&mut self, difficulty: Difficulty) -> crate::world::Result<()> {
         if self.state.settings.hardcore && difficulty != Difficulty::Hard {
             return Err(crate::world::Error::Hardcore);

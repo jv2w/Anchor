@@ -35,7 +35,7 @@ pub(super) struct Manifest {
     /// Module types: `resources`.
     pub(super) textures: bool,
     /// Module types: `data` or `client_data`.
-    pub(super) behaviours: bool,
+    pub(super) behaviors: bool,
     /// Module types: `client_data`.
     pub(super) scripts: bool,
     /// The archive holds a `level.dat`.
@@ -161,7 +161,7 @@ fn parse(bytes: &[u8]) -> Result<Manifest> {
         uuid,
         version,
         textures: has(&["resources"]),
-        behaviours: has(&["data", "client_data"]),
+        behaviors: has(&["data", "client_data"]),
         scripts: has(&["client_data"]),
         world_template: false,
     })
@@ -278,7 +278,7 @@ mod tests {
         assert_eq!(m.name, "Test");
         assert_eq!(m.version, "1.2.3");
         assert_eq!(m.uuid, UUID.parse().unwrap());
-        assert!(m.textures && !m.behaviours && !m.scripts);
+        assert!(m.textures && !m.behaviors && !m.scripts);
     }
 
     #[test]
@@ -326,13 +326,13 @@ mod tests {
     }
 
     #[test]
-    fn module_types_decide_behaviours_and_scripts() {
+    fn module_types_decide_behaviors_and_scripts() {
         let data = r#"{"type": "data", "uuid": "x", "version": [1, 0, 0]}"#;
         let client = r#"{"type": "client_data", "uuid": "y", "version": "1.0.0"}"#;
         let m = manifest(&sample("[1, 0, 0]", &format!("{RESOURCES}, {data}"))).unwrap();
-        assert!(m.textures && m.behaviours && !m.scripts);
+        assert!(m.textures && m.behaviors && !m.scripts);
         let m = manifest(&sample("[1, 0, 0]", client)).unwrap();
-        assert!(!m.textures && m.behaviours && m.scripts);
+        assert!(!m.textures && m.behaviors && m.scripts);
     }
 
     #[test]

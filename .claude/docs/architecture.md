@@ -174,7 +174,7 @@ Phases:
 | UI | Forms, menus (fake containers), scoreboards, boss bars, titles, fake blocks |
 | Scheduling and blocking work | `cx.schedule`, `schedule_repeating`, `ServerBuilder::every`, cancel handles, `cx.spawn_blocking(work, done)` (the result goes into the log as JSON through serde) |
 | User data | Per-player Extensions that are not saved (keyed by type, at most 64 types), `ServerBuilder::player_data` and `server_data` (serde types, in the same commit; an item as its `nbt::Compound`, which serde writes losslessly), the inventory and data of a player who is not online through `cx.hold_offline_player(xuid, name, done)` (64 tickets, `storage.md`) |
-| Custom content | `custom_item`, `custom_block` (behaviour trait `custom::Behaviour`), `custom_entity` (`entity::Behaviour`), `creative_inventory`. The engine fills the StartGame properties, ItemRegistry, entity identifiers, and block hash IDs. Textures come from resource packs |
+| Custom content | `custom_item`, `custom_block` (behavior trait `custom::Behavior`), `custom_entity` (`entity::Behavior`), `creative_inventory`. The engine fills the StartGame properties, ItemRegistry, entity identifiers, and block hash IDs. Textures come from resource packs |
 | Resource packs | `ServerBuilder::resource_pack`, the setting `resource-packs` |
 | World generation | The `Generator` trait, `ServerBuilder::generator` (registered by name; `flat` and `void` are built in) |
 | Settings | `anchor.toml` and `Config` in code (`config.md`) |
@@ -186,7 +186,7 @@ Phases:
 
 ## API table
 
-- The rows are the public, non-`@internal` API of the dump source commit pinned in the source table of `data.md`; rows out of scope stay as `skipped` with their reason. `xtask/php/api.php` reflects it into `xtask/data/dump/api.json` (the class-likes and the public methods each declares).
+- The rows are the public, non-`@internal` API of the dump source commit pinned in the sources table of `data.md`; rows out of scope stay as `skipped` with their reason. `xtask/php/api.php` reflects it into `xtask/data/dump/api.json` (the class-likes and the public methods each declares).
 - `xtask/data/dump/status.txt` gives a status to the rows whose status an alias in code does not decide; its header defines the line format, the patterns, and the statuses.
 - `cargo xtask table [--check]` writes `xtask/data/dump/table.md` (each row's FQN, status, location `file:line`, tests, reason). `verify` checks that it is current and has no blank row. The row counts per status are at the head of `table.md`.
 - Defects of the API table's source fixed instead of carried over (main ones): global singletons, a mutable shared `Vector3`, getters that copy and NBT serialized again, string keys, an object allocated per event, AsyncTask serialization, raw packet events, hidden O(n) lookups, re-entrant dispatch, a MONITOR priority enforced only by comments, no second check of the state listeners changed, the wall clock and global randomness in game logic, non-atomic saves, IDs that change with load order, light updates (no bound, no spreading across chunk borders), an unload that leaves no default world.

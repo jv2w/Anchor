@@ -284,7 +284,7 @@ fn stack(kind: item::Kind, count: u8) -> Stack {
 fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
         debug!(
-            error = &error as &(dyn Error + 'static),
+            error = &error as &(dyn std::error::Error + 'static),
             "skipped for one player"
         );
     }

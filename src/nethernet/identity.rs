@@ -23,7 +23,7 @@ const MAX_KEY_FILE_BYTES: u64 = 4096;
 /// The identity provider domain the official server names for its own key.
 const SERVER_DOMAIN: &str = "self";
 /// The lifetime of the server identity JWT, in seconds (`exp = iat + 60`).
-const TOKEN_LIFETIME_SECONDS: i64 = 60;
+const TOKEN_LIFETIME_SECS: i64 = 60;
 
 /// An identity failure: the key file at start, or an offer's assertion (signaling code 37).
 #[derive(Debug)]
@@ -129,7 +129,7 @@ impl ServerIdentity {
     /// end in a line feed, as the official server writes them.
     pub(super) fn assertion(&self, answer_fingerprint: &str, now_unix: i64) -> Result<String> {
         let signed = fingerprint_payload(sdp::FINGERPRINT_ALGORITHM, answer_fingerprint);
-        let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECONDS);
+        let exp = now_unix.saturating_add(TOKEN_LIFETIME_SECS);
         let claims = format!(
             "{{\"cpk\":{},\"exp\":{exp},\"iat\":{now_unix}}}\n",
             self.cpk

@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 
-use super::{Bytes, Files, MAX_KEY, TAG, compare, masked_crc};
+use super::{Bytes, Files, MAX_KEY_BYTES, TAG, compare, masked_crc};
 use crate::import::{Error, Result};
 use crate::protocol::compression::zlib::{Decoder, Framing};
 use crate::protocol::compression::{Compression, Decompressor};
@@ -41,9 +41,9 @@ pub(crate) const FOOTER_BYTES: usize = 48;
 /// The number that ends every table's footer.
 pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
 /// The largest block, stored or decompressed, which bounds the memory one block read takes.
-pub(super) const MAX_BLOCK: usize = 16 << 20;
+pub(super) const MAX_BLOCK_BYTES: usize = 16 << 20;
 /// The longest internal key: a user key and its tag.
-const MAX_INTERNAL_KEY: usize = MAX_KEY + TAG;
+const MAX_INTERNAL_KEY_BYTES: usize = MAX_KEY_BYTES + TAG;
 /// Table files kept open between reads.
 pub(super) const MAX_OPEN: usize = 64;
 /// The compression byte and checksum after each block.
@@ -194,13 +194,13 @@ impl Tables {
         }
         let size = usize::try_from(handle.size)
             .ok()
-            .filter(|&size| size <= MAX_BLOCK)
+            .filter(|&size| size <= MAX_BLOCK_BYTES)
             .ok_or_else(|| {
                 self.fault(
                     file,
                     Error::TooLarge {
                         what: "bytes in a block",
-                        limit: MAX_BLOCK as u64,
+                        limit: MAX_BLOCK_BYTES as u64,
                     },
                 )
             })?;
@@ -430,10 +430,10 @@ impl Block {
         let prefix = previous.get(..shared).ok_or(Error::Malformed(
             "block key shares more than the previous key",
         ))?;
-        if shared.saturating_add(unshared) > MAX_INTERNAL_KEY {
+        if shared.saturating_add(unshared) > MAX_INTERNAL_KEY_BYTES {
             return Err(Error::TooLarge {
                 what: "bytes in a user key",
-                limit: MAX_KEY as u64,
+                limit: MAX_KEY_BYTES as u64,
             });
         }
         let delta = bytes.take(unshared)?;
@@ -520,11 +520,13 @@ fn unseal(raw: &[u8], inflate: &mut Decoder) -> Result<Block> {
             Ok(())
         }
         COMPRESSION_SNAPPY => {
-            Decompressor::new(Compression::Snappy).decompress(body, MAX_BLOCK, &mut out)
+            Decompressor::new(Compression::Snappy).decompress(body, MAX_BLOCK_BYTES, &mut out)
         }
-        COMPRESSION_ZLIB => inflate.decompress_whole(body, MAX_BLOCK, Framing::Zlib, &mut out),
+        COMPRESSION_ZLIB => {
+            inflate.decompress_whole(body, MAX_BLOCK_BYTES, Framing::Zlib, &mut out)
+        }
         COMPRESSION_RAW_DEFLATE => {
-            inflate.decompress_whole(body, MAX_BLOCK, Framing::Raw, &mut out)
+            inflate.decompress_whole(body, MAX_BLOCK_BYTES, Framing::Raw, &mut out)
         }
         _ => return Err(Error::UnknownCompression(kind)),
     };
@@ -724,7 +726,7 @@ pub(super) mod tests {
                 .is_err()
         );
         // Over-long key.
-        let long = vec![(internal(&vec![b'k'; MAX_KEY + 1], 1, 1), Vec::new())];
+        let long = vec![(internal(&vec![b'k'; MAX_KEY_BYTES + 1], 1, 1), Vec::new())];
         assert!(matches!(
             cursor(&encode_block(&long, 1)).seek_first(),
             Err(Error::TooLarge { .. })

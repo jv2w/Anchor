@@ -85,7 +85,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::NoSlot`] for another slot, changing nothing.
+    /// [`Error::NoSlot`] for another slot; nothing is changed.
     #[doc(alias = "PlayerInventory::setHeldItemIndex")]
     pub fn set_held_slot(&mut self, slot: usize) -> Result<()> {
         let Some(slot) = u8::try_from(slot).ok().filter(|s| *s < HOTBAR) else {
@@ -216,9 +216,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
-    /// [`Error::Offline`] for a player who has left.
-    /// [`Error::NoCreativeInventory`] for a name no alternative has.
+    /// [`Error::Offline`] for a player who has left; nothing is changed.
+    /// [`Error::NoCreativeInventory`] for a name no alternative has; nothing is changed.
     #[doc(alias = "Player::setCreativeInventory")]
     pub fn set_creative_inventory(
         &mut self,
@@ -291,10 +290,9 @@ impl Editor<'_> {
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
-    /// [`Error::Full`] for more stacks than the cursor may hold.
-    /// [`Error::TooLong`] for more stacks than slots.
-    /// [`Error::NotAccepted`] for a stack a slot does not take.
+    /// [`Error::Full`] for more stacks than the cursor may hold; nothing is changed.
+    /// [`Error::TooLong`] for more stacks than slots; nothing is changed.
+    /// [`Error::NotAccepted`] for a stack a slot does not take; nothing is changed.
     #[doc(alias = "Inventory::setContents")]
     #[doc(alias = "BaseInventory::setContents")]
     pub fn set_contents(&mut self, stacks: &[Stack]) -> Result<()> {
@@ -335,7 +333,7 @@ impl Editor<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NoSlot`] if the inventory lacks slot `a` or `b`.
+    /// [`Error::NoSlot`] for an `a` or `b` the inventory lacks.
     #[doc(alias = "Inventory::swap")]
     #[doc(alias = "BaseInventory::swap")]
     pub fn swap(&mut self, a: usize, b: usize) -> Result<()> {

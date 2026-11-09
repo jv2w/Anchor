@@ -748,7 +748,7 @@ func (g *game) actorOfType(entityType string) (*packet.AddActor, error) {
 // breakBlock breaks the block at pos like a survival player: the start, d of breaking, then the
 // predicted destroy; it waits until the server sends air there.
 func (g *game) breakBlock(pos protocol.BlockPos, d time.Duration) error {
-	g.input.look(blockCentre(pos))
+	g.input.look(blockCenter(pos))
 	g.input.blockActions([]protocol.PlayerBlockAction{{Action: protocol.PlayerActionStartBreak, BlockPos: pos, Face: 1}}, nil)
 	if err := g.settle(d); err != nil {
 		return err

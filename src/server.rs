@@ -1,12 +1,18 @@
 //! The server and its builder.
 
 use std::any::Any;
+#[cfg(unix)]
+use std::io::{self, ErrorKind};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use tokio::signal::unix::{SignalKind, signal};
+#[cfg(windows)]
+use tokio::signal::windows;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
@@ -93,11 +99,12 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
+    /// [`Error::DataDamaged`] for a damaged file.
+    /// [`Error::DataNewerFormat`] for a file of a newer format.
     /// [`Error::Storage`] for a file in use, another process's included, or that cannot be read or
     /// written, or that holds a later save than the main file (one start of the server rolls it
-    /// back). [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a damaged file and one
-    /// of a newer format.
+    /// back).
+    /// [`Error::InvalidPlayerKey`] for a key that is neither an XUID nor `offline:` and a name.
     pub fn delete_player_data(&self, record_key: &str) -> Result<bool> {
         let key = crate::storage::PlayerKey::parse(record_key).ok_or_else(|| {
             Error::InvalidPlayerKey {
@@ -148,11 +155,12 @@ impl Server {
     /// # Errors
     ///
     /// [`Error::Start`] for a log or pool thread that cannot start.
+    /// [`Error::DataDamaged`] for a damaged data file.
+    /// [`Error::DataNewerFormat`] for a data file of a newer format.
+    /// [`Error::Storage`] for a data file that is in use or cannot be read.
     /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
     /// [`Error::Export`] for a world without saved state, a temporary world, a folder that exists
     /// and a file or chunk that cannot be written.
-    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
-    /// that is in use, cannot be read, is damaged, or is of a newer format.
     pub fn export_world(
         &self,
         world: &str,
@@ -205,11 +213,12 @@ impl Server {
     /// # Errors
     ///
     /// [`Error::Start`] for a log or pool thread that cannot start.
+    /// [`Error::DataDamaged`] for a damaged data file.
+    /// [`Error::DataNewerFormat`] for a data file of a newer format.
+    /// [`Error::Storage`] for a data file that cannot be opened or written.
     /// [`Error::InvalidWorldName`] for a name that cannot be a file name.
     /// [`Error::Import`] for a world file of the name, or a source that cannot be read or
     /// converted.
-    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
-    /// that cannot be opened or written, is damaged, or is of a newer format.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
         &self,
@@ -239,7 +248,7 @@ impl Server {
     ///
     /// Build the server as the run that wrote the log was built: the same settings, worlds and
     /// registrations, or the replay is refused. It opens the data files read-only, runs no
-    /// network, commits nothing and writes no file. State that listeners, tasks and behaviours
+    /// network, commits nothing and writes no file. State that listeners, tasks and behaviors
     /// keep in their closures starts over, and their callbacks run again, so what they do outside
     /// the server (files, network) happens again.
     ///
@@ -248,9 +257,10 @@ impl Server {
     /// [`replay::Error::Io`](crate::replay::Error::Io) for a log or thread that cannot be read or
     /// started.
     /// [`replay::Error::Format`](crate::replay::Error::Format) for a file that is not a crash log.
-    /// [`replay::Error::SettingsDiffer`](crate::replay::Error::SettingsDiffer) and
+    /// [`replay::Error::SettingsDiffer`](crate::replay::Error::SettingsDiffer) for a server whose
+    /// settings differ from the logged run's.
     /// [`replay::Error::RegistrationsDiffer`](crate::replay::Error::RegistrationsDiffer) for a
-    /// server built unlike the logged run.
+    /// server whose registrations differ from the logged run's.
     /// [`replay::Error::NoMatchingWorld`](crate::replay::Error::NoMatchingWorld) for data files
     /// that hold no save of the log.
     /// [`replay::Error::Opaque`](crate::replay::Error::Opaque) for a checkpoint that cannot be
@@ -321,22 +331,25 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`Error::Usage`] for arguments an argument command does not take, and [`Error::Output`] for
-    /// an answer that cannot be written to standard output.
     /// [`Error::Config`] for a setting that cannot be used.
-    /// [`Error::GeneratorSpawn`] for a new world whose generator gives a spawn outside the world
-    /// border.
     /// [`Error::Start`] for a runtime, thread or startup state that cannot start.
     /// [`Error::Network`] for a socket that cannot be opened.
-    /// [`Error::IdentityKey`], [`Error::TlsCertificate`] and [`Error::Auth`] for the key and
-    /// certificate files and the authorization keys.
-    /// [`Error::Pack`] for a resource pack that cannot be offered.
-    /// [`Error::Data`] for a saved server data value that does not deserialize into its type.
-    /// [`Error::Storage`], [`Error::DataDamaged`] and [`Error::DataNewerFormat`] for a data file
-    /// that cannot be opened, read or saved, is damaged, or is of a newer format.
+    /// [`Error::IdentityKey`] for an identity key file that cannot be read, used or made.
+    /// [`Error::TlsCertificate`] for certificate files that cannot be read or used.
+    /// [`Error::Auth`] for authorization keys that can neither be fetched nor read.
     /// [`Error::TickPanicked`] for a tick that panicked.
-    /// [`Error::Import`] and [`Error::Export`] for a failed `import` or `export` command, and
-    /// [`Error::InvalidWorldName`] for a world name it cannot use.
+    /// [`Error::DataDamaged`] for a damaged data file.
+    /// [`Error::DataNewerFormat`] for a data file of a newer format.
+    /// [`Error::Storage`] for a data file that cannot be opened, read or saved.
+    /// [`Error::InvalidWorldName`] for a world name an `import` or `export` command cannot use.
+    /// [`Error::GeneratorSpawn`] for a new world whose generator gives a spawn outside the world
+    /// border.
+    /// [`Error::Data`] for a saved server data value that does not deserialize into its type.
+    /// [`Error::Pack`] for a resource pack that cannot be offered.
+    /// [`Error::Import`] for a failed `import` command.
+    /// [`Error::Export`] for a failed `export` command.
+    /// [`Error::Usage`] for arguments an argument command does not take.
+    /// [`Error::Output`] for an answer that cannot be written to standard output.
     pub fn run(self) -> Result<()> {
         let task = args::current()?;
         self.run_task(task)
@@ -451,8 +464,8 @@ impl Server {
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
         let (crash, mut crash_log) = oneshot::channel();
-        let (requests, request_queue) = mpsc::channel(save::REQUEST_CAPACITY);
-        let (responder, responses) = mpsc::channel(save::RESPONSE_CAPACITY);
+        let (requests, request_queue) = mpsc::channel(save::MAX_REQUESTS);
+        let (responder, responses) = mpsc::channel(save::MAX_RESPONSES);
         let mut state = tick::State::new(
             tick::Settings::new(&config),
             shared,
@@ -718,11 +731,13 @@ impl ServerBuilder {
     ///
     /// [`Error::Config`] for a setting out of its range, a thread budget that does not fit and a
     /// `[worlds.<name>]` table of a world the server does not have.
-    /// [`Error::Command`], [`Error::Custom`], [`Error::CustomEntity`] and [`Error::Data`] for
-    /// registrations that break a rule.
+    /// [`Error::DuplicateWorld`] for world names that clash.
+    /// [`Error::InvalidWorldName`] for a world name that cannot be a file name.
     /// [`Error::DuplicateGenerator`] for two generator types of one name.
-    /// [`Error::DuplicateWorld`] and [`Error::InvalidWorldName`] for world names that clash or
-    /// cannot be file names.
+    /// [`Error::Command`] for registered commands or permissions that break a rule.
+    /// [`Error::CustomEntity`] for a registered custom entity type that breaks a rule.
+    /// [`Error::Custom`] for registered custom items or blocks that break a rule.
+    /// [`Error::Data`] for registered user data types that break a rule.
     pub fn build(mut self) -> Result<Server> {
         self.config.validate()?;
         let developer = &self.config.developer;
@@ -983,7 +998,6 @@ macro_rules! forward {
 /// without the final save.
 #[cfg(unix)]
 fn listen(received: &mpsc::Sender<&'static str>) {
-    use tokio::signal::unix::{SignalKind, signal};
     let hangup_ignored = hangup_ignored().unwrap_or_else(|e| {
         warn!(
             error = &e as &(dyn std::error::Error + 'static),
@@ -1001,18 +1015,19 @@ fn listen(received: &mpsc::Sender<&'static str>) {
 /// Whether SIGHUP is ignored now, from the `SigIgn` mask of `/proc/self/status` (Linux).
 #[cfg(unix)]
 fn hangup_ignored() -> std::io::Result<bool> {
-    use std::io::{Error, ErrorKind};
     let status = crate::fs::read_bounded(Path::new("/proc/self/status"), MAX_PROCESS_STATUS_BYTES)?;
     let mask = status
         .split(|&byte| byte == b'\n')
         .find_map(|line| line.strip_prefix(b"SigIgn:"))
-        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "no SigIgn line"))?;
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "no SigIgn line"))?;
     // The mask is hexadecimal with signal 1 (SIGHUP) as the lowest bit of the last digit.
     let last_digit = mask
         .trim_ascii()
         .last()
         .and_then(|&digit| char::from(digit).to_digit(16))
-        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "the SigIgn mask is not hexadecimal"))?;
+        .ok_or_else(|| {
+            io::Error::new(ErrorKind::InvalidData, "the SigIgn mask is not hexadecimal")
+        })?;
     Ok(last_digit & 1 == 1)
 }
 
@@ -1023,7 +1038,6 @@ fn hangup_ignored() -> std::io::Result<bool> {
 /// a service running.
 #[cfg(windows)]
 fn listen(received: &mpsc::Sender<&'static str>) {
-    use tokio::signal::windows;
     forward!(received, "Ctrl+C", windows::ctrl_c());
     forward!(received, "Ctrl+Break", windows::ctrl_break());
     forward!(received, "close", windows::ctrl_close());

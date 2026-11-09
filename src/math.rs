@@ -321,7 +321,7 @@ fn clip(min: f64, max: f64, lo: f64, hi: f64, d: f64) -> f64 {
 /// `v` as the `f32` a packet or a save carries (rounded to nearest).
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "consistency: packets and saves carry f32, and rounding f64 to f32 is exact IEEE behaviour"
+    reason = "consistency: packets and saves carry f32, and rounding f64 to f32 is exact IEEE behavior"
 )]
 pub(crate) const fn to_f32(v: f64) -> f32 {
     v as f32

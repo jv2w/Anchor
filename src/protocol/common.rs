@@ -23,7 +23,7 @@ const FLOAT_TO_INT32_LIMIT: f32 = 2_147_483_648.0;
 /// The exclusive bound of the magnitudes that convert to an int64 in Go: 2^63.
 const FLOAT_TO_INT64_LIMIT: f32 = 9_223_372_036_854_775_808.0;
 /// The largest value of an 8-bit color channel, as a float.
-const RGB_CHANNEL_MAX: f32 = 255.0;
+const MAX_RGB_CHANNEL: f32 = 255.0;
 /// The `SoundPos` units in one block.
 const SOUND_POS_UNITS_PER_BLOCK: f32 = 8.0;
 
@@ -191,7 +191,7 @@ impl Bitset {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidValue`] for an `index` past the end, changing nothing.
+    /// [`Error::InvalidValue`] for an `index` past the end; nothing is changed.
     pub fn set(&mut self, index: usize) -> Result<()> {
         self.update(index, |w, mask| w | mask)
     }
@@ -200,7 +200,7 @@ impl Bitset {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidValue`] for an `index` past the end, changing nothing.
+    /// [`Error::InvalidValue`] for an `index` past the end; nothing is changed.
     pub fn unset(&mut self, index: usize) -> Result<()> {
         self.update(index, |w, mask| w & !mask)
     }
@@ -276,9 +276,9 @@ impl Reader<'_> {
     pub(crate) fn rgb(&mut self) -> Result<Rgba> {
         let [r, g, b] = self.vec3()?;
         Ok(Rgba {
-            r: go_float_to_u8(r * RGB_CHANNEL_MAX),
-            g: go_float_to_u8(g * RGB_CHANNEL_MAX),
-            b: go_float_to_u8(b * RGB_CHANNEL_MAX),
+            r: go_float_to_u8(r * MAX_RGB_CHANNEL),
+            g: go_float_to_u8(g * MAX_RGB_CHANNEL),
+            b: go_float_to_u8(b * MAX_RGB_CHANNEL),
             a: 0,
         })
     }
@@ -369,7 +369,7 @@ impl Writer {
 
     /// Writes an `RGB`.
     pub(crate) fn rgb(&mut self, x: Rgba) {
-        self.vec3([x.r, x.g, x.b].map(|c| f32::from(c) / RGB_CHANNEL_MAX));
+        self.vec3([x.r, x.g, x.b].map(|c| f32::from(c) / MAX_RGB_CHANNEL));
     }
 
     /// Writes an `RGBA`.

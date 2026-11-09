@@ -157,9 +157,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
-    /// [`Error::TooLong`] for a bar whose title is longer than 256 bytes.
-    /// [`Error::Offline`] for a player who is not in the game, checked after the title.
+    /// [`Error::TooLong`] for a bar whose title is longer than 256 bytes; nothing is changed.
+    /// [`Error::Offline`] for a player who is not in the game, checked after the title; nothing
+    /// is changed.
     pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
         if bar.title.len() > MAX_BOSS_EVENT_BOSS_BAR_TITLE {
             return Err(Error::TooLong);
@@ -196,13 +196,15 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
     /// [`Error::TooManyLines`] for more lines than the slot shows (15 in the sidebar, 1,024
-    /// elsewhere).
-    /// [`Error::TooLong`] for a title or a text longer than 1,024 bytes.
-    /// [`Error::UnknownPlayer`] for a player line that names a player not in the game.
-    /// [`Error::DuplicatePlayer`] for a player line that names a player named before.
-    /// [`Error::Offline`] for a `player` who is not in the game, checked after the scoreboard.
+    /// elsewhere); nothing is changed.
+    /// [`Error::TooLong`] for a title or a text longer than 1,024 bytes; nothing is changed.
+    /// [`Error::UnknownPlayer`] for a player line that names a player not in the game; nothing
+    /// is changed.
+    /// [`Error::DuplicatePlayer`] for a player line that names a player named before; nothing
+    /// is changed.
+    /// [`Error::Offline`] for a `player` who is not in the game, checked after the scoreboard;
+    /// nothing is changed.
     pub fn set_scoreboard(&mut self, player: player::Id, board: Scoreboard) -> Result<()> {
         let max = if board.slot == Slot::Sidebar {
             MAX_SIDEBAR_LINES

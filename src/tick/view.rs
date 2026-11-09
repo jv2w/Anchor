@@ -21,12 +21,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use tracing::{debug, warn};
 
+use super::checkpoint::{self, Codec};
 use super::extra::Extras;
 use super::queue::{Message, SessionId};
 use super::rules::{ChunkRules, Rules};
 use super::save::{Saving, Unsaved, is_kept_unloaded, unsaved_snapshot};
 use super::world_api::Worlds;
-use super::{Context, Phase, Player, Settings, State, checkpoint, dispatch, world_api};
+use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
 use crate::math::Vec3;
@@ -384,7 +385,6 @@ impl super::checkpoint::Codec for View {
     }
 
     fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
         let center = ChunkPos::decode(r)?;
         let radius = u8::decode(r)?;
         let published = Codec::decode(r)?;
@@ -394,7 +394,7 @@ impl super::checkpoint::Codec for View {
         let fakes = Codec::decode(r)?;
         let menu = Codec::decode(r)?;
         if radius > MAX_RADIUS {
-            return Err(Error::Format("view radius"));
+            return Err(checkpoint::Error::Format("view radius"));
         }
         let queued_offsets = requests
             .iter()
@@ -402,7 +402,7 @@ impl super::checkpoint::Codec for View {
         if requests.len() > MAX_QUEUED_SUB_CHUNK_REQUESTS
             || queued_offsets > MAX_QUEUED_SUB_CHUNK_OFFSETS
         {
-            return Err(Error::Format("too many sub-chunk requests"));
+            return Err(checkpoint::Error::Format("too many sub-chunk requests"));
         }
         // A closed view (radius 0) has no chunks, sent or not.
         let r2 = i32::from(radius) * i32::from(radius);
@@ -410,10 +410,10 @@ impl super::checkpoint::Codec for View {
             .iter()
             .any(|&pos| radius == 0 || distance(pos, center) > r2)
         {
-            return Err(Error::Format("sent chunk outside the view"));
+            return Err(checkpoint::Error::Format("sent chunk outside the view"));
         }
         if !watered.is_subset(&sent) {
-            return Err(Error::Format("watered chunk not sent"));
+            return Err(checkpoint::Error::Format("watered chunk not sent"));
         }
         let mut unsent = Vec::new();
         if radius > 0 {
@@ -628,7 +628,6 @@ impl Chunks {
     /// chunks are empty then, the events heard and the view order are fixed at build, and the
     /// tick centers are gathered again before each use.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
         let Self {
             interest,
             requested,
@@ -831,19 +830,18 @@ impl Chunks {
         r: &mut super::checkpoint::Reader<'_>,
         ground: &mut super::checkpoint::Ground,
     ) -> super::checkpoint::Result<()> {
-        use super::checkpoint::{Codec, Error};
         let interest = Codec::decode(r)?;
         let requested = Codec::decode(r)?;
         let n = r.len()?;
         let mut unsaved = BTreeMap::new();
         for _ in 0..n {
             let key = Key::decode(r)?;
-            let chunk = ground.chunks.remove(&key).ok_or(Error::Format(
+            let chunk = ground.chunks.remove(&key).ok_or(checkpoint::Error::Format(
                 "unsaved terrain the checkpoint does not keep",
             ))?;
             let restored = Unsaved::restore(r, chunk, ground.extras.remove(&key))?;
             if unsaved.insert(key, restored).is_some() {
-                return Err(Error::Format("repeated unsaved chunk"));
+                return Err(checkpoint::Error::Format("repeated unsaved chunk"));
             }
         }
         *self = Self {
@@ -881,7 +879,7 @@ impl Chunks {
         }
         for &(due, key) in &self.kept {
             if self.kept_at.insert(key, due).is_some() {
-                return Err(Error::Format("chunk kept twice"));
+                return Err(checkpoint::Error::Format("chunk kept twice"));
             }
         }
         Ok(())
@@ -1082,17 +1080,16 @@ impl Context<'_> {
         center: ChunkPos,
         radius: u8,
     ) -> crate::world::Result<crate::world::Ticket> {
-        use crate::world::Error;
-        let w = world_api::index(self.state, world).ok_or(Error::WorldNotLoaded)?;
+        let w = world_api::index(self.state, world).ok_or(crate::world::Error::WorldNotLoaded)?;
         if !crate::world::is_inside_border(center) {
-            return Err(Error::OutsideWorld);
+            return Err(crate::world::Error::OutsideWorld);
         }
         let held = self.state.chunks.by_chunk.len();
         if radius > MAX_TICKET_RADIUS
             || self.state.chunks.tickets.len() >= MAX_TICKETS
             || held.saturating_add(Ticket::size(radius)) > MAX_TICKET_CHUNKS
         {
-            return Err(Error::Full);
+            return Err(crate::world::Error::Full);
         }
         let ticket = Ticket {
             world: w,
@@ -1252,7 +1249,7 @@ pub(super) fn queue_request(player: &mut Player, request: &SubChunkRequest) {
         || offsets > MAX_QUEUED_SUB_CHUNK_OFFSETS
     {
         debug!(
-            player = player.name(),
+            player = %player.name(),
             "too many sub-chunk requests waiting; one dropped"
         );
         return;

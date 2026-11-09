@@ -34,7 +34,7 @@ use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
 use crate::raknet::{
-    COMMAND_BATCH, COMMAND_QUEUE, Flags, Inbound, Inbox, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP,
+    COMMAND_BATCH, Flags, Inbound, Inbox, MAX_COMMANDS, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP,
     ip_key, report_undelivered,
 };
 use crate::tick::queue::LeaveReason;
@@ -57,9 +57,6 @@ const HOST_CACHE_LIFETIME: Duration = Duration::from_secs(60);
 const HOST_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 /// The identity key file in the data folder.
 pub(crate) const IDENTITY_FILE: &str = "identity.key";
-/// The lookup requests waiting for the lookup task. Each negotiation sends at most one, and
-/// the signaling connection limit bounds the negotiations.
-const LOOKUP_QUEUE: usize = 64;
 /// The host candidates one answer advertises at most: the signaling address and the addresses
 /// of the host the client gave.
 const MAX_ANSWER_CANDIDATES: usize = 4;
@@ -78,6 +75,11 @@ const MAX_CLOSING_PEERS: usize = MAX_PRE_LOGIN;
 pub(crate) const MAX_HOST_LOOKUPS: usize = 2;
 /// The addresses taken from one lookup, at most, in the resolver's order.
 const MAX_LOOKUP_ADDRS: usize = 16;
+/// The lookup requests waiting for the lookup task. Each negotiation sends at most one, and
+/// the signaling connection limit bounds the negotiations.
+const MAX_LOOKUP_REQUESTS: usize = 64;
+/// The offers waiting for the offer task; the signaling server answers 503 when it is full.
+const MAX_OFFERS: usize = 64;
 /// The source addresses one peer may be reached from. A client knows its own ICE credentials, so
 /// its valid STUN request can carry any source address; the bound keeps one peer from filling
 /// the address index.
@@ -88,13 +90,11 @@ const MAX_PEER_ADDRS: usize = 8;
 /// derived from `max-batch-bytes` either. RakNet derives its pre-login reassembly limit from it
 /// too.
 pub(crate) const MAX_PRE_LOGIN_MESSAGE_BYTES: usize = 8 << 20;
-/// The offers waiting for the offer task; the signaling server answers 503 when it is full.
-const OFFER_QUEUE: usize = 64;
 /// The first byte of a STUN message on the shared UDP port (RFC 7983 7).
 const STUN_FIRST_BYTE_RANGE: RangeInclusive<u8> = 0..=1;
-/// The length of a STUN message header in bytes (RFC 5389): the type, the length, the magic
-/// cookie and the transaction ID.
-const STUN_HEADER_LEN: usize = 20;
+/// The length of a STUN message header (RFC 5389): the type, the length, the magic cookie and
+/// the transaction ID.
+const STUN_HEADER_BYTES: usize = 20;
 /// The STUN magic cookie (RFC 5389), bytes 4 to 7 of every STUN message.
 const STUN_MAGIC_COOKIE: [u8; 4] = [0x21, 0x12, 0xa4, 0x42];
 /// The tries at a peer whose 24-bit ufrag no other peer uses; a third collision in a row means
@@ -588,7 +588,7 @@ struct HostLookup {
     name: String,
     /// The signaling client's per-IP key.
     ip_key: u128,
-    /// Gets the addresses; dropped unanswered when the lookup is refused.
+    /// The sender that gets the addresses; dropped unanswered when the lookup is refused.
     reply: AddressReply,
 }
 
@@ -622,7 +622,7 @@ impl HostLookups {
     /// Spawns the lookup task; it ends once every sender is gone, and a lookup still running then
     /// keeps only its blocking thread, until the OS resolver returns.
     fn spawn() -> mpsc::Sender<HostLookup> {
-        let (requests, received) = mpsc::channel(LOOKUP_QUEUE);
+        let (requests, received) = mpsc::channel(MAX_LOOKUP_REQUESTS);
         tokio::spawn(Self::default().run(received));
         requests
     }
@@ -907,7 +907,7 @@ impl Driver {
         max_message_bytes: usize,
         accepted: mpsc::Sender<Connection>,
     ) -> Self {
-        let (commands, pending) = mpsc::channel(COMMAND_QUEUE);
+        let (commands, pending) = mpsc::channel(MAX_COMMANDS);
         Self {
             sockets,
             certificate,
@@ -961,7 +961,7 @@ impl Driver {
     /// before it sets its close flag, so the timer and stop passes call this after they read the
     /// flags and before they judge a closing peer drained: it must have those packets by then.
     fn drain(&mut self) {
-        for _ in 0..COMMAND_QUEUE {
+        for _ in 0..MAX_COMMANDS {
             let Ok(command) = self.pending.try_recv() else {
                 break;
             };
@@ -1234,7 +1234,7 @@ pub(crate) async fn start(
     let certificate =
         Certificate::generate().map_err(|e| crate::Error::Start(io::Error::other(e)))?;
     let udp_addrs = sockets.local_addrs().to_vec();
-    let (offers_tx, offers_rx) = mpsc::channel(OFFER_QUEUE);
+    let (offers_tx, offers_rx) = mpsc::channel(MAX_OFFERS);
     let signaling = signaling::spawn(
         signaling::Settings {
             v4: settings.signaling_v4,
@@ -1302,7 +1302,7 @@ pub(crate) fn is_nethernet(datagram: &[u8]) -> bool {
             let length = usize::from(u16::from_be_bytes([*l0, *l1]));
             [*c0, *c1, *c2, *c3] == STUN_MAGIC_COOKIE
                 && length % 4 == 0
-                && datagram.len().checked_sub(STUN_HEADER_LEN) == Some(length)
+                && datagram.len().checked_sub(STUN_HEADER_BYTES) == Some(length)
         }
         _ => false,
     }

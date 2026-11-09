@@ -30,14 +30,14 @@ use crate::world::{BlockPos, Entry, World};
 const GROUND_REACH: f64 = 0.2;
 /// Fall damage above which landing makes the long fall sound.
 const LONG_FALL_DAMAGE: f64 = 4.0;
+/// The most moves in reserve: 100 ticks.
+const MAX_MOVE_BACKLOG: i32 = 100 * MOVES_PER_TICK;
 /// The furthest one move may go, squared: 15 blocks.
 const MAX_MOVE_SQUARED: f64 = 225.0;
 /// The shortest tick move that counts as a move, squared.
 const MIN_MOVE_SQUARED: f64 = 0.0001;
 /// The least a [`PlayerMove`] listener must shift the target for it to be another place, squared.
 const MIN_RETARGET_SQUARED: f64 = 0.01;
-/// The most moves in reserve: 100 ticks.
-const MOVE_BACKLOG: i32 = 100 * MOVES_PER_TICK;
 /// The reserve of a new player.
 const MOVE_START: i32 = 10 * MOVES_PER_TICK;
 /// Moves the reserve gains each tick.
@@ -829,7 +829,7 @@ pub(super) fn process(state: &mut State, session: SessionId) {
     let now = feet(player);
     let m = &mut player.survival.motion;
     let exceeded = m.budget < 0;
-    m.budget = (m.budget.max(0) + MOVES_PER_TICK).min(MOVE_BACKLOG);
+    m.budget = (m.budget.max(0) + MOVES_PER_TICK).min(MAX_MOVE_BACKLOG);
     let from = m.processed.unwrap_or(now);
     let (dx, dz) = (now.x - from.x, now.z - from.z);
     if now.distance_squared(from) > MIN_MOVE_SQUARED {

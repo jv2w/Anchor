@@ -19,6 +19,8 @@
 //! gives back follow one game mode; a cloud grows no larger and lives no longer than its saved
 //! form holds.
 
+use std::ops::RangeInclusive;
+
 use super::SessionId;
 use super::kind::{Arrow, Cloud, Kind, Projectile, Shot, Trident, Victim};
 use super::physics::{Body, Flight, intercept};
@@ -50,8 +52,8 @@ use crate::world::{BlockPos, particle_id};
 const ARROW_SHAKE: i32 = 7;
 /// The random stream of a bottle's xp.
 const BOTTLE_RANDOM: u64 = random::tag("projectile-bottle");
-/// The xp a bottle drops, from the first to the second value.
-const BOTTLE_XP: (i32, i32) = (3, 11);
+/// The xp a bottle drops.
+const BOTTLE_XP_RANGE: RangeInclusive<i32> = 3..=11;
 /// The random stream of a bow's wear.
 const BOW_RANDOM: u64 = random::tag("projectile-bow-wear");
 /// The speed of an arrow shot at a full draw, in blocks per tick.
@@ -67,13 +69,15 @@ const CRITICAL_RANDOM: u64 = random::tag("projectile-critical");
 /// The burn a Flame bow gives its arrow, in ticks.
 const FLAME_TICKS: i16 = 2000;
 /// The burn a burning projectile gives the player or NPC it hits.
-const HIT_FIRE_SECONDS: i16 = 5;
+const HIT_FIRE_SECS: i16 = 5;
 /// The particles a snowball or an egg leaves where it hits; the official server sends as many.
 const HIT_PARTICLES: usize = 6;
 /// How much bigger an entity's box is to a projectile, in blocks.
 const HIT_REACH: f64 = 0.3;
 /// The lingering potion item (a splash potion that lingers).
 const LINGERING_POTION: &str = "minecraft:lingering_potion";
+/// The farthest a splash potion's effects reach from the eyes, in blocks.
+const MAX_SPLASH_DISTANCE: f64 = 4.0;
 /// The weakest bow draw that shoots.
 const MIN_BOW_FORCE: f64 = 0.1;
 /// The fewest ticks a bow is drawn to shoot.
@@ -98,11 +102,13 @@ const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// before the cut to 1, as the official server gives it (measured: 2565, 1755 and 945 of 3600
 /// ticks at 1.5, 2.5 and 3.5 blocks).
 const SPLASH_DURATION_FULL: f64 = 1.05;
-/// The farthest a splash potion's effects reach from the eyes, in blocks.
-const SPLASH_RANGE: f64 = 4.0;
-/// How far around a splash potion's box its effects are looked for: past [`SPLASH_RANGE`]
+/// How far around a splash potion's box its effects are looked for: past [`MAX_SPLASH_DISTANCE`]
 /// sideways, so every target in range is found.
-const SPLASH_REACH: Vec3 = Vec3::new(SPLASH_RANGE + 0.125, 2.125, SPLASH_RANGE + 0.125);
+const SPLASH_REACH: Vec3 = Vec3::new(
+    MAX_SPLASH_DISTANCE + 0.125,
+    2.125,
+    MAX_SPLASH_DISTANCE + 0.125,
+);
 /// What a trident keeps of its speed when it bounces off what it hit.
 const TRIDENT_BOUNCE: Vec3 = Vec3::new(-0.01, -0.1, -0.01);
 /// The speed of a trident thrown at a full draw, in blocks per tick.
@@ -662,7 +668,7 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
             splash_effect(state, world, at, super::track::DEFAULT_POTION_COLOR);
             let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
             let mut r = Random::new(seed, state.tick, random::key(BOTTLE_RANDOM, &[runtime_id]));
-            let amount = r.range(BOTTLE_XP.0, BOTTLE_XP.1);
+            let amount = r.range(*BOTTLE_XP_RANGE.start(), *BOTTLE_XP_RANGE.end());
             super::drop_xp(state, world, at, amount.unsigned_abs());
         }
         Shot::Trident(_) => {}
@@ -690,7 +696,7 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
                 if landed != Hurt::Ignored {
                     if burning {
                         let by = CombustSource::Entity(Actor::Entity(id));
-                        combust(state, target, HIT_FIRE_SECONDS, by);
+                        combust(state, target, HIT_FIRE_SECS, by);
                     }
                     if let Some(push) = punch(&p, motion)
                         && let Some(now) = state.rules.entities.get(target).map(|e| e.body.motion)
@@ -833,7 +839,7 @@ fn hit_player(
         return;
     };
     if let Some(source) = fire {
-        let seconds = u32::from(HIT_FIRE_SECONDS.unsigned_abs());
+        let seconds = u32::from(HIT_FIRE_SECS.unsigned_abs());
         (hooks.set_on_fire)(state, session, seconds, source);
     }
     if !state.players.get(&session).is_some_and(hooks.is_alive) {
@@ -943,10 +949,10 @@ fn hit_particles(state: &mut State, world: WorldIndex, at: Vec3, data: i32) {
     }
 }
 
-/// A potion hits: a splash gives its effects to the players and NPCs within [`SPLASH_RANGE`] of
-/// their eyes, weaker with the distance (full to what it hit: durations by [`duration_share`],
-/// instant effects by the distance from the eyes); a lingering potion leaves a cloud. A water
-/// bottle changes nothing.
+/// A potion hits: a splash gives its effects to the players and NPCs within
+/// [`MAX_SPLASH_DISTANCE`] of their eyes, weaker with the distance (full to what it hit:
+/// durations by [`duration_share`], instant effects by the distance from the eyes); a lingering
+/// potion leaves a cloud. A water bottle changes nothing.
 fn potion_hit(
     state: &mut State,
     id: Id,
@@ -979,13 +985,13 @@ fn potion_hit(
                 continue;
             };
             let d2 = eye.distance_squared(at);
-            if d2 > SPLASH_RANGE * SPLASH_RANGE {
+            if d2 > MAX_SPLASH_DISTANCE * MAX_SPLASH_DISTANCE {
                 continue;
             }
             let potency = if same(target, struck) {
                 1.0
             } else {
-                1.0 - d2.sqrt() / SPLASH_RANGE
+                1.0 - d2.sqrt() / MAX_SPLASH_DISTANCE
             };
             let share = if same(target, struck) {
                 1.0
@@ -1099,7 +1105,7 @@ pub(super) fn tick(state: &mut State, id: Id) {
         if let Shot::Arrow(a) = &mut p.shot {
             if stuck {
                 a.life = a.life.saturating_add(1);
-                if a.life > Arrow::MAX_LIFE {
+                if a.life > Arrow::MAX_LIFE_TICKS {
                     e.flagged = true;
                 }
             } else {
@@ -2139,7 +2145,7 @@ mod tests {
             h.entities();
         }
         let damage = calls(|c| c.damage.clone());
-        let near = 6.0 * (1.0 - eyes[0].distance_squared(hit).sqrt() / SPLASH_RANGE);
+        let near = 6.0 * (1.0 - eyes[0].distance_squared(hit).sqrt() / MAX_SPLASH_DISTANCE);
         assert_eq!(damage.first(), Some(&(1, near, survival::Damage::Magic)));
         assert_eq!(damage.len(), 2);
     }

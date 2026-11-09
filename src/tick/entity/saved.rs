@@ -661,7 +661,7 @@ fn load_crystal(c: &Compound) -> Crystal {
     }
 }
 
-/// An arrow's keys; `None` for a `life` outside 0 to [`Arrow::MAX_LIFE`].
+/// An arrow's keys; `None` for a `life` outside 0 to [`Arrow::MAX_LIFE_TICKS`].
 fn load_arrow(c: &Compound) -> Option<Arrow> {
     let byte = |k: &str| match c.get(k) {
         Some(Value::Byte(b)) => Some(*b),
@@ -672,7 +672,7 @@ fn load_arrow(c: &Compound) -> Option<Arrow> {
         pickup: byte("pickup").map_or(ArrowPickup::Any, ArrowPickup::from_byte),
         punch: byte("punch").unwrap_or(0),
         life: match c.get("life") {
-            Some(Value::Short(l)) if (0..=Arrow::MAX_LIFE).contains(l) => *l,
+            Some(Value::Short(l)) if (0..=Arrow::MAX_LIFE_TICKS).contains(l) => *l,
             Some(_) => return None,
             None => 0,
         },

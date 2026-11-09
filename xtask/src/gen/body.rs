@@ -4,7 +4,7 @@
 //!
 //! Directions differ only where the Go code does: a reader fills the places it is given, a
 //! writer reads them. A Go writer may also assign the value being written (an enum string
-//! converted back, a normalised field); such an assignment is dropped when nothing reads the
+//! converted back, a normalized field); such an assignment is dropped when nothing reads the
 //! place afterwards, and otherwise goes to a local copy of the field (a shadow). List and
 //! optional element bodies and loops are printed eagerly as closures, blocks or loops, which
 //! may read but never assign the locals around them.

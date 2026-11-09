@@ -3108,8 +3108,8 @@ mod tests {
         );
         let dir = crate::save::tests::TempDir::new("survival-time");
         let opened = save::open(&dir.0, specs()).unwrap();
-        let (requests, queue) = tokio::sync::mpsc::channel(save::REQUEST_CAPACITY);
-        let (answers, mut answered) = tokio::sync::mpsc::channel(save::RESPONSE_CAPACITY);
+        let (requests, queue) = tokio::sync::mpsc::channel(save::MAX_REQUESTS);
+        let (answers, mut answered) = tokio::sync::mpsc::channel(save::MAX_RESPONSES);
         let thread = opened.thread;
         let handle = crate::runtime::spawn_save(move || {
             let pool = crate::runtime::cpu_pool(1).unwrap();

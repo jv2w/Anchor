@@ -31,15 +31,15 @@ pub(super) const CONTROL_QUEUE_TICKS: usize = 4;
 const ENGINE_SESSIONS: usize = 3;
 /// [`Control`]s one tick may ask for; a call past it changes nothing.
 pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
+/// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
+/// of waiting.
+const MAX_OUTBOUND_MESSAGES: usize = 1024;
 /// Inputs of one session the tick queue holds before the tick takes them: a session past its
 /// share disconnects, and the queue keeps a share for every session, so one session filling the
 /// queue never ends another. A client sends a `PlayerAuthInput` on each of its 20 ticks a second
 /// and a few packets per action; the share holds more than a full batch
 /// ([`MAX_PACKETS`](crate::protocol::batch::MAX_PACKETS)).
 pub(crate) const MAX_SESSION_INPUTS: usize = 1024;
-/// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
-/// of waiting.
-const OUTBOUND_CAPACITY: usize = 1024;
 /// The same as [`SKIN_FIXED_BYTES`] for one persona piece: 2 length prefixes (at most 5 each), the
 /// type (4), the pack UUID (16) and a bool.
 const PIECE_FIXED_BYTES: usize = 31;
@@ -789,7 +789,7 @@ pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
 /// Makes a session's outbound queue; the sender goes to the tick in [`InputKind::Login`] and
 /// [`InputKind::Join`].
 pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbound>) {
-    mpsc::channel(OUTBOUND_CAPACITY)
+    mpsc::channel(MAX_OUTBOUND_MESSAGES)
 }
 
 /// Makes the queue of [`Control`]s from the tick to the networking: [`CONTROL_QUEUE_TICKS`] ticks

@@ -422,10 +422,10 @@ impl Mut<'_> {
     /// # Errors
     ///
     /// [`Error::WrongKind`] for another kind.
-    /// [`Error::OutOfRange`], changing nothing, for more than 256 explosions, a compound that is
-    /// no explosion (a shape byte 0 to 4, at least one color, colors 0 to 15) or one bigger than
-    /// Anchor takes (more than 16 colors in a list, or a key other than `FireworkType`,
-    /// `FireworkColor`, `FireworkFade`, `FireworkFlicker` and `FireworkTrail`).
+    /// [`Error::OutOfRange`] for more than 256 explosions, a compound that is no explosion (a
+    /// shape byte 0 to 4, at least one color, colors 0 to 15) or one bigger than Anchor takes
+    /// (more than 16 colors in a list, or a key other than `FireworkType`, `FireworkColor`,
+    /// `FireworkFade`, `FireworkFlicker` and `FireworkTrail`); nothing is changed.
     #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
     pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> Result<()> {
         if !matches!(self.kind, Kind::Firework(_)) {
@@ -1979,12 +1979,11 @@ impl Context<'_> {
         projectile: crate::entity::Projectile,
         motion: Vec3,
     ) -> Result<Id> {
-        use crate::entity::Projectile as P;
         if !motion.is_finite() {
             return Err(Error::OutOfRange);
         }
         let (shot, damage) = match projectile {
-            P::Arrow { critical } => {
+            crate::entity::Projectile::Arrow { critical } => {
                 let arrow = Arrow {
                     critical,
                     pickup: ArrowPickup::Any,
@@ -1993,25 +1992,25 @@ impl Context<'_> {
                 };
                 (Shot::Arrow(arrow), Arrow::DAMAGE)
             }
-            P::Snowball => (Shot::Snowball, 0.0),
-            P::Egg => (Shot::Egg, 0.0),
-            P::EnderPearl => (Shot::EnderPearl, 0.0),
-            P::SplashPotion(potion) => (
+            crate::entity::Projectile::Snowball => (Shot::Snowball, 0.0),
+            crate::entity::Projectile::Egg => (Shot::Egg, 0.0),
+            crate::entity::Projectile::EnderPearl => (Shot::EnderPearl, 0.0),
+            crate::entity::Projectile::SplashPotion(potion) => (
                 Shot::Potion {
                     potion,
                     linger: false,
                 },
                 0.0,
             ),
-            P::LingeringPotion(potion) => (
+            crate::entity::Projectile::LingeringPotion(potion) => (
                 Shot::Potion {
                     potion,
                     linger: true,
                 },
                 0.0,
             ),
-            P::XpBottle => (Shot::XpBottle, 0.0),
-            P::IceBomb => (Shot::IceBomb, 0.0),
+            crate::entity::Projectile::XpBottle => (Shot::XpBottle, 0.0),
+            crate::entity::Projectile::IceBomb => (Shot::IceBomb, 0.0),
         };
         let kind = Kind::Projectile(Projectile {
             shot,

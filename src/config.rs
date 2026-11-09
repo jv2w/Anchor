@@ -213,7 +213,7 @@ pub const MAX_MOTD_BYTES: usize = 256;
 
 /// The `max-mtu-bytes` range; go-raknet's dialer probes 1492, 1200 and 576, and 1492 is the
 /// largest RakNet MTU.
-const MAX_MTU_BYTES_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU;
+const MAX_MTU_BYTES_RANGE: RangeInclusive<u16> = 576..=crate::raknet::MAX_MTU_BYTES;
 
 /// The longest `shutdown-message`, in bytes: a disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
@@ -933,7 +933,7 @@ impl Default for Developer {
             enable_encryption: true,
             transport: Transports::All,
             raknet_cookies: false,
-            max_mtu_bytes: crate::raknet::MAX_MTU,
+            max_mtu_bytes: crate::raknet::MAX_MTU_BYTES,
             nethernet_tls_cert: None,
             nethernet_tls_key: None,
             network_threads: Threads::Auto,

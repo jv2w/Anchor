@@ -1014,7 +1014,7 @@ fn an_entity_interact_listener_sees_the_villager_and_cancelling_opens_no_trade()
 }
 
 // api: PlayerInteractEvent
-/// A click on a block with no click behaviour still raises the event, with the block, and the
+/// A click on a block with no click behavior still raises the event, with the block, and the
 /// block is sent again.
 #[test]
 fn the_click_event_is_raised_for_a_click_on_a_removed_block() {

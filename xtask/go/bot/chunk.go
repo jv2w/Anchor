@@ -190,17 +190,17 @@ func (s *session) probe() error {
 	if s.c.scenario != "spawn" || !s.spawnKnown {
 		return nil
 	}
-	centre := protocol.SubChunkPos{s.spawnChunk.X(), 0, s.spawnChunk.Z()}
+	center := protocol.SubChunkPos{s.spawnChunk.X(), 0, s.spawnChunk.Z()}
 	probes := []struct {
 		name string
 		pk   *packet.SubChunkRequest
 	}{
-		{"all", &packet.SubChunkRequest{Position: centre, Offsets: allOffsets()}},
-		{"out-of-range", &packet.SubChunkRequest{Position: centre, Offsets: []protocol.SubChunkOffset{
+		{"all", &packet.SubChunkRequest{Position: center, Offsets: allOffsets()}},
+		{"out-of-range", &packet.SubChunkRequest{Position: center, Offsets: []protocol.SubChunkOffset{
 			{0, lowestSubChunk - 1, 0}, {0, highestSubChunk + 1, 0},
 		}}},
 		{"unsent", &packet.SubChunkRequest{
-			Position: protocol.SubChunkPos{centre.X() + unsentDistance, 0, centre.Z() + unsentDistance},
+			Position: protocol.SubChunkPos{center.X() + unsentDistance, 0, center.Z() + unsentDistance},
 			Offsets:  []protocol.SubChunkOffset{{0, lowestSubChunk, 0}, {0, 0, 0}},
 		}},
 	}

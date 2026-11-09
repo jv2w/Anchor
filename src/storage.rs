@@ -105,6 +105,10 @@ const MAX_CHUNK_SUFFIX_BYTES: usize = 3;
 /// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
 /// name on Linux and the 255 UTF-16 units on Windows.
 pub(crate) const MAX_FILE_NAME_BYTES: usize = 250;
+/// The most bytes before the dot of a Windows 8.3 short name.
+const MAX_SHORT_NAME_BASE_BYTES: usize = 8;
+/// The most bytes after the dot of a Windows 8.3 short name.
+const MAX_SHORT_NAME_EXTENSION_BYTES: usize = 3;
 /// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
 /// `save::new_place` gives no place for a new one past them).
 pub(crate) const MAX_WORLDS: usize = 1024;
@@ -120,10 +124,6 @@ const PLAYERS: Table = TableDefinition::new("players");
 pub(crate) const PLAYERS_FILE: &str = "players";
 /// Failed commits retried before [`Storage::commit`] gives up.
 const RETRIES: usize = 3;
-/// The most bytes before the dot of a Windows 8.3 short name.
-const SHORT_NAME_BASE_BYTES: usize = 8;
-/// The most bytes after the dot of a Windows 8.3 short name.
-const SHORT_NAME_EXTENSION_BYTES: usize = 3;
 /// The sign bit of a chunk coordinate, flipped in the key so that keys sort by coordinate.
 const SIGN_BIT: u32 = 0x8000_0000;
 /// The bits of a sub-chunk value's kind byte that hold the sub-chunk's index.
@@ -2018,8 +2018,8 @@ pub(crate) fn is_world_file_name(name: &str) -> bool {
 /// dot and 3 bytes, with `~` and a digit before the dot (`LONGWO~1`, `x~12.txt`).
 fn is_short_name_form(name: &str) -> bool {
     let (base, extension) = name.split_once('.').unwrap_or((name, ""));
-    base.len() <= SHORT_NAME_BASE_BYTES
-        && extension.len() <= SHORT_NAME_EXTENSION_BYTES
+    base.len() <= MAX_SHORT_NAME_BASE_BYTES
+        && extension.len() <= MAX_SHORT_NAME_EXTENSION_BYTES
         && !extension.contains('.')
         && base
             .as_bytes()

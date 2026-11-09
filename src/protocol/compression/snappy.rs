@@ -14,7 +14,7 @@ const HASH_MULTIPLIER: u32 = 0x1e35_a7bd;
 const INPUT_MARGIN_BYTES: usize = 16 - 1;
 /// The encoder matches inside blocks of this size, so copy offsets fit in 16 bits.
 const MAX_BLOCK_BYTES: usize = 1 << 16;
-/// The most times its own size a valid stream decodes to (`network.md`).
+/// The most times its own size a valid stream decodes to (`.claude/docs/network.md`).
 const MAX_RATIO: usize = 22;
 /// The most entries of the encoder's match table.
 const MAX_TABLE: usize = 1 << 14;

@@ -36,6 +36,7 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::fmt;
+use std::io::Write as _;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1394,7 +1395,6 @@ impl<'a> Read<'a> {
     reason = "off-tick: the main thread writes the crash log after the tick thread ended"
 )]
 pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Result<PathBuf> {
-    use std::io::Write as _;
     let bytes = log
         .encode_within(MAX_FILE_BYTES)
         .map_err(std::io::Error::other)?;
@@ -1708,7 +1708,7 @@ mod tests {
     use crate::world::{Chunk, Flat};
 
     /// The seconds a test's write of a crash log surely starts within.
-    const WRITE_SECONDS: u64 = 60;
+    const WRITE_SECS: u64 = 60;
 
     #[test]
     fn an_empty_tick_counts_against_the_bound() {
@@ -2384,7 +2384,7 @@ mod tests {
         std::fs::create_dir_all(&crash).unwrap();
         let log = InputLog::starting_at(7);
         let now = clock::unix_now().unwrap();
-        let taken: Vec<PathBuf> = (now..=now + WRITE_SECONDS)
+        let taken: Vec<PathBuf> = (now..=now + WRITE_SECS)
             .map(|secs| crash.join(format!("input-{secs}-7.log")))
             .collect();
         for path in &taken {

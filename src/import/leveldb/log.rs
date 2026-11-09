@@ -14,7 +14,7 @@
 //! (length-prefixed key and value), 0 = delete (length-prefixed key). Record `i` has sequence
 //! number `sequence + i`.
 
-use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY, MAX_SEQUENCE, masked_crc};
+use super::{Bytes, KIND_DELETION, KIND_VALUE, MAX_KEY_BYTES, MAX_SEQUENCE, masked_crc};
 use crate::import::{Error, Result};
 
 /// A write batch header: sequence number and count.
@@ -121,10 +121,10 @@ pub(super) fn batch(record: &[u8], mut f: impl FnMut(Write<'_>) -> Result<()>) -
         }
         let kind = body.u8()?;
         let key = body.prefixed()?;
-        if key.len() > MAX_KEY {
+        if key.len() > MAX_KEY_BYTES {
             return Err(Error::TooLarge {
                 what: "bytes in a user key",
-                limit: MAX_KEY as u64,
+                limit: MAX_KEY_BYTES as u64,
             });
         }
         let value = match kind {
@@ -332,7 +332,7 @@ pub(super) mod tests {
         kind[12] = 7;
         assert!(matches!(ok(&kind), Err(Error::Malformed(_))));
         assert!(ok(&good[..5]).is_err());
-        let long_key = encode_batch(1, &[(vec![0; MAX_KEY + 1], None)]);
+        let long_key = encode_batch(1, &[(vec![0; MAX_KEY_BYTES + 1], None)]);
         assert!(matches!(ok(&long_key), Err(Error::TooLarge { .. })));
         let overflow = encode_batch(u64::MAX, &[(b"a".to_vec(), None), (b"b".to_vec(), None)]);
         assert!(matches!(ok(&overflow), Err(Error::Malformed(_))));

@@ -41,7 +41,7 @@ use tracing::debug;
 const ARENA: &str = "arena";
 /// The block players stand on when a round starts: on the grass of the flat arena.
 const ARENA_CENTRE: BlockPos = BlockPos::new(16, -60, 16);
-/// Blocks break only this far (in x and z) from the arena centre.
+/// Blocks break only this far (in x and z) from the arena center.
 const ARENA_RADIUS: u32 = 12;
 /// Seconds of the lobby countdown.
 const COUNTDOWN_SECS: u8 = 5;
@@ -54,7 +54,7 @@ const MIN_PLAYERS: usize = 1;
 /// Seconds of a round.
 const ROUND_SECS: u8 = 10;
 /// One second, in ticks.
-const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
+const SECOND_TICKS: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
 
 /// What a player did in the current round. A player extension: not saved.
 #[derive(Debug, Clone, Copy, Default)]
@@ -172,7 +172,10 @@ impl Game {
             move || summary(round, tallies),
             |cx, result| match result {
                 Ok(text) => or_log(cx.broadcast(Message::Raw(text))),
-                Err(error) => debug!(error = &error as &(dyn Error + 'static), "no round summary"),
+                Err(error) => debug!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "no round summary"
+                ),
             },
         ));
     }
@@ -186,7 +189,7 @@ fn main() -> anchor::Result<()> {
     Server::builder()
         .config(Config::default().load("anchor.toml")?)
         .world(ARENA, Kind::Temporary, Flat)
-        .every(SECOND, move |cx| game.second(cx))
+        .every(SECOND_TICKS, move |cx| game.second(cx))
         .on(Priority::Normal, on_join)
         .on(Priority::Normal, protect_blocks)
         .on_receive(|cx, player, _packet| {
@@ -289,7 +292,7 @@ fn feet(pos: BlockPos) -> Vec3 {
 fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
         debug!(
-            error = &error as &(dyn Error + 'static),
+            error = &error as &(dyn std::error::Error + 'static),
             "skipped for one player"
         );
     }

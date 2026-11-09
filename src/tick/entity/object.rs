@@ -58,12 +58,12 @@ const FLIGHT_STEP_TICKS: u32 = 10;
 const LARGE_BALL: u8 = 1;
 /// The upward speed of a launched rocket at its start.
 const LAUNCH_CLIMB: f64 = 0.05;
-/// The largest sideways speed a launched rocket starts with.
-const LAUNCH_DRIFT: f64 = 0.0023;
 /// The pitch of a launched rocket, in degrees: straight up.
 const LAUNCH_PITCH_DEGREES: f64 = 90.0;
 /// The largest flight multiplier of a firework item (1 to 127).
 const MAX_FLIGHT_MULTIPLIER: u8 = 127;
+/// The largest sideways speed a launched rocket starts with.
+const MAX_LAUNCH_DRIFT: f64 = 0.0023;
 /// The largest explosion shape.
 const MAX_SHAPE: u8 = 4;
 /// How much of its block a painting leaves free in front: it is 1/16 thick.
@@ -307,7 +307,7 @@ pub(super) fn launch(
     let flight = (u32::from(multiplier) + 1) * FLIGHT_STEP_TICKS
         + random.range(0, FLIGHT_RANDOM_TICKS).unsigned_abs();
     let yaw = super::random_yaw(random);
-    let mut drift = || (random.unit() - random.unit()) * LAUNCH_DRIFT;
+    let mut drift = || (random.unit() - random.unit()) * MAX_LAUNCH_DRIFT;
     let motion = Vec3::new(drift(), LAUNCH_CLIMB, drift());
     let kind = firework(flight, multiplier, explosions, owner);
     create(state, world, at, kind, |_| {

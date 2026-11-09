@@ -54,6 +54,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use anchor::block::PropertyValue;
 use serde_json::Value;
 
 use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, REFERENCE_SOURCE};
@@ -61,8 +62,6 @@ use crate::fs::{create_dir, create_file, is_file, read_text, remove_dir, remove_
 use crate::{process, say, status};
 use compare::field;
 
-/// How many base positions can wait in the channel to Anchor's steps task: the harness sends one.
-const BASE_CHANNEL_BOUND: usize = 1;
 /// The official server log line of a `setblock` that ran.
 const BLOCK_PLACED: &str = "Block placed";
 /// The steps of the blocks scenario: one block placed at (`dx`, `dy`, `dz`) from the base position
@@ -180,6 +179,8 @@ static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new()
 /// is next to it. After each step the marker is set to the step's marker block, so every step ends
 /// with a single-block update there; both servers can make it with block changes only.
 const MARKER: (i32, i32) = (-4, 0);
+/// How many base positions can wait in the channel to Anchor's steps task: the harness sends one.
+const MAX_QUEUED_BASES: usize = 1;
 /// The official server copy, relative to the repository root. The original download is never run.
 const OFFICIAL_DIR: &str = ".cache/official/1.26.60.6";
 /// Test settings written into the copy's `server.properties`, besides the transport, ports,
@@ -822,7 +823,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             ("nethernet", format!("nethernet-{compression}")),
         ] {
             let out_dir = dir(&format!("anchor-{name}"));
-            let (bases, base) = channel(BASE_CHANNEL_BOUND);
+            let (bases, base) = channel(MAX_QUEUED_BASES);
             let steps = anchor_steps(base)?;
             let with_steps = |b: anchor::ServerBuilder| b.every(STEP_TICKS, steps);
             passed &= anchor_session(
@@ -1071,7 +1072,6 @@ fn anchor_steps(
 /// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
 /// default state (connection properties are worked out by `set_block` anyway).
 fn step_state(block: &str) -> Result<anchor::block::State, String> {
-    use anchor::block::PropertyValue;
     let (name, properties) = match block.split_once(' ') {
         Some((name, rest)) => (name, rest.trim()),
         None => (block, ""),
@@ -1487,7 +1487,7 @@ fn record_bind_mismatch(
 /// Logs in twice with the same name: the first bot (`kicked`, into `<dir>/first.jsonl`) spawns
 /// and waits for its Disconnect while the second (`spawn`, `<dir>/second.jsonl`) joins. When the
 /// first is kicked with `LoggedInOtherLocation`, both must pass; otherwise the server's
-/// behaviour is recorded and the run passes.
+/// behavior is recorded and the run passes.
 fn duplicate_login(
     bot: &Path,
     addr: &str,

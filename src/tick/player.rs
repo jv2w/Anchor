@@ -588,7 +588,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Leaving`] if the player already leaves.
+    /// [`Error::Leaving`] for a player who already leaves.
     /// [`Error::TooLong`] for a reason longer than 65,536 bytes.
     #[doc(alias = "Player::kick")]
     #[doc(alias = "Player::disconnect")]
@@ -672,7 +672,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Leaving`] if the player already leaves.
+    /// [`Error::Leaving`] for a player who already leaves.
     /// [`Error::InvalidAddress`] for an empty address or one longer than 253 bytes.
     #[doc(alias = "Player::transfer")]
     pub fn transfer(&mut self, address: impl Into<String>, port: u16) -> Result<()> {
@@ -834,7 +834,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Offline`] if the player is not in the game.
+    /// [`Error::Offline`] for a player who is not in the game.
     /// [`Error::WorldNotLoaded`] for a world that is not loaded (unloaded, or an ID of another
     /// server).
     /// [`Error::OutsideWorld`] for a position that is not finite or lies outside the world

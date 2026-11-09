@@ -33,7 +33,7 @@ use crate::world::{BlockPos, Entry};
 /// The farthest a look reaches, in blocks.
 const MAX_SIGHT: u32 = 120;
 /// The most blocks a look of [`MAX_SIGHT`] passes through: a ray crosses at most one block
-/// boundary per axis per block travelled.
+/// boundary per axis per block traveled.
 const MAX_SIGHT_CELLS: usize = 3 * MAX_SIGHT as usize + 4;
 
 /// What the API sets on top of the rules: entity data, abilities and the marks of work that waits
@@ -707,7 +707,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value that is negative or not finite.
     #[doc(alias = "HungerManager::addFood")]
     pub fn add_food(&mut self, food: f64) -> Result<()> {
@@ -724,7 +724,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value that is negative or not finite.
     #[doc(alias = "HungerManager::addSaturation")]
     pub fn add_saturation(&mut self, saturation: f64) -> Result<()> {
@@ -741,7 +741,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     #[doc(alias = "ExperienceManager::addXp")]
     pub fn add_xp(&mut self, points: u32) -> Result<()> {
         enabled(self.survival.switches.xp)?;
@@ -755,7 +755,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     /// [`Error::OutOfRange`] for a level that would pass 24,791.
     #[doc(alias = "ExperienceManager::addXpLevels")]
     pub fn add_xp_levels(&mut self, levels: u32) -> Result<()> {
@@ -776,7 +776,7 @@ impl Player {
         self.survival.touch(0);
     }
 
-    /// Plays the emote `emote_id` (a UUID from the emote catalogue) for the players that see
+    /// Plays the emote `emote_id` (a UUID from the emote catalog) for the players that see
     /// the player, at the end of the tick. A second call in the tick wins. Fails for an empty ID
     /// or one longer than 128 bytes.
     ///
@@ -798,7 +798,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value that is negative or not finite.
     #[doc(alias = "HungerManager::exhaust")]
     pub fn exhaust(&mut self, amount: f64) -> Result<()> {
@@ -864,7 +864,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `drowning = false`.
+    /// [`Error::Disabled`] for a server with `drowning = false`.
     /// [`Error::OutOfRange`] for ticks outside -20 to the maximum air supply.
     #[doc(alias = "Living::setAirSupplyTicks")]
     pub fn set_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
@@ -950,7 +950,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     /// [`Error::OutOfRange`] for points above those of the highest level.
     #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
     pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
@@ -983,7 +983,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value outside 0 to 20.
     #[doc(alias = "HungerManager::setExhaustion")]
     pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
@@ -1049,7 +1049,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value outside 0 to 20.
     #[doc(alias = "HungerManager::setFood")]
     pub fn set_food(&mut self, food: f64) -> Result<()> {
@@ -1185,7 +1185,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     /// [`Error::OutOfRange`] for points above 2^31 - 1.
     #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
     pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
@@ -1203,7 +1203,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `drowning = false`.
+    /// [`Error::Disabled`] for a server with `drowning = false`.
     /// [`Error::OutOfRange`] for ticks outside 1 to 32,767.
     #[doc(alias = "Living::setMaxAirSupplyTicks")]
     pub fn set_max_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
@@ -1333,7 +1333,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `food = false`.
+    /// [`Error::Disabled`] for a server with `food = false`.
     /// [`Error::OutOfRange`] for a value outside 0 to 20.
     #[doc(alias = "HungerManager::setSaturation")]
     pub fn set_saturation(&mut self, saturation: f64) -> Result<()> {
@@ -1433,7 +1433,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     /// [`Error::OutOfRange`] for a level above 24,791.
     #[doc(alias = "ExperienceManager::setXpLevel")]
     pub fn set_xp_level(&mut self, level: u32) -> Result<()> {
@@ -1453,7 +1453,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     /// [`Error::OutOfRange`] for a progress outside 0 to below 1 or not finite.
     #[doc(alias = "ExperienceManager::setXpProgress")]
     pub fn set_xp_progress(&mut self, progress: f64) -> Result<()> {
@@ -1472,7 +1472,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXp")]
     pub fn subtract_xp(&mut self, points: u32) -> Result<()> {
         enabled(self.survival.switches.xp)?;
@@ -1488,7 +1488,7 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] with `xp = false`.
+    /// [`Error::Disabled`] for a server with `xp = false`.
     #[doc(alias = "ExperienceManager::subtractXpLevels")]
     pub fn subtract_xp_levels(&mut self, levels: u32) -> Result<()> {
         enabled(self.survival.switches.xp)?;

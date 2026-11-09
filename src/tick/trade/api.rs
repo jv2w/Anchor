@@ -42,9 +42,10 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
-    /// for an offer [`check_offers`] refuses or a list it would make too long or too large.
-    /// Nothing is changed then.
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying;
+    /// nothing is changed.
+    /// [`custom::Error::Offer`] for an offer [`check_offers`] refuses or a list it would make too
+    /// long or too large; nothing is changed.
     pub fn add_trade_offer(&mut self, villager: Id, offer: &Offer) -> custom::Result<()> {
         let stored = to_stored(offer);
         change(self.state, villager, |o| o.add(stored))
@@ -54,8 +55,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
-    /// when there is no offer at `index`.
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying.
+    /// [`custom::Error::Offer`] for an `index` that holds no offer.
     pub fn remove_trade_offer(&mut self, villager: Id, index: usize) -> custom::Result<Offer> {
         change(self.state, villager, |o| o.remove(index)).map(|stored| to_offer(&stored))
     }
@@ -64,9 +65,10 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`] and [`custom::Error::Offer`]
-    /// for an offer [`check_offers`] refuses, a list it would make too large, or no offer at
-    /// `index`. Nothing is changed then.
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying;
+    /// nothing is changed.
+    /// [`custom::Error::Offer`] for an offer [`check_offers`] refuses, a list it would make too
+    /// large, or an `index` that holds no offer; nothing is changed.
     pub fn replace_trade_offer(
         &mut self,
         villager: Id,
@@ -81,7 +83,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`].
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying.
     pub fn reset_trade_uses(&mut self, villager: Id) -> custom::Result<()> {
         change(self.state, villager, |o| {
             o.reset_uses();
@@ -93,13 +95,14 @@ impl Context<'_> {
     /// at once.
     ///
     /// The saved offers the server cannot read ([`Self::trade_offers`]) are not replaced: they
-    /// stay after the new list, count towards the 2 MiB, and are read again when the villager is
+    /// stay after the new list, count toward the 2 MiB, and are read again when the villager is
     /// next loaded with their custom items registered.
     ///
     /// # Errors
     ///
-    /// [`custom::Error::NotVillager`] if it is not one or is dying and [`custom::Error::Offer`]
-    /// for offers [`check_offers`] refuses. Nothing is changed then.
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying;
+    /// nothing is changed.
+    /// [`custom::Error::Offer`] for offers [`check_offers`] refuses; nothing is changed.
     pub fn set_trade_offers(&mut self, villager: Id, offers: &[Offer]) -> custom::Result<()> {
         let stored = offers.iter().map(to_stored).collect();
         change(self.state, villager, |o| o.set(stored))
@@ -112,8 +115,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::Offer`] for a higher tier and [`custom::Error::NotVillager`] as
-    /// [`Self::set_trade_offers`].
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying.
+    /// [`custom::Error::Offer`] for a higher tier.
     pub fn set_trade_tier(&mut self, villager: Id, tier: u8) -> custom::Result<()> {
         change(self.state, villager, |o| o.set_tier(tier))
     }
@@ -124,8 +127,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::Offer`] for needs [`custom::is_tier_xp`] refuses and
-    /// [`custom::Error::NotVillager`] as [`Self::set_trade_offers`].
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying.
+    /// [`custom::Error::Offer`] for needs [`custom::is_tier_xp`] refuses.
     pub fn set_trade_tier_xp(
         &mut self,
         villager: Id,
@@ -140,8 +143,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`custom::Error::Offer`] for a higher xp and [`custom::Error::NotVillager`] as
-    /// [`Self::set_trade_offers`].
+    /// [`custom::Error::NotVillager`] for a `villager` that is not a villager NPC or is dying.
+    /// [`custom::Error::Offer`] for a higher xp.
     pub fn set_trade_xp(&mut self, villager: Id, xp: u32) -> custom::Result<()> {
         change(self.state, villager, |o| o.set_xp(xp))
     }
@@ -152,7 +155,7 @@ impl Context<'_> {
 /// a sale, uses at most its maximum, counters at most [`custom::MAX_TRADE_COUNTER`], a tier at most
 /// [`custom::MAX_TRADE_TIER`] and price multipliers passing [`custom::is_price_multiplier`],
 /// whose saved form takes at most 2 MiB. [`Context::set_trade_offers`] checks the same, but counts
-/// towards the 2 MiB the offer data a villager loaded from a saved world keeps unread.
+/// toward the 2 MiB the offer data a villager loaded from a saved world keeps unread.
 ///
 /// # Errors
 ///

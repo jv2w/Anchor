@@ -87,7 +87,7 @@ pub(super) struct Chunks {
     level: Vec<([i64; 2], String)>,
     /// How many `LevelChunk`s came before `PlayStatus(PlayerSpawn)`.
     before_spawn: usize,
-    /// The `SubChunk` entries by relative request centre and offset: the entry's fields without the
+    /// The `SubChunk` entries by relative request center and offset: the entry's fields without the
     /// offset, the packet's `CacheEnabled` and `Dimension`, and the bot's strict payload check
     /// (`strict` and each layer's `content_sha256`). A key answered twice has two values.
     sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
@@ -113,7 +113,7 @@ enum PublisherUpdates {
 #[derive(Debug)]
 struct SubChunkPacket {
     index: u64,
-    centre: [i64; 3],
+    center: [i64; 3],
     /// Each entry's offset and its other fields.
     entries: Vec<(Value, Value)>,
 }
@@ -163,7 +163,7 @@ impl ChunkReader {
                         }
                     }
                     "SubChunk" => {
-                        let centre = [
+                        let center = [
                             at(position, 0)? - chunk[0],
                             at(position, 1)?,
                             at(position, 2)? - chunk[1],
@@ -171,7 +171,7 @@ impl ChunkReader {
                         self.flush(None);
                         self.pending = Some(SubChunkPacket {
                             index: field(value, "index").as_u64().unwrap_or(u64::MAX),
-                            centre,
+                            center,
                             entries: sub_chunk_entries(fields),
                         });
                     }
@@ -217,7 +217,7 @@ impl ChunkReader {
                 if strict.as_str() != Some("ok") {
                     self.out
                         .not_strict
-                        .push(format!("{:?} {offset:?}: {strict}", packet.centre));
+                        .push(format!("{:?} {offset:?}: {strict}", packet.center));
                 }
                 let content: Vec<Value> = array(payload, "layers")
                     .iter()
@@ -228,7 +228,7 @@ impl ChunkReader {
             }
             self.out
                 .sub
-                .entry((packet.centre, offset))
+                .entry((packet.center, offset))
                 .or_default()
                 .push(entry.to_string());
         }
@@ -937,7 +937,7 @@ fn sub_chunk_entries(fields: &Value) -> Vec<(Value, Value)> {
 /// Compares the chunk packets of A (official server) and B. Differences:
 /// - the distinct `LevelChunk` field sets (without the position) differ: the same flat world must
 ///   give the same chunks;
-/// - a `SubChunk` answer (by relative centre and offset) differs or only one side has it: result,
+/// - a `SubChunk` answer (by relative center and offset) differs or only one side has it: result,
 ///   height maps, payload hash and length, strict check and layer contents;
 /// - B's payloads break Anchor's strict sub-chunk rules;
 /// - B sent its chunks before spawning not nearest first, or a chunk twice;
@@ -968,7 +968,7 @@ pub(super) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String
                     v.map_or_else(|| "(none)".to_owned(), |v| v.join(", "))
                 };
                 differences.push(format!(
-                    "SubChunk centre {:?} offset {:?}:\n  A: {}\n  B: {}",
+                    "SubChunk center {:?} offset {:?}:\n  A: {}\n  B: {}",
                     key.0,
                     key.1,
                     show(x),
@@ -1721,7 +1721,7 @@ mod tests {
         let (differences, notes) = compare_chunks(&a, &b);
         assert_eq!(differences.len(), 2, "{differences:?}");
         assert!(differences[0].starts_with("LevelChunk fields differ"));
-        assert!(differences[1].starts_with("SubChunk centre [0, 0, 0] offset [0, -4, 0]"));
+        assert!(differences[1].starts_with("SubChunk center [0, 0, 0] offset [0, -4, 0]"));
         assert_eq!(notes.len(), 2);
         // B's chunks before spawning must be nearest first, and B's payloads strict.
         let far_first = chunk_capture(1, 4)

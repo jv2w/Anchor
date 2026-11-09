@@ -147,11 +147,13 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Sends nothing with the first of these that holds:
-    /// [`Error::Invalid`] for a form that breaks a rule of its builder or is too large.
-    /// [`Error::Offline`] for a player who is not in the game.
-    /// [`Error::Full`] for a player who has 16 forms waiting.
-    /// [`Error::Exhausted`] for a player who was sent 2^32 forms already.
+    /// [`Error::Invalid`] for a form that breaks a rule of its builder or is too large; nothing is
+    /// sent.
+    /// [`Error::Offline`] for a player who is not in the game; nothing is sent.
+    /// [`Error::Full`] for a player who has 16 forms waiting; nothing is sent.
+    /// [`Error::Exhausted`] for a player who was sent 2^32 forms already; nothing is sent.
+    ///
+    /// The first of these that holds is returned.
     #[doc(alias = "Player::sendForm")]
     #[doc(alias = "Form::handleResponse")]
     pub fn send_form(

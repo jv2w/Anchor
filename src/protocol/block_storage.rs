@@ -122,7 +122,7 @@ impl PalettedStorage {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidValue`], changing nothing, for an `index` that is not in the palette.
+    /// [`Error::InvalidValue`] for an `index` that is not in the palette; nothing is changed.
     pub fn set_index(&mut self, x: u8, y: u8, z: u8, index: u16) -> Result<()> {
         if usize::from(index) >= self.palette.len() {
             return Err(Error::InvalidValue {

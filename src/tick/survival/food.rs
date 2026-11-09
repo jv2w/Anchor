@@ -17,7 +17,8 @@ use crate::player::{Id, MAX_PROGRESS, level_from_xp, xp_to_complete_level, xp_to
 use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
-use crate::tick::{Phase, Player, SessionId, State, block_entity, checkpoint, entity, inventory};
+use crate::tick::checkpoint::{self, Codec};
+use crate::tick::{Phase, Player, SessionId, State, block_entity, entity, inventory};
 use crate::world::{BlockPos, MAX_Y, MIN_Y, Sound};
 
 /// The random stream of a chorus fruit's teleport.
@@ -120,13 +121,12 @@ impl checkpoint::Codec for CooldownKey {
     }
 
     fn decode(r: &mut checkpoint::Reader<'_>) -> checkpoint::Result<Self> {
-        use crate::tick::checkpoint::{Codec, Error};
         match r.u8()? {
             0 => vanilla_tag(&String::decode(r)?)
                 .map(Self::Tag)
-                .ok_or(Error::Format("cooldown tag")),
+                .ok_or(checkpoint::Error::Format("cooldown tag")),
             1 => Ok(Self::Item(Codec::decode(r)?)),
-            _ => Err(Error::Format("cooldown key")),
+            _ => Err(checkpoint::Error::Format("cooldown key")),
         }
     }
 }

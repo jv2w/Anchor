@@ -32,6 +32,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use super::checkpoint::{Codec, Error};
 use super::view::Key;
 use crate::nbt::Compound;
 use crate::save::{ChunkExtras, WorldIndex};
@@ -50,7 +51,6 @@ pub(super) struct Extras {
 impl Extras {
     /// Writes each loaded chunk's [`Held::checkpoint`].
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
         // The dirty set repeats the marks of the chunks, which `Held::checkpoint` writes.
         let Self { chunks, dirty: _ } = self;
         w.len(chunks.len());
@@ -91,7 +91,6 @@ impl Extras {
         r: &mut super::checkpoint::Reader<'_>,
         stored: &mut BTreeMap<Key, ChunkExtras>,
     ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
         let n = r.len()?;
         let mut chunks = BTreeMap::new();
         let mut dirty = BTreeSet::new();
@@ -185,7 +184,6 @@ impl Held {
     /// Writes the marks, and the lists when a kind is marked: an unmarked list is the world
     /// file's or the generator's (`Self::hash_into`), which a replay reads again.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
         let Self { extras, dirty } = self;
         dirty.encode(w);
         if *dirty != 0 {
@@ -230,7 +228,6 @@ impl Held {
         r: &mut super::checkpoint::Reader<'_>,
         stored: Option<ChunkExtras>,
     ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
         let dirty = u8::decode(r)?;
         let extras = if dirty == 0 {
             stored.ok_or(Error::Format("chunk extras the server file does not give"))?
@@ -285,7 +282,6 @@ impl Player {
         data: &super::task::UserData,
         w: &mut super::checkpoint::Writer,
     ) {
-        use super::checkpoint::Codec;
         let Self { raw, user } = self;
         raw.encode(w);
         data.checkpoint_player(user, w);
@@ -309,7 +305,6 @@ impl Player {
         r: &mut super::checkpoint::Reader<'_>,
         data: &super::task::UserData,
     ) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
         Ok(Self {
             raw: Codec::decode(r)?,
             user: data.restore_player(r)?,

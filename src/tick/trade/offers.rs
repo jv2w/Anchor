@@ -61,7 +61,7 @@ pub(super) const FIRST_NET_ID: u32 = 1;
 /// The most a villager's saved offers may take from the allocation budget of the reader that
 /// reads them back ([`Cost::alloc`](crate::nbt::Cost)): four times their bytes, as a stack's
 /// NBT may.
-const MAX_SAVED_ALLOC: usize = 4 * MAX_SAVED_BYTES;
+const MAX_SAVED_ALLOC_BYTES: usize = 4 * MAX_SAVED_BYTES;
 /// The most bytes a villager's saved offers take ([`Offers::to_nbt`]): half of one NBT root
 /// ([`MAX_ROOT_BYTES`](crate::nbt::MAX_ROOT_BYTES)), which the villager's entity and its
 /// `UpdateTrade` must each fit, though [`MAX_OFFERS`] offers of three stacks could take 36 MiB
@@ -339,7 +339,7 @@ impl Offers {
 
     /// Replaces the whole list. Every offer must pass [`StoredOffer::check`] and the saved list
     /// fit [`MAX_SAVED_BYTES`]; nothing changes otherwise. The saved offers Anchor cannot use stay
-    /// after the new list and count towards that size.
+    /// after the new list and count toward that size.
     pub(in crate::tick) fn set(&mut self, list: Vec<StoredOffer>) -> Result<()> {
         if list.len() > MAX_OFFERS {
             return Err(Error::Full);
@@ -424,13 +424,13 @@ impl Offers {
         c
     }
 
-    /// Whether the saved form fits [`MAX_SAVED_BYTES`] and [`MAX_SAVED_ALLOC`], so the
+    /// Whether the saved form fits [`MAX_SAVED_BYTES`] and [`MAX_SAVED_ALLOC_BYTES`], so the
     /// villager's entity and its `UpdateTrade` each fit one NBT root. A trade keeps it: it
     /// changes only fixed-width ints of the saved form.
     fn fits(&self) -> bool {
         let mut w = Writer::new(Vec::new(), 0);
         w.nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
-            .is_ok_and(|c| c.alloc <= MAX_SAVED_ALLOC)
+            .is_ok_and(|c| c.alloc <= MAX_SAVED_ALLOC_BYTES)
     }
 
     /// The network ID of the offer at `index`, while the list has IDs.

@@ -35,7 +35,7 @@ const FRAME_COST_BYTES: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
 /// message of the handshake fits one datagram and arrives about in order, so a few datagrams
 /// cover reordering. Without cookies (`raknet-cookies = false`), anyone can open a connection to
 /// this point.
-const HANDSHAKE_HELD_BYTES: usize = 4 * MAX_MTU as usize;
+const HANDSHAKE_HELD_BYTES: usize = 4 * MAX_MTU_BYTES as usize;
 /// First congestion window, in datagrams carrying reliable frames.
 const INITIAL_CWND: usize = 32;
 /// Resend timeout before the first RTT sample (RFC 6298 uses 1 s; RakNet links are faster).
@@ -52,7 +52,7 @@ const MAX_BURST: usize = 32;
 /// datagram gap; more in flight could exceed it after one loss.
 const MAX_CWND: usize = 2048;
 /// The largest MTU (go-raknet `maxMTUSize`), also the top of `max-mtu-bytes`.
-pub(crate) const MAX_MTU: u16 = 1492;
+pub(crate) const MAX_MTU_BYTES: u16 = 1492;
 /// Separate gaps in the reliable indices at most. Each costs a map entry; an honest sender has
 /// at most one per frame it is resending.
 const MAX_RELIABLE_GAPS: usize = 8192;
@@ -63,13 +63,13 @@ const MAX_RTO: Duration = Duration::from_secs(2);
 const MAX_SPAN: u32 = 1 << 22;
 /// The lowest congestion window, so that a lossy link keeps moving.
 const MIN_CWND: usize = 4;
-/// The smallest full fragment: a datagram at `MIN_MTU` without IP/UDP, datagram and frame
+/// The smallest full fragment: a datagram at `MIN_MTU_BYTES` without IP/UDP, datagram and frame
 /// headers. Dividing the message limit by it bounds the fragments of any honest sender.
 const MIN_FRAGMENT_BYTES: usize =
-    MIN_MTU as usize - UDP_HEADER_BYTES - DATAGRAM_HEADER_BYTES - MAX_FRAME_HEADER_BYTES;
+    MIN_MTU_BYTES as usize - UDP_HEADER_BYTES - DATAGRAM_HEADER_BYTES - MAX_FRAME_HEADER_BYTES;
 /// The smallest MTU a client may negotiate: go-raknet's server floor (`minMTUSize`). Its dialer
 /// never asks for less than 576; a request below 400 gets no reply instead of a silent clamp.
-pub(super) const MIN_MTU: u16 = 400;
+pub(super) const MIN_MTU_BYTES: u16 = 400;
 /// Lowest resend timeout.
 const MIN_RTO: Duration = Duration::from_millis(100);
 /// Order indices a message may run ahead of the next one due (go-raknet `maxWindowSize`).
@@ -114,7 +114,7 @@ pub(super) struct Peer {
 
 impl Peer {
     pub(super) fn new(now: Duration, mtu: u16, limits: Limits) -> Result<Self> {
-        if !(MIN_MTU..=MAX_MTU).contains(&mtu) {
+        if !(MIN_MTU_BYTES..=MAX_MTU_BYTES).contains(&mtu) {
             return Err(Error::Malformed("mtu"));
         }
         Ok(Self {
@@ -687,7 +687,7 @@ impl Limits {
             .ok_or(invalid)?;
         let held = message
             .checked_mul(2)
-            .and_then(|held| held.checked_add(MAX_CWND * usize::from(MAX_MTU)))
+            .and_then(|held| held.checked_add(MAX_CWND * usize::from(MAX_MTU_BYTES)))
             .and_then(|held| held.checked_add(parts))
             .ok_or(invalid)?;
         Ok(Self {
@@ -711,7 +711,7 @@ impl Limits {
     /// held bytes that follow from that message size.
     ///
     /// # Errors
-    /// [`Error::Limit`] when the smaller message size cannot be counted, which `new` would have
+    /// [`Error::Limit`] for a smaller message size that cannot be counted, which `new` would have
     /// refused for the full limits already.
     pub(super) fn to_pre_login(self) -> Result<Self> {
         Self::new(
@@ -1035,9 +1035,9 @@ pub(super) mod tests {
     #[test]
     fn mtu_outside_the_supported_range_is_refused() {
         let limits = Limits::new(SMALL).unwrap();
-        assert!(Peer::new(T0, MIN_MTU - 1, limits).is_err());
-        assert!(Peer::new(T0, MAX_MTU + 1, limits).is_err());
-        assert!(Peer::new(T0, MIN_MTU, limits).is_ok());
+        assert!(Peer::new(T0, MIN_MTU_BYTES - 1, limits).is_err());
+        assert!(Peer::new(T0, MAX_MTU_BYTES + 1, limits).is_err());
+        assert!(Peer::new(T0, MIN_MTU_BYTES, limits).is_ok());
     }
 
     /// A data datagram with sequence number `seq` holding `frames`.
@@ -1054,7 +1054,7 @@ pub(super) mod tests {
     }
 
     fn peer(max_message_bytes: usize) -> Peer {
-        Peer::new(T0, MAX_MTU, Limits::new(max_message_bytes).unwrap()).unwrap()
+        Peer::new(T0, MAX_MTU_BYTES, Limits::new(max_message_bytes).unwrap()).unwrap()
     }
 
     fn receive(peer: &mut Peer, data: &[u8]) -> Result<Vec<Message>> {
@@ -1176,7 +1176,7 @@ pub(super) mod tests {
     fn a_handshaking_peer_holds_only_a_few_datagrams() {
         let limits = Limits::new(DEFAULT_MESSAGE).unwrap();
         assert!(limits.held > HANDSHAKE_HELD_BYTES);
-        let mut peer = Peer::new(T0, MAX_MTU, limits.to_handshake()).unwrap();
+        let mut peer = Peer::new(T0, MAX_MTU_BYTES, limits.to_handshake()).unwrap();
         let part = [0xfe; 1000];
         let unreliable = |index| Header {
             split: Some(Split {
@@ -1214,7 +1214,7 @@ pub(super) mod tests {
         let login = Limits::new(MAX_PRE_LOGIN_MESSAGE_BYTES).unwrap();
         assert_eq!(limits.held, login.held);
         assert!(limits.held < full.held / 2);
-        let mut peer = Peer::new(T0, MAX_MTU, limits).unwrap();
+        let mut peer = Peer::new(T0, MAX_MTU_BYTES, limits).unwrap();
         let count = limits.splits;
         let unreliable = |id, index| Header {
             split: Some(Split { count, id, index }),

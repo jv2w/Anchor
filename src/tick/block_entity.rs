@@ -24,8 +24,9 @@ use std::ops::Bound;
 
 use tracing::{error, warn};
 
+use super::checkpoint::{self, Codec};
 use super::view::Key;
-use super::{SessionId, State, checkpoint, dispatch, entity, interact, inventory, survival};
+use super::{SessionId, State, dispatch, entity, interact, inventory, survival};
 use crate::block::{self, Class, Face, Facing, PropertyValue};
 use crate::block_entity::DyeColor;
 use crate::custom::Registry;
@@ -38,7 +39,7 @@ use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
 use crate::save::WorldIndex;
 use crate::storage::codec::{MAX_RAW_BLOCK_ENTITIES, MAX_SPILLS};
-use crate::world::{BlockPos, ChunkPos};
+use crate::world::{BlockPos, ChunkPos, Sound};
 
 /// The most spilled stacks dropped per tick, over every world.
 const MAX_SPILL_DROPS_PER_TICK: usize = 64;
@@ -482,7 +483,6 @@ impl super::checkpoint::Codec for BlockEntities {
     }
 
     fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
         let chunks: BTreeMap<Key, Chunk> = Codec::decode(r)?;
         let spilling = chunks
             .iter()
@@ -615,7 +615,6 @@ impl super::checkpoint::Codec for Chunk {
     }
 
     fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::{Codec, Error};
         let n = r.len()?;
         let mut entities = BTreeMap::new();
         for _ in 0..n {
@@ -623,7 +622,7 @@ impl super::checkpoint::Codec for Chunk {
             let nbt = Compound::decode(r)?;
             let e = BlockEntity::read(nbt, pos, r.custom);
             if entities.insert(pos, e).is_some() {
-                return Err(Error::Format("repeated block entity"));
+                return Err(checkpoint::Error::Format("repeated block entity"));
             }
         }
         Ok(Self {
@@ -1692,18 +1691,17 @@ pub(super) fn lid_sound(
     viewers: usize,
     raise: entity::Raise,
 ) {
-    use crate::world::Sound as S;
     let Some(block) = block_at(state, world, pos) else {
         return;
     };
     let (open, close) = if block.is(Class::Chest) {
-        (S::ChestOpen, S::ChestClose)
+        (Sound::ChestOpen, Sound::ChestClose)
     } else if block.is(Class::EnderChest) {
-        (S::EnderChestOpen, S::EnderChestClose)
+        (Sound::EnderChestOpen, Sound::EnderChestClose)
     } else if block.is(Class::Barrel) {
-        (S::BarrelOpen, S::BarrelClose)
+        (Sound::BarrelOpen, Sound::BarrelClose)
     } else if block.is(Class::ShulkerBox) {
-        (S::ShulkerBoxOpen, S::ShulkerBoxClose)
+        (Sound::ShulkerBoxOpen, Sound::ShulkerBoxClose)
     } else {
         return;
     };

@@ -46,16 +46,16 @@ use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, Se
 use crate::udp;
 use transport::Transport;
 
-/// New connections waiting for the accept task, per transport; when full, the transport closes
-/// the newest.
-const ACCEPT_QUEUE: usize = 64;
 /// The compression header byte before a batch.
 const BATCH_HEADER_BYTES: usize = 1;
-/// Session events waiting for the accept task. A session sends at most two (logged in, ended)
-/// and only after taking a permit with `send().await`, so a full queue only delays it.
-const EVENT_QUEUE: usize = 256;
 /// Addresses blocked at once; a block past it is refused with a warning.
 const MAX_BLOCKED: usize = 4096;
+/// New connections waiting for the accept task, per transport; when full, the transport closes
+/// the newest.
+const MAX_NEW_CONNECTIONS: usize = 64;
+/// Session events waiting for the accept task. A session sends at most two (logged in, ended)
+/// and only after taking a permit with `send().await`, so a full queue only delays it.
+const MAX_SESSION_EVENTS: usize = 256;
 /// Sessions of one IPv4 address or IPv6 /64 that have logged in but not joined, at most: each
 /// takes over the place its pre-login slot had.
 const MAX_WAITING_PER_IP: usize = raknet::MAX_PRE_LOGIN_PER_IP;
@@ -523,7 +523,7 @@ pub(crate) async fn start(
     let (pong_tx, pong_rx) = watch::channel(status.pong(0));
 
     // The RakNet driver comes first: it starts nothing, so its failure leaves nothing to stop.
-    let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
+    let (raknet_tx, raknet_rx) = mpsc::channel(MAX_NEW_CONNECTIONS);
     let raknet = raknet::Driver::new(
         raknet_settings(&config, batch, guid, cookie_key),
         pong_rx,
@@ -534,7 +534,7 @@ pub(crate) async fn start(
     let transport = config.developer.transport;
     let (nethernet, nethernet_driver, nethernet_rx, json_tx) = if transport.has_nethernet() {
         let (json, json_rx) = watch::channel(status.json(0));
-        let (accepted_tx, accepted) = mpsc::channel(ACCEPT_QUEUE);
+        let (accepted_tx, accepted) = mpsc::channel(MAX_NEW_CONNECTIONS);
         let (handle, driver) = nethernet::start(
             nethernet_settings(&config, batch, v4, v6),
             data_dir,
@@ -557,7 +557,7 @@ pub(crate) async fn start(
         log_listening(addr, transport);
     }
 
-    let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
+    let (events_tx, events_rx) = mpsc::channel(MAX_SESSION_EVENTS);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     #[expect(
         clippy::expect_used,

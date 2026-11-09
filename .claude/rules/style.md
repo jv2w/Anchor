@@ -28,7 +28,7 @@ Every `.rs` file has exactly this order:
 1. `//!` module documentation.
 2. `mod` declarations, alphabetical; an inline module with a body (`mod sealed { … }`) stands among them, except `mod tests`.
 3. `pub use` re-exports.
-4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path.
+4. `use` declarations in three groups separated by one blank line: `std`/`core`/`alloc`, then external crates, then `crate::`/`super::` and child modules (`use kind::Kind;`). Macros of an external crate are imported (`use tracing::warn;`, `use serde::Deserialize;`), never written with their crate path. A function body holds no `use`, except one that brings one enum's variants or a short name for one enum into that function (`use Weather::{Clear, Rain};`, `use EntityDataKey as K;`) and one that names a deny-listed item, which stays in the function that lifts its lint.
 5. Constants and statics.
 6. Types, each followed directly by its inherent `impl` and then its trait `impl`s; a checkpoint macro counts as a trait `impl`, called through the imported module as `checkpoint::fields!(…)` and `checkpoint::variants!(…)`, its list ending with a trailing comma when it spans lines. After the module's own types come its `impl`s of other modules' types (`impl Context<'_>`), one block per type; a checkpoint macro for another module's type follows that type's block, or stands in its place by the type's name. An event type's blocks come in the order `getters!`, `setters!`, the inherent `impl`, `cancellable!`.
 7. Free functions.
@@ -108,7 +108,6 @@ Always in this order, leaving out what is not derived: `Debug, Clone, Copy, Part
 ## Tests
 - Unit tests are `#[cfg(test)] mod tests`, the last item of the file, whose first line is `use super::*;`; other imports follow after one blank line in the three groups. A test module's own `mod` declarations come before `use super::*;`, and its constants and statics directly after its imports. They move to `<module>/tests.rs` only when longer than the code they test; such a file follows the file layout, with `use super::*;` in the crate group. Public API tests are `tests/<topic>.rs`, which follow the file layout too, a helper directly above its first user.
 - In a test module, a helper sits directly above the first test or helper that uses it.
-- A test module's imports stand at its head; a test or helper body holds no `use`, except one that brings an enum's variants into that function (`use Weather::{Clear, Rain, Thunder};`) and one that names a deny-listed item, which stays in the function that lifts its lint.
 - A helper shared by several test files is `tests/support/<name>.rs`, brought in with `#[path = "support/<name>.rs"] mod <name>;`.
 - Test names describe the behavior as a phrase (no `test_` prefix). Tests fail through `unwrap`, `expect`, `assert*` and `panic!`. Equality is `assert_eq!(actual, expected)`, actual first. A test's `// api:` line comes before its `///` documentation; a line past 100 columns is split into several lines, each starting with `// api:`.
 

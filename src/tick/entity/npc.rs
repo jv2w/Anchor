@@ -83,7 +83,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
 
 /// Interacts as `session` with the entity `target`.
 /// A villager NPC within reach opens trading with `open` (`trade::open`), and a live custom
-/// entity calls its behaviour. False if nothing happened.
+/// entity calls its behavior. False if nothing happened.
 pub(super) fn interact_with(
     state: &mut State,
     session: SessionId,

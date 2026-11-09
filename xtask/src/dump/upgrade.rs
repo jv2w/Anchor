@@ -3,7 +3,7 @@
 //! `id_meta_to_nbt/1.12.0.bin` into typed JSON lines, records the SHA-256 of every source file,
 //! and runs the dump source's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
 //! import's tests compare with. Why the schema versions differ from the dump source's is in
-//! `data.md`.
+//! `.claude/docs/data.md`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

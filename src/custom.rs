@@ -22,7 +22,7 @@ mod offer;
 mod registry;
 
 pub use crate::tick::check_offers;
-pub use block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
+pub use block::{Behavior, Block, Drops, Material, Property, RenderMethod};
 pub use creative::{CreativeGroup, CreativeInventory, CreativeItem};
 pub use item::Item;
 pub(crate) use offer::DEFAULT_PRICE_MULTIPLIER;

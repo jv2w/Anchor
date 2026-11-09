@@ -173,7 +173,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyJobs`] while [`MAX_JOBS`] jobs wait for their result; nothing runs.
+    /// [`Error::TooManyJobs`] for a call while [`MAX_JOBS`] jobs wait for their result; nothing
+    /// runs.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]
     #[doc(alias = "AsyncTask::onRun")]

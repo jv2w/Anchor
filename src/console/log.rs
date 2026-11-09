@@ -56,7 +56,7 @@ const END_WAIT: Duration = Duration::from_secs(5);
 pub(super) const LINE_BYTES: usize = 4096;
 
 /// The lines that may wait for the log thread: with [`LINE_BYTES`], about 16 MiB at most.
-const QUEUE_LINES: usize = 4096;
+const MAX_QUEUED_LINES: usize = 4096;
 
 /// Anchor's console log: its subscriber and the thread that writes its lines. Dropping it lets
 /// the thread write the lines already queued, then joins it, or leaves it after [`END_WAIT`].
@@ -89,8 +89,8 @@ impl Drop for Log {
             return;
         };
         // A thread still writing after `END_WAIT` holds the queue's last lines, at most
-        // `QUEUE_LINES`: it ends once the console takes them, or with the process. Dropping the
-        // handle leaves it to that. A thread that panicked dropped its sender: nothing to wait for.
+        // `MAX_QUEUED_LINES`: it ends once the console takes them, or with the process. Dropping
+        // the handle leaves it to that. A thread that panicked dropped its sender: nothing to wait for.
         if self.ended.recv_timeout(END_WAIT).is_ok() {
             // The thread only writes; a panic there leaves nothing to clean up or report.
             match thread.join() {
@@ -357,7 +357,7 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
         LogLevel::Debug => Level::DEBUG,
         LogLevel::Trace => Level::TRACE,
     };
-    let (lines, queue) = mpsc::channel(QUEUE_LINES);
+    let (lines, queue) = mpsc::channel(MAX_QUEUED_LINES);
     let (end, ended) = std::sync::mpsc::sync_channel(1);
     let dropped = Arc::new(Dropped::default());
     let logger = Logger {

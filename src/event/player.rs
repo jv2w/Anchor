@@ -556,8 +556,8 @@ cancellable! {
 }
 
 /// Raised when a player uses (right clicks) an entity within reach, before the entity reacts: a
-/// villager NPC opens trading, a custom entity runs its behaviour
-/// ([`Behaviour::on_interact`](crate::entity::Behaviour::on_interact)). Cancelling keeps the
+/// villager NPC opens trading, a custom entity runs its behavior
+/// ([`Behavior::on_interact`](crate::entity::Behavior::on_interact)). Cancelling keeps the
 /// entity from reacting.
 ///
 /// Using another player raises nothing: a player has no [`entity::Id`]. Monitors are called only
@@ -2036,7 +2036,7 @@ mod tests {
         }
     }
 
-    // api: PlayerGameModeChangeEvent,PlayerGameModeChangeEvent::getNewGamemode,
+    // api: PlayerGameModeChangeEvent, PlayerGameModeChangeEvent::getNewGamemode,
     // api: PlayerGameModeChangeEvent::cancel, PlayerGameModeChangeEvent::uncancel,
     // api: PlayerGameModeChangeEvent::isCancelled
     #[test]

@@ -272,10 +272,10 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::Disabled`] when `save-player-data` is false.
+    /// [`Error::Disabled`] for a server with `save-player-data = false`.
     /// [`Error::Online`] for a player online or joining.
     /// [`Error::NotSaved`] for a name no player can have.
-    /// [`Error::Full`] past 64 tickets held or asked for.
+    /// [`Error::Full`] for a call past 64 tickets held or asked for.
     ///
     /// None of them asks the save thread.
     #[doc(alias = "Server::getOfflinePlayerData")]

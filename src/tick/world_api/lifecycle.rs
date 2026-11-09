@@ -438,15 +438,15 @@ impl Context<'_> {
     /// # Errors
     ///
     /// [`world::Error::InvalidName`] for a name that cannot be a file name (the rule is there).
-    /// [`world::Error::WorldExists`] if the server runs a world of that name or `data/worlds/`
-    /// held one it could read at start ([`is_world_generated`](Self::is_world_generated)), also
+    /// [`world::Error::WorldExists`] for the name of a world the server runs or of one it could
+    /// read in `data/worlds/` at start ([`is_world_generated`](Self::is_world_generated)), also
     /// in another letter case.
     /// [`world::Error::UnknownGenerator`] for a generator not registered.
     /// [`world::Error::InvalidSettings`] for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range.
     /// [`world::Error::OutsideWorld`] for a generator's spawn where a player would stand outside
     /// the world border.
-    /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone (a temporary
+    /// [`world::Error::Full`] for a server with 1,024 worlds, none of them gone (a temporary
     /// world unloaded or a persistent world deleted), or, for a persistent world, past as many
     /// world files: those of the run's persistent worlds and those `data/worlds/` held at start,
     /// damaged ones too. A file put there while the server runs (an import) is not counted: past
@@ -498,7 +498,7 @@ impl Context<'_> {
     ///
     /// [`world::Error::WorldLoaded`] for a loaded world (one whose unload is asked for but has not
     /// happened too).
-    /// [`world::Error::NotGenerated`] if no persistent world of that name exists
+    /// [`world::Error::NotGenerated`] for a name no persistent world has
     /// ([`is_world_generated`](Self::is_world_generated)).
     pub fn delete_world(&mut self, name: &str) -> world::Result<()> {
         let state = &mut *self.state;
@@ -563,15 +563,15 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`world::Error::NotGenerated`] if the server runs no world of that name and `data/worlds/`
-    /// held none it could read at start (a temporary world unloaded is gone).
+    /// [`world::Error::NotGenerated`] for a name of no world the server runs and of none it
+    /// could read in `data/worlds/` at start (a temporary world unloaded is gone).
     /// [`world::Error::UnknownGenerator`] for a generator not registered.
     /// [`world::Error::InvalidSettings`] for a view value or the spawn of
     /// [`Options::settings`](world::Options::settings) out of its range (checked though the spawn
     /// is not used).
     /// [`world::Error::OutsideWorld`] for a stored spawn where a player would stand outside the
     /// world border.
-    /// [`world::Error::Full`] when the server has 1,024 worlds, none of them gone.
+    /// [`world::Error::Full`] for a server with 1,024 worlds, none of them gone.
     #[doc(alias = "WorldManager::loadWorld")]
     pub fn load_world(&mut self, name: &str, options: &world::Options) -> world::Result<world::Id> {
         let state = &mut *self.state;

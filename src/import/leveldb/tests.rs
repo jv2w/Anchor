@@ -722,9 +722,9 @@ fn a_malformed_entry_in_a_table_names_the_table() {
 
 #[test]
 fn held_blocks_are_bounded() {
-    assert!(check_held(MAX_HELD).is_ok());
+    assert!(check_held(MAX_HELD_BYTES).is_ok());
     assert!(matches!(
-        check_held(MAX_HELD + 1),
+        check_held(MAX_HELD_BYTES + 1),
         Err(Error::TooLarge { .. })
     ));
 }
@@ -735,11 +735,11 @@ fn held_blocks_are_bounded_while_level_0_tables_open() {
     // first 17 overlapping level 0 tables hold more than 256 MiB together.
     let entry = (
         internal(b"k", 1, KIND_VALUE),
-        vec![0; table::MAX_BLOCK - 64],
+        vec![0; table::MAX_BLOCK_BYTES - 64],
     );
     let mut kinds = || table::COMPRESSION_RAW_DEFLATE;
-    let bytes = encode_table(&[entry], table::MAX_BLOCK, 1, &mut kinds);
-    let over = MAX_HELD / table::MAX_BLOCK + 1;
+    let bytes = encode_table(&[entry], table::MAX_BLOCK_BYTES, 1, &mut kinds);
+    let over = MAX_HELD_BYTES / table::MAX_BLOCK_BYTES + 1;
     let mut w = Writer::new();
     for i in 0..=over {
         let number = w.number();

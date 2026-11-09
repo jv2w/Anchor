@@ -289,8 +289,8 @@ data\java\** skipped Java Edition IDs: Anchor is Bedrock only
 
 # ===== Blocks: `block::Kind` is a kind, `block::State` a Bedrock block state =====
 # A block object of the API table's source is a kind plus a state: per-class property getters and
-# setters are the state's properties (`State::name`, `value`, `with`, `find`); behaviour hooks are
-# tick rules that listeners change through events and custom blocks through behaviour traits.
+# setters are the state's properties (`State::name`, `value`, `with`, `find`); behavior hooks are
+# tick rules that listeners change through events and custom blocks through behavior traits.
 
 block\VanillaBlocks::* merged VanillaBlocks
 
@@ -400,7 +400,7 @@ block\BaseCake::getAdditionalEffects skipped cake is eaten by the block rule
 block\*Cake*::getResidue skipped cake is eaten by the block rule
 block\*Cake*::onConsume skipped cake is eaten by the block rule
 
-# Behaviour hooks: tick rules, not public API.
+# Behavior hooks: tick rules, not public API.
 block\**::onNearbyBlockChange skipped block rule code: Anchor runs no block rules
 block\**::onInteract skipped block rule code: listeners see PlayerInteract
 block\**::onInteractCandle skipped block rule code: listeners see PlayerInteract

@@ -17,12 +17,12 @@ use crate::tick::checkpoint;
 use crate::tick::queue::{SharedPacket, Skin};
 
 /// Ticks that must pass between two emotes of a player: more than 5.
-const EMOTE_COOLDOWN: u64 = 5;
+const EMOTE_COOLDOWN_TICKS: u64 = 5;
 /// The longest emote ID passed on: an emote ID is a UUID (36 bytes); more is not an emote.
-const MAX_EMOTE_ID: usize = 128;
+const MAX_EMOTE_ID_BYTES: usize = 128;
 /// Ticks between two skin changes of a player: one a second, as each change sends a skin of up
 /// to 4 MiB to every player.
-const SKIN_COOLDOWN: u64 = Context::TICKS_PER_SECOND as u64;
+const SKIN_COOLDOWN_TICKS: u64 = Context::TICKS_PER_SECOND as u64;
 /// The skin bytes the server's skin budget ([`SkinBudget`]) gains each tick: 128 KiB a second,
 /// about 1 Mbit/s. Every receiver gets every broadcast, so this is the most skin changes add to
 /// each player's link however many players change skins: well below a slow mobile link, next to
@@ -140,7 +140,7 @@ pub(super) fn on_emote(state: &mut State, session: SessionId, packet: &Emote) {
                 && p.survival
                     .appearance
                     .emote
-                    .is_none_or(|last| tick.saturating_sub(last) > EMOTE_COOLDOWN)
+                    .is_none_or(|last| tick.saturating_sub(last) > EMOTE_COOLDOWN_TICKS)
         })
     };
     if !ready(state) || !valid_emote(&packet.emote_id) {
@@ -186,9 +186,9 @@ pub(super) fn emote_packet(runtime_id: u64, emote_id: String) -> Packet {
     })
 }
 
-/// Whether `id` may be an emote ID: not empty and at most [`MAX_EMOTE_ID`] bytes.
+/// Whether `id` may be an emote ID: not empty and at most [`MAX_EMOTE_ID_BYTES`] bytes.
 pub(super) fn valid_emote(id: &str) -> bool {
-    !id.is_empty() && id.len() <= MAX_EMOTE_ID
+    !id.is_empty() && id.len() <= MAX_EMOTE_ID_BYTES
 }
 
 /// Changes the skin of a `PlayerSkin` packet's player; see [`super::on_skin`].
@@ -206,7 +206,7 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
         return;
     }
     if a.skin
-        .is_some_and(|last| tick.saturating_sub(last) < SKIN_COOLDOWN)
+        .is_some_and(|last| tick.saturating_sub(last) < SKIN_COOLDOWN_TICKS)
     {
         debug!(session = session.get(), "skin changes too fast; ignored");
         return;

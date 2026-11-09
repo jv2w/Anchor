@@ -10,7 +10,7 @@ mod peer;
 mod wire;
 
 pub(crate) use listener::ip_key;
-pub(crate) use peer::MAX_MTU;
+pub(crate) use peer::MAX_MTU_BYTES;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -32,12 +32,12 @@ use peer::Limits;
 pub(crate) const COMMAND_BATCH: usize = 256;
 /// Messages from sessions to a driver. Sends wait when it is full, which slows sessions to the
 /// pace of the UDP task instead of buffering without bound.
-pub(crate) const COMMAND_QUEUE: usize = 4096;
+pub(crate) const MAX_COMMANDS: usize = 4096;
+/// The largest valid datagram: one at the largest MTU.
+pub(crate) const MAX_DATAGRAM_BYTES: usize = MAX_MTU_BYTES as usize - wire::UDP_HEADER_BYTES;
 /// Messages received on one connection that its session has not taken yet. Bytes are bounded
 /// separately ([`Inbox`]); a full queue disconnects.
-const INBOUND_QUEUE: usize = 1024;
-/// The largest valid datagram: one at the largest MTU.
-pub(crate) const MAX_DATAGRAM_BYTES: usize = MAX_MTU as usize - wire::UDP_HEADER_BYTES;
+const MAX_INBOUND_MESSAGES: usize = 1024;
 /// Connections of one transport (RakNet or NetherNet) from its handshake until the session's
 /// login.
 pub(crate) const MAX_PRE_LOGIN: usize = 64;
@@ -105,7 +105,7 @@ impl Driver {
             limits: Limits::new(settings.max_message_bytes)?,
         };
         let listener = Listener::new(config, Arc::clone(&pong.borrow()), settings.cookie_key);
-        let (outbound, commands) = mpsc::channel(COMMAND_QUEUE);
+        let (outbound, commands) = mpsc::channel(MAX_COMMANDS);
         Ok(Self {
             listener,
             io: Io {
@@ -187,7 +187,7 @@ impl Driver {
 
     /// Sends what sessions queued, at most a full queue.
     fn drain(&mut self) {
-        for _ in 0..COMMAND_QUEUE {
+        for _ in 0..MAX_COMMANDS {
             let Ok(command) = self.commands.try_recv() else {
                 break;
             };
@@ -436,7 +436,7 @@ impl Inbox {
     /// the login), so the budget starts at two of those. The budget is cut to what a semaphore
     /// counts, far above what any setting asks.
     pub(crate) fn new(max_message_bytes: usize) -> (Self, mpsc::Receiver<Inbound>) {
-        let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
+        let (inbound, receiver) = mpsc::channel(MAX_INBOUND_MESSAGES);
         let budget_of =
             |message_bytes: usize| message_bytes.saturating_mul(2).min(Semaphore::MAX_PERMITS);
         let full = budget_of(max_message_bytes);
@@ -531,7 +531,7 @@ pub(crate) mod tests {
 
     fn settings() -> Settings {
         Settings {
-            max_mtu: MAX_MTU,
+            max_mtu: MAX_MTU_BYTES,
             max_message_bytes: MAX_MESSAGE,
             accept: true,
             guid: GUID,
@@ -563,7 +563,7 @@ pub(crate) mod tests {
             Self {
                 socket,
                 server,
-                client: Client::new(addr, MAX_MTU),
+                client: Client::new(addr, MAX_MTU_BYTES),
                 start: clock::now(),
                 updated: Duration::ZERO,
             }
@@ -685,7 +685,7 @@ pub(crate) mod tests {
     /// as undelivered.
     pub(crate) fn linked_connection() -> (Connection, Far) {
         let (inbound_sender, inbound) = mpsc::channel(1);
-        let (outbound, sent) = mpsc::channel(COMMAND_QUEUE);
+        let (outbound, sent) = mpsc::channel(MAX_COMMANDS);
         let (signal, _) = watch::channel(Flags::default());
         let (_, ping) = watch::channel(None);
         let (undelivered, undelivered_watcher) = watch::channel(0);

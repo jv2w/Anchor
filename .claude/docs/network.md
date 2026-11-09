@@ -17,7 +17,7 @@ Packet formats and codecs are in `protocol.md`, every configuration key in `conf
 - A capture of the same Android client that had already joined that server over plain HTTP shows no HTTPS try at all: the server list refresh and the joins to the LAN address and to the public address go straight to `http://host:port`, and the LAN join succeeds.
 
 ## NetherNet
-The answers match, byte for byte in structure, what the official server sends with `transport=nethernet` (its version is in the pinned-source table of `data.md`).
+The answers match, byte for byte in structure, what the official server sends with `transport=nethernet` (its version is in the sources table of `data.md`).
 
 ### Signaling (`nethernet/signaling.rs`)
 - A minimal HTTP/1.1 server: one request per connection attempt, no trickle ICE. Only GET and POST are routed.

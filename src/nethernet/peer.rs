@@ -24,7 +24,7 @@ use tracing::{debug, trace};
 
 use super::message::{self, Reassembler};
 use super::sdp;
-use super::{DTLS_FIRST_BYTE_RANGE, STUN_FIRST_BYTE_RANGE, STUN_HEADER_LEN, STUN_MAGIC_COOKIE};
+use super::{DTLS_FIRST_BYTE_RANGE, STUN_FIRST_BYTE_RANGE, STUN_HEADER_BYTES, STUN_MAGIC_COOKIE};
 use crate::raknet::MAX_UNSENT_BYTES;
 use crate::tick::queue::LeaveReason;
 
@@ -822,7 +822,7 @@ fn str0m_offer(remote: &Remote) -> String {
 /// The server ICE username fragment of a STUN binding request: USERNAME is `<server
 /// ufrag>:<client ufrag>`. `None` for anything else. Reads only within `datagram`.
 pub(super) fn stun_server_ufrag(datagram: &[u8]) -> Option<&str> {
-    let (header, mut attributes) = datagram.split_at_checked(STUN_HEADER_LEN)?;
+    let (header, mut attributes) = datagram.split_at_checked(STUN_HEADER_BYTES)?;
     let [t0, t1, l0, l1, c0, c1, c2, c3] = <[u8; 8]>::try_from(header.get(..8)?).ok()?;
     if [t0, t1] != STUN_BINDING_REQUEST || [c0, c1, c2, c3] != STUN_MAGIC_COOKIE {
         return None;

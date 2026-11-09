@@ -757,7 +757,7 @@ fn range_errors_name_the_key_and_the_range() {
 }
 
 #[test]
-fn new_keys_default_to_the_behaviour_before_them() {
+fn new_keys_default_to_the_behavior_before_them() {
     let config = Config::default();
     let (g, d) = (&config.general, &config.developer);
     for on in [

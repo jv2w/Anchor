@@ -623,7 +623,7 @@ pub(super) struct Arrow {
     pub(super) pickup: ArrowPickup,
     /// The Punch level: extra knockback, 0 to 255.
     pub(super) punch: u8,
-    /// The ticks it has been stuck; it goes after [`Self::MAX_LIFE`].
+    /// The ticks it has been stuck; it goes after [`Self::MAX_LIFE_TICKS`].
     pub(super) life: i16,
 }
 
@@ -631,7 +631,7 @@ impl Arrow {
     /// An arrow's base damage.
     pub(super) const DAMAGE: f64 = 2.0;
     /// The ticks a stuck arrow stays: it goes once it has been stuck for more.
-    pub(super) const MAX_LIFE: i16 = 1200;
+    pub(super) const MAX_LIFE_TICKS: i16 = 1200;
 }
 
 checkpoint::fields!(Arrow {

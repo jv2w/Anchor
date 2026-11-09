@@ -31,14 +31,6 @@ pub(crate) const MAX_SKIN_JSON_DEPTH: usize = 64;
 /// The geometry JSON sent for a vanilla geometry: the field must hold JSON, and an empty one
 /// declares no custom geometry.
 pub(crate) const NO_CUSTOM_GEOMETRY: &[u8] = b"{}";
-/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels:
-/// 64 × 32, 64 × 64 and 128 × 128.
-#[doc(alias = "Skin::ACCEPTED_SKIN_SIZES")]
-pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
-    (64 * 32 * 4, 64, 32),
-    (64 * 64 * 4, 64, 64),
-    (128 * 128 * 4, 128, 128),
-];
 
 /// A skin: an ID, an RGBA image of an accepted size, an optional cape and the geometry it is drawn
 /// on (a vanilla geometry name, or a custom one with its JSON).
@@ -56,6 +48,15 @@ pub struct Skin {
 }
 
 impl Skin {
+    /// The image sizes a skin may have, each as its bytes of RGBA, width and height in pixels:
+    /// 64 × 32, 64 × 64 and 128 × 128.
+    #[doc(alias = "Skin::ACCEPTED_SKIN_SIZES")]
+    pub const SIZES: [(usize, u32, u32); 3] = [
+        (64 * 32 * 4, 64, 32),
+        (64 * 64 * 4, 64, 64),
+        (128 * 128 * 4, 128, 128),
+    ];
+
     /// A skin with the image `data` (RGBA rows of 64 × 32, 64 × 64 or 128 × 128 pixels) on the
     /// standard player model, without a cape. `None` if `id` is empty or longer than 256 bytes or
     /// `data` has another size.
@@ -179,7 +180,7 @@ impl fmt::Debug for Skin {
 
 /// The accepted size an image of `len` bytes has, with its width and height.
 fn dimensions(len: usize) -> Option<(usize, u32, u32)> {
-    SKIN_SIZES.into_iter().find(|&(size, _, _)| size == len)
+    Skin::SIZES.into_iter().find(|&(size, _, _)| size == len)
 }
 
 #[cfg(test)]
@@ -190,7 +191,7 @@ mod tests {
     // api: Skin::getGeometryName, Skin::getGeometryData, Skin
     #[test]
     fn skins_take_only_accepted_sizes_and_safe_geometry_names() {
-        for (size, w, h) in SKIN_SIZES {
+        for (size, w, h) in Skin::SIZES {
             let skin = Skin::new("npc", vec![7; size]).unwrap();
             let p = skin.to_protocol();
             assert_eq!((p.skin_image_width, p.skin_image_height), (w, h));

@@ -62,7 +62,7 @@ impl Action for BreakBlock {}
 ///
 /// It comes after [`PlayerEntityInteract`](crate::event::PlayerEntityInteract). A villager NPC
 /// opens trading. A custom entity's
-/// [`on_interact`](crate::entity::Behaviour::on_interact) runs unless a listener cancels the
+/// [`on_interact`](crate::entity::Behavior::on_interact) runs unless a listener cancels the
 /// event. The target is never a player: a right-click on another player does nothing and raises
 /// no event.
 #[doc(alias = "Player::interactEntity")]

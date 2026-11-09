@@ -625,11 +625,11 @@ fn lands(player: &Player, hit: &Hit) -> bool {
         && (self_kill || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
 
-/// Works out the last modifiers of a hit of `base` damage for `cause` on `player` as it is now,
-/// after `sum`, the modifiers before them added up: the absorption it uses, a helmet against a
-/// falling block (with `armor` on), and a held totem's compensation where the hit would kill.
-/// Returns the final damage, the absorption used (0 or negative), whether the totem saves the
-/// player, and `modifiers` with those three added.
+/// The last modifiers of a hit of `base` damage for `cause` on `player` as it is now, after
+/// `sum`, the modifiers before them added up: the absorption it uses, a helmet against a falling
+/// block (with `armor` on), and a held totem's compensation where the hit would kill. The result
+/// is the final damage, the absorption used (0 or negative), whether the totem saves the player,
+/// and `modifiers` with those three added.
 fn finish(
     player: &Player,
     cause: Damage,

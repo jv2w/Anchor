@@ -50,7 +50,7 @@ const ARENA: &str = "arena";
 /// Where players land in the arena: on the grass of the flat world.
 const ARENA_START: BlockPos = BlockPos::new(8, -60, 8);
 /// One second, in ticks.
-const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
+const SECOND_TICKS: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
 /// What the shop sells: menu slot, item and count.
 const SHOP: [(usize, item::Kind, u8); 3] = [
     (11, item::Kind::DiamondSword, 1),
@@ -66,7 +66,7 @@ fn main() -> anchor::Result<()> {
     Server::builder()
         .config(Config::default().load("anchor.toml")?)
         .world(ARENA, world::Kind::Persistent, Flat)
-        .every(SECOND, every_second)
+        .every(SECOND_TICKS, every_second)
         .command(
             Command::new("games", "Opens the games menu").overload(&[], |cx, sender, _| {
                 open_games(cx, player_of(sender)?);
@@ -228,7 +228,7 @@ fn feet(pos: BlockPos) -> Vec3 {
 fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
         debug!(
-            error = &error as &(dyn Error + 'static),
+            error = &error as &(dyn std::error::Error + 'static),
             "skipped for one player"
         );
     }

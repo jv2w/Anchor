@@ -373,8 +373,8 @@ impl Player {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyExtensions`] when `T` is new and the
-    /// player holds [`MAX_EXTENSIONS`] types already; nothing is kept.
+    /// [`Error::TooManyExtensions`] for a new `T` on a player that holds [`MAX_EXTENSIONS`]
+    /// types already; nothing is kept.
     pub fn insert_extension<T: Any + Send + Sync>(&mut self, value: T) -> Result<Option<T>> {
         let extensions = &mut self.extra.user.extensions;
         let id = TypeId::of::<T>();
@@ -830,7 +830,7 @@ pub(super) mod tests {
         };
         let mut state = with_speed();
         // A float that serde_json reads back as another without `float_roundtrip`
-        // (.claude/docs/dependencies.md).
+        // (`.claude/docs/dependencies.md`).
         *Context { state: &mut state }.data_mut::<f64>().unwrap() =
             f64::from_bits(0xbfdc_fd14_b5d3_7aac);
         assert!(crate::tick::checkpoint::tests::assert_round_trip(

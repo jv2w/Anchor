@@ -14,11 +14,12 @@
 //!    `tick-radius` of a player of the world whose view is open (as for entities) and whose 3 × 3
 //!    neighbourhood is loaded and lit, in position order; in each sub-chunk that is not air,
 //!    [`RANDOM_TICKS_PER_SUB_CHUNK`] positions from the engine random stream of the chunk and
-//!    tick. A custom block ticks if its definition asks for it, through its behaviour's
+//!    tick. A custom block ticks if its definition asks for it, through its behavior's
 //!    `on_random_tick`.
 //!
 //! [`World::next_changed`]: crate::world::World::next_changed
 
+use super::checkpoint::Codec;
 use super::{Context, State, block_entity, entity, interact, view};
 use crate::block::Face;
 use crate::random::{self, Random};
@@ -64,7 +65,6 @@ impl super::checkpoint::Codec for Updates {
     }
 
     fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
-        use super::checkpoint::Codec;
         Ok(Self {
             draws: Codec::decode(r)?,
             ticking: Vec::new(),
@@ -277,7 +277,7 @@ mod tests {
     /// Lights the block on a random tick.
     struct Glow;
 
-    impl crate::custom::Behaviour for Glow {
+    impl crate::custom::Behavior for Glow {
         fn on_random_tick(
             &self,
             cx: &mut Context<'_>,
@@ -293,12 +293,12 @@ mod tests {
     /// A custom block that asks for random ticks.
     static TICKING: crate::custom::Block = crate::custom::Block::new("test:ticking", "t")
         .with_properties(&[crate::custom::Property::bool("lit")])
-        .with_behaviour(&Glow)
+        .with_behavior(&Glow)
         .random_ticks();
     /// A custom block that does not.
     static STILL: crate::custom::Block = crate::custom::Block::new("test:still", "s")
         .with_properties(&[crate::custom::Property::bool("lit")])
-        .with_behaviour(&Glow);
+        .with_behavior(&Glow);
 
     /// A test server with light off (every chunk lit, so random ticks need no light work) and
     /// the spawn area loaded.
@@ -499,7 +499,7 @@ mod tests {
     }
 
     /// A floor of custom blocks around a player, every other one taking random ticks: those get
-    /// them through their behaviour, the same way in a second run; the others never do.
+    /// them through their behavior, the same way in a second run; the others never do.
     #[test]
     fn custom_blocks_that_ask_for_random_ticks_get_them_deterministically() {
         let run = || {

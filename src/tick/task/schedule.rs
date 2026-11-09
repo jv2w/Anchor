@@ -239,7 +239,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
+    /// [`Error::TooManyTasks`] for a call while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleTask")]
     #[doc(alias = "TaskScheduler::scheduleDelayedTask")]
     #[doc(alias = "ClosureTask")]
@@ -260,7 +260,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
+    /// [`Error::TooManyTasks`] for a call while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleRepeatingTask")]
     pub fn schedule_repeating(
         &mut self,
@@ -274,7 +274,7 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooManyTasks`] while [`MAX_TASKS`] tasks are scheduled.
+    /// [`Error::TooManyTasks`] for a call while [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleDelayedRepeatingTask")]
     pub fn schedule_delayed_repeating(
         &mut self,

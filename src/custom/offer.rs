@@ -161,7 +161,7 @@ impl Offer {
         self
     }
 
-    /// The same offer giving the villager `xp` per trade (towards its next tier).
+    /// The same offer giving the villager `xp` per trade (toward its next tier).
     #[must_use]
     pub fn with_trader_xp(mut self, xp: u32) -> Self {
         self.trader_xp = xp;

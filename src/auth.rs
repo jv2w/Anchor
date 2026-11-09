@@ -36,7 +36,7 @@ const CACHE_FILE: &str = "auth.json";
 /// The base URL of the Minecraft service discovery.
 const DISCOVERY_BASE: &str = "https://client.discovery.minecraft-services.net";
 /// A cache younger than this many seconds is used at start without fetching.
-const FRESH_SECONDS: i64 = 3600;
+const FRESH_SECS: i64 = 3600;
 /// The limit on one fetch, shared by its requests, from connecting to the end of the last body.
 /// DNS lookups are excluded: the OS bounds them.
 pub(crate) const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -45,10 +45,10 @@ const KID_COOLDOWN: Duration = Duration::from_secs(300);
 /// The limit on a document, in bytes: a cache file may have this many, a response body fewer.
 /// The documents are a few KiB.
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
+/// The refresh requests that wait for the refresh task: one pending request answers every waiter.
+const MAX_REFRESH_REQUESTS: usize = 1;
 /// The time between full refreshes while running.
 const REFRESH: Duration = Duration::from_secs(3600);
-/// The refresh requests that wait for the refresh task: one pending request answers every waiter.
-const REFRESH_QUEUE_CAPACITY: usize = 1;
 
 /// A handle to the authorization keys.
 /// Cloning is cheap; the background task ends when the last handle is dropped.
@@ -136,12 +136,12 @@ impl Auth {
             fetched_at = cache.fetched_at,
             "authorization keys loaded"
         );
-        let age = now.saturating_sub(cache.fetched_at).clamp(0, FRESH_SECONDS);
+        let age = now.saturating_sub(cache.fetched_at).clamp(0, FRESH_SECS);
         let first_refresh = source
             .refresh
             .saturating_sub(Duration::from_secs(age.unsigned_abs()));
         let (keys_tx, keys_rx) = watch::channel(Arc::new(keys));
-        let (refresh_tx, refresh_rx) = mpsc::channel(REFRESH_QUEUE_CAPACITY);
+        let (refresh_tx, refresh_rx) = mpsc::channel(MAX_REFRESH_REQUESTS);
         let task = Refresher {
             source,
             clock,
@@ -349,7 +349,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Whether a cache fetched at `fetched_at` is still fresh at `now`.
 fn is_fresh(fetched_at: i64, now: i64) -> bool {
-    (0..FRESH_SECONDS).contains(&now.saturating_sub(fetched_at))
+    (0..FRESH_SECS).contains(&now.saturating_sub(fetched_at))
 }
 
 /// Fetches discovery, OpenID configuration and JWKS on the blocking pool.

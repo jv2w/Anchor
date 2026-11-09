@@ -75,10 +75,14 @@ impl Pack {
     ///
     /// # Errors
     ///
-    /// [`Error::TooLarge`] for bytes over the limit, [`Error::Archive`] for an archive Anchor
-    /// does not read, and the manifest errors ([`Error::ManifestMissing`], [`Error::OldFormat`],
-    /// [`Error::ManifestTooLarge`], [`Error::Manifest`], [`Error::Uuid`], [`Error::Version`]) for
-    /// a manifest that is missing or invalid.
+    /// [`Error::TooLarge`] for bytes over the limit.
+    /// [`Error::Archive`] for an archive Anchor does not read.
+    /// [`Error::ManifestMissing`] for an archive without `manifest.json`.
+    /// [`Error::OldFormat`] for an archive in the old pack format.
+    /// [`Error::ManifestTooLarge`] for a `manifest.json` over its limit.
+    /// [`Error::Manifest`] for a `manifest.json` that is not valid JSON of the right shape.
+    /// [`Error::Uuid`] for a `header.uuid` that is not a UUID.
+    /// [`Error::Version`] for a `header.version` that is not three whole numbers.
     pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Result<Self> {
         let bytes = bytes.into();
         let size = u64::try_from(bytes.len())
@@ -105,10 +109,12 @@ impl Pack {
     ///
     /// # Errors
     ///
-    /// [`Error::File`], naming `path`, with the cause: [`Error::Extension`] for another file
-    /// name ending, [`Error::Read`] for a file that cannot be read, [`Error::Key`] for a key
-    /// that is not 32 bytes of text, [`Error::KeyFile`] for a key file that is there but cannot
-    /// be read, and the errors of [`from_bytes`](Self::from_bytes).
+    /// [`Error::File`] for every failure, naming `path`, with one of these causes as its source:
+    /// [`Error::Read`] for a file that cannot be read.
+    /// [`Error::Extension`] for another file name ending.
+    /// [`Error::Key`] for a key that is not 32 bytes of text.
+    /// [`Error::KeyFile`] for a key file that is there but cannot be read.
+    /// The errors of [`from_bytes`](Self::from_bytes) for the bytes read.
     #[doc(alias = "ZippedResourcePack::__construct")]
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -141,7 +147,7 @@ impl Pack {
     /// The `ResourcePackDataInfo` pack type (gophertunnel's rules, from the module types).
     pub(crate) fn pack_type(&self) -> u8 {
         let m = &self.manifest;
-        let code = m.behaviours || m.scripts;
+        let code = m.behaviors || m.scripts;
         u8::from(if m.world_template {
             ResourcePackType::WorldTemplate
         } else if m.textures && code {
@@ -189,7 +195,7 @@ impl Pack {
     ///
     /// # Errors
     ///
-    /// [`Error::Key`] unless the key is 32 bytes.
+    /// [`Error::Key`] for a key that is not 32 bytes.
     #[doc(alias = "ResourcePackManager::setPackEncryptionKey")]
     pub fn with_content_key(mut self, key: impl Into<String>) -> Result<Self> {
         let key = key.into();
@@ -785,11 +791,11 @@ pub(crate) mod tests {
     fn pack_types_follow_gophertunnel() {
         let mut p = pack(UUID, "1.0.0", 1);
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::Resources));
-        p.manifest.behaviours = true;
+        p.manifest.behaviors = true;
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::Addon));
         p.manifest.textures = false;
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::Behaviour));
-        p.manifest.behaviours = false;
+        p.manifest.behaviors = false;
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::Skins));
         p.manifest.world_template = true;
         assert_eq!(p.pack_type(), u8::from(ResourcePackType::WorldTemplate));

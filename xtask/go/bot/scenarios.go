@@ -48,7 +48,7 @@ func (g *game) dive() error {
 	}
 	g.step("dive", nil)
 	g.check("breathing before diving", g.breathing())
-	if err := g.teleportTo(blockCentre(pool).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
+	if err := g.teleportTo(blockCenter(pool).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
 		return err
 	}
 	if err := g.waitState("out of breath", 5*time.Second, func() bool { return !g.breathing() }); err != nil {
@@ -61,7 +61,7 @@ func (g *game) dive() error {
 	}
 	g.check("drowned", map[string]any{"health": g.attrs["minecraft:health"]})
 	g.step("surface", nil)
-	if err := g.teleportTo(blockCentre(g.area).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
+	if err := g.teleportTo(blockCenter(g.area).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
 		return err
 	}
 	if err := g.waitState("breathing again", 10*time.Second, g.breathing); err != nil {

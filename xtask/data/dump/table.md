@@ -4452,7 +4452,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Consumable` | implemented | src/item.rs:873 `Consumable` | src/item.rs::food_and_armor_are_the_dump_values |  |
 | `entity\Consumable::getAdditionalEffects` | implemented | src/item.rs:884 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data |  |
 | `entity\Consumable::onConsume` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `entity\Entity` | implemented | src/tick/entity.rs:393 `Entity` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
+| `entity\Entity` | implemented | src/tick/entity.rs:392 `Entity` | src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
 | `entity\Entity::__construct` | skipped |  |  | entities are made with `Context::spawn_*` |
 | `entity\Entity::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `entity\Entity::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -4473,7 +4473,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:410 `set_fire_ticks`<br>src/tick/survival/api.rs:1019 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter |
-| `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:441 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
+| `entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:1137 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
 | `entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:1137 `direction`<br>src/tick/survival/api.rs:342 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:1149 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled |  |
@@ -4498,7 +4498,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:1453 `position`<br>src/tick/player.rs:428 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/player.rs::the_feet_of_a_player_on_a_block_are_on_that_block |  |
 | `entity\Entity::getScale` | implemented | src/tick/entity/api.rs:1503 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:643 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `entity\Entity::getSize` | merged | src/tick/entity.rs:441 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\Entity::getSize` | merged | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:1522 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `entity\Entity::getTargetEntityId` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
@@ -4523,10 +4523,10 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Entity::kill` | implemented | src/tick/entity/api.rs:127 `kill`<br>src/tick/survival/api.rs:1156 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `entity\Entity::nextRuntimeId` | skipped |  |  | runtime IDs are assigned by the engine |
 | `entity\Entity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
-| `entity\Entity::onInteract` | implemented | src/entity/custom.rs:37 `on_interact` | src/tick/entity/custom/tests.rs::behaviours_tick_every_period_in_id_order_and_answer_interactions |  |
+| `entity\Entity::onInteract` | implemented | src/entity/custom.rs:37 `on_interact` | src/tick/entity/custom/tests.rs::behaviors_tick_every_period_in_id_order_and_answer_interactions |  |
 | `entity\Entity::onNearbyBlockChange` | skipped |  |  | entity rule code |
 | `entity\Entity::onRandomUpdate` | skipped |  |  | entity rule code |
-| `entity\Entity::onUpdate` | implemented | src/entity/custom.rs:31 `on_tick` | src/tick/entity/custom/tests.rs::behaviours_tick_every_period_in_id_order_and_answer_interactions |  |
+| `entity\Entity::onUpdate` | implemented | src/entity/custom.rs:31 `on_tick` | src/tick/entity/custom/tests.rs::behaviors_tick_every_period_in_id_order_and_answer_interactions |  |
 | `entity\Entity::resetFallDistance` | implemented | src/tick/survival/api.rs:1111 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `entity\Entity::respawnToAll` | skipped |  |  | viewers follow the chunks each player sees |
 | `entity\Entity::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
@@ -4572,11 +4572,11 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\EntityFactory::register` | implemented | src/tick/entity/custom.rs:298 `custom_entity` | src/tick/entity/custom/tests.rs::registration_refuses_bad_identifiers_duplicates_and_values |  |
 | `entity\EntityFactory::reset` | skipped |  |  | entities are made with `Context::spawn_*` and custom types registered with `ServerBuilder::custom_entity` |
 | `entity\EntityFactory::setInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `entity\EntitySizeInfo` | merged | src/tick/entity.rs:441 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo` | merged | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::__construct` | skipped |  |  | entity sizes are fixed per type |
 | `entity\EntitySizeInfo::getEyeHeight` | merged | src/tick/entity/api.rs:1149 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/entity/npc/tests.rs::a_scaled_zombie_has_its_whole_eye_height_scaled | into `Entity::getEyeHeight` |
-| `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:441 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
-| `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:441 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo::getHeight` | merged | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
+| `entity\EntitySizeInfo::getWidth` | merged | src/tick/entity.rs:440 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `entity\EntitySizeInfo::scale` | merged | src/tick/entity/api.rs:765 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved | into `Entity::setScale` |
 | `entity\ExperienceManager` | merged | src/tick/survival/api.rs:662 `xp_level` | src/tick/survival/api.rs::xp_levels_and_points_are_set_and_taken_within_their_bounds | into `ExperienceManager::getXpLevel` |
 | `entity\ExperienceManager::__construct` | skipped |  |  | every player has its xp |
@@ -4652,7 +4652,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\HungerManager::setFoodTickTimer` | skipped |  |  | food rule code |
 | `entity\HungerManager::setSaturation` | implemented | src/tick/survival/api.rs:1338 `set_saturation` | src/tick/survival/api.rs::food_values_are_set_within_their_bounds |  |
 | `entity\HungerManager::tick` | skipped |  |  | food rule code |
-| `entity\InvalidSkinException` | merged | src/entity/skin.rs:62 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names | into `Skin::__construct` |
+| `entity\InvalidSkinException` | merged | src/entity/skin.rs:63 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names | into `Skin::__construct` |
 | `entity\Living` | merged | src/tick/survival/api.rs:357 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed | into `Living::getEffects` |
 | `entity\Living::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
 | `entity\Living::attack` | implemented | src/action/survival.rs:48 `Damage`<br>src/tick/entity/api.rs:73 `attack` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_raise_no_events<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
@@ -4709,13 +4709,13 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\Location::getPitch` | implemented | src/tick/entity/api.rs:1447 `pitch` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\Location::getYaw` | implemented | src/tick/entity/api.rs:1579 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\NeverSavedWithChunkEntity` | merged | src/tick/entity/api.rs:1054 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it | into `Entity::canSaveWithChunk` |
-| `entity\Skin` | implemented | src/entity/skin.rs:49 `Skin` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::__construct` | implemented | src/entity/skin.rs:62 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::getCapeData` | implemented | src/entity/skin.rs:78 `cape` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::getGeometryData` | implemented | src/entity/skin.rs:90 `geometry_data` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::getGeometryName` | implemented | src/entity/skin.rs:96 `geometry_name` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::getSkinData` | implemented | src/entity/skin.rs:84 `data` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
-| `entity\Skin::getSkinId` | implemented | src/entity/skin.rs:102 `id` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin` | implemented | src/entity/skin.rs:41 `Skin` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::__construct` | implemented | src/entity/skin.rs:63 `new` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::getCapeData` | implemented | src/entity/skin.rs:79 `cape` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::getGeometryData` | implemented | src/entity/skin.rs:91 `geometry_data` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::getGeometryName` | implemented | src/entity/skin.rs:97 `geometry_name` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::getSkinData` | implemented | src/entity/skin.rs:85 `data` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
+| `entity\Skin::getSkinId` | implemented | src/entity/skin.rs:103 `id` | src/entity/skin.rs::skins_take_only_accepted_sizes_and_safe_geometry_names |  |
 | `entity\Squid` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\Squid::attack` | skipped |  |  | mob AI: the API table's squid swims on its own |
 | `entity\Squid::getDrops` | skipped |  |  | mob AI: the API table's squid swims on its own |
@@ -4941,7 +4941,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\object\EndCrystal::setShowBase` | implemented | src/tick/entity/api.rs:230 `set_base_visible` | src/tick/entity/object/tests.rs::an_end_crystal_stands_on_obsidian_and_explodes_when_hit |  |
 | `entity\object\EndCrystal::showBase` | implemented | src/tick/entity/api.rs:1244 `is_base_visible` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb` | implemented | src/entity.rs:58 `XpOrb` | src/tick/entity.rs::orbs_follow_the_nearest_player_and_give_it_their_xp<br>src/tick/entity.rs::every_kind_spawned_and_removed_a_thousand_times_leaves_every_table_at_its_start |  |
-| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:2085 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
+| `entity\object\ExperienceOrb::__construct` | implemented | src/tick/entity/api.rs:2084 `spawn_xp_orb` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `entity\object\ExperienceOrb::canBeCollidedWith` | merged | src/tick/entity/api.rs:1048 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::canBeCollidedWith` |
 | `entity\object\ExperienceOrb::getDespawnDelay` | implemented | src/tick/entity/api.rs:1127 `despawn_delay_ticks` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\object\ExperienceOrb::getMaxOrbSize` | skipped |  |  | entity rule code |
@@ -5079,7 +5079,7 @@ implemented 326, differs 1, merged 122, skipped 222, blank 0 (of 671 rows)
 | `entity\projectile\SplashPotion::willLinger` | implemented | src/tick/entity/api.rs:1275 `is_lingering` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Throwable` | merged | src/tick/entity/api.rs:1974 `spawn_projectile` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Projectile::__construct` |
 | `entity\projectile\Trident` | implemented | src/entity.rs:108 `Trident` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:2052 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
+| `entity\projectile\Trident::__construct` | implemented | src/tick/entity/api.rs:2051 `spawn_trident` | src/tick/entity/object/tests.rs::tridents_save_their_item_and_show_its_glint |  |
 | `entity\projectile\Trident::canCollideWith` | skipped |  |  | entity rule code |
 | `entity\projectile\Trident::getItem` | implemented | src/tick/entity/api.rs:1313 `item` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `entity\projectile\Trident::getNetworkTypeId` | merged | src/tick/entity/api.rs:1371 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getNetworkTypeId` |
@@ -5115,8 +5115,8 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\HandlerList::getListenerList` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerList::getListenersByPriority` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerList::getParent` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `event\HandlerList::register` | merged | src/server.rs:644 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
-| `event\HandlerList::registerAll` | merged | src/server.rs:644 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\HandlerList::register` | merged | src/server.rs:657 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\HandlerList::registerAll` | merged | src/server.rs:657 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `event\HandlerList::unregister` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::getAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
@@ -5124,7 +5124,7 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\HandlerListManager::getListFor` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::global` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\HandlerListManager::unregisterAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
-| `event\Listener` | merged | src/server.rs:644 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `event\Listener` | merged | src/server.rs:657 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `event\ListenerMethodTags` | skipped |  |  | PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on` |
 | `event\RegisteredListener` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` |
 | `event\RegisteredListener::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -5827,15 +5827,15 @@ implemented 482, differs 3, merged 69, skipped 355, blank 0 (of 909 rows)
 | `event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1331 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1335 `reason` | src/event/player.rs::join_and_quit_messages_can_change<br>src/tick/spawn.rs::the_replaced_player_quits_with_the_reason_a_listener_gave |  |
 | `event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1341 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:129 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
-| `event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:135 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
+| `event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:693 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:693 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `event\player\PlayerRespawnAnchorUseEvent` | skipped |  |  | a respawn anchor click is removed |
 | `event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `event\player\PlayerRespawnAnchorUseEvent::cancel` | skipped |  |  | a respawn anchor click is removed |
@@ -6013,9 +6013,9 @@ implemented 2, differs 0, merged 1, skipped 0, blank 0 (of 3 rows)
 
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `form\Form` | implemented | src/form.rs:78 `Form` | src/form.rs::forms_serialize_to_the_json_the_official_server_sends_with_escaping |  |
-| `form\Form::handleResponse` | implemented | src/tick/form.rs:156 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response |  |
-| `form\FormValidationException` | merged | src/tick/form.rs:156 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response | into `Form::handleResponse` |
+| `form\Form` | implemented | src/form.rs:81 `Form` | src/form.rs::forms_serialize_to_the_json_the_official_server_sends_with_escaping |  |
+| `form\Form::handleResponse` | implemented | src/tick/form.rs:158 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response |  |
+| `form\FormValidationException` | merged | src/tick/form.rs:158 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response | into `Form::handleResponse` |
 
 ## `inventory`
 
@@ -6030,17 +6030,17 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\ArmorInventory::getHelmet` | implemented | src/inventory.rs:206 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\ArmorInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
 | `inventory\ArmorInventory::getLeggings` | implemented | src/inventory.rs:208 `item` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\ArmorInventory::setBoots` | implemented | src/tick/inventory/api.rs:374 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\ArmorInventory::setChestplate` | implemented | src/tick/inventory/api.rs:372 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\ArmorInventory::setHelmet` | implemented | src/tick/inventory/api.rs:371 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\ArmorInventory::setLeggings` | implemented | src/tick/inventory/api.rs:373 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\ArmorInventory::setBoots` | implemented | src/tick/inventory/api.rs:372 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\ArmorInventory::setChestplate` | implemented | src/tick/inventory/api.rs:370 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\ArmorInventory::setHelmet` | implemented | src/tick/inventory/api.rs:369 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\ArmorInventory::setLeggings` | implemented | src/tick/inventory/api.rs:371 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\BaseInventory` | implemented | src/inventory.rs:107 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `inventory\BaseInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
-| `inventory\BaseInventory::addItem` | implemented | src/tick/inventory/api.rs:256 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::addItem` | implemented | src/tick/inventory/api.rs:255 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\BaseInventory::all` | implemented | src/inventory.rs:302 `slots_holding` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\BaseInventory::canAddItem` | implemented | src/inventory.rs:132 `can_add` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
-| `inventory\BaseInventory::clear` | implemented | src/tick/inventory/api.rs:370 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\BaseInventory::clearAll` | implemented | src/tick/inventory/api.rs:264 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::clear` | implemented | src/tick/inventory/api.rs:368 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::clearAll` | implemented | src/tick/inventory/api.rs:263 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\BaseInventory::contains` | implemented | src/inventory.rs:165 `contains` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\BaseInventory::first` | implemented | src/inventory.rs:179 `first` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\BaseInventory::firstEmpty` | implemented | src/inventory.rs:186 `first_empty` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
@@ -6052,14 +6052,14 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\BaseInventory::isSlotEmpty` | implemented | src/inventory.rs:193 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `inventory\BaseInventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `inventory\BaseInventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
-| `inventory\BaseInventory::remove` | implemented | src/tick/inventory/api.rs:282 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::remove` | implemented | src/tick/inventory/api.rs:281 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\BaseInventory::removeAllViewers` | skipped |  |  | window rule code |
-| `inventory\BaseInventory::removeItem` | implemented | src/tick/inventory/api.rs:274 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\BaseInventory::setContents` | implemented | src/tick/inventory/api.rs:299 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\BaseInventory::setItem` | implemented | src/tick/inventory/api.rs:368 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::removeItem` | implemented | src/tick/inventory/api.rs:273 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::setContents` | implemented | src/tick/inventory/api.rs:297 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::setItem` | implemented | src/tick/inventory/api.rs:366 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\BaseInventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
 | `inventory\BaseInventory::slotExists` | implemented | src/inventory.rs:205 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `inventory\BaseInventory::swap` | implemented | src/tick/inventory/api.rs:340 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\BaseInventory::swap` | implemented | src/tick/inventory/api.rs:338 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\CallbackInventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `inventory\CallbackInventoryListener::__construct` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
 | `inventory\CallbackInventoryListener::onAnyChange` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
@@ -6101,11 +6101,11 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\DelegateInventory::getSize` | skipped |  |  | no inventory wrappers: `inventory::Inventory` reads every inventory |
 | `inventory\DelegateInventory::isSlotEmpty` | skipped |  |  | no inventory wrappers: `inventory::Inventory` reads every inventory |
 | `inventory\Inventory` | implemented | src/inventory.rs:110 `Inventory` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `inventory\Inventory::addItem` | implemented | src/tick/inventory/api.rs:255 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::addItem` | implemented | src/tick/inventory/api.rs:254 `add` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\Inventory::all` | implemented | src/inventory.rs:301 `slots_holding` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\Inventory::canAddItem` | implemented | src/inventory.rs:131 `can_add` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
-| `inventory\Inventory::clear` | implemented | src/tick/inventory/api.rs:369 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\Inventory::clearAll` | implemented | src/tick/inventory/api.rs:263 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::clear` | implemented | src/tick/inventory/api.rs:367 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::clearAll` | implemented | src/tick/inventory/api.rs:262 `clear_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\Inventory::contains` | implemented | src/inventory.rs:164 `contains` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\Inventory::first` | implemented | src/inventory.rs:178 `first` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
 | `inventory\Inventory::firstEmpty` | implemented | src/inventory.rs:185 `first_empty` | src/inventory.rs::finding_and_room_count_stacks_with_equal_data |  |
@@ -6119,13 +6119,13 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\Inventory::isSlotEmpty` | implemented | src/inventory.rs:192 `is_slot_empty` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
 | `inventory\Inventory::onClose` | skipped |  |  | window rule code: listeners see InventoryClose |
 | `inventory\Inventory::onOpen` | skipped |  |  | window rule code: listeners see InventoryOpen |
-| `inventory\Inventory::remove` | implemented | src/tick/inventory/api.rs:281 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\Inventory::removeItem` | implemented | src/tick/inventory/api.rs:273 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\Inventory::setContents` | implemented | src/tick/inventory/api.rs:298 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `inventory\Inventory::setItem` | implemented | src/tick/inventory/api.rs:367 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::remove` | implemented | src/tick/inventory/api.rs:280 `remove_all` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::removeItem` | implemented | src/tick/inventory/api.rs:272 `remove` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::setContents` | implemented | src/tick/inventory/api.rs:296 `set_contents` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::setItem` | implemented | src/tick/inventory/api.rs:365 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\Inventory::setMaxStackSize` | skipped |  |  | stack limits are per item type (`Item::getMaxStackSize`) and per slot rule |
 | `inventory\Inventory::slotExists` | implemented | src/inventory.rs:204 `item` | src/inventory.rs::a_view_reads_both_halves_in_order |  |
-| `inventory\Inventory::swap` | implemented | src/tick/inventory/api.rs:339 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
+| `inventory\Inventory::swap` | implemented | src/tick/inventory/api.rs:337 `swap` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\InventoryHolder` | merged | src/tick/inventory/api.rs:137 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `inventory\InventoryHolder::getInventory` | implemented | src/tick/inventory/api.rs:137 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer |  |
 | `inventory\InventoryListener` | skipped |  |  | inventory change hooks are events: InventoryTransaction |
@@ -6150,7 +6150,7 @@ implemented 83, differs 0, merged 11, skipped 110, blank 0 (of 204 rows)
 | `inventory\PlayerInventory::getItemInHand` | implemented | src/tick/inventory/api.rs:35 `held_item` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `inventory\PlayerInventory::isHotbarSlot` | merged | src/inventory.rs:28 `HOTBAR_SIZE` | src/inventory.rs::the_hotbar_is_the_first_nine_main_slots | into `PlayerInventory::getHotbarSize` |
 | `inventory\PlayerInventory::setHeldItemIndex` | implemented | src/tick/inventory/api.rs:89 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
-| `inventory\PlayerInventory::setItemInHand` | merged | src/tick/inventory/api.rs:367 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Inventory::setItem` |
+| `inventory\PlayerInventory::setItemInHand` | merged | src/tick/inventory/api.rs:365 `set` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids | into `Inventory::setItem` |
 | `inventory\PlayerOffHandInventory` | implemented | src/inventory.rs:44 `Offhand` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `inventory\PlayerOffHandInventory::__construct` | skipped |  |  | inventories belong to players and blocks; the engine makes them |
 | `inventory\PlayerOffHandInventory::getHolder` | skipped |  |  | an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`) |
@@ -6239,9 +6239,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Apple::getSaturationRestore` | merged | src/item.rs:865 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
 | `item\Armor` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Armor::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\Armor::clearCustomColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Armor::clearCustomColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Armor::getArmorSlot` | implemented | src/item.rs:819 `slot` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
-| `item\Armor::getCustomColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Armor::getCustomColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Armor::getDefensePoints` | merged | src/item.rs:248 `armor_points` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getDefensePoints` |
 | `item\Armor::getEnchantability` | skipped |  |  | enchanting is removed: the enchanting table does nothing |
 | `item\Armor::getEnchantmentProtectionFactor` | skipped |  |  | enchantment rule code |
@@ -6250,7 +6250,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Armor::getMaxStackSize` | merged | src/item.rs:407 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\Armor::isFireProof` | merged | src/item.rs:385 `is_fire_proof` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::isFireProof` |
 | `item\Armor::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
-| `item\Armor::setCustomColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Armor::setCustomColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\ArmorMaterial` | skipped |  |  | armour materials are a generated table |
 | `item\ArmorMaterial::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ArmorMaterial::getEnchantability` | skipped |  |  | enchanting is removed: the enchanting table does nothing |
@@ -6279,9 +6279,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Banner` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Banner::getColor` | merged | src/item.rs:393 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\Banner::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
-| `item\Banner::getPatterns` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Banner::getPatterns` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Banner::setColor` | merged | src/item.rs:393 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
-| `item\Banner::setPatterns` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Banner::setPatterns` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Beetroot` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Beetroot::getFoodRestore` | merged | src/item.rs:859 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
 | `item\Beetroot::getSaturationRestore` | merged | src/item.rs:865 `saturation_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getSaturationRestore` |
@@ -6313,7 +6313,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `item\Bow::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\Bow::getMaxDurability` | merged | src/item.rs:400 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Durable::getMaxDurability` |
-| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4212 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
+| `item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4209 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
 | `item\Bowl` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Bowl::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\Bread` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6384,9 +6384,9 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Durable::getDamage` | implemented | src/item/stack.rs:258 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Durable::getMaxDurability` | implemented | src/item.rs:400 `max_durability` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Durable::isBroken` | merged | src/item/stack.rs:258 `damage` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Durable::getDamage` |
-| `item\Durable::isUnbreakable` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Durable::isUnbreakable` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Durable::setDamage` | implemented | src/item/stack.rs:355 `with_damage` | src/item/stack.rs::a_damage_set_through_the_api_reads_back_from_disk<br>src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `item\Durable::setUnbreakable` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Durable::setUnbreakable` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Dye` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Dye::getColor` | skipped |  |  | dye colors are used by crafting and cauldrons, which are removed |
 | `item\Dye::setColor` | merged | src/item.rs:393 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
@@ -6408,32 +6408,32 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\FireCharge` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\FireCharge::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
 | `item\FireworkRocket` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\FireworkRocket::getExplosions` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocket::getFlightTimeMultiplier` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocket::getExplosions` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocket::getFlightTimeMultiplier` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocket::onInteractBlock` | skipped |  |  | item rule code: listeners see PlayerInteract |
-| `item\FireworkRocket::setExplosions` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocket::setFlightTimeMultiplier` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocket::setExplosions` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocket::setFlightTimeMultiplier` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocketExplosion::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\FireworkRocketExplosion::fromCompoundTag` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getColorMix` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getColors` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getFadeColors` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getFlashColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getTrail` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::getType` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::toCompoundTag` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkRocketExplosion::willTwinkle` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::fromCompoundTag` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getColorMix` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getColors` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getFadeColors` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getFlashColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getTrail` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::getType` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::toCompoundTag` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkRocketExplosion::willTwinkle` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FireworkRocketType` | merged | src/item.rs:393 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getTypeId` |
 | `item\FireworkRocketType::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\FireworkRocketType::getExplosionSound` | skipped |  |  | entity rule code: the burst sound is played by the firework rocket entity (`entity::Type::FireworkRocket`) |
 | `item\FireworkStar` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\FireworkStar::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\FireworkStar::getColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkStar::getCustomColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkStar::getExplosion` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkStar::setCustomColor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\FireworkStar::setExplosion` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkStar::getColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkStar::getCustomColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkStar::getExplosion` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkStar::setCustomColor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\FireworkStar::setExplosion` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\FishingRod` | skipped |  |  | fishing |
 | `item\FishingRod::getMaxDurability` | skipped |  |  | fishing |
 | `item\FishingRod::getMaxStackSize` | skipped |  |  | fishing |
@@ -6498,51 +6498,51 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Item::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `item\Item::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\Item::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `item\Item::addEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::addEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\Item::canBePlaced` | merged | src/item.rs:452 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
 | `item\Item::canStackWith` | implemented | src/item/stack.rs:234 `can_stack_with` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `item\Item::clearCustomBlockData` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::clearCustomName` | merged | src/item/stack.rs:640 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `item\Item::clearNamedTag` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::clearCustomBlockData` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::clearCustomName` | merged | src/item/stack.rs:643 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `item\Item::clearNamedTag` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::equals` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Item::equalsExact` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Item::getAttackPoints` | implemented | src/item.rs:254 `attack_points` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getBlock` | implemented | src/item.rs:452 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Item::getBlockToolHarvestLevel` | implemented | src/item.rs:272 `block_tool_harvest_level` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getBlockToolType` | implemented | src/item.rs:278 `block_tool_type` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
-| `item\Item::getCanDestroy` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::getCanPlaceOn` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::getCanDestroy` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::getCanPlaceOn` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::getCooldownTag` | implemented | src/item.rs:915 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Item::getCooldownTicks` | implemented | src/item.rs:921 `ticks` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
 | `item\Item::getCount` | implemented | src/item/stack.rs:244 `count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `item\Item::getCustomBlockData` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::getCustomName` | implemented | src/item/stack.rs:640 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `item\Item::getCustomBlockData` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::getCustomName` | implemented | src/item/stack.rs:643 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getDefensePoints` | implemented | src/item.rs:248 `armor_points` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getEnchantability` | skipped |  |  | enchanting is removed: the enchanting table does nothing |
-| `item\Item::getEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\Item::getEnchantmentLevel` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::getEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::getEnchantmentLevel` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\Item::getEnchantmentTags` | skipped |  |  | enchanting is removed: Anchor has no enchantment availability rules |
-| `item\Item::getEnchantments` | implemented | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `item\Item::getEnchantments` | implemented | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getFuelResidue` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\Item::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
-| `item\Item::getLore` | implemented | src/item/stack.rs:643 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `item\Item::getLore` | implemented | src/item/stack.rs:646 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getMaxStackSize` | implemented | src/item.rs:407 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getMiningEfficiency` | implemented | src/item.rs:425 `mining_efficiency` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
-| `item\Item::getNamedTag` | implemented | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
+| `item\Item::getNamedTag` | implemented | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::getPlacementTransaction` | skipped |  |  | item rule code: listeners see BlockPlace |
 | `item\Item::getStateId` | skipped |  |  | the API table's runtime state bit packing: Anchor's item types are a generated table |
 | `item\Item::getTypeId` | implemented | src/item.rs:393 `kind` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::getVanillaName` | skipped |  |  | English item names are client-side translations (Anchor sends translation keys); `item::Type::name` is the registry name |
-| `item\Item::hasCustomBlockData` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::hasCustomName` | merged | src/item/stack.rs:640 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `item\Item::hasEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\Item::hasEnchantments` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\Item::hasNamedTag` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::hasCustomBlockData` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::hasCustomName` | merged | src/item/stack.rs:643 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `item\Item::hasEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::hasEnchantments` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::hasNamedTag` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::isFireProof` | implemented | src/item.rs:385 `is_fire_proof` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data |  |
 | `item\Item::isNull` | implemented | src/item/stack.rs:279 `is_empty` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
 | `item\Item::jsonSerialize` | skipped |  |  | the API table's JSON item format (crafting data files): Anchor has no crafting |
-| `item\Item::keepOnDeath` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::keepOnDeath` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::legacyJsonDeserialize` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
 | `item\Item::nbtDeserialize` | implemented | src/tick/interact/custom.rs:37 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
 | `item\Item::nbtSerialize` | implemented | src/item/stack.rs:435 `to_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
@@ -6554,17 +6554,17 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\Item::onReleaseUsing` | skipped |  |  | item rule code: listeners see EntityShootBow |
 | `item\Item::onTickWorn` | skipped |  |  | item rule code |
 | `item\Item::pop` | merged | src/item/stack.rs:336 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::setCount` |
-| `item\Item::removeEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\Item::removeEnchantments` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::removeEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\Item::removeEnchantments` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\Item::safeNbtDeserialize` | merged | src/tick/interact/custom.rs:37 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too | into `Item::nbtDeserialize` |
-| `item\Item::setCanDestroy` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::setCanPlaceOn` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::setCanDestroy` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::setCanPlaceOn` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\Item::setCount` | implemented | src/item/stack.rs:336 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
-| `item\Item::setCustomBlockData` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::setCustomName` | merged | src/item/stack.rs:640 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
-| `item\Item::setKeepOnDeath` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\Item::setLore` | merged | src/item/stack.rs:643 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getLore` |
-| `item\Item::setNamedTag` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::setCustomBlockData` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::setCustomName` | merged | src/item/stack.rs:643 `custom_name` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getCustomName` |
+| `item\Item::setKeepOnDeath` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\Item::setLore` | merged | src/item/stack.rs:646 `lore` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getLore` |
+| `item\Item::setNamedTag` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\ItemBlock` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ItemBlock::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
 | `item\ItemBlock::getBlock` | merged | src/item.rs:452 `placed_block` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getBlock` |
@@ -6578,15 +6578,15 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\ItemBlockWallOrFloor::getFuelTime` | skipped |  |  | fuel is removed: furnaces do nothing |
 | `item\ItemBlockWallOrFloor::getMaxStackSize` | merged | src/item.rs:407 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
 | `item\ItemCooldownTags` | merged | src/item.rs:915 `tag` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data | into `Item::getCooldownTag` |
-| `item\ItemEnchantmentHandlingTrait` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::addEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::getEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::getEnchantmentLevel` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::getEnchantments` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::hasEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::hasEnchantments` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::removeEnchantment` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\ItemEnchantmentHandlingTrait::removeEnchantments` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::addEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::getEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::getEnchantmentLevel` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::getEnchantments` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::hasEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::hasEnchantments` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::removeEnchantment` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\ItemEnchantmentHandlingTrait::removeEnchantments` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\ItemIdentifier` | skipped |  |  | item types are generated from the dump |
 | `item\ItemIdentifier::__construct` | skipped |  |  | item types are generated from the dump |
 | `item\ItemIdentifier::fromBlock` | skipped |  |  | item types are generated from the dump |
@@ -6692,7 +6692,7 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `item\ProjectileItem` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\ProjectileItem::getThrowForce` | implemented | src/item.rs:503 `throw_force` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_use_data |  |
-| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4204 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
+| `item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4201 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_its_constants |  |
 | `item\Pufferfish` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:884 `effects` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `Consumable::getAdditionalEffects` |
 | `item\Pufferfish::getFoodRestore` | merged | src/item.rs:859 `food_restore` | src/item.rs::food_and_armor_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_food_data | into `FoodSource::getFoodRestore` |
@@ -7192,28 +7192,28 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\WritableBook` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\WritableBookBase` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `item\WritableBookBase::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\WritableBookBase::addPage` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::deletePage` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::addPage` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::deletePage` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookBase::getMaxStackSize` | merged | src/item.rs:407 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\WritableBookBase::getPageText` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::getPages` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::insertPage` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::pageExists` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::setPageText` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::setPages` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookBase::swapPages` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookPage` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::getPageText` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::getPages` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::insertPage` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::pageExists` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::setPageText` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::setPages` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookBase::swapPages` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookPage` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WritableBookPage::__construct` | skipped |  |  | item types are generated from the dump; a stack is made with `item::Stack::new` |
-| `item\WritableBookPage::getPhotoName` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WritableBookPage::getText` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookPage::getPhotoName` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WritableBookPage::getText` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WrittenBook` | merged | src/item/stack.rs:112 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
-| `item\WrittenBook::getAuthor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WrittenBook::getGeneration` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::getAuthor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::getGeneration` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\WrittenBook::getMaxStackSize` | merged | src/item.rs:407 `max_stack_size` | src/item.rs::item_data_are_the_dump_values<br>src/item.rs::every_type_has_its_dump_tool_and_armor_data | into `Item::getMaxStackSize` |
-| `item\WrittenBook::getTitle` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WrittenBook::setAuthor` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WrittenBook::setGeneration` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
-| `item\WrittenBook::setTitle` | merged | src/item/stack.rs:651 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::getTitle` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::setAuthor` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::setGeneration` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
+| `item\WrittenBook::setTitle` | merged | src/item/stack.rs:654 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `item\enchantment\AvailableEnchantmentRegistry` | skipped |  |  | enchanting is removed: Anchor has no enchantment availability rules |
 | `item\enchantment\AvailableEnchantmentRegistry::getAll` | skipped |  |  | enchanting is removed: Anchor has no enchantment availability rules |
 | `item\enchantment\AvailableEnchantmentRegistry::getAllEnchantmentsForItem` | skipped |  |  | enchanting is removed: Anchor has no enchantment availability rules |
@@ -7254,10 +7254,10 @@ implemented 38, differs 0, merged 784, skipped 273, blank 0 (of 1095 rows)
 | `item\enchantment\Enchantment::hasPrimaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `item\enchantment\Enchantment::hasSecondaryItemType` | skipped |  |  | legacy item flags: Anchor uses the item tags |
 | `item\enchantment\Enchantment::isCompatibleWith` | skipped |  |  | enchantments are a generated table of ids: Anchor reads no incompatible groups |
-| `item\enchantment\EnchantmentInstance` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\enchantment\EnchantmentInstance::__construct` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\enchantment\EnchantmentInstance::getLevel` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `item\enchantment\EnchantmentInstance::getType` | merged | src/item/stack.rs:647 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\enchantment\EnchantmentInstance` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\enchantment\EnchantmentInstance::__construct` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\enchantment\EnchantmentInstance::getLevel` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
+| `item\enchantment\EnchantmentInstance::getType` | merged | src/item/stack.rs:650 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `item\enchantment\FireAspectEnchantment` | merged | src/item/table.rs:14607 `Enchantment` | src/item.rs::enchantment_ids_round_trip | into `Enchantment` |
 | `item\enchantment\FireAspectEnchantment::getDamageBonus` | skipped |  |  | enchantment rule code |
 | `item\enchantment\FireAspectEnchantment::isApplicableTo` | skipped |  |  | enchantment rule code |
@@ -7395,12 +7395,12 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\Network::registerInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::registerRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::sendPacket` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::setName` | implemented | src/tick/task.rs:356 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::setName` | implemented | src/tick/task.rs:355 `set_motd` | src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::tick` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::unblockAddress` | implemented | src/tick/task.rs:398 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::unblockAddress` | implemented | src/tick/task.rs:397 `unblock_address` | src/session.rs::blocks_end_after_their_duration_and_stay_bounded<br>src/session.rs::controls_rename_block_and_unblock_and_the_counts_reach_the_tick<br>src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\Network::unregisterInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\Network::unregisterRawPacketHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\Network::updateName` | implemented | src/tick/task.rs:357 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
+| `network\Network::updateName` | implemented | src/tick/task.rs:356 `set_motd` | src/tick/network.rs::network_controls_reach_the_networking_in_order_within_the_tick_bound |  |
 | `network\NetworkInterface` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::setName` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\NetworkInterface::shutdown` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -7520,7 +7520,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `network\mcpe\NetworkSession::onClientDisconnect` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onCloseAllForms` | merged | src/tick/form.rs:131 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them | into `Player::closeAllForms` |
 | `network\mcpe\NetworkSession::onEnterWorld` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
+| `network\mcpe\NetworkSession::onFormSent` | merged | src/tick/form.rs:157 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase | into `Player::sendForm` |
 | `network\mcpe\NetworkSession::onItemCooldownChanged` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `network\mcpe\NetworkSession::onJukeboxPopup` | merged | src/tick/player.rs:621 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendJukeboxPopup` |
 | `network\mcpe\NetworkSession::onOpenSignEditor` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8276,7 +8276,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::addAttachment` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::attack` | implemented | src/action/survival.rs:49 `Damage`<br>src/tick/survival/api.rs:1584 `attack_player` | src/tick/survival/api.rs::an_api_hit_on_a_player_follows_the_hit_cooldown<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `player\Player::attackBlock` | implemented | src/action/interact.rs:22 `AttackBlock` | src/tick/interact/tests/events.rs::the_attack_action_raises_the_left_click_event |  |
-| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4265 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
+| `player\Player::attackEntity` | implemented | src/action/entity.rs:19 `Attack`<br>src/tick/entity.rs:4262 `attack` | src/tick/entity/npc/tests.rs::a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not<br>src/tick/survival/wiring.rs::an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon |  |
 | `player\Player::breakBlock` | implemented | src/action/interact.rs:45 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied |  |
 | `player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1800 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_the_official_values |  |
 | `player\Player::broadcastSound` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
@@ -8343,7 +8343,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:653 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1775 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `player\Player::interactBlock` | implemented | src/action/interact.rs:116 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::a_uses_sound_listeners_hear_it_once_the_held_item_is_applied |  |
-| `player\Player::interactEntity` | implemented | src/action/interact.rs:68 `InteractEntity`<br>src/tick/entity.rs:4273 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `player\Player::interactEntity` | implemented | src/action/interact.rs:68 `InteractEntity`<br>src/tick/entity.rs:4270 `interact` | src/tick/entity/npc/tests.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `player\Player::isAdventure` | implemented | src/tick/survival/api.rs:445 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `player\Player::isAuthenticated` | implemented | src/tick/player.rs:365 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `player\Player::isConnected` | implemented | src/tick/player.rs:373 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
@@ -8366,7 +8366,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::onChunkLoaded` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkPopulated` | skipped |  |  | chunk sending is the engine's |
 | `player\Player::onChunkUnloaded` | skipped |  |  | chunk sending is the engine's |
-| `player\Player::onFormSubmit` | merged | src/tick/form.rs:156 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response | into `Form::handleResponse` |
+| `player\Player::onFormSubmit` | merged | src/tick/form.rs:158 `send_form` | src/tick/form/tests.rs::a_valid_answer_calls_the_handler_once_with_the_typed_response | into `Form::handleResponse` |
 | `player\Player::onUpdate` | skipped |  |  | player rule code |
 | `player\Player::openSignEditor` | implemented | src/tick/interact/sign.rs:46 `open_sign_editor` | src/tick/interact/tests.rs::the_api_opens_a_sign_editor_only_on_a_sign_in_the_game<br>src/tick/interact/tests.rs::a_sign_set_by_code_takes_the_edit_of_an_editor_the_api_opens |  |
 | `player\Player::pickBlock` | skipped |  |  | player rule code: listeners see PlayerBlockPick |
@@ -8384,7 +8384,7 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::selectHotbarSlot` | merged | src/tick/inventory/api.rs:89 `set_held_slot` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players | into `PlayerInventory::setHeldItemIndex` |
 | `player\Player::sendActionBarMessage` | implemented | src/tick/player.rs:622 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
-| `player\Player::sendForm` | implemented | src/tick/form.rs:155 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
+| `player\Player::sendForm` | implemented | src/tick/form.rs:157 `send_form` | src/tick/form/tests.rs::a_sent_form_is_a_modal_form_request_with_its_json_and_ids_increase |  |
 | `player\Player::sendJukeboxPopup` | implemented | src/tick/player.rs:621 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendMessage` | implemented | src/tick/player.rs:618 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `player\Player::sendPopup` | implemented | src/tick/player.rs:620 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
@@ -8397,8 +8397,8 @@ implemented 96, differs 5, merged 14, skipped 111, blank 0 (of 226 rows)
 | `player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:884 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `player\Player::setBasePermission` | merged | src/tick/command.rs:1047 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
-| `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:222 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
-| `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:212 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
+| `player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:221 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
+| `player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:214 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
 | `player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:973 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `player\Player::setDisplayName` | implemented | src/tick/player.rs:642 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone<br>src/tick/player.rs::the_left_line_names_the_player_by_its_display_name |  |
 | `player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1037 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
@@ -8591,7 +8591,7 @@ implemented 1, differs 0, merged 0, skipped 134, blank 0 (of 135 rows)
 | `plugin\PluginManager::getPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::isPluginEnabled` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::loadPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `plugin\PluginManager::registerEvent` | implemented | src/server.rs:644 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `plugin\PluginManager::registerEvent` | implemented | src/server.rs:657 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `plugin\PluginManager::registerEvents` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::registerInterface` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `plugin\PluginManager::tickSchedulers` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
@@ -8632,39 +8632,39 @@ implemented 22, differs 0, merged 6, skipped 6, blank 0 (of 34 rows)
 | API | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
 | `resourcepacks\ResourcePack` | implemented | src/pack.rs:59 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:122 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:135 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:166 `size_bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:181 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:159 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ResourcePackException` | implemented | src/pack.rs:408 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `resourcepacks\ResourcePackManager` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:128 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:141 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:172 `size_bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:187 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:165 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ResourcePackException` | implemented | src/pack.rs:414 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:690 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
 | `resourcepacks\ResourcePackManager::getPackById` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:129 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:135 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager::getPackIdList` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
 | `resourcepacks\ResourcePackManager::getResourceStack` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:693 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:193 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:199 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:694 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
+| `resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
 | `resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:60 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:112 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:118 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `resourcepacks\ZippedResourcePack::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:123 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:174 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:136 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:167 `size_bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:182 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:129 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:180 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:142 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:173 `size_bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:188 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `resourcepacks\ZippedResourcePack::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
-| `resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:160 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `resourcepacks\json\Manifest` | merged | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestHeader` | merged | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:173 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:166 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `resourcepacks\json\Manifest` | merged | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestHeader` | merged | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:179 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
 
 ## `root`
 
@@ -8690,7 +8690,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `MemoryManager::isLowMemory` | skipped |  |  | PHP memory management |
 | `MemoryManager::trigger` | skipped |  |  | PHP memory management |
 | `MemoryManager::triggerGarbageCollector` | skipped |  |  | PHP memory management |
-| `Server` | implemented | src/server.rs:46 `Server` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `Server` | implemented | src/server.rs:52 `Server` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `Server::__clone` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `Server::__construct` | skipped |  |  | the server is made by `Server::builder()` |
 | `Server::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -8708,10 +8708,10 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::dispatchCommand` | implemented | src/tick/command.rs:903 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `Server::exceptionHandler` | skipped |  |  | the API table's crash dumps: Anchor keeps the input log instead |
-| `Server::forceShutdown` | merged | src/server.rs:800 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `Server::forceShutdown` | merged | src/server.rs:815 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `Server::getAllowedViewDistance` | merged | src/tick/task.rs:239 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `Server::getAsyncPool` | merged | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `Server::getAsyncPool` | merged | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
 | `Server::getBroadcastChannelSubscribers` | skipped |  |  | the API table's broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::getCommandAliases` | skipped |  |  | the API table's config file command aliases: aliases are given in code (`Command::alias`) |
 | `Server::getCommandMap` | merged | src/tick/command.rs:608 `command` | src/tick/command/tests.rs::dropping_an_unknown_builtin_fails_the_build | into `SimpleCommandMap::getCommand` |
@@ -8751,7 +8751,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::getPort` | implemented | src/config.rs:604 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getPortV6` | implemented | src/config.rs:605 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
-| `Server::getResourcePackManager` | merged | src/pack.rs:515 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `Server::getResourcePackManager` | merged | src/pack.rs:521 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
 | `Server::getServerUniqueId` | skipped |  |  | the API table's usage statistics reporting |
 | `Server::getStartTime` | skipped |  |  | game logic has no wall clock |
@@ -8780,7 +8780,7 @@ implemented 43, differs 3, merged 8, skipped 75, blank 0 (of 129 rows)
 | `Server::saveOfflinePlayerData` | differs | src/tick/task/offline.rs:322 `offline_player_mut` | src/tick/task/offline.rs::an_offline_players_record_is_held_changed_and_saved_by_the_next_snapshot | raises no PlayerDataSave: a held record changes only through the program's own calls, and direct API calls raise no events; the next snapshot saves it with the rest of the game |
 | `Server::sendUsage` | skipped |  |  | the API table's usage statistics reporting |
 | `Server::shouldSavePlayerData` | implemented | src/tick/task.rs:121 `is_player_data_saved` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `Server::shutdown` | implemented | src/server.rs:800 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `Server::shutdown` | implemented | src/server.rs:815 `shutdown`<br>src/tick/command.rs:1122 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `Server::subscribeToBroadcastChannel` | skipped |  |  | the API table's broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | the API table's broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
 | `Server::unsubscribeFromBroadcastChannel` | skipped |  |  | the API table's broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones; the message methods are merged |
@@ -8821,24 +8821,24 @@ implemented 17, differs 0, merged 16, skipped 66, blank 0 (of 99 rows)
 | `scheduler\AsyncPool::selectWorker` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdown` | skipped |  |  | the blocking pool is internal and bounded |
 | `scheduler\AsyncPool::shutdownUnusedWorkers` | skipped |  |  | the blocking pool is internal and bounded |
-| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:177 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
-| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTask` | implemented | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncPool::submitTaskToWorker` | merged | src/tick/task/job.rs:178 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
+| `scheduler\AsyncTask` | implemented | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `scheduler\AsyncTask::cancelRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::getResult` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::hasCancelledRun` | skipped |  |  | blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does |
-| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
-| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::hasResult` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isCrashed` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::isFinished` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::isSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
-| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
+| `scheduler\AsyncTask::onCompletion` | implemented | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onError` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onCompletion` |
 | `scheduler\AsyncTask::onProgressUpdate` | skipped |  |  | async work reports once: its result is the next tick's input |
-| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
+| `scheduler\AsyncTask::onRun` | implemented | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick |  |
 | `scheduler\AsyncTask::publishProgress` | skipped |  |  | async work reports once: its result is the next tick's input |
 | `scheduler\AsyncTask::run` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
-| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:179 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
+| `scheduler\AsyncTask::setResult` | merged | src/tick/task/job.rs:180 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncTask::onRun` |
 | `scheduler\AsyncTask::setSubmitted` | skipped |  |  | PHP thread plumbing: `spawn_blocking` runs the work |
 | `scheduler\AsyncWorker` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
 | `scheduler\AsyncWorker::__construct` | skipped |  |  | PHP worker threads: Anchor's blocking pool is internal |
@@ -9405,7 +9405,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` |
 | `world\World` | implemented | src/world.rs:573 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `world\World::__construct` | merged | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
+| `world\World::__construct` | merged | src/server.rs:698 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` |
 | `world\World::addOnUnloadCallback` | implemented | src/event/world.rs:212 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9421,7 +9421,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::clearCache` | skipped |  |  | chunk store internals |
 | `world\World::computeSkyLightReduction` | skipped |  |  | light rule code |
 | `world\World::computeSunAnglePercentage` | skipped |  |  | sky light rule code |
-| `world\World::createBlockUpdatePackets` | implemented | src/tick/view.rs:1147 `send_fake_block` | src/tick/inventory/tests/menu.rs::a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block |  |
+| `world\World::createBlockUpdatePackets` | implemented | src/tick/view.rs:1144 `send_fake_block` | src/tick/inventory/tests/menu.rs::a_fake_block_reaches_its_player_only_and_clearing_shows_the_real_block |  |
 | `world\World::doChunkGarbageCollection` | skipped |  |  | chunk store internals |
 | `world\World::dropExperience` | implemented | src/tick/entity/api.rs:1743 `drop_xp` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `world\World::dropItem` | implemented | src/tick/entity/api.rs:1720 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
@@ -9437,7 +9437,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getChunk` | implemented | src/world.rs:743 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
 | `world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1624 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:1001 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::getChunkLoaders` | implemented | src/tick/view.rs:999 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::getChunkPlayers` | implemented | src/tick/world_api.rs:44 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::getCollidingEntities` | implemented | src/tick/entity/api.rs:1696 `entities_in` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
@@ -9489,7 +9489,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::getViewersForPosition` | implemented | src/tick/world_api.rs:45 `chunk_viewers` | src/tick/world_api/tests.rs::chunk_viewers_are_the_players_sent_the_chunk |  |
 | `world\World::getXZ` | skipped |  |  | chunk store internals |
 | `world\World::isChunkGenerated` | skipped |  |  | chunk loading is the engine's |
-| `world\World::isChunkInUse` | differs | src/tick/view.rs:1002 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
+| `world\World::isChunkInUse` | differs | src/tick/view.rs:1000 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
 | `world\World::isChunkLoaded` | implemented | src/world.rs:802 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isChunkLocked` | skipped |  |  | chunk loading is the engine's |
 | `world\World::isChunkPopulated` | skipped |  |  | chunk loading is the engine's |
@@ -9498,17 +9498,17 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::isInWorld` | implemented | src/world.rs:808 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:410 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\World::isSpawnChunk` | implemented | src/world.rs:827 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
-| `world\World::loadChunk` | differs | src/tick/view.rs:1076 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
+| `world\World::loadChunk` | differs | src/tick/view.rs:1074 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:1120 `set_block` | src/tick/block_entity/api.rs::a_block_a_task_sets_gets_its_block_entity_in_the_block_updates<br>src/tick/interact/tests/events.rs::code_opens_and_closes_iron_doors_and_trapdoors<br>src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
-| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1078 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::orderChunkPopulation` | differs | src/tick/view.rs:1076 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:1075 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::registerChunkLoader` | implemented | src/tick/view.rs:1073 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::registerTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::removeEntity` | merged | src/tick/entity/api.rs:84 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start | into `Entity::flagForDespawn` |
 | `world\World::removeOnUnloadCallback` | implemented | src/event/world.rs:213 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
 | `world\World::removeRandomTickedBlock` | skipped |  |  | vanilla blocks have no random ticks: only custom blocks take them (`custom::Block::random_ticks`) |
-| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:1077 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
+| `world\World::requestChunkPopulation` | differs | src/tick/view.rs:1075 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `world\World::requestSafeSpawn` | merged | src/tick/world_api.rs:269 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column | into `World::getSafeSpawn` |
 | `world\World::save` | implemented | src/tick/task.rs:257 `save` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state |  |
 | `world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
@@ -9532,7 +9532,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\World::unlockChunk` | skipped |  |  | chunk loading is the engine's |
 | `world\World::unregisterChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `world\World::unregisterChunkListenerFromAll` | skipped |  |  | chunk listeners: world changes are events |
-| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1122 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
+| `world\World::unregisterChunkLoader` | implemented | src/tick/view.rs:1119 `release_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
 | `world\World::unregisterTickingChunk` | skipped |  |  | chunk ticking is the engine's |
 | `world\World::updateAllLight` | skipped |  |  | light rule code |
 | `world\World::useBreakOn` | merged | src/action/interact.rs:45 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause<br>src/tick/interact/tests/events.rs::a_breaks_sound_and_particle_listeners_see_it_applied | into `Player::breakBlock` |
@@ -9554,7 +9554,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\WorldManager` | merged | src/tick/world_api.rs:75 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` |
 | `world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1650 `entity_by_runtime_id` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `world\WorldManager::generateWorld` | implemented | src/server.rs:685 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
+| `world\WorldManager::generateWorld` | implemented | src/server.rs:698 `world`<br>src/tick/world_api/lifecycle.rs:455 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:672 `is_auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_on_request |  |
 | `world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting |
 | `world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:96 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9636,19 +9636,19 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\biome\UnknownBiome::getName` | skipped |  |  | vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`) |
 | `world\biome\model\BiomeDefinitionEntryData` | skipped |  |  | vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`) |
 | `world\biome\model\ColorData` | skipped |  |  | vanilla biome generation: Anchor stores biome IDs (`World::getBiomeId`) |
-| `world\format\Chunk` | implemented | src/world/chunk.rs:38 `Chunk` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk` | implemented | src/world/chunk.rs:39 `Chunk` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::__clone` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::__construct` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::addTile` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::blockHash` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::clearTerrainDirtyFlags` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::collectGarbage` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
-| `world\format\Chunk::getBiomeId` | implemented | src/world/chunk.rs:97 `biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
-| `world\format\Chunk::getBlockStateId` | implemented | src/world/chunk.rs:110 `block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::getBiomeId` | implemented | src/world/chunk.rs:98 `biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::getBlockStateId` | implemented | src/world/chunk.rs:111 `block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::getHeight` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
-| `world\format\Chunk::getHeightMap` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::getHeightMapArray` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::getHighestBlockAt` | implemented | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::getHeightMap` | merged | src/world/chunk.rs:171 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::getHeightMapArray` | merged | src/world/chunk.rs:171 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::getHighestBlockAt` | implemented | src/world/chunk.rs:171 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
 | `world\format\Chunk::getSubChunk` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::getSubChunks` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::getTerrainDirtyFlag` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
@@ -9660,10 +9660,10 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\format\Chunk::isTerrainDirty` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::onUnload` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::removeTile` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
-| `world\format\Chunk::setBiomeId` | implemented | src/world/chunk.rs:289 `set_biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
-| `world\format\Chunk::setBlockStateId` | implemented | src/world/chunk.rs:306 `set_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes<br>src/world/chunk.rs::setting_air_clears_the_water_over_an_air_slot |  |
-| `world\format\Chunk::setHeightMap` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
-| `world\format\Chunk::setHeightMapArray` | merged | src/world/chunk.rs:170 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::setBiomeId` | implemented | src/world/chunk.rs:290 `set_biome` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes |  |
+| `world\format\Chunk::setBlockStateId` | implemented | src/world/chunk.rs:307 `set_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes<br>src/world/chunk.rs::setting_air_clears_the_water_over_an_air_slot |  |
+| `world\format\Chunk::setHeightMap` | merged | src/world/chunk.rs:171 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
+| `world\format\Chunk::setHeightMapArray` | merged | src/world/chunk.rs:171 `highest_block` | src/world/chunk.rs::a_clone_keeps_its_contents_while_the_original_changes | into `Chunk::getHighestBlockAt` |
 | `world\format\Chunk::setLightPopulated` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::setPopulated` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
 | `world\format\Chunk::setSubChunk` | skipped |  |  | chunk store internals: `Chunk` reads and writes blocks and biomes |
@@ -9712,7 +9712,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\format\io\FastChunkSerializer::serializeTerrain` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\FormatConverter` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\FormatConverter::__construct` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
-| `world\format\io\FormatConverter::execute` | implemented | src/server.rs:213 `import_world` | tests/import.rs::an_official_world_imports_once_and_the_server_loads_it |  |
+| `world\format\io\FormatConverter::execute` | implemented | src/server.rs:222 `import_world` | tests/import.rs::an_official_world_imports_once_and_the_server_loads_it |  |
 | `world\format\io\FormatConverter::getBackupPath` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\GlobalBlockStateHandlers` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `world\format\io\GlobalBlockStateHandlers::getDeserializer` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
@@ -9900,10 +9900,10 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\generator\Generator::convertSeed` | skipped |  |  | a world seed is an `i64` setting |
 | `world\generator\Generator::generateChunk` | implemented | src/world/generator.rs:28 `generate` | src/world/chunk.rs::generators_give_the_same_bytes_for_the_same_seed_and_position |  |
 | `world\generator\Generator::populateChunk` | skipped |  |  | vanilla terrain generation: Anchor's generators fill a chunk in one step |
-| `world\generator\GeneratorManager` | merged | src/server.rs:619 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
+| `world\generator\GeneratorManager` | merged | src/server.rs:632 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
 | `world\generator\GeneratorManager::__construct` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::addAlias` | skipped |  |  | a generator has one name, its `Generator::name` |
-| `world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:619 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:632 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `world\generator\GeneratorManager::getGenerator` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::getGeneratorList` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
 | `world\generator\GeneratorManager::getGeneratorName` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` |
@@ -10338,7 +10338,7 @@ implemented 244, differs 5, merged 223, skipped 601, blank 0 (of 1073 rows)
 | `world\sound\LaunchSound::getPitch` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
 | `world\sound\LecternPlaceBookSound` | implemented | src/world/sound.rs:279 `LecternPlaceBook` | src/world/sound.rs::sounds_send_the_official_packets_with_gophertunnel_names |  |
 | `world\sound\LecternPlaceBookSound::encode` | merged | src/tick/world_api.rs:116 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
-| `world\sound\NoteInstrument` | implemented | src/world/sound.rs:537 `NoteInstrument` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
+| `world\sound\NoteInstrument` | implemented | src/world/sound.rs:541 `NoteInstrument` | src/world/sound.rs::notes_discs_and_horns_send_the_official_sound_events |  |
 | `world\sound\NoteInstrument::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `world\sound\NoteInstrument::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |

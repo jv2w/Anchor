@@ -40,7 +40,7 @@ use crate::tick::checkpoint;
 /// the world's middle on an axis, in blocks.
 pub const BORDER: i32 = 30_000_000;
 /// Ticks in a day.
-pub(crate) const DAY: i64 = 24_000;
+pub(crate) const DAY_TICKS: i64 = 24_000;
 /// The highest block y of the world.
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
@@ -1177,7 +1177,7 @@ impl World {
     /// [`Error::OutsideWorld`] for a position outside the world height.
     /// [`Error::NotLoaded`] for a chunk that is not loaded.
     /// [`Error::Quarantined`] for a quarantined chunk.
-    /// [`Error::Full`] when the chunk holds the most unknown states it can.
+    /// [`Error::Full`] for a chunk that holds the most unknown states it can.
     pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
         let entry = match block {
             StoredBlock::Known(state) => Entry::Known(*state),
@@ -1371,9 +1371,9 @@ checkpoint::fields!(Saved {
 fn tick_of_day(time: i64) -> u32 {
     #[expect(
         clippy::expect_used,
-        reason = "invariant: the remainder of a day is below DAY, which fits u32"
+        reason = "invariant: the remainder of a day is below DAY_TICKS, which fits u32"
     )]
-    u32::try_from(time.rem_euclid(DAY)).expect("a time of day fits u32")
+    u32::try_from(time.rem_euclid(DAY_TICKS)).expect("a time of day fits u32")
 }
 
 /// Whether chunk `pos` is inside the world border. The server holds chunks only around centers
@@ -2039,7 +2039,7 @@ mod tests {
             .value()
     }
 
-    /// The connection rules read a block with no behaviour of its own by its full faces: a fence
+    /// The connection rules read a block with no behavior of its own by its full faces: a fence
     /// joins a moss block's full face but not a moss carpet, and neither changes.
     #[test]
     fn fences_connect_to_a_solid_moss_block_only() {

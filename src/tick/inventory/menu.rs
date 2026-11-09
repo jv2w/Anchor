@@ -200,15 +200,17 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Opens nothing with:
-    /// [`Error::Offline`] if the player is not in the game or its client has no view yet.
-    /// [`Error::Busy`] if it waits with so many stacks for room that a window's items could not
-    /// go back, or this tick's changes of what it is shown leave no room for the menu's blocks.
-    /// [`Error::OutsideWorld`] if the menu's blocks cannot stand within 8 blocks of its eyes,
-    /// the world's height being in the way.
-    /// [`Error::NoSlot`] for a menu with a slot past its end.
-    /// [`Error::TitleTooLong`] for a title over 1,024 bytes.
-    /// [`Error::Exhausted`] if it was given 2^32 menus already, as menu IDs do not wrap.
+    /// [`Error::Offline`] for a player who is not in the game or whose client has no view yet;
+    /// nothing is opened.
+    /// [`Error::Busy`] for a player who waits with so many stacks for room that a window's items
+    /// could not go back, or whose changes of what it is shown this tick leave no room for the
+    /// menu's blocks; nothing is opened.
+    /// [`Error::OutsideWorld`] for menu blocks that cannot stand within 8 blocks of the player's
+    /// eyes, the world's height being in the way; nothing is opened.
+    /// [`Error::NoSlot`] for a menu with a slot past its end; nothing is opened.
+    /// [`Error::TitleTooLong`] for a title over 1,024 bytes; nothing is opened.
+    /// [`Error::Exhausted`] for a player given 2^32 menus already, as menu IDs do not wrap;
+    /// nothing is opened.
     #[doc(alias = "Player::setCurrentWindow")]
     pub fn open_menu(
         &mut self,
@@ -258,10 +260,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// Changes nothing with:
-    /// [`Error::Offline`] if the player has left.
-    /// [`Error::NoSlot`] if the menu has no such slot.
-    /// [`Error::NotOpen`] if the player has no menu open.
+    /// [`Error::Offline`] for a player who has left; nothing is changed.
+    /// [`Error::NoSlot`] for a slot the menu does not have; nothing is changed.
+    /// [`Error::NotOpen`] for a player with no menu open; nothing is changed.
     pub fn set_menu_item(&mut self, player: player::Id, slot: usize, stack: Stack) -> Result<()> {
         let p = self
             .state

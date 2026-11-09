@@ -19,12 +19,12 @@ This document holds the sources of truth and pinned versions, the pipeline from 
 | github.com/df-mc/go-nethernet | `xtask/go/go.mod`: a release that fixes the defect of gophertunnel's version (`dependencies.md`) |
 | Mojang bedrock-protocol-docs (field limits) | `PROTOCOL_DOCS` in `xtask/src/dump.rs`: the release commit of the supported game version |
 
-Two comparison sources serve only to judge gophertunnel defects and never enter the code. Their pins are in the pinned-source table of `data.md`.
+Two comparison sources serve only to judge gophertunnel defects and never enter the code. Their pins are in the sources table of `data.md`.
 - **The schema source**: a published protocol schema built from reverse-engineered official-server headers and a cereal schema dump, the public source closest to the official server. It has no golden bytes for shapes after protocol 2193.
 - **The codec library**: an independent protocol codec library, at its codec for the supported protocol.
 
 - Why a tag and not a later commit: no gophertunnel master commit after the pinned tag fixes a format of the supported protocol.
-- The official server version used for comparison is in the pinned-source table of `data.md`.
+- The official server version used for comparison is in the sources table of `data.md`.
 - Passing P3 means only agreement with gophertunnel, not correctness.
 
 ## Pipeline: Go extraction → IR → Rust generation

@@ -822,9 +822,9 @@ func (g *game) hold(slot byte) error {
 // is set the click uses one of the held item up (placing it), and the transaction carries that
 // predicted slot change, as the client's does.
 func (g *game) useOnBlock(name string, pos protocol.BlockPos, face int32, uses bool) error {
-	clicked := faceCentre(face)
+	clicked := faceCenter(face)
 	// Look at the clicked point first, as a player does.
-	if err := g.lookAt(blockCentre(pos).Add(clicked).Sub(mgl32.Vec3{0.5, 0.5, 0.5})); err != nil {
+	if err := g.lookAt(blockCenter(pos).Add(clicked).Sub(mgl32.Vec3{0.5, 0.5, 0.5})); err != nil {
 		return err
 	}
 	st := g.slots[slotRef{protocol.WindowIDInventory, g.held}]
@@ -846,8 +846,8 @@ func (g *game) useOnBlock(name string, pos protocol.BlockPos, face int32, uses b
 	return g.s.send(&packet.InventoryTransaction{TransactionData: data})
 }
 
-// faceCentre is the centre of a block face relative to the block's origin.
-func faceCentre(face int32) mgl32.Vec3 {
+// faceCenter is the center of a block face relative to the block's origin.
+func faceCenter(face int32) mgl32.Vec3 {
 	switch face {
 	case 0:
 		return mgl32.Vec3{0.5, 0, 0.5}
@@ -863,7 +863,7 @@ func faceCentre(face int32) mgl32.Vec3 {
 	return mgl32.Vec3{0.5, 1, 0.5}
 }
 
-// lookAt turns the view towards a point and lets two inputs carry it to the server.
+// lookAt turns the view toward a point and lets two inputs carry it to the server.
 func (g *game) lookAt(at mgl32.Vec3) error {
 	g.input.look(at)
 	return g.settle(150 * time.Millisecond)
@@ -947,8 +947,8 @@ func (g *game) openBlock(name string, pos protocol.BlockPos, containerType byte)
 	return g.settle(500 * time.Millisecond)
 }
 
-// blockCentre is the centre of a block.
-func blockCentre(pos protocol.BlockPos) mgl32.Vec3 {
+// blockCenter is the center of a block.
+func blockCenter(pos protocol.BlockPos) mgl32.Vec3 {
 	return mgl32.Vec3{float32(pos[0]) + 0.5, float32(pos[1]) + 0.5, float32(pos[2]) + 0.5}
 }
 
@@ -1098,7 +1098,7 @@ func (l *inputLoop) moved(pos mgl32.Vec3, teleport bool) {
 	l.mu.Unlock()
 }
 
-// look turns the view towards a point.
+// look turns the view toward a point.
 func (l *inputLoop) look(at mgl32.Vec3) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

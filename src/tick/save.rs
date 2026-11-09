@@ -15,10 +15,11 @@ use std::sync::Arc;
 
 use tracing::{debug, error, warn};
 
+use super::checkpoint::{self, Codec};
 use super::extra::{self, Held};
 use super::log::InputLog;
 use super::view::Key;
-use super::{Context, Phase, Player, PlayerKey, SessionId, State, checkpoint, dispatch};
+use super::{Context, Phase, Player, PlayerKey, SessionId, State, dispatch};
 use crate::command::Sender;
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
@@ -46,7 +47,6 @@ impl Unsaved {
     /// Writes the snapshot that holds it and its extras ([`Held::checkpoint`]); the checkpoint
     /// keeps the terrain apart, shared until a crash log is written.
     pub(super) fn checkpoint(&self, w: &mut checkpoint::Writer) {
-        use checkpoint::Codec;
         let Self {
             chunk: _,
             extras,
@@ -83,7 +83,6 @@ impl Unsaved {
         chunk: Chunk,
         lists: Option<crate::save::ChunkExtras>,
     ) -> checkpoint::Result<Self> {
-        use checkpoint::Codec;
         Ok(Self {
             snapshot: Codec::decode(r)?,
             extras: Held::restore(r, lists)?,

@@ -60,7 +60,7 @@ const DROP_SLOT: u32 = 0;
 /// The random stream of drops.
 const DROPS: u64 = random::tag("interact-drops");
 /// Ticks between punch particles while breaking.
-const FX_INTERVAL: u32 = 5;
+const FX_INTERVAL_TICKS: u32 = 5;
 /// Server ticks a client may be ahead while breaking: client input ticks counted toward a
 /// break never exceed the server ticks since it started plus this (one second of lag).
 const LAG_TICKS: u64 = 20;
@@ -709,7 +709,7 @@ pub(super) fn tick(state: &mut State) {
         }
         let speed = speed(state, player, target.block);
         let changed = (speed - target.speed).abs() > 0.0001;
-        let punch = target.fx % FX_INTERVAL == 0 && target.progress < 1.0;
+        let punch = target.fx % FX_INTERVAL_TICKS == 0 && target.progress < 1.0;
         if let Some(p) = state.players.get_mut(&session)
             && let Some(t) = &mut p.breaking.target
         {

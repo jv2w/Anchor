@@ -1,6 +1,6 @@
 //! Custom blocks in the interaction rules: the server's custom item types and block states for the
 //! API, the drops of a broken custom block, and the calls into a custom block's
-//! [`Behaviour`](crate::custom::Behaviour).
+//! [`Behavior`](crate::custom::Behavior).
 
 use super::drops;
 use crate::block;
@@ -73,10 +73,7 @@ pub(super) fn used(
     pos: BlockPos,
     block: block::State,
 ) -> bool {
-    let Some(hooks) = block
-        .custom_block()
-        .and_then(custom::Block::behaviour_hooks)
-    else {
+    let Some(hooks) = block.custom_block().and_then(custom::Block::behavior_hooks) else {
         return false;
     };
     hooks.on_use(
@@ -97,10 +94,7 @@ pub(super) fn placed(
     pos: BlockPos,
     block: block::State,
 ) {
-    if let Some(hooks) = block
-        .custom_block()
-        .and_then(custom::Block::behaviour_hooks)
-    {
+    if let Some(hooks) = block.custom_block().and_then(custom::Block::behavior_hooks) {
         let world = crate::world::Id::of(world);
         hooks.on_place(
             &mut Context { state },
@@ -120,10 +114,7 @@ pub(in crate::tick) fn random_tick(
     pos: BlockPos,
     block: block::State,
 ) {
-    if let Some(hooks) = block
-        .custom_block()
-        .and_then(custom::Block::behaviour_hooks)
-    {
+    if let Some(hooks) = block.custom_block().and_then(custom::Block::behavior_hooks) {
         let world = crate::world::Id::of(world);
         hooks.on_random_tick(&mut Context { state }, world, pos, block);
     }
@@ -138,10 +129,7 @@ pub(super) fn broken(
     pos: BlockPos,
     block: block::State,
 ) {
-    if let Some(hooks) = block
-        .custom_block()
-        .and_then(custom::Block::behaviour_hooks)
-    {
+    if let Some(hooks) = block.custom_block().and_then(custom::Block::behavior_hooks) {
         let world = crate::world::Id::of(world);
         hooks.on_break(
             &mut Context { state },

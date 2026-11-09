@@ -79,7 +79,7 @@ pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
 ///
 /// A custom state answers every lookup from its definition. It reads as a block of no type of its
 /// own ([`Kind::InfoUpdate`], class [`Class::Opaque`] or [`Class::Transparent`]), so only its
-/// data (solid, transparent, light, break info, boxes) and its behaviour decide what it does.
+/// data (solid, transparent, light, break info, boxes) and its behavior decide what it does.
 #[doc(alias = "Block")]
 #[derive(Clone, Copy)]
 pub struct State(Repr);

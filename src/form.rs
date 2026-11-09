@@ -21,7 +21,10 @@
 //!     cx.send_form(player, buttons, |cx, player, response| {
 //!         if response == Response::Buttons(1) {
 //!             if let Err(error) = open_settings(cx, player) {
-//!                 debug!(%error, "settings not opened");
+//!                 debug!(
+//!                     error = &error as &(dyn std::error::Error + 'static),
+//!                     "settings not opened"
+//!                 );
 //!             }
 //!         }
 //!     })

@@ -15,9 +15,9 @@ mod skin;
 
 pub use crate::tick::{Entity, MAX_ENTITIES_PER_WORLD, MAX_NAME_TAG_BYTES, Mut};
 pub use animation::Animation;
-pub use custom::{Behaviour, Custom, Error, Result};
+pub use custom::{Behavior, Custom, Error, Result};
 pub use painting::PaintingMotive;
-pub use skin::{MAX_SKIN_BYTES, SKIN_SIZES, Skin};
+pub use skin::{MAX_SKIN_BYTES, Skin};
 pub(crate) use skin::{MAX_SKIN_JSON_DEPTH, NO_CUSTOM_GEOMETRY};
 
 /// An entity: its slot in the world's entity store and the slot's generation, so a stale `Id`

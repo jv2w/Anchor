@@ -4,7 +4,7 @@
 //! `key = SHA-256(salt || ECDH shared secret)` and run AES-256-CTR from IV `key[0..12] || 00 00 00 02`,
 //! one continuous stream per direction. Each packet (everything after the 0xfe byte) carries an
 //! 8-byte checksum, the start of `SHA-256(LE64(counter) || plaintext || key)`, with separate send
-//! and receive counters. Why CTR and not CFB8 is in `network.md`.
+//! and receive counters. Why CTR and not CFB8 is in `.claude/docs/network.md`.
 
 use std::fmt;
 

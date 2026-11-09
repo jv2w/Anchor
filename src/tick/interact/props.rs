@@ -198,30 +198,55 @@ fn encode_string(encoding: Encoding, face: Face) -> Option<&'static str> {
 
 /// The integer values of an integer encoding, by face.
 fn int_table(encoding: Encoding) -> &'static [(Face, i32)] {
-    use Face::{Down, East, North, South, Up, West};
     match encoding {
         Encoding::BlockFace | Encoding::Cardinal | Encoding::DoorCardinal | Encoding::Torch => &[],
         Encoding::Classic => &[
-            (Down, 0),
-            (Up, 1),
-            (North, 2),
-            (South, 3),
-            (West, 4),
-            (East, 5),
+            (Face::Down, 0),
+            (Face::Up, 1),
+            (Face::North, 2),
+            (Face::South, 3),
+            (Face::West, 4),
+            (Face::East, 5),
         ],
-        Encoding::Coral => &[(West, 0), (East, 1), (North, 2), (South, 3)],
+        Encoding::Coral => &[
+            (Face::West, 0),
+            (Face::East, 1),
+            (Face::North, 2),
+            (Face::South, 3),
+        ],
         Encoding::EndRod => &[
-            (Down, 0),
-            (Up, 1),
-            (South, 2),
-            (North, 3),
-            (East, 4),
-            (West, 5),
+            (Face::Down, 0),
+            (Face::Up, 1),
+            (Face::South, 2),
+            (Face::North, 3),
+            (Face::East, 4),
+            (Face::West, 5),
         ],
-        Encoding::FiveMinus => &[(East, 0), (West, 1), (South, 2), (North, 3)],
-        Encoding::Stem => &[(Up, 0), (North, 2), (South, 3), (West, 4), (East, 5)],
-        Encoding::Swne => &[(South, 0), (West, 1), (North, 2), (East, 3)],
-        Encoding::SwneInverted => &[(North, 0), (East, 1), (South, 2), (West, 3)],
+        Encoding::FiveMinus => &[
+            (Face::East, 0),
+            (Face::West, 1),
+            (Face::South, 2),
+            (Face::North, 3),
+        ],
+        Encoding::Stem => &[
+            (Face::Up, 0),
+            (Face::North, 2),
+            (Face::South, 3),
+            (Face::West, 4),
+            (Face::East, 5),
+        ],
+        Encoding::Swne => &[
+            (Face::South, 0),
+            (Face::West, 1),
+            (Face::North, 2),
+            (Face::East, 3),
+        ],
+        Encoding::SwneInverted => &[
+            (Face::North, 0),
+            (Face::East, 1),
+            (Face::South, 2),
+            (Face::West, 3),
+        ],
     }
 }
 

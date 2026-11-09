@@ -1,4 +1,4 @@
-//! Custom entity types: their definition ([`Custom`]), what drives them ([`Behaviour`]) and why a
+//! Custom entity types: their definition ([`Custom`]), what drives them ([`Behavior`]) and why a
 //! call on entities fails ([`Error`]).
 
 use std::fmt;
@@ -10,9 +10,9 @@ use crate::player;
 
 /// What a custom entity type does, called by the tick. Every method does nothing by default.
 ///
-/// A behaviour is called only in the tick's serial steps, with a [`Context`] on the whole game,
+/// A behavior is called only in the tick's serial steps, with a [`Context`] on the whole game,
 /// and never from inside another callback (direct calls through the context raise no events and
-/// call no behaviour):
+/// call no behavior):
 ///
 /// - [`on_tick`](Self::on_tick) in the entity tick, in entity [`Id`] order, for the entities in
 ///   chunks within `tick-radius` of a player, after the entity's movement, the blocks it is in,
@@ -26,7 +26,7 @@ use crate::player;
 /// Damage and death are the [`EntityDamage`](crate::event::EntityDamage) and
 /// [`EntityDeath`](crate::event::EntityDeath) events, which name the entity; its
 /// [`custom_type`](crate::entity::Entity::custom_type) tells the type.
-pub trait Behaviour: Send {
+pub trait Behavior: Send {
     /// One tick of the custom entity `entity`, every `tick_period` ticks of its age.
     #[doc(alias = "Entity::onUpdate")]
     fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
@@ -42,7 +42,7 @@ pub trait Behaviour: Send {
 
 /// The definition of a custom entity type, registered with
 /// [`ServerBuilder::custom_entity`](crate::ServerBuilder::custom_entity), drawn by the client
-/// from a resource pack and driven by a [`Behaviour`].
+/// from a resource pack and driven by a [`Behavior`].
 ///
 /// A custom entity is a living entity without AI (as Anchor's NPCs): it falls and collides with
 /// the physics constants of its type, takes damage (fire, lava, the void, falls, suffocation,
@@ -53,7 +53,7 @@ pub trait Behaviour: Send {
 /// shows each entity with `AddActor` of its identifier, its name tag, scale, box and health.
 ///
 /// The defaults: a 0.6 × 1.8 box, gravity 0.08, drag 0.02, 20 health; no name tag, saved with its
-/// chunk, ticked every tick, not summonable, without a spawn egg and without a behaviour.
+/// chunk, ticked every tick, not summonable, without a spawn egg and without a behavior.
 /// [`build`](crate::ServerBuilder::build) checks the values ([`Error::InvalidValue`]).
 pub struct Custom {
     pub(crate) identifier: String,
@@ -67,7 +67,7 @@ pub struct Custom {
     pub(crate) name_tag: String,
     pub(crate) saved: bool,
     pub(crate) tick_period: NonZeroU32,
-    pub(crate) behaviour: Option<Box<dyn Behaviour>>,
+    pub(crate) behavior: Option<Box<dyn Behavior>>,
 }
 
 impl Custom {
@@ -97,7 +97,7 @@ impl Custom {
             name_tag: String::new(),
             saved: true,
             tick_period: NonZeroU32::MIN,
-            behaviour: None,
+            behavior: None,
         }
     }
 
@@ -136,11 +136,11 @@ impl Custom {
         }
     }
 
-    /// The same type driven by `behaviour`.
+    /// The same type driven by `behavior`.
     #[must_use]
-    pub fn with_behaviour(self, behaviour: impl Behaviour + 'static) -> Self {
+    pub fn with_behavior(self, behavior: impl Behavior + 'static) -> Self {
         Self {
-            behaviour: Some(Box::new(behaviour)),
+            behavior: Some(Box::new(behavior)),
             ..self
         }
     }
@@ -185,7 +185,7 @@ impl Custom {
         }
     }
 
-    /// The same type with its behaviour called every `period` ticks of an entity's age.
+    /// The same type with its behavior called every `period` ticks of an entity's age.
     #[must_use]
     pub fn with_tick_period(self, period: NonZeroU32) -> Self {
         Self {
@@ -209,7 +209,7 @@ impl fmt::Debug for Custom {
             .field("name_tag", &self.name_tag)
             .field("saved", &self.saved)
             .field("tick_period", &self.tick_period)
-            .field("behaviour", &self.behaviour.is_some())
+            .field("behavior", &self.behavior.is_some())
             .finish()
     }
 }

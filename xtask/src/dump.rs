@@ -1,7 +1,7 @@
 //! `cargo xtask dump [--check]`: rebuilds the committed data of `xtask/data/dump/`,
 //! `xtask/data/reference/` and `xtask/data/upgrade/` from the pinned external checkouts in
-//! `.cache/`, in the steps `data.md` lists; with `--check` it writes into `target/` and fails if
-//! a committed file differs.
+//! `.cache/`, in the steps `.claude/docs/data.md` lists; with `--check` it writes into `target/`
+//! and fails if a committed file differs.
 
 #[path = "../../src/block/hash.rs"]
 #[expect(

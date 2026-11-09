@@ -1,15 +1,15 @@
 //! Custom entity types on the tick.
 //!
 //! This is the registry the builder fills, the entries the engine adds to
-//! `AvailableActorIdentifiers`, the calls of the types' behaviours, and the API that spawns custom
+//! `AvailableActorIdentifiers`, the calls of the types' behaviors, and the API that spawns custom
 //! entities and reads and changes the data and held item of NPCs.
 //!
 //! A custom entity is an NPC of [`Form::Custom`]: it shares the living rules of NPCs (hits,
 //! cooldown, knockback, death, suffocation, fall damage) and is not invulnerable unless the API
 //! makes it so. Its type is an [`Arc`] of the registered [`Spec`], so the store, the physics
 //! (which reads its constants on the CPU pool), tracking and saving need no lookup. The
-//! behaviours stay in the registry, which lends one out while it runs: a behaviour cannot run
-//! inside another (callbacks raise no events and call no behaviour).
+//! behaviors stay in the registry, which lends one out while it runs: a behavior cannot run
+//! inside another (callbacks raise no events and call no behavior).
 //!
 //! Saved custom entities keep their identifier, health, invulnerability, data and held item
 //! ([`super::saved`]); one whose type is not registered at load stays as saved, like an unknown
@@ -27,7 +27,7 @@ use super::kind::{Character, Custom, Form, Kind, MAX_NAME_TAG_BYTES, Physics};
 use super::{Entities, Entity, Mut, SessionId, State, create};
 use crate::ServerBuilder;
 use crate::custom::is_identifier;
-use crate::entity::{Behaviour, Custom as Definition, Error, Id, Result};
+use crate::entity::{Behavior, Custom as Definition, Error, Id, Result};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{self, Compound, List, Value};
@@ -54,8 +54,8 @@ const MAX_TYPES: usize = 1024;
 pub(crate) struct Customs {
     /// The types, shared with the save thread once the server is built.
     types: Arc<EntityTypes>,
-    /// The behaviour of each type (`None` without one, or while it runs).
-    behaviours: Vec<Option<Box<dyn Behaviour>>>,
+    /// The behavior of each type (`None` without one, or while it runs).
+    behaviors: Vec<Option<Box<dyn Behavior>>>,
     /// The first registration that was refused, reported by [`Self::finish`].
     refused: Option<Error>,
 }
@@ -114,7 +114,7 @@ impl Customs {
         Ok(w.into_inner())
     }
 
-    /// The types without their behaviours.
+    /// The types without their behaviors.
     pub(crate) fn types(&self) -> &Arc<EntityTypes> {
         &self.types
     }
@@ -144,7 +144,7 @@ impl Customs {
                     name_tag,
                     saved,
                     tick_period,
-                    behaviour,
+                    behavior,
                 } = entity;
                 // Registration ends before the server is built, so nothing shares the types yet
                 // and this never copies them.
@@ -171,7 +171,7 @@ impl Customs {
                     saved,
                     tick_period: tick_period.get(),
                 }));
-                self.behaviours.push(behaviour);
+                self.behaviors.push(behavior);
             }
             Err(e) => self.refused = Some(e),
         }
@@ -229,7 +229,7 @@ impl fmt::Debug for Customs {
     }
 }
 
-/// The custom entity types of a server without their behaviours.
+/// The custom entity types of a server without their behaviors.
 /// It is what reading a saved entity needs, so the save thread reads loaded chunks with it too.
 /// Fixed when the server is built.
 #[derive(Debug, Clone, Default)]
@@ -266,12 +266,12 @@ pub(super) struct Spec {
     pub(super) name_tag: String,
     /// Whether its entities are saved with their chunk.
     pub(super) saved: bool,
-    /// The ticks of an entity's age between behaviour ticks, at least 1.
+    /// The ticks of an entity's age between behavior ticks, at least 1.
     pub(super) tick_period: u32,
 }
 
 impl Entities {
-    /// The custom entity types without their behaviours: what reading saved entities needs.
+    /// The custom entity types without their behaviors: what reading saved entities needs.
     pub(in crate::tick) fn types(&self) -> &Arc<EntityTypes> {
         self.custom.types()
     }
@@ -364,10 +364,9 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for another kind.
-    /// [`Error::OutOfRange`] for data whose saved form takes more than 4,096 bytes.
-    ///
-    /// Nothing changes on an error.
+    /// [`Error::WrongKind`] for another kind; nothing is changed.
+    /// [`Error::OutOfRange`] for data whose saved form takes more than 4,096 bytes; nothing is
+    /// changed.
     pub fn set_custom_data(&mut self, data: Compound) -> Result<()> {
         if !fits(&data) {
             return Err(Error::OutOfRange);
@@ -384,7 +383,7 @@ impl Mut<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::WrongKind`] for another kind; nothing changes.
+    /// [`Error::WrongKind`] for another kind; nothing is changed.
     pub fn set_held_item(&mut self, stack: Stack) -> Result<()> {
         let Kind::Npc(c) = &mut self.entity_mut().kind else {
             return Err(Error::WrongKind);
@@ -396,7 +395,7 @@ impl Mut<'_> {
 }
 
 /// Ticks the custom entity `id` after its NPC rules.
-/// It calls its behaviour's [`on_tick`](Behaviour::on_tick) when its age is a multiple of the
+/// It calls its behavior's [`on_tick`](Behavior::on_tick) when its age is a multiple of the
 /// type's period.
 pub(super) fn tick(state: &mut State, id: Id) {
     let due = state.rules.entities.get(id).is_some_and(|e| {
@@ -412,8 +411,8 @@ pub(super) fn tick(state: &mut State, id: Id) {
     }
 }
 
-/// Calls the behaviour of the custom entity `target` for an interaction by `session`.
-/// The caller checked the reach. It calls [`on_interact`](Behaviour::on_interact); false if
+/// Calls the behavior of the custom entity `target` for an interaction by `session`.
+/// The caller checked the reach. It calls [`on_interact`](Behavior::on_interact); false if
 /// `target` is not a live custom entity.
 pub(super) fn interact(state: &mut State, session: SessionId, target: Id) -> bool {
     let Some(index) = live_type(state, target) else {
@@ -434,34 +433,34 @@ fn live_type(state: &State, id: Id) -> Option<u16> {
         .map(|c| c.spec.index)
 }
 
-/// Runs `f` with the behaviour of type `index` and a context on the whole state.
-/// It does nothing if the type has no behaviour; the registry lends the behaviour out meanwhile.
-fn call(state: &mut State, index: u16, f: impl FnOnce(&mut dyn Behaviour, &mut Context<'_>)) {
+/// Runs `f` with the behavior of type `index` and a context on the whole state.
+/// It does nothing if the type has no behavior; the registry lends the behavior out meanwhile.
+fn call(state: &mut State, index: u16, f: impl FnOnce(&mut dyn Behavior, &mut Context<'_>)) {
     let slot = usize::from(index);
-    let Some(mut behaviour) = state
+    let Some(mut behavior) = state
         .rules
         .entities
         .custom
-        .behaviours
+        .behaviors
         .get_mut(slot)
         .and_then(Option::take)
     else {
         return;
     };
-    f(behaviour.as_mut(), &mut Context { state });
+    f(behavior.as_mut(), &mut Context { state });
     #[expect(
         clippy::expect_used,
-        reason = "invariant: the behaviour list never shrinks after the build, so the slot the \
-                  behaviour was taken from is still there"
+        reason = "invariant: the behavior list never shrinks after the build, so the slot the \
+                  behavior was taken from is still there"
     )]
     let back = state
         .rules
         .entities
         .custom
-        .behaviours
+        .behaviors
         .get_mut(slot)
-        .expect("the behaviour slot is in the registry");
-    *back = Some(behaviour);
+        .expect("the behavior slot is in the registry");
+    *back = Some(behavior);
 }
 
 /// Whether `data` may be an NPC's: its saved form takes at most [`MAX_DATA_BYTES`].

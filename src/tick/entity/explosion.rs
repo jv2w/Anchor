@@ -28,6 +28,8 @@
 //! entity then raises `EntityExplode` once its blocks are known. The exploding entity stays until
 //! its explosion is over, so these listeners can look it up; it goes either way.
 
+use std::ops::RangeInclusive;
+
 use tracing::debug;
 
 use super::kind::Kind;
@@ -84,8 +86,8 @@ const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
 const STEP: f64 = 0.3;
 /// The share of a step's length that every step of a ray costs.
 const STEP_DECAY: f64 = 0.75;
-/// The least and most strength of a ray, in thousandths of the size.
-const STRENGTH_PER_MILLE: (i32, i32) = (700, 1300);
+/// The strength of a ray, in thousandths of the size.
+const STRENGTH_PER_MILLE_RANGE: RangeInclusive<i32> = 700..=1300;
 /// The size of a TNT explosion.
 const TNT_SIZE: f64 = 4.0;
 
@@ -468,7 +470,10 @@ fn affected(
                 // Summed and divided by hand to keep the exact float order the result depends on.
                 let length = (dx * dx + dy * dy + dz * dz).sqrt();
                 let step = Vec3::new(dx / length * STEP, dy / length * STEP, dz / length * STEP);
-                let per_mille = random.range(STRENGTH_PER_MILLE.0, STRENGTH_PER_MILLE.1);
+                let per_mille = random.range(
+                    *STRENGTH_PER_MILLE_RANGE.start(),
+                    *STRENGTH_PER_MILLE_RANGE.end(),
+                );
                 let mut strength = size * (f64::from(per_mille) / 1000.0);
                 let mut point = center;
                 let mut previous_cell = None;

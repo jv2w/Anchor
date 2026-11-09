@@ -972,8 +972,10 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
          /// [`Error::UnexpectedEnd`] for a payload that ends inside a value.\n\
          /// [`Error::Size`] for a length, count, depth or allocation over its limit, or for bytes \
          left after the packet.\n\
-         /// [`Error::VarintOverflow`], [`Error::InvalidBool`], [`Error::InvalidUtf8`] and \
-         [`Error::InvalidValue`] for a value the wire format does not allow.\n\
+         /// [`Error::VarintOverflow`] for a varint longer than its type allows.\n\
+         /// [`Error::InvalidBool`] for a bool byte other than 0 or 1.\n\
+         /// [`Error::InvalidUtf8`] for a string that is not UTF-8.\n\
+         /// [`Error::InvalidValue`] for another value the wire format does not allow.\n\
          pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {\n\
          let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);\n\
          let packet = Self::decode_body(id, &mut r);\n*budget = r.budget();\nlet packet = packet?;\n\
@@ -998,8 +1000,8 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> Result<(), String> {
          `out` is left as it was.\n///\n/// # Errors\n///\n\
          /// [`Error::Size`] for a length or count that does not fit its wire prefix or is over \
          its limit.\n\
-         /// [`Error::InvalidValue`] and [`Error::UnknownEnum`] for a field value the wire format \
-         does not allow.\n\
+         /// [`Error::InvalidValue`] for a field value the wire format does not allow.\n\
+         /// [`Error::UnknownEnum`] for a field selector that has no known meaning.\n\
          pub fn encode(&self, out: &mut Vec<u8>) -> Result<()> {\n\
          let start = out.len();\nlet mut w = Writer::new(std::mem::take(out), crate::item::SHIELD_RUNTIME_ID);\n\
          let result = match self {\n",

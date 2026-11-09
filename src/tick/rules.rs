@@ -64,6 +64,7 @@ pub(super) mod reads {
 
 use std::sync::Arc;
 
+use super::checkpoint::Codec;
 use super::entity::EntityTypes;
 use super::extra::Extras;
 use super::view::Key;
@@ -90,7 +91,6 @@ pub(super) struct Rules {
 impl Rules {
     /// Writes every module's typed state.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
-        use super::checkpoint::Codec;
         let Self {
             block_entities,
             entities,
@@ -161,7 +161,6 @@ impl Rules {
         &mut self,
         r: &mut super::checkpoint::Reader<'_>,
     ) -> super::checkpoint::Result<()> {
-        use super::checkpoint::Codec;
         self.block_entities = Codec::decode(r)?;
         self.entities.restore(r)?;
         self.updates = Codec::decode(r)?;

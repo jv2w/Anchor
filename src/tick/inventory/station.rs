@@ -227,7 +227,7 @@ fn pays(want: &Stack, damage: trade::Damage) -> impl Fn(&Stack) -> bool + '_ {
 
 /// Whether the consume actions of a quick trade took exactly `times` of the offer's payments.
 /// They come from the payment slots and the main inventory. A stack that pays both payments (the
-/// same item twice) counts towards whichever still needs it.
+/// same item twice) counts toward whichever still needs it.
 fn is_paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
     let want_a = u32::from(offer.buy_a.count()) * times;
     let want_b = u32::from(offer.buy_b.count()) * times;

@@ -61,7 +61,7 @@ const MAX_FIRST_MESSAGE_BYTES: usize = 1024;
 const MAX_KEPT_BUFFER_BYTES: usize = 2 * batch::SPLIT_BYTES;
 /// Undelivered bytes ([`Transport::undelivered`]) at most before the session hands the
 /// connection the next batch of the tick's output: above what either transport keeps in flight
-/// and low enough that one more batch stays under the transports' caps (`network.md`).
+/// and low enough that one more batch stays under the transports' caps (`.claude/docs/network.md`).
 const MAX_OUTPUT_UNDELIVERED_BYTES: usize = 4 * 1024 * 1024;
 /// Bytes of the tick's output at most waiting for delivery, all of it but the spawn windows'
 /// player lists ([`Pending::SpawnList`]): a link that falls this far behind ends, as the
@@ -70,7 +70,8 @@ const MAX_PENDING_BYTES: usize = 32 * 1024 * 1024;
 /// Reassembled plus decompressed bytes before login verification, in batch limits.
 const MAX_PRE_AUTH_BATCHES: usize = 8;
 /// The input packet budget: at the default `max-players` the rates of all sessions fit in what
-/// the tick applies (`network.md`). The burst is the session's share of the tick queue.
+/// the tick applies (`.claude/docs/network.md`). The burst is the session's share of the tick
+/// queue.
 const PACKET_RATE: Rate = Rate {
     capacity: queue::MAX_SESSION_INPUTS,
     per_second: 512,
@@ -137,7 +138,7 @@ struct Session {
     /// again every frame while the button is down, so its byte-for-byte copies are dropped
     /// before the packet budget for [`HELD_CLICK_REPEAT`]: the tick ignores an identical click
     /// within two ticks of the first, so it would have ignored most of them (where it would not,
-    /// `network.md`). Any other use forwarded forgets it.
+    /// `.claude/docs/network.md`). Any other use forwarded forgets it.
     held_click: Option<(Header, Vec<u8>, Duration)>,
     pre_auth_bytes: usize,
     /// The verified player, from the login on.

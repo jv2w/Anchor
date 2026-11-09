@@ -1,6 +1,6 @@
 //! Tests of custom entity types.
 //!
-//! They cover registration, the identifier list, tracking, the behaviours' calls, saving, the
+//! They cover registration, the identifier list, tracking, the behaviors' calls, saving, the
 //! entity cap, leaks and determinism.
 
 use std::num::NonZeroU32;
@@ -273,20 +273,20 @@ fn custom_entities_are_shown_with_their_identifier_health_and_box_and_removed() 
     assert_eq!(removes(&h.take(1)), [runtime_id]);
 }
 
-/// A behaviour call a test saw.
+/// A behavior call a test saw.
 #[derive(Debug, Clone, PartialEq)]
 enum Call {
     Tick(&'static str, u64, Id),
     Interact(&'static str, Id, player::Id),
 }
 
-/// A behaviour that reports its calls through a bounded channel.
+/// A behavior that reports its calls through a bounded channel.
 struct Recorder {
     name: &'static str,
     tx: mpsc::Sender<Call>,
 }
 
-impl Behaviour for Recorder {
+impl Behavior for Recorder {
     fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
         assert!(cx.entity(entity).is_some(), "a live entity");
         let call = Call::Tick(self.name, cx.tick(), entity);
@@ -314,16 +314,16 @@ fn no_trade(_: &mut State, _: SessionId, _: Id) -> bool {
 
 // api: Entity::onUpdate, Entity::onInteract
 #[test]
-fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
+fn behaviors_tick_every_period_in_id_order_and_answer_interactions() {
     let (tx, mut rx) = mpsc::channel(4096);
     let types = vec![
-        Definition::new("test:a").with_behaviour(Recorder {
+        Definition::new("test:a").with_behavior(Recorder {
             name: "a",
             tx: tx.clone(),
         }),
         Definition::new("test:b")
             .with_tick_period(NonZeroU32::new(3).unwrap())
-            .with_behaviour(Recorder { name: "b", tx }),
+            .with_behavior(Recorder { name: "b", tx }),
         Definition::new("test:quiet"),
     ];
     let mut h = harness(1, types);
@@ -347,7 +347,7 @@ fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
         expected.push(Call::Tick("a", tick, a2));
     }
     assert_eq!(calls(&mut rx), expected);
-    // Interactions within reach call the type's behaviour; others do nothing.
+    // Interactions within reach call the type's behavior; others do nothing.
     let player = player::Id::new(SessionId::new(1));
     let interact = |h: &mut Harness, target| {
         npc::interact_with(
@@ -359,17 +359,14 @@ fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
         )
     };
     assert!(interact(&mut h, b1));
-    assert!(
-        interact(&mut h, quiet),
-        "an interaction without a behaviour"
-    );
+    assert!(interact(&mut h, quiet), "an interaction without a behavior");
     assert_eq!(calls(&mut rx), [Call::Interact("b", b1, player)]);
     let far = spawn(&mut h, "test:a", at(0.5, -60.0, 12.5));
     assert!(!interact(&mut h, far), "out of reach");
     h.context().entity_mut(a2).unwrap().kill();
     assert!(!interact(&mut h, a2), "dying");
     assert!(calls(&mut rx).is_empty());
-    // A dying entity ticks no more; the behaviours are back in the registry.
+    // A dying entity ticks no more; the behaviors are back in the registry.
     h.step(Vec::new());
     assert!(
         calls(&mut rx)
@@ -377,7 +374,7 @@ fn behaviours_tick_every_period_in_id_order_and_answer_interactions() {
             .all(|c| !matches!(c, Call::Tick(_, _, e) if *e == a2))
     );
     assert!(
-        h.state.rules.entities.custom.behaviours[..2]
+        h.state.rules.entities.custom.behaviors[..2]
             .iter()
             .all(Option::is_some)
     );
@@ -538,7 +535,7 @@ fn the_entity_cap_and_the_spawn_checks_apply_to_custom_entities() {
 #[test]
 fn spawning_and_removing_custom_entities_leaves_every_table_at_its_start() {
     let (tx, mut rx) = mpsc::channel(65_536);
-    let mut h = harness(2, vec![ghost().with_behaviour(Recorder { name: "g", tx })]);
+    let mut h = harness(2, vec![ghost().with_behavior(Recorder { name: "g", tx })]);
     for _ in 0..4 {
         h.entities();
     }
@@ -589,15 +586,15 @@ fn spawning_and_removing_custom_entities_leaves_every_table_at_its_start() {
     assert!(changed.is_empty() && departed.is_empty() && doomed.is_empty());
     assert!(restep.is_empty() && spawned.is_empty() && left.is_empty());
     assert!(kept.values().all(|k| !k.is_empty()));
-    assert!(custom.behaviours.iter().all(Option::is_some));
+    assert!(custom.behaviors.iter().all(Option::is_some));
     let packets = h.take(1);
     assert_eq!(adds(&packets).len(), removes(&packets).len());
 }
 
-/// A behaviour that moves, hurts, spawns and despawns custom entities from their own ticks.
+/// A behavior that moves, hurts, spawns and despawns custom entities from their own ticks.
 struct Restless;
 
-impl Behaviour for Restless {
+impl Behavior for Restless {
     fn on_tick(&mut self, cx: &mut Context<'_>, entity: Id) {
         let tick = cx.tick();
         let Some(e) = cx.entity(entity) else {
@@ -631,11 +628,11 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
     let mut hashes = Vec::new();
     for threads in [1, 4] {
         let types = vec![
-            Definition::new("test:restless").with_behaviour(Restless),
+            Definition::new("test:restless").with_behavior(Restless),
             Definition::new("test:slow")
                 .with_gravity(0.02)
                 .with_tick_period(NonZeroU32::new(2).unwrap())
-                .with_behaviour(Restless),
+                .with_behavior(Restless),
         ];
         let mut h = harness(threads, types);
         let mut rng = Rng(0xc6_b001);

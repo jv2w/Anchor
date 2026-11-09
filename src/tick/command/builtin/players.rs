@@ -170,7 +170,7 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     results.finish()
 }
 
-/// Lists the slots `/clear` empties and what they hold.
+/// The slots `/clear` empties and what they hold.
 fn slots(p: &Player) -> Vec<(Slot, &Stack)> {
     let inv = &p.inventory;
     let mut out: Vec<(Slot, &Stack)> = (0_u8..)

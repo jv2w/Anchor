@@ -262,7 +262,7 @@ impl Context<'_> {
     /// Saves as [`save`](Self::save) does, then copies every open data file, as that save left
     /// it, into its own backup folder (`data/backups/<file>/<unix seconds>.redb`, a world's in
     /// `data/backups/worlds/<name>/`) while the server runs, keeping each file's `max-backups`
-    /// newest backups (`storage.md`). The save thread copies it in steps between its
+    /// newest backups (`.claude/docs/storage.md`). The save thread copies it in steps between its
     /// other work, so players do not wait for it; what came of it is in the log, not here: a
     /// backup asked for while another is being made is not made, and a failed one leaves no
     /// file. A stop waits for the backup being made. Calling it again before the save changes
@@ -287,8 +287,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
-    /// in one tick; nothing is changed.
+    /// [`task::Error::NetworkBusy`](crate::task::Error::NetworkBusy)
+    /// for more than 256 network changes in one tick; nothing is changed.
     #[doc(alias = "Network::blockAddress")]
     pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> crate::task::Result<()> {
         self.network_control(Control::Block { ip, duration })
@@ -299,9 +299,9 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::TooLong`](crate::player::Error::TooLong) for a text or source over its bound;
-    /// nothing is sent.
-    /// [`Error::TooManyParams`](crate::player::Error::TooManyParams) for a translation
+    /// [`player::Error::TooLong`](crate::player::Error::TooLong) for a text or source over its
+    /// bound; nothing is sent.
+    /// [`player::Error::TooManyParams`](crate::player::Error::TooManyParams) for a translation
     /// with too many parameters; nothing is sent.
     #[doc(alias = "Server::broadcastMessage")]
     #[doc(alias = "Server::broadcastTip")]
@@ -334,8 +334,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
-    /// in one tick; nothing is changed.
+    /// [`task::Error::NetworkBusy`](crate::task::Error::NetworkBusy)
+    /// for more than 256 network changes in one tick; nothing is changed.
     pub fn set_max_players(&mut self, max: u32) -> crate::task::Result<()> {
         self.network_control(Control::MaxPlayers(max))?;
         self.state.settings.max_players = max;
@@ -347,12 +347,11 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidMotd`](crate::task::Error::InvalidMotd) for a name the `motd` setting
-    /// refuses (empty, over 256 bytes, or with `;` or control characters).
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
-    /// in one tick.
-    ///
-    /// Nothing is changed on an error.
+    /// [`task::Error::InvalidMotd`](crate::task::Error::InvalidMotd) for a name the `motd`
+    /// setting refuses (empty, over 256 bytes, or with `;` or control characters); nothing is
+    /// changed.
+    /// [`task::Error::NetworkBusy`](crate::task::Error::NetworkBusy)
+    /// for more than 256 network changes in one tick; nothing is changed.
     #[doc(alias = "Network::setName")]
     #[doc(alias = "Network::updateName")]
     pub fn set_motd(&mut self, motd: impl Into<String>) -> crate::task::Result<()> {
@@ -373,8 +372,8 @@ impl Context<'_> {
     ///
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for offers
     /// [`custom::check_offers`](crate::custom::check_offers) refuses.
-    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) where no villager can be
-    /// spawned (that variant tells where).
+    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) for a place where no
+    /// villager can be spawned (that variant tells where).
     pub fn spawn_villager(
         &mut self,
         world: crate::world::Id,
@@ -393,8 +392,8 @@ impl Context<'_> {
     ///
     /// # Errors
     ///
-    /// [`Error::NetworkBusy`](crate::task::Error::NetworkBusy) for more than 256 network changes
-    /// in one tick; nothing is changed.
+    /// [`task::Error::NetworkBusy`](crate::task::Error::NetworkBusy)
+    /// for more than 256 network changes in one tick; nothing is changed.
     #[doc(alias = "Network::unblockAddress")]
     pub fn unblock_address(&mut self, ip: IpAddr) -> crate::task::Result<()> {
         self.network_control(Control::Unblock(ip))

@@ -13,7 +13,7 @@ use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData};
 use crate::save::WorldIndex;
 use crate::tick::world_api::world_at;
 use crate::tick::{Phase, Settings, State, checkpoint};
-use crate::world::{DAY, World};
+use crate::world::{DAY_TICKS, World};
 
 /// The overworld clock's time markers: ID, name, time of day (P6, fixed in every run).
 const MARKERS: [(u64, &str, i32); 6] = [
@@ -190,7 +190,7 @@ pub(in crate::tick) fn clock_definition(world: &World) -> Packet {
                     id,
                     name: name.to_owned(),
                     time,
-                    period: Some(packet_time(DAY)),
+                    period: Some(packet_time(DAY_TICKS)),
                 })
                 .collect(),
         }],
@@ -226,7 +226,7 @@ mod tests {
     fn packet_times_wrap_into_i32() {
         assert_eq!(packet_time(26), 26);
         assert_eq!(packet_time(-1), i32::MAX);
-        assert_eq!(packet_time(DAY), 24_000);
+        assert_eq!(packet_time(DAY_TICKS), 24_000);
     }
 
     #[test]

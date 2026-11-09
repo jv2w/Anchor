@@ -4069,8 +4069,8 @@ mod tests {
         let (done, _done_rx) = oneshot::channel();
         let state = new_state(settings(|_| {}), panicking());
         let pool = crate::runtime::cpu_pool(2).unwrap();
-        let (requests, _request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-        let (_responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+        let (requests, _request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+        let (_responder, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
         let link = SaveLink {
             requests,
             responses,
@@ -4604,8 +4604,8 @@ mod tests {
         let (_stop_tx, stop) = mpsc::channel(1);
         let (crash, _crash_log) = oneshot::channel();
         let (done, _done_rx) = oneshot::channel();
-        let (requests, mut request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-        let (responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+        let (requests, mut request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+        let (responder, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let link = SaveLink {
             requests,
@@ -4651,8 +4651,8 @@ mod tests {
         let (stop_tx, stop) = mpsc::channel(1);
         let (crash, _crash_log) = oneshot::channel();
         let (done, _done_rx) = oneshot::channel();
-        let (requests, mut request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
-        let (_responder, responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+        let (requests, mut request_queue) = mpsc::channel(crate::save::MAX_REQUESTS);
+        let (_responder, responses) = mpsc::channel(crate::save::MAX_RESPONSES);
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let link = SaveLink {
             requests,

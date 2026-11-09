@@ -17,13 +17,14 @@ use super::{State, TICK, checkpoint};
 use crate::runtime::ThreadTotals;
 
 /// The ticks the averages cover: one second's.
-const AVERAGED: u32 = crate::Context::TICKS_PER_SECOND;
+const AVERAGED_TICKS: u32 = crate::Context::TICKS_PER_SECOND;
 
 /// The tick's view of its load and of the networking.
 #[derive(Debug, Default)]
 pub(super) struct Network {
-    /// Microseconds each of the last [`AVERAGED`] measured ticks took, the oldest replaced first; 0 before a tick was measured.
-    tick_times: [u32; AVERAGED as usize],
+    /// Microseconds each of the last [`AVERAGED_TICKS`] measured ticks took, the oldest replaced
+    /// first; 0 before a tick was measured.
+    tick_times: [u32; AVERAGED_TICKS as usize],
     /// The slot of the latest measured tick.
     latest: usize,
     /// The connections the networking held at its last report.
@@ -43,17 +44,17 @@ pub(super) struct Network {
 }
 
 impl Network {
-    /// The mean of the last [`AVERAGED`] measured tick times.
+    /// The mean of the last [`AVERAGED_TICKS`] measured tick times.
     pub(super) fn average_mspt(&self) -> Duration {
         let sum: u64 = self.tick_times.iter().map(|&t| u64::from(t)).sum();
-        Duration::from_micros(sum / u64::from(AVERAGED))
+        Duration::from_micros(sum / u64::from(AVERAGED_TICKS))
     }
 
-    /// The mean of the last [`AVERAGED`] ticks' [`Self::tps`].
+    /// The mean of the last [`AVERAGED_TICKS`] ticks' [`Self::tps`].
     pub(super) fn average_tps(&self) -> f64 {
         // Summed in slot order, serially: the same on every run and thread count.
         let sum: f64 = self.tick_times.iter().map(|&t| tps_of(t)).sum();
-        sum / f64::from(AVERAGED)
+        sum / f64::from(AVERAGED_TICKS)
     }
 
     /// The connections the networking held at its last report, and those logged in.

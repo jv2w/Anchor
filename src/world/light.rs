@@ -1641,7 +1641,7 @@ mod tests {
     use crate::protocol::Rng;
     use crate::tick::Customs;
     use crate::world::chunk::tests::plain_states;
-    use crate::world::{DAY, Flat, Generator, PLAINS, Paletted, SubChunk, Void, World};
+    use crate::world::{DAY_TICKS, Flat, Generator, PLAINS, Paletted, SubChunk, Void, World};
 
     /// Blocks in a chunk, indexed by [`cell`].
     const CELLS: usize = 384 * 256;
@@ -2213,7 +2213,7 @@ mod tests {
 
     #[test]
     fn the_time_table_follows_the_sun_angle_formula() {
-        for time in 0..DAY {
+        for time in 0..DAY_TICKS {
             let progress = f64::from(i32::try_from(time).unwrap()) / 24_000.0;
             let sun = progress + if progress < 0.25 { 0.75 } else { -0.25 };
             #[expect(
@@ -2232,7 +2232,7 @@ mod tests {
             assert_eq!(sky_light_reduction(time), want, "time {time}");
         }
         assert_eq!(sky_light_reduction(-1), sky_light_reduction(23_999));
-        assert_eq!(sky_light_reduction(5 * DAY + 18_000), 11);
+        assert_eq!(sky_light_reduction(5 * DAY_TICKS + 18_000), 11);
         assert_eq!(sky_light_reduction(6000), 0);
     }
 

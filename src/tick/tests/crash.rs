@@ -272,23 +272,6 @@ fn take_ground(state: &mut State) -> Option<Vec<Stack>> {
     Some(stacks)
 }
 
-/// Makes the item moves of one tick, by the tick: player → chest, chest → ground, player →
-/// ground, ground → chest or player, chest → player, then main slots → the cursor, held there for
-/// five ticks (several commits), and back.
-fn step(state: &mut State, tick: u64) {
-    match tick % CYCLE_TICKS {
-        CURSOR_PHASE => {
-            let sticks = take_player(state, 1, 3);
-            let player = state.players.get_mut(&SESSION).expect("the player is in");
-            inventory::set_cursor(player, Stack::new(item(1), sticks));
-        }
-        7..=10 => {}
-        // Closing (no window is open) gives the cursor back.
-        11 => inventory::close_window(state, SESSION),
-        k => moves(state, k, tick),
-    }
-}
-
 /// Makes the moves between the player's slots, the chest and the ground (step `k`, 0 to 5).
 fn moves(state: &mut State, k: u64, tick: u64) {
     match k {
@@ -348,6 +331,23 @@ fn moves(state: &mut State, k: u64, tick: u64) {
                 }
             }
         }
+    }
+}
+
+/// Makes the item moves of one tick, by the tick: player → chest, chest → ground, player →
+/// ground, ground → chest or player, chest → player, then main slots → the cursor, held there for
+/// five ticks (several commits), and back.
+fn step(state: &mut State, tick: u64) {
+    match tick % CYCLE_TICKS {
+        CURSOR_PHASE => {
+            let sticks = take_player(state, 1, 3);
+            let player = state.players.get_mut(&SESSION).expect("the player is in");
+            inventory::set_cursor(player, Stack::new(item(1), sticks));
+        }
+        7..=10 => {}
+        // Closing (no window is open) gives the cursor back.
+        11 => inventory::close_window(state, SESSION),
+        k => moves(state, k, tick),
     }
 }
 
@@ -639,34 +639,6 @@ struct Found {
     advanced: u32,
 }
 
-#[test]
-fn forced_kills_never_duplicate_lose_or_split_items() {
-    // A fixed-seed generator for the kill moments, in kill order.
-    let mut rng = Rng(0x17e5_c0de);
-    let afters: Vec<u64> = (0..KILLS).map(|_| rng.next() % 30).collect();
-    // The kills run in two chains side by side, each on a server file of its own, at the moments
-    // and aims one chain of all of them takes: the children tick in real time, so one chain
-    // takes twice as long for the same kills.
-    let half = KILLS / 2;
-    let chains = side_by_side(&[(0, half), (half, KILLS)], |&(first, end)| {
-        chain(first, end, &afters)
-    });
-    let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
-    assert_eq!(advanced, KILLS, "every restart finds a newer commit");
-    // The commits caught items in every place (player, chest, ground) many times: the aimed
-    // ones alone catch the ground ten times and the cursor ten times.
-    let held: [u32; 3] = std::array::from_fn(|i| chains.iter().map(|c| c.held[i]).sum());
-    assert!(
-        held.iter().all(|&n| n >= 10),
-        "items found by place: {held:?}"
-    );
-    let carried: u32 = chains.iter().map(|c| c.carried).sum();
-    assert!(
-        carried >= 10,
-        "only {carried} commits held items on the cursor"
-    );
-}
-
 /// Kills `first` to `end` (not included), each `afters[kill]` ticks after a commit, on a world
 /// file of their own, then a last restart that only checks.
 fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
@@ -757,6 +729,83 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
     found
 }
 
+#[test]
+fn forced_kills_never_duplicate_lose_or_split_items() {
+    // A fixed-seed generator for the kill moments, in kill order.
+    let mut rng = Rng(0x17e5_c0de);
+    let afters: Vec<u64> = (0..KILLS).map(|_| rng.next() % 30).collect();
+    // The kills run in two chains side by side, each on a server file of its own, at the moments
+    // and aims one chain of all of them takes: the children tick in real time, so one chain
+    // takes twice as long for the same kills.
+    let half = KILLS / 2;
+    let chains = side_by_side(&[(0, half), (half, KILLS)], |&(first, end)| {
+        chain(first, end, &afters)
+    });
+    let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
+    assert_eq!(advanced, KILLS, "every restart finds a newer commit");
+    // The commits caught items in every place (player, chest, ground) many times: the aimed
+    // ones alone catch the ground ten times and the cursor ten times.
+    let held: [u32; 3] = std::array::from_fn(|i| chains.iter().map(|c| c.held[i]).sum());
+    assert!(
+        held.iter().all(|&n| n >= 10),
+        "items found by place: {held:?}"
+    );
+    let carried: u32 = chains.iter().map(|c| c.carried).sum();
+    assert!(
+        carried >= 10,
+        "only {carried} commits held items on the cursor"
+    );
+}
+
+/// Takes a commit at the next tick boundary: the items its player data and block entities hold.
+fn commit_counts(state: &mut State, output: &mut Output) -> Counts {
+    state.saving.requested = true;
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let mut log = InputLog::default();
+    let mut answers = std::mem::take(&mut output.answers);
+    crate::tick::step(
+        state,
+        &mut Vec::new(),
+        &mut answers,
+        &pool,
+        output,
+        &mut log,
+    );
+    deliver(state, output, &mut log);
+    boundary(state, output, &mut log);
+    assert!(pool.shutdown());
+    let snapshot = output
+        .requests
+        .drain(..)
+        .find_map(|r| match r {
+            crate::save::Request::Commit(s) => Some(s),
+            _ => None,
+        })
+        .expect("a snapshot");
+    let mut counts = [0; 2];
+    for (_, data) in &snapshot.players {
+        for value in data.extra.values() {
+            if let Value::List(List::Compound(list)) = value {
+                for s in stacks(list) {
+                    add(&mut counts, &s);
+                }
+            }
+        }
+    }
+    for (_, _, kind, list) in &snapshot.extras {
+        if *kind == ChunkKind::BlockEntities {
+            for c in list.iter() {
+                if let Some(Value::List(List::Compound(items))) = c.get("Items") {
+                    for s in stacks(items) {
+                        add(&mut counts, &s);
+                    }
+                }
+            }
+        }
+    }
+    counts
+}
+
 /// A commit taken while a player holds items on its cursor (taken out of a chest through its
 /// window) still holds those items: the chest's saved list no longer has them, so the player's
 /// saved data must, or a crash right after the commit loses them.
@@ -838,53 +887,4 @@ fn a_commit_holds_the_items_on_a_cursor() {
         sticks[1], 5,
         "the commit holds the five sticks on the cursor (a crash after it would lose them)"
     );
-}
-
-/// Takes a commit at the next tick boundary: the items its player data and block entities hold.
-fn commit_counts(state: &mut State, output: &mut Output) -> Counts {
-    state.saving.requested = true;
-    let pool = crate::runtime::cpu_pool(1).unwrap();
-    let mut log = InputLog::default();
-    let mut answers = std::mem::take(&mut output.answers);
-    crate::tick::step(
-        state,
-        &mut Vec::new(),
-        &mut answers,
-        &pool,
-        output,
-        &mut log,
-    );
-    deliver(state, output, &mut log);
-    boundary(state, output, &mut log);
-    assert!(pool.shutdown());
-    let snapshot = output
-        .requests
-        .drain(..)
-        .find_map(|r| match r {
-            crate::save::Request::Commit(s) => Some(s),
-            _ => None,
-        })
-        .expect("a snapshot");
-    let mut counts = [0; 2];
-    for (_, data) in &snapshot.players {
-        for value in data.extra.values() {
-            if let Value::List(List::Compound(list)) = value {
-                for s in stacks(list) {
-                    add(&mut counts, &s);
-                }
-            }
-        }
-    }
-    for (_, _, kind, list) in &snapshot.extras {
-        if *kind == ChunkKind::BlockEntities {
-            for c in list.iter() {
-                if let Some(Value::List(List::Compound(items))) = c.get("Items") {
-                    for s in stacks(items) {
-                        add(&mut counts, &s);
-                    }
-                }
-            }
-        }
-    }
-    counts
 }

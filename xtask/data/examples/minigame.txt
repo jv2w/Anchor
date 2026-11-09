@@ -2,7 +2,7 @@
 # The lobby countdown: a boss bar, then a title each second until the round starts.
 expect-bossbar Starting in
 expect-title Go!
-# The round is in the arena world, on its centre block.
+# The round is in the arena world, on its center block.
 expect-position 16.5 -60 16.5
 expect-bossbar left
 # At the end every player answers a form; the summary is made off the tick and shown in chat.

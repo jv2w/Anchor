@@ -25,7 +25,7 @@ use crate::fs::read;
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
 pub(super) const FACES: [&str; 4] = ["north", "east", "south", "west"];
 /// The block type of a state the dump does not have: the dump's type for blocks without a
-/// behaviour of their own, which custom blocks use too.
+/// behavior of their own, which custom blocks use too.
 const INFO_UPDATE_KIND: &str = "info_update";
 /// Classes whose collision box is inside out, with min above max (a defect of the dump): a wall
 /// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. The 3/8 bar is
@@ -908,7 +908,7 @@ fn aliases(
 /// The block states of the reference list that the dump does not have, with the physics of
 /// `block_physics.json`: the official server's light, hardness and collision boxes. A state whose
 /// only collision box is the whole cell is solid; the others can be stood in. The identity is
-/// the `info_update` type's, the dump's type of a block without a behaviour of its own, and
+/// the `info_update` type's, the dump's type of a block without a behavior of its own, and
 /// the state has no item. Fails if a state has no physics.
 fn unimplemented_states(
     root: &Path,

@@ -3,7 +3,7 @@
 //! - A custom item, the ruby, and `/ruby [count]`, which gives some.
 //! - A custom block, the ruby block: a `glowing` property that using the block toggles, a
 //!   hardness, and four rubies as its drops.
-//! - A custom entity, the wisp, whose behaviour hops and counts the pokes it gets (in its saved
+//! - A custom entity, the wisp, whose behavior hops and counts the pokes it gets (in its saved
 //!   custom data) when a player interacts with it.
 //! - A villager shop with typed offers: a ruby for an emerald, two emeralds for a ruby.
 //! - A task once a second puts the wisp and the shop next to the spawn when they are not there.
@@ -11,7 +11,7 @@
 //!   zipped in memory and offered to every joining player.
 //!
 //! What it uses: [`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`],
-//! [`ServerBuilder::custom_entity`] with an [`entity::Behaviour`],
+//! [`ServerBuilder::custom_entity`] with an [`entity::Behavior`],
 //! [`ServerBuilder::resource_pack`] with [`Pack::from_bytes`], [`Context::spawn_custom_entity`],
 //! [`Context::spawn_villager`] and [`Context::set_trade_offers`].
 //!
@@ -77,9 +77,9 @@ static RUBY_BLOCK: Block = Block::new("example:ruby_block", "example_ruby_block"
     .with_hardness(0.5)
     .with_drops(Drops::Items(&[(ItemRef::Custom(&RUBY), 4)]))
     .with_creative(Creative::new(Category::Construction))
-    .with_behaviour(&Glow);
+    .with_behavior(&Glow);
 /// One second, in ticks.
-const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
+const SECOND_TICKS: NonZeroU32 = NonZeroU32::MIN.saturating_add(Context::TICKS_PER_SECOND - 1);
 /// Where the shop's villager stands: next to the wisp.
 const SHOP_AT: Vec3 = Vec3::new(0.5, -60.0, 2.5);
 /// The atlas of the block textures: the ruby block's texture.
@@ -101,7 +101,7 @@ const ZIP_TOO_LARGE: &str = "the pack is too large for a plain zip";
 #[derive(Debug)]
 struct Glow;
 
-impl custom::Behaviour for Glow {
+impl custom::Behavior for Glow {
     fn on_use(
         &self,
         cx: &mut Context<'_>,
@@ -127,7 +127,7 @@ impl custom::Behaviour for Glow {
 #[derive(Debug)]
 struct Wisp;
 
-impl entity::Behaviour for Wisp {
+impl entity::Behavior for Wisp {
     fn on_interact(&mut self, cx: &mut Context<'_>, wisp: entity::Id, player: player::Id) {
         let Some(mut entity) = cx.entity_mut(wisp) else {
             return;
@@ -155,11 +155,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Custom::new(WISP)
                 .with_size(0.5, 0.5)
                 .with_name_tag("Wisp")
-                .with_behaviour(Wisp),
+                .with_behavior(Wisp),
         )
         .resource_pack(Pack::from_bytes(resource_pack()?)?)
         .command(ruby_command())
-        .every(SECOND, place_wisp_and_shop)
+        .every(SECOND_TICKS, place_wisp_and_shop)
         .on(Priority::Normal, on_join)
         .build()?
         .run()?;
@@ -225,7 +225,10 @@ fn open_shop(cx: &mut Context<'_>, world: world::Id) {
     ];
     match cx.spawn_villager(world, SHOP_AT, CLERIC, &[]) {
         Ok(villager) => or_log(cx.set_trade_offers(villager, &offers)),
-        Err(error) => debug!(error = &error as &(dyn Error + 'static), "skipped"),
+        Err(error) => debug!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "skipped"
+        ),
     }
 }
 
@@ -248,7 +251,10 @@ fn tell(cx: &mut Context<'_>, player: player::Id, text: String) {
 /// on.
 fn or_log<T, E: Error + 'static>(result: Result<T, E>) {
     if let Err(error) = result {
-        debug!(error = &error as &(dyn Error + 'static), "skipped");
+        debug!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "skipped"
+        );
     }
 }
 

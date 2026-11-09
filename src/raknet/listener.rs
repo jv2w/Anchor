@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use tracing::{debug, trace};
 
-use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
+use super::peer::{Limits, MAX_MTU_BYTES, MIN_MTU_BYTES, Message, Peer};
 use super::wire::{self, Cursor, FLAG_DATAGRAM, UDP_HEADER_BYTES};
 use super::{Error, MAX_PRE_LOGIN, MAX_PRE_LOGIN_PER_IP, Result};
 use crate::bucket::{Bucket, Rate};
@@ -35,7 +35,7 @@ const MAX_CLOSING: usize = MAX_PRE_LOGIN;
 const MAX_PING_IPS: usize = 4096;
 /// The largest pong payload: one datagram at the largest MTU after the pong's fixed fields.
 const MAX_PONG_DATA_BYTES: usize =
-    MAX_MTU as usize - UDP_HEADER_BYTES - wire::UNCONNECTED_PONG_FIXED_BYTES;
+    MAX_MTU_BYTES as usize - UDP_HEADER_BYTES - wire::UNCONNECTED_PONG_FIXED_BYTES;
 /// How long a ping rate entry lasts without pings before it is dropped.
 const PING_IDLE: Duration = Duration::from_secs(60);
 /// How often a connected ping goes out, keeping both ends' idle timers fed (go-raknet).
@@ -83,7 +83,7 @@ impl Listener {
             pings: BTreeMap::new(),
             next_sweep: Duration::ZERO,
             shutting_down: false,
-            buf: Vec::with_capacity(usize::from(MAX_MTU)),
+            buf: Vec::with_capacity(usize::from(MAX_MTU_BYTES)),
             messages: Vec::new(),
             doomed: Vec::new(),
         }
@@ -264,7 +264,7 @@ impl Listener {
                 let protocol = cur.u8()?;
                 // The request is padded to the MTU it probes (go-raknet `OpenConnectionRequest1`).
                 let mtu = data.len().saturating_add(UDP_HEADER_BYTES);
-                if mtu < usize::from(MIN_MTU) {
+                if mtu < usize::from(MIN_MTU_BYTES) {
                     return Err(Error::Malformed("mtu"));
                 }
                 self.buf.clear();
@@ -374,7 +374,7 @@ impl Listener {
         if guid >> 63 == 0 {
             return Err(Error::Malformed("client guid"));
         }
-        if mtu < MIN_MTU {
+        if mtu < MIN_MTU_BYTES {
             return Err(Error::Malformed("mtu"));
         }
         let mtu = mtu.min(self.config.max_mtu);
@@ -729,7 +729,7 @@ pub(super) mod tests {
     pub(in crate::raknet) fn config() -> Config {
         Config {
             guid: GUID,
-            max_mtu: MAX_MTU,
+            max_mtu: MAX_MTU_BYTES,
             accept: true,
             limits: Limits::new(MAX_MESSAGE).unwrap(),
         }
@@ -778,7 +778,7 @@ pub(super) mod tests {
 
     impl Sink for Recorder {
         fn transmit(&mut self, to: SocketAddr, datagram: &[u8]) {
-            assert!(datagram.len() <= usize::from(MAX_MTU) - UDP_HEADER_BYTES);
+            assert!(datagram.len() <= usize::from(MAX_MTU_BYTES) - UDP_HEADER_BYTES);
             self.sent.push((to, datagram.to_vec()));
         }
 
@@ -1073,10 +1073,10 @@ pub(super) mod tests {
             None,
         );
         for (request, reply) in [
-            (MAX_MTU, 1200),
+            (MAX_MTU_BYTES, 1200),
             (1200, 1200),
             (576, 576),
-            (MIN_MTU, MIN_MTU),
+            (MIN_MTU_BYTES, MIN_MTU_BYTES),
         ] {
             let replies = offline_reply(
                 &mut listener,
@@ -1091,7 +1091,7 @@ pub(super) mod tests {
             assert_eq!(data[25], 0, "security off");
             assert_eq!(data[26..28], u16::to_be_bytes(reply));
         }
-        let small = Client::request_1(MIN_MTU - 1, wire::PROTOCOL_VERSION);
+        let small = Client::request_1(MIN_MTU_BYTES - 1, wire::PROTOCOL_VERSION);
         assert!(offline_reply(&mut listener, addr(1, 1), &small).is_empty());
     }
 
@@ -1111,9 +1111,9 @@ pub(super) mod tests {
         let from = addr(1, 1);
         let guid = CLIENT_GUID;
         for bad in [
-            Client::request_2(MAX_MTU, 5, None),
-            Client::request_2(MIN_MTU - 1, guid, None),
-            Client::request_2(MAX_MTU, guid, None)[..20].to_vec(),
+            Client::request_2(MAX_MTU_BYTES, 5, None),
+            Client::request_2(MIN_MTU_BYTES - 1, guid, None),
+            Client::request_2(MAX_MTU_BYTES, guid, None)[..20].to_vec(),
         ] {
             assert!(offline_reply(&mut listener, from, &bad).is_empty());
         }
@@ -1129,7 +1129,7 @@ pub(super) mod tests {
         // A larger request is cut to `max-mtu-bytes`.
         let request = Client::request_2(1500, guid, None);
         let replies = offline_reply(&mut listener, addr(1, 2), &request);
-        assert_eq!(replies[0][32..34], MAX_MTU.to_be_bytes());
+        assert_eq!(replies[0][32..34], MAX_MTU_BYTES.to_be_bytes());
     }
 
     #[test]
@@ -1137,7 +1137,7 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         let from = addr(1, 1);
-        let request = Client::request_2(MAX_MTU, CLIENT_GUID, None);
+        let request = Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None);
         listener.receive(T, from, &request, &mut sink);
         listener.receive(T, from, &request, &mut sink);
         assert_eq!(sink.take(from).len(), 2);
@@ -1183,7 +1183,7 @@ pub(super) mod tests {
     fn connection_request_is_accepted_and_new_incoming_connection_opens() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         assert_eq!(sink.accepted, [id]);
         let accepted = &client.messages[0];
@@ -1218,10 +1218,10 @@ pub(super) mod tests {
         let mut sink = Recorder::new();
         let mut ids = Vec::new();
         for port in 0..4 {
-            let mut client = Client::new(addr(1, port), MAX_MTU);
+            let mut client = Client::new(addr(1, port), MAX_MTU_BYTES);
             ids.push(connect(&mut listener, &mut sink, &mut client, T));
         }
-        let mut fifth = Client::new(addr(1, 4), MAX_MTU);
+        let mut fifth = Client::new(addr(1, 4), MAX_MTU_BYTES);
         fifth.start();
         pump(&mut listener, &mut sink, &mut fifth, T);
         let mut refused = vec![wire::ID_NO_FREE_INCOMING_CONNECTIONS];
@@ -1230,17 +1230,17 @@ pub(super) mod tests {
         assert_eq!(fifth.offline, [refused.clone()]);
         // A login frees a slot of its IP.
         listener.logged_in(addr(1, 0), ids[0]);
-        let mut again = Client::new(addr(1, 4), MAX_MTU);
+        let mut again = Client::new(addr(1, 4), MAX_MTU_BYTES);
         connect(&mut listener, &mut sink, &mut again, T);
         // 64 in total across IPs.
         for last in 2..17 {
             for port in 0..4 {
-                let mut client = Client::new(addr(last, port), MAX_MTU);
+                let mut client = Client::new(addr(last, port), MAX_MTU_BYTES);
                 connect(&mut listener, &mut sink, &mut client, T);
             }
         }
         assert_eq!(listener.pre_login, 64);
-        let mut over = Client::new(addr(99, 1), MAX_MTU);
+        let mut over = Client::new(addr(99, 1), MAX_MTU_BYTES);
         over.start();
         pump(&mut listener, &mut sink, &mut over, T);
         assert_eq!(over.offline, [refused]);
@@ -1307,7 +1307,7 @@ pub(super) mod tests {
         let mut listener = listener();
         let mut sink = Recorder::new();
         sink.accept = false;
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         client.start();
         pump(&mut listener, &mut sink, &mut client, T);
         assert!(listener.conns.is_empty());
@@ -1320,7 +1320,7 @@ pub(super) mod tests {
     fn inbound_queue_full_disconnects() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         sink.deliver = false;
         client.send(T, wire::ID_GAME, b"x".to_vec());
@@ -1340,7 +1340,7 @@ pub(super) mod tests {
         ] {
             let mut listener = listener();
             let mut sink = Recorder::new();
-            let mut client = Client::new(addr(1, 1), MAX_MTU);
+            let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
             connect(&mut listener, &mut sink, &mut client, T);
             client.send(T, id, body);
             pump(&mut listener, &mut sink, &mut client, T);
@@ -1356,7 +1356,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             from,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         let frame = header(Reliability::Unreliable);
@@ -1379,7 +1379,7 @@ pub(super) mod tests {
             listener.receive(
                 T,
                 addr(last, 1),
-                &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+                &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
                 &mut sink,
             );
         }
@@ -1407,7 +1407,7 @@ pub(super) mod tests {
     fn a_backwards_acknowledgement_keeps_the_connection() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         connect(&mut listener, &mut sink, &mut client, T);
         let mut backwards = vec![FLAG_DATAGRAM | wire::FLAG_ACK, 0, 1, 0];
         wire::put_u24(&mut backwards, 10);
@@ -1426,7 +1426,7 @@ pub(super) mod tests {
     fn a_datagram_number_jump_is_dropped_and_does_not_feed_the_idle_timer() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         let jump = datagram(1 << 22, &[(header(Reliability::Unreliable), b"\xfejump")]);
         let late = T + IDLE_TIMEOUT / 2;
@@ -1439,7 +1439,7 @@ pub(super) mod tests {
 
         let mut listener = self::listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         listener.receive(T, client.addr, &jump, &mut sink);
         client.send(T, wire::ID_GAME, b"hello".to_vec());
@@ -1451,7 +1451,7 @@ pub(super) mod tests {
     fn connected_ping_gets_a_pong() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         connect(&mut listener, &mut sink, &mut client, T);
         client.send(T, wire::ID_CONNECTED_PING, 77_u64.to_be_bytes().to_vec());
         pump(&mut listener, &mut sink, &mut client, T);
@@ -1471,7 +1471,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             from,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         let mut request = vec![wire::ID_CONNECTION_REQUEST];
@@ -1495,7 +1495,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             from,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         sink.take(from);
@@ -1524,7 +1524,7 @@ pub(super) mod tests {
     fn connected_pings_and_pongs_pass_a_full_window() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         // The client acknowledges nothing here, so the window stays full.
         listener.send(T, client.addr, id, vec![9; 200_000], &mut sink);
@@ -1548,7 +1548,7 @@ pub(super) mod tests {
     fn a_connected_pong_measures_the_ping() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         let pong = |time: u64| [time.to_be_bytes(), 0_u64.to_be_bytes()].concat();
         let later = T + Duration::from_millis(40);
@@ -1570,7 +1570,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             from,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         listener.update(T + IDLE_TIMEOUT, &mut sink);
@@ -1584,7 +1584,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             from,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         let frame = header(Reliability::Unreliable);
@@ -1599,7 +1599,7 @@ pub(super) mod tests {
         listener.update(T + HANDSHAKE_TIMEOUT, &mut sink);
         assert!(listener.conns.is_empty());
         // An open connection that goes silent.
-        let mut client = Client::new(addr(1, 2), MAX_MTU);
+        let mut client = Client::new(addr(1, 2), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         listener.update(T + Duration::from_secs(6), &mut sink);
         assert!(listener.conns.is_empty());
@@ -1617,25 +1617,25 @@ pub(super) mod tests {
     /// between the GUID and the MTU (go-raknet `OpenConnectionReply1`).
     #[test]
     fn a_client_that_sends_its_cookie_back_connects() {
-        let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        let request = Client::request_1(MAX_MTU_BYTES, wire::PROTOCOL_VERSION);
         let reply = offline_reply(&mut cookie_listener(), addr(1, 1), &request);
         let data = &reply[0];
         assert_eq!(data.len(), 32);
         assert_eq!(data[25], 1, "security on");
-        assert_eq!(data[30..32], MAX_MTU.to_be_bytes());
+        assert_eq!(data[30..32], MAX_MTU_BYTES.to_be_bytes());
         for (mut listener, asks) in [(cookie_listener(), true), (listener(), false)] {
             let reply = offline_reply(&mut listener, addr(1, 1), &request);
             let (cookie, mtu) = Client::reply_1(&reply[0]);
-            assert_eq!((cookie.is_some(), mtu), (asks, MAX_MTU));
+            assert_eq!((cookie.is_some(), mtu), (asks, MAX_MTU_BYTES));
             let mut sink = Recorder::new();
-            let mut client = Client::new(addr(1, 2), MAX_MTU);
+            let mut client = Client::new(addr(1, 2), MAX_MTU_BYTES);
             connect(&mut listener, &mut sink, &mut client, T);
         }
     }
 
     /// The cookie `listener` gives `from` in its `OpenConnectionReply1` at `T`.
     fn cookie_of(listener: &mut Listener, from: SocketAddr) -> u32 {
-        let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        let request = Client::request_1(MAX_MTU_BYTES, wire::PROTOCOL_VERSION);
         let reply = offline_reply(listener, from, &request);
         Client::reply_1(&reply[0]).0.unwrap()
     }
@@ -1648,12 +1648,12 @@ pub(super) mod tests {
         let mut listener = cookie_listener();
         let (from, other) = (addr(1, 1), addr(2, 1));
         let cookie = cookie_of(&mut listener, from);
-        let with = |cookie| Client::request_2(MAX_MTU, CLIENT_GUID, Some(cookie));
+        let with = |cookie| Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, Some(cookie));
         for (source, request, at) in [
             (from, with(cookie ^ 1), T),
             (other, with(cookie), T),
             (from, with(cookie), T + COOKIE_EPOCH * 2),
-            (from, Client::request_2(MAX_MTU, CLIENT_GUID, None), T),
+            (from, Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None), T),
         ] {
             let mut sink = Recorder::new();
             listener.receive(at, source, &request, &mut sink);
@@ -1673,12 +1673,15 @@ pub(super) mod tests {
         let mut listener = cookie_listener();
         let (flagged, bare) = (addr(1, 1), addr(1, 2));
         let with_byte = Client::request_2(
-            MAX_MTU,
+            MAX_MTU_BYTES,
             CLIENT_GUID,
             Some(cookie_of(&mut listener, flagged)),
         );
-        let mut without_byte =
-            Client::request_2(MAX_MTU, CLIENT_GUID, Some(cookie_of(&mut listener, bare)));
+        let mut without_byte = Client::request_2(
+            MAX_MTU_BYTES,
+            CLIENT_GUID,
+            Some(cookie_of(&mut listener, bare)),
+        );
         // The byte after the ID, the magic and the cookie.
         assert_eq!(without_byte.remove(1 + wire::MAGIC.len() + 4), 0);
         for (from, request) in [(flagged, with_byte), (bare, without_byte)] {
@@ -1692,7 +1695,7 @@ pub(super) mod tests {
     fn disconnect_notification_closes_without_reply() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         client.send(T, wire::ID_DISCONNECT_NOTIFICATION, Vec::new());
         let outgoing = std::mem::take(&mut client.outbox);
@@ -1708,7 +1711,7 @@ pub(super) mod tests {
     fn graceful_close_delivers_queued_messages_first() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         let big = vec![9; 200_000];
         listener.send(T, client.addr, id, big.clone(), &mut sink);
@@ -1734,7 +1737,7 @@ pub(super) mod tests {
     fn closing_connection_holds_at_most_the_handshake_budget() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut client = Client::new(addr(1, 1), MAX_MTU);
+        let mut client = Client::new(addr(1, 1), MAX_MTU_BYTES);
         let id = connect(&mut listener, &mut sink, &mut client, T);
         listener.logged_in(client.addr, id);
         let part = [0xfe; 1000];
@@ -1770,7 +1773,7 @@ pub(super) mod tests {
         let count = MAX_CLOSING + 6;
         for index in 0..count {
             let last = u8::try_from(index + 1).unwrap();
-            let mut client = Client::new(addr(last, 1), MAX_MTU);
+            let mut client = Client::new(addr(last, 1), MAX_MTU_BYTES);
             let id = connect(&mut listener, &mut sink, &mut client, T);
             listener.logged_in(client.addr, id);
             listener.close(T, client.addr, id, &mut sink);
@@ -1788,13 +1791,13 @@ pub(super) mod tests {
     fn shutdown_closes_every_connection_and_refuses_new_ones() {
         let mut listener = listener();
         let mut sink = Recorder::new();
-        let mut open = Client::new(addr(1, 1), MAX_MTU);
+        let mut open = Client::new(addr(1, 1), MAX_MTU_BYTES);
         connect(&mut listener, &mut sink, &mut open, T);
         let half = addr(1, 2);
         listener.receive(
             T,
             half,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         listener.shutdown(T, &mut sink);
@@ -1803,7 +1806,7 @@ pub(super) mod tests {
         listener.receive(
             T,
             late,
-            &Client::request_2(MAX_MTU, CLIENT_GUID, None),
+            &Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None),
             &mut sink,
         );
         assert_eq!(listener.conns.len(), 1);
@@ -1838,9 +1841,9 @@ pub(super) mod tests {
             offline_reply(&mut listener, from, &Client::ping(0)).len(),
             1
         );
-        let request = Client::request_1(MAX_MTU, wire::PROTOCOL_VERSION);
+        let request = Client::request_1(MAX_MTU_BYTES, wire::PROTOCOL_VERSION);
         assert!(offline_reply(&mut listener, from, &request).is_empty());
-        let request = Client::request_2(MAX_MTU, CLIENT_GUID, None);
+        let request = Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, None);
         assert!(offline_reply(&mut listener, from, &request).is_empty());
         assert!(listener.conns.is_empty());
     }
@@ -1970,12 +1973,12 @@ pub(super) mod tests {
         let mut with_cookies = cookie_listener();
         let mut port = 0_u16;
         for listener in [&mut with_cookies, &mut listener] {
-            let request_1 = Client::request_1(MIN_MTU, wire::PROTOCOL_VERSION);
+            let request_1 = Client::request_1(MIN_MTU_BYTES, wire::PROTOCOL_VERSION);
             let (cookie, _) = Client::reply_1(&offline_reply(listener, from, &request_1)[0]);
             let offline = [
                 Client::ping(5),
                 request_1,
-                Client::request_2(MAX_MTU, CLIENT_GUID, cookie),
+                Client::request_2(MAX_MTU_BYTES, CLIENT_GUID, cookie),
                 vec![wire::ID_OPEN_CONNECTION_REQUEST_2],
             ];
             for seed in &offline {

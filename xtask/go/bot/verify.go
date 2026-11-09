@@ -13,7 +13,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The verification scenarios check behaviour only the official server can show; they run on the game
+// The verification scenarios check behavior only the official server can show; they run on the game
 // scenarios' machinery. Each plays the game actions of its items and ends its steps with checks of the facts
 // the comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/facts.md).
 //

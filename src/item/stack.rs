@@ -59,20 +59,20 @@ pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
 /// reader may allocate
 /// ([`DECODE_BUDGET`](crate::storage::seal::DECODE_BUDGET)). Only NBT of many small compounds
 /// comes near it: each takes a tree node (an enchantment takes about 56 times its 16 bytes).
-const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
+const MAX_NBT_ALLOC_BYTES: usize = 4 * MAX_NBT_BYTES;
 /// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
 /// an item list adds, at the largest damage, as little-endian NBT. With `MAX_SAVED_STACKS`
 /// (`tick::inventory`) such stacks and its user data (16 values of 64 KiB) a player's record
 /// stays under 15 MiB, and a container's 27 under 2.6 MiB (one NBT root takes at most
 /// `nbt::MAX_ROOT_BYTES`).
 pub const MAX_NBT_BYTES: usize = 96 << 10;
-/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
-/// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
+/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC_BYTES`] counts: a 28th
+/// of it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
 /// The largest vanilla items fit (a firework rocket of seven stars of eight colors, 12.9 KB;
 /// armor of nine enchantments with the longest name, 12.4 KB; a custom block item of the
 /// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
 /// all 18 that go together, 20.4 KB) does not.
-const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
+const MAX_STORED_ALLOC_BYTES: usize = MAX_NBT_ALLOC_BYTES / 28;
 /// The most bytes a stack a shulker box holds may take, saved as [`MAX_NBT_BYTES`] counts: 3 KiB,
 /// so 27 of them, a 1,024-byte name and the box's own keys (82.4 KiB) make one stack. The largest
 /// vanilla items (a firework rocket of seven stars, about 0.9 KB; a custom block item of the
@@ -225,7 +225,7 @@ impl Stack {
         !shulker
             && (self.extra.is_none()
                 || self
-                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC)
+                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC_BYTES)
                     .is_some())
     }
 
@@ -374,9 +374,9 @@ impl Stack {
     ///
     /// # Errors
     ///
-    /// - [`Error::TooLarge`] for a stack over [`MAX_NBT_BYTES`].
-    /// - [`Error::NameTooLong`] for a custom name over [`MAX_NAME_BYTES`].
-    /// - [`Error::InvalidEnchantmentLevel`] for a level outside 1 to [`MAX_ENCHANTMENT_LEVEL`].
+    /// [`Error::TooLarge`] for a stack over [`MAX_NBT_BYTES`].
+    /// [`Error::NameTooLong`] for a custom name over [`MAX_NAME_BYTES`].
+    /// [`Error::InvalidEnchantmentLevel`] for a level outside 1 to [`MAX_ENCHANTMENT_LEVEL`].
     pub fn with_extra(&self, extra: Option<Extra>) -> Result<Self> {
         let Some(item) = self.item else {
             return Ok(Self::EMPTY);
@@ -501,7 +501,10 @@ impl Stack {
         if self.custom_name().len() > MAX_NAME_BYTES {
             return Err(Error::NameTooLong);
         }
-        if self.stored_cost(MAX_NBT_BYTES, MAX_NBT_ALLOC).is_none() {
+        if self
+            .stored_cost(MAX_NBT_BYTES, MAX_NBT_ALLOC_BYTES)
+            .is_none()
+        {
             return Err(Error::TooLarge);
         }
         Ok(self)
@@ -897,7 +900,7 @@ mod tests {
             let stack = Stack::new(Type::from_index(i), 1);
             assert!(
                 stack
-                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC)
+                    .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC_BYTES)
                     .is_some(),
                 "{stack:?}"
             );

@@ -15,14 +15,12 @@ use crate::random::Random;
 const ACACIA_DIAGONAL_RANGE: RangeInclusive<i32> = 1..=3;
 /// How far below an acacia's height its straight trunk ends; also the main branch's length.
 const ACACIA_FORK_DEPTH_RANGE: RangeInclusive<i32> = 1..=4;
-/// One of the two additions to [`ACACIA_MIN_HEIGHT`].
+/// One of the two additions to [`MIN_ACACIA_HEIGHT`].
 const ACACIA_HEIGHT_STEP_RANGE: RangeInclusive<i32> = 0..=2;
 /// The radius and taxicab reach of the leaf layer at the end of an acacia's main branch.
 const ACACIA_LEAVES: (i32, i32) = (3, 5);
 /// The radius and taxicab reach of the leaf layer one above the end of an acacia's main branch.
 const ACACIA_LEAVES_TOP: (i32, i32) = (2, 2);
-/// The lowest height of an acacia; two draws from [`ACACIA_HEIGHT_STEP_RANGE`] add to it.
-const ACACIA_MIN_HEIGHT: i32 = 5;
 /// The height an acacia's room check assumes; the acacia draws its real height after the check.
 const ACACIA_ROOM_HEIGHT: i32 = 0;
 /// How far below the top of an acacia's straight trunk its second branch starts.
@@ -71,8 +69,6 @@ const FUNGUS_CORNER_HAT: (f64, f64, f64) = (0.01, 0.7, 0.083);
 const FUNGUS_CORNER_STEM_CHANCE: f64 = 0.1;
 /// A fungus doubles its height with odds one in this.
 const FUNGUS_DOUBLE_HEIGHT_ODDS: i32 = 12;
-/// The fewest layers of a fungus's hat, unless the fungus is shorter.
-const FUNGUS_HAT_MIN_HEIGHT: i32 = 5;
 /// The radius of a hat layer below the taper.
 const FUNGUS_HAT_RADIUS: i32 = 2;
 /// How many of a hat's top layers, at most, narrow to [`FUNGUS_HAT_TOP_RADIUS`]; drawn per layer.
@@ -106,6 +102,10 @@ const FUNGUS_WIDE_HAT_RADIUS: i32 = 3;
 const JUNGLE_HEIGHT: i32 = 8;
 /// The most age of weeping and twisting vines.
 const MAX_VINE_AGE: i32 = 25;
+/// The lowest height of an acacia; two draws from [`ACACIA_HEIGHT_STEP_RANGE`] add to it.
+const MIN_ACACIA_HEIGHT: i32 = 5;
+/// The fewest layers of a fungus's hat, unless the fungus is shorter.
+const MIN_FUNGUS_HAT_HEIGHT: i32 = 5;
 /// The height of an oak.
 const OAK_HEIGHT_RANGE: RangeInclusive<i32> = 4..=6;
 /// How many layers above a tree's height the room check covers.
@@ -340,7 +340,7 @@ impl Tree {
     /// Adds an acacia: a straight trunk, a main branch that bends to one side, maybe a second
     /// branch to another side, and a flat leaf crown on each branch end.
     fn acacia(&self, world: &World, tx: &mut Tx, pos: BlockPos, rng: &mut Random) {
-        let height = ACACIA_MIN_HEIGHT
+        let height = MIN_ACACIA_HEIGHT
             + draw(rng, ACACIA_HEIGHT_STEP_RANGE)
             + draw(rng, ACACIA_HEIGHT_STEP_RANGE);
         let depth = draw(rng, ACACIA_FORK_DEPTH_RANGE);
@@ -626,7 +626,7 @@ fn nether(world: &World, pos: BlockPos, rng: &mut Random, fungus: &Fungus) -> Tx
             }
         }
     }
-    let hat_height = (draw(rng, 0..=fungus.height / 3) + FUNGUS_HAT_MIN_HEIGHT).min(fungus.height);
+    let hat_height = (draw(rng, 0..=fungus.height / 3) + MIN_FUNGUS_HAT_HEIGHT).min(fungus.height);
     let bottom = fungus.height - hat_height;
     let top = fungus.height;
     let decor = Kind::Shroomlight.default_state();

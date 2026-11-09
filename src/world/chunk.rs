@@ -16,6 +16,7 @@ use super::{
 use crate::block::State;
 use crate::nbt;
 use crate::protocol::Writer;
+use crate::tick::checkpoint;
 
 /// Columns in a chunk.
 pub(super) const COLUMNS: usize = 256;
@@ -436,12 +437,11 @@ impl Chunk {
         split: bool,
         light: Option<Box<Levels>>,
     ) -> crate::tick::checkpoint::Result<Self> {
-        use crate::tick::checkpoint::Error;
         if !unknown_indexes_fit(sub_chunks.iter().flatten().map(Arc::as_ref), unknown.len()) {
-            return Err(Error::Format("chunk unknown states"));
+            return Err(checkpoint::Error::Format("chunk unknown states"));
         }
         if dirty >> SUB_CHUNKS != 0 {
-            return Err(Error::Format("chunk dirty marks"));
+            return Err(checkpoint::Error::Format("chunk dirty marks"));
         }
         Ok(Self::assemble(
             sub_chunks, biomes, unknown, dirty, split, light,
@@ -562,25 +562,26 @@ impl crate::tick::checkpoint::Codec for Chunk {
             split,
             light,
         } = self;
-        sub_chunks.encode(w);
-        biomes.encode(w);
+        // Called through the trait path: with the trait imported, its `encode` would shadow the
+        // network `encode` methods the module calls on the same types.
+        checkpoint::Codec::encode(sub_chunks, w);
+        checkpoint::Codec::encode(biomes, w);
         // The states alone: their index is worked out again as the chunk reads.
         w.slice(&unknown.states);
-        dirty.encode(w);
-        split.encode(w);
-        light.encode(w);
+        checkpoint::Codec::encode(dirty, w);
+        checkpoint::Codec::encode(split, w);
+        checkpoint::Codec::encode(light, w);
     }
 
     fn decode(
         r: &mut crate::tick::checkpoint::Reader<'_>,
     ) -> crate::tick::checkpoint::Result<Self> {
-        use crate::tick::checkpoint::Codec;
-        let sub_chunks = Codec::decode(r)?;
-        let biomes = Codec::decode(r)?;
-        let unknown = Codec::decode(r)?;
-        let dirty = Codec::decode(r)?;
-        let split = Codec::decode(r)?;
-        let light = Codec::decode(r)?;
+        let sub_chunks = checkpoint::Codec::decode(r)?;
+        let biomes = checkpoint::Codec::decode(r)?;
+        let unknown = checkpoint::Codec::decode(r)?;
+        let dirty = checkpoint::Codec::decode(r)?;
+        let split = checkpoint::Codec::decode(r)?;
+        let light = checkpoint::Codec::decode(r)?;
         Self::from_kept(sub_chunks, biomes, unknown, dirty, split, light)
     }
 }

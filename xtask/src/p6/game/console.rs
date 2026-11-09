@@ -37,7 +37,7 @@ use anchor::{Context, effect, inventory};
 use crate::{p6, say};
 
 /// The seconds an `effect` command without a duration lasts (the official server's default).
-const DEFAULT_EFFECT_SECONDS: u32 = 30;
+const DEFAULT_EFFECT_SECS: u32 = 30;
 /// The task's period: every tick.
 pub(in crate::p6) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// The actor variant of a farmer villager (`EntityVariant` of `minecraft:villager_v2`).
@@ -342,7 +342,7 @@ fn parse(line: &str) -> Result<Command, String> {
             ))
         }
         ["effect", player, name, rest @ ..] => {
-            let seconds = rest.first().map_or(Ok(DEFAULT_EFFECT_SECONDS), |s| {
+            let seconds = rest.first().map_or(Ok(DEFAULT_EFFECT_SECS), |s| {
                 s.parse::<u32>().map_err(|_| format!("bad seconds {s:?}"))
             })?;
             let amplifier = rest.get(1).map_or(Ok(0), |a| {

@@ -20,7 +20,7 @@
 //!
 //! A replay runs no network and no runtime, commits nothing and writes no file. Blocking jobs
 //! do not run: their logged results are handed to their callbacks. The listeners, tasks and
-//! behaviours are the replaying server's: state they keep in their closures starts over, and
+//! behaviors are the replaying server's: state they keep in their closures starts over, and
 //! what they do outside the server (files, network) happens again. A checkpoint that holds a
 //! closure (a scheduled task, a waiting form or job, an open menu, a deferred callback) or a
 //! player's extension cannot be replayed from ([`Error::Opaque`]).
@@ -39,6 +39,7 @@ use crate::pool::Pool;
 use crate::runtime::{self, ThreadCounts};
 use crate::save::{self, Loaded, Request, Response, WorldSpec};
 use crate::storage::codec::Meta;
+use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
 use crate::tick::checkpoint::Checkpoint;
 use crate::tick::queue::{Input, InputKind, Outbound, SessionId, outbound_queue};
 use crate::tick::{self, Answer, EntryKind, Fingerprints, InputLog, Origin, Segment, Setup, State};
@@ -527,7 +528,6 @@ fn read(path: &Path) -> Result<InputLog> {
 /// start of the server rolls back. A file that does not open read-only is left to the choice of
 /// copies, which skips it.
 fn check_settled(data_dir: &Path) -> Result<()> {
-    use crate::storage::{MAIN_FILE, PLAYERS_FILE, Place};
     let main = Place::data(data_dir, MAIN_FILE).file;
     let worlds = save::world_names(data_dir).map_err(storage)?;
     let files = std::iter::once(Place::data(data_dir, PLAYERS_FILE).file)
@@ -595,7 +595,6 @@ fn choose(
 /// The data files of the save `main` names, whose main file is `file`: each other file is its
 /// newest copy committed at that save or before (see the module's documentation).
 fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
-    use crate::storage::{PLAYERS_FILE, Place};
     let pick = |place: &Place| -> Result<Option<PathBuf>> {
         Ok(copies(place)?
             .into_iter()

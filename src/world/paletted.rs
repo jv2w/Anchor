@@ -12,6 +12,7 @@ use std::fmt;
 
 use super::{Error, Result};
 use crate::protocol::{BLOCKS, WIDTHS, Writer, word_count};
+use crate::tick::checkpoint::{self, Codec};
 
 /// The most bytes a 32-bit varint takes.
 const MAX_VARINT32_BYTES: usize = 5;
@@ -448,11 +449,10 @@ impl<T: Derive + crate::tick::checkpoint::Codec> crate::tick::checkpoint::Codec 
     fn decode(
         r: &mut crate::tick::checkpoint::Reader<'_>,
     ) -> crate::tick::checkpoint::Result<Self> {
-        use crate::tick::checkpoint::{Codec, Error};
         let bits = u8::decode(r)?;
         let words: Vec<u32> = Codec::decode(r)?;
         let palette: Vec<T> = Codec::decode(r)?;
-        Self::from_raw(bits, &words, &palette).map_err(|_| Error::Format("palette"))
+        Self::from_raw(bits, &words, &palette).map_err(|_| checkpoint::Error::Format("palette"))
     }
 }
 

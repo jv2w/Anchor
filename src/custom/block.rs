@@ -1,5 +1,5 @@
 //! Custom block definitions: the states, what the client is told to draw, the
-//! server-side data the rules read, and the behaviour.
+//! server-side data the rules read, and the behavior.
 
 use std::fmt;
 
@@ -55,7 +55,7 @@ pub struct Block {
     flame_encouragement: u8,
     drops: Drops,
     creative: Option<Creative>,
-    behaviour: Option<&'static dyn Behaviour>,
+    behavior: Option<&'static dyn Behavior>,
     random_ticks: bool,
 }
 
@@ -126,14 +126,14 @@ impl Block {
             flame_encouragement: 0,
             drops: Drops::Itself,
             creative: None,
-            behaviour: None,
+            behavior: None,
             random_ticks: false,
         }
     }
 
-    /// Its behaviour.
-    pub(crate) fn behaviour_hooks(&self) -> Option<&'static dyn Behaviour> {
-        self.behaviour
+    /// Its behavior.
+    pub(crate) fn behavior_hooks(&self) -> Option<&'static dyn Behavior> {
+        self.behavior
     }
 
     /// Why the definition cannot be registered, if it cannot.
@@ -376,8 +376,8 @@ impl Block {
         self
     }
 
-    /// The same block taking random ticks, which call its behaviour's
-    /// [`on_random_tick`](Behaviour::on_random_tick). Blocks that do not need them cost nothing
+    /// The same block taking random ticks, which call its behavior's
+    /// [`on_random_tick`](Behavior::on_random_tick). Blocks that do not need them cost nothing
     /// on random ticks without this.
     #[must_use]
     pub const fn random_ticks(mut self) -> Self {
@@ -405,10 +405,10 @@ impl Block {
         self
     }
 
-    /// The same block acting with `behaviour`.
+    /// The same block acting with `behavior`.
     #[must_use]
-    pub const fn with_behaviour(mut self, behaviour: &'static dyn Behaviour) -> Self {
-        self.behaviour = Some(behaviour);
+    pub const fn with_behavior(mut self, behavior: &'static dyn Behavior) -> Self {
+        self.behavior = Some(behavior);
         self
     }
 
@@ -667,7 +667,7 @@ impl fmt::Debug for Block {
             .field("flame_encouragement", &self.flame_encouragement)
             .field("drops", &self.drops)
             .field("creative", &self.creative)
-            .field("behaviour", &self.behaviour.is_some())
+            .field("behavior", &self.behavior.is_some())
             .field("random_ticks", &self.random_ticks)
             .finish()
     }
@@ -927,10 +927,10 @@ pub enum Drops {
 }
 
 /// What a custom block does when players use it, place it or break it, and on random ticks: the
-/// extension point for custom block behaviour. Each hook runs in the tick's serial step with the
+/// extension point for custom block behavior. Each hook runs in the tick's serial step with the
 /// whole game, once the engine has applied the action (its listeners first; the held item, drops
 /// and wear included) and before the action's monitors; direct API calls in it raise no events.
-pub trait Behaviour: Send + Sync {
+pub trait Behavior: Send + Sync {
     /// The block at `pos` was broken and removed, by `player` if one broke it. Its drops have
     /// been spawned and the tool's wear applied. An explosion destroying the block runs the hook
     /// after the explosion; an explosion the hook starts is nested, and past a few levels it does

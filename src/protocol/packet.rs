@@ -9813,7 +9813,10 @@ impl Packet {
     /// [`Error::UnknownEnum`] for an ID that is no packet, or for a selector inside the packet that has no known meaning.
     /// [`Error::UnexpectedEnd`] for a payload that ends inside a value.
     /// [`Error::Size`] for a length, count, depth or allocation over its limit, or for bytes left after the packet.
-    /// [`Error::VarintOverflow`], [`Error::InvalidBool`], [`Error::InvalidUtf8`] and [`Error::InvalidValue`] for a value the wire format does not allow.
+    /// [`Error::VarintOverflow`] for a varint longer than its type allows.
+    /// [`Error::InvalidBool`] for a bool byte other than 0 or 1.
+    /// [`Error::InvalidUtf8`] for a string that is not UTF-8.
+    /// [`Error::InvalidValue`] for another value the wire format does not allow.
     pub fn decode(id: u32, payload: &[u8], budget: &mut usize) -> Result<Self> {
         let mut r = Reader::new(payload, *budget, crate::item::SHIELD_RUNTIME_ID);
         let packet = Self::decode_body(id, &mut r);
@@ -10112,7 +10115,8 @@ impl Packet {
     /// # Errors
     ///
     /// [`Error::Size`] for a length or count that does not fit its wire prefix or is over its limit.
-    /// [`Error::InvalidValue`] and [`Error::UnknownEnum`] for a field value the wire format does not allow.
+    /// [`Error::InvalidValue`] for a field value the wire format does not allow.
+    /// [`Error::UnknownEnum`] for a field selector that has no known meaning.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: generated from one gophertunnel body or table"
