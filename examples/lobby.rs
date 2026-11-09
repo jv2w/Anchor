@@ -31,7 +31,7 @@ use std::error::Error;
 use std::num::NonZeroU32;
 
 use anchor::command::{self, Command, Output, Sender};
-use anchor::display::{BossBar, Colour, Scoreboard, Slot};
+use anchor::display::{BossBar, Color, Scoreboard, Slot};
 use anchor::event::{
     Actor, EntityDamage, InteractAction, PlayerExhaust, PlayerInteract, PlayerItemUse, Priority,
 };
@@ -144,7 +144,7 @@ fn welcome(cx: &mut Context<'_>, id: player::Id) {
         times: None,
     }));
     let bar =
-        BossBar::new(format!("Welcome to the lobby, {}", player.name())).with_colour(Colour::Blue);
+        BossBar::new(format!("Welcome to the lobby, {}", player.name())).with_color(Color::Blue);
     or_log(cx.set_boss_bar(id, bar));
 }
 

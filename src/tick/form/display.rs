@@ -20,7 +20,7 @@ use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObje
 use crate::protocol::{MAX_BOSS_EVENT_BOSS_BAR_TITLE, ScoreboardEntry};
 use crate::tick::checkpoint;
 
-/// Colour codes that fill empty text lines, so that each is its own blank line.
+/// Color codes that fill empty text lines, so that each is its own blank line.
 const BLANKS: [&str; 15] = [
     "§1", "§2", "§3", "§4", "§5", "§6", "§7", "§8", "§9", "§a", "§b", "§c", "§d", "§e", "§f",
 ];
@@ -65,11 +65,11 @@ impl Shown {
             let BossBar {
                 title,
                 progress,
-                colour,
+                color,
             } = bar;
             h.bytes(title.as_bytes());
             h.u64(u64::from(progress.to_bits()));
-            h.u64(u64::from(u8::from(*colour)));
+            h.u64(u64::from(u8::from(*color)));
         }
     }
 }
@@ -153,7 +153,7 @@ impl Context<'_> {
     }
 
     /// Shows `bar` to `player` in place of the boss bar it saw. Only what changed is sent: a new
-    /// title or progress updates the bar, a new colour shows it again.
+    /// title or progress updates the bar, a new color shows it again.
     ///
     /// # Errors
     ///
@@ -167,7 +167,7 @@ impl Context<'_> {
         let (p, open) = open(self.state, player).ok_or(Error::Offline)?;
         let entity = crate::tick::entity::unique_id(p.runtime_id);
         match &open.display.bar {
-            Some(old) if old.colour == bar.colour => {
+            Some(old) if old.color == bar.color => {
                 if old.title != bar.title {
                     p.send_packet(boss_event(entity, BossEventType::Title, &bar));
                 }
@@ -372,7 +372,7 @@ fn boss_event(entity: i64, kind: BossEventType, bar: &BossBar) -> Packet {
         boss_bar_title: bar.title.clone(),
         filtered_boss_bar_title: String::new(),
         health_percentage: bar.progress,
-        colour: bar.colour.into(),
+        colour: bar.color.into(),
         overlay: BossEventOverlay::Progress.into(),
     })
 }

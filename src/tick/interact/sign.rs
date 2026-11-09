@@ -90,7 +90,7 @@ fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     Ok(lines)
 }
 
-/// Drops private-use characters and terminal escape sequences, keeping colour codes.
+/// Drops private-use characters and terminal escape sequences, keeping color codes.
 pub(in crate::tick) fn clean(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     // The private-use characters go first, so a sequence they split still goes.
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn cleaning_keeps_colours_and_drops_escapes_and_private_use() {
+    fn cleaning_keeps_colors_and_drops_escapes_and_private_use() {
         assert_eq!(clean("§cRed"), "§cRed");
         assert_eq!(clean("a\u{E123}b"), "ab");
         assert_eq!(clean("a\u{1b}[31mb"), "ab");

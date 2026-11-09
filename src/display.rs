@@ -6,7 +6,7 @@
 //!
 //! ```
 //! use anchor::Context;
-//! use anchor::display::{BossBar, Colour, Scoreboard, Slot};
+//! use anchor::display::{BossBar, Color, Scoreboard, Slot};
 //! use anchor::player;
 //!
 //! fn show(cx: &mut Context<'_>, player: player::Id, online: i32) -> anchor::display::Result<()> {
@@ -16,13 +16,13 @@
 //!     cx.set_scoreboard(player, board)?;
 //!     let bar = BossBar::new("Next game")
 //!         .with_progress(0.5)
-//!         .with_colour(Colour::Blue);
+//!         .with_color(Color::Blue);
 //!     cx.set_boss_bar(player, bar)
 //! }
 //! ```
 
 pub use crate::protocol::consts::{
-    BossEventColour as Colour, ScoreboardSlot as Slot, ScoreboardSortOrder as Sort,
+    BossEventColour as Color, ScoreboardSlot as Slot, ScoreboardSortOrder as Sort,
 };
 
 use std::fmt;
@@ -41,7 +41,7 @@ pub(crate) const MAX_SIDEBAR_LINES: usize = 15;
 /// The client orders the lines by score ([`Sort`], ascending unless set). A text line shows its
 /// text; a player line shows the player's name in the sidebar, its score next to its name in the
 /// player list ([`Slot::List`]) or below its name tag ([`Slot::BelowName`]). An empty text line
-/// is shown blank (filled with a colour code).
+/// is shown blank (filled with a color code).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scoreboard {
     pub(crate) slot: Slot,
@@ -111,7 +111,7 @@ pub(crate) enum Holder {
 pub struct BossBar {
     pub(crate) title: String,
     pub(crate) progress: f32,
-    pub(crate) colour: Colour,
+    pub(crate) color: Color,
 }
 
 impl BossBar {
@@ -120,14 +120,14 @@ impl BossBar {
         Self {
             title: title.into(),
             progress: 1.0,
-            colour: Colour::Purple,
+            color: Color::Purple,
         }
     }
 
-    /// The same bar with `colour` as its colour.
+    /// The same bar with `color` as its color.
     #[must_use]
-    pub fn with_colour(mut self, colour: Colour) -> Self {
-        self.colour = colour;
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = color;
         self
     }
 

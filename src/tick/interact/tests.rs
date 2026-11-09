@@ -13,9 +13,10 @@ use super::*;
 use crate::block::Kind;
 use crate::config::Config;
 use crate::event::Listeners;
+use crate::item::Kind as ItemKind;
 use crate::pool::Pool;
 use crate::protocol::consts::InputFlag;
-use crate::protocol::packet::SetLocalPlayerAsInitialised;
+use crate::protocol::packet::{ContainerClose, SetLocalPlayerAsInitialised};
 use crate::protocol::{FlagSet, InputFlags, NormalTransactionData, ReleaseItemTransactionData};
 use crate::save::palette_entry;
 use crate::tick::queue::{Input, InputKind, Message, Outbound};
@@ -739,7 +740,6 @@ fn a_click_on_a_removed_block_changes_nothing_and_resends_it() {
 /// the block and the entities stay, and the clicked block is sent again.
 #[test]
 fn a_removed_item_use_changes_nothing_and_resends_the_clicked_block() {
-    use crate::item::Kind as ItemKind;
     let ground = BlockPos::new(2, -61, 0);
     let source = block::State::find(
         "minecraft:water",
@@ -1024,7 +1024,6 @@ fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
 
 #[test]
 fn a_client_opens_a_block_window_at_most_once_a_tick() {
-    use crate::protocol::packet::ContainerClose;
     for (source, opens) in [(Source::Client, 1), (Source::Action, CLICKS)] {
         let mut h = Harness::new(|_| {});
         set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
@@ -1073,7 +1072,7 @@ fn entity_at(h: &Harness) -> crate::tick::block_entity::Kind {
         .clone()
 }
 
-/// The sign side texts at [`TARGET`]: (front lines, colour, glowing, waxed).
+/// The sign side texts at [`TARGET`]: (front lines, color, glowing, waxed).
 fn sign_at(h: &Harness) -> (Vec<String>, i32, bool, bool) {
     match entity_at(h) {
         crate::tick::block_entity::Kind::Sign(s) => {
@@ -1084,7 +1083,7 @@ fn sign_at(h: &Harness) -> (Vec<String>, i32, bool, bool) {
             } else {
                 &s.back
             };
-            (side.lines.to_vec(), side.colour, side.glowing, s.waxed)
+            (side.lines.to_vec(), side.color, side.glowing, s.waxed)
         }
         other => panic!("{other:?}"),
     }
@@ -1121,10 +1120,10 @@ fn signs_keep_their_text() {
     let at = place_on_grass(&mut h, &sign);
     assert_eq!(at, TARGET);
     sign_edit(&mut h, "hello\nworld");
-    let (lines, colour, glowing, waxed) = sign_at(&h);
+    let (lines, color, glowing, waxed) = sign_at(&h);
     assert_eq!(&lines[..2], ["hello", "world"]);
     assert_eq!(
-        (colour, glowing, waxed),
+        (color, glowing, waxed),
         (crate::block_entity::BLACK_TEXT, false, false)
     );
     let sent = h.packets();

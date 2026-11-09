@@ -565,6 +565,8 @@ fn append_packet(packet: &Packet, payload: &mut Vec<u8>) -> protocol::Result<()>
 mod tests {
     use super::*;
 
+    use std::error::Error as _;
+
     use crate::protocol::Skin;
     use crate::protocol::compression::tests::{Content, ROUND_TRIP_SIZES, sample};
     use crate::protocol::io::MAX_LIST_DEPTH;
@@ -1040,7 +1042,6 @@ mod tests {
 
     #[test]
     fn errors_report_their_cause() {
-        use std::error::Error as _;
         let error = Error::Compression(compression::Error::Truncated);
         assert_eq!(error.to_string(), "batch body compression failed");
         assert_eq!(

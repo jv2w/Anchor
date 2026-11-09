@@ -61,7 +61,7 @@ NBT values in the dump files are typed JSON (`{"byte": 1}`), floats as their bit
 
 - The dump source drops enchantments it does not know and keeps the empty enchanted books. Leaving those 61 out takes the creative inventory from 1,694 to 1,633 items.
 - The ominous banner: the dump source has it black (meta 0); the official server sends it white (meta 15).
-- Effect colours: the dump source has older colours for 12 effects than the official server's splash potion colours (P6 `potions`); `gen` takes the official server's (`OFFICIAL_COLOURS` in `xtask/src/gen/effects.rs`).
+- Effect colors: the dump source has older colors for 12 effects than the official server's splash potion colors (P6 `potions`); `gen` takes the official server's (`OFFICIAL_COLORS` in `xtask/src/gen/effects.rs`).
 - The network form of block items: the dump source's default state (a stair's facing, for example) differs from the official server's.
 - The wall hanging sign's collision box is inside out (3/4 cut from each side where 3/8 was meant). `gen` rebuilds it with 3/8, the official server's box (`INSIDE_OUT_BOXES` in `xtask/src/gen/data.rs`), and fails on an inside-out box of any other class.
 

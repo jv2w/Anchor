@@ -1731,6 +1731,7 @@ cancellable! {
 mod tests {
     use super::*;
 
+    use super::ExhaustCause as C;
     use crate::block::DIRT;
     use crate::event::fixtures::{POS, entity, player, sticks};
 
@@ -2004,7 +2005,6 @@ mod tests {
     // api: PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
     #[test]
     fn exhaust_amount_can_change() {
-        use ExhaustCause as C;
         let causes = [
             C::Attack,
             C::Damage,

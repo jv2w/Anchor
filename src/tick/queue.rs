@@ -11,6 +11,7 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{OnceCell, OwnedSemaphorePermit, Semaphore, mpsc};
 use tracing::debug;
 
+use super::checkpoint;
 use crate::config::GameMode;
 use crate::crypto;
 use crate::entity::{MAX_SKIN_BYTES, MAX_SKIN_JSON_DEPTH};
@@ -44,9 +45,9 @@ const OUTBOUND_CAPACITY: usize = 1024;
 const PIECE_FIXED_BYTES: usize = 31;
 /// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 11 length
 /// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
-/// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
+/// each), the arm size (1), the color (4), 5 bools and the trust text (`"false"`, 5).
 const SKIN_FIXED_BYTES: usize = 101;
-/// The same as [`SKIN_FIXED_BYTES`] for one tint colour: a length prefix (at most 5) and 4 colours
+/// The same as [`SKIN_FIXED_BYTES`] for one tint color: a length prefix (at most 5) and 4 colors
 /// (4 each).
 const TINT_FIXED_BYTES: usize = 21;
 
@@ -144,7 +145,7 @@ impl Identity {
     }
 }
 
-super::checkpoint::fields!(Identity {
+checkpoint::fields!(Identity {
     name,
     xuid,
     uuid,
@@ -254,7 +255,7 @@ impl Default for Client {
     }
 }
 
-super::checkpoint::fields!(Client {
+checkpoint::fields!(Client {
     locale,
     input_mode,
     device_model,
@@ -310,7 +311,7 @@ impl Skin {
 
     /// The most bytes the skin takes on the wire: what it holds (images, geometry, patch,
     /// animation data and texts) and the fixed fields and length prefixes of the skin and of
-    /// each animation, persona piece and tint colour. What [`MAX_SKIN_BYTES`] bounds, which
+    /// each animation, persona piece and tint color. What [`MAX_SKIN_BYTES`] bounds, which
     /// bounds the number of animations, pieces and tints too; a player list entry counts it
     /// against `max-batch-bytes`, and an input log entry of its join against the log's bound.
     pub(crate) fn size(&self) -> usize {

@@ -642,17 +642,17 @@ const UNUSED: &[(&str, &str, &str)] = &[
     (
         "Color255RGB",
         "oneOf/1",
-        "the array form of a colour; gophertunnel reads fixed components",
+        "the array form of a color; gophertunnel reads fixed components",
     ),
     (
         "Color255RGBA",
         "oneOf/1",
-        "the array form of a colour; gophertunnel reads fixed components",
+        "the array form of a color; gophertunnel reads fixed components",
     ),
     (
         "ColorNormRGB",
         "oneOf/1",
-        "the array form of a colour; gophertunnel reads fixed components",
+        "the array form of a color; gophertunnel reads fixed components",
     ),
     (
         "ItemEnchants",
@@ -687,7 +687,7 @@ const UNUSED: &[(&str, &str, &str)] = &[
     (
         "TintMapColor",
         "Colors",
-        "a fixed array of four colours in gophertunnel",
+        "a fixed array of four colors in gophertunnel",
     ),
 ];
 

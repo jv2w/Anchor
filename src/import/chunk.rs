@@ -21,7 +21,7 @@
 //!   sub-chunk y + 4 in the key.
 //! - Legacy terrain (48, chunk versions 0 to 2): the whole 16 × 128 × 16 column: 32,768 ids,
 //!   16,384 bytes of meta nibbles (index x << 11 | z << 7 | y), 32,768 bytes of light, a 256-byte
-//!   height map and 1,024 bytes of biome colours; only the blocks are read.
+//!   height map and 1,024 bytes of biome colors; only the blocks are read.
 //! - Block entities (49): little-endian NBT compounds back to back.
 //! - Legacy block extra data (52, before 1.2.13): an `i32` count, then (`i32` position, `u16`
 //!   id | meta << 8) pairs; the position packs x, z, y as 4, 4, 8 bits (7 bits of y before
@@ -68,7 +68,7 @@ const LEGACY_META_BYTES: usize = 16_384;
 const LEGACY_SECTION_BYTES: usize = BLOCKS + BLOCKS / 2;
 /// A legacy sub-chunk with light after its ids and meta nibbles.
 const LEGACY_SECTION_LIGHT_BYTES: usize = LEGACY_SECTION_BYTES + BLOCKS;
-/// Legacy terrain: ids, meta, light, height map, biome colours.
+/// Legacy terrain: ids, meta, light, height map, biome colors.
 const LEGACY_TERRAIN_BYTES: usize =
     LEGACY_IDS_BYTES + LEGACY_META_BYTES + LEGACY_LIGHT_BYTES + 256 + 1024;
 /// The sub-chunks of legacy terrain: its column is 128 blocks high.

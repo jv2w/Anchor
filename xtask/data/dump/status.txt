@@ -74,7 +74,7 @@ utils\ServerKiller** skipped PHP watchdog thread
 utils\SignalHandler** skipped PHP signal handling: the user's binary owns signals (Anchor is a library)
 utils\MainLogger** skipped the API table's log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace
 utils\BroadcastLoggerForwarder** skipped the API table's log writer: Anchor logs with `tracing` through its own console output (`log-level`), which the server program can replace
-utils\Terminal** skipped the API table's terminal colours: Anchor logs with `tracing` and the binary picks the subscriber
+utils\Terminal** skipped the API table's terminal colors: Anchor logs with `tracing` and the binary picks the subscriber
 utils\Timezone** skipped PHP time zone setup: game logic has no wall clock
 utils\Git** skipped the API table's build metadata
 utils\Internet** skipped PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own
@@ -473,7 +473,7 @@ block\utils\AmethystTrait** skipped block rule code
 
 # Property getters and setters: values of the state (`State::name`, `value`, `with`, `find`).
 # Block-entity data (sign text, banner patterns, frame and pot contents, records, books, skull
-# rotation, note pitch, cauldron potion and colour, campfire cooking times) is not a state
+# rotation, note pitch, cauldron potion and color, campfire cooking times) is not a state
 # value: those accessors are the `skipped` rules below.
 block\*::getStage merged Block
 block\*::setStage merged Block
@@ -630,7 +630,7 @@ block\ItemFrame::hasMap merged Block
 block\ItemFrame::setHasMap merged Block
 block\InfestedStone::getImitatedBlock merged Block
 
-# Value sets of state properties (colours, wood types, shapes...): the state's property values.
+# Value sets of state properties (colors, wood types, shapes...): the state's property values.
 block\utils\**::getDisplayName skipped English names are client-side translations (Anchor sends translation keys)
 block\utils\**::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums
 block\utils\**::from skipped PHP enum plumbing: Anchor's closed sets are Rust enums
@@ -1336,7 +1336,7 @@ item\enchantment\Enchantment::getMaxLevel skipped enchantments are a generated t
 item\enchantment\Enchantment::getName skipped English names are client-side translations (Anchor sends translation keys)
 item\enchantment\Enchantment::getRarity skipped enchantments are a generated table of ids: Anchor reads no rarity
 item\enchantment\Enchantment::isCompatibleWith skipped enchantments are a generated table of ids: Anchor reads no incompatible groups
-item\Dye::getColor skipped dye colours are used by crafting and cauldrons, which are removed
+item\Dye::getColor skipped dye colors are used by crafting and cauldrons, which are removed
 item\TieredTool::getTier skipped a tool tier is no object: its values belong to the item type (`Item::getAttackPoints`, `Item::getMiningEfficiency`, `Item::getBlockToolHarvestLevel`)
 
 # ===== PHP magic methods left anywhere, then the remaining rows by area =====
@@ -1423,8 +1423,8 @@ entity\Entity::setStepHeight skipped an entity kind's physics are the API table'
 entity\Entity::isFlaggedForDespawn skipped a flagged entity is gone from the API at once: `Context::entity` is `None`
 entity\Explosive::explode merged Explosion::explodeA
 entity\effect\EffectInstance::decreaseDuration merged EffectInstance::setDuration
-entity\effect\EffectInstance::*etColor skipped an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved
-entity\effect\EffectCollection::setEffectFilterForBubbles skipped bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks
+entity\effect\EffectInstance::*etColor skipped an effect's particle color is its type's (`Type::color`): players and entities keep active effects as type, duration, amplifier and flags, as saved
+entity\effect\EffectCollection::setEffectFilterForBubbles skipped bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_color`); no filter callbacks
 
 # World, chunk and block side rows.
 world\World::getAdjacentChunks merged World::getChunk

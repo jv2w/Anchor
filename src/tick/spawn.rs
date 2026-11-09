@@ -23,7 +23,7 @@ use super::save::storage_key;
 use super::survival::EYE_HEIGHT;
 use super::view::{self, Changes, Encoded};
 use super::{Output, Phase, Player, PlayerKey, Settings, State, inside_border};
-use super::{dispatch, extra, interact, inventory, survival};
+use super::{checkpoint, dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
 use crate::custom;
 use crate::entity::MAX_SKIN_BYTES;
@@ -71,7 +71,7 @@ const LIMITED_WORLD_SIZE: i32 = 16;
 /// The most wire bytes of a player list entry besides its name, XUID, PlayFab ID and skin
 /// ([`queue::Skin::size`]): the entry kind (a varint, at most 5, and a byte), the UUID (16), the
 /// entity ID (at most 10), 4 text length prefixes (at most 5 each), the build platform (4), 3
-/// bools and the colour (4).
+/// bools and the color (4).
 const LIST_ENTRY_FIXED_BYTES: usize = 63;
 /// The most bytes a `PlayerList` packet takes in a batch besides its entries: its length, its
 /// header and its entry count (at most 5 each).
@@ -85,8 +85,8 @@ pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
     + MAX_TOKEN_PAYLOAD_BYTES
     + XUID_DIGITS
     + MAX_SKIN_BYTES;
-/// The colour of every entry of the player list (the official server's value, P6).
-pub(super) const PLAYER_LIST_COLOUR: Rgba = Rgba {
+/// The color of every entry of the player list (the official server's value, P6).
+pub(super) const PLAYER_LIST_COLOR: Rgba = Rgba {
     r: 237,
     g: 237,
     b: 237,
@@ -402,7 +402,7 @@ impl Loading {
     }
 }
 
-super::checkpoint::fields!(Loading {
+checkpoint::fields!(Loading {
     session,
     let_through,
 });
@@ -491,9 +491,9 @@ fn trim_data() -> TrimData {
             .collect(),
         materials: item::TRIM_MATERIAL_TABLE
             .iter()
-            .map(|&(id, colour, item)| TrimMaterial {
+            .map(|&(id, color, item)| TrimMaterial {
                 material_id: id.to_owned(),
-                colour: colour.to_owned(),
+                colour: color.to_owned(),
                 item_name: item.to_owned(),
             })
             .collect(),
@@ -820,7 +820,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
         teacher: false,
         host: false,
         sub_client: false,
-        player_colour: PLAYER_LIST_COLOUR,
+        player_colour: PLAYER_LIST_COLOR,
     }
 }
 
@@ -2240,6 +2240,10 @@ mod tests {
 
     use super::*;
 
+    use crate::event::Listeners;
+    use crate::tick::queue::InputKind;
+    use crate::tick::tests::{join, leave, new_state, radius, received, settings, tick};
+
     /// Reads the data copy, when the external sources are there (`.cache`).
     fn cache(name: &str) -> Option<Vec<u8>> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2378,9 +2382,6 @@ mod tests {
     /// The Education items are never offered, so the client gets no Education features.
     #[test]
     fn start_game_leaves_education_features_off() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, received, settings, tick};
-
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
@@ -2394,9 +2395,6 @@ mod tests {
 
     #[test]
     fn a_player_list_longer_than_a_client_takes_goes_in_several_packets() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
-
         let count = MAX_PLAYER_LIST_ENTRIES + 1;
         let players = u32::try_from(count).unwrap();
         let mut state = new_state(
@@ -2428,9 +2426,6 @@ mod tests {
     /// whatever its size.
     #[test]
     fn a_player_list_larger_than_a_batch_goes_in_several_packets() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, new_state, settings, tick};
-
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let (mut joins, _queues): (Vec<_>, Vec<_>) = (1..=5).map(|s| join(s, 0)).unzip();
         tick(&mut state, &mut joins, &mut Output::default());
@@ -2450,9 +2445,6 @@ mod tests {
 
     #[test]
     fn a_player_placed_and_gone_in_one_tick_leaves_the_other_lists() {
-        use crate::event::Listeners;
-        use crate::tick::tests::{join, leave, new_state, received, settings, tick};
-
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (first, mut rx) = join(1, 0);
@@ -2475,10 +2467,6 @@ mod tests {
 
     #[test]
     fn the_player_list_carries_the_identity_playfab_id() {
-        use crate::event::Listeners;
-        use crate::tick::queue::InputKind;
-        use crate::tick::tests::{join, new_state, radius, received, settings, tick};
-
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         let (mut first, mut rx) = join(1, 0);

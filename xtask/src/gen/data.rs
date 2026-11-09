@@ -46,7 +46,7 @@ const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:bed",
         "bed",
-        "the colour (bed block entity `color`)",
+        "the color (bed block entity `color`)",
     ),
     (
         "minecraft:cauldron",
@@ -56,12 +56,12 @@ const SHARED: [(&str, &str, &str); 4] = [
     (
         "minecraft:standing_banner",
         "banner",
-        "the colour and ominous type (banner block entity `Base` and `Type`)",
+        "the color and ominous type (banner block entity `Base` and `Type`)",
     ),
     (
         "minecraft:wall_banner",
         "wall_banner",
-        "the colour and ominous type (banner block entity `Base` and `Type`)",
+        "the color and ominous type (banner block entity `Base` and `Type`)",
     ),
 ];
 /// The factor from hardness to blast resistance of a state the dump does not have.
@@ -368,7 +368,7 @@ impl Data {
     /// of the name and block, the one with the stack's meta; if several have it, the one with the
     /// most type NBT that is part of the stack NBT; if none has it and the name and block have a
     /// single type, that type, as the dump reads such a meta as stack state (a firework star's
-    /// colour). The stack keeps its own meta. A dumped block item always names the state its type
+    /// color). The stack keeps its own meta. A dumped block item always names the state its type
     /// places, so the fallback `from_name` has for a saved block item with another state (the
     /// block's item form) never applies here.
     pub(super) fn stack(&self, json: &Json) -> Result<Stack, String> {
@@ -757,7 +757,7 @@ type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
 type Upgraded = (BTreeMap<StateKey, Values>, BTreeMap<StateKey, StateKey>);
 
 /// The meta of an item form, corrected where the dump sends a different one than the official
-/// server: the dump's ominous banner (`Type` 1) has the black base colour, meta 0, where the
+/// server: the dump's ominous banner (`Type` 1) has the black base color, meta 0, where the
 /// official server sends it white, meta 15 (P6). Every item read from the dumps passes here, so
 /// types and stacks agree.
 fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> u16 {
@@ -1575,7 +1575,7 @@ mod tests {
         }
         assert!(used.is_empty());
 
-        // A bed's colour: the item forms differ, so the item comes from the block entity.
+        // A bed's color: the item forms differ, so the item comes from the block entity.
         let bed = key("minecraft:bed");
         let group = vec![values("bed", 0, &[], "red"), values("bed", 0, &[], "blue")];
         let merged = merge(&bed, &group, &mut used).unwrap();

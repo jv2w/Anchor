@@ -68,7 +68,7 @@ pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
 /// table stores one `u16` per type.
 const NO_STATE: u16 = 0xffff;
 
-/// The armor trim materials: material ID, text colour code and item, in the order the official
+/// The armor trim materials: material ID, text color code and item, in the order the official
 /// server sends them in `TrimData`.
 pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
     ("quartz", "\u{a7}h", "minecraft:quartz"),
@@ -160,7 +160,7 @@ impl Type {
     /// it (a black banner and an ominous banner are both `minecraft:banner` meta 0), it is the
     /// one with the most type NBT that is part of `nbt`. Where none has it and the name and block
     /// have a single type, it is that type, with the meta read as stack state (a tool's damage, a
-    /// firework star's colour); the caller keeps the meta with the stack. A block item needs its
+    /// firework star's color); the caller keeps the meta with the stack. A block item needs its
     /// block state, since several states can share an item name; a state no type of the name has
     /// stands for the item of its block form (the official server saves a block item with its
     /// vanilla creative state, which can differ from the state the item places). Anything else
@@ -957,7 +957,7 @@ impl RegistryEntry {
 }
 
 /// A stack in a generated table: the type, the network meta (the type's, or stack state such as
-/// a firework star's colour) and the stack NBT.
+/// a firework star's color) and the stack NBT.
 #[derive(Debug)]
 struct StaticStack {
     item: Type,
@@ -1119,7 +1119,7 @@ fn equal_range<T>(sorted: &[T], cmp: impl Fn(&T) -> Ordering) -> &[T] {
 /// The network form of a stack of `item` with meta `meta` and stack NBT `nbt`: the runtime ID
 /// and meta and the NBT, and the network ID of the block state a block item is sent with
 /// ([`Type::block_network_id`]). The meta is the stack's, which differs from the type's where
-/// the meta is stack state (a firework star's colour).
+/// the meta is stack state (a firework star's color).
 pub(crate) fn network_stack(
     item: Type,
     meta: u16,
@@ -1158,7 +1158,7 @@ fn network_stack_with(
 
 /// Whether the item named `name` is an Education Edition item, never offered (creative
 /// inventory, commands): the dump's chemistry items and blocks (elements, compounds, bleach, ice
-/// bombs, medicine, the chemistry tables, the heat block, coloured and underwater torches,
+/// bombs, medicine, the chemistry tables, the heat block, colored and underwater torches,
 /// hardened glass) and the reference list's other Education entries (balloons, sparklers, glow
 /// sticks, rapid fertilizer, underwater TNT and the old chemistry names). `name` may leave out
 /// `minecraft:`. The one place that says which items they are.

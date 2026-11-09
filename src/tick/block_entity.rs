@@ -1,4 +1,4 @@
-//! Block entities: containers, signs, bed colours, banners, flower pots, mob heads and the other blocks
+//! Block entities: containers, signs, bed colors, banners, flower pots, mob heads and the other blocks
 //! with data beyond their state, by position, saved with their chunk (chunk extras kind 1, in
 //! Bedrock form: `id`, `x`, `y`, `z`, `Items` with `Slot`, `CustomName`, `pairx`/`pairz`…; the same
 //! list holds Anchor's own spill entries, [`SPILL_ID`], which an export leaves out).
@@ -27,7 +27,7 @@ use tracing::{error, warn};
 use super::view::Key;
 use super::{SessionId, State, checkpoint, dispatch, entity, interact, inventory, survival};
 use crate::block::{self, Class, Face, Facing, PropertyValue};
-use crate::block_entity::DyeColour;
+use crate::block_entity::DyeColor;
 use crate::custom::Registry;
 use crate::event::ChestPair;
 use crate::inventory::CHEST_SLOTS;
@@ -755,7 +755,7 @@ impl BlockEntity {
     }
 
     /// What clients get of it: id, position, the custom name and the kind's client keys (a
-    /// chest's pair, a sign's text, a bed's colour…). A kind Anchor does not type goes as saved:
+    /// chest's pair, a sign's text, a bed's color…). A kind Anchor does not type goes as saved:
     /// the client draws some blocks (a decorated pot, a bell) only from their block entity's
     /// keys, which Anchor cannot pick out.
     pub(super) fn spawn_nbt(&self, pos: BlockPos) -> Compound {
@@ -794,7 +794,7 @@ impl BlockEntity {
                 Kind::Sign(Box::new(decor::Sign::read(&mut nbt, id == "HangingSign")))
             }
             "Bed" => Kind::Bed {
-                colour: decor::read_bed(&mut nbt),
+                color: decor::read_bed(&mut nbt),
             },
             "Banner" => Kind::Banner(decor::Banner::read(&mut nbt)),
             "FlowerPot" => Kind::FlowerPot {
@@ -926,8 +926,8 @@ impl BlockEntity {
             }
             Kind::Sign(s) if form == Form::Client => s.spawn(nbt),
             Kind::Sign(s) => s.write(nbt),
-            Kind::Bed { colour } => {
-                nbt.insert("color".to_owned(), Value::Byte(*colour));
+            Kind::Bed { color } => {
+                nbt.insert("color".to_owned(), Value::Byte(*color));
             }
             Kind::Banner(b) => b.write(nbt),
             Kind::FlowerPot { plant } => decor::write_plant(plant.as_ref(), form, nbt),
@@ -970,10 +970,10 @@ pub(super) enum Kind {
     EnderChest,
     /// A sign or hanging sign.
     Sign(Box<decor::Sign>),
-    /// A bed and its colour (the `DyeColour` ID, the bed item's meta).
+    /// A bed and its color (the `DyeColor` ID, the bed item's meta).
     Bed {
-        /// The colour.
-        colour: u8,
+        /// The color.
+        color: u8,
     },
     /// A banner.
     Banner(decor::Banner),
@@ -1048,7 +1048,7 @@ impl Kind {
             Self::Sign(Box::new(sign))
         } else if is(Class::Bed) {
             Self::Bed {
-                colour: decor::DEFAULT_BED_COLOUR,
+                color: decor::DEFAULT_BED_COLOR,
             }
         } else if is(Class::BaseBanner) {
             Self::Banner(decor::Banner::default())
@@ -1093,7 +1093,7 @@ enum Form {
 /// world when `None`) placed it from `item` against `face` (the clicked face).
 ///
 /// The new entity takes the item's custom name if its kind has one and the data its item carries:
-/// a shulker box's items and the face it opens toward, a bed's colour, a banner's colour and
+/// a shulker box's items and the face it opens toward, a bed's color, a banner's color and
 /// patterns, a floor mob head's rotation from the player's yaw. A chest pairs with a chest of the
 /// same kind and facing beside it that is not paired yet, trying the counter-clockwise side first.
 /// A block entity already at `pos` (one nothing removed) is replaced, everything it held dropped
@@ -1212,11 +1212,11 @@ fn create(
             }
             unfit = entity.take_unfit();
         }
-        Kind::Bed { colour } => {
+        Kind::Bed { color } => {
             if let Ok(c) = u8::try_from(item.meta())
-                && DyeColour::from_id(c).is_some()
+                && DyeColor::from_id(c).is_some()
             {
-                *colour = c;
+                *color = c;
             }
         }
         Kind::Banner(banner) => {
@@ -1474,7 +1474,7 @@ fn take_contents(entity: &mut BlockEntity, out: &mut Vec<Stack>) {
 }
 
 /// The item a block whose item form is its block entity's turns into (a bed and a banner): the
-/// bed of its colour, the banner of its colour with its patterns. A block without its block
+/// bed of its color, the banner of its color with its patterns. A block without its block
 /// entity (a generator's block, never used) turns into what an empty one gives, as if it was
 /// made on this first use. `None` for other blocks.
 pub(super) fn own_item(state: &State, world: WorldIndex, pos: BlockPos) -> Option<Stack> {
@@ -1487,8 +1487,8 @@ pub(super) fn own_item(state: &State, world: WorldIndex, pos: BlockPos) -> Optio
         &fresh
     };
     match kind {
-        Kind::Bed { colour } => {
-            let t = item::Type::from_name("minecraft:bed", u16::from(*colour), None, &empty)?;
+        Kind::Bed { color } => {
+            let t = item::Type::from_name("minecraft:bed", u16::from(*color), None, &empty)?;
             Some(Stack::new(t, 1))
         }
         Kind::Banner(b) => {
@@ -1901,6 +1901,9 @@ pub(in crate::tick) mod tests {
 
     use crate::event::Listeners;
     use crate::item::Kind as ItemKind;
+    use crate::storage::codec::ExtraRecord;
+    use crate::storage::seal::{MAX_RECORD_BYTES, seal_encoded, unseal};
+    use crate::tick::entity::MAX_ENTITIES_PER_WORLD;
     use crate::world::{Chunk as Terrain, ChunkPos, Kind as WorldKind, World};
 
     fn chest_entity(items: &[(usize, Stack)], pair: Option<BlockPos>) -> BlockEntity {
@@ -2564,7 +2567,7 @@ pub(in crate::tick) mod tests {
                 Kind::Sign(Box::new(decor::Sign {
                     front: crate::block_entity::SignText {
                         lines: ["hi".to_owned(), String::new(), String::new(), String::new()],
-                        colour: 7,
+                        color: 7,
                         glowing: true,
                     },
                     back: crate::block_entity::SignText::default(),
@@ -2574,7 +2577,7 @@ pub(in crate::tick) mod tests {
                 Vec::new(),
             ),
             (Kind::Sign(Box::default()), Vec::new()),
-            (Kind::Bed { colour: 3 }, Vec::new()),
+            (Kind::Bed { color: 3 }, Vec::new()),
             (
                 Kind::Banner(decor::Banner {
                     base: 4,
@@ -2667,8 +2670,6 @@ pub(in crate::tick) mod tests {
     /// A chunk's block entity list through the commit's encoding (pages, sealed) and the load's
     /// decoding: what a load reads back.
     pub(in crate::tick) fn committed(list: &[Compound]) -> Vec<Compound> {
-        use crate::storage::codec::ExtraRecord;
-        use crate::storage::seal::{MAX_RECORD_BYTES, seal_encoded, unseal};
         let mut read = Vec::new();
         let kind = crate::storage::ChunkKind::BlockEntities;
         for page in ExtraRecord::pages(kind, list, MAX_RECORD_BYTES).expect("the list encodes") {
@@ -2882,7 +2883,6 @@ pub(in crate::tick) mod tests {
     /// A world at its entity cap keeps its spills waiting; another world's still drop.
     #[test]
     fn a_full_world_holds_back_only_its_own_spills() {
-        use crate::tick::entity::{self, MAX_ENTITIES_PER_WORLD};
         let (mut state, key) = server();
         load_chunk(&mut state, key);
         let mut other = World::new("b", WorldKind::Temporary, 1, BlockPos::new(0, 0, 0));

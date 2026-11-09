@@ -30,9 +30,10 @@ use crate::save::Response;
 use crate::tick::entity::Raise;
 use crate::tick::interact::{self, Destroy};
 use crate::tick::queue::{Input, Message, Outbound, SharedBatches};
-use crate::tick::tests::{answer, join, new_state, radius, settings};
+use crate::tick::tests::{answer, initialised, join, new_state, radius, settings};
 use crate::tick::{
-    Context, InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, step,
+    Context, InputLog, Output, Player, SessionId, State, block_entity, boundary, deliver, entity,
+    step,
 };
 
 /// The block position the tests place their blocks at, next to the spawn.
@@ -1990,8 +1991,6 @@ fn item_samples() -> BTreeMap<String, Stack> {
 
 #[test]
 fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
-    use crate::tick::entity;
-    use crate::tick::tests::initialised;
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let runtime_id = w.player_mut(s).runtime_id;

@@ -29,8 +29,8 @@ use crate::tick::trade::Offers;
 
 /// The particle a potion's cloud shows (the official server's, P6 `potions`).
 const CLOUD_PARTICLE: i32 = 35;
-/// The potion splash colour of an effect-less potion or cloud (ARGB 0x385dc6).
-pub(super) const DEFAULT_POTION_COLOUR: Rgba = Rgba {
+/// The potion splash color of an effect-less potion or cloud (ARGB 0x385dc6).
+pub(super) const DEFAULT_POTION_COLOR: Rgba = Rgba {
     r: 0x38,
     g: 0x5d,
     b: 0xc6,
@@ -39,8 +39,8 @@ pub(super) const DEFAULT_POTION_COLOUR: Rgba = Rgba {
 /// Ticks over which the client spreads a `MoveActorDelta`: the official server sends 0 for items,
 /// orbs and villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
 const MOVE_TICKS: u64 = 0;
-/// The colour of the default skin of human NPCs: one opaque colour.
-const NPC_SKIN_COLOUR: [u8; 4] = [0x9a, 0x6e, 0x52, 0xff];
+/// The color of the default skin of human NPCs: one opaque color.
+const NPC_SKIN_COLOR: [u8; 4] = [0x9a, 0x6e, 0x52, 0xff];
 /// The ID of the default skin of human NPCs.
 const NPC_SKIN_ID: &str = "Standard_Custom";
 /// The pixels of the default skin of human NPCs: the standard 64 × 32 model.
@@ -157,7 +157,7 @@ fn add(entity: &Entity) -> Vec<Packet> {
                 username: name.clone(),
                 build_platform: -1,
                 skin: std::sync::Arc::new(skin.as_ref().map_or_else(npc_skin, |s| s.to_protocol())),
-                player_colour: crate::tick::spawn::PLAYER_LIST_COLOUR,
+                player_colour: crate::tick::spawn::PLAYER_LIST_COLOR,
                 ..PlayerListEntry::default()
             };
             let add = Packet::AddPlayer(Box::new(AddPlayer {
@@ -240,13 +240,13 @@ fn add_painting(entity: &Entity, painting: Painting) -> Packet {
     })
 }
 
-/// The default skin of human NPCs ([`NPC_SKIN_COLOUR`] on the standard model).
+/// The default skin of human NPCs ([`NPC_SKIN_COLOR`] on the standard model).
 fn npc_skin() -> Skin {
     #[expect(
         clippy::expect_used,
         reason = "invariant: the ID is not empty and the image has an accepted size"
     )]
-    let skin = crate::entity::Skin::new(NPC_SKIN_ID, NPC_SKIN_COLOUR.repeat(NPC_SKIN_PIXELS))
+    let skin = crate::entity::Skin::new(NPC_SKIN_ID, NPC_SKIN_COLOR.repeat(NPC_SKIN_PIXELS))
         .expect("the default NPC skin is a valid skin");
     skin.to_protocol()
 }
@@ -430,7 +430,7 @@ fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValu
 }
 
 /// Puts a cloud's metadata as the official server shows a lingering potion's (P6 `potions`): the
-/// radius, colour, particle, duration, radius change on pickup and pickup count. The radius change
+/// radius, color, particle, duration, radius change on pickup and pickup count. The radius change
 /// per tick stays 0: the server shrinks the cloud and sends its radius.
 fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
     put(
@@ -439,7 +439,7 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
     );
     put(
         EntityDataKey::EffectColor,
-        MetadataValue::Int32(crate::block_entity::to_argb(effect_colour(&cloud.effects))),
+        MetadataValue::Int32(crate::block_entity::to_argb(effect_color(&cloud.effects))),
     );
     put(
         EntityDataKey::DataParticle,
@@ -460,10 +460,10 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
     );
 }
 
-/// The colour of the effects `effects` show (each visible effect's colour mixed, once per level);
-/// the default colour without one.
-pub(super) fn effect_colour(effects: &[crate::effect::Instance]) -> Rgba {
-    crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOUR)
+/// The color of the effects `effects` show (each visible effect's color mixed, once per level);
+/// the default color without one.
+pub(super) fn effect_color(effects: &[crate::effect::Instance]) -> Rgba {
+    crate::effect::mix(effects.iter().filter(|e| e.is_visible())).unwrap_or(DEFAULT_POTION_COLOR)
 }
 
 /// The `SetActorData` of a villager whose tier or trade xp changed from `before`: only
@@ -700,10 +700,10 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
                 }),
                 texture_path: Some("textures/ui/locator_bar_dot_3".to_owned()),
                 icon_size: Some([0.2, 0.2]),
-                // A player's waypoint colour is its player list colour (the official server
+                // A player's waypoint color is its player list color (the official server
                 // gives both, P6 `others`).
                 colour: Some(crate::block_entity::to_argb(
-                    crate::tick::spawn::PLAYER_LIST_COLOUR,
+                    crate::tick::spawn::PLAYER_LIST_COLOR,
                 )),
                 client_position_authority: Some(false),
                 actor_unique_id: Some(unique_id),
@@ -847,7 +847,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_default_npc_skin_is_one_colour_on_the_standard_model() {
+    fn the_default_npc_skin_is_one_color_on_the_standard_model() {
         let skin = npc_skin();
         assert_eq!(skin.skin_id, NPC_SKIN_ID);
         assert_eq!(skin.full_id, NPC_SKIN_ID);
@@ -856,7 +856,7 @@ mod tests {
             br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec()
         );
         assert_eq!((skin.skin_image_width, skin.skin_image_height), (64, 32));
-        assert_eq!(skin.skin_data, NPC_SKIN_COLOUR.repeat(NPC_SKIN_PIXELS));
+        assert_eq!(skin.skin_data, NPC_SKIN_COLOR.repeat(NPC_SKIN_PIXELS));
         assert_eq!(skin.skin_geometry, b"{}".to_vec());
         assert!(skin.trusted);
     }

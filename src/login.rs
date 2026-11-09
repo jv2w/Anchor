@@ -946,9 +946,9 @@ mod tests {
         assert_eq!(animation.image_data, [0; 8]);
         assert_eq!((animation.animation_type, animation.frame_count), (1, 2.0));
         assert_eq!(skin.arm_size, 0, "slim");
-        let colour = skin.skin_colour;
+        let color = skin.skin_colour;
         assert_eq!(
-            (colour.r, colour.g, colour.b, colour.a),
+            (color.r, color.g, color.b, color.a),
             (0xb3, 0x7b, 0x62, 0xff)
         );
         assert_eq!(skin.persona_pieces[0].piece_type, 2, "persona_body");

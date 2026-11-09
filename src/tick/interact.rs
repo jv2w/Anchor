@@ -275,7 +275,7 @@ checkpoint::fields!(Click {
     pos,
     face,
     at,
-    player
+    player,
 });
 
 /// A right click held on blocks: the client repeats its block click while the button is down.

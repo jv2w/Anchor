@@ -136,6 +136,9 @@ pub(crate) fn sync_parent(_path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn atomic_write_leaves_old_or_new_file() {
@@ -164,7 +167,6 @@ mod tests {
     #[cfg(unix)]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn an_owner_only_file_stays_owner_only_over_a_temporary_file_a_crash_left() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("anchor-fs-mode-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         std::fs::create_dir(&dir).unwrap();

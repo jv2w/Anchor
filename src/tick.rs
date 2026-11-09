@@ -1823,7 +1823,9 @@ mod tests {
     use std::task::{Context, Poll, Waker};
 
     use super::queue::{input_queue, outbound_queue};
+    use crate::block::Kind as B;
     use crate::event::{KickFlag, PlayerDuplicateLogin, PlayerLogin, PlayerQuit, Priority};
+    use crate::item::{Kind as I, Stack};
     use crate::protocol::Uuid;
     use crate::protocol::packet::{
         ChunkRadiusUpdated, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised,
@@ -3638,8 +3640,6 @@ mod tests {
     /// (always loaded) to stone or air, and every 50 ticks it saves. Every tick it gives a player
     /// items, and it spawns villager NPCs trading apples for bread, removing the first one later.
     fn script_task() -> Tasks {
-        use crate::block::Kind as B;
-        use crate::item::{Kind as I, Stack};
         let stone = crate::block::State::find("minecraft:stone", &[]).unwrap();
         let item = |kind: I, count: u8| Stack::new(kind.default_type(), count);
         let gifts = [

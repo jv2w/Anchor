@@ -423,8 +423,8 @@ impl Mut<'_> {
     ///
     /// [`Error::WrongKind`] for another kind.
     /// [`Error::OutOfRange`], changing nothing, for more than 256 explosions, a compound that is
-    /// no explosion (a shape byte 0 to 4, at least one colour, colours 0 to 15) or one bigger than
-    /// Anchor takes (more than 16 colours in a list, or a key other than `FireworkType`,
+    /// no explosion (a shape byte 0 to 4, at least one color, colors 0 to 15) or one bigger than
+    /// Anchor takes (more than 16 colors in a list, or a key other than `FireworkType`,
     /// `FireworkColor`, `FireworkFade`, `FireworkFlicker` and `FireworkTrail`).
     #[doc(alias = "entity\\object\\FireworkRocket::setExplosions")]
     pub fn set_firework_explosions(&mut self, explosions: Vec<Compound>) -> Result<()> {
@@ -613,21 +613,21 @@ impl Mut<'_> {
         self.entity_mut().set_on_fire(seconds);
     }
 
-    /// Sets a dropped item's owner (a player name).
+    /// Sets a dropped item's owner (a player name); `None` or an empty name clears it.
     ///
     /// # Errors
     ///
     /// [`Error::TooLong`] for a name over [`MAX_NAME_TAG_BYTES`].
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setOwner")]
-    pub fn set_owner(&mut self, owner: impl Into<String>) -> Result<()> {
-        let owner = owner.into();
+    pub fn set_owner(&mut self, owner: Option<&str>) -> Result<()> {
+        let owner = owner.unwrap_or_default();
         if owner.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::TooLong);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
-                item.owner = owner;
+                owner.clone_into(&mut item.owner);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -830,21 +830,21 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets who threw a dropped item (a player name).
+    /// Sets who threw a dropped item (a player name); `None` or an empty name clears it.
     ///
     /// # Errors
     ///
     /// [`Error::TooLong`] for a name over [`MAX_NAME_TAG_BYTES`].
     /// [`Error::WrongKind`] for another kind.
     #[doc(alias = "ItemEntity::setThrower")]
-    pub fn set_thrower(&mut self, thrower: impl Into<String>) -> Result<()> {
-        let thrower = thrower.into();
+    pub fn set_thrower(&mut self, thrower: Option<&str>) -> Result<()> {
+        let thrower = thrower.unwrap_or_default();
         if thrower.len() > MAX_NAME_TAG_BYTES {
             return Err(Error::TooLong);
         }
         match &mut self.entity_mut().kind {
             Kind::Item(item) => {
-                item.thrower = thrower;
+                thrower.clone_into(&mut item.thrower);
                 Ok(())
             }
             _ => Err(Error::WrongKind),
@@ -1374,11 +1374,11 @@ impl Entity {
         self.kind.identifier()
     }
 
-    /// A dropped item's owner (a player name, saved; empty without one).
+    /// A dropped item's owner (a player name, saved); `None` without one or for another kind.
     #[doc(alias = "ItemEntity::getOwner")]
     pub fn owner(&self) -> Option<&str> {
         match &self.kind {
-            Kind::Item(item) => Some(&item.owner),
+            Kind::Item(item) => Some(item.owner.as_str()).filter(|owner| !owner.is_empty()),
             _ => None,
         }
     }
@@ -1538,11 +1538,11 @@ impl Entity {
         }
     }
 
-    /// Who threw a dropped item (a player name, saved; empty without one).
+    /// Who threw a dropped item (a player name, saved); `None` without one or for another kind.
     #[doc(alias = "ItemEntity::getThrower")]
     pub fn thrower(&self) -> Option<&str> {
         match &self.kind {
-            Kind::Item(item) => Some(&item.thrower),
+            Kind::Item(item) => Some(item.thrower.as_str()).filter(|thrower| !thrower.is_empty()),
             _ => None,
         }
     }

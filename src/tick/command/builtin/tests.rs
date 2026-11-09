@@ -14,7 +14,7 @@ use crate::event::{
 use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::permission;
-use crate::protocol::consts::CommandArg;
+use crate::protocol::consts::{CommandArg, CommandArgType as T};
 use crate::protocol::packet::Packet;
 use crate::runtime::ThreadTotals;
 use crate::tick::command::tests::{id, lines, server, server_with};
@@ -1131,7 +1131,6 @@ fn backup_is_refused_without_backups() {
 
 /// Writes the record form of the overloads of an `AvailableCommands`: `command name=type ...`.
 fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
-    use crate::protocol::consts::CommandArgType as T;
     let basic = [
         (T::Int, "int"),
         (T::Target, "target"),

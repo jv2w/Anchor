@@ -38,6 +38,7 @@ use crate::custom::{
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
+use crate::tick::checkpoint;
 
 /// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6).
 const ANY_DAMAGE: i16 = i16::MAX;
@@ -475,7 +476,7 @@ impl Default for Offers {
     }
 }
 
-crate::tick::checkpoint::fields!(Offers {
+checkpoint::fields!(Offers {
     list,
     tier,
     xp,
@@ -705,7 +706,7 @@ impl StoredOffer {
     }
 }
 
-crate::tick::checkpoint::fields!(StoredOffer {
+checkpoint::fields!(StoredOffer {
     buy_a,
     buy_b,
     damage_a,
@@ -733,7 +734,7 @@ pub(in crate::tick) enum Damage {
     Any,
 }
 
-crate::tick::checkpoint::variants!(Damage {
+checkpoint::variants!(Damage {
     0 => Exact,
     1 => Any,
 });

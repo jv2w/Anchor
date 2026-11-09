@@ -50,7 +50,7 @@ type scoreLine struct {
 type bossBar struct {
 	title    string
 	progress float32
-	colour   uint8
+	color    uint8
 }
 
 func newDisplays(self int64) *displays {
@@ -100,7 +100,7 @@ func (d *displays) observe(pk packet.Packet) error {
 		}
 		switch pk.EventType {
 		case packet.BossEventShow:
-			d.bar = &bossBar{title: pk.BossBarTitle, progress: pk.HealthPercentage, colour: pk.Colour}
+			d.bar = &bossBar{title: pk.BossBarTitle, progress: pk.HealthPercentage, color: pk.Colour}
 		case packet.BossEventHide:
 			d.bar = nil
 		case packet.BossEventTitle:

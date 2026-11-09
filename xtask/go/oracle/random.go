@@ -492,7 +492,7 @@ func (r *randomIO) ByteFloat(x *float32) {
 	r.w.ByteFloat(x)
 }
 
-// stableRGB holds the colour channel values that survive Writer.RGB (v/255) and Reader.RGB (uint8(f*255)).
+// stableRGB holds the color channel values that survive Writer.RGB (v/255) and Reader.RGB (uint8(f*255)).
 var stableRGB = func() []uint8 {
 	var s []uint8
 	for v := 0; v < 256; v++ {

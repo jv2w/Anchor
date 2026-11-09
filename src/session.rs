@@ -704,6 +704,12 @@ async fn accepted(
 mod tests {
     use super::*;
 
+    use std::net::Ipv4Addr;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use crate::tick::queue::{control_queue, input_queue};
+
     /// The reassembly bound is the largest batch a client's encoder may send: the Snappy worst
     /// case of the largest payload and the header byte.
     #[test]
@@ -785,7 +791,6 @@ mod tests {
         reason = "off-tick: a test client reads the whole reply of the server under test"
     )]
     async fn join_status(addr: std::net::SocketAddr) -> String {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         tcp.write_all(b"GET /v1/join HTTP/1.1\r\nHost: x\r\n\r\n")
             .await
@@ -810,10 +815,6 @@ mod tests {
         reason = "off-tick: the test keeps a data folder"
     )]
     fn controls_rename_block_and_unblock_and_the_counts_reach_the_tick() {
-        use std::net::{Ipv4Addr, SocketAddr};
-
-        use crate::tick::queue::{control_queue, input_queue};
-
         let dir =
             std::env::temp_dir().join(format!("anchor-session-controls-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -921,10 +922,6 @@ mod tests {
         reason = "off-tick: the test keeps a data folder"
     )]
     fn raknet_alone_starts_no_nethernet() {
-        use std::net::Ipv4Addr;
-
-        use crate::tick::queue::{control_queue, input_queue};
-
         let dir =
             std::env::temp_dir().join(format!("anchor-session-raknet-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -966,8 +963,6 @@ mod tests {
     /// listener gets none and asks no client for a cookie.
     #[test]
     fn a_cookie_key_is_made_only_with_raknet_cookies() {
-        use std::net::Ipv4Addr;
-
         for cookies in [false, true] {
             let mut config = Config::default();
             config.general.xbox_auth = false;

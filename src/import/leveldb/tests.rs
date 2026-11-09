@@ -3,6 +3,7 @@
 //! unfinished write at the end), read back and compared with a `BTreeMap` of the writes.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::ops::ControlFlow;
 
 use super::table::tests::encode_table;
@@ -907,7 +908,6 @@ fn mutated_tables_logs_manifests_and_current_never_panic() {
 
 /// `hex(key) hex(sha256(value))` for every live key, one line each: the form of the Go dump.
 fn dump(db: &mut Db) -> String {
-    use std::fmt::Write as _;
     let hex = |out: &mut String, bytes: &[u8]| {
         for b in bytes {
             write!(out, "{b:02x}").unwrap();

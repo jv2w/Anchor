@@ -778,7 +778,7 @@ variants!(crate::save::AccessWrite {
     2 => Ban(entry),
 });
 
-variants!(crate::display::Colour {
+variants!(crate::display::Color {
     0 => Pink,
     1 => Blue,
     2 => Red,
@@ -795,7 +795,7 @@ variants!(crate::display::Sort {
 fields!(crate::display::BossBar {
     title,
     progress,
-    colour,
+    color,
 });
 
 variants!(crate::entity::ArrowPickup {

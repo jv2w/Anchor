@@ -17,7 +17,7 @@ import (
 // scenarios' machinery. Each plays the game actions of its items and ends its steps with checks of the facts
 // the comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/facts.md).
 //
-//	potions   every splash potion thrown at the bot's feet (the colour of the splash) and one lingering potion
+//	potions   every splash potion thrown at the bot's feet (the color of the splash) and one lingering potion
 //	           (the area effect cloud's entity data)
 //	entities   a painting hung on a wall, a firework rocket used on the ground, an end crystal summoned and a
 //	           trident thrown at a villager
@@ -193,7 +193,7 @@ func playPotions(g *game) error {
 		return err
 	}
 	feet := g.pos.Sub(mgl32.Vec3{0, 1.62, 0})
-	colours := map[string]any{}
+	colors := map[string]any{}
 	for first := 0; first < potionTypes; first += 9 {
 		last := min(first+9, potionTypes)
 		g.setup("give splash potions")
@@ -221,14 +221,14 @@ func playPotions(g *game) error {
 			if err != nil && !errors.Is(err, errTimeout) {
 				return err
 			}
-			var colour any
+			var color any
 			if len(g.verify.splashes) > 0 {
-				colour = uint32(g.verify.splashes[0])
+				color = uint32(g.verify.splashes[0])
 			}
-			colours[fmt.Sprint(meta)] = colour
+			colors[fmt.Sprint(meta)] = color
 		}
 	}
-	g.check("splash colours", colours)
+	g.check("splash colors", colors)
 
 	// A lingering potion of regeneration: the cloud it leaves.
 	g.setup("give a lingering potion")

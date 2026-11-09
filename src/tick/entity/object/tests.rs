@@ -298,7 +298,7 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
     let mut h = Harness::with_player();
     let explosion = Compound::from([
         (TAG_TYPE.to_owned(), Value::Byte(LARGE_BALL)),
-        (TAG_COLOURS.to_owned(), Value::ByteArray(vec![1, 14])),
+        (TAG_COLORS.to_owned(), Value::ByteArray(vec![1, 14])),
         (TAG_TWINKLE.to_owned(), Value::Byte(1)),
     ]);
     let npc = h.vulnerable_human(at(8.5, -60.0, 0.5));
@@ -377,14 +377,14 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
 }
 
 #[test]
-fn explosions_past_the_colour_and_key_bounds_are_refused() {
-    let explosion = |colours: usize| {
+fn explosions_past_the_color_and_key_bounds_are_refused() {
+    let explosion = |colors: usize| {
         Compound::from([
             (TAG_TYPE.to_owned(), Value::Byte(0)),
-            (TAG_COLOURS.to_owned(), Value::ByteArray(vec![1; colours])),
+            (TAG_COLORS.to_owned(), Value::ByteArray(vec![1; colors])),
         ])
     };
-    let dyes = usize::from(COLOURS);
+    let dyes = usize::from(COLORS);
     assert!(checked_explosions(vec![explosion(dyes)]).is_some());
     assert!(checked_explosions(vec![explosion(dyes + 1)]).is_none());
     let mut long_fade = explosion(1);
@@ -494,7 +494,7 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
             TAG_EXPLOSIONS.to_owned(),
             Value::List(List::Compound(vec![Compound::from([
                 (TAG_TYPE.to_owned(), Value::Byte(0)),
-                (TAG_COLOURS.to_owned(), Value::ByteArray(vec![3])),
+                (TAG_COLORS.to_owned(), Value::ByteArray(vec![3])),
             ])])),
         ),
     ]);

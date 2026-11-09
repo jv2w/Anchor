@@ -319,12 +319,12 @@ fn put32(out: &mut Vec<u8>, values: &[u32]) {
     }
 }
 
-/// A square placeholder texture of one `colour` (RGBA): a PNG whose pixels are a stored zlib
+/// A square placeholder texture of one `color` (RGBA): a PNG whose pixels are a stored zlib
 /// stream.
-fn png(colour: [u8; 4]) -> Result<Vec<u8>, &'static str> {
+fn png(color: [u8; 4]) -> Result<Vec<u8>, &'static str> {
     let side = usize::from(TEXTURE_SIDE);
     let row: Vec<u8> = std::iter::once(0) // no filter
-        .chain(colour.iter().copied().cycle().take(colour.len() * side))
+        .chain(color.iter().copied().cycle().take(color.len() * side))
         .collect();
     let pixels = row.repeat(side);
     let len = u16::try_from(pixels.len()).map_err(|_| "the texture is too large")?;

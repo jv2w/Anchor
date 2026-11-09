@@ -266,7 +266,7 @@ mod tests {
     use crate::protocol::Rng;
     use crate::protocol::compression::Decompressor;
     use crate::storage::codec::tests::{
-        empty_chunk, encode, random_chunk, random_compound, terrain_chunk,
+        block, empty_chunk, encode, pack, random_chunk, random_compound, terrain_chunk,
     };
     use crate::storage::codec::{BlockLayer, ChunkRecord, ExtraRecord, Meta, PlayerRecord};
 
@@ -502,7 +502,6 @@ mod tests {
 
     /// A flat chunk: bedrock, two dirt and grass at the bottom, plains.
     fn flat_chunk() -> ChunkRecord {
-        use crate::storage::codec::tests::{block, pack};
         let mut chunk = empty_chunk();
         let indices: Vec<u16> = (0..4096)
             .map(|offset| match offset & 15 {

@@ -3,7 +3,7 @@
 //!
 //! [`Context::block_entity`](crate::Context) lends the block entity at a position to read and
 //! `block_entity_mut` to change: a sign's text, a banner's patterns, a flower pot's plant, a
-//! bed's colour, a mob head's rotation, a container's name and a chest's pair. The slots of
+//! bed's color, a mob head's rotation, a container's name and a chest's pair. The slots of
 //! containers are the inventory API's ([`Context::block_inventory`](crate::Context)).
 //!
 //! A read of a kind the block entity is not gives `None`. A write changes the block entity at
@@ -26,7 +26,7 @@ use crate::save::WorldIndex;
 use crate::tick::State;
 use crate::world::BlockPos;
 
-/// The text colour of a new sign: opaque black, as signed ARGB.
+/// The text color of a new sign: opaque black, as signed ARGB.
 pub(crate) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
 /// The longest custom name of a container, in bytes.
 pub const MAX_NAME_BYTES: usize = 1024;
@@ -113,13 +113,13 @@ pub enum Side {
     Back,
 }
 
-/// The text of one side of a sign: four lines, a colour and whether it glows.
+/// The text of one side of a sign: four lines, a color and whether it glows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 // api-class: SignText
 pub struct SignText {
     pub(crate) lines: [String; SIGN_LINES],
     /// Signed ARGB, as saved.
-    pub(crate) colour: i32,
+    pub(crate) color: i32,
     pub(crate) glowing: bool,
 }
 
@@ -131,33 +131,33 @@ impl SignText {
     ///
     /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
     #[doc(alias = "SignText::fromBlob")]
-    pub fn from_blob(blob: &str, colour: Rgba) -> Result<Self> {
+    pub fn from_blob(blob: &str, color: Rgba) -> Result<Self> {
         let mut lines: [String; SIGN_LINES] = Default::default();
         for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
             line.clone_into(slot);
         }
-        Self::new(lines, colour)
+        Self::new(lines, color)
     }
 
-    /// Text of four lines in `colour`, not glowing.
+    /// Text of four lines in `color`, not glowing.
     ///
     /// # Errors
     ///
     /// [`Error::Invalid`] for a line that holds a newline.
     /// [`Error::TooLong`] for lines beyond [`MAX_SIGN_TEXT_BYTES`] in all.
-    pub fn new(lines: [String; SIGN_LINES], colour: Rgba) -> Result<Self> {
+    pub fn new(lines: [String; SIGN_LINES], color: Rgba) -> Result<Self> {
         check_lines(lines.iter().map(String::as_str))?;
         Ok(Self {
             lines,
-            colour: to_argb(colour),
+            color: to_argb(color),
             glowing: false,
         })
     }
 
-    /// The text colour.
+    /// The text color.
     #[doc(alias = "SignText::getBaseColor")]
-    pub fn colour(&self) -> Rgba {
-        from_argb(self.colour)
+    pub fn color(&self) -> Rgba {
+        from_argb(self.color)
     }
 
     /// Whether the text glows (a glow ink sac was used on it).
@@ -193,17 +193,17 @@ impl Default for SignText {
     fn default() -> Self {
         Self {
             lines: Default::default(),
-            colour: BLACK_TEXT,
+            color: BLACK_TEXT,
             glowing: false,
         }
     }
 }
 
-/// A dye colour, in the order of its Bedrock ID (a bed's or carpet's colour).
-#[doc(alias = "DyeColor")]
+/// A dye color, in the order of its Bedrock ID (a bed's or carpet's color).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum DyeColour {
+// api-class: DyeColor
+pub enum DyeColor {
     /// White, 0.
     White,
     /// Orange, 1.
@@ -238,20 +238,20 @@ pub enum DyeColour {
     Black,
 }
 
-impl DyeColour {
-    /// The colour of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
+impl DyeColor {
+    /// The color of a banner's ID (Bedrock numbers them the other way: black 0 … white 15).
     pub(crate) fn from_banner_id(id: i32) -> Option<Self> {
         u8::try_from(15_i32.checked_sub(id)?)
             .ok()
             .and_then(Self::from_id)
     }
 
-    /// The colour of a Bedrock dye ID, or `None`.
+    /// The color of a Bedrock dye ID, or `None`.
     pub(crate) fn from_id(id: u8) -> Option<Self> {
         Self::all().get(usize::from(id)).copied()
     }
 
-    /// Every colour, by ID.
+    /// Every color, by ID.
     pub fn all() -> &'static [Self] {
         &[
             Self::White,
@@ -273,12 +273,12 @@ impl DyeColour {
         ]
     }
 
-    /// The banner ID of the colour.
+    /// The banner ID of the color.
     pub(crate) fn banner_id(self) -> i32 {
         15 - i32::from(self as u8)
     }
 
-    /// The colour's opaque RGB value, as the dump lists it (white is `#f0f0f0`, black `#1d1d21`).
+    /// The color's opaque RGB value, as the dump lists it (white is `#f0f0f0`, black `#1d1d21`).
     #[doc(alias = "DyeColor::getRgbValue")]
     pub fn rgb(self) -> Rgba {
         let rgb: u32 = match self {
@@ -313,24 +313,24 @@ pub enum BannerType {
     Ominous,
 }
 
-/// One pattern layer of a banner: its pattern and colour.
+/// One pattern layer of a banner: its pattern and color.
 #[doc(alias = "BannerPatternLayer")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BannerLayer {
     pattern: crate::block::BannerPattern,
-    colour: DyeColour,
+    color: DyeColor,
 }
 
 impl BannerLayer {
-    /// A layer of `pattern` in `colour`.
-    pub fn new(pattern: crate::block::BannerPattern, colour: DyeColour) -> Self {
-        Self { pattern, colour }
+    /// A layer of `pattern` in `color`.
+    pub fn new(pattern: crate::block::BannerPattern, color: DyeColor) -> Self {
+        Self { pattern, color }
     }
 
-    /// The colour.
+    /// The color.
     #[doc(alias = "BannerPatternLayer::getColor")]
-    pub fn colour(self) -> DyeColour {
-        self.colour
+    pub fn color(self) -> DyeColor {
+        self.color
     }
 
     /// The pattern.
@@ -362,13 +362,13 @@ pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Resul
     Ok(())
 }
 
-/// The colour of a signed ARGB int, as block entities save colours.
+/// The color of a signed ARGB int, as block entities save colors.
 pub(crate) fn from_argb(argb: i32) -> Rgba {
     let [a, r, g, b] = argb.to_be_bytes();
     Rgba { r, g, b, a }
 }
 
-/// The signed ARGB int of a colour, as block entities save colours.
+/// The signed ARGB int of a color, as block entities save colors.
 pub(crate) fn to_argb(c: Rgba) -> i32 {
     i32::from_be_bytes([c.a, c.r, c.g, c.b])
 }
@@ -380,8 +380,8 @@ mod tests {
     // api: SignText, SignText::fromBlob, SignText::getLines, SignText::getLine,
     // api: SignText::getBaseColor, SignText::isGlowing
     #[test]
-    fn sign_text_checks_its_lines_and_keeps_its_colour() {
-        let colour = Rgba {
+    fn sign_text_checks_its_lines_and_keeps_its_color() {
+        let color = Rgba {
             r: 0x11,
             g: 0x22,
             b: 0x33,
@@ -393,14 +393,14 @@ b
 c
 d
 e",
-            colour,
+            color,
         )
         .unwrap();
         assert_eq!(text.lines(), &["a", "b", "c", "d"].map(String::from));
         assert_eq!((text.line(1), text.line(4)), (Some("b"), None));
-        assert_eq!((text.colour(), text.is_glowing()), (colour, false));
+        assert_eq!((text.color(), text.is_glowing()), (color, false));
         assert!(text.clone().glowing().is_glowing());
-        assert_eq!(text.colour, 0xff11_2233_u32.cast_signed(), "saved as ARGB");
+        assert_eq!(text.color, 0xff11_2233_u32.cast_signed(), "saved as ARGB");
         let short = SignText::from_blob("x", Rgba::default()).unwrap();
         assert_eq!(short.lines(), &["x", "", "", ""].map(String::from));
         assert_eq!(
@@ -423,35 +423,35 @@ e",
             a: 0xff,
             ..Rgba::default()
         };
-        assert_eq!(SignText::default().colour(), black);
+        assert_eq!(SignText::default().color(), black);
     }
 
     // api: BannerPatternLayer, BannerPatternLayer::getType, BannerPatternLayer::getColor
     #[test]
-    fn banner_colours_count_the_other_way() {
-        let layer = BannerLayer::new(crate::block::BannerPattern::Border, DyeColour::Red);
+    fn banner_colors_count_the_other_way() {
+        let layer = BannerLayer::new(crate::block::BannerPattern::Border, DyeColor::Red);
         assert_eq!(
-            (layer.pattern(), layer.colour()),
-            (crate::block::BannerPattern::Border, DyeColour::Red)
+            (layer.pattern(), layer.color()),
+            (crate::block::BannerPattern::Border, DyeColor::Red)
         );
-        for &c in DyeColour::all() {
-            assert_eq!(DyeColour::from_banner_id(c.banner_id()), Some(c));
-            assert_eq!(DyeColour::from_id(c as u8), Some(c));
+        for &c in DyeColor::all() {
+            assert_eq!(DyeColor::from_banner_id(c.banner_id()), Some(c));
+            assert_eq!(DyeColor::from_id(c as u8), Some(c));
         }
-        assert_eq!(DyeColour::Black.banner_id(), 0);
-        assert_eq!(DyeColour::from_banner_id(16), None);
-        assert_eq!(DyeColour::from_banner_id(-1), None);
+        assert_eq!(DyeColor::Black.banner_id(), 0);
+        assert_eq!(DyeColor::from_banner_id(16), None);
+        assert_eq!(DyeColor::from_banner_id(-1), None);
     }
 
     // api: DyeColor, DyeColor::getRgbValue
     #[test]
-    fn dye_colours_have_the_dump_rgb_values() {
+    fn dye_colors_have_the_dump_rgb_values() {
         // White to black.
         let expected: [u32; 16] = [
             0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
             0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
         ];
-        for (&c, rgb) in DyeColour::all().iter().zip(expected) {
+        for (&c, rgb) in DyeColor::all().iter().zip(expected) {
             let [_, r, g, b] = rgb.to_be_bytes();
             assert_eq!(c.rgb(), Rgba { r, g, b, a: 0xff }, "{c:?}");
         }

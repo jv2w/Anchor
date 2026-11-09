@@ -73,7 +73,7 @@ fn book_edits_replace_insert_delete_and_swap_pages() {
     edit(&mut h, slot, BookAction::DeletePage, 5, 0, "");
     edit(&mut h, slot, BookAction::DeletePage, -1, 0, "");
     assert_eq!(pages(&h).len(), 5);
-    // Colours stay; private-use characters and terminal escapes go.
+    // Colors stay; private-use characters and terminal escapes go.
     edit(
         &mut h,
         slot,

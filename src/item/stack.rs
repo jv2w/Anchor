@@ -68,7 +68,7 @@ const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
 pub const MAX_NBT_BYTES: usize = 96 << 10;
 /// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
 /// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
-/// The largest vanilla items fit (a firework rocket of seven stars of eight colours, 12.9 KB;
+/// The largest vanilla items fit (a firework rocket of seven stars of eight colors, 12.9 KB;
 /// armor of nine enchantments with the longest name, 12.4 KB; a custom block item of the
 /// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
 /// all 18 that go together, 20.4 KB) does not.
@@ -295,7 +295,7 @@ impl Stack {
     }
 
     /// The meta of the stack's outside forms: 0 for an item that wears (its durability is in the
-    /// tag), the stack state where one is kept in the meta (a firework star's colour), the
+    /// tag), the stack state where one is kept in the meta (a firework star's color), the
     /// type's meta otherwise.
     pub(crate) fn meta(&self) -> u16 {
         match self.item {
@@ -347,7 +347,7 @@ impl Stack {
 
     /// The same stack with `damage`: for an item that wears, the durability used, 0 to its
     /// [`max_durability`](Type::max_durability); for another, the stack state its saved form
-    /// keeps (a firework star's colour). `self` stays as it is.
+    /// keeps (a firework star's color). `self` stays as it is.
     ///
     /// # Errors
     ///
@@ -840,7 +840,7 @@ mod tests {
     }
 
     /// The largest vanilla items a shulker box takes: a firework rocket of seven stars of eight
-    /// colours and eight fade colours, and armor with nine enchantments (more than survival
+    /// colors and eight fade colors, and armor with nine enchantments (more than survival
     /// gives one piece) at their highest level, the longest name and its prior work.
     #[test]
     fn the_largest_vanilla_items_fit_a_shulker_box() {

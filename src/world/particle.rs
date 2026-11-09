@@ -119,10 +119,10 @@ pub enum Particle {
         /// Blocks along z.
         z: i16,
     },
-    /// Dust of a colour (`DUST`).
+    /// Dust of a color (`DUST`).
     #[doc(alias = "DustParticle")]
     Dust(Rgba),
-    /// Potion swirls of a colour (`MOB_SPELL`).
+    /// Potion swirls of a color (`MOB_SPELL`).
     #[doc(alias = "EnchantParticle")]
     Enchant(Rgba),
     /// Enchanting table glyphs (`ENCHANTMENT_TABLE`).
@@ -155,7 +155,7 @@ pub enum Particle {
     /// Ink of a scale (`INK`; usually 0, the API table's default).
     #[doc(alias = "InkParticle")]
     Ink(i32),
-    /// Instant potion swirls of a colour (`MOB_SPELL_INSTANTANEOUS`).
+    /// Instant potion swirls of a color (`MOB_SPELL_INSTANTANEOUS`).
     #[doc(alias = "InstantEnchantParticle")]
     InstantEnchant(Rgba),
     /// The pieces of an item of this type breaking (`ITEM_BREAK`).
@@ -179,7 +179,7 @@ pub enum Particle {
     /// A portal's swirl (`PORTAL`).
     #[doc(alias = "PortalParticle")]
     Portal,
-    /// A splash potion's burst of a colour (level event `ParticlesPotionSplash`).
+    /// A splash potion's burst of a color (level event `ParticlesPotionSplash`).
     #[doc(alias = "PotionSplashParticle")]
     PotionSplash(Rgba),
     /// A raindrop's splash (`RAIN_SPLASH`).

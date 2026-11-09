@@ -603,7 +603,7 @@ mod tests {
     /// The `Item` enum and item parameters leave the Education items out, the other items stay.
     #[test]
     fn item_names_leave_the_education_items_out() {
-        // The names of an element, a compound, hardened glass and a coloured torch.
+        // The names of an element, a compound, hardened glass and a colored torch.
         let education = [
             "element_hydrogen",
             "chemical_ammonia",

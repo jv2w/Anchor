@@ -1699,7 +1699,13 @@ fn room_bytes<T>(items: usize) -> usize {
 mod tests {
     use super::*;
 
+    use crate::item::{Enchantment, Extra, Kind, Stack};
+    use crate::protocol::packet::InventoryTransaction;
+    use crate::protocol::{InventoryAction, InventoryTransactionData, ItemInstance};
+    use crate::save::Stored;
+    use crate::storage::PlayerKey;
     use crate::tick::queue::Skin;
+    use crate::world::{Chunk, Flat};
 
     /// The seconds a test's write of a crash log surely starts within.
     const WRITE_SECONDS: u64 = 60;
@@ -2204,9 +2210,6 @@ mod tests {
     /// read back from the written log.
     #[test]
     fn attacks_with_an_enchanted_sword_survive_the_written_log() {
-        use crate::item::{Enchantment, Extra, Kind, Stack};
-        use crate::protocol::packet::InventoryTransaction;
-        use crate::protocol::{InventoryTransactionData, ItemInstance};
         let sword = Stack::new(Kind::DiamondSword.default_type(), 1)
             .with_extra(Some(Extra {
                 enchantments: vec![
@@ -2251,8 +2254,6 @@ mod tests {
     /// refused, though each packet alone fits a batch.
     #[test]
     fn a_log_whose_packets_decode_past_the_bound_is_refused() {
-        use crate::protocol::InventoryAction;
-        use crate::protocol::packet::InventoryTransaction;
         // Each default action takes a few bytes on the wire and far more decoded.
         let packet = Packet::InventoryTransaction(Box::new(InventoryTransaction {
             actions: vec![InventoryAction::default(); protocol::MAX_LIST_LEN],
@@ -2452,10 +2453,6 @@ mod tests {
 
     #[test]
     fn chunk_checksums_and_player_extras_survive_the_written_log() {
-        use crate::save::Stored;
-        use crate::storage::PlayerKey;
-        use crate::world::{Chunk, Flat};
-
         let mut rng = crate::protocol::Rng(0x109_0001);
         let data = PlayerData {
             world: "world".to_owned(),
@@ -2542,8 +2539,6 @@ mod tests {
     /// encoded again on the tick.
     #[test]
     fn a_player_load_is_logged_with_the_save_thread_s_extra_bytes() {
-        use crate::storage::PlayerKey;
-
         let data = PlayerData {
             world: "world".to_owned(),
             position: [0.0; 3],

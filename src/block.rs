@@ -14,7 +14,7 @@
 //!
 //! Where the dump has several states for one Bedrock state, Anchor's state takes the values of
 //! one dump type and the block entity holds the rest (the generator's `SHARED` list): a bed's and a
-//! banner's colour and a banner's ominous type, whose item form therefore comes from the block
+//! banner's color and a banner's ominous type, whose item form therefore comes from the block
 //! entity ([`ItemForm::BlockEntity`]), and a cauldron's contents (Anchor's cauldron with water is
 //! the dump's water cauldron; a potion cauldron differs only in having no entity collision).
 
@@ -1124,7 +1124,7 @@ pub enum ItemForm {
     Item(item::Type),
     /// The item depends on the block entity.
     ///
-    /// That is the colour of a bed, the colour and pattern of a banner (see the module
+    /// That is the color of a bed, the color and pattern of a banner (see the module
     /// documentation).
     BlockEntity,
 }
@@ -1585,6 +1585,8 @@ fn property_rows(first: u32, count: u8) -> std::slice::Iter<'static, u16> {
 mod tests {
     use super::*;
 
+    use crate::item::Kind as I;
+
     /// The connection properties of a fence, a pane and a tripwire.
     const CONNECTIONS: [&str; 4] = [
         "minecraft:connection_north",
@@ -1761,7 +1763,6 @@ mod tests {
     /// own rules.
     #[test]
     fn break_times_follow_the_tool_rules() {
-        use item::Kind as I;
         let with = |kind: I, efficiency: u16| {
             let stack = item::Stack::new(kind.default_type(), 1);
             if efficiency == 0 {

@@ -557,6 +557,7 @@ pub(super) mod tests {
     use serde::Deserialize;
 
     use crate::event::Listeners;
+    use crate::save::tests::{TempDir, specs};
     use crate::save::{PlayerData, PlayerLoad, Request, Response, Snapshot};
     use crate::tick::queue::{Outbound, SessionId};
     use crate::tick::tests::{join, leave, new_state, settings, tick};
@@ -937,7 +938,6 @@ pub(super) mod tests {
 
     #[test]
     fn saved_server_data_loads_at_start_and_an_undecodable_value_refuses_it() {
-        use crate::save::tests::{TempDir, specs};
         let dir = TempDir::new("user-load");
         let mut opened = crate::save::open(&dir.0, specs()).unwrap();
         let mut data = registered::<Kills, Round>("kills", "round");

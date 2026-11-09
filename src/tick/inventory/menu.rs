@@ -140,7 +140,7 @@ checkpoint::fields!(Open {
     stacks,
     editable,
     lends,
-    ready
+    ready,
 });
 
 /// What an item stack request does to an open menu.

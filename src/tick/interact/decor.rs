@@ -50,7 +50,7 @@ pub(super) fn sign_sides(state: &State, world: WorldIndex, pos: BlockPos) -> Opt
     })
 }
 
-/// Stores the lines of one side of the sign at `pos` (the lines change, the colour and glow
+/// Stores the lines of one side of the sign at `pos` (the lines change, the color and glow
 /// stay); the caller checked that the sign takes the edit.
 pub(super) fn write_sign(
     state: &mut State,

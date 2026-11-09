@@ -8,9 +8,9 @@ use tokio::sync::mpsc;
 
 use super::*;
 use crate::command::Param;
-use crate::event::Listeners;
+use crate::event::{Command as CommandEvent, Listeners, Priority};
 use crate::permission::Default as By;
-use crate::protocol::consts::{CommandArg, CommandArgType};
+use crate::protocol::consts::{Ability, CommandArg, CommandArgType};
 use crate::protocol::packet::{Packet as P, PlayStatus};
 use crate::protocol::{DynamicEnum, Uuid};
 use crate::save::Request;
@@ -960,7 +960,6 @@ fn a_permission_change_resends_the_command_list_after_the_spawn_window() {
 // api: Server::addOp, Server::removeOp
 #[test]
 fn op_and_deop_send_the_abilities_the_official_server_sends() {
-    use crate::protocol::consts::Ability;
     let (mut state, mut rx) = server(Vec::new());
     let mut output = TickOutput::default();
     let runtime_id = state.players[&SessionId::new(1)].runtime_id;
@@ -1067,7 +1066,6 @@ fn mark() -> Command {
 // api: CommandEvent
 #[test]
 fn command_listeners_see_typed_lines_and_cancel_or_change_them() {
-    use crate::event::{Command as CommandEvent, Priority};
     fn drain<T>(rx: &mut mpsc::Receiver<T>) -> Vec<T> {
         let mut out = Vec::new();
         while let Ok(x) = rx.try_recv() {

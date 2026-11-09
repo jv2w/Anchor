@@ -27,8 +27,8 @@ struct Definition {
     depth: f32,
     /// The terrain scale.
     scale: f32,
-    /// The water colour on maps, as ARGB.
-    map_water_colour: u32,
+    /// The water color on maps, as ARGB.
+    map_water_color: u32,
     /// Whether it rains in the biome.
     rain: bool,
     /// The indices of the biome's tags.
@@ -50,7 +50,7 @@ pub(crate) fn definition_list() -> BiomeDefinitionList {
                 foliage_snow: definition.foliage_snow,
                 depth: definition.depth,
                 scale: definition.scale,
-                map_water_colour: definition.map_water_colour.cast_signed(),
+                map_water_colour: definition.map_water_color.cast_signed(),
                 rain: definition.rain,
                 tags: Some(definition.tags.to_vec()),
                 chunk_generation: None,

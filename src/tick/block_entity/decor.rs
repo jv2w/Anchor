@@ -1,4 +1,4 @@
-//! The data of the block entities without slots: signs, bed colours, banners, flower pots and mob
+//! The data of the block entities without slots: signs, bed colors, banners, flower pots and mob
 //! heads, read from and written to their Bedrock NBT keys.
 //!
 //! Reading takes the keys a kind owns out of the saved compound; the caller keeps the rest as it
@@ -8,12 +8,12 @@ use tracing::warn;
 
 use super::Form;
 use crate::block;
-use crate::block_entity::{DyeColour, MAX_PATTERNS, SignText};
+use crate::block_entity::{DyeColor, MAX_PATTERNS, SignText};
 use crate::nbt::{Compound, List, Value};
 use crate::tick::interact::{props, sign};
 
-/// The colour of a bed whose colour is missing or unknown: red.
-pub(super) const DEFAULT_BED_COLOUR: u8 = 14;
+/// The color of a bed whose color is missing or unknown: red.
+pub(super) const DEFAULT_BED_COLOR: u8 = 14;
 /// The mob head blocks by their `SkullType` byte.
 pub(super) const SKULL_TYPES: [&str; 7] = [
     "minecraft:skeleton_skull",
@@ -45,8 +45,8 @@ impl Sign {
                     // The 1.2 format keeps the side's keys at the root, and its glow counts only
                     // once the lighting bug was resolved.
                     let mut side = Compound::from([(sign::TEXT.to_owned(), Value::String(blob))]);
-                    if let Some(colour) = nbt.remove("SignTextColor") {
-                        side.insert("SignTextColor".to_owned(), colour);
+                    if let Some(color) = nbt.remove("SignTextColor") {
+                        side.insert("SignTextColor".to_owned(), color);
                     }
                     let resolved =
                         take_byte(nbt, "TextIgnoreLegacyBugResolved").is_some_and(|b| b != 0);
@@ -84,11 +84,11 @@ impl Sign {
     }
 }
 
-/// A banner: base colour and patterns by the inverted dye colour IDs (black 0 … white 15).
+/// A banner: base color and patterns by the inverted dye color IDs (black 0 … white 15).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(in crate::tick) struct Banner {
     pub(super) base: i32,
-    /// Pattern ID (`bo`, `cre`…) and colour, at most [`MAX_PATTERNS`].
+    /// Pattern ID (`bo`, `cre`…) and color, at most [`MAX_PATTERNS`].
     pub(super) patterns: Vec<(String, i32)>,
     /// 0 normal, 1 ominous.
     pub(super) ty: i32,
@@ -98,7 +98,7 @@ impl Banner {
     /// Reads the saved keys.
     pub(super) fn read(nbt: &mut Compound) -> Self {
         let base = take_int(nbt, "Base")
-            .filter(|b| DyeColour::from_banner_id(*b).is_some())
+            .filter(|b| DyeColor::from_banner_id(*b).is_some())
             .unwrap_or(0);
         let patterns = match nbt.remove("Patterns") {
             Some(Value::List(List::Compound(list))) => read_patterns(&list),
@@ -139,8 +139,8 @@ impl SignText {
                 line.clone_into(slot);
             }
         }
-        if let Some(colour) = take_int(&mut nbt, "SignTextColor") {
-            side.colour = colour;
+        if let Some(color) = take_int(&mut nbt, "SignTextColor") {
+            side.color = color;
         }
         side.glowing = take_byte(&mut nbt, "IgnoreLighting").is_some_and(|g| g != 0);
         side
@@ -154,7 +154,7 @@ impl SignText {
                 sign::TEXT.to_owned(),
                 Value::String(text.trim_end_matches('\n').to_owned()),
             ),
-            ("SignTextColor".to_owned(), Value::Int(self.colour)),
+            ("SignTextColor".to_owned(), Value::Int(self.color)),
             (
                 "IgnoreLighting".to_owned(),
                 Value::Byte(u8::from(self.glowing)),
@@ -165,22 +165,22 @@ impl SignText {
 }
 
 /// A banner's `Patterns` list: entries with a pattern ID, at most [`MAX_PATTERNS`]. An ID Anchor
-/// does not know stays, as clients may know it; a missing colour is black, 0.
+/// does not know stays, as clients may know it; a missing color is black, 0.
 pub(super) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
     let mut out = Vec::with_capacity(list.len().min(MAX_PATTERNS));
     for entry in list {
         let Some(Value::String(id)) = entry.get("Pattern") else {
             continue;
         };
-        let colour = match entry.get("Color") {
-            Some(Value::Int(c)) if DyeColour::from_banner_id(*c).is_some() => *c,
+        let color = match entry.get("Color") {
+            Some(Value::Int(c)) if DyeColor::from_banner_id(*c).is_some() => *c,
             _ => 0,
         };
         if out.len() >= MAX_PATTERNS {
             warn!("a banner has more patterns than kept; the rest are left out");
             break;
         }
-        out.push((id.clone(), colour));
+        out.push((id.clone(), color));
     }
     out
 }
@@ -190,10 +190,10 @@ pub(super) fn patterns_value(patterns: &[(String, i32)]) -> Value {
     Value::List(List::Compound(
         patterns
             .iter()
-            .map(|(id, colour)| {
+            .map(|(id, color)| {
                 Compound::from([
                     ("Pattern".to_owned(), Value::String(id.clone())),
-                    ("Color".to_owned(), Value::Int(*colour)),
+                    ("Color".to_owned(), Value::Int(*color)),
                 ])
             })
             .collect(),
@@ -244,11 +244,11 @@ pub(super) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) {
     );
 }
 
-/// A bed's colour (a missing or unknown colour is [`DEFAULT_BED_COLOUR`]).
+/// A bed's color (a missing or unknown color is [`DEFAULT_BED_COLOR`]).
 pub(super) fn read_bed(nbt: &mut Compound) -> u8 {
     take_byte(nbt, "color")
-        .filter(|c| DyeColour::from_id(*c).is_some())
-        .unwrap_or(DEFAULT_BED_COLOUR)
+        .filter(|c| DyeColor::from_id(*c).is_some())
+        .unwrap_or(DEFAULT_BED_COLOR)
 }
 
 /// Takes a `Byte` key's value out of `nbt`.
@@ -288,11 +288,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sign_text_round_trips_and_keeps_its_colour_and_glow() {
+    fn sign_text_round_trips_and_keeps_its_color_and_glow() {
         let sign = Sign {
             front: SignText {
                 lines: ["a".to_owned(), "b".to_owned(), String::new(), String::new()],
-                colour: 0xff00_ff00_u32.cast_signed(),
+                color: 0xff00_ff00_u32.cast_signed(),
                 glowing: true,
             },
             back: SignText::default(),
@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_sign_keeps_its_colour_and_its_glow_once_the_lighting_bug_was_resolved() {
+    fn a_legacy_sign_keeps_its_color_and_its_glow_once_the_lighting_bug_was_resolved() {
         let red = 0xffff_0000_u32.cast_signed();
         for resolved in [false, true] {
             let mut nbt = Compound::from([
@@ -327,7 +327,7 @@ mod tests {
             }
             let sign = Sign::read(&mut nbt, false);
             assert_eq!(sign.front.lines[..2], ["a".to_owned(), "b".to_owned()]);
-            assert_eq!((sign.front.colour, sign.front.glowing), (red, resolved));
+            assert_eq!((sign.front.color, sign.front.glowing), (red, resolved));
             assert!(nbt.is_empty(), "{nbt:?}");
         }
     }

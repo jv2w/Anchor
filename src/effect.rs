@@ -114,10 +114,10 @@ impl Instance {
         !(self.amplifier < old.amplifier || (self.amplifier == old.amplifier && ends_sooner))
     }
 
-    /// The particle colour: the effect type's.
+    /// The particle color: the effect type's.
     #[doc(alias = "EffectInstance::getColor")]
-    pub fn colour(self) -> Rgba {
-        self.effect.colour()
+    pub fn color(self) -> Rgba {
+        self.effect.color()
     }
 
     /// The duration in ticks.
@@ -235,7 +235,7 @@ impl Instance {
 struct Data {
     id: u8,
     text: &'static str,
-    colour: Rgba,
+    color: Rgba,
     bad: bool,
     instant: bool,
     default_duration: u32,
@@ -243,7 +243,7 @@ struct Data {
 }
 
 impl Data {
-    /// A row; the generated table gives the colour as red, green, blue, alpha.
+    /// A row; the generated table gives the color as red, green, blue, alpha.
     const fn new(
         id: u8,
         text: &'static str,
@@ -256,7 +256,7 @@ impl Data {
         Self {
             id,
             text,
-            colour: Rgba { r, g, b, a },
+            color: Rgba { r, g, b, a },
             bad,
             instant,
             default_duration,
@@ -292,10 +292,10 @@ impl Type {
         &table::TYPES
     }
 
-    /// The particle colour.
+    /// The particle color.
     #[doc(alias = "Effect::getColor")]
-    pub fn colour(self) -> Rgba {
-        self.data().colour
+    pub fn color(self) -> Rgba {
+        self.data().color
     }
 
     /// An instance of the effect with the defaults: the [default
@@ -399,10 +399,10 @@ impl Potion {
     }
 }
 
-/// The colour of the bubbles `effects` show: the mean of the colour of each visible effect with
+/// The color of the bubbles `effects` show: the mean of the color of each visible effect with
 /// bubbles, counted once per level; `None` (transparent black) without one.
 #[doc(alias = "EffectCollection::getBubbleColor")]
-pub fn bubble_colour(effects: &[Instance]) -> Option<Rgba> {
+pub fn bubble_color(effects: &[Instance]) -> Option<Rgba> {
     mix(effects.iter().filter(|e| shows_bubbles(e)))
 }
 
@@ -419,13 +419,13 @@ pub(crate) fn shows_bubbles(e: &Instance) -> bool {
     e.is_visible() && e.effect.has_bubbles()
 }
 
-/// The mean colour of `effects`, each counted once per level (integer means per channel); `None` without an effect.
+/// The mean color of `effects`, each counted once per level (integer means per channel); `None` without an effect.
 pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<Rgba> {
     let mut sum = [0_u32; 4];
     let mut levels = 0_u32;
     for instance in effects {
         let level = u32::from(instance.level());
-        let Rgba { r, g, b, a } = instance.colour();
+        let Rgba { r, g, b, a } = instance.color();
         for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
             *total = total.saturating_add(u32::from(channel).saturating_mul(level));
         }
@@ -440,9 +440,9 @@ pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<Rgb
 mod tests {
     use super::*;
 
-    /// The effects whose colour is the official server's, not the dump's
+    /// The effects whose color is the official server's, not the dump's
     /// (`xtask/src/gen/effects.rs`).
-    const OFFICIAL_COLOURED: [Type; 12] = [
+    const OFFICIAL_COLORED: [Type; 12] = [
         Type::FireResistance,
         Type::InstantDamage,
         Type::Invisibility,
@@ -457,10 +457,10 @@ mod tests {
         Type::Wither,
     ];
 
-    /// The official server's colours of the effects its splash potions show (P6 `potions`,
+    /// The official server's colors of the effects its splash potions show (P6 `potions`,
     /// `xtask/data/p6/facts.md`); the turtle master's mix gives resistance's.
     #[test]
-    fn effect_colours_are_the_ones_the_official_server_shows() {
+    fn effect_colors_are_the_ones_the_official_server_shows() {
         for (t, [r, g, b]) in [
             (Type::NightVision, [0xc2, 0xff, 0x66]),
             (Type::Invisibility, [0xf6, 0xf6, 0xf6]),
@@ -478,7 +478,7 @@ mod tests {
             (Type::Regeneration, [0xcd, 0x5c, 0xab]),
             (Type::Weakness, [0x48, 0x4d, 0x48]),
         ] {
-            assert_eq!(t.colour(), Rgba { r, g, b, a: 255 }, "{t:?}");
+            assert_eq!(t.color(), Rgba { r, g, b, a: 255 }, "{t:?}");
         }
         // Turtle master: slowness IV and resistance III, and its strong form.
         let turtle = |slowness, resistance| {
@@ -524,7 +524,7 @@ mod tests {
         assert!(Type::InstantHealth.is_instant());
         assert_eq!(Type::InstantHealth.default_duration_ticks(), 1);
         assert_eq!(
-            Type::Absorption.colour(),
+            Type::Absorption.color(),
             Rgba {
                 r: 37,
                 g: 82,
@@ -565,7 +565,7 @@ mod tests {
         assert_eq!(speed.duration_ticks(), Type::Speed.default_duration_ticks());
         assert_eq!((speed.amplifier(), speed.level()), (0, 1));
         assert!(speed.is_visible() && !speed.is_ambient() && !speed.is_infinite());
-        assert_eq!(speed.colour(), Type::Speed.colour());
+        assert_eq!(speed.color(), Type::Speed.color());
         let changed = speed
             .with_duration_ticks(u32::MAX)
             .with_amplifier(255)
@@ -586,19 +586,19 @@ mod tests {
     // api: EffectCollection::canAdd, EffectCollection::getBubbleColor,
     // api: EffectCollection::hasOnlyAmbientEffects
     #[test]
-    fn collections_replace_and_colour_by_the_rules() {
+    fn collections_replace_and_color_by_the_rules() {
         let weak = Type::Speed.instance().with_duration_ticks(100);
         assert!(weak.with_amplifier(1).can_replace(weak));
         assert!(weak.with_duration_ticks(200).can_replace(weak));
         assert!(weak.can_replace(weak));
         assert!(!weak.with_duration_ticks(50).can_replace(weak));
         assert!(!weak.can_replace(weak.with_amplifier(1).with_duration_ticks(1)));
-        assert_eq!(bubble_colour(&[]), None);
+        assert_eq!(bubble_color(&[]), None);
         assert!(!is_only_ambient(&[]));
         // Level II counts twice: (2 × speed + poison) / 3 per channel.
         let poison = Type::Poison.instance();
-        let mixed = bubble_colour(&[weak.with_amplifier(1), poison]).unwrap();
-        let (s, p) = (Type::Speed.colour(), Type::Poison.colour());
+        let mixed = bubble_color(&[weak.with_amplifier(1), poison]).unwrap();
+        let (s, p) = (Type::Speed.color(), Type::Poison.color());
         let mean = |s: u8, p: u8| u8::try_from((2 * u32::from(s) + u32::from(p)) / 3).unwrap();
         assert_eq!(
             mixed,
@@ -610,9 +610,9 @@ mod tests {
             }
         );
         // Hidden effects and types without bubbles do not count.
-        assert_eq!(bubble_colour(&[weak, poison.without_particles()]), Some(s));
+        assert_eq!(bubble_color(&[weak, poison.without_particles()]), Some(s));
         let darkness = Type::Darkness.instance();
-        assert_eq!(bubble_colour(&[darkness]), None);
+        assert_eq!(bubble_color(&[darkness]), None);
         assert!(is_only_ambient(&[weak.ambient(), darkness]));
         assert!(!is_only_ambient(&[weak.ambient(), poison]));
     }
@@ -652,12 +652,12 @@ mod tests {
             let byte = |v: &serde_json::Value| u8::try_from(v.as_u64().unwrap()).unwrap();
             assert_eq!(u64::from(t.id()), want["id"].as_u64().unwrap(), "{t:?}");
             assert_eq!(t.translation_key(), want["text"].as_str().unwrap(), "{t:?}");
-            // The official server's colours replace the dump's for the effects its potions show
-            // (`effect_colours_are_the_ones_the_official_server_shows`).
+            // The official server's colors replace the dump's for the effects its potions show
+            // (`effect_colors_are_the_ones_the_official_server_shows`).
             let c = &want["colour"];
-            if !OFFICIAL_COLOURED.contains(t) {
+            if !OFFICIAL_COLORED.contains(t) {
                 assert_eq!(
-                    t.colour(),
+                    t.color(),
                     Rgba {
                         r: byte(&c["r"]),
                         g: byte(&c["g"]),

@@ -178,7 +178,7 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
     Some((action, with_pages(old, pages)?, modified))
 }
 
-/// A page's text, cleaned keeping colours; `None` over [`MAX_PAGE_CHARS`] characters.
+/// A page's text, cleaned keeping colors; `None` over [`MAX_PAGE_CHARS`] characters.
 fn page_text(text: &str) -> Option<String> {
     limited(text, MAX_PAGE_CHARS)
 }

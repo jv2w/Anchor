@@ -24,7 +24,7 @@ impl Visit for Message {
 /// Holds the tick for [`OVERRUN`].
 #[expect(
     clippy::disallowed_methods,
-    reason = "consistency: the test overruns its first tick as a loaded machine does"
+    reason = "performance: the tick pacer's overrun warning test blocks a tick on purpose"
 )]
 pub(crate) fn overrun_tick() {
     std::thread::sleep(OVERRUN);

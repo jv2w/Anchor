@@ -9,8 +9,13 @@ use crate::event::{
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
-use crate::protocol::UseItemOnEntityTransactionData;
-use crate::protocol::consts::{WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY};
+use crate::protocol::consts::{
+    ContainerId, ItemStackResponseStatus, WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY,
+};
+use crate::protocol::{
+    FullContainerName, ItemStackRequest, StackRequestAction, StackRequestSlotInfo,
+    TakeStackRequestAction, TransferStackRequestAction, UseItemOnEntityTransactionData,
+};
 
 /// The block beside the target, at foot level.
 const BESIDE: BlockPos = BlockPos::new(2, -60, 1);
@@ -483,12 +488,6 @@ fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
 /// its stack network ID; a request naming that ID takes it off.
 #[test]
 fn worn_armor_is_sent_emptied_first_and_comes_off_by_its_id() {
-    use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
-    use crate::protocol::{
-        FullContainerName, ItemStackRequest, StackRequestAction, StackRequestSlotInfo,
-        TakeStackRequestAction, TransferStackRequestAction,
-    };
-
     let helmet = stack(ItemKind::IronHelmet);
     let mut h = Harness::new(|_| {});
     h.hold(helmet.clone());

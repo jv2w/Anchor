@@ -7,11 +7,11 @@ use super::data::Data;
 use super::emit::HEADER;
 use super::items::effect_instance;
 
-/// The official server's colours (RGB) of the effects whose splash potions it shows, where they
+/// The official server's colors (RGB) of the effects whose splash potions it shows, where they
 /// differ from the dump's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash
-/// `LevelEvent` colours; resistance from the turtle master's mixes). The client draws potions and
+/// `LevelEvent` colors; resistance from the turtle master's mixes). The client draws potions and
 /// particles in them.
-const OFFICIAL_COLOURS: [(&str, [u8; 3]); 12] = [
+const OFFICIAL_COLORS: [(&str, [u8; 3]); 12] = [
     ("fire_resistance", [0xff, 0x99, 0x00]),
     ("instant_damage", [0xa9, 0x65, 0x6a]),
     ("invisibility", [0xf6, 0xf6, 0xf6]),
@@ -60,20 +60,20 @@ pub(super) fn generate(data: &Data) -> Result<String, String> {
     }
     put!(
         out,
-        "];\n\n/// The data of each effect type: (ID, translation key, colour as RGBA, bad, instant, \
+        "];\n\n/// The data of each effect type: (ID, translation key, color as RGBA, bad, instant, \
          default duration, bubbles).\npub(super) static DATA: [Data; {}] = [",
         int_lit(&effects.len().to_string())
     );
-    if let Some((name, _)) = OFFICIAL_COLOURS
+    if let Some((name, _)) = OFFICIAL_COLORS
         .iter()
         .find(|(n, _)| !effects.iter().any(|e| e.name == *n))
     {
         return Err(format!(
-            "OFFICIAL_COLOURS names {name}, which is not an effect"
+            "OFFICIAL_COLORS names {name}, which is not an effect"
         ));
     }
     for e in effects {
-        let [r, g, b, a] = colour(&e.name, [e.colour.r, e.colour.g, e.colour.b, e.colour.a]);
+        let [r, g, b, a] = color(&e.name, [e.color.r, e.color.g, e.color.b, e.color.a]);
         put!(
             out,
             "Data::new({}, {}, [{}, {}, {}, {}], {}, {}, {}, {}),",
@@ -107,10 +107,10 @@ pub(super) fn generate(data: &Data) -> Result<String, String> {
     Ok(out)
 }
 
-/// An effect's colour (RGBA): the official server's where [`OFFICIAL_COLOURS`] has it, the
+/// An effect's color (RGBA): the official server's where [`OFFICIAL_COLORS`] has it, the
 /// dump's otherwise.
-fn colour(name: &str, dumped: [u8; 4]) -> [u8; 4] {
-    OFFICIAL_COLOURS
+fn color(name: &str, dumped: [u8; 4]) -> [u8; 4] {
+    OFFICIAL_COLORS
         .iter()
         .find(|(n, _)| *n == name)
         .map_or(dumped, |(_, [r, g, b])| [*r, *g, *b, dumped[3]])
@@ -191,13 +191,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn official_colours_replace_the_dumped_ones() {
+    fn official_colors_replace_the_dumped_ones() {
         assert_eq!(
-            colour("night_vision", [31, 31, 161, 255]),
+            color("night_vision", [31, 31, 161, 255]),
             [0xc2, 0xff, 0x66, 255]
         );
         assert_eq!(
-            colour("regeneration", [205, 92, 171, 255]),
+            color("regeneration", [205, 92, 171, 255]),
             [205, 92, 171, 255]
         );
     }

@@ -1164,7 +1164,7 @@ struct Node {
 checkpoint::fields!(Node {
     pos,
     channel,
-    level
+    level,
 });
 
 /// The kind of a chunk task: one of each per chunk at most.
@@ -1211,7 +1211,7 @@ struct Retired {
 checkpoint::fields!(Retired {
     chunk,
     light,
-    cursor
+    cursor,
 });
 
 /// The light of a lit chunk.
@@ -1633,8 +1633,11 @@ fn neighbours(pos: BlockPos) -> impl Iterator<Item = BlockPos> {
 mod tests {
     use super::*;
 
+    use std::f64::consts::PI;
+
     use crate::block::State;
     use crate::custom::Registry;
+    use crate::math::{clamp, cos};
     use crate::protocol::Rng;
     use crate::tick::Customs;
     use crate::world::chunk::tests::plain_states;
@@ -2210,8 +2213,6 @@ mod tests {
 
     #[test]
     fn the_time_table_follows_the_sun_angle_formula() {
-        use crate::math::{clamp, cos};
-        use std::f64::consts::PI;
         for time in 0..DAY {
             let progress = f64::from(i32::try_from(time).unwrap()) / 24_000.0;
             let sun = progress + if progress < 0.25 { 0.75 } else { -0.25 };

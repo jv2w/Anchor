@@ -984,6 +984,9 @@ mod tests {
     use super::*;
 
     use crate::block::PropertyValue;
+    use crate::tick::tests::{
+        initialised, join, moved_to, new_state, radius, received, settings, tick,
+    };
 
     thread_local! {
         /// What listeners and monitors wrote down; they run on the test's thread.
@@ -1031,7 +1034,6 @@ mod tests {
         crate::tick::Output,
         tokio::sync::mpsc::Receiver<crate::tick::queue::Outbound>,
     ) {
-        use crate::tick::tests::{initialised, join, new_state, radius, settings, tick};
         let mut state = new_state(settings(|_| {}), listeners);
         let mut output = crate::tick::Output::default();
         let (j, rx) = join(1, 0);
@@ -1130,7 +1132,6 @@ mod tests {
     /// every block ID, a hash above `i32::MAX` included.
     #[test]
     fn the_land_sound_names_a_block_hashed_above_i32_max_by_its_bits() {
-        use crate::tick::tests::{moved_to, received, tick};
         let (mut state, mut output, mut rx) = walker(crate::event::Listeners::default());
         let plain = [
             block::Kind::Stone,
@@ -1319,7 +1320,6 @@ mod tests {
 
     #[test]
     fn a_move_past_fifteen_blocks_stands_only_on_what_is_under_its_end() {
-        use crate::tick::tests::{initialised, join, moved_to, new_state, radius, settings, tick};
         let config = settings(|c| c.general.movement_check = false);
         let mut state = new_state(config, crate::event::Listeners::default());
         let mut output = crate::tick::Output::default();

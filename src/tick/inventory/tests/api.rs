@@ -6,8 +6,10 @@
 use std::cell::Cell;
 
 use super::*;
+use crate::custom::{Category, CreativeInventory, ItemRef};
 use crate::event::{InventoryClose, InventoryTransaction, Priority, Window as Shown};
 use crate::inventory::{Error, Kind};
+use crate::storage::codec::PlayerRecord;
 use crate::tick::{Context, Shared, entity, extra, save, spawn};
 use crate::world;
 
@@ -310,7 +312,6 @@ fn a_stack_over_the_limits_is_refused_and_changes_nothing() {
 /// within its record.
 #[test]
 fn a_player_holding_the_largest_stack_everywhere_commits_and_reads_back() {
-    use crate::storage::codec::PlayerRecord;
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let largest = padded(it::MAX_NBT_BYTES).unwrap();
@@ -535,7 +536,6 @@ fn block_inventory_viewers_are_the_players_with_its_window_open() {
 // api: Player::setCreativeInventory, Player::getCreativeInventory, CreativeInventory::getAll
 #[test]
 fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it() {
-    use crate::custom::{Category, CreativeInventory, ItemRef};
     let stick = item(it::Kind::Stick);
     let builder = crate::Server::builder().alternative_creative_inventory(
         "kits",

@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use super::*;
 use crate::display::{
-    BossBar, Colour, Error as DisplayError, MAX_LABEL_BYTES, MAX_LINES, MAX_SIDEBAR_LINES,
+    BossBar, Color, Error as DisplayError, MAX_LABEL_BYTES, MAX_LINES, MAX_SIDEBAR_LINES,
     Scoreboard, Slot, Sort,
 };
 use crate::event::Listeners;
@@ -677,7 +677,7 @@ fn a_boss_bar_is_shown_on_the_players_own_entity_and_updated_by_what_changed() {
     let (show, hide) = (u8::from(BossEventType::Show), u8::from(BossEventType::Hide));
     let title = u8::from(BossEventType::Title);
     let health = u8::from(BossEventType::HealthPercentage);
-    let (purple, red) = (u8::from(Colour::Purple), u8::from(Colour::Red));
+    let (purple, red) = (u8::from(Color::Purple), u8::from(Color::Red));
     let mut cx = Context { state: &mut state };
     cx.set_boss_bar(id(1), BossBar::new("a").with_progress(0.5))
         .unwrap();
@@ -687,7 +687,7 @@ fn a_boss_bar_is_shown_on_the_players_own_entity_and_updated_by_what_changed() {
         .unwrap();
     cx.set_boss_bar(id(1), BossBar::new("b").with_progress(2.0))
         .unwrap();
-    cx.set_boss_bar(id(1), BossBar::new("b").with_colour(Colour::Red))
+    cx.set_boss_bar(id(1), BossBar::new("b").with_color(Color::Red))
         .unwrap();
     assert!(cx.remove_boss_bar(id(1)));
     assert!(!cx.remove_boss_bar(id(1)), "no boss bar is shown any more");

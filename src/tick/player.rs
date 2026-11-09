@@ -1115,6 +1115,7 @@ pub(super) mod tests {
         Client, Identity, Input, InputKind, LeaveReason, Measure, Outbound, SessionId,
     };
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
+    use crate::world::{NoteInstrument, Sound};
 
     /// The number of players in the skin broadcast test.
     const PLAYERS: u64 = 48;
@@ -1623,7 +1624,6 @@ pub(super) mod tests {
     /// nothing.
     #[test]
     fn a_full_volume_sound_reaches_one_player_with_the_global_flag() {
-        use crate::world::{NoteInstrument, Sound};
         let (mut state, [mut rx1, mut rx2]) = two();
         let at = Vec3::new(1.5, -59.0, 2.5);
         let note = Sound::Note {

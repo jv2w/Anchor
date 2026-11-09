@@ -682,6 +682,9 @@ fn start(e: crate::Error) -> Error {
 mod tests {
     use super::*;
 
+    use crate::storage::tests::{Call, Disk, Fault, closed, memory};
+    use crate::world::{ChunkPos, Flat, Generator, Kind, World};
+
     #[test]
     #[expect(
         clippy::disallowed_types,
@@ -703,8 +706,6 @@ mod tests {
     /// failure, never as a departure from the logged run.
     #[test]
     fn a_chunk_read_that_keeps_failing_is_a_storage_error() {
-        use crate::storage::tests::{Call, Disk, Fault, closed, memory};
-        use crate::world::{ChunkPos, Flat, Generator, Kind, World};
         let disk = Disk::default();
         drop(memory(&disk));
         disk.arm(Fault::Every { call: Call::Read });

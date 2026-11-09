@@ -36,13 +36,13 @@ const BURST_DAMAGE_BASE: f64 = 5.0;
 const BURST_DAMAGE_PER_EXPLOSION: f64 = 2.0;
 /// How far a burst reaches players and NPCs, in blocks.
 const BURST_REACH: f64 = 5.0;
-/// The number of dye colours (dye IDs 0 to 15): a colour list holds at most one entry per dye.
-const COLOURS: u8 = 16;
+/// The number of dye colors (dye IDs 0 to 15): a color list holds at most one entry per dye.
+const COLORS: u8 = 16;
 /// The flight multiplier of a firework item without one.
 pub(super) const DEFAULT_FLIGHT_MULTIPLIER: u8 = 1;
 /// The keys an explosion compound may hold: a key of another name is refused, so the compound
 /// every viewer is sent stays small.
-const EXPLOSION_KEYS: [&str; 5] = [TAG_COLOURS, TAG_FADE, TAG_TRAIL, TAG_TWINKLE, TAG_TYPE];
+const EXPLOSION_KEYS: [&str; 5] = [TAG_COLORS, TAG_FADE, TAG_TRAIL, TAG_TWINKLE, TAG_TYPE];
 /// Ticks a firework rocket speeds up.
 const FIREWORK_BOOST_TICKS: u32 = 60;
 /// The climb per tick of a firework rocket.
@@ -68,11 +68,11 @@ const MAX_FLIGHT_MULTIPLIER: u8 = 127;
 const MAX_SHAPE: u8 = 4;
 /// How much of its block a painting leaves free in front: it is 1/16 thick.
 const PAINTING_TRIM: f64 = 15.0 / 16.0;
-/// The item NBT key of an explosion's colours.
-const TAG_COLOURS: &str = "FireworkColor";
+/// The item NBT key of an explosion's colors.
+const TAG_COLORS: &str = "FireworkColor";
 /// The item NBT key of the explosions.
 pub(super) const TAG_EXPLOSIONS: &str = "Explosions";
-/// The item NBT key of an explosion's fade colours.
+/// The item NBT key of an explosion's fade colors.
 const TAG_FADE: &str = "FireworkFade";
 /// The item NBT key of the firework compound.
 pub(super) const TAG_FIREWORKS: &str = "Fireworks";
@@ -474,22 +474,22 @@ pub(super) fn checked_explosions(explosions: Vec<Compound>) -> Option<Vec<Compou
         .then_some(explosions)
 }
 
-/// Whether `c` is a firework explosion compound that keeps to Anchor's bounds: a known shape, at least one colour, only known
-/// colours (at most [`COLOURS`] of each list) and no key but [`EXPLOSION_KEYS`].
+/// Whether `c` is a firework explosion compound that keeps to Anchor's bounds: a known shape, at least one color, only known
+/// colors (at most [`COLORS`] of each list) and no key but [`EXPLOSION_KEYS`].
 fn is_explosion(c: &Compound) -> bool {
-    let colours = |k: &str, required: bool| match c.get(k) {
+    let colors = |k: &str, required: bool| match c.get(k) {
         Some(Value::ByteArray(b)) => {
-            b.len() <= usize::from(COLOURS)
+            b.len() <= usize::from(COLORS)
                 && (!required || !b.is_empty())
-                && b.iter().all(|&d| d < COLOURS)
+                && b.iter().all(|&d| d < COLORS)
         }
         Some(_) => false,
         None => !required,
     };
     let flag = |k: &str| matches!(c.get(k), None | Some(Value::Byte(_)));
     c.keys().all(|k| EXPLOSION_KEYS.contains(&k.as_str()))
-        && colours(TAG_COLOURS, true)
-        && colours(TAG_FADE, false)
+        && colors(TAG_COLORS, true)
+        && colors(TAG_FADE, false)
         && flag(TAG_TRAIL)
         && flag(TAG_TWINKLE)
         && matches!(c.get(TAG_TYPE), Some(Value::Byte(t)) if *t <= MAX_SHAPE)

@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use tracing::error;
 
-use super::{SessionId, State, dispatch, entity, inventory};
+use super::{SessionId, State, checkpoint, dispatch, entity, inventory};
 use crate::entity::Id;
 use crate::event::TradeOpen;
 use crate::item::{Stack, Type};
@@ -185,7 +185,7 @@ struct Session {
     window: u8,
 }
 
-super::checkpoint::fields!(Session { villager, window });
+checkpoint::fields!(Session { villager, window });
 
 /// One trade as the inventory executor sees it: what the player pays (`buy_b` may be empty)
 /// and what it gets, per trade.

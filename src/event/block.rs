@@ -165,7 +165,7 @@ getters!(SignChange {
     #[doc(alias = "SignChangeEvent::getOldText")]
     old_text: &[String; 4],
     /// The four lines of the side after. The player's lines come without private-use characters
-    /// and terminal escapes (colour codes stay); a listener's go on as it set them.
+    /// and terminal escapes (color codes stay); a listener's go on as it set them.
     #[doc(alias = "SignChangeEvent::getNewText")]
     new_text: &[String; 4],
     /// The side written on.

@@ -26,7 +26,7 @@ use super::queue::{Message, SessionId};
 use super::rules::{ChunkRules, Rules};
 use super::save::{Saving, Unsaved, is_kept_unloaded, unsaved_snapshot};
 use super::world_api::Worlds;
-use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
+use super::{Context, Phase, Player, Settings, State, checkpoint, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
 use crate::math::Vec3;
@@ -937,10 +937,10 @@ impl Ticket {
     }
 }
 
-super::checkpoint::fields!(Ticket {
+checkpoint::fields!(Ticket {
     world,
     center,
-    radius
+    radius,
 });
 
 /// Which chunk events someone listens to or monitors.
@@ -1172,10 +1172,10 @@ impl Context<'_> {
     }
 }
 
-super::checkpoint::fields!(SubChunkRequest {
+checkpoint::fields!(SubChunkRequest {
     dimension,
     position,
-    offsets
+    offsets,
 });
 
 /// Holds the spawn chunks of every world (3 × 3 around the spawn), so they stay loaded without
@@ -2494,9 +2494,11 @@ mod tests {
     use std::cell::Cell;
 
     use crate::event::{Event, Listeners, Priority};
+    use crate::nbt::{Compound, Value};
     use crate::player::Message;
     use crate::protocol::packet::Packet;
     use crate::tick::Output;
+    use crate::tick::checkpoint::{Codec, Reader, Writer};
     use crate::tick::queue::Outbound;
     use crate::tick::tests::{
         join, leave, new_state, radius, received, settings, teleported, tick,
@@ -3337,7 +3339,6 @@ mod tests {
     /// a closed one), or more queued offsets than a view holds, is not a checkpoint.
     #[test]
     fn a_view_from_a_checkpoint_has_the_same_unsent_chunks_and_a_damaged_one_is_refused() {
-        use crate::tick::checkpoint::{Codec, Reader, Writer};
         let read = |view: &View| {
             let mut w = Writer::default();
             view.encode(&mut w);
@@ -3632,7 +3633,6 @@ mod tests {
     /// Joins `sessions` with radius 2 and sends their views; the spawn chunk holds block entities
     /// in the ground and in the air, unordered by x, y and z.
     fn sent_views(sessions: &[u64]) -> (State, Output, Vec<tokio::sync::mpsc::Receiver<Outbound>>) {
-        use crate::nbt::{Compound, Value};
         let mut state = state(Listeners::default());
         let bell = |x: i32, y: i32, z: i32| {
             Compound::from([

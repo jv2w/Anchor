@@ -27,7 +27,7 @@ const MAX_GAME_VERSION_BYTES: usize = 32;
 const MAX_HOST_BYTES: usize = 253;
 /// Longest language code read (BCP 47 tags in practice are under 20 characters).
 const MAX_LANGUAGE_CODE_BYTES: usize = 64;
-/// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
+/// Most persona pieces and tint colors read. A persona skin has about 20 pieces.
 pub(super) const MAX_PIECES: usize = 128;
 /// Longest `ServerAddress`, in bytes. The player keeps it: a DNS host name ([`MAX_HOST_BYTES`]),
 /// a scheme, two ports and a short path.
@@ -123,7 +123,7 @@ pub(crate) struct ClientData {
     skin_image_width: i64,
     skin_resource_patch: String,
     #[serde(rename = "SkinColor")]
-    skin_colour: String,
+    skin_color: String,
     arm_size: String,
     #[serde(deserialize_with = "bounded_vec::<_, _, MAX_PIECES>")]
     persona_pieces: Vec<PersonaPiece>,
@@ -131,7 +131,7 @@ pub(crate) struct ClientData {
         rename = "PieceTintColors",
         deserialize_with = "bounded_vec::<_, _, MAX_PIECES>"
     )]
-    piece_tint_colours: Vec<PersonaPieceTintColour>,
+    piece_tint_colors: Vec<PersonaPieceTintColor>,
     third_party_name: String,
     third_party_name_only: Option<bool>,
     #[serde(rename = "UIProfile")]
@@ -223,7 +223,7 @@ impl ClientData {
             primary_user: true,
             cape_id: self.cape_id.clone(),
             full_id: format!("{}{}", self.skin_id, self.cape_id),
-            skin_colour: colour(&self.skin_colour),
+            skin_colour: color(&self.skin_color),
             arm_size: arm_size(&self.arm_size).into(),
             persona_pieces: self
                 .persona_pieces
@@ -237,11 +237,11 @@ impl ClientData {
                 })
                 .collect(),
             piece_tint_colours: self
-                .piece_tint_colours
+                .piece_tint_colors
                 .iter()
                 .map(|t| protocol::PersonaPieceTintColour {
                     piece_type: tint_piece_type(&t.piece_type),
-                    colours: t.colours.each_ref().map(|c| colour(c)),
+                    colours: t.colors.each_ref().map(|c| color(c)),
                 })
                 .collect(),
             trusted: self.trusted_skin,
@@ -375,12 +375,12 @@ struct PersonaPiece {
     product_id: String,
 }
 
-/// Tint colours of a persona piece (ARGB hex).
+/// Tint colors of a persona piece (ARGB hex).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
-struct PersonaPieceTintColour {
+struct PersonaPieceTintColor {
     #[serde(rename = "Colors")]
-    colours: [String; 4],
+    colors: [String; 4],
     piece_type: String,
 }
 
@@ -433,9 +433,9 @@ fn arm_size(name: &str) -> ArmSize {
     }
 }
 
-/// Reads a colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is
+/// Reads a color of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin color is
 /// sent (gophertunnel: "#b37b62"); anything else is transparent black.
-fn colour(text: &str) -> Rgba {
+fn color(text: &str) -> Rgba {
     let clear = Rgba {
         r: 0,
         g: 0,

@@ -11,7 +11,7 @@
 use super::{BlockEntity, Kind, block_at, chests_pair, create, decor, mark_spawn};
 use crate::block::{self, Face, TypeTag};
 use crate::block_entity::{
-    self, BannerLayer, BannerType, DyeColour, Error, MAX_NAME_BYTES, MAX_PATTERNS, Mut, Result,
+    self, BannerLayer, BannerType, DyeColor, Error, MAX_NAME_BYTES, MAX_PATTERNS, Mut, Result,
     Side, SignText,
 };
 use crate::item::Stack;
@@ -83,12 +83,12 @@ impl Context<'_> {
 }
 
 impl<'a> block_entity::BlockEntity<'a> {
-    /// A banner's base colour.
+    /// A banner's base color.
     #[doc(alias = "BaseBanner::getColor")]
     #[doc(alias = "block\\tile\\Banner::getBaseColor")]
-    pub fn banner_colour(&self) -> Option<DyeColour> {
+    pub fn banner_color(&self) -> Option<DyeColor> {
         match self.kind()? {
-            Kind::Banner(b) => DyeColour::from_banner_id(b.base),
+            Kind::Banner(b) => DyeColor::from_banner_id(b.base),
             _ => None,
         }
     }
@@ -99,10 +99,10 @@ impl<'a> block_entity::BlockEntity<'a> {
     #[doc(alias = "block\\tile\\Banner::getPatterns")]
     pub fn banner_patterns(&self) -> Option<impl Iterator<Item = BannerLayer> + 'a> {
         match self.kind()? {
-            Kind::Banner(b) => Some(b.patterns.iter().filter_map(|(id, colour)| {
+            Kind::Banner(b) => Some(b.patterns.iter().filter_map(|(id, color)| {
                 Some(BannerLayer::new(
                     block::BannerPattern::from_id(id)?,
-                    DyeColour::from_banner_id(*colour)?,
+                    DyeColor::from_banner_id(*color)?,
                 ))
             })),
             _ => None,
@@ -119,12 +119,12 @@ impl<'a> block_entity::BlockEntity<'a> {
         }
     }
 
-    /// A bed half's colour (each half of a bed has its own block entity).
+    /// A bed half's color (each half of a bed has its own block entity).
     #[doc(alias = "block\\Bed::getColor")]
     #[doc(alias = "block\\tile\\Bed::getColor")]
-    pub fn bed_colour(&self) -> Option<DyeColour> {
+    pub fn bed_color(&self) -> Option<DyeColor> {
         match self.kind()? {
-            Kind::Bed { colour } => DyeColour::from_id(*colour),
+            Kind::Bed { color } => DyeColor::from_id(*color),
             _ => None,
         }
     }
@@ -281,17 +281,17 @@ impl Mut<'_> {
         Ok(())
     }
 
-    /// Sets a banner's base colour.
+    /// Sets a banner's base color.
     ///
     /// # Errors
     ///
     /// [`Error::WrongKind`] for a block entity that is not a banner.
     #[doc(alias = "BaseBanner::setColor")]
     #[doc(alias = "block\\tile\\Banner::setBaseColor")]
-    pub fn set_banner_colour(&mut self, colour: DyeColour) -> Result<()> {
+    pub fn set_banner_color(&mut self, color: DyeColor) -> Result<()> {
         self.edit(|e| match &mut e.kind {
             Kind::Banner(b) => {
-                b.base = colour.banner_id();
+                b.base = color.banner_id();
                 Some(Ok(()))
             }
             _ => None,
@@ -315,7 +315,7 @@ impl Mut<'_> {
             Kind::Banner(b) => {
                 b.patterns = patterns
                     .iter()
-                    .map(|p| (p.pattern().id().to_owned(), p.colour().banner_id()))
+                    .map(|p| (p.pattern().id().to_owned(), p.color().banner_id()))
                     .collect();
                 Some(Ok(()))
             }
@@ -339,18 +339,18 @@ impl Mut<'_> {
         })
     }
 
-    /// Colours a bed half (each half of a bed has its own block entity; a broken half drops a
-    /// bed of its colour).
+    /// Colors a bed half (each half of a bed has its own block entity; a broken half drops a
+    /// bed of its color).
     ///
     /// # Errors
     ///
     /// [`Error::WrongKind`] for a block entity that is not a bed half.
     #[doc(alias = "block\\Bed::setColor")]
     #[doc(alias = "block\\tile\\Bed::setColor")]
-    pub fn set_bed_colour(&mut self, colour: DyeColour) -> Result<()> {
+    pub fn set_bed_color(&mut self, color: DyeColor) -> Result<()> {
         self.edit(|e| match &mut e.kind {
-            Kind::Bed { colour: c } => {
-                *c = colour as u8;
+            Kind::Bed { color: c } => {
+                *c = color as u8;
                 Some(Ok(()))
             }
             _ => None,
@@ -689,8 +689,8 @@ mod tests {
     }
 
     fn text(lines: [&str; 4], argb: u32) -> SignText {
-        let colour = block_entity::from_argb(argb.cast_signed());
-        SignText::new(lines.map(str::to_owned), colour).unwrap()
+        let color = block_entity::from_argb(argb.cast_signed());
+        SignText::new(lines.map(str::to_owned), color).unwrap()
     }
 
     // api: World::setBlock
@@ -749,8 +749,8 @@ mod tests {
         let bed = crate::tick::block_entity::own_item(&h.state, 0, bed_at).expect("a bed's item");
         assert_eq!(
             bed.meta(),
-            u16::from(crate::tick::block_entity::decor::DEFAULT_BED_COLOUR),
-            "an empty bed's colour"
+            u16::from(crate::tick::block_entity::decor::DEFAULT_BED_COLOR),
+            "an empty bed's color"
         );
         assert!(h.state.rules.block_entities.get(0, bed_at).is_none());
         let mut cx = h.cx();
@@ -807,10 +807,10 @@ mod tests {
         t.set_sign_text(Side::Back, text(["", "Back", "", ""], 0xff00_0000))
             .unwrap();
         t.set_sign_waxed(true).unwrap();
-        assert_eq!(t.set_bed_colour(DyeColour::Red), Err(Error::WrongKind));
+        assert_eq!(t.set_bed_color(DyeColor::Red), Err(Error::WrongKind));
         let view = t.view();
         assert_eq!(
-            view.sign_text(Side::Front).map(SignText::colour),
+            view.sign_text(Side::Front).map(SignText::color),
             Some(Rgba {
                 r: 0,
                 g: 0xff,
@@ -979,30 +979,30 @@ mod tests {
         let mut cx = h.cx();
         let mut t = cx.block_entity_mut(WORLD, bed).unwrap();
         assert_eq!(
-            t.view().bed_colour(),
-            Some(DyeColour::White),
+            t.view().bed_color(),
+            Some(DyeColor::White),
             "the item's meta 0"
         );
-        t.set_bed_colour(DyeColour::Blue).unwrap();
-        assert_eq!(t.view().bed_colour(), Some(DyeColour::Blue));
-        assert_eq!(t.view().banner_colour(), None, "a bed is no banner");
+        t.set_bed_color(DyeColor::Blue).unwrap();
+        assert_eq!(t.view().bed_color(), Some(DyeColor::Blue));
+        assert_eq!(t.view().banner_color(), None, "a bed is no banner");
         assert_eq!(h.actor_data(bed)[0].get("color"), Some(&Value::Byte(11)));
 
         let mut cx = h.cx();
         let mut t = cx.block_entity_mut(WORLD, banner).unwrap();
-        assert_eq!(t.view().banner_colour(), Some(DyeColour::Black));
+        assert_eq!(t.view().banner_color(), Some(DyeColor::Black));
         assert_eq!(t.view().banner_type(), Some(BannerType::Normal));
         let layers = [
-            BannerLayer::new(block::BannerPattern::Border, DyeColour::White),
-            BannerLayer::new(block::BannerPattern::Creeper, DyeColour::Green),
+            BannerLayer::new(block::BannerPattern::Border, DyeColor::White),
+            BannerLayer::new(block::BannerPattern::Creeper, DyeColor::Green),
         ];
-        t.set_banner_colour(DyeColour::Yellow).unwrap();
+        t.set_banner_color(DyeColor::Yellow).unwrap();
         t.set_banner_patterns(&layers).unwrap();
         t.set_banner_type(BannerType::Ominous).unwrap();
         assert_eq!(t.set_banner_patterns(&[layers[0]; 17]), Err(Error::TooLong));
-        assert_eq!(t.set_bed_colour(DyeColour::Red), Err(Error::WrongKind));
+        assert_eq!(t.set_bed_color(DyeColor::Red), Err(Error::WrongKind));
         let view = t.view();
-        assert_eq!(view.banner_colour(), Some(DyeColour::Yellow));
+        assert_eq!(view.banner_color(), Some(DyeColor::Yellow));
         assert_eq!(
             view.banner_patterns().unwrap().collect::<Vec<_>>(),
             layers.to_vec()
@@ -1029,8 +1029,8 @@ mod tests {
         h.reload(&[bed, banner, head]);
         let cx = h.cx();
         assert_eq!(
-            cx.block_entity(WORLD, bed).unwrap().bed_colour(),
-            Some(DyeColour::Blue)
+            cx.block_entity(WORLD, bed).unwrap().bed_color(),
+            Some(DyeColor::Blue)
         );
         assert_eq!(
             cx.block_entity(WORLD, banner)

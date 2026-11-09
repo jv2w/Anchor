@@ -29,15 +29,16 @@ pub(crate) struct Biome {
     pub(crate) foliage_snow: f64,
     pub(crate) depth: f64,
     pub(crate) scale: f64,
-    pub(crate) map_water_colour: Colour,
+    #[serde(rename = "map_water_colour")]
+    pub(crate) map_water_color: Color,
     pub(crate) rain: bool,
     pub(crate) tags: Vec<String>,
 }
 
-/// An ARGB colour by component.
+/// An ARGB color by component.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Colour {
+pub(crate) struct Color {
     pub(crate) a: u8,
     pub(crate) r: u8,
     pub(crate) g: u8,
@@ -101,7 +102,7 @@ pub(super) fn generate(root: &Path) -> Result<String, String> {
     );
     for b in &biomes {
         let float = |v: f64| single(v).map_err(|e| format!("{}: {e}", b.name));
-        let c = &b.map_water_colour;
+        let c = &b.map_water_color;
         let argb = u32::from_be_bytes([c.a, c.r, c.g, c.b]);
         let mut tags = Vec::with_capacity(b.tags.len());
         for t in &b.tags {
@@ -110,7 +111,7 @@ pub(super) fn generate(root: &Path) -> Result<String, String> {
         put!(
             out,
             "Definition {{ name: {}, temperature: {:?}, downfall: {:?}, foliage_snow: {:?}, \
-             depth: {:?}, scale: {:?}, map_water_colour: {}, rain: {}, tags: &[{}] }},",
+             depth: {:?}, scale: {:?}, map_water_color: {}, rain: {}, tags: &[{}] }},",
             int_lit(&at(&b.name)?.to_string()),
             float(b.temperature)?,
             float(b.downfall)?,

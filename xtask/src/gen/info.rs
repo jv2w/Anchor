@@ -195,7 +195,8 @@ pub(super) struct EffectType {
     pub(super) name: String,
     pub(super) id: u8,
     pub(super) text: String,
-    pub(super) colour: Colour,
+    #[serde(rename = "colour")]
+    pub(super) color: Color,
     pub(super) bad: bool,
     pub(super) instant: bool,
     pub(super) default_duration: u32,
@@ -204,7 +205,7 @@ pub(super) struct EffectType {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Colour {
+pub(super) struct Color {
     pub(super) r: u8,
     pub(super) g: u8,
     pub(super) b: u8,

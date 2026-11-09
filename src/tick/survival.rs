@@ -1201,11 +1201,15 @@ mod tests {
     use crate::event::Listeners;
     use crate::item::{Enchantment, Extra, Kind as ItemKind, Stack};
     use crate::protocol::consts::{
-        ActorEvent, AnimateAction, InputFlag, LevelEvent, MobEffectOperation, MoveMode,
-        PlayerAction as Action, RespawnState,
+        ActorEvent, AnimateAction, EntityDataKey, InputFlag, LevelEvent, MobEffectOperation,
+        MoveMode, PlayerAction as Action, RespawnState,
     };
     use crate::protocol::packet::{self as p, Packet};
-    use crate::protocol::{FlagSet, InputFlags, MetadataValue};
+    use crate::protocol::{
+        FlagSet, InputFlags, MetadataValue, PersonaPiece, PersonaPieceTintColour, Rgba,
+        SkinAnimation,
+    };
+    use crate::save::{self, Request, Response, WorldSpec};
     use crate::tick::interact::drops;
     use crate::tick::queue::{Input, Outbound};
     use crate::tick::tests::{
@@ -2671,8 +2675,6 @@ mod tests {
     /// small hit box and a low name tag.
     #[test]
     fn viewers_see_a_respawned_player_at_full_size() {
-        use crate::protocol::MetadataValue;
-        use crate::protocol::consts::EntityDataKey;
         let mut server = duel(|_| {});
         let runtime_id = server.player(2).runtime_id;
         let sizes = |packets: &[Packet]| -> Vec<(f32, f32)> {
@@ -3066,7 +3068,6 @@ mod tests {
         reason = "off-tick: the test stands in for the tick handing a snapshot to the save thread"
     )]
     fn world_time_and_spawn_survive_a_save_and_restart_to_the_tick() {
-        use crate::save::{self, Request, Response, WorldSpec};
         let specs = || {
             vec![WorldSpec {
                 name: "world".to_owned(),
@@ -3495,8 +3496,7 @@ mod tests {
 
     /// A skin with something in every field.
     fn custom_skin() -> crate::protocol::Skin {
-        use crate::protocol::{PersonaPiece, PersonaPieceTintColour, Rgba, SkinAnimation};
-        let colour = |v: u8| Rgba {
+        let color = |v: u8| Rgba {
             r: v,
             g: v + 1,
             b: v + 2,
@@ -3531,7 +3531,7 @@ mod tests {
             primary_user: true,
             cape_id: "cape".to_owned(),
             full_id: "c18e65aa-7b21-4637-9b63-8ad63622ef01_Customcape".to_owned(),
-            skin_colour: colour(10),
+            skin_colour: color(10),
             arm_size: 0,
             persona_pieces: vec![PersonaPiece {
                 piece_id: "piece".to_owned(),
@@ -3542,7 +3542,7 @@ mod tests {
             }],
             piece_tint_colours: vec![PersonaPieceTintColour {
                 piece_type: "persona_eyes".to_owned(),
-                colours: [colour(1), colour(2), colour(3), colour(4)],
+                colours: [color(1), color(2), color(3), color(4)],
             }],
             trusted: true,
             override_appearance: true,

@@ -44,7 +44,7 @@ use crate::fs::{create_dir, read_text, remove_dir, write};
 use crate::say;
 
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
-/// their steps: what each checks is its item (potion colours and cloud, another player, chat
+/// their steps: what each checks is its item (potion colors and cloud, another player, chat
 /// limits, trade tier up, item use, the input tick of a sneak's answer), and the other packets
 /// differ for reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death
 /// message, its projectiles fly otherwise, it sends a sneak's two flag words in one packet).

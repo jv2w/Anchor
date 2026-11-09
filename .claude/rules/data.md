@@ -48,13 +48,13 @@ paths:
 - Correct the ominous banner to the official server's value, in the one place every dumped item passes (`corrected_meta` in `xtask/src/gen/data.rs`).
 - Where an item name has exactly one dump block item and `item_blocks.json` gives it one vanilla creative state, send the block item with that vanilla state. The item still places the dump state.
 - Count creative item network IDs from 1, as the official server does.
-- Correct the effect colours that differ from the official server's in the one table `OFFICIAL_COLOURS` (`xtask/src/gen/effects.rs`).
+- Correct the effect colors that differ from the official server's in the one table `OFFICIAL_COLORS` (`xtask/src/gen/effects.rs`).
 
 ## Reference list
 - Keep `xtask/go/reference` failing on any difference between reference list sources A and B in block states (name, property names, types and values, version) and items (name, runtime ID, version, component flag).
 - Use the reference list's block network IDs. Use the hash function only for custom blocks.
 - Use only the biome definitions without chunk generation data.
-- Dump states that map to one Bedrock state may differ only in data the state does not hold (a bed's or banner's colour, which the block entity holds; a cauldron's fill, which Anchor does not keep), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
+- Dump states that map to one Bedrock state may differ only in data the state does not hold (a bed's or banner's color, which the block entity holds; a cauldron's fill, which Anchor does not keep), and only for the Bedrock states in `SHARED` (`xtask/src/gen/data.rs`).
 - Use the official server's light dampening only for states the dump has no type for.
 - Never use the official server's `isSolid`. Solidity comes from collision boxes.
 - Never send the data-driven block definitions the official server puts in StartGame.

@@ -108,7 +108,9 @@ use super::interact::level_event;
 use super::survival::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::view::{Key, View, chunk_of};
 use super::world_api::Worlds;
-use super::{Phase, Player, SessionId, State, block_entity, dispatch, inventory, survival};
+use super::{
+    Phase, Player, SessionId, State, block_entity, checkpoint, dispatch, inventory, survival,
+};
 use crate::block::{self, Class};
 use crate::config::GameMode;
 use crate::entity::Id;
@@ -250,7 +252,7 @@ struct Sent {
     health: f64,
 }
 
-super::checkpoint::fields!(Sent {
+checkpoint::fields!(Sent {
     position,
     motion,
     yaw,
@@ -802,7 +804,7 @@ impl Entity {
     }
 }
 
-super::checkpoint::fields!(Entity {
+checkpoint::fields!(Entity {
     runtime_id,
     world,
     chunk,
@@ -836,7 +838,7 @@ struct Slot {
     entity: Option<Entity>,
 }
 
-super::checkpoint::fields!(Slot { generation, entity });
+checkpoint::fields!(Slot { generation, entity });
 
 /// The entities of one chunk and the players that see it.
 #[derive(Debug, Default)]
@@ -851,10 +853,10 @@ struct Column {
     arrived: BTreeSet<Id>,
 }
 
-super::checkpoint::fields!(Column {
+checkpoint::fields!(Column {
     ids,
     viewers,
-    arrived
+    arrived,
 });
 
 /// An entity that left with its chunk, still to be removed from its viewers.
@@ -864,9 +866,9 @@ struct Departed {
     viewers: BTreeSet<SessionId>,
 }
 
-super::checkpoint::fields!(Departed {
+checkpoint::fields!(Departed {
     runtime_id,
-    viewers
+    viewers,
 });
 
 /// What other players were last sent of a player.
@@ -918,7 +920,7 @@ impl Watched {
     }
 }
 
-super::checkpoint::fields!(Watched {
+checkpoint::fields!(Watched {
     runtime_id,
     viewers,
     position,
@@ -4618,8 +4620,8 @@ mod tests {
     use super::physics::tests::named;
     use super::saved::tests::stack;
     use crate::event::Listeners;
-    use crate::protocol::Rng;
-    use crate::protocol::consts::MoveFlag;
+    use crate::protocol::consts::{EntityDataFlag, EntityDataKey, MoveFlag};
+    use crate::protocol::{FlagSet, MetadataValue, Rng};
     use crate::save::Response;
     use crate::tick::queue::{Input, Message, Outbound};
     use crate::tick::tests::{
@@ -5756,10 +5758,7 @@ mod tests {
             .iter()
             .map(|e| e.thrower().map(str::to_owned))
             .collect();
-        assert!(
-            dropped.contains(&Some(String::new())),
-            "nobody threw a dropped item"
-        );
+        assert!(dropped.contains(&None), "nobody threw a dropped item");
     }
 
     /// What a full inventory cannot take back as a window closes, or as the player dies, the
@@ -6675,8 +6674,6 @@ mod tests {
     /// move it on its own (pushing a human NPC a player walks into) where the server never does.
     #[test]
     fn an_entity_made_at_rest_is_shown_still_from_the_start() {
-        use crate::protocol::consts::{EntityDataFlag, EntityDataKey};
-        use crate::protocol::{FlagSet, MetadataValue};
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         let npc = Npc::Human {

@@ -161,11 +161,11 @@ func packetBiomes(fields any) (map[string]biome, error) {
 				return nil, fmt.Errorf("%v %v: %w", name, key, err)
 			}
 		}
-		colour, err := integer(d["MapWaterColour"])
+		color, err := integer(d["MapWaterColour"])
 		if err != nil {
 			return nil, err
 		}
-		c := uint32(colour)
+		c := uint32(color)
 		b.WaterA, b.WaterR, b.WaterG, b.WaterB = int64(c>>24), int64(c>>16&0xff), int64(c>>8&0xff), int64(c&0xff)
 		b.Rain, _ = d["Rain"].(bool)
 		if tags, ok := d["Tags"].([]any); ok {
@@ -218,9 +218,9 @@ func worlddataBiomes(path string) (map[string]biome, error) {
 				return nil, fmt.Errorf("%v %v: %w", name, key, err)
 			}
 		}
-		colour, _ := d["mapWaterColor"].(map[string]any)
+		color, _ := d["mapWaterColor"].(map[string]any)
 		for key, dst := range map[string]*int64{"a": &b.WaterA, "r": &b.WaterR, "g": &b.WaterG, "b": &b.WaterB} {
-			if *dst, err = integer(colour[key]); err != nil {
+			if *dst, err = integer(color[key]); err != nil {
 				return nil, fmt.Errorf("%v mapWaterColor: %w", name, err)
 			}
 		}

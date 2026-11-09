@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::fs::{create_dir, is_dir, read, read_if_exists, write};
-use crate::r#gen::biomes::{self, Biome, Colour};
+use crate::r#gen::biomes::{self, Biome, Color};
 use crate::r#gen::upgrade::SCHEMA_1_26_60;
 use crate::{Mode, git};
 
@@ -125,7 +125,7 @@ struct OfficialBiome {
     foliage_snow: f64,
     depth: f64,
     scale: f64,
-    map_water_color: Colour,
+    map_water_color: Color,
     rain: bool,
     tags: Vec<String>,
     chunk_gen_data: Option<Json>,
@@ -279,7 +279,7 @@ fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
             foliage_snow: b.foliage_snow,
             depth: b.depth,
             scale: b.scale,
-            map_water_colour: b.map_water_color,
+            map_water_color: b.map_water_color,
             rain: b.rain,
             tags: b.tags,
         };

@@ -5,6 +5,7 @@ use super::paletted::Paletted;
 use crate::block::{self, State};
 use crate::math::Aabb;
 use crate::protocol::Writer;
+use crate::tick::checkpoint;
 
 /// The network sub-chunk version Anchor writes (version 9: with the y index).
 const NETWORK_VERSION: u8 = 9;
@@ -57,7 +58,7 @@ impl Entry {
     }
 }
 
-crate::tick::checkpoint::variants!(Entry {
+checkpoint::variants!(Entry {
     0 => Known(state),
     1 => Unknown(index),
 });
@@ -145,4 +146,4 @@ impl SubChunk {
     }
 }
 
-crate::tick::checkpoint::fields!(SubChunk { layers });
+checkpoint::fields!(SubChunk { layers });

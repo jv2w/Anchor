@@ -2600,7 +2600,8 @@ pub(crate) mod tests {
     use crate::block;
     use crate::config::Difficulty;
     use crate::protocol::{Rng, Writer};
-    use crate::storage::codec::tests::{encode, random_compound};
+    use crate::storage::codec::tests::{encode, pack, random_compound};
+    use crate::storage::tests::{Call, Disk, Fault, closed, memory};
     use crate::world::{Flat, Weather};
 
     /// A per-test folder under the system temp folder, removed on drop.
@@ -3567,7 +3568,6 @@ pub(crate) mod tests {
     /// A save thread's side with the world of [`plans`] on `storage` and the server's files on
     /// disks of their own.
     pub(crate) fn thread_on(storage: Storage) -> Thread {
-        use crate::storage::tests::{Disk, memory};
         let file = || open_at(memory(&Disk::default()));
         Thread {
             files: Files {
@@ -3594,7 +3594,6 @@ pub(crate) mod tests {
         custom: Arc<Registry>,
         entity_types: Arc<EntityTypes>,
     ) -> Vec<Response> {
-        use crate::storage::tests::{Disk, closed, memory};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         commit(&mut thread_on(memory(&disk)), &pool, snapshot).unwrap();
@@ -3671,7 +3670,6 @@ pub(crate) mod tests {
     /// whole column is far over what one value may hold; it commits and reads back.
     #[test]
     fn a_chunk_of_the_largest_states_in_every_sub_chunk_commits() {
-        use crate::storage::codec::tests::pack;
         let dir = TempDir::new("largest-states");
         let pos = ChunkPos::new(-2, 3);
         let mut vanilla: Vec<Compound> = State::all().map(state_nbt).collect();
@@ -3758,7 +3756,6 @@ pub(crate) mod tests {
     /// it: the lamp's light is there as soon as the tick puts the chunk in its world.
     #[test]
     fn a_loaded_chunk_with_custom_blocks_arrives_resolved_and_lit() {
-        use crate::storage::tests::{Disk, closed, memory};
         let registry = Arc::new(crate::custom::tests::registry());
         let lamp = registry
             .block_state(&crate::custom::tests::LAMP)
@@ -3807,7 +3804,6 @@ pub(crate) mod tests {
     /// empty sub-chunks); from then on a commit writes only the sub-chunks that changed.
     #[test]
     fn a_new_chunk_is_written_whole_once_and_then_only_changes_are_written() {
-        use crate::storage::tests::{Disk, closed};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let pos = ChunkPos::new(0, 1);
@@ -3875,7 +3871,6 @@ pub(crate) mod tests {
     /// value of its lowest sub-chunk, so it is loaded and not generated again.
     #[test]
     fn empty_sub_chunks_have_no_value_and_an_empty_chunk_keeps_its_lowest() {
-        use crate::storage::tests::{Disk, closed};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let pos = ChunkPos::new(0, 1);
@@ -3939,7 +3934,6 @@ pub(crate) mod tests {
     #[test]
     fn terrain_values_that_do_not_make_one_chunk_load_as_damaged() {
         type Fill<'a> = &'a dyn Fn(&mut Batch);
-        use crate::storage::tests::{Disk, closed, memory};
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let pos = ChunkPos::new(0, 1);
         let id = chunk_id(0, pos);
@@ -4010,7 +4004,6 @@ pub(crate) mod tests {
 
     #[test]
     fn a_transient_batch_read_failure_loads_normally_and_quarantines_nothing() {
-        use crate::storage::tests::{Call, Disk, Fault, closed, memory};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let pos = ChunkPos::new(0, 1);
@@ -4046,7 +4039,6 @@ pub(crate) mod tests {
     /// A load answers turn by turn in key order, and stops once nobody takes its answers.
     #[test]
     fn a_load_answers_in_key_order_and_stops_when_nobody_takes_the_answers() {
-        use crate::storage::tests::{Disk, closed, memory};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(1).unwrap();
         drop(memory(&disk));
@@ -4080,7 +4072,6 @@ pub(crate) mod tests {
 
     #[test]
     fn a_batch_read_that_keeps_failing_fails_the_batch() {
-        use crate::storage::tests::{Call, Disk, Fault, closed, memory};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         drop(memory(&disk));
@@ -4244,7 +4235,6 @@ pub(crate) mod tests {
     /// saves write absolute values.
     #[test]
     fn a_snapshot_committed_twice_leaves_the_values_of_one_commit() {
-        use crate::storage::tests::{Disk, memory};
         let pos = ChunkPos::new(2, 2);
         let mut rng = Rng(0x5a7e_0002);
         let player = PlayerKey::offline("Steve");

@@ -13,7 +13,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, warn};
 
 use super::queue::{Control, MAX_CONTROLS_PER_TICK, Measure, SessionId};
-use super::{State, TICK};
+use super::{State, TICK, checkpoint};
 use crate::runtime::ThreadTotals;
 
 /// The ticks the averages cover: one second's.
@@ -158,7 +158,7 @@ impl Network {
     }
 }
 
-super::checkpoint::fields!(Network {
+checkpoint::fields!(Network {
     tick_times,
     latest,
     connections,

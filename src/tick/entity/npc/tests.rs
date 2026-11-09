@@ -6,6 +6,7 @@
 use std::cell::Cell;
 
 use super::*;
+use crate::event::{Actor, DamageCause, EntityDamage};
 use crate::item::Enchantment;
 use crate::nbt::Value;
 use crate::protocol::MetadataValue::Int32;
@@ -282,7 +283,6 @@ fn a_hit_on_an_npc_hurts_knocks_back_wears_the_weapon_and_kills_it() {
 /// nothing, such as a fall, raises nothing.
 #[test]
 fn a_hit_on_an_invulnerable_npc_raises_a_cancelled_damage_event() {
-    use crate::event::{Actor, DamageCause, EntityDamage};
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     let mut l = crate::event::Listeners::default();
     l.push(

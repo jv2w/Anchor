@@ -34,6 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::block::{self, Facing, State};
+use crate::tick::checkpoint;
 
 /// The Bedrock world border: the farthest a player, an entity or a command position may be from
 /// the world's middle on an axis, in blocks.
@@ -1334,7 +1335,7 @@ impl Kept {
     }
 }
 
-crate::tick::checkpoint::fields!(Kept { light, chunks });
+checkpoint::fields!(Kept { light, chunks });
 
 /// The plain fields a checkpoint keeps of a world: its seed, spawn, time and weather, the loaded and
 /// quarantined positions, and the changes waiting for the tick and the block updates.
@@ -1353,7 +1354,7 @@ pub(crate) struct Saved {
     feed: VecDeque<BlockPos>,
 }
 
-crate::tick::checkpoint::fields!(Saved {
+checkpoint::fields!(Saved {
     seed,
     spawn,
     time,

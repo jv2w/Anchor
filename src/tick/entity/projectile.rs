@@ -659,7 +659,7 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
             potion_hit(state, id, at, *potion, *linger, struck, hooks);
         }
         Shot::XpBottle => {
-            splash_effect(state, world, at, super::track::DEFAULT_POTION_COLOUR);
+            splash_effect(state, world, at, super::track::DEFAULT_POTION_COLOR);
             let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
             let mut r = Random::new(seed, state.tick, random::key(BOTTLE_RANDOM, &[runtime_id]));
             let amount = r.range(BOTTLE_XP.0, BOTTLE_XP.1);
@@ -960,7 +960,7 @@ fn potion_hit(
         return;
     };
     let effects = potion.effects();
-    splash_effect(state, world, at, super::track::effect_colour(effects));
+    splash_effect(state, world, at, super::track::effect_color(effects));
     if linger {
         let cloud = new_cloud(effects);
         let place = BlockPos::containing(at).to_center();
@@ -1007,9 +1007,9 @@ fn potion_hit(
     }
 }
 
-/// The splash particle in a colour and the glass sound.
-fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, colour: crate::protocol::Rgba) {
-    let splash = crate::world::Particle::PotionSplash(colour);
+/// The splash particle in a color and the glass sound.
+fn splash_effect(state: &mut State, world: WorldIndex, at: Vec3, color: crate::protocol::Rgba) {
+    let splash = crate::world::Particle::PotionSplash(color);
     crate::tick::emit::particle(state, world, at, splash);
     super::play(state, world, at, crate::world::Sound::PotionSplash);
 }

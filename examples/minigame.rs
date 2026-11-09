@@ -28,7 +28,7 @@ use std::error::Error;
 use std::fmt::Write;
 use std::num::NonZeroU32;
 
-use anchor::display::{BossBar, Colour};
+use anchor::display::{BossBar, Color};
 use anchor::event::{BlockBreak, PlayerJoin, Priority};
 use anchor::form::{Modal, Response};
 use anchor::math::Vec3;
@@ -107,7 +107,7 @@ impl Game {
             Phase::Round(left) => {
                 let bar = BossBar::new(format!("Round {}: {left}s left", self.round))
                     .with_progress(f32::from(left) / f32::from(ROUND_SECS))
-                    .with_colour(Colour::Red);
+                    .with_color(Color::Red);
                 for &id in &playing {
                     or_log(cx.set_boss_bar(id, bar.clone()));
                 }
@@ -138,7 +138,7 @@ impl Game {
         }
         let bar = BossBar::new(format!("Starting in {left}s"))
             .with_progress(f32::from(left) / f32::from(COUNTDOWN_SECS))
-            .with_colour(Colour::Green);
+            .with_color(Color::Green);
         for &id in lobby {
             or_log(cx.set_boss_bar(id, bar.clone()));
             if let Some(player) = cx.player_mut(id) {

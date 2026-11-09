@@ -2080,7 +2080,7 @@ pub(crate) mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use redb::StorageBackend;
+    use redb::{StorageBackend, TableHandle};
 
     use super::codec::tests::{empty_chunk, random_chunk, random_compound, terrain_chunk};
     use super::codec::{
@@ -3769,7 +3769,6 @@ pub(crate) mod tests {
         reason = "off-tick: a test reads a database"
     )]
     fn tables(db: &Database) -> Tables {
-        use redb::TableHandle;
         let txn = db.begin_read().unwrap();
         txn.list_tables()
             .unwrap()
